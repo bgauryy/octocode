@@ -8,6 +8,28 @@ tokio::task_local! {
     static CANONICAL: RefCell<HashMap<String, String>>;
 }
 
+tokio::task_local! {
+    /// The sources this request judged whole, and the texts it showed of
+    /// them (see [`judged_files`]).
+    static JUDGED: std::sync::Arc<crate::security::JudgedFiles>;
+}
+
+/// Run one request whose rows show their sources as `files` judges them.
+pub(in super::super) async fn with_judged_files<F: std::future::Future>(
+    files: std::sync::Arc<crate::security::JudgedFiles>,
+    request: F,
+) -> F::Output {
+    JUDGED.scope(files, request).await
+}
+
+/// The sources this request judged whole: inside [`with_judged_files`] the
+/// request's own, so a file many rows quote is judged once and the output
+/// gate honors what they show. Outside it (blocking workers, tests) a new
+/// one, whose texts the gate judges as any other leaf.
+pub(in super::super) fn judged_files() -> std::sync::Arc<crate::security::JudgedFiles> {
+    JUDGED.try_with(std::sync::Arc::clone).unwrap_or_default()
+}
+
 /// Run one request with its own canonical-path memo.
 pub(in super::super) async fn with_canonical_memo<F: std::future::Future>(request: F) -> F::Output {
     CANONICAL.scope(RefCell::default(), request).await

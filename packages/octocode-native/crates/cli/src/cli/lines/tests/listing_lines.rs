@@ -12,21 +12,20 @@ fn lists_counts_and_empty_results() {
     );
     let counts = json!({"results":[{"index":0,"data":{"matchCount":3,"files":[{"path":"a","matchCount":3}]}}]});
     let lines = render(ToolId::LocalSearch, &counts, &json!({}), None).expect("lines");
-    assert_eq!(lines.out, "a:3");
+    // `path:N` is a line: a count is a named field.
+    assert_eq!(lines.out, "a  [matchCount 3]");
     assert_eq!(lines.notes, "# matchCount: 3");
     let empty = json!({"results":[{"index":0,"status":"empty","data":{"matchCount":0,
             "hints":["No matches.","includeSkipped: localSearch {\"queries\":[{\"path\":\".\"}]}"]}}]});
     let lines = render(ToolId::LocalSearch, &empty, &json!({}), None).expect("lines");
-    assert_eq!(lines.out, "");
-    assert!(lines.notes.contains("# status: empty\n"), "{}", lines.notes);
-    assert!(
-        lines.notes.contains("# hints: No matches."),
-        "{}",
-        lines.notes
+    // Hints follow the status on stdout, as they do for every row shape.
+    assert_eq!(
+        lines.out,
+        "# status: empty\n# hints: No matches.\n# hints: includeSkipped: localSearch {\"queries\":[{\"path\":\".\"}]}"
     );
-    assert!(lines.notes.contains("includeSkipped: localSearch"));
+    assert_eq!(lines.notes, "# matchCount: 0");
     assert!(
-        !lines.notes.contains("octocode localSearch"),
+        !lines.out.contains("octocode localSearch"),
         "prose is never promoted to a command"
     );
 }
@@ -41,7 +40,7 @@ fn declarations_and_listings_print_one_line_each() {
     let lines = render(ToolId::AstSearch, &symbols, &json!({}), None).expect("lines");
     assert_eq!(
         lines.out,
-        "a.rs:31: function render  [31-113 docStartLine 29]\na.rs:34: impl Visit  [34-43]\na.rs:37:   method fresh  [exported]"
+        "a.rs\n31: function render  [31-113 docStartLine 29]\n34: impl Visit  [34-43]\n37:   method fresh  [exported]"
     );
     assert!(!lines.notes.contains('{'), "{}", lines.notes);
     let file = json!({"results":[{"index":0,"data":{"path":"a.rs","filesScanned":1,"symbols":[
@@ -52,47 +51,45 @@ fn declarations_and_listings_print_one_line_each() {
         let lines = render(tool, &file, &json!({}), None).expect("lines");
         assert_eq!(
             lines.out,
-            "a.rs:9: constant PREFIX\na.rs:94: impl Cursor  [94-162]\na.rs:115:   method encode  [115-124]"
+            "a.rs\n9: constant PREFIX\n94: impl Cursor  [94-162]\n115:   method encode  [115-124]"
         );
         assert!(!lines.notes.contains("symbols"), "{}", lines.notes);
     }
     let listed = json!({"results":[{"index":0,"data":{"path":"src","files":[
             {"dir":"src","files":["a (1).rs (12)","b.rs (34, symlink)","sub/"]}],
             "summary":{"files":2,"dirs":1,"bytes":46}}}]});
-    let files = json!({"operation":"files","path":"src"});
-    // `details` (the default view): every field the entry carries, the size as bytes.
-    let lines = render(ToolId::StructureSearch, &listed, &files, None).expect("lines");
-    assert_eq!(
-        lines.out,
-        "src/a (1).rs  [12 B]\nsrc/b.rs  [34 B, symlink]\nsrc/sub/"
-    );
-    // `paths`: bare names, never parsed, however they spell ` (…)`.
-    let named = json!({"results":[{"index":0,"data":{"path":".","files":[
-            {"dir":".","files":["report (123)","report (draft)","report (draft).md","dir (x)/"]}],
-            "summary":{"files":3,"dirs":1,"bytes":0}}}]});
-    let paths = json!({"operation":"files","path":".","view":"paths"});
+    // Each `dir/` once, its entries under it exactly as the result spells
+    // them, whichever tool, operation or page lists them.
+    for (tool, asked) in [
+        (
+            ToolId::StructureSearch,
+            json!({"queries":[{"operation":"files","path":"src"}]}),
+        ),
+        (ToolId::StructureSearch, json!({"cursor":"issued"})),
+        (
+            ToolId::GhStructure,
+            json!({"queries":[{"operation":"tree","owner":"o","repo":"r"}]}),
+        ),
+    ] {
+        let lines = render(tool, &listed, &asked, None).expect("lines");
+        assert_eq!(
+            lines.out, "src/\n  a (1).rs (12)\n  b.rs (34, symlink)\n  sub/",
+            "{tool:?} {asked}"
+        );
+        assert!(
+            lines.notes.contains("# summary: files 2 dirs 1 bytes 46"),
+            "{}",
+            lines.notes
+        );
+    }
+    let named = json!({"results":[{"index":0,"data":{"files":[
+            {"dir":".","files":["report (123)","dir (x)/"]},
+            {"dir":"dir (x)","files":["report (draft).md"]}]}}]});
+    let paths = json!({"queries":[{"operation":"files","path":".","view":"paths"}]});
     let lines = render(ToolId::StructureSearch, &named, &paths, None).expect("lines");
     assert_eq!(
         lines.out,
-        "report (123)\nreport (draft)\nreport (draft).md\ndir (x)/"
-    );
-    // A listing without its operation (a continuation) prints as text.
-    let lines = render(
-        ToolId::StructureSearch,
-        &listed,
-        &json!({"path":"src"}),
-        None,
-    )
-    .expect("text");
-    assert!(
-        lines.out.contains("\nfiles:\n  - dir: src\n"),
-        "{}",
-        lines.out
-    );
-    assert!(
-        lines.out.contains("      - b.rs (34, symlink)\n"),
-        "{}",
-        lines.out
+        "./\n  report (123)\n  dir (x)/\ndir (x)/\n  report (draft).md"
     );
 }
 
@@ -128,11 +125,13 @@ fn lsp_results_print_as_lines() {
         "src/lib.ts:9: function target  [9-11 sites src/calls.ts:19:14,src/calls.ts:21:12]"
     );
     assert!(!lines.notes.contains("path src/lib.ts"), "{}", lines.notes);
-    // `view:"files"`: a `path:N` line per site; the count is theirs.
+    // `view:"files"`: the path once, then every site's line; a count that
+    // only repeats their number is not restated, any other is named.
     let grouped = json!({"results":[{"index":0,"data":{"matchCount":3,"files":[
-            {"path":"a.rs","matchCount":2,"lines":[14,275]},{"path":"b.rs","matchCount":1,"lines":[3]}]}}]});
+            {"path":"a.rs","matchCount":2,"lines":[14,275]},{"path":"b.rs","matchCount":1,"lines":[3]},
+            {"path":"c.rs","matchCount":4,"lines":[8]}]}}]});
     let lines = render(ToolId::LspSearch, &grouped, &json!({}), None).expect("lines");
-    assert_eq!(lines.out, "a.rs:14\na.rs:275\nb.rs:3");
+    assert_eq!(lines.out, "a.rs:14,275\nb.rs:3\nc.rs:8  [matchCount 4]");
     assert_eq!(lines.notes, "# matchCount: 3");
     // A declaration body prints as an `rg --heading` block; its
     // omission marker is a note.
@@ -143,14 +142,7 @@ fn lsp_results_print_as_lines() {
     let lines = render(ToolId::LspSearch, &definition, &json!({}), None).expect("lines");
     assert_eq!(
         lines.out,
-        "w.rs\n72-/// doc\n73:pub fn f(  [column 8]\n74-) {}\n--\n90:f();  [column 4]"
-    );
-    assert!(
-        lines
-            .notes
-            .contains("# file w.rs:73: … 40 more lines omitted (source lines 133-172)."),
-        "{}",
-        lines.notes
+        "w.rs\n72-/// doc\n73:pub fn f(  [column 8]\n74-) {}\n--\n90:f();  [column 4]\n# file w.rs:73: … 40 more lines omitted (source lines 133-172)."
     );
     // One-line locations print as hits; symbols as declarations.
     let single = json!({"results":[{"index":0,"data":{"matches":[

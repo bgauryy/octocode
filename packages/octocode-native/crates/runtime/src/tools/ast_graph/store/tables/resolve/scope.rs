@@ -124,53 +124,97 @@ impl LinkScope<'_> {
         top.next().is_none().then_some(first_match)
     }
 
+    /// The files a lone path keyword names from the file module
+    /// `caller_file`: `self` its own file, `super` its parent module, `crate`
+    /// its crate root. A directory holding both `lib.rs` and `main.rs` roots
+    /// two crates, and nothing here says which one declares the caller, so
+    /// both are candidates unless the caller is one of them.
+    pub(super) fn rust_keyword_files(&self, keyword: &str, caller_file: &str) -> Vec<&str> {
+        self.written_module_files(&[keyword], caller_file)
+    }
+
     /// `crate::a::b`, `self::b`, `super::super::b`: the module file the
     /// segments name from the caller's crate root (the nearest directory
     /// holding `lib.rs` or `main.rs`) or its own module directory. `None`
     /// when no scanned file matches (inline module, `#[path]`, a binary or
-    /// test crate), so the caller falls back to the module name.
+    /// test crate) or two crate roots do, so the caller falls back to the
+    /// module name.
     fn written_module_file(&self, segments: &[&str], caller_file: &str) -> Option<&'_ str> {
-        let (stem, name) = match caller_file.strip_suffix(".rs")?.rsplit_once('/') {
-            Some((dir, name)) => (dir, name),
-            None => ("", caller_file.strip_suffix(".rs")?),
+        match self.written_module_files(segments, caller_file).as_slice() {
+            [only] => Some(only),
+            _ => None,
+        }
+    }
+
+    /// See [`Self::written_module_file`]: every scanned file the segments
+    /// may name, which is more than one only at a crate root.
+    fn written_module_files(&self, segments: &[&str], caller_file: &str) -> Vec<&'_ str> {
+        let Some(module_path) = caller_file.strip_suffix(".rs") else {
+            return Vec::new();
         };
+        let (stem, name) = module_path.rsplit_once('/').unwrap_or(("", module_path));
         let mut dirs = std::iter::successors(Some(stem), |dir| {
             (!dir.is_empty()).then(|| dir.rsplit_once('/').map_or("", |(parent, _)| parent))
         });
-        let root = dirs.find(|dir| {
+        let roots_of = |dir: &str| {
             ["lib.rs", "main.rs"]
                 .iter()
-                .any(|file| self.rust_files.contains(join(dir, file).as_str()))
-        })?;
+                .filter_map(|file| self.rust_files.get(join(dir, file).as_str()).copied())
+                .collect::<Vec<_>>()
+        };
+        // A scan rooted inside a crate holds no root file: `self` and
+        // `super` still name files of the scan, `crate` names none.
+        let root = dirs.find(|dir| !roots_of(dir).is_empty());
+        let is_root = root == Some(stem) && matches!(name, "lib" | "main");
         let own = if matches!(name, "mod" | "lib" | "main") {
             stem.to_owned()
         } else {
             join(stem, name)
         };
-        let mut base = match segments[0] {
-            "crate" => root.to_owned(),
-            "self" | "super" => own,
-            _ => return None,
+        let mut base = match (segments[0], root) {
+            ("crate", Some(root)) => root.to_owned(),
+            ("self" | "super", _) => own,
+            _ => return Vec::new(),
         };
-        let mut rest = &segments[1..];
-        if segments[0] == "super" {
-            base = parent(&base).to_owned();
-            while let Some(("super", tail)) = rest.split_first().map(|(h, t)| (*h, t)) {
-                base = parent(&base).to_owned();
-                rest = tail;
-            }
+        let mut rest = segments;
+        if segments[0] != "super" {
+            rest = &rest[1..];
         }
-        let inside = root.is_empty() || base == root || base.starts_with(&format!("{root}/"));
+        while let Some(("super", tail)) = rest.split_first().map(|(h, t)| (*h, t)) {
+            // The crate root has no parent module.
+            let at_root = match root {
+                Some(root) => base == root,
+                None => base.is_empty(),
+            };
+            if at_root {
+                return Vec::new();
+            }
+            base = parent(&base).to_owned();
+            rest = tail;
+        }
+        let inside = root.is_none_or(|root| {
+            root.is_empty() || base == root || base.starts_with(&format!("{root}/"))
+        });
         if !inside
             || rest
                 .iter()
                 .any(|s| matches!(*s, "self" | "super" | "crate"))
         {
-            return None;
+            return Vec::new();
         }
         let module = rest.iter().fold(base, |dir, segment| join(&dir, segment));
+        if root == Some(module.as_str()) {
+            // The caller's own root when it is one, else every root here.
+            let roots = roots_of(&module);
+            return match roots.iter().find(|file| is_root && **file == caller_file) {
+                Some(own_root) => vec![*own_root],
+                None => roots,
+            };
+        }
         [format!("{module}.rs"), join(&module, "mod.rs")]
             .iter()
             .find_map(|file| self.rust_files.get(file.as_str()).copied())
+            .into_iter()
+            .collect()
     }
 }

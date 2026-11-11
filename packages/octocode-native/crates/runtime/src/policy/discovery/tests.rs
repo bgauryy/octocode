@@ -126,8 +126,9 @@ fn one_credential_list_covers_read_and_search() {
     }
 }
 
-/// A disclosure of withheld entries names the directory that holds them, from
-/// the walk root, and never an entry itself (B143).
+/// A disclosure of withheld entries names the directory that holds them, by
+/// its absolute path like every skipped path (the response spells them all
+/// from the workspace root), and never an entry itself (B143).
 #[test]
 fn a_directory_holding_withheld_files_is_not_disclosed_as_the_file() {
     use super::withheld::WithheldKind;
@@ -143,15 +144,16 @@ fn a_directory_holding_withheld_files_is_not_disclosed_as_the_file() {
     withheld.record(&key);
     let walked = root.path().to_string_lossy().into_owned();
     let entries = unlifted(&walked, &withheld, Default::default());
-    // One entry per (reason, directory), shown from the walk root; the root
-    // itself only for what sits directly in it.
+    // One entry per (reason, directory); the root itself only for what sits
+    // directly in it.
     let holders = |path: &str| {
         entries
             .iter()
             .filter(|entry| entry.path == path)
             .collect::<Vec<_>>()
     };
-    for (directory, held) in [("deploy", ".env"), (walked.as_str(), "id_rsa")] {
+    let held_at = deploy.to_string_lossy().into_owned();
+    for (directory, held) in [(held_at.as_str(), ".env"), (walked.as_str(), "id_rsa")] {
         let at = holders(directory);
         assert_eq!(at.len(), 1, "{entries:?}");
         assert_eq!(at[0].count, 1);

@@ -51,13 +51,15 @@ async fn a_small_tree_limit_walk_lists_every_entry_once() {
     assert_eq!(listed, expected);
 }
 
-/// The tree page holds `limit` entries, 300 when omitted (the contract
-/// default), materialized or not; any `limit` pages the held tree, and `page`
-/// and `totalPages` count the calls of the walk.
+/// The tree page holds `limit` entries, the contract default when omitted,
+/// materialized or not; any `limit` pages the held tree, and `page` and
+/// `totalPages` count the calls of the walk.
 #[test]
 fn a_tree_page_holds_limit_entries() {
-    assert_eq!(limits::tree::LIMIT_DEFAULT, 300);
-    let entries = (0..301)
+    // One entry more than a default page holds.
+    let default = limits::tree::LIMIT_DEFAULT;
+    let held = default + 1;
+    let entries = (0..held)
         .map(|n| TreeEntry {
             path: format!("f{n:03}.rs"),
             kind: EntryKind::File,
@@ -75,7 +77,11 @@ fn a_tree_page_holds_limit_entries() {
         serde_json::from_value::<GhStructureQueryTree>(row).expect("tree query")
     };
     for materialize in [false, true] {
-        for (limit, rows, pages) in [(None, 300, 2), (Some(7), 7, 43), (Some(1_000), 301, 1)] {
+        for (limit, rows, pages) in [
+            (None, default, 2),
+            (Some(7), 7, held.div_ceil(7)),
+            (Some(3 * held as u64), held, 1),
+        ] {
             let query = tree(limit, materialize);
             let page = ListingPage::of(&query, &entries);
             assert_eq!(
@@ -171,13 +177,14 @@ async fn a_small_refs_limit_walk_lists_every_ref_once() {
     assert_eq!(listed_tags, ["v5", "v4", "v3", "v2", "v1"]);
 }
 
-/// refs `limit` defaults to 100 (today's page size, GitHub's maximum) and
-/// admission rejects past GitHub's documented `per_page` maximum; a tree
+/// refs `limit` defaults to its contract default and admission rejects past
+/// GitHub's documented `per_page` maximum; a tree
 /// `limit` has no maximum (the held tree pages locally), and 0 is no page.
 #[test]
 fn admission_bounds_refs_by_github_and_leaves_tree_open() {
-    assert_eq!(limits::refs::LIMIT_DEFAULT, 100);
-    assert_eq!(limits::refs::LIMIT_MAXIMUM, octocode_github::MAX_PER_PAGE);
+    let maximum = limits::refs::LIMIT_MAXIMUM;
+    assert_eq!(maximum, octocode_github::MAX_PER_PAGE);
+    assert!(limits::refs::LIMIT_DEFAULT <= maximum);
     let admit = |operation: &str, limit: Option<u64>| {
         let mut row = json!({"operation":operation,"owner":"a","repo":"b"});
         if let Some(limit) = limit {
@@ -185,10 +192,16 @@ fn admission_bounds_refs_by_github_and_leaves_tree_open() {
         }
         crate::contracts::validate_query("ghStructure", row)
     };
-    assert_eq!(admit("refs", None).expect("default")["limit"], 100);
-    assert_eq!(admit("tree", None).expect("default")["limit"], 300);
-    assert!(admit("refs", Some(100)).is_ok());
-    assert!(admit("refs", Some(101)).is_err());
+    assert_eq!(
+        admit("refs", None).expect("default")["limit"],
+        limits::refs::LIMIT_DEFAULT
+    );
+    assert_eq!(
+        admit("tree", None).expect("default")["limit"],
+        limits::tree::LIMIT_DEFAULT
+    );
+    assert!(admit("refs", Some(maximum as u64)).is_ok());
+    assert!(admit("refs", Some(maximum as u64 + 1)).is_err());
     assert!(admit("tree", Some(100_000)).is_ok());
     for operation in ["refs", "tree"] {
         assert!(admit(operation, Some(0)).is_err(), "{operation}");

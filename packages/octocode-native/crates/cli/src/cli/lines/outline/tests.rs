@@ -20,22 +20,11 @@ fn count_lines_name_each_terms_count() {
         {"path":"b.mjs","matchCount":1,"termCounts":[1,0]}]}}]});
     let asked = json!({"queries":[{"path":".","matchString":["planChunks","readGraph"],"view":"countMatches"}]});
     let lines = render(ToolId::LocalSearch, &counts, &asked, None).expect("lines");
+    // Every count is a named field, the terms' in `matchString` order as
+    // the result carries them: `path:N` is only ever a line.
     assert_eq!(
         lines.out,
-        "a.mjs:10  [planChunks 0 readGraph 10]\nb.mjs:1  [planChunks 1 readGraph 0]"
-    );
-    // A continuation does not name the terms: the counts stay, in order.
-    let lines = render(
-        ToolId::LocalSearch,
-        &counts,
-        &json!({"queries":[{"path":"."}]}),
-        None,
-    )
-    .expect("lines");
-    assert!(
-        lines.out.starts_with("a.mjs:10  [termCounts 0,10]"),
-        "{}",
-        lines.out
+        "a.mjs  [matchCount 10 termCounts 0,10]\nb.mjs  [matchCount 1 termCounts 1,0]"
     );
 }
 
@@ -57,22 +46,19 @@ fn a_tool_without_a_line_format_prints_every_field_as_text() {
             "  2\t",
             "  3\tbody, with: colons",
             "totalLines: 120",
-            "pagination: unit lines offset 0 length 3 hasMore",
             "matchedLines: 1, 3",
-            "hints:",
-            "  - Read on with next.nextPage.",
             "empty: \"\"",
             "symbols:",
             "  - name: Title",
             "    line: 1",
             "    doc: two words",
+            "# pagination: unit lines offset 0 length 3 hasMore",
+            "# hints: Read on with next.nextPage.",
+            "# next.nextPage: octocode localFetch '{\"cursor\":\"issued-page\"}'",
         ]
         .join("\n")
     );
-    assert_eq!(
-        lines.notes,
-        "# next.nextPage: octocode localFetch '{\"cursor\":\"issued-page\"}'"
-    );
+    assert_eq!(lines.notes, "");
 }
 
 #[test]
@@ -108,23 +94,22 @@ fn a_batch_prints_each_row_under_its_heading_in_its_line_format() {
     let lines = render(ToolId::LocalSearch, &two, &asked, None).expect("text");
     assert_eq!(
         lines.out,
-        "## results[0]\na.rs:3:fn a()\n## results[1]\nerrorCode: pathNotFound\nerror: No such path"
+        [
+            "## results[0]",
+            "a.rs:3:fn a()",
+            "# next.nextPage: octocode localSearch '{\"cursor\":\"cursor-row\"}'",
+            "## results[1]",
+            "errorCode: pathNotFound",
+            "error: No such path",
+            "# status: error",
+            "# responsePagination: hasMore",
+            "# responsePagination.next: octocode localSearch '{\"cursor\":\"cursor-envelope\"}'",
+        ]
+        .join("\n")
     );
-    assert!(
-        lines.notes.contains("# results[1] status: error"),
-        "{}",
-        lines.notes
-    );
-    assert!(
-        lines.notes.contains("# responsePagination: hasMore"),
-        "{}",
-        lines.notes
-    );
-    for cursor in ["cursor-row", "cursor-envelope"] {
-        assert_eq!(lines.notes.matches(cursor).count(), 1, "{}", lines.notes);
-    }
+    assert_eq!(lines.notes, "");
     // A continuation that renumbered its rows names each row's own index.
-    let resumed = json!({"results":[{"index":2,"data":{"files":[{"path":"b"}]}},{"index":4,"data":{"files":[]}}]});
+    let resumed = json!({"results":[{"index":2,"data":{"files":[{"dir":"b","files":["c"]}]}},{"index":4,"data":{"files":[]}}]});
     let lines = render(
         ToolId::StructureSearch,
         &resumed,
@@ -155,7 +140,9 @@ fn every_row_of_an_array_uses_one_layout() {
         .collect();
     assert_eq!(heads.len(), 3, "{}", lines.out);
     assert!(
-        heads.iter().all(|head| head.split_whitespace().count() == 3),
+        heads
+            .iter()
+            .all(|head| head.split_whitespace().count() == 3),
         "an inline row among block rows: {}",
         lines.out
     );
@@ -172,13 +159,21 @@ fn every_row_of_an_array_uses_one_layout() {
 fn a_loaded_count_prints_as_a_floor() {
     let page = |extra: Value| {
         let mut pagination = json!({"page":1,"hasMore":true,"totalItems":2});
-        pagination.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        pagination
+            .as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
         let fetched = json!({"results":[{"index":0,"data":{"pagination":pagination}}]});
-        render(ToolId::LocalFetch, &fetched, &json!({}), None).expect("text").out
+        render(ToolId::LocalFetch, &fetched, &json!({}), None)
+            .expect("text")
+            .out
     };
     let floor = page(json!({"countScope":"loaded"}));
     assert!(floor.contains("totalItemsAtLeast 2"), "{floor}");
     assert!(floor.contains("countScope loaded"), "{floor}");
     let exact = page(json!({}));
-    assert!(exact.contains("totalItems 2") && !exact.contains("AtLeast"), "{exact}");
+    assert!(
+        exact.contains("totalItems 2") && !exact.contains("AtLeast"),
+        "{exact}"
+    );
 }

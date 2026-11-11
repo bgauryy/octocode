@@ -159,16 +159,16 @@ fn flag_with_ignored(
 /// does not cover them, and the text scans do not look there.
 fn ignored_clause(found: &super::super::scope::IgnoredSpelling) -> String {
     let rules = match found.rules.as_slice() {
-        [] => "ignore rules".to_owned(),
+        [] => "hidden directories or ignore rules".to_owned(),
         rules => rules.join(", "),
     };
     let more = if found.unfinished {
-        " The scan for gitignored files did not finish, so more may exist."
+        " The scan for gitignored or hidden files did not finish, so more may exist."
     } else {
         ""
     };
     format!(
-        "{} gitignored file(s) ({rules}) spell this name in code, outside the project the server loaded; a localSearch with includeIgnored reads them.{more}",
+        "{} gitignored or hidden file(s) ({rules}) spell this name in code, outside the project the server loaded; a localSearch with includeIgnored and includeHidden reads them.{more}",
         found.files.len()
     )
 }

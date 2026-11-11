@@ -210,9 +210,19 @@ pub(super) fn source_leads(artifact: &ArtifactItem) -> Map<String, Value> {
     let Some((owner, repo)) = artifact.repository.as_deref().and_then(github_slug) else {
         return leads;
     };
-    if artifact.repository_status == Some(RepositoryStatus::Missing) {
-        return leads;
-    }
+    let (owner, repo) = match artifact.repository_status {
+        Some(RepositoryStatus::Missing) => return leads,
+        // GitHub redirects the registry's link: the lead names the
+        // repository as GitHub does now, when its metadata named it.
+        Some(RepositoryStatus::Moved) => artifact
+            .successor_repository
+            .as_deref()
+            .and_then(|successor| successor.split_once('/'))
+            .map_or((owner, repo), |(owner, repo)| {
+                (owner.to_owned(), repo.to_owned())
+            }),
+        None => (owner, repo),
+    };
     let directory = artifact
         .repository_directory
         .as_deref()

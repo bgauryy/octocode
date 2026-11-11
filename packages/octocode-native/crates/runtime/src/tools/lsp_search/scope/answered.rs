@@ -82,11 +82,14 @@ impl Scope {
         }
     }
 
-    /// The code sites of `symbol` the answer leaves out inside the files it
+    /// The code sites of `symbol` outside the answer inside the files it
     /// lists lines of: a server can miss a site in a file it answers, which
     /// no file count shows. Only a line the anchor's declaration reaches
     /// (`reach`) can be a missed site: a same-spelled word outside a local
-    /// binding's scope names another symbol. Found once per request and
+    /// binding's scope names another symbol. A spelling is only a candidate
+    /// ([`Gap::unverified`]): another symbol may be spelled the same, so a
+    /// site counts as left out once the server says it names the anchor's
+    /// declaration ([`Self::settle_gaps`]). Found once per request and
     /// symbol, on a cancellable worker; empty when the request stopped first.
     pub(in super::super) async fn check_answer_gaps(
         &self,
@@ -133,6 +136,14 @@ impl Scope {
         self.keep_gaps(symbol, found)
     }
 
+    /// Drop the gaps looked for so far: the answer has recorded more since.
+    pub(in super::super) fn forget_gaps(&self) {
+        *self
+            .gaps
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+    }
+
     fn known_gaps(&self, symbol: &str) -> Option<Arc<Vec<Gap>>> {
         self.gaps
             .lock()
@@ -140,6 +151,17 @@ impl Scope {
             .as_ref()
             .filter(|(known, _)| known == symbol)
             .map(|(_, gaps)| Arc::clone(gaps))
+    }
+
+    /// Replace the candidates of `symbol` with what the server's identity
+    /// check settled of them: per file, the lines it proved name the anchor
+    /// and those it could not place. A file with neither is no gap.
+    pub(in super::super) fn settle_gaps(&self, symbol: &str, settled: Vec<Gap>) {
+        let settled = settled
+            .into_iter()
+            .filter(|gap| !(gap.left_out.is_empty() && gap.unverified.is_empty()))
+            .collect();
+        self.keep_gaps(symbol, settled);
     }
 
     fn keep_gaps(&self, symbol: &str, found: Vec<Gap>) -> Arc<Vec<Gap>> {
@@ -166,12 +188,17 @@ pub(in super::super) struct Listed {
     calls: bool,
 }
 
-/// Code sites of the symbol in one answered file that the answer leaves
-/// out: zero-based lines.
+/// Code sites of the symbol in one answered file that the answer does not
+/// list: zero-based lines.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in super::super) struct Gap {
     pub(in super::super) file: String,
-    pub(in super::super) lines: Vec<u32>,
+    /// Lines the server resolved to the anchor's declaration: uses its
+    /// answer leaves out.
+    pub(in super::super) left_out: Vec<u32>,
+    /// Lines that spell the name in code and that no identity check placed:
+    /// they may name another symbol, so they prove no missing use.
+    pub(in super::super) unverified: Vec<u32>,
 }
 
 impl Listed {
@@ -206,7 +233,8 @@ impl Listed {
             if !lines.is_empty() {
                 found.push(Gap {
                     file: file.clone(),
-                    lines,
+                    left_out: Vec::new(),
+                    unverified: lines,
                 });
             }
         }

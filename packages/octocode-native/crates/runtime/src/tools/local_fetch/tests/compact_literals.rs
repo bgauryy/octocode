@@ -9,7 +9,8 @@ fn unnumber(content: &str) -> String {
 
 /// YAML stays as it is under compact, so compact is never smaller than the
 /// content view of the same lines: the content view is served, every value
-/// and source number exact.
+/// and source number exact, and the fallback says the format stays as it is
+/// (not that this file happened to have nothing to remove).
 #[test]
 fn compact_yaml_preserves_values_and_exact_source_numbers() {
     let t = Fixture::new();
@@ -37,7 +38,7 @@ fn compact_yaml_preserves_values_and_exact_source_numbers() {
                     .view_fallback
                     .as_ref()
                     .map(|fallback| fallback.reason.as_str()),
-                Some("not-smaller"),
+                Some(octocode_engine::minify::apply::AS_IS_REASON),
                 "{extension}"
             );
             assert_eq!(

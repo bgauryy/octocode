@@ -16,7 +16,7 @@ fn token() -> String {
 
 fn judged(text: &str) -> JudgedLeaf {
     JudgedSource::new(SOURCE, Path::new("/w/src/walk.rs"))
-        .leaf(text)
+        .leaf(text, |_| false)
         .expect("a piece of the judged text")
 }
 
@@ -85,8 +85,12 @@ fn look_alike_keys_in_the_value_mark_nothing() {
 #[test]
 fn only_pieces_of_the_judged_text_are_marked_and_secrets_stay_redacted() {
     let source = JudgedSource::new(SOURCE, Path::new("/w/src/walk.rs"));
-    assert!(source.leaf("").is_none());
-    assert!(source.leaf("token: Option<&'a str>,\n    write").is_none());
+    assert!(source.leaf("", |_| false).is_none());
+    assert!(
+        source
+            .leaf("token: Option<&'a str>,\n    write", |_| false)
+            .is_none()
+    );
     let mut marks = JudgedLeaves::default();
     marks.mark(CONTENT, judged(FRAGMENT));
     let planted = format!("{FRAGMENT}const T: &str = \"{}\";\n", token());
@@ -103,4 +107,127 @@ fn marks_rebase_under_a_prefix() {
     let sealed = seal(row(FRAGMENT), &marks);
     assert_eq!(sealed["results"][0]["data"]["content"], FRAGMENT);
     let _ = Sanitized::sealed(row("plain"));
+}
+
+/// A value named a secret by a key on an earlier line, a comment between.
+const KEYED: &str = "const apiKey =\n  // the key\n  \"Bq1Zx9Lm2Vp4Kd8Rt7Yb6Nc3\";\nconst label = \"plain\";\nexport const options = {\n  getToken: () => getGitHubToken(log),\n};\n";
+const VALUE: &str = "Bq1Zx9Lm2Vp4Kd8Rt7Yb6Nc3";
+
+fn keyed() -> JudgedText {
+    JudgedText::judge(KEYED, Path::new("/w/src/s.ts"), &ContentSecurity::new())
+}
+
+/// Every cut of a judged source shows the whole-source judgment at its
+/// place: the value line, the node inside its quotes, a span inside the
+/// value; text the pass left alone is the source's own bytes.
+#[test]
+fn a_cut_shows_the_whole_source_judgment_at_its_place() {
+    let judged = keyed();
+    assert!(judged.is_redacted());
+    let read = judged.lines(3, 1).expect("line 3").into_owned();
+    assert!(
+        !read.contains(VALUE) && read.contains("[REDACTED"),
+        "{read}"
+    );
+    // The value's line alone names no secret: judged alone it would show.
+    let line = judged.line_span(3, 1).expect("line 3");
+    assert_eq!(judged.cut(line.clone()), read);
+    let at = KEYED.find(VALUE).expect("value");
+    let node = judged.cut(at - 1..at + VALUE.len() + 1);
+    assert!(read.contains(node.as_ref()), "{node} of {read}");
+    assert!(!judged.cut(at + 4..at + 9).contains(&VALUE[4..9]));
+    let label = judged.line_span(4, 1).expect("line 4");
+    assert!(!judged.exposes(&label));
+    assert_eq!(judged.cut(label), "const label = \"plain\";");
+    // Lines the pass left alone are the read's lines, placeholders and all.
+    assert_eq!(judged.lines(1, 4).expect("lines"), {
+        let mut lines = KEYED.lines().take(4).collect::<Vec<_>>();
+        lines[2] = &read;
+        lines.join("\n")
+    });
+}
+
+/// A fragment is placed by its line and column, in whatever unit the tool
+/// counts; code a fragment judged alone would hide stays code.
+#[test]
+fn a_fragment_is_placed_and_never_judged_alone() {
+    let judged = keyed();
+    let quoted = format!("\"{VALUE}\"");
+    for column in [Some(2), None] {
+        let (shown, placed) = judged.fragment(3, column, &quoted);
+        assert!(placed);
+        assert!(!shown.contains(VALUE), "{shown}");
+    }
+    let code = "  getToken: () => getGitHubToken(log),";
+    let alone = ContentSecurity::new().sanitize_leaf(code, Some("config/app.yaml"));
+    assert!(alone.is_some(), "fixture no longer misjudged alone");
+    assert_eq!(judged.fragment(6, Some(0), code), (code.into(), true));
+    // Text that is not the source's at its place is judged by its lines.
+    assert_eq!(judged.fragment(4, None, "edited").0, "edited");
+    assert!(!judged.fragment(3, None, "edited").0.contains("edited"));
+    assert!(judged.fragment(99, None, "x").0.contains("REDACTED"));
+}
+
+/// A fact with no place (a stored name) shows no value the pass replaced.
+#[test]
+fn a_placeless_fact_is_scrubbed_of_the_redacted_values() {
+    let judged = keyed();
+    let fact = format!("\"{VALUE}\".to_owned");
+    let scrubbed = judged.scrubbed(&fact).expect("scrubbed");
+    assert!(
+        !scrubbed.contains(VALUE) && scrubbed.ends_with("\".to_owned"),
+        "{scrubbed}"
+    );
+    assert_eq!(judged.scrubbed("getGitHubToken"), None);
+}
+
+/// A request judges a source once, and the gate honors the texts it showed.
+#[test]
+fn a_request_judges_a_source_once_and_its_shown_texts_pass_the_gate() {
+    let (security, files) = ContentSecurity::new().for_request();
+    let path = Path::new("/w/src/walk.rs");
+    text::JUDGED_BYTES.with(|judged| judged.set(0));
+    let first = security.judge_source(SOURCE, path);
+    for _ in 0..2_000 {
+        let _ = security.judge_source(SOURCE, path);
+    }
+    assert_eq!(text::JUDGED_BYTES.with(std::cell::Cell::get), SOURCE.len());
+    security.show(first.path(), FRAGMENT);
+    let marks = files.leaves().under("/results/0/data");
+    assert_eq!(
+        seal(row(FRAGMENT), &marks)["results"][0]["data"]["content"],
+        FRAGMENT
+    );
+    // Another text of the row is no shown text: the full gate judges it.
+    let other = format!("{FRAGMENT}// more\n");
+    assert_ne!(
+        seal(row(&other), &marks)["results"][0]["data"]["content"],
+        other.as_str()
+    );
+}
+
+/// A pass that joins lines (a Kubernetes Secret's `data` block becomes one
+/// placeholder) still places what it replaced: rows outside it are the
+/// source's own lines, rows inside it show none of it.
+#[test]
+fn a_pass_that_joins_lines_hides_only_the_lines_it_replaced() {
+    let value = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=";
+    let text = format!(
+        "apiVersion: v1\nkind: Secret\nmetadata:\n  name: n\ndata:\n  tls.crt: {value}\n  tls.key: {value}2"
+    );
+    let judged = JudgedText::judge(&text, Path::new("/w/secret.yaml"), &ContentSecurity::new());
+    assert!(judged.is_redacted());
+    assert_eq!(judged.lines(4, 1).expect("line 4"), "  name: n");
+    assert_eq!(
+        judged.fragment(4, None, "  name: n"),
+        ("  name: n".into(), true)
+    );
+    for line in [6, 7] {
+        let shown = judged.lines(line, 1).expect("line");
+        assert!(
+            !shown.contains(&value[..12]) && shown.contains("REDACTED"),
+            "{shown}"
+        );
+    }
+    assert!(!judged.lines(1, 7).expect("all").contains(&value[..12]));
 }

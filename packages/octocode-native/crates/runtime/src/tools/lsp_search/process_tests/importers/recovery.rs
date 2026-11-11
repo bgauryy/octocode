@@ -258,6 +258,10 @@ fn importer_recovery_names_gitignored_files_it_skipped() {
         warned.contains("1 imports it") && warned.contains(".gitignore:1 'gen/'"),
         "{row}"
     );
+    assert_eq!(
+        row["coverage"]["importerScan"], "skippedFiles",
+        "a scan that skipped an importer is not complete: {row}"
+    );
     let lead = &crate::tools::test_support::checks::related_call(&row, "localSearch", |_| true);
     assert_eq!(lead["tool"], "localSearch", "{row}");
     let rows = lead["input"]["queries"].as_array().expect("lead rows");
@@ -286,4 +290,135 @@ fn importer_recovery_names_gitignored_files_it_skipped() {
         found.iter().any(|path| path.ends_with("g000.ts")),
         "{found:?}"
     );
+}
+
+/// The row of `references` on `target` in the importer fixture after `prepare`
+/// laid out more files under its root.
+fn references_row(prepare: impl FnOnce(&Path)) -> (Fixture, PathBuf, serde_json::Value) {
+    let (dir, root, execution) = importer_fixture_of(&[("f", 2)]);
+    std::fs::create_dir_all(root.join(".git")).expect("repository marker");
+    prepare(&root);
+    octocode_engine::stamp::settle_written_so_far();
+    let pool = fake_server_pool();
+    let query = serde_json::from_value(serde_json::json!({
+        "operation": "references", "path": root.join("a.ts").to_string_lossy(),
+        "symbolName": "target", "line": 1, "workspaceRoot": root.to_string_lossy()
+    }))
+    .expect("query");
+    let paths = crate::tools::test_support::workspace_policy(&root);
+    let row = tokio::runtime::Runtime::new()
+        .expect("rt")
+        .block_on(crate::tools::lsp_search::execute(
+            query,
+            &crate::execution::cancel::NeverCancel,
+            &pool,
+            &paths,
+            &execution,
+            None,
+            crate::tools::lsp_search::test_answers(),
+        ))
+        .expect("row");
+    assert_row_contract(ToolId::LspSearch, &row);
+    (dir, root, row)
+}
+
+/// The files the row's ignored-files lead finds when each of its localSearch
+/// rows is run.
+fn ignored_lead_files(root: &Path, row: &serde_json::Value) -> Vec<String> {
+    let lead = &crate::tools::test_support::checks::related_call(row, "localSearch", |_| true);
+    let policy = crate::tools::test_support::workspace_policy(root);
+    lead["input"]["queries"]
+        .as_array()
+        .expect("lead rows")
+        .iter()
+        .flat_map(|search| {
+            let query: LocalSearchQuery =
+                serde_json::from_value(search.clone()).expect("lead row is a localSearch query");
+            crate::tools::local_search::execute_local_search(
+                &query,
+                &policy,
+                &crate::security::ContentSecurity::new(),
+                &crate::execution::cancel::NeverCancel,
+                None,
+                None,
+            )
+            .expect("lead runs")
+            .files
+            .into_iter()
+            .map(|file| file.path)
+        })
+        .collect()
+}
+
+/// A file under a hidden directory is outside the candidate scan as a
+/// gitignored one is, whether or not an ignore rule names the directory too:
+/// one that imports the name makes the row partial, counted and led to, and
+/// its importer scan is not `complete`.
+#[test]
+fn importer_recovery_names_hidden_files_it_skipped() {
+    if !require_node() {
+        return;
+    }
+    for ignored in [false, true] {
+        let (_dir, root, row) = references_row(|root| {
+            if ignored {
+                std::fs::write(root.join(".gitignore"), ".state/\n").expect("gitignore");
+            }
+            std::fs::create_dir_all(root.join(".state/imp")).expect("hidden dir");
+            std::fs::write(
+                root.join(".state/imp/h000.ts"),
+                "import { target } from '../../a';\ntarget();\n",
+            )
+            .expect("hidden importer");
+        });
+        assert_eq!(row["isPartial"], true, "{row}");
+        assert!(
+            row["partialReasons"]
+                .as_array()
+                .is_some_and(|reasons| reasons.contains(&serde_json::json!("importerScanIgnored"))),
+            "{row}"
+        );
+        assert_eq!(row["coverage"]["importerScan"], "skippedFiles", "{row}");
+        let warned = row["warnings"].to_string();
+        assert!(
+            warned.contains("1 imports it") && warned.contains("hidden"),
+            "{row}"
+        );
+        assert_eq!(warned.contains(".gitignore:1 '.state/'"), ignored, "{row}");
+        let found = ignored_lead_files(&root, &row);
+        assert!(
+            found.iter().any(|path| path.ends_with("h000.ts")),
+            "{found:?} {row}"
+        );
+    }
+}
+
+/// A scan that skipped no file holding the name stays `complete`: a hidden or
+/// gitignored file that only spells the name, importing nothing of it, and a
+/// default-pruned directory are no evidence.
+#[test]
+fn a_scan_that_skipped_no_importer_stays_complete() {
+    if !require_node() {
+        return;
+    }
+    let (_dir, _root, row) = references_row(|root| {
+        std::fs::write(root.join(".gitignore"), "gen/\n").expect("gitignore");
+        for dir in [".state", "gen", "node_modules/pkg"] {
+            std::fs::create_dir_all(root.join(dir)).expect("dir");
+        }
+        std::fs::write(
+            root.join(".state/own.ts"),
+            "function target() {}\ntarget();\n",
+        )
+        .expect("hidden, its own declaration");
+        std::fs::write(root.join("gen/own.ts"), "function target() {}\ntarget();\n")
+            .expect("ignored, its own declaration");
+        std::fs::write(
+            root.join("node_modules/pkg/i.ts"),
+            "import { target } from '../../a';\ntarget();\n",
+        )
+        .expect("pruned");
+    });
+    assert_eq!(row["coverage"]["importerScan"], "complete", "{row}");
+    assert_ne!(row["isPartial"], true, "{row}");
 }

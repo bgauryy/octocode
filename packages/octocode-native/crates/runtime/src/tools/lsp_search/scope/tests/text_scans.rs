@@ -147,7 +147,8 @@ async fn a_scan_walks_the_whole_scope_until_its_request_stops_it() {
     .await
     .expect("scan")
     .expect("files");
-    assert_eq!(whole.len(), 200);
+    // Every listed file spells the name here, so the two sets are one.
+    assert_eq!((whole.0.len(), whole.1.len()), (200, 200));
     let stopped = scan_text(root, &include, "f", &policy, &Stopped).await;
     assert!(stopped.is_err_and(|failure| failure.is_cancelled()));
 }

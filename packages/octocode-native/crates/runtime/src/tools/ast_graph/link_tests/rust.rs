@@ -256,3 +256,127 @@ fn a_super_path_to_a_root_level_sibling_links_inside_a_module_directory() {
     let deps = ask(root, "deps", Some("scope.rs"));
     assert_eq!(files(&deps), ["capture.rs"]);
 }
+
+/// A lone path keyword is a module, never a receiver: `super::f()` names the
+/// parent module's item (not a same-named one of the caller's file),
+/// `self::f()` the caller's own module, and `crate::f()` what the crate root
+/// declares or binds through `pub use`, also from inside an inline module.
+#[test]
+fn lone_super_self_and_crate_paths_reach_their_module() {
+    let temp = fixture(&[
+        CARGO_APP,
+        (
+            "src/lib.rs",
+            "pub mod budget;\nmod content;\npub use content::is_full;\npub fn root() -> u8 { 1 }\n",
+        ),
+        ("src/content.rs", "pub fn is_full() -> bool { true }\n"),
+        (
+            "src/budget.rs",
+            "mod circuit;\npub(crate) fn millis() -> u64 { 1 }\npub fn own() -> u64 { self::millis() }\n",
+        ),
+        (
+            "src/budget/circuit.rs",
+            "pub fn millis() -> u64 { super::millis() }\npub fn open() -> u64 { super::millis() }\npub fn sha() -> bool { crate::is_full() }\npub fn top() -> u8 { crate::root() }\nmod inner {\n    pub fn deep() -> u8 { crate::root() }\n}\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    let parent = [edge("src/budget.rs#millis", "module-path", "high")];
+    assert_eq!(call_edges(root, "src/budget/circuit.rs#open"), parent);
+    assert_eq!(call_edges(root, "src/budget/circuit.rs#millis"), parent);
+    assert_eq!(call_edges(root, "src/budget.rs#own"), parent);
+    assert_eq!(
+        call_edges(root, "src/budget/circuit.rs#sha"),
+        [edge("src/content.rs#is_full", "module-path", "high")]
+    );
+    let crate_root = [edge("src/lib.rs#root", "module-path", "high")];
+    assert_eq!(call_edges(root, "src/budget/circuit.rs#top"), crate_root);
+    assert_eq!(
+        call_edges(root, "src/budget/circuit.rs#inner.deep"),
+        crate_root
+    );
+    assert_eq!(unresolved_internal(root), json!(0));
+}
+
+/// A directory with `lib.rs` and `main.rs` roots two crates: `crate::f()`
+/// from a module binds in the root that has `f`, and each root's own
+/// `crate::` path stays in that root.
+#[test]
+fn a_crate_path_picks_the_root_that_binds_the_name() {
+    let temp = fixture(&[
+        CARGO_APP,
+        (
+            "src/lib.rs",
+            "pub mod api;\npub fn shared() {}\npub fn both() {}\npub fn lib_own() { crate::both() }\n",
+        ),
+        (
+            "src/main.rs",
+            "mod cli;\nfn boot() {}\nfn both() {}\nfn main() { crate::both() }\n",
+        ),
+        ("src/api.rs", "pub fn run() { crate::shared() }\n"),
+        (
+            "src/cli.rs",
+            "pub fn go() { crate::boot() }\npub fn either() { crate::both() }\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    assert_eq!(
+        call_edges(root, "src/api.rs#run"),
+        [edge("src/lib.rs#shared", "module-path", "high")]
+    );
+    assert_eq!(
+        call_edges(root, "src/cli.rs#go"),
+        [edge("src/main.rs#boot", "module-path", "high")]
+    );
+    assert_eq!(
+        call_edges(root, "src/lib.rs#lib_own"),
+        [edge("src/lib.rs#both", "module-path", "high")]
+    );
+    assert_eq!(
+        call_edges(root, "src/main.rs#main"),
+        [edge("src/main.rs#both", "module-path", "high")]
+    );
+    // Nothing scanned says which root declares `cli`: both stay candidates.
+    assert_eq!(
+        call_edges(root, "src/cli.rs#either"),
+        [
+            edge("src/lib.rs#both", "module-path", "medium"),
+            edge("src/main.rs#both", "module-path", "medium")
+        ]
+    );
+}
+
+/// A keyword path its module does not bind stays unresolved and says why:
+/// the name is declared elsewhere in the repo (`other`), or nowhere
+/// (`not-declared-in-repo`). It has no receiver, and never links by name.
+#[test]
+fn an_unbound_keyword_path_stays_unresolved_with_a_truthful_reason() {
+    let temp = fixture(&[
+        CARGO_APP,
+        ("src/lib.rs", "pub mod a;\npub mod b;\n"),
+        ("src/a.rs", "pub fn elsewhere() {}\n"),
+        (
+            "src/b.rs",
+            "pub fn run() {\n    crate::elsewhere();\n    super::elsewhere();\n    crate::nowhere();\n}\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    assert_eq!(call_edges(root, "src/b.rs#run"), []);
+    let out = ask(root, "unresolved", Some("src/b.rs#run"));
+    let mut reasons = out["rows"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|row| {
+            (
+                row["line"].as_u64().unwrap_or_default(),
+                row["reason"].as_str().unwrap_or_default(),
+            )
+        })
+        .collect::<Vec<_>>();
+    reasons.sort_unstable();
+    assert_eq!(
+        reasons,
+        [(2, "other"), (3, "other"), (4, "not-declared-in-repo")],
+        "{out}"
+    );
+}

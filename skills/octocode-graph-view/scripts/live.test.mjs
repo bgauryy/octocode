@@ -225,7 +225,7 @@ const witnessPage = (o, target) => {
 };
 if (a[0] === 'schema') print({ querySchema: { properties: { target: { anyOf: [{ type: 'string' }, { type: 'array', maxItems: 100 }] } } } });
 else if (a[0] === 'structureSearch') out({ files: [{ dir: root, files: ['a.ts', 'b.ts', 'notes.md'] }], summary: { files: 3 } });
-else if (a[0] === 'graphBuild') { console.error('graphBuild: parsing 2 files'); out({ id: 'snap', root: row.path, counts: { nodes: 4, edges: 3 } }); }
+else if (a[0] === 'graphBuild') { console.error('# graphBuild: parsing 2 files'); out({ id: 'snap', root: row.path, counts: { nodes: 4, edges: 3 } }); }
 else if (input.cursor) { const [o, t] = input.cursor.slice(1).split('|'); witnessPage(Number(o), t ? t.split(',') : undefined); }
 else if (row.operation === 'witnesses') witnessPage(0, row.target);
 else if (row.operation === 'find') out({ graph: { id: 'snap' }, rows: N[row.kind] });

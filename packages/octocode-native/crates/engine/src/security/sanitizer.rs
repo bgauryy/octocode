@@ -71,6 +71,13 @@ pub fn sanitize_stored_leaf(
     redact_leaf(content, Scope::Stored(source_path))
 }
 
+/// Whether a string of a request holds a credential, judged as a search
+/// term is: by its value, not by the name beside it (see
+/// [`detector::holds_credential_as_request`]).
+pub fn request_holds_credential(text: &str) -> crate::error::Result<bool> {
+    guarded(|| detector::holds_credential_as_request(text))
+}
+
 fn redact_leaf(content: &str, scope: Scope<'_>) -> crate::error::Result<Option<String>> {
     guarded(|| detector::redact(content, scope).map(|result| result.sanitized))
 }

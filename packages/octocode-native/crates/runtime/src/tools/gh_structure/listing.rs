@@ -108,7 +108,7 @@ pub(super) fn summary(entries: &[TreeEntry]) -> Value {
 
 /// Provider limits and skipped entries of the walk, stated on the page. A
 /// limit's `terminalLimitReached` code is the shared coverage code
-/// (`response::pages::coverage_codes`), never restated here.
+/// ([`crate::response::paging::terminal_limit`]), never restated here.
 pub(super) fn disclose_limits(
     traversal: &Traversal,
     page: &ListingPage<'_>,

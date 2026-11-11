@@ -47,9 +47,9 @@ export async function graphTotal(row, { run = graphCall } = {}) {
   return total;
 }
 
-// A build's stderr progress lines (`graphBuild: parsed 120/400 files`) reach `onProgress` without the tool prefix.
+// A build's stderr progress notes (`# graphBuild: parsed 120/400 files`) reach `onProgress` without the note mark and tool prefix.
 export async function graphBuild(row, { run = graphCall, onProgress = () => {} } = {}) {
-  const onStderr = (line) => onProgress(line.replace(/^graphBuild: /, ''));
+  const onStderr = (line) => onProgress(line.replace(/^# graphBuild: /, ''));
   return dataOf('graphBuild', await run('graphBuild', envelope(row), { onStderr }));
 }
 

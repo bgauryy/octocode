@@ -263,7 +263,7 @@ impl<'a> Prepared<'a> {
 /// - The error is the scanner's refusal, `(code, message)`.
 ///
 /// This is the in-memory form. A source too large to hold whole is sealed
-/// with the same two passes as it streams (`local_fetch::large_source`,
+/// with the same two passes as it streams (`tools::large_source`,
 /// whose windows arrive sealed: see [`Redaction::sealed_already`]).
 pub(crate) fn sealed_view<'a>(
     bytes: &'a [u8],

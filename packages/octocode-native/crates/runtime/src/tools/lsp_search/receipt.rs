@@ -95,6 +95,8 @@ pub(super) struct RustAnalysis {
     /// Whether a `rustContext` may enable build scripts here. Off, a row
     /// offers no rerun that does and its note names the opt-in.
     pub(super) build_scripts_allowed: bool,
+    /// The target it analyzes for (`cargo.target`, else the host).
+    pub(super) target: super::server_coverage::AnalysisTarget,
 }
 
 impl RustAnalysis {
@@ -125,6 +127,11 @@ impl RustAnalysis {
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
             build_scripts_allowed: false,
+            target: super::server_coverage::AnalysisTarget::of(
+                options
+                    .and_then(|value| value.pointer("/cargo/target"))
+                    .and_then(Value::as_str),
+            ),
         }
     }
 

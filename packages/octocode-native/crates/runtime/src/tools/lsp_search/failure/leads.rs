@@ -109,10 +109,14 @@ fn text_leads(
         .collect()
 }
 
-/// Flag a `references` or `callers` row whose server left out code sites
-/// of the name inside files it answers ([`super::super::scope::Scope::answer_gaps`]):
-/// partial, each file and line named, and the text lead reads those files
-/// (or, when the row already leads to a text search, that one does).
+/// State what a `references` or `callers` answer does not list of the name
+/// inside files it covers ([`super::super::scope::Scope::answer_gaps`]). A
+/// site the server resolved to the anchor's declaration is a use it left
+/// out: the row is partial, each file and line named. A site no identity
+/// check placed may name another symbol of that spelling: it is named as
+/// unverified, and proves no gap, so it leaves the row as it is. Either way
+/// the text lead reads those files (or, when the row already leads to a
+/// text search, that one does).
 pub(in super::super) fn flag_answer_gaps(
     row: &mut Value,
     query: &LspSearchQuery,
@@ -129,29 +133,44 @@ pub(in super::super) fn flag_answer_gaps(
     }
     let files = gaps.iter().map(|gap| gap.file.clone()).collect::<Vec<_>>();
     let shown = shown_paths(paths, &files);
-    let sites = gaps
-        .iter()
-        .zip(&shown)
-        .flat_map(|(gap, file)| {
-            gap.lines
-                .iter()
-                .map(move |line| format!("{file}:{}", line + 1))
-        })
-        .collect::<Vec<_>>();
+    let sites = |lines: fn(&super::super::scope::Gap) -> &[u32]| {
+        gaps.iter()
+            .zip(&shown)
+            .flat_map(|(gap, file)| {
+                lines(gap)
+                    .iter()
+                    .map(move |line| format!("{file}:{}", line + 1))
+            })
+            .collect::<Vec<_>>()
+    };
     let kind = if lsp_search_query::op(query) == super::super::Op::Callers {
         "call"
     } else {
         "use"
     };
-    crate::response::paging::mark_partial(
-        row,
-        crate::response::paging::PartialReason::ServerUnanswered,
-        &[format!(
-            "The server's answer leaves out {} code {kind}(s) of `{name}` in files it answers: {}. The text lead reads them.",
-            sites.len(),
-            sites.join(", ")
-        )],
-    );
+    let left_out = sites(|gap| &gap.left_out);
+    if !left_out.is_empty() {
+        crate::response::paging::mark_partial(
+            row,
+            crate::response::paging::PartialReason::ServerUnanswered,
+            &[format!(
+                "The server's answer leaves out {} code {kind}(s) of `{name}` in files it answers: {}. The text lead reads them.",
+                left_out.len(),
+                left_out.join(", ")
+            )],
+        );
+    }
+    let unverified = sites(|gap| &gap.unverified);
+    if !unverified.is_empty() {
+        crate::response::paging::push_warnings(
+            row,
+            [format!(
+                "{} line(s) in files the answer covers spell `{name}` in code and are not in it: {}. The server did not say what they name, so they are unverified (another symbol of that name, or code it does not analyze), not missing {kind}s. The text lead reads them.",
+                unverified.len(),
+                unverified.join(", ")
+            )],
+        );
+    }
     let leads_text = row
         .get("related")
         .and_then(Value::as_array)
@@ -249,8 +268,10 @@ pub(in super::super) fn ignored_text_lead(
             rows.push(root);
         }
     }
+    // The files are those ignore rules or a hidden directory keep out.
     for row in &mut rows {
         row["includeIgnored"] = json!(true);
+        row["includeHidden"] = json!(true);
     }
     Some(
         crate::response::result::Continuation::related_input(

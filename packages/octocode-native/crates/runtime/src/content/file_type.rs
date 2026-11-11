@@ -324,7 +324,8 @@ mod tests {
             Some(FileType::Lock)
         );
     }
-    /// On Unix `\` is a file-name byte: `f\Cargo.lock` is not `Cargo.lock`.
+    /// On Unix `\` is a file-name byte: `f\README` is not the name `README`,
+    /// so only a rule on the extension (`.lock`, `.md`) classifies such a name.
     #[cfg(unix)]
     #[test]
     fn a_backslash_in_a_unix_file_name_is_part_of_the_name() {

@@ -100,18 +100,26 @@ pub(super) async fn execute_page(
         Ok(path) => path,
         Err(failure) => return failure::path_failure(&query, paths, failure),
     };
-    match run_page(
+    // Boxed: the ladder's future is large, and this one holds it.
+    let (answered, about) = server_text::naming_files(Box::pin(run_page(
         &query,
-        path,
+        path.clone(),
         cancel,
         pool,
         paths,
         execution_config,
         response_window,
-    )
-    .await
-    {
+    )))
+    .await;
+    // Whichever rung answered, what a server wrote in the row is judged here
+    // with the files it is about, before the row leaves for the output gate.
+    let security = &execution_config.security;
+    match answered {
         Ok(mut row) | Err(Exit::Row(mut row)) => {
+            Box::pin(server_text::judge(
+                &mut row, &path, about, paths, security, cancel,
+            ))
+            .await?;
             failure::stamp_coverage(&mut row);
             level::stamp(&mut row);
             level::omit_healthy_receipt(&mut row);
@@ -119,6 +127,10 @@ pub(super) async fn execute_page(
         }
         Err(Exit::Failed(failure)) if failure.lexical_fallback => {
             let mut row = failure.row(&query, lsp_search_query::path(&query).unwrap_or_default());
+            Box::pin(server_text::judge(
+                &mut row, &path, about, paths, security, cancel,
+            ))
+            .await?;
             failure::stamp_coverage(&mut row);
             level::stamp(&mut row);
             Ok(row)
@@ -292,8 +304,26 @@ pub(super) async fn run_target(
         sync_watched_files(&scope, &session.client, cancel).await?;
     }
     let answers_sites = matches!(lsp_search_query::op(query), Op::References | Op::Callers);
-    if answers_sites && let Some(name) = lsp_search_query::symbol_name(query) {
-        scope.check_answer_gaps(name, cancel).await?;
+    // A same-spelled site the answer does not list is a missing use only
+    // where the server says it names the anchor.
+    if answers_sites
+        && let Some(name) =
+            lsp_search_query::symbol_name(query).filter(|name| !name.trim().is_empty())
+    {
+        ops::verify_answer_gaps(
+            &session.client,
+            &mut sources,
+            &snippet_policy,
+            cancel,
+            &scope,
+            anchor::Position {
+                path: &target.path,
+                line: anchor.line,
+                character: anchor.character,
+            },
+            name,
+        )
+        .await?;
     }
     annotate(
         &mut result,

@@ -92,14 +92,16 @@ impl Recorder {
         seen.untracked |= inputs.untracked;
     }
 
-    /// Keep this finished walk under `include`, when it can be proven later:
-    /// nothing it depends on was written within the settle window before
-    /// `started`, the walk's start on the settle clock.
-    pub(super) fn keep(&self, include: &[String], started: SystemTime) {
+    /// The files this finished walk listed. The walk is kept under `include`
+    /// when it can be proven later: nothing it depends on was written within
+    /// the settle window before `started`, the walk's start on the settle
+    /// clock.
+    pub(super) fn keep(&self, include: &[String], started: SystemTime) -> Arc<[PathBuf]> {
         let (policy, root) = (&self.policy, &self.root);
         let seen = std::mem::take(&mut *self.seen());
+        let files: Arc<[PathBuf]> = seen.files.into();
         if seen.untracked {
-            return;
+            return files;
         }
         let mut rules = octocode_engine::search::walk::external_ignore_inputs(root);
         rules.extend(seen.rules);
@@ -110,10 +112,9 @@ impl Recorder {
             markers: &repository_markers(root),
         })
         .capture(Link::Follow, Some(started)) else {
-            return;
+            return files;
         };
-        let bytes = seen
-            .files
+        let bytes = files
             .iter()
             .chain(&seen.watched)
             .chain(&rules)
@@ -124,8 +125,9 @@ impl Recorder {
             policy.identity(),
             bytes,
             proof,
-            seen.files.into(),
+            Arc::clone(&files),
         );
+        files
     }
 }
 

@@ -79,17 +79,14 @@ pub(super) fn ingest_with_registry(
         Err(error) => return GraphOutput::error(error.code, error.message),
     };
     let build_identity = unchanged::build_identity(options, cargo, &registry_identity);
-    if let Some(receipt) = unchanged::reuse(
-        options,
-        &home,
-        paths,
-        &build_identity,
-        &registry_identity,
-        cancel,
-        started,
-    ) {
-        return receipt;
-    }
+    let identity = unchanged::Identity {
+        build: &build_identity,
+        registry: &registry_identity,
+    };
+    let judged = match unchanged::reuse(options, &home, paths, &identity, cancel, started) {
+        unchanged::Reuse::Current(receipt) => return receipt,
+        unchanged::Reuse::Build { judged } => judged,
+    };
     let scan = Scan {
         cargo,
         registry,
@@ -162,6 +159,21 @@ pub(super) fn ingest_with_registry(
         Ok(lock) => lock,
         Err(error) => return error,
     };
+    if let Some((id, receipt)) = unchanged::published_meanwhile(
+        options,
+        &home,
+        paths,
+        &identity,
+        judged.as_deref(),
+        cancel,
+        started,
+    ) {
+        let published = json!({"id": id, "dir": home.join(&id)});
+        return match finish_checkpoint(options, &home, &built, &published) {
+            Ok(()) => receipt,
+            Err(error) => error,
+        };
+    }
     publish_snapshot(
         &Publish {
             options,

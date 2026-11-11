@@ -263,11 +263,22 @@ impl KeyBlockState {
     }
 }
 
-/// What a line of a key block shows with only its key's bytes hidden: what comes
-/// before a BEGIN or after an END is not the key, and a body line keeps its
-/// indentation.
+/// What a line of a key block shows with only its key's bytes
+/// ([`key_line_bytes`]) hidden.
 pub(crate) fn hide_key_line(line: &str) -> String {
-    let placeholder = super::key_fragment_placeholder();
+    let key = key_line_bytes(line);
+    format!(
+        "{}{}{}",
+        &line[..key.start],
+        super::key_fragment_placeholder(),
+        &line[key.end..]
+    )
+}
+
+/// The bytes of a line of a key block that are its key: what comes before a
+/// BEGIN or after an END is not the key, and a body line keeps its
+/// indentation.
+pub(crate) fn key_line_bytes(line: &str) -> std::ops::Range<usize> {
     let begin = line.find("-----BEGIN");
     let end = line
         .rfind("-----END")
@@ -278,11 +289,7 @@ pub(crate) fn hide_key_line(line: &str) -> String {
             .find("-----")
             .map(|at| name + at + "-----".len())
     });
-    let lead = String::from_utf8_lossy(key_line_lead(line.as_bytes()));
-    format!(
-        "{lead}{placeholder}{}",
-        close.map_or("", |close| &line[close..])
-    )
+    key_line_lead(line.as_bytes()).len()..close.unwrap_or(line.len())
 }
 
 /// The bytes of a line of a key block before its key: all that precede a BEGIN, or

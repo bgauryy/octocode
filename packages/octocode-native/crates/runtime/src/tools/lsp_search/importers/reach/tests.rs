@@ -242,3 +242,221 @@ async fn ignored_evidence_must_reach_the_anchor() {
     assert_eq!(ignored.importing, [hidden, destructured, recovered]);
     assert!(ignored.unchecked.is_empty(), "{ignored:?}");
 }
+
+/// A project of one workspace: a `paths` alias and a workspace package that
+/// reach the anchor's package, and an installed package outside the listing.
+fn project_fixture(root: &Path) -> String {
+    write(
+        root,
+        "tsconfig.json",
+        r#"{"compilerOptions":{"baseUrl":".","paths":{"@lib/*":["packages/lib/src/*"]}}}"#,
+    );
+    write(
+        root,
+        "package.json",
+        r#"{"name":"mono","private":true,"workspaces":["packages/*"]}"#,
+    );
+    write(
+        root,
+        "packages/lib/package.json",
+        r#"{"name":"@acme/lib","main":"src/index.ts"}"#,
+    );
+    write(
+        root,
+        "packages/lib/src/index.ts",
+        "export * from './errors';\n",
+    );
+    write(
+        root,
+        "packages/lib/src/other.ts",
+        "export function errorMessage() { return ''; }\n",
+    );
+    write(root, ".gitignore", "node_modules/\n");
+    write(
+        root,
+        "node_modules/left-pad/package.json",
+        r#"{"name":"left-pad","main":"index.js"}"#,
+    );
+    write(
+        root,
+        "node_modules/left-pad/index.js",
+        "exports.errorMessage = () => '';\n",
+    );
+    write(root, "packages/lib/src/errors.ts", ANCHOR)
+}
+
+/// The importers of the project fixture, and whether each may reach the
+/// anchor: a specifier the project places in another module (a Node
+/// builtin, an installed package, an alias of another file) does not; one
+/// it places at the anchor or a relay (a `paths` alias, a workspace package
+/// name, a `baseUrl` module) does, as does project code it cannot link.
+const PROJECT_IMPORTERS: [(&str, &str, bool); 9] = [
+    (
+        "app/builtin.ts",
+        "import { errorMessage } from 'node:child_process';\n",
+        false,
+    ),
+    (
+        "app/installed.ts",
+        "import { errorMessage } from 'left-pad';\n",
+        false,
+    ),
+    (
+        "app/required.cjs",
+        "const { errorMessage } = require('left-pad');\n",
+        false,
+    ),
+    (
+        "app/other.ts",
+        "import { errorMessage } from '@lib/other';\n",
+        false,
+    ),
+    (
+        "app/alias.ts",
+        "import { errorMessage } from '@lib/errors';\n",
+        true,
+    ),
+    (
+        "app/package.ts",
+        "import { errorMessage } from '@acme/lib';\n",
+        true,
+    ),
+    (
+        "app/base.ts",
+        "import { errorMessage } from 'packages/lib/src/errors';\n",
+        true,
+    ),
+    (
+        "app/renamed.ts",
+        "import render from '@lib/errors';\nrender(1);\nconst errorMessage = 1;\n",
+        true,
+    ),
+    (
+        "app/unlinked.ts",
+        "import { errorMessage } from '@lib/missing';\n",
+        true,
+    ),
+];
+
+/// With the scope's listed files a bare specifier is resolved as the
+/// project resolves it: a candidate stays only when the module it names is
+/// the anchor's, may relay it, or is project code no file was found for.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_bare_specifier_is_placed_by_the_project() {
+    let (_dir, root) = fixture();
+    let anchor = project_fixture(&root);
+    let candidates = PROJECT_IMPORTERS
+        .iter()
+        .map(|(name, text, _)| write(&root, name, text))
+        .collect::<Vec<_>>();
+    let policy = crate::tools::test_support::workspace_policy(&root);
+    let cancel = &crate::execution::cancel::NeverCancel;
+    // The listing is the request's own text scan of the scope.
+    let scope = Scope::new(
+        root.to_string_lossy().into_owned(),
+        vec!["*.ts".to_owned(), "*.cjs".to_owned()],
+    );
+    let spelled = scope
+        .text_files("errorMessage", &policy, cancel)
+        .await
+        .expect("scan")
+        .expect("files");
+    assert!(
+        !spelled.iter().any(|file| file.contains("node_modules")),
+        "{spelled:?}"
+    );
+    let listed = scope.listed_files("errorMessage").expect("listed");
+    let module = AnchorModule::of(&anchor, ANCHOR, "errorMessage")
+        .expect("module")
+        .within(&root, &listed, &policy);
+    for ((name, text, reaches), file) in PROJECT_IMPORTERS.iter().zip(&candidates) {
+        assert_eq!(
+            module.reached_by(file, text, &mut HashMap::new()),
+            *reaches,
+            "{name}"
+        );
+    }
+    let expected = |reaches: bool| {
+        let mut files = PROJECT_IMPORTERS
+            .iter()
+            .zip(&candidates)
+            .filter(|((_, _, reached), _)| *reached == reaches)
+            .map(|(_, file)| file.clone())
+            .collect::<Vec<_>>();
+        files.sort();
+        files
+    };
+    let mut sorted = candidates.clone();
+    sorted.sort();
+    let (kept, unreached) = split_reachable(sorted, Some(Arc::new(module)), &policy, cancel)
+        .await
+        .expect("split");
+    assert_eq!((kept, unreached), (expected(true), expected(false)));
+}
+
+/// A relay names the alias it exports the symbol under: re-exported from a
+/// module that may be the anchor's, or exported from a binding that imports
+/// it. Another module's same-named export, a default and a namespace name
+/// none.
+#[test]
+fn a_relay_names_the_aliases_it_exports_the_symbol_under() {
+    let (_dir, root) = fixture();
+    let anchor = write(&root, "a/lib.ts", ANCHOR);
+    let module = AnchorModule::of(&anchor, ANCHOR, "errorMessage").expect("module");
+    write(
+        &root,
+        "other.ts",
+        "export function errorMessage() { return ''; }\n",
+    );
+    let aliases = |name: &str, text: &str| {
+        let file = write(&root, name, text);
+        module
+            .renamed_by(&file, text, &mut HashMap::new())
+            .into_iter()
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        aliases(
+            "c/re.ts",
+            "export { errorMessage as viaC } from '../a/lib';\n"
+        ),
+        ["viaC"]
+    );
+    assert_eq!(
+        aliases(
+            "c/local.ts",
+            "import { errorMessage as inner } from '../a/lib';\nexport { inner as viaG, inner };\n"
+        ),
+        ["inner", "viaG"]
+    );
+    assert_eq!(
+        aliases(
+            "c/same.ts",
+            "import { errorMessage } from '../a/lib';\nexport { errorMessage as viaS, errorMessage };\n"
+        ),
+        ["viaS"]
+    );
+    // The same name of another module, and names no importer must spell.
+    assert!(
+        aliases(
+            "c/far.ts",
+            "export { errorMessage as viaC } from '../other';\n"
+        )
+        .is_empty()
+    );
+    assert!(
+        aliases(
+            "c/shapes.ts",
+            "export { errorMessage as default } from '../a/lib';\nexport * as ns from '../a/lib';\nexport * from '../a/lib';\n"
+        )
+        .is_empty()
+    );
+    // The alias is the name its importers reach the relay by.
+    let relay = module.relay(&root.join("c/re.ts").to_string_lossy(), "viaC".to_owned());
+    let user = "import { viaC } from '../c/re';\nviaC(1);\n";
+    let file = write(&root, "d/user.ts", user);
+    assert!(relay.reached_by(&file, user, &mut HashMap::new()));
+    let stranger = "import { viaC } from '../other';\nviaC(1);\n";
+    let file = write(&root, "d/stranger.ts", stranger);
+    assert!(!relay.reached_by(&file, stranger, &mut HashMap::new()));
+}

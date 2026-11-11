@@ -25,12 +25,41 @@ pub(crate) fn normalized_input(tool_name: &str, input: Value) -> (Value, Vec<Str
     let Some(id) = ToolId::from_name(tool_name) else {
         return (input, Vec::new());
     };
+    let (input, resumed) = cursor_alone(input);
+    if resumed.is_some() {
+        return (input, resumed.into_iter().collect());
+    }
     let mut input = shaped(id, input);
     if !input.get("queries").is_some_and(Value::is_array) {
         return (input, Vec::new());
     }
     let notes = guesses::read(id, &mut input);
     (repaired(tool_name, id, input), notes)
+}
+
+/// The page size a request sets; a cursor carries the one its walk was cut at.
+const PAGE_SIZE: &str = "responseChars";
+
+/// A cursor call that also sends a page size, as the cursor alone, with the
+/// note that says so. The cursor names a page of a walk cut at the size it
+/// was issued with (another size would cut other pages, so the same cursor
+/// would skip or repeat rows): the sent size has one reading, no effect.
+/// Any other field beside a cursor is left for validation to refuse.
+fn cursor_alone(input: Value) -> (Value, Option<String>) {
+    let mut request = match input {
+        Value::Object(request) => request,
+        other => return (other, None),
+    };
+    let only_size_beside =
+        request.contains_key("cursor") && request.len() == 2 && request.contains_key(PAGE_SIZE);
+    if !only_size_beside {
+        return (Value::Object(request), None);
+    }
+    request.remove(PAGE_SIZE);
+    let note = format!(
+        "`{PAGE_SIZE}` beside `cursor` was not applied: a cursor keeps the page size it was issued with; send {{\"cursor\":\"…\"}} alone, and `{PAGE_SIZE}` with queries in a new request."
+    );
+    (Value::Object(request), Some(note))
 }
 
 /// [`normalized_input`]'s value repairs of a shaped request.
@@ -91,9 +120,8 @@ fn shaped(id: ToolId, input: Value) -> Value {
         };
         request.insert("queries".to_owned(), queries);
     } else if request.contains_key("cursor") {
-        // A cursor call is the cursor alone; validation refuses any other
-        // field, the page size included (the cursor keeps the one it was
-        // issued with).
+        // A cursor call is the cursor alone ([`cursor_alone`] has dropped a
+        // page size sent beside it); validation refuses any other field.
         return Value::Object(request);
     } else {
         let (row, envelope): (Map<_, _>, Map<_, _>) = request

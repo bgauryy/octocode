@@ -172,9 +172,12 @@ fn unknown_field_message(
     // A known guess with more than one reading names its field (a guess with
     // one reading never gets here: it was read as that field).
     if issue.path.len() == 3
-        && let Some(meant) = crate::contracts::meant_field(tool_name, field)
+        && let Some((meant, takes)) = crate::contracts::meant_field(tool_name, field)
     {
-        return format!("Unknown field '{field}' in {query}; use '{meant}'.");
+        return match takes {
+            Some(takes) => format!("Unknown field '{field}' in {query}; use '{meant}': {takes}."),
+            None => format!("Unknown field '{field}' in {query}; use '{meant}'."),
+        };
     }
     if let Some(meant) = super::repair::closest(field, candidates) {
         return format!("Unknown field '{field}' in {query}; use '{meant}'.");

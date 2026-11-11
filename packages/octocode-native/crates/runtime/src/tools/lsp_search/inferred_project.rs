@@ -13,7 +13,7 @@
 //! a file does not verify the command or the server's indexed scope.
 
 use super::failure::flag_partial;
-use super::importers::{SCAN_CAPPED, SCAN_COMPLETE, SCAN_FAILED};
+use super::importers::{SCAN_CAPPED, SCAN_COMPLETE, SCAN_FAILED, SCAN_SKIPPED};
 use super::paths::anchor_dir;
 use super::scope::Scope;
 use crate::tools::lsp_search::lsp_search_query;
@@ -63,7 +63,8 @@ pub(super) fn annotate(
         .and_then(Value::as_str)
     {
         // A failed scan was flagged with its cause by `Importers::annotate`.
-        Some(SCAN_COMPLETE | SCAN_CAPPED | SCAN_FAILED) => return,
+        // A scan that skipped files says so itself (`disclose_ignored`).
+        Some(SCAN_COMPLETE | SCAN_CAPPED | SCAN_FAILED | SCAN_SKIPPED) => return,
         _ if typescript && typescript_project_dir(anchor_dir(Path::new(anchor_path))).is_none() => {
             (REASON, INFERRED_WARNING.to_owned())
         }

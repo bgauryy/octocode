@@ -25,14 +25,14 @@ impl Scope {
         // One walk reads the family and the markup beside it.
         let include = [self.include.as_slice(), self.markup.as_slice()].concat();
         let scanned = scan_text(&self.root, &include, symbol, policy, cancel).await?;
-        let (markup, files) = match scanned {
-            Some(found) => {
+        let (markup, files, listed) = match scanned {
+            Some((found, listed)) => {
                 let (markup, family) = found
                     .into_iter()
                     .partition(|file| !self.markup.is_empty() && paths::is_markup(file));
-                (markup, Some(Arc::new(family)))
+                (markup, Some(Arc::new(family)), Some(listed))
             }
-            None => (BTreeSet::new(), None),
+            None => (BTreeSet::new(), None, None),
         };
         *self
             .text
@@ -41,8 +41,43 @@ impl Scope {
             symbol: symbol.to_owned(),
             files: files.clone(),
             markup: Arc::new(markup),
+            listed,
         });
         Ok(files)
+    }
+
+    /// Files under the scope that spell `name` as a word (canonical paths),
+    /// for another name than the request's symbol (a relay's alias of it):
+    /// the same scan over the same listing as [`Self::text_files`], kept
+    /// nowhere, so the one kept scan stays the symbol's. `Ok(None)` when the
+    /// scan failed.
+    pub(in super::super) async fn files_spelling(
+        &self,
+        name: &str,
+        policy: &PathPolicy,
+        cancel: &dyn CancellationCheck,
+    ) -> Result<Option<BTreeSet<String>>, LspFailure> {
+        let include = [self.include.as_slice(), self.markup.as_slice()].concat();
+        let scanned = scan_text(&self.root, &include, name, policy, cancel).await?;
+        Ok(scanned.map(|(found, _)| {
+            found
+                .into_iter()
+                .filter(|file| self.markup.is_empty() || !paths::is_markup(file))
+                .collect()
+        }))
+    }
+
+    /// Every file this request's text scan of `symbol` listed under the
+    /// scope (canonical paths), whether or not it spells the name: what a
+    /// module specifier can resolve to. `None` before that scan, or when it
+    /// failed.
+    pub(in super::super) fn listed_files(&self, symbol: &str) -> Option<Arc<[PathBuf]>> {
+        self.text
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .filter(|scan| scan.symbol == symbol)
+            .and_then(|scan| scan.listed.clone())
     }
 
     /// The script-bearing markup files this request's text scan of `symbol`

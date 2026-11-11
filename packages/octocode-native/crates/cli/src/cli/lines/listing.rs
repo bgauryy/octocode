@@ -1,4 +1,5 @@
-use super::{Lines, hits, notes, value_lines};
+use super::hits::heading;
+use super::{annotation, hits, value_lines};
 use serde_json::{Map, Value};
 
 /// Whether `root` is `cwd`, the directory the command runs in.
@@ -8,101 +9,74 @@ pub(super) fn is_working_directory(root: &str, cwd: Option<&std::path::Path>) ->
         .is_some_and(|cwd| canonical(std::path::Path::new(root)) == Some(cwd))
 }
 
-/// The only row of a single-query result, unless it failed.
-pub(super) fn single_row(structured: &Value) -> Option<&Map<String, Value>> {
-    let results = structured.get("results")?.as_array()?;
-    let [row] = results.as_slice() else {
-        return None;
-    };
-    let row = row.as_object()?;
-    (row.get("status").and_then(Value::as_str) != Some("error")).then_some(row)
-}
-
-/// `structureSearch files` as fd prints it: one root-relative path per line,
-/// a directory's ending in `/`. A `details` entry's fields (every one the
-/// result carries, the size as `N B`) follow in `[ … ]`; a `paths` entry is
-/// its bare name, parsed for nothing, so a name spelling ` (…)` stays whole.
-/// The tree view keeps the rendered text.
-pub(super) fn listing(
-    structured: &Value,
-    query: &Value,
-    cwd: Option<&std::path::Path>,
-) -> Option<Lines> {
-    let asked = query["queries"].get(0).unwrap_or(query);
-    if asked["operation"].as_str() != Some("files") {
-        return None;
-    }
-    let detailed = asked["view"].as_str() != Some("paths");
-    let row = single_row(structured)?;
-    let data = row.get("data")?.as_object()?;
-    let mut out = Vec::new();
-    for group in data
-        .get("files")
-        .and_then(Value::as_array)
-        .map_or(&[][..], Vec::as_slice)
-    {
-        let dir = group.get("dir")?.as_str()?;
-        for entry in group.get("files")?.as_array()? {
-            let entry = entry.as_str()?;
-            let (name, fields) = if detailed {
-                entry_fields(entry)
-            } else {
-                (entry, Vec::new())
-            };
-            let path = if dir.is_empty() || dir == "." {
-                name.to_owned()
-            } else {
-                format!("{dir}/{name}")
-            };
-            let shown: Vec<String> = fields
-                .iter()
-                // The bare number is the size in bytes: say so.
-                .map(|field| {
-                    if field.bytes().all(|byte| byte.is_ascii_digit()) {
-                        format!("{field} B")
-                    } else {
-                        (*field).to_owned()
-                    }
-                })
-                .collect();
-            out.push(if shown.is_empty() {
-                path
-            } else {
-                format!("{path}  [{}]", shown.join(", "))
-            });
+/// A listing: each `dir/` once, its entries indented under it exactly as
+/// the result spells them, so a name is parsed for nothing. A group's other
+/// fields follow its `dir/` in `[ … ]`. `None` unless `files` is such groups
+/// (`{dir, files: [entry, …]}`), whichever tool lists them.
+pub(super) fn listing(data: &Map<String, Value>, out: &mut Vec<String>) -> Option<()> {
+    let groups = data.get("files")?.as_array()?;
+    let mut lines = Vec::new();
+    for group in groups {
+        let mut rest = group.as_object()?.clone();
+        let dir = rest.shift_remove("dir")?;
+        let dir = dir.as_str()?;
+        let Value::Array(entries) = rest.shift_remove("files")? else {
+            return None;
+        };
+        let mut head = match dir {
+            "" => "./".to_owned(),
+            dir if dir.ends_with('/') => dir.to_owned(),
+            dir => format!("{dir}/"),
+        };
+        if let Some(note) = annotation(&rest) {
+            head.push_str(&format!("  {note}"));
+        }
+        lines.push(head);
+        for entry in &entries {
+            let entry = entry.as_str().filter(|entry| !entry.contains('\n'))?;
+            lines.push(format!("  {entry}"));
         }
     }
-    Some(Lines {
-        out: out.join("\n"),
-        notes: notes(structured, query, row, data.clone(), Vec::new(), cwd),
-    })
-}
-
-/// A `details` entry's name and fields: the fields follow the last ` (` of
-/// an entry ending in `)` (sizes, `symlink`, line counts,
-/// `modified=<instant>`); they never spell ` (` themselves, whatever the
-/// name holds.
-pub(super) fn entry_fields(entry: &str) -> (&str, Vec<&str>) {
-    match entry
-        .strip_suffix(')')
-        .and_then(|head| head.rsplit_once(" ("))
-    {
-        Some((name, fields)) => (name, fields.split(", ").collect()),
-        None => (entry, Vec::new()),
+    if lines.is_empty() {
+        return None;
     }
+    out.append(&mut lines);
+    Some(())
 }
 
-/// `path:line: kind name` per declaration, members indented under their
-/// parent, as the outline nests them. Span, doc comments and other fields follow.
-/// A call row declared in another file (`path`, with `line` the
-/// declaration's) prints under that file, and each site under the row's.
-pub(super) fn declarations(
+/// The declarations of one file, as hits print: several, nested ones or a
+/// file with fields of its own under the path once (`line: kind name`), a
+/// lone declaration as `path:line: kind name`.
+pub(super) fn outline_rows(
     path: &str,
     symbols: &[Value],
-    nested: bool,
+    file_note: Option<&str>,
     out: &mut Vec<String>,
 ) -> Option<()> {
-    let indent = if nested { "  " } else { "" };
+    let nests = |symbol: &Value| {
+        symbol
+            .get("members")
+            .is_some_and(|members| !members.is_null())
+    };
+    let grouped = file_note.is_some() || symbols.len() != 1 || symbols.iter().any(nests);
+    if grouped {
+        heading(path, file_note, out);
+    }
+    declarations(path, symbols, "", grouped, out)
+}
+
+/// `line: kind name` per declaration under its file's heading (`grouped`),
+/// else `path:line: kind name`; members indented under their parent, as the
+/// outline nests them. Span, doc comments and other fields follow.
+/// A call row declared in another file (`path`, with `line` the
+/// declaration's) names that file on its line, and each site the row's.
+fn declarations(
+    path: &str,
+    symbols: &[Value],
+    indent: &str,
+    grouped: bool,
+    out: &mut Vec<String>,
+) -> Option<()> {
     for symbol in symbols {
         let mut symbol = symbol.as_object()?.clone();
         let line = symbol.shift_remove("line")?.as_u64()?;
@@ -126,7 +100,6 @@ pub(super) fn declarations(
             }
             None => None,
         };
-        let location = declared.as_deref().unwrap_or(path);
         let mut note = Vec::new();
         if let Some(end) = symbol.shift_remove("endLine").and_then(|end| end.as_u64()) {
             note.push(format!("{line}-{end}"));
@@ -164,13 +137,17 @@ pub(super) fn declarations(
         let name = name
             .as_str()
             .map_or_else(|| name.to_string(), str::to_owned);
-        let mut entry = format!("{location}:{line}: {indent}{kind} {name}");
+        let mut entry = match (&declared, grouped) {
+            (Some(declared), _) => format!("{declared}:{line}: {indent}{kind} {name}"),
+            (None, true) => format!("{line}: {indent}{kind} {name}"),
+            (None, false) => format!("{path}:{line}: {indent}{kind} {name}"),
+        };
         if !note.is_empty() {
             entry.push_str(&format!("  [{}]", note.join(" ")));
         }
         out.push(entry);
         if let Some(Value::Array(members)) = members {
-            declarations(path, &members, true, out)?;
+            declarations(path, &members, &format!("{indent}  "), grouped, out)?;
         }
     }
     Some(())
@@ -190,14 +167,16 @@ pub(super) fn site(value: &Value) -> Option<String> {
 /// `lspSearch` results in `data.matches`. A location (`definition`,
 /// `references` with context, …) prints its numbered `content` as hits:
 /// `path:N:text`, or `rg --heading` blocks when any spans lines (context or
-/// a declaration body). A body's omission marker is a file note. A symbol
-/// without content (`workspaceSymbol`) prints as a declaration.
+/// a declaration body). A body's omission marker is a mark for the trailer.
+/// A symbol without content (`workspaceSymbol`) prints as a declaration.
+/// Consecutive rows of one file share its heading.
 pub(super) fn locations(
     matches: &[Value],
     out: &mut Vec<String>,
-    notes: &mut Vec<String>,
+    marks: &mut Vec<String>,
 ) -> Option<()> {
-    let mut hits_by_path: Vec<(String, Vec<Value>)> = Vec::new();
+    // (path, whether the rows are hits, the rows)
+    let mut groups: Vec<(String, bool, Vec<Value>)> = Vec::new();
     for item in matches {
         let mut item = item.as_object()?.clone();
         let path = item.shift_remove("path")?.as_str()?.to_owned();
@@ -212,43 +191,53 @@ pub(super) fn locations(
         {
             entry.insert("endLine".into(), end.into());
         }
-        let Some(content) = item.shift_remove("content") else {
+        let is_hit = match item.shift_remove("content") {
+            Some(content) => {
+                let content = content.as_str()?.trim_end_matches('\n');
+                let value = match content.rsplit_once('\n') {
+                    Some((body, last)) if last.starts_with("… ") => {
+                        marks.push(format!("file {path}:{line}: {last}"));
+                        body
+                    }
+                    _ => content,
+                };
+                entry.insert("value".into(), value.into());
+                true
+            }
             // A symbol: `path:N: kind name  [column C …]`.
-            entry.insert("symbolName".into(), item.shift_remove("symbolName")?);
-            if let Some(kind) = item.shift_remove("kind") {
-                entry.insert("kind".into(), kind);
+            None => {
+                entry.insert("symbolName".into(), item.shift_remove("symbolName")?);
+                if let Some(kind) = item.shift_remove("kind") {
+                    entry.insert("kind".into(), kind);
+                }
+                false
             }
-            if let Some(column) = range.get("startCharacter") {
-                entry.insert("column".into(), column.clone());
-            }
-            entry.append(&mut item);
-            declarations(&path, &[Value::Object(entry)], false, out)?;
-            continue;
         };
-        let content = content.as_str()?.trim_end_matches('\n');
-        let value = match content.rsplit_once('\n') {
-            Some((body, last)) if last.starts_with("… ") => {
-                notes.push(format!("file {path}:{line}: {last}"));
-                body
-            }
-            _ => content,
-        };
-        entry.insert("value".into(), value.into());
         if let Some(column) = range.get("startCharacter") {
             entry.insert("column".into(), column.clone());
         }
         entry.append(&mut item);
-        match hits_by_path.last_mut() {
-            Some((last, group)) if *last == path => group.push(Value::Object(entry)),
-            _ => hits_by_path.push((path, vec![Value::Object(entry)])),
+        match groups.last_mut() {
+            Some((last, hit, group)) if *last == path && *hit == is_hit => {
+                group.push(Value::Object(entry));
+            }
+            _ => groups.push((path, is_hit, vec![Value::Object(entry)])),
         }
     }
-    let numbered = hits_by_path.iter().flat_map(|(_, group)| group).any(|hit| {
-        hit["value"]
-            .as_str()
-            .is_some_and(|value| value.contains('\n'))
-    });
-    for (path, mut group) in hits_by_path {
+    let numbered = groups
+        .iter()
+        .filter(|(_, is_hit, _)| *is_hit)
+        .flat_map(|(_, _, group)| group)
+        .any(|hit| {
+            hit["value"]
+                .as_str()
+                .is_some_and(|value| value.contains('\n'))
+        });
+    for (path, is_hit, mut group) in groups {
+        if !is_hit {
+            outline_rows(&path, &group, None, out)?;
+            continue;
+        }
         if !numbered {
             // One source line each: `N\ttext` becomes the hit's text.
             for hit in &mut group {
@@ -260,7 +249,7 @@ pub(super) fn locations(
                 hit["value"] = text.into();
             }
         }
-        hits(&path, &group, numbered, out)?;
+        hits(&path, &group, numbered, None, out)?;
     }
     Some(())
 }

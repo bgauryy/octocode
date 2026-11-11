@@ -2,23 +2,24 @@
 //! [`types::BuiltGraph`]; [`store`] projects it into a persisted snapshot
 //! (`graphBuild`) and answers questions from it (`graphQuery`).
 mod algorithms;
-mod aliases;
 mod build_scope;
 mod cargo;
 mod classify;
 mod edges;
 mod freshness;
 mod graph;
-mod js_paths;
 mod languages;
 mod limits;
 mod linking;
 mod packages;
-mod paths;
 mod progress;
 pub mod store;
 mod types;
 mod walk_scope;
+
+// The import resolution the graph links by: its modules are reached here by
+// the names the graph's own modules use.
+use crate::tools::import_resolution::{aliases, js_paths, paths};
 
 /// Bump when persisted linking semantics change without a binary format
 /// change: snapshots and extraction checkpoints of another version rebuild.
@@ -32,7 +33,14 @@ mod walk_scope;
 /// 28: a declared type's bare name reaches a merged global only when no scope
 /// binds it (not an import, not a name match in another module), and `window`
 /// is `globalThis.Window` whatever the file declares or imports.
-const ANALYSIS_VERSION: u32 = 28;
+/// 29: a Rust call whose whole qualifier is `self`, `super` or `crate` binds
+/// in the module the keyword names (its declarations and `use` bindings), and
+/// a `super`/`self` path resolves from its own module file without a scanned
+/// crate root.
+/// 30: a file's facts are stored as its source judged whole shows them: every
+/// value the whole-source secret pass replaces is replaced in the names and
+/// texts extracted from it.
+const ANALYSIS_VERSION: u32 = 30;
 
 /// graphBuild's and graphQuery's recovery for the shared response stages.
 pub(crate) struct Output;

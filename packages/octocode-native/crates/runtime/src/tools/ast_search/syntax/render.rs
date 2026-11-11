@@ -26,26 +26,28 @@ pub(super) fn render_tree_page(
             }
         })
         .collect::<Vec<_>>();
-    let codes = r
-        .diagnostics
-        .iter()
-        .map(|d| d.code.clone())
-        .collect::<Vec<_>>();
     // A walk's notes do not change between its pages: page 1 states them, and
     // a walk cut is stated where the listing stops (an error row keeps all).
     let first_page = ast_search_query_syntax_tree::page(q) == 1;
+    let stated = |code: &str| {
+        if is_walk_cut(code) {
+            !*more
+        } else {
+            first_page
+        }
+    };
+    // A diagnostic the row states as a partial reason is that reason alone,
+    // unless its recovery adds the repair.
     let diagnostics = r
         .diagnostics
         .iter()
-        .filter(|d| {
-            r.status == "error"
-                || if is_walk_cut(&d.code) {
-                    !*more
-                } else {
-                    first_page
-                }
-        })
         .map(|d| crate::tools::ast_rule::diagnostic_row(d, None))
+        .filter(|row| {
+            let code = row["code"].as_str().unwrap_or_default();
+            r.status == "error"
+                || (stated(code)
+                    && (partial_reason(code).is_none() || row.get("recovery").is_some()))
+        })
         .collect::<Vec<_>>();
     // A failed inspection is an error row that states its error once: the
     // declared code and message of the engine's first diagnostic. It has no
@@ -79,19 +81,34 @@ pub(super) fn render_tree_page(
     if !diagnostics.is_empty() {
         out["diagnostics"] = json!(diagnostics);
     }
-    if *more {
-        if let Some(lead) = crate::response::paging::next_page_call(
+    if *more
+        && let Some(lead) = crate::response::paging::next_page_call(
             ToolId::AstSearch,
             crate::response::result::query_row(q, &[]),
             "page",
             saturating_usize(page) + 1,
             &[("snapshot", json!(snapshot))],
-        ) {
-            out["calls"] = json!({ "nextPage": lead });
-        }
-    } else if r.status == "partial" {
-        for reason in walk_cuts(&codes) {
-            crate::response::paging::terminal_limit(&mut out, reason, &[]);
+        )
+    {
+        out["calls"] = json!({ "nextPage": lead });
+    }
+    if r.status == "partial" {
+        use crate::response::paging::{mark_partial, terminal_limit};
+        for (code, reason) in r
+            .diagnostics
+            .iter()
+            .filter_map(|d| Some((d.code.as_str(), partial_reason(&d.code)?)))
+        {
+            // A cut ends the listing where no page continues it. Any other
+            // reason describes a walk that finished: page 1 states it, and so
+            // does the last page, which no next page explains.
+            if is_walk_cut(code) {
+                if !*more {
+                    terminal_limit(&mut out, reason, &[]);
+                }
+            } else if first_page || !*more {
+                mark_partial(&mut out, reason, &[]);
+            }
         }
     }
     out
@@ -102,19 +119,16 @@ fn is_walk_cut(code: &str) -> bool {
     code.starts_with("syntaxTree.budget.")
 }
 
-/// The `partialReasons` of a partial walk, from its engine diagnostics: a
+/// The partial reason an engine diagnostic of a partial walk states: a
 /// recovered parse or the walk deadline, the only two causes the engine
 /// marks a walk partial for.
-fn walk_cuts(codes: &[String]) -> Vec<crate::response::paging::PartialReason> {
+fn partial_reason(code: &str) -> Option<crate::response::paging::PartialReason> {
     use crate::response::paging::PartialReason;
-    codes
-        .iter()
-        .filter_map(|code| match code.as_str() {
-            "syntaxTree.parse.recovered" => Some(PartialReason::ParseRecovered),
-            "syntaxTree.budget.deadline" => Some(PartialReason::Deadline),
-            _ => None,
-        })
-        .collect()
+    match code {
+        "syntaxTree.parse.recovered" => Some(PartialReason::ParseRecovered),
+        "syntaxTree.budget.deadline" => Some(PartialReason::Deadline),
+        _ => None,
+    }
 }
 
 /// One node's line alone: what a row is unless provenance was asked for.

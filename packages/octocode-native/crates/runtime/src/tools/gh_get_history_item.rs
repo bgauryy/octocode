@@ -238,9 +238,27 @@ pub async fn execute(
     if let Some(matcher) = &query.matcher {
         matcher.result()?;
     }
+    // The item's leads were built as it was fetched, under the name the
+    // query gave: a repository renamed since is named as it is now, on the
+    // row and in each of them.
+    let asked = (
+        gh_get_history_item_query::owner(query),
+        gh_get_history_item_query::repo(query),
+    );
+    let renamed = crate::tools::gh_shared::name_canonically(
+        provider,
+        &mut output.data,
+        asked.0,
+        asked.1,
+        context,
+    )
+    .await?;
+    let (owner, repo) = renamed
+        .as_ref()
+        .map_or(asked, |(owner, repo)| (owner.as_str(), repo.as_str()));
     let identify = |row: &mut Value| {
-        row["owner"] = Value::from(gh_get_history_item_query::owner(query));
-        row["repo"] = Value::from(gh_get_history_item_query::repo(query));
+        row["owner"] = Value::from(owner);
+        row["repo"] = Value::from(repo);
     };
     let collection = match gh_get_history_item_query::operation(query) {
         ItemOperation::PullRequest => Some("pullRequests"),

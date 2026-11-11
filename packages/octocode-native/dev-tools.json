@@ -47,12 +47,7 @@
         "package": "octocode-io",
         "miriflags": "-Zmiri-many-seeds=0..8",
         "exact": [
-          "flight::tests::blocking_turns_share_one_slot_across_threads",
-          "flight::tests::blocking_turns_work_on_threads_inside_a_runtime",
-          "flight::tests::a_blocking_turn_on_a_thread_with_a_spent_coop_budget_still_comes",
-          "flight::tests::concurrent_last_drops_never_leak_a_transient_key_into_the_next_wave",
-          "flight::tests::a_blocking_waiter_stops_on_its_own_check_while_the_holder_works",
-          "flight::tests::memoized_blocking_computes_once_and_reads_the_memo_after"
+          "flight::tests::concurrent_last_drops_never_leak_a_transient_key_into_the_next_wave"
         ]
       },
       {

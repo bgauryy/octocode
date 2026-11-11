@@ -76,14 +76,47 @@ describe('canonical CLI and MCP discovery', () => {
   it('keeps every operation discoverable with its own admission constraints', () => {
     for (const definition of DIRECT_TOOL_DEFINITIONS) {
       const views = at(tool(definition.name), 'selections');
-      expect(Object.keys(views).sort()).toEqual(Object.keys(operationRows(definition)).map(operation => `operation=${operation}`).sort());
-      for (const [operation, row] of Object.entries(operationRows(definition))) {
+      const rows = operationRows(definition, false);
+      expect(Object.keys(views).filter(key => !key.includes(',')).sort()).toEqual(Object.keys(rows).map(operation => `operation=${operation}`).sort());
+      for (const [operation, row] of Object.entries(rows)) {
         const validate = ajv.compile(at(views, `operation=${operation}`, 'querySchema'));
-        for (const variant of toolVariants(definition).filter(form => form.operations.includes(operation))) {
+        for (const variant of toolVariants(definition, false).filter(form => form.operations.includes(operation))) {
           const query = { ...variant.example, operation };
           expect(validate(query), JSON.stringify(validate.errors)).toBe(row.safeParse(query).success);
           expect(validate({ ...query, unknownField: true })).toBe(false);
         }
+      }
+    }
+  });
+
+  it('narrows an operation again by the second field that tells its forms apart', () => {
+    const second = tools.flatMap(entry =>
+      Object.keys(at(entry, 'selections'))
+        .filter(key => key.includes(','))
+        .map(key => ({ name: String(entry.name), key, pairs: key.split(',').map(pair => pair.split('=')) }))
+    );
+    expect(second.map(({ name, key }) => `${name} ${key}`)).toEqual(
+      expect.arrayContaining(['astSearch operation=match,view=content', 'artifactSearch operation=resolve,ecosystem=npm'])
+    );
+    for (const { name, key, pairs } of second) {
+      const definition = DIRECT_TOOL_DEFINITIONS.find(entry => entry.name === name);
+      if (!definition) throw new Error(`No tool: ${name}`);
+      const [[, operation = ''] = [], [field = '', value = ''] = []] = pairs;
+      const views = at(tool(name), 'selections');
+      const narrowed = at(views, key, 'querySchema');
+      // The narrowed view fixes both values and is never larger than the operation's own view.
+      expect(at(narrowed, 'properties', field).enum, `${name} ${key}`).toEqual([value]);
+      expect(JSON.stringify(narrowed).length, `${name} ${key}`).toBeLessThanOrEqual(
+        JSON.stringify(at(views, `operation=${operation}`, 'querySchema')).length
+      );
+      const validate = ajv.compile(narrowed);
+      const row = operationRows(definition, false)[operation];
+      for (const variant of toolVariants(definition, false).filter(form => form.operations.includes(operation))) {
+        const query: Record<string, unknown> = { ...variant.example, operation };
+        if (query[field] === undefined) continue;
+        expect(validate(query), `${name} ${key}: ${JSON.stringify(query)}`).toBe(
+          query[field] === value && row?.safeParse(query).success === true
+        );
       }
     }
   });

@@ -49,7 +49,14 @@ impl WhitespaceOnly {
 pub struct CompactView {
     pub lines: Vec<KeptLine>,
     pub whitespace_only: Option<WhitespaceOnly>,
+    /// The source is a document that stays as it is: `lines` are its lines,
+    /// byte for byte, so the view is no smaller by design, not by content.
+    pub as_is: bool,
 }
+
+/// Why a compact read of a document that stays as it is serves its content
+/// ([`CompactView::as_is`]), as the readers report it.
+pub const AS_IS_REASON: &str = "as-is-format";
 
 /// How a source is laid out: where its comments and literals are, as byte
 /// offsets. It holds none of the source's text, so it can be kept for the
@@ -104,14 +111,17 @@ pub fn compact_view(content: &str, lexing: &Lexing) -> CompactView {
         Layout::AsIs => CompactView {
             lines: as_is(content),
             whitespace_only: None,
+            as_is: true,
         },
         Layout::WhitespaceOnly(reason) => CompactView {
             lines: whitespace_only(content),
             whitespace_only: Some(*reason),
+            as_is: false,
         },
         Layout::Grammar(regions, indent, spacing) => CompactView {
             lines: lay_out(content, regions, *indent, *spacing),
             whitespace_only: None,
+            as_is: false,
         },
     }
 }

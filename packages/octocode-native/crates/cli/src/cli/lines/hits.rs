@@ -21,6 +21,24 @@ pub(super) fn value_lines(value: &str, line: u64, numbered: bool) -> Option<Vec<
     lines.iter().any(|(n, _)| *n == line).then_some(lines)
 }
 
+/// Fields a line does not show, as its `[ … ]` note; `None` when there are
+/// none.
+pub(super) fn annotation(fields: &Map<String, Value>) -> Option<String> {
+    (!fields.is_empty()).then(|| format!("[{}]", words(fields)))
+}
+
+/// A file's heading: its path once, its own fields (`file_note`) after it,
+/// a blank line before it unless it opens the output.
+pub(super) fn heading(path: &str, file_note: Option<&str>, out: &mut Vec<String>) {
+    if !out.is_empty() {
+        out.push(String::new());
+    }
+    out.push(match file_note {
+        Some(note) => format!("{path}  {note}"),
+        None => path.to_owned(),
+    });
+}
+
 /// The hit lines of one file. Hit lines are `matchedLines` when present,
 /// else `line..=endLine`; the rest are context. Fields the line does not
 /// show follow the first hit line in `[ … ]`.
@@ -28,17 +46,15 @@ pub(super) fn hits(
     path: &str,
     matches: &[Value],
     numbered: bool,
+    file_note: Option<&str>,
     out: &mut Vec<String>,
 ) -> Option<()> {
-    // With context or several hits, as `rg --heading`: the path once, then
-    // `N:text` hits and `N-text` context, a blank line between files. One hit
-    // stays one `path:N:text` line.
-    let heading = numbered || matches.len() > 1;
+    // With context, several hits or fields of its own, as `rg --heading`:
+    // the path once, then `N:text` hits and `N-text` context, a blank line
+    // between files. One hit stays one `path:N:text` line.
+    let heading = numbered || matches.len() != 1 || file_note.is_some();
     if heading {
-        if !out.is_empty() {
-            out.push(String::new());
-        }
-        out.push(path.to_owned());
+        self::heading(path, file_note, out);
     }
     let mut last_line: Option<u64> = None;
     let mut last_owner: Option<String> = None;

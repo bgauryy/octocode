@@ -379,3 +379,56 @@ async fn default_excludes_false_walks_dependency_directories() {
     assert!(names(&tree).contains("index.js"), "{}", names(&tree));
     runtime.close().await;
 }
+
+/// Every `skippedPaths` entry is spelled from the workspace root, whatever
+/// cause skipped it and whichever directory the walk listed: a directory
+/// holding withheld entries reads like the hidden and pruned paths beside it.
+#[tokio::test]
+async fn skipped_paths_of_a_nested_walk_are_spelled_from_the_workspace_root() {
+    let workspace = Workspace::new();
+    workspace.write("pkg/src/app.rs", "fn needle() {}\n");
+    workspace.write("pkg/deploy/.env", "A=1\n");
+    workspace.write("pkg/deploy/notes.txt", "needle\n");
+    workspace.write("pkg/.cache/kept.txt", "needle\n");
+    workspace.write("pkg/node_modules/dep/index.js", "function needle() {}\n");
+    let runtime = workspace.runtime(&[]);
+    let scope = workspace.workspace.join("pkg");
+    for (tool, query, expected) in [
+        (
+            "structureSearch",
+            json!({"operation":"files","path":scope,"includeHidden":true,"maxDepth":5}),
+            vec![("withheld", "pkg/deploy")],
+        ),
+        // Entries of one cause share a row: its first path and a count.
+        (
+            "structureSearch",
+            json!({"operation":"tree","path":scope,"maxDepth":5}),
+            vec![],
+        ),
+        (
+            "localSearch",
+            json!({"path":scope,"matchString":["needle"],"includeHidden":true}),
+            vec![("withheld", "pkg/deploy")],
+        ),
+    ] {
+        let outcome = call(&runtime, tool, query).await.expect("walk");
+        let entries = row_data(&outcome)["skippedPaths"]["entries"]
+            .as_array()
+            .cloned()
+            .unwrap_or_else(|| panic!("{tool}: no skippedPaths: {:?}", row_data(&outcome)));
+        assert!(!entries.is_empty(), "{tool}: {:?}", row_data(&outcome));
+        for (cause, path) in expected {
+            assert!(
+                entries
+                    .iter()
+                    .any(|entry| entry["cause"] == cause && entry["path"] == path),
+                "{tool}: no {cause} entry at {path}: {entries:?}"
+            );
+        }
+        for entry in &entries {
+            let path = entry["path"].as_str().expect("path");
+            assert!(path == "pkg" || path.starts_with("pkg/"), "{tool}: {entry}");
+        }
+    }
+    runtime.close().await;
+}

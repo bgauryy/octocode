@@ -53,6 +53,7 @@ mod markup;
 mod occurrences;
 mod reach;
 mod search;
+mod sites;
 pub(super) use binding::{Binding, binding, identities};
 pub(super) use freshen::{Freshened, freshen_index};
 use index_proof::verify_by_references;
@@ -60,12 +61,14 @@ pub(super) use index_proof::{IndexWindow, SiteProof, index_window};
 pub(super) use markup::flag_markup_importers;
 use occurrences::*;
 pub(super) use occurrences::{CONCURRENT_FILE_VERIFICATIONS, ordered_concurrently};
-use reach::{AnchorModule, read_checked, split_reachable};
+use reach::{AnchorModule, read_checked, renamed_exports, split_bound, split_reachable};
 #[cfg(test)]
 use search::check_imports;
 pub(super) use search::{
-    ImporterSearch, SCAN_CAPPED, SCAN_COMPLETE, SCAN_FAILED, imports_name, verified_anchors,
+    ImporterSearch, SCAN_CAPPED, SCAN_COMPLETE, SCAN_FAILED, SCAN_SKIPPED, imports_name,
+    verified_anchors,
 };
+pub(super) use sites::line_bindings;
 /// Candidate files opened and verified per request: one importer window.
 pub(super) const MAX_CANDIDATE_FILES: usize = 24;
 /// Windows one request may verify. A window that holds no verified
@@ -83,14 +86,14 @@ const DIGEST_PREFIX: &str = "lsp-imp:";
 /// Partial reason of a window that leaves later windows unverified.
 pub(super) const CAPPED_REASON: crate::response::paging::PartialReason =
     crate::response::paging::PartialReason::ImporterScanCapped;
-/// Partial reason of a scan whose ignore rules hid files that import the
-/// name, or that spell it and could not be checked for an import.
+/// Partial reason of a scan whose ignore rules or hidden directories hid
+/// files that import the name, or that spell it and could not be checked for an import.
 pub(super) const IGNORED_REASON: crate::response::paging::PartialReason =
     crate::response::paging::PartialReason::ImporterScanIgnored;
 /// The note of an ignored-file scan that did not finish before reaching any
 /// evidence (its index not ready or incomplete): it reads the same on every
 /// row of the scope, and says how to read those files.
-const IGNORED_UNFINISHED_NOTICE: &str = "The scan for gitignored files that spell this name did not finish, so importers among them are unverified; a localSearch with includeIgnored reads them.";
+const IGNORED_UNFINISHED_NOTICE: &str = "The scan for gitignored or hidden files that spell this name did not finish, so importers among them are unverified; a localSearch with includeIgnored and includeHidden reads them.";
 /// Settle/ready bounds for the last candidate open of a window; the load it
 /// triggers covers every candidate opened before it. Shorter than a
 /// request's anchor open (the server already loaded the anchor's project),
@@ -144,8 +147,9 @@ pub(super) struct Importers {
     pub(super) rejected: Vec<String>,
     /// Candidates of this window the server could not resolve (a failed
     /// identity check, or a definition chain that never left the file while
-    /// the declaration lives elsewhere): neither verified nor rejected, so
-    /// they stay out of the answer and count as text-only files.
+    /// the declaration lives elsewhere) and whose module references may
+    /// bind the name from the anchor's module: neither verified nor
+    /// rejected, so they stay out of the answer and count as text-only files.
     pub(super) unverified: Vec<String>,
     /// Candidate sites whose name binds another declaration (a same-named
     /// binding of their own file, which shadows the anchor's): never a

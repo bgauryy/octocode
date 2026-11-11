@@ -34,12 +34,14 @@ use serde_json::{Value, json};
 use std::collections::HashSet;
 
 mod diagnostics;
+mod gaps;
 mod hierarchy;
 mod index_answer;
 mod lookups;
 mod references;
 use diagnostics::{RUST_MACRO_NOTE, anchor_diagnostics};
 pub(super) use diagnostics::{dedupe_diagnostics, diagnostic_items, disabled_macro_diagnostics};
+pub(super) use gaps::verify_answer_gaps;
 use lookups::*;
 
 /// Label for references found from a verified importer anchor.

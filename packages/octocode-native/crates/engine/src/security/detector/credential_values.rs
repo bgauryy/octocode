@@ -5,6 +5,7 @@ use std::sync::LazyLock;
 
 use super::PATTERNS;
 use super::key_facts::{KeyFacts, SpanKeys};
+use super::named_values::{is_opaque, spells_a_credential_word};
 use crate::security::patterns::CREDENTIAL_WORDS;
 
 /// Patterns that take any value assigned to a credential-named key, each
@@ -21,6 +22,14 @@ const CREDENTIAL_ASSIGNMENT_PATTERNS: &[(&str, ValueTest)] = &[
     ("sqlUserPassword", ValueTest::Field),
     ("xmlCredentialElement", ValueTest::Scalar),
     ("xmlCredentialAttribute", ValueTest::Field),
+    ("sqlDriverDsnPassword", ValueTest::Field),
+    ("passFileLine", ValueTest::Opaque),
+    ("discordSocialBotToken", ValueTest::Opaque),
+    ("signedUrlSignature", ValueTest::Opaque),
+    ("tokenInUrlUserinfo", ValueTest::Opaque),
+    ("urlQueryCredential", ValueTest::Written),
+    ("commandLinePassword", ValueTest::Written),
+    (super::named_values::PATTERN, ValueTest::Named),
 ];
 
 /// The quotes a literal opens with: the text before a quoted value ends in one.
@@ -51,7 +60,7 @@ pub(super) enum ValueTest {
     Quoted,
     /// The pattern applies only in a file class whose credential names hold
     /// credentials (the dotenv and properties class): a key with a credential segment
-    /// ([`file_class_key_names_a_credential`]) holds one whatever its value
+    /// ([`file_class_key`]) holds one whatever its value
     /// spells (`DB_PASS=CowSaysMoo`, `DB_PASS=/hunter2`), unless the value
     /// is readable there ([`file_class_value_is_readable`]).
     FileClass,
@@ -59,6 +68,19 @@ pub(super) enum ValueTest {
     /// every value is a credential except a placeholder the program fills in
     /// ([`is_template`]: `{value}`, `${PASS}`).
     Field,
+    /// The pattern's shape is a token's and a name's alike (dotted
+    /// base64url, a URL's userinfo): only an opaque value is a credential
+    /// ([`is_opaque`]).
+    Opaque,
+    /// A password written where a command or a URL takes one (`curl -u
+    /// user:…`, `?password=…`): a credential unless it is a reference or a
+    /// placeholder, or only a word ([`is_written_secret`]).
+    Written,
+    /// The pattern finds a name with a credential's word part in a loose
+    /// layout: [`super::named_values`] judges the name and walks its values.
+    /// Asked for one value, it is a credential when opaque and none the
+    /// key-name rules keep.
+    Named,
 }
 
 impl ValueTest {
@@ -125,6 +147,11 @@ impl ValueTest {
             // the quotes framing it are the string's, not the value's.
             Self::Field => !is_template(secret.trim().trim_matches(QUOTES)),
             Self::KeyName | Self::FileClass => assigns_a_credential(key, secret),
+            Self::Opaque => is_opaque(secret, OPAQUE_LITERAL_CHARS),
+            Self::Written => is_written_secret(secret),
+            Self::Named => {
+                is_opaque(secret, OPAQUE_LITERAL_CHARS) && assigns_a_credential(key, secret)
+            }
             Self::Scalar => {
                 assigns_a_credential(key, secret)
                     && !is_non_string_scalar(secret)
@@ -133,6 +160,11 @@ impl ValueTest {
             }
             Self::Quoted => {
                 let value = joined_pieces(secret);
+                if (!key.names_a_credential() && is_label(&value, true))
+                    || is_template_of_names(&value)
+                {
+                    return false;
+                }
                 if holds_interpolation(key, &value) {
                     return holds_opaque_literal(key, &value);
                 }
@@ -333,7 +365,9 @@ pub(super) static VALUE_TESTS: LazyLock<Vec<ValueTest>> = LazyLock::new(|| {
 /// ([`is_key_path`]) or a versioned name ([`is_versioned_name`]).
 fn assigns_a_credential(key: &impl KeyFacts, secret: &str) -> bool {
     let secret = without_control_frame(secret);
-    !names_a_location(key, secret)
+    !key.names_a_published_value()
+        && !(key.describes_a_credential() && !is_described_credential(secret))
+        && !names_a_location(key, secret)
         && !is_identifier_name(secret)
         && !is_fill_in(key, secret)
         && !is_code_expression(key, secret)
@@ -345,9 +379,190 @@ fn assigns_a_credential(key: &impl KeyFacts, secret: &str) -> bool {
         && !(is_constant_name(secret) && !key.names_a_chosen_credential())
         && !is_armor_line(secret)
         && !is_timestamp(secret)
-        && !(is_word_label(secret) && !key.names_a_chosen_credential())
-        && !((is_key_path(secret) || is_namespaced_name(secret))
-            && !key.names_a_chosen_credential())
+        && !(is_label(secret, false) && !key.names_a_chosen_credential())
+        && !(is_command(secret) && !key.names_a_chosen_credential())
+        && !is_version_specifier(secret)
+        && !((is_key_path(secret) || is_namespaced_name(secret) || is_reference(secret))
+            && (!key.names_a_chosen_credential() || spells_a_credential_word(secret)))
+}
+
+/// Whether `secret`, under a name that describes or identifies a credential
+/// ([`KeyFacts::describes_a_credential`]: `secretName`, `tokenHeader`,
+/// `kmsKeyId`), is one all the same: a word of it is opaque ([`is_opaque`]),
+/// and it is no UUID, the shape of an id. A description (`X-Api-Key`, a
+/// resource's path, an algorithm) is words; a credential pasted under such a
+/// name (`tokenHeader = "Bearer Zq7x…"`) is not.
+fn is_described_credential(secret: &str) -> bool {
+    !is_uuid(secret)
+        && secret
+            .split_whitespace()
+            .any(|word| is_opaque(word.trim_matches(QUOTES), OPAQUE_LITERAL_CHARS))
+}
+
+/// Whether `text` is a UUID: hex digits in groups of 8, 4, 4, 4 and 12.
+fn is_uuid(text: &str) -> bool {
+    let mut groups = text.split('-');
+    [8, 4, 4, 4, 12].into_iter().all(|len| {
+        groups
+            .next()
+            .is_some_and(|group| group.len() == len && group.bytes().all(|b| b.is_ascii_hexdigit()))
+    }) && groups.next().is_none()
+}
+
+/// Digits of a number a reference holds as one of its words (an account, a
+/// port, a year): a longer run of digits is a code.
+const REFERENCE_NUMBER_DIGITS: usize = 12;
+
+/// Whether `secret` says where a thing is kept or how it is addressed, and
+/// is none itself: a resource's path (`projects/demo/secrets/db/versions/latest`),
+/// a scheme and a path (`vault:secret/data/app#token`,
+/// `arn:aws:kms:us-east-1:123456789012:key/<uuid>`, `github:acme/lib#v2`),
+/// or a templated key (`user:profile:{id}:settings`). Its segments, between
+/// `/` and `:` and after one `#`, are two or more, each words
+/// ([`is_reference_label`]) or a placeholder ([`is_template`]) and not all
+/// placeholders, and it holds a `/`, a placeholder or three segments: two
+/// words about one colon are a pair (`admin:opensesame`), a name and its
+/// credential. Base64 holds `/` too, but its pieces mix case and digits into
+/// no word. A person may choose a password of words so joined, so a key
+/// naming a chosen credential keeps one that names no credential
+/// ([`assigns_a_credential`]).
+fn is_reference(secret: &str) -> bool {
+    let (body, fragment) = match secret.rsplit_once('#') {
+        Some((body, fragment)) => (body, Some(fragment)),
+        None => (secret, None),
+    };
+    if fragment.is_some_and(|fragment| !is_reference_label(fragment)) {
+        return false;
+    }
+    let (mut segments, mut holes) = (0_usize, 0_usize);
+    let known = body.split(['/', ':']).all(|segment| {
+        segments += 1;
+        let hole = is_template(segment);
+        holes += usize::from(hole);
+        hole || is_reference_label(segment)
+    });
+    known && segments >= 2 && holes < segments && (body.contains('/') || holes > 0 || segments >= 3)
+}
+
+/// One segment of [`is_reference`]: a relative step (`.`, `..`), a UUID, or
+/// words joined by `-`, `_`, `.` or `@` (`db-password`, `us-east-1`,
+/// `@acme`, `token-lib@1.2.3`), each a word written as one is (lower, UPPER
+/// or Capitalized: [`is_plain_word`]), a camelCase name, a number of at most
+/// [`REFERENCE_NUMBER_DIGITS`] digits, or a version (`v2`).
+fn is_reference_label(segment: &str) -> bool {
+    if matches!(segment, "." | "..") || is_uuid(segment) {
+        return true;
+    }
+    let is_number = |word: &str| {
+        (1..=REFERENCE_NUMBER_DIGITS).contains(&word.len())
+            && word.bytes().all(|byte| byte.is_ascii_digit())
+    };
+    let written_as_a_word = |word: &str| {
+        word.bytes().skip(1).all(|byte| byte.is_ascii_lowercase())
+            || word.bytes().all(|byte| byte.is_ascii_uppercase())
+    };
+    let segment = segment.strip_prefix('@').unwrap_or(segment);
+    !segment.is_empty()
+        && segment.split(['-', '_', '.', '@']).all(|word| {
+            is_number(word)
+                || word.strip_prefix('v').is_some_and(is_number)
+                || (is_plain_word(word) && written_as_a_word(word))
+                || is_identifier_name(word)
+        })
+}
+
+/// Whether `secret` is a version a manifest asks for: a range
+/// (`^1.2.3`, `>=1.0.0 <2.0.0`, `~2.1 || ^3.0.0`), or after a protocol
+/// (`npm:3.1127.0`, `workspace:^`, `workspace:*`) a range, a bare version or
+/// a bare operator. A package named for what it handles
+/// (`"token-providers": "npm:3.1127.0"`) holds none of it. Without a
+/// protocol or an operator digits and dots are any number (`12.34.56`).
+fn is_version_specifier(secret: &str) -> bool {
+    let operators: &[char] = &['^', '~', '>', '<', '='];
+    let version = |text: &str| {
+        let (core, tag) = match text.split_once(['-', '+']) {
+            Some((core, tag)) => (core, Some(tag)),
+            None => (text, None),
+        };
+        let core = core.strip_prefix('v').unwrap_or(core);
+        let mut parts = 0;
+        core.split('.').all(|part| {
+            parts += 1;
+            matches!(part, "x" | "X" | "*")
+                || (!part.is_empty()
+                    && part.len() <= REFERENCE_NUMBER_DIGITS
+                    && part.bytes().all(|byte| byte.is_ascii_digit()))
+        }) && parts <= 3
+            && tag.is_none_or(|tag| {
+                !tag.is_empty()
+                    && tag.len() < OPAQUE_LITERAL_CHARS
+                    && tag
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-'))
+            })
+    };
+    let range = |text: &str, bare: bool| {
+        let mut comparators = text
+            .split(|c: char| c.is_whitespace() || c == '|')
+            .filter(|comparator| !comparator.is_empty())
+            .peekable();
+        comparators.peek().is_some()
+            && comparators.all(|comparator| {
+                let asked = comparator.trim_start_matches(operators);
+                let operated = asked.len() < comparator.len();
+                (operated || bare) && ((asked.is_empty() && bare) || version(asked))
+            })
+    };
+    match secret.split_once(':') {
+        Some((protocol, asked)) => {
+            (2..OPAQUE_LITERAL_CHARS).contains(&protocol.len())
+                && protocol
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte == b'+')
+                && range(asked, true)
+        }
+        None => range(secret, false),
+    }
+}
+
+/// Whether `secret` is a command line (`node scripts/mint-token.js --dry`,
+/// a manifest's script named for what it makes): a program's name, then
+/// arguments, each an option (`--dry`, `-o`, `--out=dist`), a file's path of
+/// words ([`is_path_locator`], or segments of [`is_reference_label`] ending
+/// in a file name's extension) or a word, an option or a path among them. A
+/// phrase a person chose may read so, so a key naming a chosen credential
+/// keeps it ([`assigns_a_credential`]).
+fn is_command(secret: &str) -> bool {
+    let path = |piece: &str| {
+        is_path_locator(piece)
+            || (piece.contains('/')
+                && has_file_extension(piece)
+                && piece.split('/').all(is_reference_label))
+    };
+    let flag = |piece: &str| {
+        let Some(name) = piece.strip_prefix('-') else {
+            return false;
+        };
+        let name = name.strip_prefix('-').unwrap_or(name);
+        let (name, value) = match name.split_once('=') {
+            Some((name, value)) => (name, Some(value)),
+            None => (name, None),
+        };
+        is_label(name, true)
+            || (is_plain_word(name)
+                && value.is_none_or(|value| is_reference_label(value) || path(value)))
+    };
+    let mut pieces = secret.split_whitespace();
+    let (mut marked, mut count) = (false, 0_usize);
+    pieces.next().is_some_and(is_reference_label)
+        && pieces.all(|piece| {
+            count += 1;
+            let mark = flag(piece) || path(piece);
+            marked |= mark;
+            mark || is_reference_label(piece)
+        })
+        && marked
+        && count >= 1
 }
 
 /// Whether `secret` is a placeholder a person fills in: plain words
@@ -601,14 +816,20 @@ fn is_timestamp(secret: &str) -> bool {
 /// value names something; a chosen password may be words so joined, so a key
 /// naming one keeps it. A label that names what it is (`unrelated-secret`,
 /// `deploy-bot-token`) is how a person spells a static credential.
-fn is_word_label(secret: &str) -> bool {
+///
+/// With `any_word`, a credential word counts as any other: where the key
+/// itself names no credential ([`KeyFacts::names_a_credential`]: an
+/// attribute beside one, `type="password" name="current-password"`), such
+/// a label is a keyword of the format, not a value.
+fn is_label(secret: &str, any_word: bool) -> bool {
     secret.split(['-', '_']).count() >= 2
         && secret.split(['-', '_']).all(|word| {
             word.bytes().all(|b| b.is_ascii_lowercase())
                 && pronounceable_word(word.as_bytes())
-                && !CREDENTIAL_WORDS
-                    .split('|')
-                    .any(|credential| credential == word)
+                && (any_word
+                    || !CREDENTIAL_WORDS
+                        .split('|')
+                        .any(|credential| credential == word))
         })
 }
 
@@ -808,7 +1029,10 @@ fn is_setting_value(secret: &str) -> bool {
 /// single-quoted value is a literal, and `${NAME:default}` holds a default
 /// that may be the secret), the tool's own redaction marker, or
 /// a value whose key or option names a location (`TOKEN_FILE=/run/token`,
-/// `--token-file=/x`). A path is no locator by its shape alone, and a
+/// `--token-file=/x`), or a path or reference of names under a key that
+/// describes a credential (`SECRET_NAME=prod/app/database`,
+/// `KEY_ID=arn:aws:kms:…`: [`is_reference`]); any other value there stays
+/// one, as the file class holds (`MONKEY_NAME=CowSaysMoo`). A path is no locator by its shape alone, and a
 /// bracketed value is no placeholder: either may be a password.
 fn file_class_value_is_readable(key: &str, secret: &str) -> bool {
     let value = secret.trim();
@@ -823,6 +1047,8 @@ fn file_class_value_is_readable(key: &str, secret: &str) -> bool {
     value.is_empty()
         || matches!(value, "(" | "[" | "{")
         || reference
+        || (super::named_values::describes_a_credential(key_name(key))
+            && (is_namespaced_name(value) || is_reference(value) || is_key_path(value)))
         || is_redaction_marker(value)
         || is_type_expression(value)
         || names_a_locator(key)
@@ -965,7 +1191,7 @@ pub(super) const CHOSEN_CREDENTIAL_WORDS: &[&str] = &["secret", "password", "pas
 
 /// Characters of a quoted literal that is a credential under any credential
 /// word (`key`, `token`): shorter ones there are names and test strings.
-const OPAQUE_LITERAL_CHARS: usize = 16;
+pub(super) const OPAQUE_LITERAL_CHARS: usize = 16;
 
 /// Characters of a quoted literal's source text, an escape (`\\` and the
 /// character after it) counting as one.
@@ -1035,8 +1261,8 @@ fn joined_pieces(secret: &str) -> String {
     while let Some(at) = rest.find(QUOTES) {
         value.push_str(&rest[..at]);
         let after = &rest[at + 1..];
-        let seam = after.trim_start();
-        let next = seam.strip_prefix('+').map_or(seam, str::trim_start);
+        let seam = after_code_gap(after);
+        let next = seam.strip_prefix('+').map_or(seam, after_code_gap);
         match next.strip_prefix(QUOTES) {
             Some(piece) => rest = piece,
             None => {
@@ -1049,6 +1275,27 @@ fn joined_pieces(secret: &str) -> String {
     value
 }
 
+/// `text` after the blanks, line breaks and comments it starts with (`/* …
+/// */`, and `// …` or `# …` to the end of its line): what source code may
+/// write between the pieces of one literal.
+fn after_code_gap(text: &str) -> &str {
+    let mut rest = text;
+    loop {
+        let trimmed = rest.trim_start();
+        let after = if let Some(body) = trimmed.strip_prefix("/*") {
+            body.split_once("*/").map(|(_, after)| after)
+        } else if trimmed.starts_with("//") || trimmed.starts_with('#') {
+            trimmed.split_once(['\n', '\r']).map(|(_, after)| after)
+        } else {
+            None
+        };
+        match after {
+            Some(after) => rest = after,
+            None => return trimmed,
+        }
+    }
+}
+
 /// Whether a quoted literal shorter than [`OPAQUE_LITERAL_CHARS`] is a
 /// secret a person chose (D6 round 4): its key names one
 /// ([`CHOSEN_CREDENTIAL_WORDS`]), and the value has no whitespace, holds a
@@ -1059,6 +1306,21 @@ fn is_chosen_secret(key: &impl KeyFacts, secret: &str) -> bool {
         && !is_template(secret)
         && !secret.contains(char::is_whitespace)
         && secret
+            .chars()
+            .any(|c| c.is_ascii_digit() || !(c.is_alphanumeric() || matches!(c, '_' | '.' | '-')))
+}
+
+/// Whether `secret`, written where a command or a URL takes a password, is
+/// one: no reference to a variable (`$PASS`, `%PASS%`, `:param`), no
+/// placeholder ([`is_template`], or one holding a hole), no option, and it
+/// holds a digit or a symbol, as a chosen secret does ([`is_chosen_secret`]:
+/// a word of letters is the one deliberate miss).
+fn is_written_secret(secret: &str) -> bool {
+    let value = secret.trim_matches(QUOTES);
+    !is_template(value)
+        && !value.starts_with(['$', '%', ':', '-'])
+        && !["${", "{{", "$("].iter().any(|hole| value.contains(hole))
+        && value
             .chars()
             .any(|c| c.is_ascii_digit() || !(c.is_alphanumeric() || matches!(c, '_' | '.' | '-')))
 }
@@ -1078,6 +1340,54 @@ fn is_template(secret: &str) -> bool {
             })
 }
 
+/// Whether `secret` is a placeholder a template engine fills in, naming
+/// what it reads (`{{ vault_token }}`, `${secrets.DB_PASSWORD}`,
+/// `{% include "token" %}`): a template ([`is_template`]) in braces whose
+/// text is names, each a word, a camelCase name or a number, with the marks
+/// an expression puts between them. A value pasted into the braces
+/// (`{{Zq7x…}}`) is no name.
+fn is_template_of_names(secret: &str) -> bool {
+    let secret = secret.trim();
+    secret.contains(['{', '}'])
+        && is_template(secret)
+        && secret
+            .split(|c: char| !c.is_ascii_alphanumeric())
+            .filter(|word| !word.is_empty())
+            .all(|word| {
+                is_plain_word(word)
+                    || is_identifier_name(word)
+                    || (word.len() <= REFERENCE_NUMBER_DIGITS
+                        && word.bytes().all(|byte| byte.is_ascii_digit()))
+            })
+}
+
+/// Where the value of the literal at `secret` in `text` ends when its last
+/// piece is no piece of it: a quoted name on a line of its own with a colon
+/// after it is the next entry's key (a lockfile's
+/// `"a": "npm:1.0.0"⏎"b": "npm:2.0.0"`), which pieces written side by side
+/// (`"Fake0" "Moo9Zed"`) only look like. The value then ends where the piece
+/// before that key closes. `None` when the last piece is the value's own: a
+/// `+` joins it, it sits on the same line, or no colon follows it.
+#[cfg_attr(
+    octocode_clippy_ratchet,
+    expect(
+        clippy::string_slice,
+        reason = "offsets are `find` results of ASCII quotes inside a regex match"
+    )
+)]
+pub(super) fn before_next_key(text: &str, secret: &std::ops::Range<usize>) -> Option<usize> {
+    let after = text.get(secret.end..)?.strip_prefix(QUOTES)?;
+    if !after.trim_start_matches([' ', '\t']).starts_with(':') {
+        return None;
+    }
+    let body = text.get(secret.clone())?;
+    let opened = body.rfind(QUOTES)?;
+    let before = body[..opened].trim_end();
+    let seam = &body[before.len()..opened];
+    (before.ends_with(QUOTES) && seam.contains(['\n', '\r']))
+        .then(|| secret.start + before.len() - 1)
+}
+
 /// Whether a quoted YAML scalar of any length is a credential (B157): no
 /// template, and either [`OPAQUE_LITERAL_CHARS`] or more under any credential
 /// word or, shorter, under a key naming a chosen secret (`password`).
@@ -1086,51 +1396,304 @@ fn is_quoted_credential(key: &impl KeyFacts, secret: &str) -> bool {
         && (literal_chars(secret) >= OPAQUE_LITERAL_CHARS || key.names_a_chosen_credential())
 }
 
-/// Marks a phrase may put around a word: punctuation outside every token
-/// alphabet. Base64's `+/=` and base64url's `-_` are not marks, so trimming
-/// never turns an encoded token's piece into a word.
+/// Marks a phrase puts around a word or inside a piece of it: punctuation
+/// outside every token alphabet (`e.g.`, `line's`, `devDependencies.vite`,
+/// `{"line":289}`). Base64's `+/=` and base64url's `_` are not marks, so a
+/// split never turns an encoded token's piece into words, and neither are
+/// the characters a person puts in a password in a letter's place (`$`,
+/// `@`). `-` is base64url's too: it joins words (`re-authenticate`), and
+/// what it leaves of a token is judged as any word is.
 const WORD_MARKS: &[char] = &[
-    '.', ',', ';', ':', '!', '?', '(', ')', '[', ']', '{', '}', '<', '>', '*', '#',
+    '.', ',', ';', ':', '!', '?', '(', ')', '[', ']', '{', '}', '<', '>', '*', '#', '-', '\'', '"',
+    '`',
 ];
 
-/// Whether `secret` is a phrase of plain words (`meta form value 1`,
-/// `Enter your API key here`, `!!ALREADY FORMATTED!!`) assigned to a key whose credential word names
-/// an opaque machine string: `key`, `token` or `credential`. API keys,
-/// tokens and credential strings never put spaces between dictionary
-/// words, so such a phrase is a label, a placeholder or test data. A
+/// The marks that join the parts of one word (`re-authenticate`, `line's`,
+/// `block(s)`): a piece with any other mark inside is a name or an example
+/// ([`Piece::Name`]), not a word.
+const WORD_JOINTS: &[char] = &['-', '\'', '(', ')'];
+
+/// Digits of a number a sentence holds beside its words (a count, a port, a
+/// year). Two groups of this many in a row are a code read off in groups
+/// ([`GROUP_CHARS`]).
+const NUMBER_DIGITS: usize = 4;
+
+/// Characters of one group of a grouped code (`4821-9930`, an app password's
+/// `abcd efgh ijkl mnop`): the shortest group a person reads off.
+const GROUP_CHARS: usize = 4;
+
+/// Whether `secret` is prose (`meta form value 1`, `Enter your API key
+/// here`, `!!ALREADY FORMATTED!!`, `each line's key path, e.g.
+/// devDependencies.vite`) assigned to a key whose credential word names an
+/// opaque machine string: `key`, `token` or `credential`. API keys, tokens
+/// and credential strings never put spaces between dictionary words, so
+/// such a phrase is a label, a placeholder, a description or test data. A
 /// `password`, `passphrase` or `secret` may be a phrase a person chose
 /// (`correct horse battery staple`), so a key naming one keeps its phrase
-/// redacted. A plain word is a pronounceable word ([`pronounceable_word`],
-/// any case) or a number of at most four digits, either within
-/// [`WORD_MARKS`]; at least two words and no other piece (`Bearer <token>` keeps
-/// its token piece, so it stays a credential).
+/// redacted.
+///
+/// The value is read as the literal it may be written in
+/// ([`without_literal_escapes`]), and each of its lines is a sentence of its
+/// own ([`is_prose_line`]): a token on a line of its own
+/// (`live\ntofabimereduloka`) is a token.
 fn is_plain_phrase(key: &impl KeyFacts, secret: &str) -> bool {
     if key.names_a_chosen_credential() {
         return false;
     }
-    let mut words = 0;
-    let mut pieces = 0;
-    let plain = secret.split_whitespace().all(|piece| {
-        pieces += 1;
-        let piece = piece.trim_matches(WORD_MARKS);
-        if !piece.is_empty() && piece.len() <= 4 && piece.bytes().all(|byte| byte.is_ascii_digit())
-        {
-            return true;
+    let read = without_literal_escapes(secret);
+    let mut lines = read
+        .split(['\n', '\r'])
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .peekable();
+    lines.peek().is_some() && lines.all(is_prose_line)
+}
+
+/// Whether one line of a value is a sentence: natural-language text, not
+/// data. Its blank-separated pieces are words ([`Piece::Word`]), two or more,
+/// with numbers beside them ([`Piece::Number`], [`Piece::Group`]), and no
+/// piece is opaque (`Bearer <token>` keeps its token piece, so it stays a
+/// credential). A marked name or example ([`Piece::Name`]) needs a sentence
+/// around it, of three or more words that outnumber such pieces: an auth
+/// scheme and its credential (`Bearer tofa.bime.redu.loka`) or pieces of
+/// marks alone (`a.1.b.2 c.3.d.4`) are none. Data is no sentence whatever
+/// words it holds: a serialized structure ([`is_serialized_structure`]), a
+/// list of pairs ([`is_pair_list`]) or a code read off in groups, two numbers
+/// of [`NUMBER_DIGITS`] digits in a row (`1234 5678`) or letters
+/// ([`is_grouped_letters`]).
+fn is_prose_line(line: &str) -> bool {
+    if is_serialized_structure(line) || is_pair_list(line) || is_grouped_letters(line) {
+        return false;
+    }
+    let (mut words, mut names) = (0_usize, 0_usize);
+    let mut after_group = false;
+    let plain = line.split_whitespace().all(|piece| {
+        let kind = Piece::of(piece);
+        let grouped = kind == Piece::Group && after_group;
+        after_group = kind == Piece::Group;
+        match kind {
+            Piece::Word => words += 1,
+            Piece::Number | Piece::Group => {}
+            Piece::Name => names += 1,
+            Piece::Opaque => return false,
         }
-        words += 1;
-        // A word may join words (`re-authenticate`, `private-key`) or mark
-        // a plural (`block(s)`): each part is a word or one letter.
-        let piece = piece.to_ascii_lowercase();
-        piece
-            .split(['-', '(', ')', '\''])
-            .filter(|part| !part.is_empty())
-            .all(|part| {
-                pronounceable_word(part.as_bytes())
-                    || (part.len() == 1 && part.bytes().all(|b| b.is_ascii_alphabetic()))
-            })
-            && piece.bytes().any(|b| b.is_ascii_alphabetic())
+        !grouped
     });
-    plain && pieces >= 2 && words >= 2
+    plain && words >= 2 && (names == 0 || (words >= 3 && words > names))
+}
+
+/// What one blank-separated piece of a line is.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Piece {
+    /// A dictionary-shaped word, sentence punctuation around it and only
+    /// [`WORD_JOINTS`] inside (`path,`, `line's`, `re-authenticate`, `[i]`).
+    Word,
+    /// A number shorter than [`NUMBER_DIGITS`] digits.
+    Number,
+    /// A number of [`NUMBER_DIGITS`] digits: a port or a year alone, one
+    /// group of a code beside another.
+    Group,
+    /// Words and numbers with marks inside: an abbreviation, a dotted name,
+    /// an address, a quoted or bracketed example (`e.g.`,
+    /// `devDependencies.vite`, `127.0.0.1:8080`, `{"line":289}`).
+    Name,
+    /// Anything else: no part of a sentence.
+    Opaque,
+}
+
+impl Piece {
+    /// The kind of `piece`. Each part [`WORD_MARKS`] split it into is a word
+    /// ([`is_word_part`]) or a number of at most [`NUMBER_DIGITS`] digits; a
+    /// part of anything else makes the piece opaque, and so does the shape of
+    /// data: a bare `name:value` pair ([`holds_bare_pair`]), two numbers of
+    /// [`NUMBER_DIGITS`] digits (`4821-9930`), or three or more parts of one
+    /// length ([`is_grouped`]: `KaToFiMe-ReDuLoKa-PiZoWaNe`).
+    fn of(piece: &str) -> Self {
+        let parts = || piece.split(WORD_MARKS).filter(|part| !part.is_empty());
+        let is_number = |part: &str| part.bytes().all(|byte| byte.is_ascii_digit());
+        let (mut letters, mut numbers, mut groups) = (0_usize, 0_usize, 0_usize);
+        let known = parts().all(|part| {
+            if is_number(part) {
+                numbers += 1;
+                groups += usize::from(part.len() == NUMBER_DIGITS);
+                return part.len() <= NUMBER_DIGITS;
+            }
+            letters += 1;
+            is_word_part(part)
+        });
+        if !known || letters + numbers == 0 || groups >= 2 {
+            return Self::Opaque;
+        }
+        if holds_bare_pair(piece) || is_grouped(parts()) {
+            return Self::Opaque;
+        }
+        let inner = piece.trim_matches(WORD_MARKS);
+        let joined = inner
+            .split(WORD_JOINTS)
+            .all(|part| !part.contains(WORD_MARKS));
+        match (letters, numbers) {
+            (0, 1) if groups == 1 => Self::Group,
+            (0, 1) => Self::Number,
+            (_, 0) if joined => Self::Word,
+            _ => Self::Name,
+        }
+    }
+}
+
+/// Whether `part`, letters between a piece's marks, is dictionary-shaped: a
+/// camelCase name ([`is_identifier_name`]: `devDependencies`), one letter, or
+/// a pronounceable word ([`pronounceable_word`], any case) shorter than an
+/// opaque literal ([`OPAQUE_LITERAL_CHARS`]): no dictionary word a
+/// description uses is that long, and a run of letters that long is a token
+/// that happens to read aloud.
+fn is_word_part(part: &str) -> bool {
+    let bytes = part.as_bytes();
+    if !bytes.iter().all(u8::is_ascii_alphabetic) {
+        return false;
+    }
+    is_identifier_name(part)
+        || bytes.len() == 1
+        || (bytes.len() < OPAQUE_LITERAL_CHARS
+            && pronounceable_word(part.to_ascii_lowercase().as_bytes()))
+}
+
+/// Whether `piece` holds a bare `name:value` pair (`admin:opensesame`): a
+/// letter right before a colon and a letter or digit right after it. A
+/// sentence puts a blank after its colon (`file: each line`), an address a
+/// digit before it (`127.0.0.1:8080`) and a serialized example a quote
+/// (`"line":289`).
+fn holds_bare_pair(piece: &str) -> bool {
+    piece
+        .as_bytes()
+        .windows(3)
+        .any(|at| at[0].is_ascii_alphabetic() && at[1] == b':' && at[2].is_ascii_alphanumeric())
+}
+
+/// Whether `parts` are a code written in groups: three or more, all of one
+/// length above [`GROUP_CHARS`] (`KaToFiMe-ReDuLoKa-PiZoWaNe`). The parts of
+/// a name or a compound word vary in length.
+fn is_grouped<'a>(mut parts: impl Iterator<Item = &'a str>) -> bool {
+    let Some(len) = parts.next().map(str::len) else {
+        return false;
+    };
+    let mut count = 1;
+    len > GROUP_CHARS
+        && parts.all(|part| {
+            count += 1;
+            part.len() == len
+        })
+        && count >= 3
+}
+
+/// Whether `line` is only groups of letters, four or more and all of one
+/// length of [`GROUP_CHARS`] or more (an app password's `abcd efgh ijkl
+/// mnop`, `qhxv ktzm wjrp ysbn`): a sentence's words vary in length. Words
+/// do come out of one length (`date time size name`), and those are told
+/// from a generated code by what a generator cannot give its letters
+/// ([`reads_as_words`]).
+fn is_grouped_letters(line: &str) -> bool {
+    let mut groups = line.split_whitespace();
+    let Some(len) = groups.next().map(str::len) else {
+        return false;
+    };
+    let mut count = 0;
+    len >= GROUP_CHARS
+        && line.split_whitespace().all(|group| {
+            count += 1;
+            group.len() == len && group.bytes().all(|byte| byte.is_ascii_alphabetic())
+        })
+        && count >= 4
+        && !reads_as_words(line)
+}
+
+/// The letters a language's words seldom use and a generator draws as often
+/// as any other.
+const RARE_LETTERS: &[u8] = b"jkqvwxz";
+
+/// Whether the groups of letters of `line` read as words, not as letters
+/// drawn at random: every group is pronounceable ([`pronounceable_word`]),
+/// they do not count through the alphabet (`abcd efgh`), and fewer than one
+/// letter in six is a rare one ([`RARE_LETTERS`]: a generator draws more
+/// than one in four). No dictionary tells a pronounceable code from words,
+/// so a code that passes all three (`tofa bime redu loka`) reads as words.
+fn reads_as_words(line: &str) -> bool {
+    let letters: Vec<u8> = line
+        .bytes()
+        .filter(u8::is_ascii_alphabetic)
+        .map(|byte| byte.to_ascii_lowercase())
+        .collect();
+    let counted = letters
+        .windows(2)
+        .filter(|pair| pair[1] == pair[0] + 1)
+        .count();
+    let rare = letters
+        .iter()
+        .filter(|letter| RARE_LETTERS.contains(letter))
+        .count();
+    counted * 2 <= letters.len()
+        && rare * 6 < letters.len()
+        && line
+            .split_whitespace()
+            .all(|group| pronounceable_word(group.to_ascii_lowercase().as_bytes()))
+}
+
+/// Whether `line` is one serialized structure: all of it inside one pair of
+/// braces or brackets, with a member inside (a `:` or `=` pair, or a quoted
+/// item). A credential blob stored as a string
+/// (`{"username": "admin", "password": "…"}`) is data whatever words it
+/// holds; bracketed words alone (`[your key here]`) are a placeholder.
+fn is_serialized_structure(line: &str) -> bool {
+    [('{', '}'), ('[', ']')].into_iter().any(|(open, close)| {
+        line.strip_prefix(open)
+            .and_then(|rest| rest.strip_suffix(close))
+            .is_some_and(|inner| inner.contains([':', '=', '"', '\'']))
+    })
+}
+
+/// Whether `line` is a list of pairs (`user: admin, password: letmein`): two
+/// or more clauses between `,` or `;`, each one name, a `:` or `=`, and one
+/// value with no blank inside. A sentence's clause holds several words on a
+/// side (`file: each hit line's key path`).
+fn is_pair_list(line: &str) -> bool {
+    let single = |side: &str| {
+        let side = side.trim();
+        !side.is_empty() && !side.contains(char::is_whitespace)
+    };
+    let mut clauses = 0;
+    line.split([',', ';'])
+        .filter(|clause| !clause.trim().is_empty())
+        .all(|clause| {
+            clauses += 1;
+            clause
+                .split_once([':', '='])
+                .is_some_and(|(name, value)| single(name) && single(value))
+        })
+        && clauses >= 2
+}
+
+/// `secret` as the string literal it may be written in reads: an escaped
+/// line break or tab (`\n`, `\r`, `\t`) is the line break it stands for, so
+/// what it separates is judged apart, and an escaped mark (`\"`) the mark.
+/// Any other escape stays as written, so it is no part of a word.
+fn without_literal_escapes(secret: &str) -> std::borrow::Cow<'_, str> {
+    if !secret.contains('\\') {
+        return secret.into();
+    }
+    let mut read = String::with_capacity(secret.len());
+    let mut chars = secret.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            read.push(ch);
+            continue;
+        }
+        match chars.next() {
+            Some('n' | 'r' | 't') => read.push('\n'),
+            Some(mark) if WORD_MARKS.contains(&mark) => read.push(mark),
+            Some(other) => read.extend(['\\', other]),
+            None => read.push('\\'),
+        }
+    }
+    read.into()
 }
 
 /// The key a credential assignment names: the last word of the line's text
@@ -1155,6 +1718,8 @@ pub(super) fn key_name(key: &str) -> &str {
     // A constructor call that wraps the literal (`token: Some(`,
     // `String::from(`) is the value's, not the name's.
     let head = head.strip_suffix('(').map_or(head, |call| {
+        // A macro's `!` is the call's too (`format!(`, `String::from(`).
+        let call = call.strip_suffix('!').unwrap_or(call);
         call.trim_end_matches(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == ':')
             .trim_end_matches(operators)
     });
@@ -1300,7 +1865,7 @@ pub(super) fn is_identifier_name(value: &str) -> bool {
 }
 
 /// One word of [`is_identifier_name`]: an optional capital, then lowercase.
-fn pronounceable_word(word: &[u8]) -> bool {
+pub(super) fn pronounceable_word(word: &[u8]) -> bool {
     let vowel = |byte: u8| b"aeiouy".contains(&byte.to_ascii_lowercase());
     let mut consonants = 0;
     word.len() >= 2

@@ -207,6 +207,9 @@ pub(super) fn load_with(
             ),
         ));
     }
+    if let Some(message) = super::super::foreign_analysis(&manifest) {
+        return Err(foreign_analysis_refusal(message, &manifest));
+    }
     let expected = manifest["graph"]["sha256"]
         .as_str()
         .ok_or_else(|| fail(ErrorCode::Decode, "graph manifest digest is missing"))?;
@@ -243,6 +246,17 @@ pub(super) fn load_with(
         validation,
         ..Default::default()
     })
+}
+
+/// The refusal of a snapshot another analysis version built: nothing of
+/// `graph.bin` is opened, and `related` is the build that replaces it, with
+/// the snapshot's own scan options.
+fn foreign_analysis_refusal(message: String, manifest: &Value) -> Failure {
+    let mut out = GraphOutput::error(ErrorCode::NotFound, message);
+    if let Some(build) = reingest_call(manifest) {
+        out.value["related"] = json!([build]);
+    }
+    Box::new(out)
 }
 
 #[cfg(test)]

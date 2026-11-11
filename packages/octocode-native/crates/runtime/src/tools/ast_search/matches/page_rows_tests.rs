@@ -130,8 +130,9 @@ fn a_test_code_scope_keeps_its_rows_too() {
     assert_eq!(rebuilds(&file.canonicalize().expect("canonical")), 1);
 }
 
-/// A file's key blocks and whole-file secret lines are judged once for all its
-/// pages while the proof holds, and a page shows what judging it afresh shows.
+/// A file's key blocks and whole-file secret lines are judged over its whole
+/// text on every page ([`crate::tools::ast_search::judged_rows`]), and a page
+/// shows what judging it afresh shows.
 #[test]
 fn match_pages_of_one_file_judge_its_text_once() {
     let body = "Qx7Zk2Vb9Ls4Tm6Yp1Wn8Rd3Hc5Gj0Fa7Eu2Si9Oq4Lk6Xv1Bz3Nm8Pt5Dy";
@@ -144,11 +145,8 @@ fn match_pages_of_one_file_judge_its_text_once() {
     let (paths, security) = simple_policy(&root.0);
     octocode_engine::stamp::settle_written_so_far();
     let row = first_row(&root.0, json!({}));
-    let file = file.canonicalize().expect("canonical");
-    let judged = super::key_rows::judgments(&file);
     let kept = walk(&row, &paths, &security, false);
     assert!(kept.len() > 2, "{} pages", kept.len());
-    assert_eq!(super::key_rows::judgments(&file), judged + 1);
     let shown = kept.concat();
     assert!(!shown.contains(body), "{shown}");
     assert!(shown.contains("REDACTED"), "{shown}");

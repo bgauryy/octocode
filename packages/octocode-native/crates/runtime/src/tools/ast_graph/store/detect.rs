@@ -320,7 +320,6 @@ pub(crate) fn run(
         "fileRoles": roles,
         "health": health,
         "notes": c.notes,
-        "method": "hypotheses ranked by severity × confidence × (0.5 + 0.5 × PageRank percentile); verify before acting",
     });
     Ok(Report {
         findings: merged,

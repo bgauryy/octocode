@@ -86,6 +86,77 @@ pub(super) fn object_shape(root: &Value, schema: &Value, depth: usize) -> Option
     Some(format!("{{{}}}", shown.join(", ")))
 }
 
+/// For an object sent a scalar that several of its fields would take (a
+/// rule sent as the text of its pattern, kind or regex): the scalar is one
+/// field's value and nothing says which, so the repair names the fields.
+/// `None` when no field takes it.
+fn one_field_value(
+    root: &Value,
+    schema: &Value,
+    received: &Value,
+) -> Result<Option<String>, ContractValidationError> {
+    if !(received.is_string() || received.is_number() || received.is_boolean()) {
+        return Ok(None);
+    }
+    let defs = &root["$defs"];
+    let Some(properties) = super::super::super::resolve_ref(schema, defs)
+        .get("properties")
+        .and_then(Value::as_object)
+    else {
+        return Ok(None);
+    };
+    let _speculation = union::Speculation::enter();
+    let mut fields = Vec::new();
+    for (name, property) in properties {
+        if !authored_property(root, property) {
+            continue;
+        }
+        let taken = super::probe(validate_with_mode(
+            root,
+            property,
+            &mut received.clone(),
+            &mut Vec::new(),
+            ValidationMode::ReadOnly,
+        ))?;
+        if taken {
+            fields.push(name.as_str());
+        }
+    }
+    if fields.is_empty() {
+        return Ok(None);
+    }
+    let received = super::super::repair::shown(received);
+    Ok(Some(format!(
+        "{received} is the value of one field: send {{\"<field>\":{received}}} with <field> one of {}",
+        fields.join(", ")
+    )))
+}
+
+/// The message for a value that is no object: the expected shape, then the
+/// one repair that reads it. A speculative probe reads only pass/fail: no
+/// shape and no repair.
+fn not_an_object(
+    root: &Value,
+    schema: &Value,
+    received: &Value,
+) -> Result<String, ContractValidationError> {
+    if union::speculative() {
+        return Ok("Expected object".to_owned());
+    }
+    let message = match object_shape(root, schema, 0) {
+        Some(shape) => format!("Expected object {shape}"),
+        None => "Expected object".to_owned(),
+    };
+    let repair = match super::super::repair::object(schema, &root["$defs"], received) {
+        Some(fix) => Some(fix),
+        None => one_field_value(root, schema, received)?,
+    };
+    Ok(match repair {
+        Some(repair) => format!("{message}; {repair}"),
+        None => message,
+    })
+}
+
 pub(super) fn validate_object(
     root: &Value,
     schema: &Value,
@@ -109,21 +180,7 @@ pub(super) fn validate_object(
                     received,
                 ));
             }
-            // A speculative probe reads only pass/fail: no shape.
-            let message = match (!union::speculative())
-                .then(|| object_shape(root, schema, 0))
-                .flatten()
-            {
-                Some(shape) => format!("Expected object {shape}"),
-                None => "Expected object".to_owned(),
-            };
-            let message = match (!union::speculative())
-                .then(|| super::super::repair::object(schema, &root["$defs"], received))
-                .flatten()
-            {
-                Some(repair) => format!("{message}; {repair}"),
-                None => message,
-            };
+            let message = not_an_object(root, schema, received)?;
             return Err(schema_issue(
                 "schema.type",
                 path.clone(),

@@ -10,6 +10,7 @@ mod execute_tests;
 mod fidelity_tests;
 #[cfg(test)]
 mod file_language_tests;
+mod judged_rows;
 mod language;
 #[cfg(test)]
 mod lead_tests;
@@ -102,10 +103,12 @@ impl<'a> RowPaths<'a> {
 
 /// Execute one typed row. The runtime parses the validated row with its
 /// shared `parse_query`, so a shape mismatch has one code across tools.
+/// Its rows show their sources as `security` judges them whole
+/// ([`judged_rows`]).
 pub fn execute_ast(
     query: &AstSearchQuery,
     paths: &crate::policy::path::PathPolicy,
-    _security: &crate::security::ContentSecurity,
+    security: &crate::security::ContentSecurity,
     cancellation: &dyn crate::execution::cancel::CancellationCheck,
     response_window: Option<usize>,
 ) -> Result<Value, ToolError> {
@@ -115,22 +118,28 @@ pub fn execute_ast(
         AstSearchQuery::MatchView(query) => query.path.as_str(),
         AstSearchQuery::SyntaxTree(query) => query.path.as_str(),
     };
-    run_ast(query, paths, cancellation, response_window).map_err(|mut error| {
-        if matches!(
-            error.code,
-            ErrorCode::LanguageUnsupported
-                | ErrorCode::SymbolsUnsupported
-                | ErrorCode::CapabilityUnavailable
-        ) && error.calls.is_none()
-            && let Ok(path) = paths.validate_read(requested)
-            && path.canonical.is_file()
-        {
-            error.calls = Some(Box::new(serde_json::json!({
-                "read": output::unsupported_read(&path.canonical.to_string_lossy())
-            })));
-        }
-        missing_path_recovery(error, requested, paths)
-    })
+    run_ast(query, paths, cancellation, response_window)
+        .map(|mut data| {
+            let sources = crate::tools::judged_rows::RowSources::new(paths, security);
+            judged_rows::judge_rows(&mut data, &sources);
+            data
+        })
+        .map_err(|mut error| {
+            if matches!(
+                error.code,
+                ErrorCode::LanguageUnsupported
+                    | ErrorCode::SymbolsUnsupported
+                    | ErrorCode::CapabilityUnavailable
+            ) && error.calls.is_none()
+                && let Ok(path) = paths.validate_read(requested)
+                && path.canonical.is_file()
+            {
+                error.calls = Some(Box::new(serde_json::json!({
+                    "read": output::unsupported_read(&path.canonical.to_string_lossy())
+                })));
+            }
+            missing_path_recovery(error, requested, paths)
+        })
 }
 
 /// A `pathNotFound` for the query's path leads to the tree of its nearest

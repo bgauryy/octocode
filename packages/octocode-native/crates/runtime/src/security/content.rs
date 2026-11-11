@@ -1,10 +1,10 @@
 mod key_blocks;
 mod key_markers;
-use key_blocks::opens_with_body_run;
 pub(crate) use key_blocks::{
     KeyBlockState, KeyBlockTracker, LineShapeScan, hide_key_line, key_line_lead,
     match_window_intersects_key_block,
 };
+use key_blocks::{key_line_bytes, opens_with_body_run};
 pub(crate) use key_markers::MarkerScan;
 use key_markers::{line_markers, may_hold_key_marker};
 use std::path::Path;
@@ -83,20 +83,26 @@ pub(crate) fn private_key_blocks_hidden(
     }
     let mut block = KeyBlockState::default();
     match hide_lines(content, |line| {
-        block.push_line(line).then(|| hide_key_line(line))
+        block.push_line(line).then(|| hidden_key(line))
     }) {
         Some((text, edits)) => (text.into(), edits),
         None => (content.into(), octocode_engine::security::Edits::default()),
     }
 }
 
+/// The key's bytes of a line of a key block, and what replaces them.
+fn hidden_key(line: &str) -> (std::ops::Range<usize>, String) {
+    (key_line_bytes(line), key_fragment_placeholder())
+}
+
 /// `text` rewritten line by line as [`str::lines`] splits it, joined by `\n`
 /// with its final line break kept, and what that replaced by byte position: a
-/// line `hide` returns a text for goes whole, and a `\r` the split drops goes
-/// alone. `None` when `hide` changes no line.
+/// line `hide` returns bytes of and a text for has those bytes replaced by
+/// the text, the rest of it staying the source's own, and a `\r` the split
+/// drops goes alone. `None` when `hide` changes no line.
 fn hide_lines(
     text: &str,
-    mut hide: impl FnMut(&str) -> Option<String>,
+    mut hide: impl FnMut(&str) -> Option<(std::ops::Range<usize>, String)>,
 ) -> Option<(String, octocode_engine::security::Edits)> {
     let mut out = String::with_capacity(text.len());
     let mut replaced = Vec::new();
@@ -110,10 +116,12 @@ fn hide_lines(
             None => (piece, false),
         };
         let end = start + line.len();
-        if let Some(hidden) = hide(line) {
+        if let Some((bytes, hidden)) = hide(line) {
             hid_any = true;
-            replaced.push((start..end, hidden.len()));
+            replaced.push((start + bytes.start..start + bytes.end, hidden.len()));
+            out.push_str(&line[..bytes.start]);
             out.push_str(&hidden);
+            out.push_str(&line[bytes.end..]);
         } else {
             out.push_str(line);
         }
@@ -186,7 +194,7 @@ fn split_private_key_hidden(
     }
     hide_lines(text, |line| {
         (is_private_key_boundary(line) || is_key_body_line(line) || opens_with_body_run(line))
-            .then(|| hide_key_line(line))
+            .then(|| hidden_key(line))
     })
 }
 
@@ -203,36 +211,13 @@ fn guard_leaf(
     redact_split_private_key(redacted.as_deref().unwrap_or(content), None).or(redacted)
 }
 
-/// 1-based inclusive line ranges of `text` that a row cut from it cannot be
-/// judged alone: its key blocks, and the lines a whole-file scan redacts when it
-/// names a pattern whose context can lie outside any row. Nothing on those lines
-/// tells the output gate what they are.
-pub(crate) fn lines_a_row_cannot_judge(text: &str, path: &Path) -> Vec<(u32, u32)> {
-    use octocode_engine::security::WholeSourcePatterns;
-    let mut lines = private_key_block_line_ranges(text);
-    let spans = WholeSourcePatterns::for_path(&path.to_string_lossy())
-        .is_some_and(|patterns| patterns.named_by(text))
-        || WholeSourcePatterns::any_file().named_by(text);
-    if spans {
-        let scan = ContentSecurity::new().sanitize_text(text, Some(path));
-        lines.extend(
-            text.lines()
-                .zip(scan.content.lines())
-                .enumerate()
-                .filter(|(_, (raw, clean))| raw != clean)
-                .map(|(at, _)| {
-                    let line = octocode_engine::num::saturating_u32(at + 1);
-                    (line, line)
-                }),
-        );
-    }
-    lines
-}
-
 /// The content policy every reader is given, with the source sizes it judges at.
 #[derive(Clone, Debug, Default)]
 pub struct ContentSecurity {
     limits: super::SourceLimits,
+    /// The sources one request judged whole and the texts it showed of them
+    /// ([`Self::for_request`]); `None` for the policy every request shares.
+    judged: Option<std::sync::Arc<super::JudgedFiles>>,
 }
 
 /// Conservative email shape for opt-in masking of gh outputs. Local-part
@@ -258,7 +243,66 @@ impl ContentSecurity {
 
     /// A policy judging sources at `limits` instead of [`super::SourceLimits::REAL`].
     pub fn with_limits(limits: super::SourceLimits) -> Self {
-        Self { limits }
+        Self {
+            limits,
+            judged: None,
+        }
+    }
+
+    /// This policy for one request, and what that request judges with it:
+    /// each source judged whole once ([`Self::judge_source`]) and the texts
+    /// shown of them ([`Self::show`]), whose leaves the output gate honors
+    /// ([`super::JudgedFiles::leaves`]).
+    pub(crate) fn for_request(&self) -> (Self, std::sync::Arc<super::JudgedFiles>) {
+        let judged = std::sync::Arc::new(super::JudgedFiles::default());
+        let policy = Self {
+            limits: self.limits,
+            judged: Some(std::sync::Arc::clone(&judged)),
+        };
+        (policy, judged)
+    }
+
+    /// `raw`, the decoded text of the file at `path`, judged whole
+    /// ([`super::JudgedText`]): the one redaction decision every text a tool
+    /// shows of that source is cut from. A request's policy
+    /// ([`Self::for_request`]) judges the same text of a path once.
+    pub(crate) fn judge_source(&self, raw: &str, path: &Path) -> std::sync::Arc<super::JudgedText> {
+        match &self.judged {
+            Some(files) => files.judge(raw, path, self),
+            None => std::sync::Arc::new(super::JudgedText::judge(raw, path, self)),
+        }
+    }
+
+    /// [`Self::judge_source`] for a tool that settles every row of the file
+    /// in one pass: judged whole and noted ([`Self::judged_whole`]), with
+    /// nothing of the source kept by the request.
+    pub(crate) fn judge_whole(&self, raw: &str, path: &Path) -> super::JudgedText {
+        self.note_judged_whole(path);
+        super::JudgedText::judge(raw, path, self)
+    }
+
+    /// Notes that this request cuts the rows of the file at `path` from its
+    /// whole-source judgment ([`super::JudgedFiles::judged_whole`]).
+    pub(crate) fn note_judged_whole(&self, path: &Path) {
+        if let Some(files) = &self.judged {
+            files.judged_whole(path);
+        }
+    }
+
+    /// Whether this request judged the file at `path` whole, so its rows
+    /// are cuts of that judgment.
+    pub(crate) fn judged_whole(&self, path: &Path) -> bool {
+        self.judged
+            .as_ref()
+            .is_some_and(|files| files.is_judged(path))
+    }
+
+    /// Records `text` as a leaf this request shows of the source judged at
+    /// `path` ([`super::JudgedFiles::show`]).
+    pub(crate) fn show(&self, path: &Path, text: &str) {
+        if let Some(files) = &self.judged {
+            files.show(path, text);
+        }
     }
 
     /// The source sizes this policy judges at.

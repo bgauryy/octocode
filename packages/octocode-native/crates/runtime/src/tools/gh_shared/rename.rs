@@ -5,7 +5,7 @@ use octocode_github::{
     GitHubProvider, ProviderError, ProviderErrorKind, ProviderErrorReason, RepositoryMetadata,
     RequestContext,
 };
-use serde_json::json;
+use serde_json::{Value, json};
 
 /// `full_name` split into owner and repository when it names another
 /// repository than `owner/repo` (case-insensitive).
@@ -200,6 +200,61 @@ pub(crate) async fn canonical_query<Q: serde::Serialize + serde::de::Deserialize
         renamed_warning(owner, repo, &to),
         with_repo(query, &to.0, &to.1)?,
     )))
+}
+
+/// Every call in `data` that names the repository `owner/repo` (case aside)
+/// names `to` instead: each query row of each `input.queries`, wherever the
+/// row holds the call. A call that names another repository, and a cursor
+/// (which holds no row), stand.
+fn lead_canonically(data: &mut Value, owner: &str, repo: &str, to: &(String, String)) {
+    let names = |row: &Value, field: &str, name: &str| {
+        row.get(field)
+            .and_then(Value::as_str)
+            .is_some_and(|value| value.eq_ignore_ascii_case(name))
+    };
+    let mut pending = vec![data];
+    while let Some(value) = pending.pop() {
+        match value {
+            Value::Array(items) => pending.extend(items),
+            Value::Object(fields) => {
+                let rows = fields
+                    .get_mut("input")
+                    .and_then(|input| input.get_mut("queries"))
+                    .and_then(Value::as_array_mut);
+                for row in rows.into_iter().flatten() {
+                    if names(row, "owner", owner) && names(row, "repo", repo) {
+                        row["owner"] = json!(to.0);
+                        row["repo"] = json!(to.1);
+                    }
+                }
+                pending.extend(fields.values_mut());
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The repository a finished row of `owner/repo` is named by: `Some` when
+/// GitHub answered the row's requests through a rename redirect, with every
+/// call the row holds renamed to it ([`lead_canonically`]) and the rename
+/// stated once, first. For a read whose leads are built while it fetches,
+/// so no canonical query exists before them ([`canonical_query`] is that
+/// point for a read that fetches first). A repository GitHub never
+/// redirected costs nothing.
+pub(crate) async fn name_canonically(
+    provider: &GitHubProvider,
+    data: &mut Value,
+    owner: &str,
+    repo: &str,
+    context: &RequestContext,
+) -> Result<Option<(String, String)>, ProviderError> {
+    let Some(to) = canonical_repo(provider, owner, repo, context, RenameCheck::Redirected).await?
+    else {
+        return Ok(None);
+    };
+    lead_canonically(data, owner, repo, &to);
+    push_warning_front(data, renamed_warning(owner, repo, &to));
+    Ok(Some(to))
 }
 
 /// A search scoped to `owner/repo` whose empty answer a rename could

@@ -5,6 +5,9 @@ use crate::response::result::Continuation;
 use octocode_github::{ProviderError, ProviderErrorKind, ProviderErrorReason};
 use serde_json::{Value, json};
 
+/// The asked path exists under another letter case: the lead spells it.
+pub(crate) const CASE_DIFFERS_HINT: &str = "Only the path's case differs.";
+
 /// A SAML-protected organization refused the token: the row's `ssoUrl` is
 /// where it is authorized.
 pub(crate) const SSO_AUTHORIZATION_HINT: &str =

@@ -12,8 +12,8 @@
 //! - C, C++ and CUDA: a `#define` body is one opaque `preproc_arg` (a
 //!   `preproc_function_def` or `preproc_def` value). It is re-parsed as
 //!   top-level source: an expression or statement reads as code, and a body
-//!   that is no code (a lone brace, a type, a token paste) yields nothing
-//!   that [`MacroBodies::is_candidate`] accepts.
+//!   that is no code (a lone brace, a type, a token paste) yields no node
+//!   the expanded walk matches ([`super::expanded::ExpandedTree`]).
 //!
 //! - A Rust body that is no Rust (a `json!` object) re-parses with recovered
 //!   syntax, and recovery can pull neighbouring text into a node or read a

@@ -67,8 +67,15 @@ fn wireguard_near_misses_stay() {
     unchanged("PrivateKey = <your key here>\nPrivateKey = (hidden)\n");
     unchanged("PostUp = wg set %i private-key /etc/wireguard/key\n");
     unchanged(&format!("Checksum = {WG}\nMyPrivateKeyHash = {WG}\n"));
-    // Not 32 bytes: its padding cannot end a WireGuard key.
-    unchanged("PrivateKey = yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBm1=\n");
+    // Not 32 bytes: its padding cannot end a WireGuard key. Under a name
+    // that says nothing it stays; under `PrivateKey` the name's own rule
+    // hides it, as it hides any opaque value.
+    let near = "yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBm1=";
+    unchanged(&format!("Blob = {near}\n"));
+    assert_eq!(
+        detect(&format!("PrivateKey = {near}\n"), None).secrets_detected,
+        ["credentialNamedValue"]
+    );
 }
 
 #[test]

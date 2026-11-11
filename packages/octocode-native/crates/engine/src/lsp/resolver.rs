@@ -10,7 +10,9 @@ mod syntax;
 use line_scan::{scan_near_line, scan_whole_file};
 use syntax::{collect_symbol_candidates, pick_candidate};
 
-const DEFAULT_RADIUS: usize = 5;
+/// How many lines from its `line_hint` the resolver accepts a spelling: it
+/// chooses the nearest among the lines within this distance.
+pub const DEFAULT_RADIUS: usize = 5;
 
 /// The 0-based line a 1-based `line_hint` names (0 and 1 both name line 0).
 fn hinted_line(line_hint: u32) -> usize {

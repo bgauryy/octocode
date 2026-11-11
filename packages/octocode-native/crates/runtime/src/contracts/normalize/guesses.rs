@@ -15,12 +15,15 @@ enum Reading {
 }
 
 /// A field sent for `field` of the tools in `tools`, read by `read` from its
-/// value.
+/// value and the row it sits in.
 struct Guess {
     tools: &'static [ToolId],
     sent: &'static str,
     field: &'static str,
-    read: fn(&Value) -> Reading,
+    /// What `field` takes, where the sent name promises something else: said
+    /// with the field when the guess is refused.
+    takes: Option<&'static str>,
+    read: fn(&Value, &Map<String, Value>) -> Reading,
 }
 
 const SEARCH: &[ToolId] = &[ToolId::LocalSearch];
@@ -29,15 +32,10 @@ const READERS: &[ToolId] = &[ToolId::LocalFetch, ToolId::GhGetFileContent];
 const GUESSES: &[Guess] = &[
     Guess {
         tools: SEARCH,
-        sent: "pattern",
-        field: "matchString",
-        read: |value| Reading::Field("matchString", value.clone()),
-    },
-    Guess {
-        tools: SEARCH,
         sent: "mode",
         field: "regexEngine",
-        read: |value| match value.as_str() {
+        takes: None,
+        read: |value, _| match value.as_str() {
             Some(engine @ ("literal" | "rust" | "pcre2")) => {
                 Reading::Field("regexEngine", json!(engine))
             }
@@ -49,34 +47,62 @@ const GUESSES: &[Guess] = &[
         tools: SEARCH,
         sent: "literal",
         field: "regexEngine",
-        read: |value| match value {
+        takes: None,
+        read: |value, _| match value {
             Value::Bool(true) => Reading::Field("regexEngine", json!("literal")),
             _ => Reading::Ambiguous,
+        },
+    },
+    // After the guesses that set `regexEngine`: an engine in the row says
+    // how the value is read.
+    Guess {
+        tools: SEARCH,
+        sent: "pattern",
+        field: "matchString",
+        takes: Some("literal text, or a regex with regexEngine:\"rust\""),
+        read: |value, row| {
+            let terms: Vec<&str> = match value {
+                Value::String(term) => vec![term],
+                Value::Array(terms) => terms.iter().filter_map(Value::as_str).collect(),
+                _ => Vec::new(),
+            };
+            // `matchString` is literal text unless the row names an engine;
+            // `pattern` names a regex in most tools. Terms that also read as
+            // a regex have both readings.
+            if !row.contains_key("regexEngine") && reads_as_regex(&terms) {
+                Reading::Ambiguous
+            } else {
+                Reading::Field("matchString", value.clone())
+            }
         },
     },
     Guess {
         tools: SEARCH,
         sent: "filesOnly",
         field: "view",
-        read: |value| when_true(value, "view", "files"),
+        takes: None,
+        read: |value, _| when_true(value, "view", "files"),
     },
     Guess {
         tools: SEARCH,
         sent: "countOnly",
         field: "view",
-        read: |value| when_true(value, "view", "countMatches"),
+        takes: None,
+        read: |value, _| when_true(value, "view", "countMatches"),
     },
     Guess {
         tools: SEARCH,
         sent: "perFileCount",
         field: "view",
-        read: |value| when_true(value, "view", "countMatches"),
+        takes: None,
+        read: |value, _| when_true(value, "view", "countMatches"),
     },
     Guess {
         tools: SEARCH,
         sent: "excludeDir",
         field: "exclude",
-        read: |value| match value {
+        takes: None,
+        read: |value, _| match value {
             Value::String(_) => Reading::Field("exclude", json!([value])),
             Value::Array(items) if items.iter().all(Value::is_string) => {
                 Reading::Field("exclude", value.clone())
@@ -88,13 +114,15 @@ const GUESSES: &[Guess] = &[
         tools: &[ToolId::GhSearchHistory],
         sent: "type",
         field: "operation",
-        read: |value| Reading::Field("operation", value.clone()),
+        takes: None,
+        read: |value, _| Reading::Field("operation", value.clone()),
     },
     Guess {
         tools: &[ToolId::GhSearchCode],
         sent: "match",
         field: "matchIn",
-        read: |value| match value {
+        takes: None,
+        read: |value, _| match value {
             Value::String(_) => Reading::Field("matchIn", json!([value])),
             Value::Array(_) => Reading::Field("matchIn", value.clone()),
             _ => Reading::Ambiguous,
@@ -105,13 +133,15 @@ const GUESSES: &[Guess] = &[
         tools: READERS,
         sent: "startLine",
         field: "ranges",
-        read: |_| Reading::Ambiguous,
+        takes: None,
+        read: |_, _| Reading::Ambiguous,
     },
     Guess {
         tools: READERS,
         sent: "endLine",
         field: "ranges",
-        read: |_| Reading::Ambiguous,
+        takes: None,
+        read: |_, _| Reading::Ambiguous,
     },
 ];
 
@@ -123,14 +153,23 @@ fn when_true(value: &Value, field: &'static str, meant: &str) -> Reading {
     }
 }
 
+/// Whether literal `terms` also read as a regex: some term holds regex
+/// syntax and every term compiles. Text without regex syntax, or with syntax
+/// that does not compile (`call(`), has the literal reading alone.
+pub(crate) fn reads_as_regex(terms: &[&str]) -> bool {
+    terms.iter().any(|term| regex::escape(term) != *term)
+        && terms.iter().all(|term| regex::Regex::new(term).is_ok())
+}
+
 /// The declared field a sent `field` of `tool` stands for, when it is a known
-/// guess: what an unknown-field error tells the caller to use.
-pub(crate) fn meant_field(tool: &str, field: &str) -> Option<&'static str> {
+/// guess, and what that field takes when the sent name promises something
+/// else: what an unknown-field error tells the caller to use.
+pub(crate) fn meant_field(tool: &str, field: &str) -> Option<(&'static str, Option<&'static str>)> {
     let id = ToolId::from_name(tool)?;
     GUESSES
         .iter()
         .find(|guess| guess.sent == field && guess.tools.contains(&id))
-        .map(|guess| guess.field)
+        .map(|guess| (guess.field, guess.takes))
 }
 
 /// Read each row's guesses that have one reading as their declared fields;
@@ -152,7 +191,7 @@ pub(super) fn read(id: ToolId, input: &mut Value) -> Vec<String> {
             let Some(value) = row.get(guess.sent) else {
                 continue;
             };
-            let Reading::Field(field, meant) = (guess.read)(value) else {
+            let Reading::Field(field, meant) = (guess.read)(value, row) else {
                 continue;
             };
             let merged = match (row.get(field), &meant) {

@@ -79,7 +79,10 @@ pub(in crate::cli) async fn call(
     let warn = || octocode_native::runtime::ToolRuntime::print_startup_diagnostics(&target.config);
     let interrupted = || {
         warn();
-        eprintln!("{}", crate::cli::tool_call::CANCELLING);
+        eprintln!(
+            "{}",
+            octocode_io::notice::as_note(crate::cli::tool_call::CANCELLING)
+        );
     };
     let first = async {
         if tokio::signal::ctrl_c().await.is_err() {
@@ -94,13 +97,13 @@ pub(in crate::cli) async fn call(
         first,
         tokio::signal::ctrl_c(),
         interrupted,
-        |line| eprintln!("{line}"),
+        |line| eprintln!("{}", octocode_io::notice::as_note(line)),
     )
     .await;
     let (printed, notices) = match exchanged {
         Ok(reply) => (reply.printed, reply.notices),
         Err(Failed::Fallback(reason)) => {
-            eprintln!("octocode: warm server failed ({reason}); running {tool} in process.");
+            eprintln!("# octocode: warm server failed ({reason}); running {tool} in process.");
             return None;
         }
         Err(Failed::Interrupted(_)) => return Some(130),
@@ -126,7 +129,7 @@ pub(in crate::cli) async fn call(
     warn();
     // What the call said on stderr while it ran, as in process.
     for notice in notices {
-        eprintln!("{notice}");
+        eprintln!("{}", octocode_io::notice::as_note(&notice));
     }
     Some(printed.print(mode))
 }

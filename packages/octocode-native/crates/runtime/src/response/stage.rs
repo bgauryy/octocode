@@ -35,17 +35,29 @@ pub(crate) struct Staged {
 }
 
 /// The page-independent half of the stage: selection receipts, line
-/// numbers, output validation (row violations isolated, marking `failure`)
+/// numbers, one key order per list, output validation (row violations isolated, marking `failure`)
 /// and continuation shaping.
 /// A settled envelope is what a page replay stores, so its later pages are
-/// neither validated nor shaped again.
+/// neither validated nor shaped again. It holds the result alone: what the
+/// rows measured of this call (its timed notices) is returned instead, for
+/// the response of the call that measured it ([`state_call_notes`]).
 pub(crate) fn settle(
     tool: ToolId,
     structured: &mut Sanitized,
     response_query: &Value,
     failure: &mut Option<FailureKind>,
-) -> Result<(), ContractValidationError> {
+) -> Result<Vec<String>, ContractValidationError> {
     structured.edit(|structured| settle_value(tool, structured, response_query, failure))
+}
+
+/// States the `notes` of the call that executed the rows ([`settle`]) on its
+/// response. They ride that page outside the plan and the measure, and no
+/// page read later through a cursor carries them: a replayed page is cut
+/// from the settled envelope, by a call that waited for none of it.
+pub(crate) fn state_call_notes(outcome: &mut ToolOutcome, notes: &[String]) {
+    outcome
+        .structured_content
+        .edit(|envelope| super::notices::state_call_notes(envelope, notes));
 }
 
 fn settle_value(
@@ -53,24 +65,25 @@ fn settle_value(
     structured: &mut Value,
     response_query: &Value,
     failure: &mut Option<FailureKind>,
-) -> Result<(), ContractValidationError> {
+) -> Result<Vec<String>, ContractValidationError> {
     crate::response::selection_errors::decorate(tool, structured, response_query);
     super::notices::explain_codes(structured, "results");
     super::notices::place(structured, "results");
     super::notices::state_shared_warnings(structured, "results");
-    super::notices::state_timed_notices(structured, "results");
+    let call_notes = super::notices::take_timed_notices(structured, "results");
     // Hosts show agents this JSON: source reads carry their line numbers in
     // `content` itself. Numbering precedes validation so an unpaged
     // response is exactly what was checked.
     crate::response::numbered::number_read_rows(tool, structured);
     super::pages::state_shared_identity(tool, structured);
     super::pages::publish_rows(structured);
+    super::key_order::order_rows(tool, structured);
     // Validate the complete, sanitized rows before deriving error state or a
     // pagination snapshot from them.
     if isolate_output_rows(tool.as_str(), structured)? && failure.is_none() {
         *failure = Some(FailureKind::Execution);
     }
-    Ok(())
+    Ok(call_notes)
 }
 
 /// The page-dependent half of the stage over a [`settle`]d envelope: paging
@@ -188,6 +201,7 @@ fn finish(
         structured_content,
         failure,
         all_failed,
+        continued: None,
     })
 }
 

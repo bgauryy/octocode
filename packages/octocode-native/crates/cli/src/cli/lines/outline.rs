@@ -1,76 +1,25 @@
-//! Text for every result without a line format, and for batches. A row's
-//! `data` prints as indented `key: value` text: a multi-line string as a
-//! `key: |` block of its lines, an object or a list of objects nested under
-//! its key (`- ` leads each list item), a list of strings one `- ` item per
-//! line, numbers and flags inline. Every field prints; nothing is clipped.
-//! A batch prints each row under `## results[N]`, in its line format when
-//! the tool has one, and prefixes the row's stderr notes the same way.
-use super::{Lines, envelope_notes, notes, render_data, words};
-use octocode_native::id::ToolId;
-use serde_json::{Map, Value, json};
+//! Text for every row without a line format. A row's `data` prints as
+//! indented `key: value` text: a multi-line string as a `key: |` block of its
+//! lines, an object or a list of objects nested under its key (`- ` leads
+//! each list item), a list of strings one `- ` item per line, numbers and
+//! flags inline. A list whose items all hold the same single field names it
+//! once (`nodes[].node:`). Every field prints; nothing is clipped.
+use super::follow::split_stated;
+use super::{Row, tail, words};
+use serde_json::{Map, Value};
 
-/// A single-row result as `key: value` text; its status, row and envelope
-/// fields and the root are stderr notes, as for a line format.
-pub(super) fn generic(structured: &Value, query: &Value, cwd: Option<&std::path::Path>) -> Lines {
-    let empty = Map::new();
-    let row = structured["results"][0].as_object().unwrap_or(&empty);
-    let mut out = Vec::new();
-    if let Some(data) = row.get("data").and_then(Value::as_object) {
-        object(data, "", &mut out);
-    }
-    Lines {
-        out: out.join("\n"),
-        notes: notes(structured, query, row, Map::new(), Vec::new(), cwd),
-    }
-}
-
-/// Each row of a batch under `## results[N]` (its `index` beside it when a
-/// continuation renumbered the rows), then the envelope's notes once.
-pub(super) fn batch(
-    tool: ToolId,
-    structured: &Value,
-    query: &Value,
-    cwd: Option<&std::path::Path>,
-) -> Lines {
-    let mut out = Vec::new();
-    let mut notes = Vec::new();
-    let rows = structured["results"]
-        .as_array()
-        .map_or(&[][..], Vec::as_slice);
-    for (position, row) in rows.iter().enumerate() {
-        let label = format!("results[{position}]");
-        let index = row["index"].as_u64();
-        out.push(match index {
-            Some(index) if index != position as u64 => format!("## {label} index {index}"),
-            _ => format!("## {label}"),
-        });
-        // The row's own query: the line format reads it (context lines,
-        // operation). A continuation names none, so it passes the cursor.
-        let asked = index
-            .and_then(|index| query["queries"].get(usize::try_from(index).ok()?))
-            .map_or_else(|| query.clone(), |asked| json!({"queries": [asked]}));
-        let single = json!({"results": [row]});
-        let lines = render_data(tool, &single, &asked, cwd)
-            .unwrap_or_else(|| generic(&single, &asked, cwd));
-        if !lines.out.is_empty() {
-            out.push(lines.out);
-        }
-        notes.extend(
-            lines
-                .notes
-                .lines()
-                .map(|note| format!("# {label} {}", note.strip_prefix("# ").unwrap_or(note))),
-        );
-    }
-    notes.extend(
-        envelope_notes(structured, cwd)
-            .iter()
-            .map(|note| format!("# {note}")),
-    );
-    Lines {
-        out: out.join("\n"),
-        notes: notes.join("\n"),
-    }
+/// A row as `key: value` text. The fields of `data` the trailer states
+/// (done facts, warnings, hints) print there, as they do for a line format.
+pub(super) fn generic(row: &Map<String, Value>, query: &Value) -> Row {
+    let data = row
+        .get("data")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    let (stated, shown) = split_stated(data);
+    let mut body = Vec::new();
+    object(&shown, "", &mut body);
+    tail(query, row, stated, Vec::new(), body)
 }
 
 /// Each field of `fields` at `indent`.
@@ -96,6 +45,19 @@ fn entry(head: &str, value: &Value, indent: &str, out: &mut Vec<String>) {
         && let Some(named) = floor_named(fields)
     {
         return entry(head, &Value::Object(named), indent, out);
+    }
+    // Items that all hold the same single field name it once, in the head:
+    // `nodes[].node:`, then each item's value.
+    if let Value::Array(items) = value
+        && let Some(key) = head.strip_suffix(':')
+        && let Some((field, values)) = only_field(items)
+    {
+        return entry(
+            &format!("{key}[].{field}:"),
+            &Value::Array(values),
+            indent,
+            out,
+        );
     }
     match value {
         Value::String(text) if text.contains('\n') => {
@@ -131,10 +93,28 @@ fn entry(head: &str, value: &Value, indent: &str, out: &mut Vec<String>) {
     }
 }
 
+/// The field and the values of a list whose items are all objects holding
+/// that one field; `None` for any other list.
+fn only_field(items: &[Value]) -> Option<(String, Vec<Value>)> {
+    let field = items.first()?.as_object()?.keys().next()?.clone();
+    let values = items
+        .iter()
+        .map(|item| {
+            let fields = item.as_object().filter(|fields| fields.len() == 1)?;
+            // A nested single-field list would name two fields in one head.
+            fields
+                .get(&field)
+                .filter(|value| !value.is_array())
+                .cloned()
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some((field, values))
+}
+
 /// `fields` with a count that is only a floor named as one: where
 /// `countScope` is `loaded`, `totalItems` is the rows read so far, so it
 /// prints as `totalItemsAtLeast`. `None` when `fields` holds no such floor.
-fn floor_named(fields: &Map<String, Value>) -> Option<Map<String, Value>> {
+pub(super) fn floor_named(fields: &Map<String, Value>) -> Option<Map<String, Value>> {
     if fields.get("countScope").and_then(Value::as_str) != Some("loaded")
         || !fields.contains_key("totalItems")
     {

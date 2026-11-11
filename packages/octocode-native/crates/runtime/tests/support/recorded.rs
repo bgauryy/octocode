@@ -18,14 +18,24 @@ pub fn recording(case: &str) -> Value {
 
 /// Mount each exchange of `case` where [`super::github_api`] points GitHub tools.
 pub async fn mount_github(server: &MockServer, case: &str) -> Value {
+    mount(server, case, github_path).await
+}
+
+/// Where the GitHub double serves a recorded GitHub URL.
+pub fn github_path(url: &url::Url) -> String {
+    match url.path() {
+        "/graphql" => "/api/graphql".to_owned(),
+        rest => format!("/api/v3{rest}"),
+    }
+}
+
+/// Mount each exchange of `case` at the path `served` gives its recorded URL.
+pub async fn mount(server: &MockServer, case: &str, served: impl Fn(&url::Url) -> String) -> Value {
     let recording = recording(case);
     for exchange in recording["exchanges"].as_array().expect("exchanges") {
         let request = &exchange["request"];
         let url = url::Url::parse(request["url"].as_str().expect("url")).expect("recorded URL");
-        let served = match url.path() {
-            "/graphql" => "/api/graphql".to_owned(),
-            rest => format!("/api/v3{rest}"),
-        };
+        let served = served(&url);
         let mut mock = Mock::given(method(request["method"].as_str().expect("method")))
             .and(path(served.as_str()));
         for (name, value) in url.query_pairs() {
@@ -36,9 +46,19 @@ pub async fn mount_github(server: &MockServer, case: &str) -> Value {
         }
         let status = exchange["status"].as_u64().expect("status");
         let mut answer = ResponseTemplate::new(u16::try_from(status).expect("an HTTP status"));
-        answer = match &exchange["body"] {
-            Value::String(text) => answer.set_body_string(text.as_str()),
-            json => answer.set_body_json(json),
+        // The media type decides how a reader decodes a text body (raw file content).
+        let media_type = exchange["headers"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|header| header[0] == "content-type")
+            .and_then(|header| header[1].as_str());
+        answer = match (&exchange["body"], media_type) {
+            (Value::String(text), Some(media_type)) => {
+                answer.set_body_raw(text.as_bytes().to_vec(), media_type)
+            }
+            (Value::String(text), None) => answer.set_body_string(text.as_str()),
+            (json, _) => answer.set_body_json(json),
         };
         mock.respond_with(answer).mount(server).await;
     }

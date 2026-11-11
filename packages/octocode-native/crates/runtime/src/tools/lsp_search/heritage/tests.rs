@@ -344,3 +344,44 @@ fn an_unexpanded_rust_macro_is_no_heritage_gap() {
     let bases = direct_bases(&document, content, file, &implementation).expect("its heritage");
     assert_eq!(bases.len(), 1);
 }
+
+const TRAIT_AND_IMPLS: &str = "pub trait Check { fn check(&self) -> bool; }\nstruct A;\nimpl Check for A { fn check(&self) -> bool { true } }\nfn local() {\n    struct B;\n    impl Check for B {\n        fn check(&self) -> bool { false }\n    }\n}\nimpl A { fn check_all(&self) { self.check(); } }\nstruct C;\nimpl C { fn check(&self) {} }\n";
+
+/// A trait method's implementations are the methods of that name its impl
+/// blocks declare, one inside a function body included; the trait's own
+/// declaration, a call and an inherent method of the same name are none.
+#[test]
+fn a_trait_methods_implementations_are_read_from_its_impl_blocks() {
+    let file = absolute("members.rs");
+    let lines = member_snippets(TRAIT_AND_IMPLS, &file, "Check", "check")
+        .into_iter()
+        .map(|snippet| (snippet.range.start.line, snippet.range.start.character))
+        .collect::<Vec<_>>();
+    assert_eq!(lines, [(2, 22), (6, 11)]);
+    assert!(member_snippets(TRAIT_AND_IMPLS, &file, "Other", "check").is_empty());
+}
+
+/// What a scan can read depends on the anchor: a type's subtypes, the
+/// members of a type's subtypes for one of its members, and nothing for a
+/// member of an impl block or a free function.
+#[test]
+fn a_member_of_a_type_is_scannable_by_its_owner() {
+    let file = absolute("members.rs");
+    let on = |line: u32, name: &str| scannable(TRAIT_AND_IMPLS, &file, line, name);
+    assert_eq!(on(0, "Check"), Some(Scannable::Subtypes));
+    assert_eq!(
+        on(0, "check"),
+        Some(Scannable::Members {
+            owner: "Check".into()
+        })
+    );
+    assert_eq!(on(2, "check"), None, "an impl's method has no implementers");
+    assert_eq!(on(3, "local"), None, "a function has no heritage");
+    let source = "interface Run {\n  go(): void;\n}\n";
+    assert_eq!(
+        scannable(source, &absolute("members.ts"), 1, "go"),
+        Some(Scannable::Members {
+            owner: "Run".into()
+        })
+    );
+}

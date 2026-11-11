@@ -6,20 +6,25 @@ fn hits_print_like_rg_and_lose_no_field() {
     let lines = render(ToolId::LocalSearch, &sample(), &context(), None).expect("lines");
     assert_eq!(
         lines.out,
-        "a.rs\n25-use a;\n26:use SearcherBuilder;\n27-use b;\n--\n996-) {\n997:  let sb = SearcherBuilder::new();  [function build 992-1016]"
+        [
+            "a.rs",
+            "25-use a;",
+            "26:use SearcherBuilder;",
+            "27-use b;",
+            "--",
+            "996-) {",
+            "997:  let sb = SearcherBuilder::new();  [function build 992-1016]",
+            "# rowPart: part 1 of 2",
+            "# responsePagination: hasMore",
+            "# warnings: incomplete",
+            "# responsePagination.next: octocode localSearch '{\"cursor\":\"issued-response-page\"}'",
+            "# next.nextPage: octocode localSearch '{\"cursor\":\"issued-tool-page\"}'",
+        ]
+        .join("\n")
     );
-    for token in ["issued-tool-page", "issued-response-page"] {
-        assert_eq!(lines.notes.matches(token).count(), 1, "{}", lines.notes);
-    }
-    assert!(
-        lines.notes.contains("# rowPart: part 1 of 2"),
-        "{}",
-        lines.notes
-    );
-    assert!(
-        lines.notes.contains("# warnings: incomplete"),
-        "{}",
-        lines.notes
+    assert_eq!(
+        lines.notes,
+        "# matchCount: 2\n# matchedLineCount: 2\n# root: /nowhere (paths are relative to it)"
     );
     for evidence in [
         "use a;",
@@ -158,6 +163,7 @@ fn shorthand_context_lines_print_as_the_object_form() {
         let lines = render(ToolId::LocalSearch, &sample(), &shorthand, None).expect("lines");
         assert_eq!(lines.out, object, "{shorthand}");
     }
+    assert!(object.contains("\n26:use SearcherBuilder;"), "{object}");
     for line in object
         .lines()
         .filter(|line| line.starts_with(char::is_numeric))

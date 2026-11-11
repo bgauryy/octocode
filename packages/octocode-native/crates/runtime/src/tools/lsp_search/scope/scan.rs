@@ -1,8 +1,8 @@
 //! The text scan behind the scope.
 use super::*;
 
-/// Files that spell a name but that ignore rules keep out of the lexical
-/// scans (see [`Scope::ignored_text_files`]).
+/// Files that spell a name but that ignore rules or a hidden directory
+/// keep out of the lexical scans (see [`Scope::ignored_text_files`]).
 #[derive(Debug, Default)]
 pub(in super::super) struct IgnoredMentions {
     /// Canonical paths, sorted.
@@ -27,6 +27,13 @@ pub(in super::super) struct IgnoredMentions {
 }
 
 impl IgnoredMentions {
+    /// Whether a file outside the candidate scan may import the name: one
+    /// does, one could not be checked, or the scan for them did not finish.
+    /// Such a scan verified every candidate and is still not complete.
+    pub(in super::super) fn may_hide_an_importer(&self) -> bool {
+        self.unfinished || !self.importing.is_empty() || !self.unchecked.is_empty()
+    }
+
     /// A scan that produced nothing: no file is known, and that is not
     /// proof of none.
     pub(in super::super) fn unfinished() -> Self {
@@ -44,14 +51,15 @@ impl IgnoredMentions {
 /// keeps one.
 /// The scan covers the whole scope: only the request stops it (its
 /// cancellation or its deadline), and a stopped scan keeps nothing. `None`
-/// when the scan failed.
+/// when the scan failed; else the files that spell `symbol` and every file
+/// the scan listed.
 pub(super) async fn scan_text(
     root: &str,
     include: &[String],
     symbol: &str,
     policy: &PathPolicy,
     cancel: &dyn CancellationCheck,
-) -> Result<Option<BTreeSet<String>>, LspFailure> {
+) -> Result<Option<(BTreeSet<String>, Arc<[PathBuf]>)>, LspFailure> {
     if symbol.trim().is_empty() {
         return Ok(None);
     }
@@ -73,7 +81,8 @@ pub(super) async fn scan_text(
         let word = symbol.to_owned();
         let clock = octocode_engine::stamp::settle_clock();
         return Ok(blocking_cancellable(cancel, move |stopped| {
-            listing::spelling(&files, &word, clock, stopped)
+            let spelling = listing::spelling(&files, &word, clock, stopped)?;
+            Some((spelling, files))
         })
         .await?
         .flatten());
@@ -105,8 +114,8 @@ pub(super) async fn scan_text(
         {
             return None;
         }
-        recorder.keep(&walk_include, started);
-        Some(
+        let listed = recorder.keep(&walk_include, started);
+        Some((
             parsed
                 .files
                 .into_iter()
@@ -119,7 +128,8 @@ pub(super) async fn scan_text(
                     }
                 })
                 .collect::<BTreeSet<_>>(),
-        )
+            listed,
+        ))
     })
     .await?
     .flatten();

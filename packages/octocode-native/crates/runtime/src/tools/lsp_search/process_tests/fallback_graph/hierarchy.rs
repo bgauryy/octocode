@@ -229,12 +229,15 @@ fn fallback_type_hierarchy_keeps_known_edges_when_an_implementation_alias_is_amb
     );
     let row = &rows[0];
     let matches = row["matches"].as_array().expect("matches");
+    // `Right` is in no implementation answer: the heritage scan read its
+    // clause, and the walk checked it against the base like the server's own.
     assert_eq!(
         matches.len(),
-        1,
-        "the known declaration stays, ambiguous targets do not: {row}"
+        2,
+        "the known declarations stay, ambiguous targets do not: {row}"
     );
     assert_eq!(matches[0]["symbolName"], "Left", "{row}");
+    assert_eq!(matches[1]["symbolName"], "Right", "{row}");
     assert_eq!(row["isPartial"], true, "{row}");
     assert_eq!(
         row["partialReasons"],

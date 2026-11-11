@@ -6,9 +6,28 @@ use octocode_engine::signatures::GRAPH_FACTS_SCHEMA_VERSION;
 /// The snapshot was extracted, bound and projected by this binary's
 /// representations: same fact schema, analysis and package version.
 pub(super) fn analysis_current(manifest: &Value) -> bool {
-    manifest["analysisVersion"] == ANALYSIS_VERSION
+    foreign_analysis(manifest).is_none()
         && manifest["factsSchemaVersion"] == GRAPH_FACTS_SCHEMA_VERSION
         && manifest["octocodeVersion"] == env!("CARGO_PKG_VERSION")
+}
+
+/// Why the snapshot of `manifest` is not evidence, when another analysis
+/// version built it. Its facts were extracted and judged for redaction by
+/// that version's rules (see [`ANALYSIS_VERSION`]), so a reader of this
+/// version serves none of them: the snapshot is rebuilt, never read.
+pub(super) fn foreign_analysis(manifest: &Value) -> Option<String> {
+    let built = &manifest["analysisVersion"];
+    if built == ANALYSIS_VERSION {
+        return None;
+    }
+    let built = built.as_u64().map_or_else(
+        || "an unrecorded analysis version".to_owned(),
+        |version| format!("analysis version {version}"),
+    );
+    Some(format!(
+        "snapshot {} was built by {built} and this Octocode reads only analysis version {ANALYSIS_VERSION}, so none of its facts are served. Rebuild it with graphBuild, then query the new snapshot",
+        manifest["id"].as_str().unwrap_or_default()
+    ))
 }
 
 /// The manifest's scan record as an answer states it. The manifest keeps

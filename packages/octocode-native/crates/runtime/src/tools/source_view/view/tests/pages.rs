@@ -38,28 +38,47 @@ fn line_and_byte_pages_redact_cross_boundary_secrets_and_reconstruct_exactly() {
 }
 
 /// Every page of an untouched whole read, the first and each replayed one,
-/// is a slice of the sealed source and carries the judged mark; a view a
-/// transform rewrote is no slice of it, so none of its pages does.
+/// is a slice of the sealed source and carries the judged mark. So does
+/// every page of its compact view, which lays the sealed source's tokens out
+/// again: judged alone, a numbered fragment of it would lose code the content
+/// view shows. An outline is its own rendering and redacts itself, so none
+/// of its pages is marked.
 #[test]
-fn every_page_of_a_whole_read_is_marked_and_a_rewritten_view_is_not() {
+fn every_page_of_a_whole_or_compact_read_is_marked_and_an_outline_is_not() {
     let source = format!("{}// a note\n{}", filler(60), filler(60)).replace("const", "    const");
-    for (fields, view) in [
-        (json!({}), None),
-        (json!({"view":"compact"}), Some(ReadView::Compact)),
+    let declared = (0..40)
+        .map(|i| format!("function f{i}() {{\n  const a = {i};\n  return a;\n}}\n"))
+        .collect::<String>();
+    for (source, fields, view, marked, paged) in [
+        (&source, json!({}), None, true, true),
+        (
+            &source,
+            json!({"view":"compact"}),
+            Some(ReadView::Compact),
+            true,
+            true,
+        ),
+        (
+            &declared,
+            json!({"view":"symbols"}),
+            Some(ReadView::Symbols),
+            false,
+            false,
+        ),
     ] {
         let mut q = query(fields);
         let mut pages = 0;
         loop {
-            let result = fetch_window(&source, &q, 500);
+            let result = fetch_window(source, &q, 500);
             assert_eq!(result.view, view, "{result:?}");
-            assert_eq!(result.judged.is_some(), view.is_none(), "page {pages}");
+            assert_eq!(result.judged.is_some(), marked, "{view:?} page {pages}");
             pages += 1;
             let Some(next) = result.next.and_then(|next| next.continue_window) else {
                 break;
             };
             q = next.query;
         }
-        assert!(pages > 1, "{view:?}");
+        assert!(pages > usize::from(paged), "{view:?}");
     }
 }
 

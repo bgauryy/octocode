@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Regenerates crates/runtime/src/tools/ast_graph/aliases/python_stdlib.txt, the Python standard-library
+// Regenerates crates/runtime/src/tools/import_resolution/aliases/python_stdlib.txt, the Python standard-library
 // module names the graph linker treats as external. Two authoritative inputs, no hand-held names:
 //   1. `sys.stdlib_module_names` of the python3 that runs this script (the modules the interpreter ships);
 //   2. typeshed's stdlib/VERSIONS entries with an upper bound (`asyncore: 3.0-3.11`): modules a past
@@ -18,7 +18,7 @@ import { isMainModule } from './lib/entrypoint.mjs';
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 export const DEFAULT_OUT = join(
   REPO,
-  'packages/octocode-native/crates/runtime/src/tools/ast_graph/aliases/python_stdlib.txt',
+  'packages/octocode-native/crates/runtime/src/tools/import_resolution/aliases/python_stdlib.txt',
 );
 /** The Python line whose `sys.stdlib_module_names` the file records (`major.minor`). */
 export const PINNED_PYTHON = '3.15';

@@ -57,6 +57,22 @@ fn identity_of(
     )
 }
 
+/// What a build's inputs besides the tree hash to ([`build_identity`]) and
+/// the parser registry's own identity, as a manifest records both.
+pub(super) struct Identity<'a> {
+    pub build: &'a str,
+    pub registry: &'a str,
+}
+
+/// Whether a scope's newest snapshot answers a build.
+pub(super) enum Reuse {
+    /// It does: its receipt.
+    Current(GraphOutput),
+    /// It does not, and `judged` is the snapshot that was found wanting
+    /// (`None`: the scope had none, or the build must run regardless).
+    Build { judged: Option<String> },
+}
+
 /// The newest snapshot of `options.path`, when it was built with
 /// `identity` and nothing it covers changed since: its receipt, with
 /// `latest` pointed at it and its read lease renewed so retention keeps it.
@@ -66,31 +82,110 @@ pub(super) fn reuse(
     options: &IngestOptions,
     home: &Path,
     paths: &PathPolicy,
-    identity: &str,
-    registry_identity: &str,
+    identity: &Identity<'_>,
+    cancel: &dyn CancellationCheck,
+    started: Instant,
+) -> Reuse {
+    if options.refresh || !home.is_dir() {
+        return Reuse::Build { judged: None };
+    }
+    let Ok(root) = paths.validate(&options.path) else {
+        return Reuse::Build { judged: None };
+    };
+    // Unlocked probe first: a scope with no current snapshot never waits
+    // for another scope's publication.
+    let judged = match newest(home, &root.canonical.to_string_lossy()) {
+        Some((_, manifest)) if manifest["buildIdentity"] == identity.build => None,
+        probed => {
+            return Reuse::Build {
+                judged: probed.map(|(id, _)| id),
+            };
+        }
+    };
+    let Ok(_lock) = publication::lock(home, paths, cancel) else {
+        return Reuse::Build { judged };
+    };
+    current(options, home, paths, identity, cancel, started)
+}
+
+/// [`reuse`] for a build that has reached publication and holds the build
+/// lock: another build of the scope may have published meanwhile, and the
+/// same inputs over an unchanged tree built the same graph, so this one
+/// answers with that snapshot instead of publishing a second copy. The
+/// snapshot `judged` before the build is not checked twice.
+pub(super) fn published_meanwhile(
+    options: &IngestOptions,
+    home: &Path,
+    paths: &PathPolicy,
+    identity: &Identity<'_>,
+    judged: Option<&str>,
+    cancel: &dyn CancellationCheck,
+    started: Instant,
+) -> Option<(String, GraphOutput)> {
+    let root = paths.validate(&options.path).ok()?.canonical;
+    let (id, _) = newest(home, &root.to_string_lossy())?;
+    if options.refresh || judged == Some(id.as_str()) {
+        return None;
+    }
+    match current(options, home, paths, identity, cancel, started) {
+        Reuse::Current(receipt) => Some((id, receipt)),
+        Reuse::Build { .. } => None,
+    }
+}
+
+/// The locked half of [`reuse`]: the caller holds the build lock.
+fn current(
+    options: &IngestOptions,
+    home: &Path,
+    paths: &PathPolicy,
+    identity: &Identity<'_>,
+    cancel: &dyn CancellationCheck,
+    started: Instant,
+) -> Reuse {
+    let newest = paths.validate(&options.path).ok().and_then(|root| {
+        Some((
+            newest(home, &root.canonical.to_string_lossy())?,
+            root.canonical,
+        ))
+    });
+    let Some(((id, manifest), root)) = newest else {
+        return Reuse::Build { judged: None };
+    };
+    match unchanged_receipt(
+        home,
+        paths,
+        &root,
+        (&id, &manifest),
+        identity,
+        cancel,
+        started,
+    ) {
+        Some(receipt) => Reuse::Current(receipt),
+        None => Reuse::Build { judged: Some(id) },
+    }
+}
+
+/// The receipt of snapshot `id`, when it is what a build of `root` with
+/// `identity` would publish now.
+fn unchanged_receipt(
+    home: &Path,
+    paths: &PathPolicy,
+    root: &Path,
+    (id, manifest): (&str, &Value),
+    identity: &Identity<'_>,
     cancel: &dyn CancellationCheck,
     started: Instant,
 ) -> Option<GraphOutput> {
-    if options.refresh || !home.is_dir() {
-        return None;
-    }
-    let root = paths.validate(&options.path).ok()?.canonical;
-    let root_text = root.to_string_lossy();
-    // Unlocked probe first: a scope with no current snapshot never waits
-    // for another scope's publication.
-    newest(home, &root_text).filter(|(_, manifest)| manifest["buildIdentity"] == identity)?;
-    let _lock = publication::lock(home, paths, cancel).ok()?;
-    let (id, manifest) = newest(home, &root_text)?;
     // The digest covers these too; the manifest's own record of them must
     // agree, so an edited manifest is never taken as current.
-    if manifest["buildIdentity"] != identity
-        || manifest["registryIdentity"] != registry_identity
+    if manifest["buildIdentity"] != identity.build
+        || manifest["registryIdentity"] != identity.registry
         || manifest["formatVersion"] != format::FORMAT_VERSION
-        || !analysis_current(&manifest)
+        || !analysis_current(manifest)
     {
         return None;
     }
-    let dir = home.join(&id);
+    let dir = home.join(id);
     let tables = format::SnapshotReader::open(
         &dir.join(GRAPH_FILE),
         manifest["graph"]["sha256"].as_str()?,
@@ -104,7 +199,7 @@ pub(super) fn reuse(
         Ok(tables)
     })
     .ok()?;
-    if !snapshot_changes(paths, &root, &tables, &manifest, true)
+    if !snapshot_changes(paths, root, &tables, manifest, true)
         .changes
         .is_empty()
     {
@@ -116,7 +211,7 @@ pub(super) fn reuse(
     let _ = renew_lease(&dir);
     progress::emit(|| format!("reused {id}: its sources are unchanged"));
     Some(GraphOutput::ok(snapshot::receipt(
-        &id, &dir, &manifest, started,
+        id, &dir, manifest, started,
     )))
 }
 

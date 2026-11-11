@@ -69,8 +69,11 @@ always rebuilds. A query that names no snapshot in another workspace's home is t
 the home it searched and every allowed `.octocode/graph` above the scope holding a
 snapshot of it, because the home follows the workspace the runtime starts in.
 Retention never removes a snapshot a reader used within the continuation lease,
-whatever its format. Queries can keep reading an explicit published snapshot. The manifest's
-`analysisVersion` identifies older linking rules independently of the binary format.
+whatever its format. Queries can keep reading an explicit published snapshot of the current
+analysis version. The manifest's `analysisVersion` identifies the linking and redaction rules
+that built its facts, independently of the binary format: a snapshot of another analysis
+version is never read for evidence, as the queried snapshot or as a `baseline`. The query
+fails with `notFound` and a `related` graphBuild of that snapshot's scope.
 It also records the installed registry identity and discovery extensions.
 Builds of different scopes run in parallel: an OS lock serializes only
 staging, publication, `latest` and retention across processes, and a per-scope lock lets
@@ -104,8 +107,9 @@ Queries select the newest snapshot of exactly `path`, or an exact `graph` ID of
 that scope. **Use the build's path even when supplying its ID**; omitting path
 means the workspace root. The build's `related` stats call includes both fields.
 Every successful query reports freshness, including added files and
-linking inputs and whether the analysis version is current. A truncated scan or
-older analysis cannot be reported fresh. Paging cursors pin the
+linking inputs and whether the fact schema and package version are the binary's
+(`analysisCurrent`). A truncated scan or a snapshot of another fact schema or package
+version cannot be reported fresh. Paging cursors pin the
 snapshot ID; a pruned snapshot fails explicitly instead of switching to `latest`.
 `responsePagination.next` and `next.*` continue evidence; `related` starts another
 question. Traversal defaults
@@ -871,7 +875,7 @@ rather than linked by a name guess.
 | Language | Not linked |
 |---|---|
 | TypeScript, TSX, JavaScript | Types only a checker settles: an overloaded callee's argument, `import("..").T`, and members whose declared type names a type parameter. Declared types do link across files: class fields and parameter properties, imported interface and alias members (`app.scene.m()`), `T["k"]` with a literal key, parameters of a function its declarator annotates with an alias (`const f: A = ({ scene }) => ..`), and properties destructured from a typed value; a chain may pass the same class (through an inherited member) or the same alias again. Members of `await import()`; a conditional of two requires (`c ? require(a) : require(b)`); a `require` through a wrapper function; a scope `require` whose name a nested scope declares again. A guarded loader (`root._ \|\| require(..)`) and a UMD wrapper's CommonJS-branch export link at medium |
-| Python | The standard-library module list is generated (`skills-dev/octocode-graph-dev/scripts/gen-python-stdlib.mjs` → `aliases/python_stdlib.txt`: the interpreter's `sys.stdlib_module_names` at a pinned Python line plus typeshed `VERSIONS` entries with an upper bound at a pinned typeshed commit; the file header names both), so a private stdlib module (`_socket`) is never bound to another tree; `cls()`; `__all__` is not read; a constructor call links to the class, not `__init__`; `self` inside a nested function |
+| Python | The standard-library module list is generated (`skills-dev/octocode-graph-dev/scripts/gen-python-stdlib.mjs` → `import_resolution/aliases/python_stdlib.txt`: the interpreter's `sys.stdlib_module_names` at a pinned Python line plus typeshed `VERSIONS` entries with an upper bound at a pinned typeshed commit; the file header names both), so a private stdlib module (`_socket`) is never bound to another tree; `cls()`; `__all__` is not read; a constructor call links to the class, not `__init__`; `self` inside a nested function |
 | Go | an explicit type argument applied to one value (`F[T]` with a single argument, which the grammar reads as a type conversion); function values, type switches and method-chain return types. A `NewT()` result is typed `T` from the constructor's name only when no declaration of `NewT` is found; a declared result type (an interface included) wins |
 | Rust | calls inside macros; untyped closure parameters. A trait default method is matched to its implementing type by name |
 | Java | method references (`Foo::bar`); untyped lambda parameters; `this(..)` and `super(..)` delegation (`constructor-binding-not-assessed`); record accessors and anonymous-class bodies |

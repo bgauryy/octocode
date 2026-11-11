@@ -63,6 +63,7 @@ pub(crate) use continuations::ContinuationAnswers;
 mod roles;
 mod scope;
 mod server_coverage;
+mod server_text;
 mod session;
 mod source;
 mod syntax;
@@ -260,6 +261,7 @@ impl From<LspFailure> for Exit {
     }
 }
 
+#[cfg(test)]
 pub(crate) async fn execute(
     query: LspSearchQuery,
     cancel: &dyn CancellationCheck,
@@ -269,28 +271,57 @@ pub(crate) async fn execute(
     response_window: Option<usize>,
     answers: &ContinuationAnswers,
 ) -> Result<Value, LspFailure> {
+    execute_judged(
+        query,
+        cancel,
+        pool,
+        paths,
+        (execution_config, std::sync::Arc::default()),
+        response_window,
+        answers,
+    )
+    .await
+}
+
+/// [`execute`] whose rows show their sources as `judged` judges them whole:
+/// the texts shown are its leaves, for the output gate.
+pub(crate) async fn execute_judged(
+    query: LspSearchQuery,
+    cancel: &dyn CancellationCheck,
+    pool: &LspClientPool,
+    paths: &PathPolicy,
+    (execution_config, judged): (
+        &LspExecutionConfig,
+        std::sync::Arc<crate::security::JudgedFiles>,
+    ),
+    response_window: Option<usize>,
+    answers: &ContinuationAnswers,
+) -> Result<Value, LspFailure> {
     let (query, scope) = answers.open(query)?;
     let work = octocode_engine::lsp::client::RESPONSE_SCOPE.scope(
         std::cell::RefCell::new(scope),
-        scope::with_canonical_memo(async {
-            let mut row = execute_page(
-                query,
-                cancel,
-                pool,
-                paths,
-                execution_config,
-                response_window,
-            )
-            .await?;
-            let selected =
-                octocode_engine::lsp::client::RESPONSE_SCOPE.with(|scope| scope.borrow().clone());
-            answers.retain(
-                &mut row,
-                &selected,
-                crate::execution::cancel::deadline_of(cancel),
-            )?;
-            Ok(row)
-        }),
+        scope::with_judged_files(
+            judged,
+            scope::with_canonical_memo(async {
+                let mut row = execute_page(
+                    query,
+                    cancel,
+                    pool,
+                    paths,
+                    execution_config,
+                    response_window,
+                )
+                .await?;
+                let selected = octocode_engine::lsp::client::RESPONSE_SCOPE
+                    .with(|scope| scope.borrow().clone());
+                answers.retain(
+                    &mut row,
+                    &selected,
+                    crate::execution::cancel::deadline_of(cancel),
+                )?;
+                Ok(row)
+            }),
+        ),
     );
     Box::pin(work).await
 }

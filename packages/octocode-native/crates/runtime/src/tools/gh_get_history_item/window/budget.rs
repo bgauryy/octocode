@@ -12,7 +12,7 @@
 /// the same patch text. A row that still outgrows its page is lossless:
 /// automatic paging splits it by whole rows, and the walk's
 /// `contentPagination.patches.next.nextPage` and the file page ride the row's last part
-/// (`id::resumes_after_shown`), so following it never skips a part.
+/// (`response::row_pages`' part shares), so following it never skips a part.
 /// A bigger window comes with a bigger response page (`responseChars`).
 const PATCH_DEFAULT_SHARE: (usize, usize) = (4, 5);
 

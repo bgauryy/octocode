@@ -70,6 +70,16 @@ const SHARED_LAYERS: &[&[(&str, &str)]] = &[
     &[
         // Reads empty_walk's walk and globs.
         ("ast_rule", "AST rule parsing shared by the ast tools"),
+        // Reads source's bounded reads for the configuration beside the sources.
+        (
+            "import_resolution",
+            "how a project's settings place an import (path folding, JS module probing, tsconfig, workspaces, Python roots, C includes): the graph links by it and lspSearch places importer candidates by it",
+        ),
+        // Reads source's bounded reads.
+        (
+            "judged_rows",
+            "the whole-file redaction judgment a row's text is cut from, read once a request",
+        ),
         ("leads", "follow-up queries one tool offers into another"),
         (
             "selection",
@@ -95,6 +105,13 @@ const SHARED_LAYERS: &[&[(&str, &str)]] = &[
         (
             "source_view",
             "the one view engine over fetched source text: localFetch and ghGetFileContent render through it, and local_search sizes its read leads by its limits",
+        ),
+    ],
+    &[
+        // Renders its windows through source_view and keeps a pass in page_memo.
+        (
+            "large_source",
+            "the one streamed judgment of a source past the whole-file limit: localFetch serves its windows and localSearch cuts its rows from the lines it serves",
         ),
     ],
 ];

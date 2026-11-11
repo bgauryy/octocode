@@ -214,6 +214,11 @@ fn validate_schema_with_ref_depth(
 /// score scale reads "score criteria is an array of at least two levels…",
 /// not the bare minimum-length rule. A check that covers no issue here
 /// waits until the value's shape is valid.
+///
+/// A check judges a value of the shape its schema declares, so two issues
+/// are never its to explain: a wrong type at the check's own path (the
+/// assertion failed on a value of another kind), and an unknown field (the
+/// key the check found missing may be the one misspelt).
 fn prefer_guidance(
     issues: &mut Vec<super::ValidationIssue>,
     schema: &Value,
@@ -228,7 +233,11 @@ fn prefer_guidance(
     }
     for check in guidance.issues {
         let before = issues.len();
-        issues.retain(|issue| !issue.path.starts_with(&check.path));
+        issues.retain(|issue| {
+            !issue.path.starts_with(&check.path)
+                || issue.rule_id == "schema.unknown-field"
+                || (issue.rule_id == "schema.type" && issue.path == check.path)
+        });
         if issues.len() < before {
             issues.push(check);
         }

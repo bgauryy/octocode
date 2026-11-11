@@ -63,6 +63,17 @@ impl Question<'_, '_> {
                         "hoverProvider returned no hover at this position",
                     )
                 } else {
+                    // The files that declare the anchor and its type: the
+                    // hover is about them (see the server rung's hover).
+                    for method in ["definition", "typeDefinition"] {
+                        match self.ask(method, self.anchor()).await {
+                            Ok(answer) => {
+                                crate::tools::lsp_search::server_text::is_about_answer(&answer);
+                            }
+                            Err(Fault::Stop(failure)) => return Err(Fault::Stop(failure)),
+                            Err(Fault::Fallback(_)) => {}
+                        }
+                    }
                     json!({
                         "lsp": { "serverAvailable": true, "provider": "hoverProvider" },
                         "operation": "hover",
@@ -117,7 +128,8 @@ impl Question<'_, '_> {
     }
 
     /// `implementation`: the editor's answer, with the heritage scan's
-    /// declarations it left out for a type anchor, as a server answer has.
+    /// declarations it left out for a type anchor or a member of a type, as
+    /// a server answer has.
     async fn implementation(&mut self) -> Result<Value, Fault> {
         let answer = self.ask("implementation", self.anchor()).await?;
         let found = snippets::snippets_of(&answer, self.sources).await;
@@ -127,12 +139,12 @@ impl Question<'_, '_> {
             .await
             .map(|source| source.content.clone())
             .unwrap_or_default();
-        let scannable = lsp_search_query::symbol_name(self.query).is_some_and(|name| {
-            heritage::anchors_type_declaration(&content, self.path, self.line, name)
-        });
-        let scan = if scannable {
+        let scannable = lsp_search_query::symbol_name(self.query)
+            .and_then(|name| heritage::scannable(&content, self.path, self.line, name));
+        let scan = match &scannable {
             // A scan that cannot run adds nothing; only cancellation stops.
-            match heritage::scan_workspace(
+            Some(what) => match heritage::scan_for(
+                what,
                 self.query,
                 self.scope,
                 self.sources.policy(),
@@ -143,9 +155,8 @@ impl Question<'_, '_> {
                 Err(failure) if failure.is_cancelled() => return Err(failure.into()),
                 Ok(scan) => scan,
                 Err(_) => None,
-            }
-        } else {
-            None
+            },
+            None => None,
         };
         let extra = scan
             .map(|scan| scan_only(&found, scan).0)

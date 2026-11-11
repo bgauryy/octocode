@@ -80,7 +80,7 @@ async fn client_reads_one_reply_line_and_treats_a_silent_close_as_no_reply() {
         server.read_line(&mut request).await.expect("request");
         server
             .get_mut()
-            .write_all(b"{\"exit\":1,\"stderr\":false,\"body\":\"{}\",\"json\":true}\n")
+            .write_all(b"{\"exit\":1,\"body\":\"{}\",\"json\":true}\n")
             .await
             .expect("reply");
         request
@@ -92,7 +92,6 @@ async fn client_reads_one_reply_line_and_treats_a_silent_close_as_no_reply() {
         reply,
         Ok(Printed {
             exit: 1,
-            stream: crate::cli::output::Stream::Stdout,
             body: "{}".into(),
             json: true,
             error_text: None,

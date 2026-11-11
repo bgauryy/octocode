@@ -112,7 +112,7 @@ fn a_non_object_names_the_object_shape() {
             "properties":{"greater":{"type":"string"},"less":{"type":"string"}}});
     assert_eq!(
         message(&size, json!(">10k")),
-        "Expected object {greater, less}"
+        r#"Expected object {greater, less}; ">10k" is the value of one field: send {"<field>":">10k"} with <field> one of greater, less"#
     );
     let questions = json!({"type":"object","additionalProperties":{"anyOf":[
         {"type":"object","properties":{"type":{"const":"noul"},"instructions":{"type":"string"}}},

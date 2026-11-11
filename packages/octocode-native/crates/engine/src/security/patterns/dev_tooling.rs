@@ -45,8 +45,6 @@ macro_rules! any_piece {
     };
 }
 
-/// What sits between two pieces of one literal: a `+`, or only blanks
-/// (`"a" "b"` is one string in Python and C).
 /// What follows a literal's last piece: not another piece. Alternatives are
 /// tried in order, so without it the one that stops at a shorter chain
 /// (`'a' "b"` before `'a' "b" 'c'`) would win and leave the rest readable.
@@ -56,9 +54,12 @@ macro_rules! piece_end {
     };
 }
 
+/// What sits between two pieces of one literal: a `+`, or nothing
+/// (`"a" "b"` is one string in Python and C), with what source code writes
+/// around either (`code_gap`: blanks, line breaks, comments).
 macro_rules! piece_seam {
     () => {
-        r###"\s*(?:\+\s*)?"###
+        concat!(code_gap!(), r###"(?:\+"###, code_gap!(), ")?")
     };
 }
 
@@ -409,10 +410,19 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         // JSON/YAML key, with `=`, `:=`, `:` or `=>`. Which values count, by
         // length and key, is the quoted value test's (`ValueTest::Quoted`). A
         // literal is double-quoted, single-quoted or a backtick string; the
-        // name may carry a type (`PASSWORD: &str = "…"`), and a fallback
-        // operator (`env.DB_PASSWORD || "…"`, `??`) assigns like `=`.
+        // name may carry a type (`PASSWORD: &str = "…"`) or a number
+        // (`apiKey2`), and a fallback operator (`env.DB_PASSWORD || "…"`,
+        // `??`) assigns like `=`. Between the name, the operator and the
+        // literal source code may write blanks, line breaks and comments
+        // (`code_gap`): the value is read through them.
         regex: concat!(
-            r###"(?:(?:\b(?:[A-Za-z0-9]+[_.-])*(?i:secret|password|passwd|passphrase|key|token|credential)s?(?:[_.-][A-Za-z0-9]+)*|\b[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)*(?:Secret|Password|Passwd|Passphrase|Key|Token|Credential)s?(?:[A-Z][a-z0-9]*)*)["']?\s*(?::[ \t]*[^\s=:"'`,;(){}](?:'[A-Za-z_][A-Za-z0-9_]*|[^=\r\n"'`;(){}])*?\s*)?"###,
+            r###"(?:(?:\b(?:[A-Za-z0-9]+[_.-])*(?i:secret|password|passwd|passphrase|key|token|credential)s?"###,
+            name_number!(),
+            r###"(?:[_.-][A-Za-z0-9]+)*|\b[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)*(?:Secret|Password|Passwd|Passphrase|Key|Token|Credential)s?"###,
+            name_number!(),
+            r###"(?:[A-Z][a-z0-9]*)*)["']?"###,
+            code_gap!(),
+            r###"(?::[ \t]*[^\s=:"'`,;(){}](?:'[A-Za-z_][A-Za-z0-9_]*|[^=\r\n"'`;(){}])*?\s*)?"###,
             // After the name: an assignment operator, the same followed by a read
             // the literal backs up (`= process.env.X || "…"`, `= env() or "…"`), or
             // a fallback operator right after a name.
@@ -425,10 +435,13 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
             credential_words!(),
             r###")[A-Za-z0-9_]*["']\s*\])\s*(?:\|\||\?\?)|\b(?:os\.environ\.get|os\.getenv|getenv|environ\.get|env\.get)\(\s*["'][A-Za-z0-9_]*(?i:"###,
             credential_words!(),
-            r###")[A-Za-z0-9_]*["']\s*(?:,|\)\s*or\b))\s*"###,
+            r###")[A-Za-z0-9_]*["']\s*(?:,|\)\s*or\b))"###,
+            code_gap!(),
             // A constructor call may wrap the literal (`Some("…")`,
             // `String::from("…")`): the name still holds its value.
-            r###"(?:(?:[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*)?\(\s*)?"###,
+            r###"(?:(?:[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*!?)?\("###,
+            code_gap!(),
+            ")?",
             literals!()
         ),
     },
@@ -459,7 +472,9 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
             comment_lead!(),
             r###"(?:-[ \t]+["']?)?(?:export[ \t]+)?(?:[A-Za-z0-9]+[_.])*(?i:"###,
             credential_words!(),
-            r###")s?(?:[_.][A-Za-z0-9]+)*[ \t]*=[ \t]*(?P<secret>[^\s"'$#(){}\[\]:][^\s"'(){}\[\]:]{11,})["']?[ \t]*(?:#[^\r\n]*)?\r?$"###
+            ")s?",
+            name_number!(),
+            r###"(?:[_.][A-Za-z0-9]+)*[ \t]*=[ \t]*(?P<secret>[^\s"'$#(){}\[\]:][^\s"'(){}\[\]:]{11,})["']?[ \t]*(?:#[^\r\n]*)?\r?$"###
         ),
     },
     SecretPattern {
@@ -491,12 +506,24 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         // follows (`password: Zq7x:mPlanted`). The key may sit under a slash-separated path
         // (`secret/data/app/api_token:`). A bare `key:` is too common in YAML
         // (label selectors, tolerations) to count, and the key's credential
-        // word ends its name (`secretName:` is no credential). Which values
+        // word ends its name (`secretName:` is no credential), a number
+        // after it aside (`api_key2:`). A value in a block comment ends
+        // before the comment's closer (`comment_close`). Which values
         // count is the value test's (`ValueTest::Scalar`).
         regex: concat!(
             r###"(?m)^[ \t]*"###,
             comment_lead!(),
-            r###"(?:-[ \t]+)?(?:[A-Za-z0-9_.-]+/)*(?:(?:[A-Za-z0-9]+[_.-])*(?i:secret|password|passwd|passphrase|token|api[_-]?key|access[_-]?key|private[_-]?key|auth[_-]?key|credential)s?(?:[_.-][A-Za-z0-9]+)*|[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)*(?:Secret|Password|Passwd|Passphrase|Token|ApiKey|AccessKey|PrivateKey|AuthKey|Credential)s?(?:[A-Z][a-z0-9]*)*)[ \t]*:[ \t]+(?:"(?P<secret>[^"\\\s$\{](?:\\[^\r\n]|[^"\\\r\n])*)"|'(?P<secret_single>[^'\s$\{][^'\r\n]*)'|(?P<secret_bare>[^\s"'#$&*!|>{}\[\]:%@`](?:[^\r\n:#]|:[^\s#])*?))[ \t]*(?:#.*)?\r?$"###
+            r###"(?:-[ \t]+)?(?:[A-Za-z0-9_.-]+/)*(?:(?:[A-Za-z0-9]+[_.-])*(?i:secret|password|passwd|passphrase|token|api[_-]?key|access[_-]?key|private[_-]?key|auth[_-]?key|credential)s?"###,
+            name_number!(),
+            r###"(?:[_.-][A-Za-z0-9]+)*|[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)*(?:Secret|Password|Passwd|Passphrase|Token|ApiKey|AccessKey|PrivateKey|AuthKey|Credential)s?"###,
+            name_number!(),
+            r###"(?:[A-Z][a-z0-9]*)*)[ \t]*:(?:[ \t]+(?:"(?P<secret>[^"\\\s$\{](?:\\[^\r\n]|[^"\\\r\n])*)"|'(?P<secret_single>[^'\s$\{][^'\r\n]*)'|(?P<secret_bare>[^\s"'#$&*!|>{}\[\]:%@`](?:[^\r\n:#]|:[^\s#])*?))"###,
+            // A plain scalar may start on the line after its key, indented
+            // under it: one word there (a list item, a nested key or a
+            // sentence of a definition list is none).
+            r###"|[ \t]*(?:#[^\r\n]*)?\r?\n[ \t]+(?P<secret_next>[^\s"'#$&*!|>{}\[\]:%@`\-](?:[^\s:#]|:[^\s#])*))"###,
+            comment_close!(),
+            r###"[ \t]*(?:#.*)?\r?$"###
         ),
     },
 ];

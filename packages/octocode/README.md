@@ -104,7 +104,8 @@ for operation requirements, defaults and snapshot retention.
 | `skill list\|info\|install\|remove\|check` | Manage the bundled Agent Skills. |
 | `help [command]` | Help for any command (also `--help`, `-h`). |
 
-Text mode writes readable evidence to stdout and guidance to stderr. `--json`
+Text mode writes readable evidence to stdout, each row followed by its status,
+page state and continuation commands as `# ` lines, and guidance to stderr. `--json`
 returns the structured result. Exit `0` can include remaining pages: run
 `responsePagination.next`, else `next.nextPage`, until neither remains. The
 [CLI guide](../../docs/OCTOCODE_CLI.md#exit-codes) owns exit codes and flags.

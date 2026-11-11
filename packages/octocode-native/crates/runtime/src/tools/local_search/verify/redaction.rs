@@ -101,24 +101,20 @@ pub(in crate::tools::local_search) fn redact_scan(
 /// key-block scan of [`redact_file`].
 pub(in crate::tools::local_search) fn scan_inspector() -> octocode_engine::types::DeferredInspector
 {
-    let security = ContentSecurity::new();
     octocode_engine::types::DeferredInspector(std::sync::Arc::new(move |path, hit| {
         if crate::security::snippet_may_hold_key_material(&hit.value) {
             hit.value = String::new();
             hit.deferred = Some(0);
             return;
         }
-        let sanitized = security.sanitize_text(&hit.value, Some(path));
-        let changed = sanitized.content != hit.value;
-        if let std::borrow::Cow::Owned(text) = sanitized.content {
-            hit.value = text;
-        }
+        // The line is priced as the source has it. What a page shows of it
+        // is judged with its whole source, never here: alone, a value named
+        // a secret on another line reads as data, and code as configuration.
+        let _ = path;
         hit.deferred = None;
         let price = crate::tools::local_search::layout::row_chars(hit, false);
         hit.deferred = Some(saturating_u32(price));
-        if !changed {
-            hit.value = String::new();
-        }
+        hit.value = String::new();
     }))
 }
 
@@ -240,20 +236,14 @@ fn redact_file(
                 let kept = redact_key_block_lines(matched.line, &matched.value, ranges, |n| {
                     lines.get((n as usize).checked_sub(1)?).copied()
                 });
-                let sanitized = security.sanitize_text(&kept, Some(&source_path));
-                let changed = sanitized.content != matched.value;
-                matched.value = match sanitized.content {
-                    std::borrow::Cow::Borrowed(_) => kept,
-                    std::borrow::Cow::Owned(text) => text,
-                };
+                // The block's lines are hidden by what the whole file says of
+                // them. Everything else a row shows is judged with its whole
+                // source when a page shows it (`guard`), never alone here.
+                let changed = kept != matched.value;
+                matched.value = kept;
                 changed
             } else {
-                let sanitized = security.sanitize_text(&matched.value, Some(&source_path));
-                let changed = sanitized.content != matched.value;
-                if let std::borrow::Cow::Owned(text) = sanitized.content {
-                    matched.value = text;
-                }
-                changed
+                false
             };
             if matched.deferred.is_some() {
                 matched.deferred = None;

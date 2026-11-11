@@ -29,8 +29,8 @@ use rows::location_sort_key;
 pub(super) use shaping::MAX_DECLARATION_CONTENT_LINES;
 use shaping::{DECLARATION_CLIPPED, location_payload, location_sizes};
 pub(super) use shaping::{
-    RECOVERED_ALIAS, apply_context_lines, cap_declaration_content, compact_location,
-    hide_lines_a_row_cannot_judge, public_location,
+    RECOVERED_ALIAS, apply_context_lines, cap_declaration_content, compact_location, judge_content,
+    public_location,
 };
 use snapshots::salted_snapshot;
 #[cfg(test)]
@@ -235,6 +235,8 @@ async fn location_page(
     let mut declaration_reads: Vec<crate::response::result::Continuation> = Vec::new();
     let mut line_reads: Vec<Value> = Vec::new();
     let mut unsealed: Vec<byte_window::Unsealed> = Vec::new();
+    // Placeholders the judged sources put in this page's quoted lines.
+    let mut redacted = 0;
     let (key, rows) = if grouped {
         ("files", json!(page))
     } else {
@@ -268,14 +270,33 @@ async fn location_page(
                 declaration_reads.extend(read);
             }
         }
-        hide_lines_a_row_cannot_judge(&mut page, sources).await;
-        let page = page.into_iter().map(public_location).collect::<Vec<_>>();
+        let (judged, added) = judge_content(&mut page, sources, security).await;
+        redacted += added;
+        let files = super::scope::judged_files();
+        let page = page
+            .into_iter()
+            .zip(judged)
+            .map(|(location, judged)| {
+                let location = public_location(location);
+                // The numbered text is the judged lines with their numbers.
+                if let (Some(judged), Some(content)) = (judged, location["content"].as_str()) {
+                    files.show(judged.path(), content);
+                }
+                location
+            })
+            .collect::<Vec<_>>();
         match rows::located_files(page.clone()) {
             Some(files) => ("files", json!(files)),
             None => ("matches", json!(page)),
         }
     };
     let mut row = location_payload(kind, provider, key, rows, locations, pagination);
+    if redacted > 0 {
+        crate::response::paging::push_warnings(
+            &mut row,
+            [crate::security::redacted_content_warning(redacted)],
+        );
+    }
     offer_next_page(query, &mut row, next_page);
     // A clipped body is a partial row with its reason; the reads reach the
     // omitted lines.

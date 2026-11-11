@@ -85,7 +85,8 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "slackBotToken",
         file_context: None,
-        regex: r###"xoxb-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*\b"###,
+        // A workspace's bot token, and the older form with one id.
+        regex: r###"xoxb-(?:[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*|[0-9]{8,14}-[a-zA-Z0-9]{18,26})\b"###,
     },
     SecretPattern {
         name: "slackUserToken",
@@ -185,7 +186,8 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "facebookAccessToken",
         file_context: None,
-        regex: r###"\bEAA[a-zA-Z0-9]{80,120}\b"###,
+        // A long-lived token runs past two hundred characters.
+        regex: r###"\bEAA[a-zA-Z0-9]{80,}\b"###,
     },
     SecretPattern {
         name: "facebookPageAccessToken",
@@ -200,7 +202,10 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "discordSocialBotToken",
         file_context: None,
-        regex: r###"\b[MN][A-Za-z\d]{23}\.[A-Za-z\d\-_]{6}\.[A-Za-z\d\-_]{27}\b"###,
+        // An id, a timestamp and a signature, each base64url, of the
+        // lengths a bot's or a user's token has. Dotted names have the shape
+        // too, so the value test asks for an opaque one (`ValueTest::Opaque`).
+        regex: r###"\b[MNO][A-Za-z\d_-]{23,25}\.[A-Za-z\d\-_]{6}\.[A-Za-z\d\-_]{27,38}"###,
     },
     SecretPattern {
         name: "discordSocialWebhookUrl",

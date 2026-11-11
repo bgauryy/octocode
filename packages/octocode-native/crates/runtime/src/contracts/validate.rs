@@ -56,11 +56,17 @@ impl ContractValidationError {
 
 impl Display for ContractValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            formatter,
-            "contract validation failed with {} issue(s)",
-            self.issues.len()
-        )
+        // Each issue as its repair line reads: where, then what to send.
+        for (index, issue) in self.issues.iter().enumerate() {
+            if index > 0 {
+                formatter.write_str("; ")?;
+            }
+            if !issue.path.is_empty() {
+                write!(formatter, "{}: ", issue.path.join("."))?;
+            }
+            formatter.write_str(&issue.message)?;
+        }
+        Ok(())
     }
 }
 

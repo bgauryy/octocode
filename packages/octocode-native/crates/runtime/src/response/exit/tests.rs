@@ -45,5 +45,6 @@ fn outcome(
         structured_content: crate::security::Sanitized::sealed(structured_content),
         failure,
         all_failed,
+        continued: None,
     }
 }

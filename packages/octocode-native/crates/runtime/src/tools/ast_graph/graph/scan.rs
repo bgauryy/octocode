@@ -207,11 +207,51 @@ fn name_gaps(
 fn keep_file(
     view: &octocode_engine::fact_scan::GraphFactsView<'_>,
     cancel: &dyn CancellationCheck,
-    job: Option<&checkpoint::Job<'_>>,
+    (job, judging): (Option<&checkpoint::Job<'_>>, (&ContentSecurity, &Path)),
     admission: &super::scope::Admission<'_>,
     gaps: &Gaps,
     source_map: octocode_engine::text::analysis::MapLimits,
 ) -> Result<Option<Kept>, ToolError> {
+    // One redaction decision per source, made over its whole text: the
+    // facts kept, linked and stored are the ones that judged source shows.
+    let (security, root) = judging;
+    let path = if root.is_file() {
+        root.to_path_buf()
+    } else {
+        root.join(view.relative_path)
+    };
+    let judged = match checkpoint::judged_source(security, view.content, &path) {
+        Ok(judged) => judged,
+        Err(unscanned) => {
+            gaps.push(octocode_engine::fact_scan::panicked(
+                view.relative_path.to_owned(),
+                &unscanned,
+            ));
+            return Ok(None);
+        }
+    };
+    let holds_secret = judged.is_redacted();
+    let shown = match checkpoint::judged_facts(view.facts, &judged) {
+        Ok(shown) => shown,
+        Err(error) => {
+            gaps.push(declined(
+                view.relative_path,
+                format!(
+                    "graph facts could not be rewritten as the redacted source shows them: {error}"
+                ),
+            ));
+            return Ok(None);
+        }
+    };
+    drop(judged);
+    let shown_view;
+    let view = match &shown {
+        Some(facts) => {
+            shown_view = octocode_engine::fact_scan::GraphFactsView { facts, ..*view };
+            &shown_view
+        }
+        None => view,
+    };
     // A file whose correspondence no build could hold is the scan's named
     // gap (`None`); one that cannot be held beside the files kept so far is
     // the scope's refusal; one refused only because files in flight held
@@ -250,16 +290,7 @@ fn keep_file(
     // The facts' encoded size: their artifact's, else their
     // JSON's, which the artifact encodes.
     let (kept, fact_bytes) = match job {
-        Some(job) => match job.keep(view, source)? {
-            Ok(kept) => kept,
-            Err(unscanned) => {
-                gaps.push(octocode_engine::fact_scan::panicked(
-                    view.relative_path.to_owned(),
-                    &unscanned,
-                ));
-                return Ok(None);
-            }
-        },
+        Some(job) => job.keep(view, source, holds_secret)?,
         None => {
             let marks = super::super::classify::SourceMarks::of(view.relative_path, view.content);
             let fact_bytes = octocode_engine::json_size::bytes_or(view.facts, usize::MAX);
@@ -331,15 +362,7 @@ pub(super) fn extract<'a>(
     .map_err(walk_error)?
     .entries;
     turn.record_walk(walk.entries.len());
-    let job = checkpoint::Job::open(
-        scan,
-        root,
-        &walk.entries,
-        paths,
-        security,
-        registry,
-        request,
-    )?;
+    let job = checkpoint::Job::open(scan, root, &walk.entries, paths, registry, request)?;
     let parsing = crate::tools::ast_graph::progress::Parsing::new(walk.entries.len());
     let admission = super::scope::Admission::new(scan, root, &walk.entries);
     let source_map = scan.limits.source_map();
@@ -359,7 +382,8 @@ pub(super) fn extract<'a>(
         walk,
         source,
         &|view: &octocode_engine::fact_scan::GraphFactsView<'_>| {
-            let kept = match keep_file(view, cancel, job.as_ref(), &admission, &gaps, source_map) {
+            let judging = (job.as_ref(), (security, root));
+            let kept = match keep_file(view, cancel, judging, &admission, &gaps, source_map) {
                 Ok(kept) => kept,
                 Err(error) => {
                     capture_error

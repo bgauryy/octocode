@@ -154,16 +154,18 @@ fn syntax_tree_error_row_states_the_error_once() {
 }
 
 /// A syntax tree whose parse recovered from errors is the whole recovered
-/// tree: no page reaches more, so the row ends at a terminal limit that
-/// names its cut.
+/// tree: the walk finished and no limit cut it, so the row is partial for
+/// `parseRecovered` and claims no terminal limit. The reason is the one
+/// statement of the recovery: no diagnostic row repeats it.
 #[test]
-fn a_recovered_syntax_tree_names_its_terminal_cut() {
+fn a_recovered_syntax_tree_is_partial_without_a_terminal_limit() {
     let root = Fixture::new();
     let file = root.write("broken.ts", "function f( {\n");
     let out = run(&root.0, json!({"operation":"syntaxTree","path":file})).expect("tree");
     assert_eq!(out["isPartial"], true, "{out}");
-    assert_eq!(out["terminalLimit"], true, "{out}");
     assert_eq!(out["partialReasons"], json!(["parseRecovered"]), "{out}");
+    assert_eq!(out.get("terminalLimit"), None, "{out}");
+    assert_eq!(out.get("diagnostics"), None, "{out}");
 }
 
 #[test]

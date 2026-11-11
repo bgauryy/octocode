@@ -27,7 +27,7 @@ pub(super) fn source_too_large(path: &str, len: u64, limit: SourceSizeLimit) -> 
         SourceSizeLimit::Streaming => (
             format!(
                 "File too large: {len} bytes (streaming ceiling: {} bytes / 1 GiB). localFetch cannot read this path, even in ranges.",
-                super::large_source::MAX_STREAM_SOURCE_BYTES
+                crate::tools::large_source::MAX_STREAM_SOURCE_BYTES
             ),
             "No selection lifts this source-size ceiling; choose a smaller text source or split it outside localFetch.".to_owned(),
         ),
@@ -182,7 +182,7 @@ pub(super) fn fetch_streamed(
         return stale_snapshot(q);
     }
     let path = &file.canonical;
-    let mut result = super::large_source::fetch_window(
+    let mut result = crate::tools::large_source::fetch_window(
         q,
         path,
         source,
@@ -300,21 +300,5 @@ fn path_failure(q: &LocalFetchQuery, failure: PathFailure) -> LocalFetchResult {
         };
         result.next = Some(next).filter(|next| !next.is_empty());
     }
-    result
-}
-
-/// The refusal for a binary file: a NUL byte, or a binary head.
-pub(super) fn refuse_binary(q: &LocalFetchQuery, display_path: &str) -> LocalFetchResult {
-    let mut result = LocalFetchResult::error(
-        local_fetch_query::path(q).to_owned(),
-        ErrorCode::BinaryFileUnsupported,
-        format!(
-            "Binary file unsupported: {display_path}. Read a text source file, or use structureSearch operation:\"files\" for file metadata."
-        ),
-    );
-    // No range or matchString can make binary bytes readable; say so
-    // instead of the generic "remove matchString" recovery.
-    result.hints =
-        vec!["Do not retry this path with other ranges; choose a text source file instead.".into()];
     result
 }

@@ -167,6 +167,15 @@ impl Loading {
             .expect("row")
     }
 
+    /// How many times the server was asked for `method` (`references`).
+    fn asked_for(&self, method: &str) -> usize {
+        std::fs::read_to_string(self.root.join("asked.txt"))
+            .unwrap_or_default()
+            .lines()
+            .filter(|asked| *asked == method)
+            .count()
+    }
+
     /// How many times the server was asked.
     fn asked(&self) -> usize {
         std::fs::read_to_string(self.root.join("asked.txt"))
@@ -343,16 +352,22 @@ fn a_declaration_only_answer_past_the_budget_stays_partial_with_its_evidence() {
     let row = server.references();
     assert_eq!(row["matchCount"], 1, "{row}");
     assert_eq!(row["isPartial"], true, "{row}");
-    // The use on line 2 the server never lists is named too.
-    assert_eq!(
-        row["partialReasons"],
-        json!(["languageServerIndexing", "serverUnanswered"])
+    // The spelling on line 2 the server never lists is named too. A server
+    // that has loaded nothing cannot say what it names, so it is unverified
+    // and adds no reason of its own.
+    assert_eq!(row["partialReasons"], json!(["languageServerIndexing"]));
+    let warnings = row["warnings"].to_string();
+    assert!(
+        warnings.contains("a.ts:2") && warnings.contains("unverified"),
+        "{row}"
     );
 }
 
 /// An idle server's declaration-only answer stands: it is asked once, not
-/// judged a load. The use it leaves out in the file it answers (`helper();`
-/// on line 2) is named, not taken for absence.
+/// judged a load. The spelling it does not list in the file it answers
+/// (`helper();` on line 2) is named. This server resolves no definition, so
+/// nothing says the line names the anchor: it is unverified, and the row
+/// leads to the text of the file.
 #[test]
 fn a_declaration_only_answer_from_an_idle_server_stands() {
     if !crate::tools::test_support::require_node() {
@@ -361,7 +376,12 @@ fn a_declaration_only_answer_from_an_idle_server_stands() {
     let server = Loading::new("silent", "go", Duration::from_millis(300));
     let row = server.references();
     assert_eq!(row["matchCount"], 1, "{row}");
-    assert_eq!(row["partialReasons"], json!(["serverUnanswered"]), "{row}");
-    assert!(row.to_string().contains("a.ts:2"), "{row}");
-    assert_eq!(server.asked(), 1, "{row}");
+    assert!(row.get("partialReasons").is_none(), "{row}");
+    let warnings = row["warnings"].to_string();
+    assert!(
+        warnings.contains("a.ts:2") && warnings.contains("unverified"),
+        "{row}"
+    );
+    crate::tools::test_support::checks::related_call(&row, "localSearch", |_| true);
+    assert_eq!(server.asked_for("references"), 1, "{row}");
 }

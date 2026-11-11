@@ -20,6 +20,9 @@ use std::future::Future;
 
 mod scan;
 #[cfg(test)]
+pub(super) use scan::member_snippets;
+use scan::scan_members;
+#[cfg(test)]
 pub(super) use scan::subtype_snippets;
 pub(super) use scan::{
     HeritageScan, SERVER_GRACE_AFTER_SCAN, describe_scan, describe_unread, hedged, scan_subtypes,
@@ -39,7 +42,7 @@ pub(super) fn fallback_provider(operation: &str) -> Option<&'static str> {
 /// implementation request, or beside the answer of a rung that gave one.
 /// `None` when no name is queried or the text scan of the workspace could
 /// not run.
-pub(super) async fn scan_workspace(
+async fn scan_workspace(
     query: &super::LspSearchQuery,
     scope: &super::scope::Scope,
     policy: &crate::policy::path::PathPolicy,
@@ -64,6 +67,74 @@ pub(super) async fn scan_workspace(
     };
     Ok(Some(HeritageScan {
         base: base.to_owned(),
+        files: files.len(),
+        found,
+        unread,
+    }))
+}
+
+/// What a heritage scan can read for an `implementation` anchor.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Scannable {
+    /// A type declaration: the declarations whose heritage clause names it.
+    Subtypes,
+    /// A member of the type `owner` (a trait or interface method): the
+    /// members of that name the type's subtypes declare.
+    Members { owner: String },
+}
+
+impl Scannable {
+    /// Whether the scan can stand in for a server that did not answer: a
+    /// type's subtypes are its implementations, while a member's rows
+    /// only add to an answer the server gave.
+    pub(super) fn stands_in(&self) -> bool {
+        *self == Self::Subtypes
+    }
+}
+
+/// What a heritage scan can read for the anchor `name` at the zero-based
+/// `line` of `content`; `None` for an anchor no heritage clause reaches (a
+/// function, a variable, a member of an impl block).
+pub(super) fn scannable(content: &str, file: &str, line: u32, name: &str) -> Option<Scannable> {
+    if anchors_type_declaration(content, file, line, name) {
+        return Some(Scannable::Subtypes);
+    }
+    member_owner(content, file, line, name).map(|owner| Scannable::Members { owner })
+}
+
+/// The scan `what` names for the query's symbol ([`scan_workspace`] for a
+/// type, the members its subtypes declare for a member).
+pub(super) async fn scan_for(
+    what: &Scannable,
+    query: &super::LspSearchQuery,
+    scope: &super::scope::Scope,
+    policy: &crate::policy::path::PathPolicy,
+    cancel: &dyn crate::execution::cancel::CancellationCheck,
+) -> Result<Option<HeritageScan>, LspFailure> {
+    let owner = match what {
+        Scannable::Subtypes => return scan_workspace(query, scope, policy, cancel).await,
+        Scannable::Members { owner } => owner,
+    };
+    let Some(member) =
+        super::lsp_search_query::symbol_name(query).filter(|name| !name.trim().is_empty())
+    else {
+        return Ok(None);
+    };
+    // A subtype that declares the member spells its name: the files that
+    // spell it hold every such declaration.
+    let Some(files) = scope.text_files(member, policy, cancel).await? else {
+        return Ok(None);
+    };
+    let (base, name, scanned) = (owner.clone(), member.to_owned(), files.clone());
+    let Some((found, unread)) = super::blocking_cancellable(cancel, move |stopped| {
+        scan_members(&scanned, &base, &name, stopped)
+    })
+    .await?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(HeritageScan {
+        base: owner.clone(),
         files: files.len(),
         found,
         unread,
@@ -289,7 +360,7 @@ pub(super) fn type_document(
 /// the only anchor whose subtypes a heritage scan can list. A member, a
 /// function or a variable has no extends/implements clause naming it, so a
 /// scan for it would report "no implementations" instead of "unanswered".
-pub(super) fn anchors_type_declaration(content: &str, file: &str, line: u32, name: &str) -> bool {
+fn anchors_type_declaration(content: &str, file: &str, line: u32, name: &str) -> bool {
     let Some(document) = crate::tools::declarations::file_document(content, file) else {
         return false;
     };
@@ -298,6 +369,34 @@ pub(super) fn anchors_type_declaration(content: &str, file: &str, line: u32, nam
             && declaration.selection_range.start.line == line
             && TYPE_DECLARATION_KINDS.contains(&declaration.kind.as_str())
     })
+}
+
+/// The type that declares the member `name` at the zero-based `line`: the
+/// innermost declaration around it, when that is a type a heritage clause
+/// can name (a trait, an interface, a class). `None` for a member of an
+/// impl block (nothing implements it) and for a name that is no member.
+fn member_owner(content: &str, file: &str, line: u32, name: &str) -> Option<String> {
+    let document = crate::tools::declarations::file_document(content, file)?;
+    let holds_bodies =
+        |kind: &str| TYPE_DECLARATION_KINDS.contains(&kind) || kind == "impl" || kind == "module";
+    let member = document.declarations.iter().find(|declaration| {
+        declaration.name == name
+            && declaration.selection_range.start.line == line
+            && !holds_bodies(declaration.kind.as_str())
+    })?;
+    let owner = document
+        .declarations
+        .iter()
+        .filter(|declaration| {
+            declaration.id != member.id
+                && declaration.range.start <= member.range.start
+                && member.range.end <= declaration.range.end
+        })
+        // The innermost: the declaration that starts last around the member.
+        .max_by(|left, right| left.range.start.cmp(&right.range.start))?;
+    TYPE_DECLARATION_KINDS
+        .contains(&owner.kind.as_str())
+        .then(|| owner.name.clone())
 }
 
 /// Whether a failed `textDocument/implementation` request leaves the syntax

@@ -126,15 +126,6 @@ fn a_sort_takes_its_natural_direction() {
     );
 }
 
-/// A cursor keeps the page size it was issued with: a size sent beside it
-/// is left for validation to refuse, never silently dropped.
-#[test]
-fn a_cursor_call_keeps_every_field_it_was_sent_with() {
-    let sent = json!({"cursor":"c","responseChars":900});
-    let input = normalized_input("localSearch", sent.clone()).0;
-    assert_eq!(input, sent);
-}
-
 /// More than one reading, or a guess: the agent decides, as the error asks.
 #[test]
 fn what_has_no_single_reading_stays_rejected() {
@@ -183,4 +174,34 @@ fn an_error_names_only_what_repair_left() {
 fn a_valid_call_is_untouched() {
     let sent = json!({"queries":[{"path":".","matchString":["x"]}],"responseChars":500});
     assert_eq!(normalized_input("localSearch", sent.clone()).0, sent);
+}
+
+/// A page size beside a cursor has one reading: the cursor keeps the size it
+/// was issued with. The field is dropped, whatever its value, and the call
+/// says so; any other field beside a cursor has no reading and stays for
+/// validation to refuse.
+#[test]
+fn a_page_size_beside_a_cursor_is_dropped_and_said() {
+    for size in [json!(60_000), json!("60000"), json!(null)] {
+        let sent = json!({"cursor":"issued","responseChars":size});
+        let (input, notes) = normalized_input("localSearch", sent.clone());
+        assert_eq!(input, json!({"cursor":"issued"}), "{sent}");
+        assert_eq!(notes.len(), 1, "{sent}: {notes:?}");
+        assert!(
+            notes[0].contains("`responseChars`")
+                && notes[0].contains("page size it was issued with"),
+            "{notes:?}"
+        );
+        crate::contracts::validate("localSearch", input).expect("the cursor alone is valid");
+    }
+    for sent in [
+        json!({"cursor":"issued","path":"."}),
+        json!({"cursor":"issued","responseChars":900,"path":"."}),
+        json!({"cursor":"issued","queries":[{"path":".","matchString":["x"]}],"responseChars":900}),
+    ] {
+        let (input, notes) = normalized_input("localSearch", sent.clone());
+        assert!(notes.is_empty(), "{sent}: {notes:?}");
+        assert_eq!(input, sent);
+        crate::contracts::validate("localSearch", input).expect_err("refused");
+    }
 }

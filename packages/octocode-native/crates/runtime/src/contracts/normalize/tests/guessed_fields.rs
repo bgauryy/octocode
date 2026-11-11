@@ -168,3 +168,52 @@ fn a_guessed_field_with_several_readings_names_the_field_to_use() {
         );
     }
 }
+
+/// `pattern` names a regex in most tools and `matchString` is literal text
+/// unless `regexEngine` says otherwise: a value that also reads as a regex
+/// has two readings, so it is refused with both fields named. A value with
+/// no regex reading (no regex syntax, or syntax that does not compile) is
+/// the literal it spells.
+#[test]
+fn a_pattern_that_reads_as_a_regex_is_refused_naming_both_fields() {
+    for value in [
+        json!("export|import"),
+        json!("x[0-9]"),
+        json!("foo.bar"),
+        json!(["plain", "a|b"]),
+    ] {
+        let sent = json!({"path":".","pattern":value});
+        let (input, notes) = normalized_input("localSearch", json!({"queries":[sent.clone()]}));
+        assert!(notes.is_empty(), "{sent}: {notes:?}");
+        assert_eq!(input["queries"][0], sent, "left as sent");
+        let error = match prepare_rows("localSearch", input) {
+            Err(error) => error,
+            Ok(mut rows) => rows.remove(0).expect_err("rejected"),
+        };
+        let shown = crate::contracts::format_input_error("localSearch", &error, &[])["error"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        assert!(
+            shown.starts_with("Unknown field 'pattern' in queries[0]; use 'matchString'")
+                && shown.contains("literal")
+                && shown.contains(r#"regexEngine:"rust""#),
+            "{sent}: {shown}"
+        );
+    }
+    for (value, read) in [
+        (json!("plain words"), json!(["plain words"])),
+        (json!("call("), json!(["call("])),
+        (json!(["a", "b"]), json!(["a", "b"])),
+    ] {
+        let sent = json!({"path":".","pattern":value});
+        let (input, notes) = normalized_input("localSearch", json!({"queries":[sent.clone()]}));
+        assert_eq!(input["queries"][0]["matchString"], read, "{sent}");
+        assert_eq!(notes.len(), 1, "{sent}: {notes:?}");
+    }
+    // The engine already says how the value is read: one reading.
+    let sent = json!({"path":".","pattern":"export|import","regexEngine":"rust"});
+    let (input, notes) = normalized_input("localSearch", json!({"queries":[sent]}));
+    assert_eq!(input["queries"][0]["matchString"], json!(["export|import"]));
+    assert_eq!(notes.len(), 1, "{notes:?}");
+}

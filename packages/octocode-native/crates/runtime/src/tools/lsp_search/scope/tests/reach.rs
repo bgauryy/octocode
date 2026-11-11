@@ -354,7 +354,8 @@ async fn a_local_binding_reaches_only_its_scope() {
         *scope.answer_gaps("value"),
         [answered::Gap {
             file: path.clone(),
-            lines: vec![1],
+            left_out: Vec::new(),
+            unverified: vec![1],
         }]
     );
 }

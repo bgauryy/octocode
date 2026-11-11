@@ -124,11 +124,13 @@ pub(crate) fn state_shared_warnings(structured: &mut Value, rows_key: &str) {
 }
 
 /// A measured wait ([`crate::response::paging::push_timed_notice`]) is a fact
-/// of the call, not of the row that measured it: rows of one call wait on the
-/// same server for different spans, so the stage states each distinct text
-/// once, in the envelope's `warnings`, with the longest span any row measured,
-/// and no row keeps the key.
-pub(crate) fn state_timed_notices(structured: &mut Value, rows_key: &str) {
+/// of the call, not of the row that measured it nor of the result: rows of
+/// one call wait on the same server for different spans, and a later page of
+/// the result is another call, which waited for none of them. So the stage
+/// takes them out of the rows (no row keeps the key) and returns each
+/// distinct text once, with the longest span any row measured; the call that
+/// measured them states them on its own response ([`state_call_notes`]).
+pub(crate) fn take_timed_notices(structured: &mut Value, rows_key: &str) -> Vec<String> {
     let mut longest: Vec<(String, f64)> = Vec::new();
     for row in structured
         .get_mut(rows_key)
@@ -154,15 +156,24 @@ pub(crate) fn state_timed_notices(structured: &mut Value, rows_key: &str) {
             }
         }
     }
-    if longest.is_empty() {
+    longest
+        .into_iter()
+        .map(|(text, seconds)| text.replacen("{}", &format!("{seconds:.1} s"), 1))
+        .collect()
+}
+
+/// States `notes`, facts of the call that answers with `envelope`
+/// ([`take_timed_notices`]), in its `warnings`.
+pub(crate) fn state_call_notes(envelope: &mut Value, notes: &[String]) {
+    if notes.is_empty() {
         return;
     }
-    if let Some(envelope) = structured.as_object_mut() {
-        let stated = longest
-            .into_iter()
-            .map(|(text, seconds)| json!(text.replacen("{}", &format!("{seconds:.1} s"), 1)))
-            .collect();
-        append(envelope, "warnings", stated);
+    if let Some(envelope) = envelope.as_object_mut() {
+        append(
+            envelope,
+            "warnings",
+            notes.iter().map(|note| json!(note)).collect(),
+        );
     }
 }
 

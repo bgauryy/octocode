@@ -8,7 +8,7 @@ use serde_json::Value;
 const SHOWN_CHARS: usize = 60;
 
 /// `value` as compact JSON, elided past [`SHOWN_CHARS`].
-fn shown(value: &Value) -> String {
+pub(super) fn shown(value: &Value) -> String {
     let text = value.to_string();
     if text.chars().count() <= SHOWN_CHARS {
         return text;

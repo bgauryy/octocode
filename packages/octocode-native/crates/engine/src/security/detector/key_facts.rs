@@ -1,7 +1,7 @@
 //! What a value test reads of the key before a value (B165).
 //!
 //! A value test ([`super::credential_values::ValueTest`]) reads its key
-//! through six facts. The keys of one path (`secret/data/app/token: v`) share
+//! through a few facts. The keys of one path (`secret/data/app/token: v`) share
 //! their value and its end and differ in where they start, and each fact of a
 //! key is whether some mark lies at or after its start: a chosen word in the
 //! key's name, a separator that makes the name a file path, a dot, or a word of
@@ -21,6 +21,8 @@ use super::credential_values::{
     key_name, opens_interpolation,
 };
 use super::is_source_code_path;
+use super::named_values::{describes_a_credential, names_a_published_value};
+use crate::security::patterns::CREDENTIAL_WORDS;
 
 /// The facts of a key a value test reads.
 pub(super) trait KeyFacts {
@@ -29,6 +31,17 @@ pub(super) trait KeyFacts {
     fn names_a_chosen_credential(&self) -> bool;
     /// Its name ends in a locator word (`path`, `file`, `url`).
     fn names_a_locator(&self) -> bool;
+    /// Its name describes or identifies a credential instead of holding it
+    /// (`secretName`, `API_KEY_HEADER`, `kmsKeyId`:
+    /// [`describes_a_credential`]).
+    fn describes_a_credential(&self) -> bool;
+    /// Its name says its value is published (`publicKey`:
+    /// [`names_a_published_value`]).
+    fn names_a_published_value(&self) -> bool;
+    /// Its name holds a credential word, or it reads a fallback, where a
+    /// name of the line does. A key with neither is another name the
+    /// pattern read past a credential word (`type="password" name="…"`).
+    fn names_a_credential(&self) -> bool;
     /// Its name is a file: a path with a file name's extension, or a source file.
     fn names_a_file(&self) -> bool;
     /// The value opens with a quote.
@@ -152,6 +165,9 @@ impl SpanKey<'_, '_> {
         KeyBits {
             chosen: self.names_a_chosen_credential(),
             locator: self.names_a_locator(),
+            describes: self.describes_a_credential(),
+            published: self.names_a_published_value(),
+            credential: self.names_a_credential(),
             file: self.names_a_file(),
             quote: self.ends_with_quote(),
             colon: self.ends_with_colon(),
@@ -163,7 +179,9 @@ impl SpanKey<'_, '_> {
 impl KeyFacts for SpanKey<'_, '_> {
     fn names_a_chosen_credential(&self) -> bool {
         let (cut, _) = self.name_from();
-        self.span.name().last_chosen.is_some_and(|last| last >= cut)
+        // A name that describes a chosen credential holds none.
+        (self.span.name().last_chosen.is_some_and(|last| last >= cut)
+            && !self.describes_a_credential())
             || self
                 .span
                 .last_fallback_word()
@@ -172,6 +190,27 @@ impl KeyFacts for SpanKey<'_, '_> {
 
     fn names_a_locator(&self) -> bool {
         ends_in_locator(self.name_from().1)
+    }
+
+    fn describes_a_credential(&self) -> bool {
+        std::str::from_utf8(self.name_from().1).is_ok_and(describes_a_credential)
+    }
+
+    fn names_a_published_value(&self) -> bool {
+        std::str::from_utf8(self.name_from().1).is_ok_and(names_a_published_value)
+    }
+
+    fn names_a_credential(&self) -> bool {
+        let holds_word = |name: &[u8]| {
+            let name = name.to_ascii_lowercase();
+            CREDENTIAL_WORDS.split('|').any(|word| {
+                name.windows(word.len())
+                    .any(|window| window == word.as_bytes())
+            })
+        };
+        holds_word(self.name_from().1)
+            || holds_word(adjacent_word(self.span.text).as_bytes())
+            || is_fallback_read(self.span.text)
     }
 
     fn names_a_file(&self) -> bool {
@@ -195,11 +234,33 @@ impl KeyFacts for SpanKey<'_, '_> {
     }
 }
 
-/// The six facts of a key as values: keys with equal bits are judged alike.
+/// The word right before the value in a key's `text`: what is left of its
+/// end once the quotes, the operator and a call's bracket are off. In a line
+/// that holds several entries it is the entry's own name, whatever name the
+/// line's first colon follows.
+fn adjacent_word(text: &str) -> &str {
+    let head = text.trim_end_matches(|c: char| {
+        c.is_whitespace()
+            || QUOTES.contains(&c)
+            || matches!(c, ':' | '=' | '>' | '|' | '?' | '<' | '(')
+    });
+    let start = head
+        .char_indices()
+        .rev()
+        .take_while(|(_, c)| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '$' | '-'))
+        .last()
+        .map_or(head.len(), |(at, _)| at);
+    head.get(start..).unwrap_or_default()
+}
+
+/// The facts of a key as values: keys with equal bits are judged alike.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct KeyBits {
     chosen: bool,
     locator: bool,
+    describes: bool,
+    published: bool,
+    credential: bool,
     file: bool,
     quote: bool,
     colon: bool,
@@ -213,6 +274,18 @@ impl KeyFacts for KeyBits {
 
     fn names_a_locator(&self) -> bool {
         self.locator
+    }
+
+    fn describes_a_credential(&self) -> bool {
+        self.describes
+    }
+
+    fn names_a_published_value(&self) -> bool {
+        self.published
+    }
+
+    fn names_a_credential(&self) -> bool {
+        self.credential
     }
 
     fn names_a_file(&self) -> bool {

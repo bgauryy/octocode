@@ -183,7 +183,7 @@ const FALLBACK_PAGE_CHARS: usize = 24_000;
 const ROW_SKELETON_CHARS: usize = 2_000;
 
 /// Chars a streamed page's entries may take. With a response window, the
-/// page leaves room for the row around it ([`reserve_chars`]); a tiny window
+/// page leaves room for the row around it (`reserve`); a tiny window
 /// still gets half of itself, so a walk keeps moving (its pages then split
 /// into row parts). Without one, pages take [`FALLBACK_PAGE_CHARS`].
 pub(crate) fn page_chars(window: Option<usize>, reserve: usize) -> usize {

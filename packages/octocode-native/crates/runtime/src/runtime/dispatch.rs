@@ -104,10 +104,11 @@ pub(super) fn execute_local(
         }
         ToolId::LocalSearch => {
             let request = parsed!(LocalSearchQuery);
+            let (security, judged) = security.for_request();
             let result = execute_local_search(
                 &request,
                 paths,
-                security,
+                &security,
                 context,
                 context.response_window,
                 selection,
@@ -119,6 +120,7 @@ pub(super) fn execute_local(
                     let data = result.to_row().map_err(|_| ExecutionError::WorkerFailed)?;
                     let mut row = DomainResult::payload(data, status);
                     row.source_digest = source_digest;
+                    row.judged = judged.leaves();
                     Ok(row)
                 }
                 Err(error) => Ok(error.into()),
@@ -136,9 +138,14 @@ pub(super) fn execute_local(
         }
         ToolId::AstSearch => {
             let request = parsed!(AstSearchQuery);
+            let (security, judged) = security.for_request();
             Ok(
-                match execute_ast(&request, paths, security, context, context.response_window) {
-                    Ok(data) => value_result(data),
+                match execute_ast(&request, paths, &security, context, context.response_window) {
+                    Ok(data) => {
+                        let mut row = value_result(data);
+                        row.judged = judged.leaves();
+                        row
+                    }
                     Err(error) => error.into(),
                 },
             )

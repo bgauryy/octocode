@@ -1,4 +1,5 @@
 mod classified_pages;
+mod judged_sources;
 mod local_fetch;
 mod local_search;
 mod lsp_ast;

@@ -44,7 +44,8 @@ fn enabled(machine: &Value, name: &str) -> bool {
 }
 
 /// The one spelling of the per-tool query-schema command, in every catalog view.
-const QUERY_COMMAND: &str = "octocode schema <tool> --view query [--select FIELD=VALUE]";
+const QUERY_COMMAND: &str =
+    "octocode schema <tool> --view query [--select operation=VALUE[,FIELD=VALUE]]";
 
 /// The CLI's own notes, after the shared instructions in the full catalog.
 const CLI_INSTRUCTIONS: &str = "<cli>Listed tools are available; execution checks credentials and prerequisites. MCP exposure: graph tools need OCTOCODE_BETA, clone needs OCTOCODE_ENABLE_CLONE. Fields: schema <name> --view query. A next.* page still exits 0.</cli>";
@@ -238,7 +239,7 @@ pub(super) fn tool_view(
         Some(_) if view != "query" => {
             return Err(usage("--select requires the query view and a tool name"));
         }
-        Some(selection) => selected(tool, selection)?.clone(),
+        Some(selection) => selected(tool, configured, selection)?.clone(),
     };
     if octocode_native::id::ToolId::from_name(name)
         .is_some_and(octocode_native::id::ToolId::lists_lsp_servers)
@@ -269,17 +270,89 @@ pub(super) fn with_lsp_servers(description: &str, servers: &[&str]) -> String {
     description.replacen("</when>", &format!(" {note}</when>"), 1)
 }
 
-/// The `--select operation=X` view: that operation's row. A JSON-quoted
-/// value selects the same row as the bare one.
-fn selected<'a>(tool: &'a Value, selection: &str) -> Result<&'a Value, SchemaError> {
-    let (field, raw) = selection.split_once('=').unwrap_or(("", ""));
-    if field.trim() != "operation" || raw.trim().is_empty() {
-        return Err(usage(
-            "--select expects operation=VALUE, e.g. operation=commit",
-        ));
+/// One `FIELD=VALUE` pair of a selection; a JSON-quoted value reads as the
+/// bare one.
+fn pair(text: &str) -> Option<(&str, String)> {
+    let (field, raw) = text.split_once('=')?;
+    let (field, raw) = (field.trim(), raw.trim());
+    if field.is_empty() || raw.is_empty() {
+        return None;
     }
-    let operation = serde_json::from_str::<String>(raw).unwrap_or_else(|_| raw.to_owned());
-    tool["selections"]
+    let value = serde_json::from_str::<String>(raw).unwrap_or_else(|_| raw.to_owned());
+    Some((field, value))
+}
+
+/// The schema a `#/$defs/<name>` reference of `schema` names, through
+/// chained references; `at` itself when it is none.
+fn resolved<'a>(schema: &'a Value, mut at: &'a Value) -> &'a Value {
+    while let Some(target) = at["$ref"]
+        .as_str()
+        .and_then(|reference| reference.strip_prefix("#/$defs/"))
+        .and_then(|name| schema["$defs"].get(name))
+    {
+        at = target;
+    }
+    at
+}
+
+/// The values the forms of a selected row (`row["querySchema"]`: one object,
+/// or alternatives of them) let `field` take: `None` when no form has the
+/// field, an empty list when one takes any value.
+fn admitted(row: &Value, field: &str) -> Option<Vec<String>> {
+    let schema = &row["querySchema"];
+    let resolve = |at| resolved(schema, at);
+    let forms = ["anyOf", "oneOf"]
+        .iter()
+        .flat_map(|key| schema[*key].as_array().into_iter().flatten())
+        .chain([schema]);
+    let mut values = Vec::new();
+    let mut open = false;
+    let mut found = false;
+    for property in forms.filter_map(|form| resolve(form)["properties"].get(field)) {
+        found = true;
+        let property = resolve(property);
+        let closed: Vec<&Value> = property
+            .get("const")
+            .into_iter()
+            .chain(property["enum"].as_array().into_iter().flatten())
+            .collect();
+        open |= closed.is_empty();
+        for value in closed {
+            let text = value
+                .as_str()
+                .map_or_else(|| value.to_string(), str::to_owned);
+            if !values.contains(&text) {
+                values.push(text);
+            }
+        }
+    }
+    found.then(|| if open { Vec::new() } else { values })
+}
+
+/// The `--select operation=X[,FIELD=VALUE]` view: that operation's row, and
+/// with a second pair the row the presentation narrows to it
+/// (`operation=match,view=content`). Where the presentation tells the
+/// operation's forms apart by no such pair, a pair one of the forms admits
+/// selects the operation's row: nothing narrower exists. The rows are
+/// `configured`'s (the `selection` presentation beside a classification
+/// provider); the operation names of an error are `tool`'s.
+fn selected<'a>(
+    tool: &Value,
+    configured: &'a Value,
+    selection: &str,
+) -> Result<&'a Value, SchemaError> {
+    let expects = || {
+        usage("--select expects operation=VALUE[,FIELD=VALUE], e.g. operation=match,view=content")
+    };
+    let mut pairs = selection.split(',').map(pair);
+    let (Some(Some((field, operation))), second, None) = (pairs.next(), pairs.next(), pairs.next())
+    else {
+        return Err(expects());
+    };
+    if field != "operation" {
+        return Err(expects());
+    }
+    let row = configured["selections"]
         .get(format!("operation={operation}"))
         .ok_or_else(|| {
             let known = tool["variantNames"]
@@ -294,7 +367,26 @@ fn selected<'a>(tool: &'a Value, selection: &str) -> Result<&'a Value, SchemaErr
             } else {
                 format!("Unknown operation: {operation}. Operations: {known}")
             })
-        })
+        })?;
+    let Some(second) = second else {
+        return Ok(row);
+    };
+    let (field, value) = second.ok_or_else(expects)?;
+    if let Some(narrowed) =
+        configured["selections"].get(format!("operation={operation},{field}={value}"))
+    {
+        return Ok(narrowed);
+    }
+    match admitted(row, field) {
+        None => Err(usage(format!(
+            "operation={operation} has no field {field}."
+        ))),
+        Some(values) if !values.is_empty() && !values.contains(&value) => Err(usage(format!(
+            "operation={operation} takes {field}: {}",
+            values.join(", ")
+        ))),
+        Some(_) => Ok(row),
+    }
 }
 
 #[cfg(test)]

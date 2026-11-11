@@ -10,14 +10,16 @@ use super::*;
 /// them. The row is partial when files that use the name in code are
 /// missing from the answer, the lexical lead names them, and the reason
 /// says which load is missing: `includeOutsidePackage` (no build context
-/// loads it) or `buildScriptsOff` (with its rerun). The prose is static: a
-/// notice, said once ([`flag_stated`]).
+/// loads it) or `buildScriptsOff` (with its rerun), the latter only when a
+/// missed file is not one a target gate leaves out (`target_gated`). The
+/// prose is static: a notice, said once ([`flag_stated`]).
 pub(super) fn annotate_includes(
     row: &mut Value,
     query: &LspSearchQuery,
     anchor: &str,
     scope: &Scope,
     rust: super::super::receipt::RustAnalysis,
+    target_gated: &[super::targets::TargetGated],
     stopped: &dyn Fn() -> bool,
 ) {
     let Some(includes) = package_includes(anchor, stopped) else {
@@ -67,6 +69,19 @@ pub(super) fn annotate_includes(
         flag_stated(row, query, SHARED_MODULE_REASON, note, scope);
     }
     if includes.generated.is_empty() || rust.build_scripts {
+        return;
+    }
+    // Build-script output can hide a use only in a file nothing else
+    // explains: one a target gate leaves out is missing with or without it.
+    let unexplained = lsp_search_query::symbol_name(query)
+        .filter(|name| !name.trim().is_empty())
+        .and_then(|name| scope.text_only_files(name))
+        .is_none_or(|missed| {
+            missed
+                .iter()
+                .any(|file| !target_gated.iter().any(|gated| gated.file == *file))
+        });
+    if !unexplained {
         return;
     }
     let allowed = rust.build_scripts_allowed;

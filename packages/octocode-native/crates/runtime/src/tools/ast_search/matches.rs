@@ -223,7 +223,7 @@ fn run_match_under(
         proved: !fresh,
     };
     let shown = (&mut grouped, &page);
-    match show_page(q, (&scope, &scan), shown, (paths, row_paths), rows, cancel) {
+    match show_page(q, (&scope, &scan), shown, row_paths, rows, cancel) {
         Ok(()) => {}
         Err(groups::RebuildError::Evidence(error)) => return Err(error),
         Err(groups::RebuildError::SourceChanged) => {
@@ -297,14 +297,13 @@ fn run_match_under(
     Ok(out)
 }
 
-/// Fill the rows `page` shows of `grouped`'s files and hide what they show of
-/// private-key blocks. A shown file whose match did not finish is counted and
+/// Fill the rows `page` shows of `grouped`'s files. A shown file whose match did not finish is counted and
 /// disclosed as the scan counts a file its limit cut.
 fn show_page(
     q: MatchQuery<'_>,
     (scope, scan): (&types::Scope, &types::Scan),
     (grouped, page): (&mut types::Grouped, &stream::StreamPage),
-    (paths, row_paths): (&PathPolicy, super::RowPaths<'_>),
+    row_paths: super::RowPaths<'_>,
     rows: page_rows::PageRows<'_>,
     cancel: &dyn CancellationCheck,
 ) -> Result<(), groups::RebuildError> {
@@ -324,8 +323,6 @@ fn show_page(
     grouped
         .diagnostics
         .extend(incomplete.iter().flatten().map(diag));
-    let shown = &mut grouped.groups[page.window.clone()];
-    key_rows::hide_page_key_blocks(shown, (scan, scope), row_paths, paths, rows);
     Ok(())
 }
 
@@ -360,7 +357,6 @@ mod continuations;
 mod exact_miss;
 mod gaps;
 mod groups;
-mod key_rows;
 mod kind_miss;
 mod literal_miss;
 mod memo;

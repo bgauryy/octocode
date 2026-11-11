@@ -113,40 +113,41 @@ pub(in super::super) async fn apply_context_lines(
     });
 }
 
-/// Hide what `page`'s rows quote of a private-key block or a private member. A
-/// row quotes the file at a server's location, and its lines alone say nothing
-/// of what they are; each file is judged once, whole.
-pub(in super::super) async fn hide_lines_a_row_cannot_judge(
+/// Show what `page`'s rows quote of their files as each file is judged whole
+/// ([`crate::security::JudgedText`]). A row quotes the file at a server's
+/// location, and its lines alone say nothing of the key that names a value a
+/// secret (a declaration continued over lines) or of a private-key block
+/// around them; each line is therefore the judged source's line, as a read
+/// of it shows. Returns each row's judged source and the placeholders the
+/// cuts added.
+pub(in super::super) async fn judge_content(
     page: &mut [Value],
     sources: &mut SourceCache<'_>,
+    security: &crate::security::ContentSecurity,
+) -> (
+    Vec<Option<std::sync::Arc<crate::security::JudgedText>>>,
+    usize,
 ) {
-    let mut judged = std::collections::HashMap::<String, Vec<(u32, u32)>>::new();
+    let files = super::super::scope::judged_files();
+    let mut judged = Vec::with_capacity(page.len());
+    let mut added = 0;
     for location in page {
-        let (Some(path), Some(first)) = (
+        let (Some(path), Some(first), Some(content)) = (
             location.get("uri").and_then(Value::as_str).map(uri_to_path),
             location
                 .pointer("/displayRange/startLine")
-                .and_then(Value::as_u64),
+                .and_then(Value::as_u64)
+                .and_then(|line| usize::try_from(line).ok()),
+            location.get("content").and_then(Value::as_str),
         ) else {
+            judged.push(None);
             continue;
         };
-        if !judged.contains_key(&path) {
-            let lines = match sources.get(&path).await {
-                Some(source) => crate::security::lines_a_row_cannot_judge(
-                    &source.content,
-                    std::path::Path::new(&path),
-                ),
-                None => Vec::new(),
-            };
-            judged.insert(path.clone(), lines);
-        }
-        let hidden = &judged[&path];
-        let Some(content) = location.get("content").and_then(Value::as_str) else {
+        let Some(source) = sources.get(&path).await else {
+            judged.push(None);
             continue;
         };
-        if hidden.is_empty() {
-            continue;
-        }
+        let text = files.judge(&source.content, std::path::Path::new(&path), security);
         let mut line = first;
         let mut out = String::with_capacity(content.len());
         for record in content.split_inclusive('\n') {
@@ -154,21 +155,24 @@ pub(in super::super) async fn hide_lines_a_row_cannot_judge(
                 out.push_str(record);
                 continue;
             }
-            if hidden
-                .iter()
-                .any(|&(start, end)| u64::from(start) <= line && line <= u64::from(end))
-            {
-                out.push_str(&crate::security::hide_key_line(
-                    record.trim_end_matches(['\n', '\r']),
-                ));
-                out.push_str(if record.ends_with('\n') { "\n" } else { "" });
-            } else {
+            let body = record.trim_end_matches(['\n', '\r']);
+            // A window cut from the view a read serves is judged already.
+            if body.contains(octocode_engine::security::REDACTION_PREFIX) {
                 out.push_str(record);
+            } else {
+                out.push_str(&text.fragment(line, None, body).0);
+                out.push_str(record.get(body.len()..).unwrap_or_default());
             }
             line += 1;
         }
-        location["content"] = json!(out);
+        added += crate::security::placeholders(&out)
+            .saturating_sub(crate::security::placeholders(content));
+        if out != content {
+            location["content"] = json!(out);
+        }
+        judged.push(Some(text));
     }
+    (judged, added)
 }
 
 /// Whether a `content` record is an unnumbered omission marker: the lines

@@ -4,6 +4,8 @@ use super::*;
 
 mod code_forms;
 mod config_entries;
+mod data_shaped_phrases;
+mod described_values;
 mod dotenv_files;
 mod dotenv_shapes;
 mod locators;

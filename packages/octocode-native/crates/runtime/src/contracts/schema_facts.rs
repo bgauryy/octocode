@@ -154,6 +154,24 @@ pub(crate) fn property_names<'a>(
         .collect()
 }
 
+/// Object field names in declaration order: a schema's own properties, then
+/// each composition branch's that no earlier one named. The order a value of
+/// this schema serializes its keys in.
+pub(crate) fn property_order<'a>(schema: &'a Value, defs: &'a Value) -> Vec<&'a str> {
+    let mut order = Vec::new();
+    for properties in members(schema, defs, |schema| schema.get("properties"))
+        .into_iter()
+        .filter_map(Value::as_object)
+    {
+        for name in properties.keys() {
+            if !order.contains(&name.as_str()) {
+                order.push(name.as_str());
+            }
+        }
+    }
+    order
+}
+
 /// Item schemas through references and composition branches.
 pub(crate) fn item_schemas<'a>(schema: &'a Value, defs: &'a Value) -> Vec<&'a Value> {
     members(schema, defs, |schema| schema.get("items"))

@@ -19,7 +19,8 @@ pub(super) struct Spot {
 /// A synchronized candidate and its occurrences.
 pub(super) type OpenedFile = (String, Vec<Spot>);
 
-/// Open every candidate that mentions `symbol`; wait once, on the last one
+/// Open every candidate that mentions one of its names (`names_in`: the
+/// symbol, and an alias a relay exports it under); wait once, on the last one
 /// opened, for the project load the opens trigger, so identity checks do
 /// not race it. The anchor document is synchronized first: the client
 /// keeps a bounded set of open documents, and a request that verifies
@@ -31,7 +32,7 @@ pub(super) async fn open_candidates(
     cancel: &dyn CancellationCheck,
     anchor: &str,
     files: &[String],
-    symbol: &str,
+    names_in: &dyn Fn(&str) -> Vec<String>,
 ) -> Result<(Vec<OpenedFile>, Vec<String>), LspFailure> {
     if let Some(source) = sources.get(anchor).await {
         client
@@ -47,7 +48,13 @@ pub(super) async fn open_candidates(
             failed.push(file.clone());
             continue;
         };
-        let mut spots = occurrences(&source.content, symbol)
+        let mut found = names_in(file)
+            .iter()
+            .flat_map(|name| occurrences(&source.content, name))
+            .collect::<Vec<_>>();
+        found.sort_unstable();
+        found.dedup();
+        let mut spots = found
             .into_iter()
             .map(|(line, character, is_call)| Spot {
                 line,

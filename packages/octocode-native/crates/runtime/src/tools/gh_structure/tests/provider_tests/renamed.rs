@@ -164,3 +164,46 @@ async fn a_rename_every_row_shares_is_stated_once_for_the_call() {
         assert!(row["data"].get("warnings").is_none(), "{response}");
     }
 }
+
+/// A listing whose ref GitHub resolved through a rename redirect is read
+/// under the canonical name and names the repository as it is now, on the
+/// row and in every lead (the file reads), so each runs unchanged.
+#[tokio::test]
+async fn a_listing_of_a_renamed_repository_leads_canonically() {
+    let server = MockServer::builder().start().await;
+    crate::tools::gh_shared::test_support::mount_renamed(&server).await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repositories/1/commits/HEAD"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(SHA))
+        .mount(&server)
+        .await;
+    mount_json(
+        &server,
+        "/api/v3/repos/c/d/contents",
+        200,
+        json!([
+            {"name":"lib.rs","path":"lib.rs","type":"file","size":3},
+            {"name":"src","path":"src","type":"dir"}
+        ]),
+    )
+    .await;
+    let out = list(&server, json!({"operation":"tree","owner":"a","repo":"b"}))
+        .await
+        .expect("listing");
+    let data = &out.data;
+    assert_eq!(
+        (data["owner"].as_str(), data["repo"].as_str()),
+        (Some("c"), Some("d")),
+        "{data}"
+    );
+    assert_eq!(
+        data["warnings"],
+        json!([crate::tools::gh_shared::renamed_warning(
+            "a",
+            "b",
+            &("c".into(), "d".into())
+        )]),
+        "{data}"
+    );
+    crate::tools::gh_shared::test_support::assert_leads_canonical(data);
+}

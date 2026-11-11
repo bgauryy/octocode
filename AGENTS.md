@@ -51,6 +51,11 @@ The MCP launcher, CLI launcher and VS Code extension are thin adapters with no t
   `git stash` (it hides other sessions' work; compare with `git show <rev>:<path>`).
 - Stop processes by PID or task ID, never by pattern (`pkill -f`), even for your own run: another
   session may run the same command.
+- Clean up after yourself before you report: stop the processes you started (by PID), remove
+  your scratch files, private target directories and pinned test binaries, and keep only the
+  evidence a report cites. `$DEV clean:leftovers` lists what a run left behind (`--apply` removes
+  it; it never touches a worktree with uncommitted changes). In a multi-agent round one owner
+  runs full builds and suites; fixers run focused tests only.
 - Several sessions may share this tree and one cargo lock. Apply a change with all its callers in
   one step and keep tests compiling; a break in a file you touched is your first job. Retry a
   blocked build at most every 3 minutes, and report it after 20. Use the repo's `target/`, not a

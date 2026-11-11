@@ -13,7 +13,7 @@ const ANONYMOUS_RATE_LIMIT_HINT: &str =
 /// ([`DomainResult::provider`]) with the arm's own hint (a per-call fact
 /// the `errorCode` does not state). A row with no hint and no lead gets the code's one
 /// shared recovery from the response stage
-/// ([`crate::response::rows::apply_hint_policy`]).
+/// ([`crate::response::rows::attach_error_hint`]).
 pub(super) fn provider_row(
     error: &ProviderError,
     message: impl Into<String>,

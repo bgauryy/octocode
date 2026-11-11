@@ -95,7 +95,15 @@ fn markdown_and_data_stay_as_they_are() {
         let source = fixture(name);
         let view = apply_content_view_minification(&source, name);
         assert_eq!(view.whitespace_only, None, "{name}");
+        assert!(view.as_is, "{name}");
         assert_eq!(joined(view), source, "{name}");
+    }
+    // Code, with a grammar or without one, is laid out again, never as is.
+    for name in ["a.ts", "y.txt"] {
+        assert!(
+            !apply_content_view_minification(&fixture(name), name).as_is,
+            "{name}"
+        );
     }
 }
 

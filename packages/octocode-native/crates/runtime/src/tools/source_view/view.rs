@@ -347,15 +347,30 @@ pub(super) fn single_line_query(q: &LocalFetchQuery, line: usize) -> Option<Loca
 
 /// The continued source changed since its page was cut. Pages of two file
 /// versions must not be combined. The row names no restart of its own: the
-/// runtime's one restart owner (`response::pages::restart_stale`, through
-/// [`crate::response::result::restart_query`]) adds the caller's whole query
-/// without its cursors, so a streamed range read restarts every range.
+/// runtime's one restart owner ([`crate::response::rows::require_restart`])
+/// adds the caller's whole query without its cursors, so a streamed range read restarts every range.
 pub(crate) fn stale_snapshot(q: &LocalFetchQuery) -> LocalFetchResult {
     LocalFetchResult::error(
         local_fetch_query::path(q).to_owned(),
         ErrorCode::StaleSnapshot,
         crate::response::result::STALE_SNAPSHOT_ERROR.into(),
     )
+}
+
+/// The refusal for a binary file: a NUL byte, or a binary head.
+pub(crate) fn refuse_binary(q: &LocalFetchQuery, display_path: &str) -> LocalFetchResult {
+    let mut result = LocalFetchResult::error(
+        local_fetch_query::path(q).to_owned(),
+        ErrorCode::BinaryFileUnsupported,
+        format!(
+            "Binary file unsupported: {display_path}. Read a text source file, or use structureSearch operation:\"files\" for file metadata."
+        ),
+    );
+    // No range or matchString can make binary bytes readable; say so
+    // instead of the generic "remove matchString" recovery.
+    result.hints =
+        vec!["Do not retry this path with other ranges; choose a text source file instead.".into()];
+    result
 }
 
 pub(crate) fn compress_ranges(lines: &[usize]) -> Vec<LineRange> {

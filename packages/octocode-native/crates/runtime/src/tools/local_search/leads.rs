@@ -229,7 +229,8 @@ pub(super) fn count_lead(query: &LocalSearchQuery) -> Result<Value, ToolError> {
     )
 }
 
-/// The query as a fresh page-1 search (no [`CURSOR_FIELDS`]) with `changes`
+/// The query as a fresh page-1 search (none of its
+/// [`crate::contracts::state_fields`]) with `changes`
 /// applied, as the localSearch call that runs it.
 pub(super) fn restart_lead(query: &LocalSearchQuery, changes: Value) -> Result<Value, ToolError> {
     let mut changes = changes;

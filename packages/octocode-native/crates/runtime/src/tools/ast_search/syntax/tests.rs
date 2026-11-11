@@ -202,3 +202,120 @@ fn recovered_trees_continue_beyond_the_materialized_chunk_without_repricing_old_
         page = walked.windows.len() + 1;
     }
 }
+
+/// Every rendered page of `text`'s syntax tree, read at `budget` characters.
+fn rendered_pages(text: &str, budget: usize) -> Vec<Value> {
+    let root = Fixture::new();
+    root.write("tree.py", text);
+    let path = root.0.join("tree.py");
+    let stop = || false;
+    let mut maps = super::super::source::mapping_budget(&NeverCancel, &stop);
+    let admitted =
+        super::super::source::admitted(&path, text.as_bytes(), &mut maps).expect("admitted");
+    let source = Source {
+        admitted: &admitted,
+        content: admitted.text(),
+        path: &path,
+        extension: None,
+        node_chunk: TEST_CHUNK,
+    };
+    let snapshot = path.to_string_lossy().into_owned();
+    let mut pages = Vec::new();
+    loop {
+        let query: AstSearchQuerySyntaxTree = serde_json::from_value(json!({
+            "operation":"syntaxTree", "path":path, "page":pages.len() + 1,
+        }))
+        .expect("query");
+        let mut maps = super::super::source::mapping_budget(&NeverCancel, &stop);
+        let page =
+            read_page(&query, &source, budget, &snapshot, &mut maps, &NeverCancel).expect("page");
+        let more = page.more;
+        pages.push(render_tree_page(&query, "tree.py", &page, &snapshot));
+        if !more {
+            return pages;
+        }
+    }
+}
+
+/// A recovered parse walks the whole tree: the row is partial for
+/// `parseRecovered`, stated as that reason alone. No limit ended the
+/// listing, and no diagnostic row repeats the reason.
+#[test]
+fn a_recovered_parse_is_partial_once_and_no_terminal_limit() {
+    let pages = rendered_pages(
+        "def f(x):\n    return x + (\n\ndef g(y):\n    return y(1)\n",
+        131_072,
+    );
+    let [row] = pages.as_slice() else {
+        panic!("one page: {pages:?}");
+    };
+    assert_eq!(row["isPartial"], true, "{row}");
+    assert_eq!(row["partialReasons"], json!(["parseRecovered"]), "{row}");
+    assert_eq!(row.get("terminalLimit"), None, "{row}");
+    assert_eq!(row.get("diagnostics"), None, "{row}");
+    assert_eq!(row.get("warnings"), None, "{row}");
+    assert_eq!(row.get("calls"), None, "{row}");
+}
+
+/// Across pages the recovery is stated where a page can be read alone for
+/// it: on the first page and on the last, which has no next page to explain
+/// why it is partial.
+#[test]
+fn a_recovered_parse_over_several_pages_states_its_reason_on_the_first_and_last() {
+    let text = format!("{}def broken(:\n", "value = 1\n".repeat(200));
+    let pages = rendered_pages(&text, 2_000);
+    assert!(pages.len() > 2, "{}", pages.len());
+    let last = pages.len() - 1;
+    for (at, row) in pages.iter().enumerate() {
+        assert_eq!(row["isPartial"], true, "page {at}: {row}");
+        assert_eq!(row.get("terminalLimit"), None, "page {at}: {row}");
+        assert_eq!(row.get("diagnostics"), None, "page {at}: {row}");
+        let stated = at == 0 || at == last;
+        assert_eq!(
+            row.get("partialReasons"),
+            stated.then(|| json!(["parseRecovered"])).as_ref(),
+            "page {at}: {row}"
+        );
+        assert_eq!(row["calls"]["nextPage"].is_object(), at != last, "{row}");
+    }
+}
+
+/// A walk the deadline stopped is a terminal limit: nodes past it are on no
+/// page, and its diagnostic keeps the recovery that reaches them.
+#[test]
+fn a_walk_cut_by_its_deadline_stays_a_terminal_limit_with_its_recovery() {
+    let root = Fixture::new();
+    let text = "def f(x):\n    return x + (\n";
+    root.write("tree.py", text);
+    let path = root.0.join("tree.py");
+    let stop = || false;
+    let mut maps = super::super::source::mapping_budget(&NeverCancel, &stop);
+    let admitted =
+        super::super::source::admitted(&path, text.as_bytes(), &mut maps).expect("admitted");
+    let source = Source {
+        admitted: &admitted,
+        content: admitted.text(),
+        path: &path,
+        extension: None,
+        node_chunk: TEST_CHUNK,
+    };
+    let snapshot = format!("{}#deadline", path.to_string_lossy());
+    let query: AstSearchQuerySyntaxTree =
+        serde_json::from_value(json!({"operation":"syntaxTree", "path":path})).expect("query");
+    let mut page =
+        read_page(&query, &source, 131_072, &snapshot, &mut maps, &NeverCancel).expect("page");
+    for diagnostic in &mut page.r.diagnostics {
+        diagnostic.code = "syntaxTree.budget.deadline".into();
+    }
+    let row = render_tree_page(&query, "tree.py", &page, &snapshot);
+    assert_eq!(row["partialReasons"], json!(["deadline"]), "{row}");
+    assert_eq!(row["terminalLimit"], true, "{row}");
+    let [diagnostic] = row["diagnostics"]
+        .as_array()
+        .expect("diagnostics")
+        .as_slice()
+    else {
+        panic!("one diagnostic: {row}");
+    };
+    assert!(diagnostic["recovery"].is_string(), "{row}");
+}

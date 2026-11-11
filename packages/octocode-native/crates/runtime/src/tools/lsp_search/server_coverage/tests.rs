@@ -6,6 +6,7 @@ mod includes;
 mod python;
 mod questions;
 mod rust;
+mod targets;
 mod text_leads;
 
 /// The protocol has no completeness marker on any workspace-symbol answer:

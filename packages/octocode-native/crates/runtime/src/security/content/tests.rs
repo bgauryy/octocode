@@ -7,5 +7,6 @@ mod key_format_blocks;
 pub(crate) mod key_formats;
 pub(crate) mod marker_lines;
 mod marker_precheck;
+mod query_terms;
 mod sanitization;
 mod structured;

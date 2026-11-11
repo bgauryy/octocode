@@ -8,3 +8,4 @@ pub(crate) mod find_file;
 pub(crate) mod gh_file_read;
 pub(crate) mod lsp;
 pub(crate) mod skipped;
+pub(crate) mod unparsed;

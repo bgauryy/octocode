@@ -48,7 +48,7 @@ pub(super) fn select_view(
     // view of the same lines is not one: the content view is served, and the
     // notice says why.
     let compact_view = |selected: String, requested: ReadView, outline_reason: Option<&str>| {
-        let (text, whitespace_only) = compact::render(
+        let (text, unreduced) = compact::render(
             full_source,
             &selected,
             local_fetch_query::path(q),
@@ -71,8 +71,13 @@ pub(super) fn select_view(
         );
         let reasons: Vec<&str> = outline_reason
             .into_iter()
-            .chain(whitespace_only.map(octocode_engine::minify::apply::WhitespaceOnly::reason))
-            .chain((!smaller).then_some(compact::NOT_SMALLER))
+            .chain(unreduced.map(compact::Unreduced::reason))
+            // A format that stays as it is has said why its content is
+            // served: it is no smaller by design.
+            .chain(
+                (!smaller && unreduced != Some(compact::Unreduced::AsIs))
+                    .then_some(compact::NOT_SMALLER),
+            )
             .collect();
         let reason = (!reasons.is_empty()).then(|| reasons.join("; "));
         let (text, mode, applied) = if smaller {

@@ -62,10 +62,19 @@ All tools run here, including the MCP opt-ins graphBuild, graphQuery, ghCloneRep
   ghCloneRepo '{"queries":[{"owner":"o","repo":"r"}]}', then local tools at localPath.
 
 Output: text, on a terminal or a pipe; --json prints JSON (schema always does).
-Text on stdout: search hits, listings and outlines one line each ([ … ] after a
-line lists its other fields), a file's several hits under its path; any other
-result as indented key: value lines; a batch heads each row with ## results[N]. # notes and follow-up commands on stderr.
-Errors: the JSON envelope on stdout with --json, text on stderr otherwise.
+Text on stdout: search hits (line:text, context line-text), sites and outlines
+under their file's path once, a lone one as path:line:…; path:N is always a line,
+and [ … ] after a line or path lists its other fields. A listing puts entries
+under their dir/. Any other result is indented key: value lines; a batch heads
+each row with ## results[N].
+After each row's content, as # lines on stdout: its status unless ok (empty,
+error, outOfRange), each page state (hasMore), its warnings and hints, then the
+commands to run next. So stdout alone tells no hits, a failure and a first page
+apart, and says how to read the answer.
+Every stderr line is a # note: counters, related leads, progress and notices.
+Errors: a failed row as above. A call rejected before it runs (invalid input,
+timeout) prints the same way: errorCode and error, then # status: error; with
+--json, the JSON envelope. Both are on stdout.
 Exits: 0 success, 1 empty, 2 invalid input (including batch rows), 3 not found,
 4 auth required, 5 execution error, 7 rate limited, 130 interrupted.
 A batch exits 2 if any row rejected its input, else its failed rows' code (5 if

@@ -129,6 +129,7 @@ impl ChannelRun {
                 pending.bind_github_identity(self.resume_identity.clone());
                 self.register_page(outcome, next, &mut pending)?;
                 self.retain_cursors(pending, context)?;
+                self.note_cursor_call(outcome);
             }
             return contract(Ok(result));
         }
@@ -195,7 +196,8 @@ impl ChannelRun {
             mut failure,
             continues_page,
         } = self.shape_rows(rejected, context)?;
-        if !self.repairs.is_empty() {
+        // A fresh request's notes are part of its response, paged with it.
+        if self.fresh && !self.repairs.is_empty() {
             structured.edit(|structured| {
                 if let Some(warnings) = structured.as_object_mut().and_then(|map| {
                     map.entry("warnings")
@@ -212,9 +214,11 @@ impl ChannelRun {
         {
             return Ok(Rows::Answered(Err(error)));
         }
-        if let Err(error) = stage::settle(self.id, &mut structured, &response_query, &mut failure) {
-            return Ok(Rows::Answered(Err(error)));
-        }
+        let call_notes =
+            match stage::settle(self.id, &mut structured, &response_query, &mut failure) {
+                Ok(notes) => notes,
+                Err(error) => return Ok(Rows::Answered(Err(error))),
+            };
         structured.edit(|output| crate::runtime::row_indices::inherit(output, &self.origin));
         if let Err(error) = self.hoist_walks(&mut structured, &mut pending, continues_page) {
             return Ok(Rows::Answered(Err(error)));
@@ -274,8 +278,34 @@ impl ChannelRun {
             // measure of that page: call metadata, like the volatile
             // provider facts, never moves an edge or makes it `oversized`.
             crate::runtime::row_indices::attach_rejected(outcome, rejected_rows);
+            // What these rows measured of their own execution is said by
+            // the call that asked for them. A pinned run executes them only
+            // to serve a page of an earlier response again.
+            if self.pinned.is_none() {
+                stage::state_call_notes(outcome, &call_notes);
+            }
+            self.note_cursor_call(outcome);
         }
         Ok(Rows::Answered(finished))
+    }
+
+    /// The notes of a cursor call ride its page outside the plan and the
+    /// measure: the page is the one the cursor names, cut from the content
+    /// its walk was issued over, and a note about this call is no part of
+    /// that content.
+    fn note_cursor_call(&self, outcome: &mut ToolOutcome) {
+        if self.fresh || self.repairs.is_empty() {
+            return;
+        }
+        outcome.structured_content.edit(|output| {
+            if let Some(warnings) = output.as_object_mut().and_then(|map| {
+                map.entry("warnings")
+                    .or_insert_with(|| json!([]))
+                    .as_array_mut()
+            }) {
+                warnings.extend(self.repairs.iter().map(|note| json!(note)));
+            }
+        });
     }
 
     /// Respond over a settled envelope; the stage keeps a copy of it (the

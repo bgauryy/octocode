@@ -231,6 +231,7 @@ fn fallback_patterns_stay_candidates_wherever_their_regex_matches() {
     let alnum = |n: usize| "aB3dE5gH7jK".chars().cycle().take(n).collect::<String>();
     let shapes = [
         format!("123456789:{}", alnum(35)),
+        format!("db.example.com:5432:app:svc:{}", alnum(18)),
         format!("{}-us12", hex(32)),
         "Server=db;User Id=sa;Password=hunter2".to_owned(),
         "Password=hunter2;Server=db;".to_owned(),

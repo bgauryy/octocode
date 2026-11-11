@@ -233,12 +233,15 @@ pub(crate) fn rename_route(from: &Url, to: &Url) -> Option<(Url, Url)> {
 /// names instead: along a kept route, or back to the name it came from.
 pub(super) fn routed(url: &Url, target: &Url) -> Option<Url> {
     let (_, suffix) = repository_prefix(url).or_else(|| repository_id_prefix(url))?;
-    let mut routed = target.clone();
-    {
-        let mut segments = routed.path_segments_mut().ok()?;
-        segments.pop_if_empty();
-        segments.extend(&suffix);
+    // The suffix is already encoded: joined as text, since pushing a segment
+    // would encode its `%` a second time (`%2F` to `%252F`).
+    let mut path = target.path().trim_end_matches('/').to_owned();
+    for segment in &suffix {
+        path.push('/');
+        path.push_str(segment);
     }
+    let mut routed = target.clone();
+    routed.set_path(&path);
     routed.set_query(url.query());
     Some(routed)
 }
@@ -265,6 +268,18 @@ mod tests {
         );
         let metadata = url("https://ghe.example/api/v3/repos/old/name");
         assert_eq!(routed(&metadata, &new).expect("routed"), new);
+    }
+
+    #[test]
+    fn a_routed_path_keeps_its_encoding() {
+        let new = url("https://api.github.com/repositories/42");
+        let nested = url(
+            "https://api.github.com/repos/old/name/contents/packages%2Freact%2Fa%20b.json?ref=main",
+        );
+        assert_eq!(
+            routed(&nested, &new).expect("routed").as_str(),
+            "https://api.github.com/repositories/42/contents/packages%2Freact%2Fa%20b.json?ref=main"
+        );
     }
 
     #[test]

@@ -12,12 +12,12 @@ pub use content::ContentSecurity;
 pub(crate) use content::tests::{key_formats, marker_lines};
 pub(crate) use content::{
     KeyBlockState, KeyBlockTracker, LineShapeScan, MarkerScan, hide_key_line,
-    key_fragment_placeholder, key_line_lead, lines_a_row_cannot_judge,
-    match_window_intersects_key_block, private_key_block_line_ranges, private_key_blocks_hidden,
-    redact_private_key_blocks, snippet_may_hold_key_material,
+    key_fragment_placeholder, key_line_lead, match_window_intersects_key_block,
+    private_key_block_line_ranges, private_key_blocks_hidden, redact_private_key_blocks,
+    snippet_may_hold_key_material,
 };
 pub(crate) use input::{CheckedQuery, InputPolicy};
-pub(crate) use judged::{JudgedLeaf, JudgedLeaves, JudgedSource};
+pub(crate) use judged::{JudgedFiles, JudgedLeaf, JudgedLeaves, JudgedSource, JudgedText};
 pub use limits::SourceLimits;
 pub use output::Sanitized;
 pub(crate) use walk::sanitize_json;

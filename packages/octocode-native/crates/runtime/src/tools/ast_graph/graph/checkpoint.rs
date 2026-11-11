@@ -18,22 +18,60 @@ use state::{Manifest, Stage};
 use super::super::limits::LIMITS;
 const JOB_VERSION: u32 = 3;
 
-/// Whether the file's source holds a secret. Every text an artifact holds
-/// is a substring of that source, so a clean source cannot put a secret on
-/// disk; the scan reads the raw text once, not its JSON-escaped facts, at
-/// any length (a text past the whole-source size is judged in one pass over
-/// its spans), so nothing unscanned is ever written.
-/// `Err` when the scan panicked, even if the sanitizer recovered: whether
-/// the source holds a secret is then unknown.
-fn holds_secret(
+/// The file's source judged whole at its path
+/// ([`crate::security::JudgedText`]): the one redaction decision a read of
+/// the file shows, and so the one its graph facts are stored under
+/// ([`judged_facts`]). The scan reads the raw text once, not its
+/// JSON-escaped facts, at any length (a text past the whole-source size is
+/// judged in one pass over its spans). `Err` when the scan panicked, even if
+/// the sanitizer recovered: what the source holds is then unknown.
+pub(super) fn judged_source(
     security: &ContentSecurity,
     source: &str,
-) -> Result<bool, octocode_engine::contain::Contained> {
+    path: &Path,
+) -> Result<crate::security::JudgedText, octocode_engine::contain::Contained> {
     octocode_engine::contain::contain(octocode_engine::contain::Phase::SecretScan, || {
         #[cfg(test)]
         secret_scan_fault(source);
-        security.sanitize_text(source, None).has_secrets
+        crate::security::JudgedText::judge(source, path, security)
     })
+}
+
+/// `facts` as the judged source shows them: a fact is text of the source
+/// with no place a cut could be taken at (a name, a string-literal receiver,
+/// an import specifier), so every value the whole pass replaced is replaced
+/// in it ([`crate::security::JudgedText::scrubbed`]). `None` when the pass
+/// replaced nothing; `Err` when the facts could not be rewritten.
+pub(super) fn judged_facts(
+    facts: &octocode_engine::graph::GraphFactsDocument,
+    judged: &crate::security::JudgedText,
+) -> Result<Option<octocode_engine::graph::GraphFactsDocument>, serde_json::Error> {
+    if !judged.is_redacted() {
+        return Ok(None);
+    }
+    fn scrub(value: &mut serde_json::Value, judged: &crate::security::JudgedText) -> bool {
+        match value {
+            serde_json::Value::String(text) => match judged.scrubbed(text) {
+                Some(clean) => {
+                    *text = clean;
+                    true
+                }
+                None => false,
+            },
+            serde_json::Value::Array(items) => items
+                .iter_mut()
+                .fold(false, |changed, item| scrub(item, judged) | changed),
+            serde_json::Value::Object(fields) => fields
+                .values_mut()
+                .fold(false, |changed, field| scrub(field, judged) | changed),
+            _ => false,
+        }
+    }
+    let mut value = serde_json::to_value(facts)?;
+    if !scrub(&mut value, judged) {
+        return Ok(None);
+    }
+    serde_json::from_value(value).map(Some)
 }
 
 /// Sources holding one of these markers panic their secret scan (tests).
@@ -67,7 +105,6 @@ pub(super) struct Job<'a> {
     resumed: bool,
     state: Mutex<State>,
     paths: &'a PathPolicy,
-    security: &'a ContentSecurity,
     limits: super::super::limits::Limits,
 }
 
@@ -165,8 +202,8 @@ impl Job<'_> {
         &self,
         view: &GraphFactsView<'_>,
         source: capture::CapturedSource,
-    ) -> Result<Result<(super::scan::Kept, usize), octocode_engine::contain::Contained>, ToolError>
-    {
+        holds_secret: bool,
+    ) -> Result<(super::scan::Kept, usize), ToolError> {
         // Reused from its own verified artifact: that artifact already holds
         // these facts, so it is kept, not encoded, scanned and written again.
         if view.reused {
@@ -182,10 +219,10 @@ impl Job<'_> {
                 state.committed.insert(view.relative_path.into());
                 drop(state);
                 let storage = Storage::Disk(self.target(view.relative_path));
-                return Ok(Ok((
+                return Ok((
                     self.retain(view, source, size, storage),
                     saturating_usize(size),
-                )));
+                ));
             }
         }
         // Past one artifact's bound the file is linked from its decoded
@@ -193,13 +230,9 @@ impl Job<'_> {
         // resumption is lost, never the build.
         let Some(bytes) = encode(&self.manifest.namespace, view, self.limits.artifact_bytes) else {
             let fact_bytes = octocode_engine::json_size::bytes_or(view.facts, usize::MAX);
-            return Ok(Ok((decoded(view, source), fact_bytes)));
+            return Ok((decoded(view, source), fact_bytes));
         };
         let size = bytes.len() as u64;
-        let holds_secret = match holds_secret(self.security, view.content) {
-            Ok(holds) => holds,
-            Err(unscanned) => return Ok(Err(unscanned)),
-        };
         let storage = if holds_secret {
             let previous = {
                 let mut state = self.state();
@@ -208,7 +241,7 @@ impl Job<'_> {
                     // from its decoded facts like an uncheckpointed build's:
                     // nothing is refused, only this file's resumption.
                     drop(state);
-                    return Ok(Ok((decoded(view, source), bytes.len())));
+                    return Ok((decoded(view, source), bytes.len()));
                 }
                 state.memory_bytes += size;
                 state.memory_files += 1;
@@ -239,7 +272,7 @@ impl Job<'_> {
                     // Past the disk budget the file is linked from its
                     // decoded facts, as past the memory-only budget.
                     drop(state);
-                    return Ok(Ok((decoded(view, source), bytes.len())));
+                    return Ok((decoded(view, source), bytes.len()));
                 }
                 state.bytes = next_bytes;
                 state.artifacts.insert(view.relative_path.into(), size);
@@ -263,10 +296,10 @@ impl Job<'_> {
             state.committed.insert(view.relative_path.into());
             Storage::Disk(target)
         };
-        Ok(Ok((
+        Ok((
             self.retain(view, source, size, storage),
             saturating_usize(size),
-        )))
+        ))
     }
 
     /// The file's facts kept decoded when `size` more encoded bytes fit the

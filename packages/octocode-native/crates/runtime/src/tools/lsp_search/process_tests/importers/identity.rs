@@ -15,6 +15,8 @@ use super::*;
 /// - `r*.ts` imports through the barrel `b.ts`, whose export specifier the
 ///   chain follows to the anchor;
 /// - `u*.ts` names the anchor and a declaration in `other.ts` at once;
+/// - `i*` (any extension) stops on the file's own import binding (line 0),
+///   as a server does for an import it did not follow;
 /// - every other file names the anchor alone.
 fn identity_server() -> String {
     let cases = r"    case 'textDocument/definition': {
@@ -25,6 +27,7 @@ fn identity_server() -> String {
       if (/\/m\d+\.ts$/.test(uri)) return line === 3 ? [local, decl] : [local];
       if (/\/r\d+\.ts$/.test(uri)) return [{ uri: 'file://' + root + '/b.ts', range: at(0, 9, 6) }];
       if (/\/u\d+\.ts$/.test(uri)) return [decl, { uri: other, range: at(0, 16, 5) }];
+      if (/\/i\d+\.\w+$/.test(uri)) return [{ uri, range: at(0, 9, 6) }];
       if (uri === other) return [{ uri, range: at(0, 16, 5) }];
       return [decl];
     }
@@ -141,4 +144,48 @@ fn a_site_binding_another_declaration_too_stays_unresolved_and_partial() {
     // The unresolved candidate is named by the row's text lead.
     let lead = crate::tools::test_support::checks::related_call(&row, "localSearch", |_| true)["input"]["queries"].to_string();
     assert!(lead.contains("u000.ts"), "{row}");
+}
+
+/// A candidate the server stops on its own import in (an import it did not
+/// follow) is an importer only when that import may name the anchor's
+/// module. One binding the name from a builtin is no importer, whatever its
+/// file type and whatever else it loads by a computed specifier: it is
+/// checked, and the scan stays complete.
+#[test]
+fn an_unfollowed_import_of_another_module_is_no_importer() {
+    if !require_node() {
+        return;
+    }
+    const COMPUTED: &str =
+        "const extra = await import([import.meta.dirname, 'x.mjs'].join('/'));\n";
+    let builtin = format!("import {{ target }} from 'node:child_process';\ntarget();\n{COMPUTED}");
+    let (_dir, row) = references(&[("i000.mjs", &builtin), ("i001.ts", &builtin)]);
+    assert_eq!(
+        reference_rows(&row),
+        [("f000.ts".to_owned(), 1, 10), ("f000.ts".to_owned(), 2, 1)],
+        "{row}"
+    );
+    assert_eq!(row["coverage"]["importerScan"], "complete", "{row}");
+    assert!(row.get("isPartial").is_none(), "{row}");
+    assert!(row.get("warnings").is_none(), "{row}");
+}
+
+/// The same stop on an import that may name the anchor's module proves
+/// nothing: the file stays an unverified candidate and the row is partial.
+#[test]
+fn an_unfollowed_import_of_the_anchor_module_stays_unverified() {
+    if !require_node() {
+        return;
+    }
+    let (_dir, row) = references(&[
+        ("i000.mjs", "import { target } from './a.ts';\ntarget();\n"),
+        ("i001.ts", "import { target } from './a';\ntarget();\n"),
+    ]);
+    assert_eq!(row["coverage"]["importerScan"], "failed", "{row}");
+    assert_eq!(row["coverage"]["textOnlyFiles"], 2, "{row}");
+    let warnings = row["warnings"].to_string();
+    assert!(
+        warnings.contains("i000.mjs") && warnings.contains("i001.ts"),
+        "{row}"
+    );
 }

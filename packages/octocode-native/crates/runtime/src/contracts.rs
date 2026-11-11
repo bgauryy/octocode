@@ -21,9 +21,9 @@ pub(crate) use validate::levenshtein;
 
 use crate::id::ToolId;
 pub(crate) use schema_facts::{
-    additional_schemas, child_schemas, item_schemas, property_names, property_schemas,
-    query_declares, query_schema_max, query_schema_number, query_schema_value, resolve_ref,
-    schema_keyword,
+    additional_schemas, child_schemas, item_schemas, property_names, property_order,
+    property_schemas, query_declares, query_schema_max, query_schema_number, query_schema_value,
+    resolve_ref, schema_keyword,
 };
 pub(crate) use validate::validate_output_in_place;
 pub use validate::{
@@ -302,6 +302,23 @@ pub fn cli_presentation() -> Result<&'static serde_json::Value, &'static str> {
         })
         .as_ref()
         .map_err(String::as_str)
+}
+
+/// The input schema `tool` publishes with every field it can take (the one
+/// beside a classification provider where the tool has one): its properties
+/// keep the order core declares them in, which the tool contract's own
+/// schemas list by name.
+pub(crate) fn published_input_schema(tool: ToolId) -> Option<&'static serde_json::Value> {
+    let entry = cli_presentation().ok()?["tools"]
+        .as_array()?
+        .iter()
+        .find(|entry| entry["name"] == tool.as_str())?;
+    let widest = &entry["selection"]["mcp"]["inputSchema"];
+    Some(if widest.is_object() {
+        widest
+    } else {
+        &entry["mcp"]["inputSchema"]
+    })
 }
 
 /// The row fields `tool` publishes only beside a classification provider:

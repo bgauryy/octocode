@@ -203,7 +203,8 @@ pub(crate) fn published(tool: ToolId, row: &Value) -> Value {
     let shaped = crate::response::rows::result_row(0, row.clone(), row["status"].as_str());
     let mut output = serde_json::json!({"results":[shaped]});
     crate::response::notices::place(&mut output, "results");
-    crate::response::notices::state_timed_notices(&mut output, "results");
+    let call_notes = crate::response::notices::take_timed_notices(&mut output, "results");
+    crate::response::notices::state_call_notes(&mut output, &call_notes);
     publish_for_assertion(tool.as_str(), &output)
 }
 
@@ -211,7 +212,7 @@ pub(crate) fn published(tool: ToolId, row: &Value) -> Value {
 /// receives it: the sealed envelope through the response stage (notices,
 /// validation, paging) that every tool's rows pass.
 pub(crate) fn staged_response(tool: ToolId, rows: Vec<Value>) -> Value {
-    use crate::response::stage::{StageInput, respond, settle};
+    use crate::response::stage::{StageInput, respond, settle, state_call_notes};
     let queries = serde_json::json!({ "queries": rows.iter().map(|_| serde_json::json!({})).collect::<Vec<_>>() });
     let rows = rows
         .into_iter()
@@ -223,14 +224,14 @@ pub(crate) fn staged_response(tool: ToolId, rows: Vec<Value>) -> Value {
         .collect::<Vec<_>>();
     let mut structured = crate::security::Sanitized::sealed(serde_json::json!({ "results": rows }));
     let mut failure = None;
-    settle(tool, &mut structured, &queries, &mut failure).expect("settled");
+    let call_notes = settle(tool, &mut structured, &queries, &mut failure).expect("settled");
     let context = crate::execution::ExecutionContext {
         cancellation: octocode_io::cancellation::Cancellation::new(),
         deadline: None,
         response_window: None,
         github_credential: None,
     };
-    respond(
+    let mut outcome = respond(
         StageInput {
             tool,
             structured,
@@ -244,9 +245,10 @@ pub(crate) fn staged_response(tool: ToolId, rows: Vec<Value>) -> Value {
     )
     .expect("staged")
     .result
-    .expect("valid response")
-    .structured_content
-    .into_value()
+    .expect("valid response");
+    // The call that executed the rows answers with them.
+    state_call_notes(&mut outcome, &call_notes);
+    outcome.structured_content.into_value()
 }
 
 pub(crate) fn published_next_page(tool: ToolId, row: &Value) -> Value {

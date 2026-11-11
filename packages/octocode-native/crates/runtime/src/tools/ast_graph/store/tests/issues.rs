@@ -507,3 +507,22 @@ fn a_critical_file_lead_reaches_every_dependent_it_counts() {
         "the controls say what the count leaves out: {finding}"
     );
 }
+
+/// The summary holds what was measured on this snapshot. How findings are
+/// ranked reads the same for every snapshot: the tool's description says it
+/// once, and no answer repeats it.
+#[test]
+fn the_issues_summary_states_no_text_every_answer_would_repeat() {
+    let dir = issues_fixture();
+    let root = dir.0.as_path();
+    assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
+    let out = ask(root, "issues", None, |o| o.limit = Some(200));
+    assert_eq!(out.class, ExitClass::Success, "{}", out.value);
+    let summary = out.value["summary"].as_object().expect("summary");
+    let texts = summary
+        .iter()
+        .filter(|(_, value)| value.is_string())
+        .map(|(key, _)| key.as_str())
+        .collect::<Vec<_>>();
+    assert!(texts.is_empty(), "static text in the summary: {texts:?}");
+}

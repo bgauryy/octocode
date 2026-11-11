@@ -39,6 +39,80 @@ pub(super) fn secret_blocks(text: &str) -> Vec<Range<usize>> {
     blocks.finish().unwrap_or_default()
 }
 
+/// The values of every Secret's `data` and `stringData` blocks in `text`:
+/// what [`block_values`] reads of each block.
+pub(super) fn secret_values(text: &str) -> Vec<Range<usize>> {
+    let mut values = Vec::new();
+    for block in secret_blocks(text) {
+        block_values(text, block, &mut values);
+    }
+    values
+}
+
+/// Adds to `values` the values the lines of `block` hold in `text`, each
+/// without the name before it, the quotes around it and the comment after
+/// it: a member's value, and each line of a value that runs over several (a
+/// block scalar's, where a line that reads as a member keeps its name too).
+/// The names, the indentation, a comment, a template directive and a
+/// placeholder stay. A block that starts within its line is a flow value:
+/// all of it is one.
+pub(super) fn block_values(text: &str, block: Range<usize>, values: &mut Vec<Range<usize>>) {
+    let bytes = text.as_bytes();
+    if block.start > 0 && bytes.get(block.start - 1) != Some(&b'\n') {
+        values.push(block);
+        return;
+    }
+    let mut line = block.start;
+    while line < block.end {
+        let Some(rest) = bytes.get(line..block.end) else {
+            return;
+        };
+        let end = rest
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(block.end, |at| line + at);
+        let Some(body) = bytes.get(line..end) else {
+            return;
+        };
+        let body = body.strip_suffix(b"\r").unwrap_or(body);
+        let mut member = trim_start(body);
+        while member == b"-" || member.starts_with(b"- ") || member.starts_with(b"-\t") {
+            member = trim_start(&member[1..]);
+        }
+        let value = match name_and_value(member) {
+            Some((_, value_at)) => before_comment(trim_start(&member[value_at..])),
+            None => member,
+        };
+        if !(value.is_empty()
+            || member.starts_with(b"#")
+            || member.starts_with(b"{{")
+            || opens_a_block_scalar(value))
+        {
+            // `value` is a slice of the line: where it lies in the text.
+            let start = line + (value.as_ptr() as usize).saturating_sub(body.as_ptr() as usize);
+            let inner = unquoted(value);
+            let quote = usize::from(inner.len() < value.len());
+            let range = start + quote..start + quote + inner.len();
+            // What an earlier pass left in a value's place is none.
+            if !text.get(range.clone()).is_some_and(super::is_placeholder) {
+                values.push(range);
+            }
+        }
+        line = end + 1;
+    }
+}
+
+/// Whether `value` is a block scalar's header (`|`, `>-`, `|2+`): its text
+/// is on the lines after it.
+fn opens_a_block_scalar(value: &[u8]) -> bool {
+    value
+        .first()
+        .is_some_and(|byte| matches!(byte, b'|' | b'>'))
+        && value[1..]
+            .iter()
+            .all(|byte| matches!(byte, b'+' | b'-') || byte.is_ascii_digit())
+}
+
 /// [`secret_blocks`] of a source that passes in pieces.
 #[derive(Default)]
 pub(super) struct Blocks {

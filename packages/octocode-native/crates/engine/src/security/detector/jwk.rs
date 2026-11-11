@@ -14,6 +14,9 @@ static MEMBER: LazyLock<Regex> = LazyLock::new(|| {
     .expect("static pattern compiles")
 });
 
+/// The member that says its object is a JSON Web Key.
+pub(super) const KEY_TYPE: &str = "kty";
+
 /// The pattern that holds these members.
 pub(super) const PATTERN: &str = "jwkPrivateMembers";
 

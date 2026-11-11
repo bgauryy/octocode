@@ -61,7 +61,8 @@ fn check(probe: &Probe, outcome: &ToolOutcome) -> Vec<String> {
     failures
 }
 
-async fn github_and_registry() -> MockServer {
+/// GitHub and a registry that know one repository, `a/b`, and find nothing in it.
+pub(crate) async fn github_and_registry() -> MockServer {
     let server = MockServer::builder().start().await;
     let empty_search = json!({"total_count":0,"incomplete_results":false,"items":[]});
     for search in ["code", "repositories", "issues", "commits"] {

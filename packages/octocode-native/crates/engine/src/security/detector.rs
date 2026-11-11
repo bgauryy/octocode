@@ -9,7 +9,7 @@ mod key_facts;
 use code_syntax::CodeSyntax;
 use credential_values::VALUE_TESTS;
 use credential_values::{
-    ValueTest, expanded_names, is_expanded_name, is_identifier_name, is_sentence,
+    ValueTest, before_next_key, expanded_names, is_expanded_name, is_identifier_name, is_sentence,
 };
 use key_facts::SpanKeys;
 
@@ -18,8 +18,10 @@ mod every_value;
 mod jwk;
 mod long_line;
 mod long_text;
+mod named_values;
 mod objects;
 mod source_names;
+mod split_literals;
 pub(super) mod structured;
 mod yaml_secret;
 pub use every_value::{EveryValueScan, every_value_spans};
@@ -294,8 +296,12 @@ impl<'a> Judge<'a> {
         secret_at: &std::ops::Range<usize>,
         at: &std::ops::Range<usize>,
     ) -> bool {
+        let own = self.own_value(text, secret_at);
+        let secret_at = &own;
         let value = self.value_text(text, secret_at);
         let secret = value.as_ref();
+        let key = without_inner_comments(key, secret_at.start.saturating_sub(at.start));
+        let key = key.as_ref();
         let verdict = match self.syntax.as_ref().filter(|_| self.code_is_no_config) {
             None => self.value_test.redacts(key, secret),
             Some(syntax) => match syntax.place_of(at) {
@@ -310,6 +316,17 @@ impl<'a> Judge<'a> {
                 || self.expanded.get_or_init(|| expanded_names(self.text)),
                 secret,
             )
+    }
+
+    /// The part of the literal at `secret` in `text` that is the value: all of
+    /// it, or for pieces a quoted rule read side by side, what precedes a
+    /// last piece that is the next entry's key ([`before_next_key`]).
+    fn own_value(&self, text: &str, secret: &std::ops::Range<usize>) -> std::ops::Range<usize> {
+        let end = (self.value_test == ValueTest::Quoted)
+            .then(|| before_next_key(text, secret))
+            .flatten()
+            .unwrap_or(secret.end);
+        secret.start..end
     }
 
     /// The value at `secret` in `text` as the program holds it: each quote
@@ -374,11 +391,16 @@ impl<'a> Judge<'a> {
         base: usize,
         secret: &std::ops::Range<usize>,
     ) -> usize {
+        let own = self.own_value(text, secret);
+        if own.end < secret.end {
+            return own.end;
+        }
         let end = continued_end(text, secret.end, |at| {
             self.syntax
                 .as_ref()
                 .is_none_or(|syntax| syntax.escapes_at(base + at))
         });
+        let end = inline_code_end(text, secret.start, end);
         let end = self.field_line_end(text, base, secret.start, end);
         // A literal closes with a quote: a value with none in it ends inside.
         if !text[secret.start..end].contains(['"', '\'', '`']) {
@@ -440,6 +462,11 @@ impl<'a> Judge<'a> {
         text: &str,
         mut found: impl FnMut(std::ops::Range<usize>, std::ops::Range<usize>),
     ) {
+        // A name's values are walked, not only matched: the walk judges them.
+        if self.value_test == ValueTest::Named {
+            named_values::secrets(regex, text, found);
+            return;
+        }
         let Some(syntax) = self.syntax.as_ref().filter(|_| self.reads_comments) else {
             accepted_secrets(
                 regex,
@@ -502,6 +529,87 @@ impl<'a> Judge<'a> {
             found(whole, secret);
         }
     }
+}
+
+/// Where a value that starts at `start` and was read to `end` ends when
+/// prose quotes it as code: a backtick that opens a span before it on its
+/// line (`` the string (`Server=db;Password=x`) sits under … ``) closes at
+/// the next one, and the words after it are the sentence's, no part of the
+/// value. The backtick nearest before the value opens a span when no word
+/// character precedes it; one that closes a span follows the span's text.
+/// A value no backtick opens keeps its whole read.
+fn inline_code_end(text: &str, start: usize, end: usize) -> usize {
+    let Some(close) = text
+        .get(start..end)
+        .and_then(|value| value.find('`'))
+        .filter(|close| *close > 0)
+    else {
+        return end;
+    };
+    let before = text.get(..start).unwrap_or_default();
+    let opens = before
+        .rfind(['`', '\n', '\r'])
+        .filter(|at| before.as_bytes().get(*at) == Some(&b'`'))
+        .is_some_and(|at| {
+            !before
+                .get(..at)
+                .is_some_and(|head| head.ends_with(|c: char| c.is_alphanumeric() || c == '_'))
+        });
+    if opens { start + close } else { end }
+}
+
+/// `key`, the text before a value whose last `matched` bytes are the
+/// pattern's own match, without the comments that match reads through
+/// (`dbPassword /* c1 */ : /* c2 */ "`, a `// …` or `# …` line between the
+/// operator and a value on the next line): a comment between a name, its
+/// operator and its value is no part of the key, so the value tests read the
+/// name and the operator as if it were not there. A block comment leaves a
+/// blank, a line comment its line break, and so does a backslash that
+/// continues the line; an opener that closes nowhere
+/// in the match (`r#"`) is text. The text before the match is the line's
+/// own and stays as written.
+fn without_inner_comments(key: &str, matched: usize) -> std::borrow::Cow<'_, str> {
+    let (before, own) = key
+        .split_at_checked(key.len().saturating_sub(matched))
+        .unwrap_or((key, ""));
+    if !own.contains(['/', '#', '\\']) {
+        return std::borrow::Cow::Borrowed(key);
+    }
+    let mut read = String::with_capacity(key.len());
+    read.push_str(before);
+    let mut rest = own;
+    while let Some(at) = rest.find(['/', '#', '\\']) {
+        let (text, from) = rest.split_at(at);
+        let continued = from
+            .strip_prefix('\\')
+            .is_some_and(|after| after.starts_with(LINE_END_CHARS));
+        let comment_len = if continued {
+            Some(1)
+        } else if from.starts_with("/*") {
+            from.get(2..)
+                .and_then(|body| body.find("*/"))
+                .map(|close| close + 4)
+        } else if from.starts_with("//") || from.starts_with('#') {
+            from.find(LINE_END_CHARS)
+        } else {
+            None
+        };
+        read.push_str(text);
+        match comment_len.and_then(|len| from.get(len..)) {
+            Some(after) => {
+                read.push(' ');
+                rest = after;
+            }
+            None => {
+                let mark = from.chars().next().map_or(0, char::len_utf8);
+                let (mark, after) = from.split_at(mark);
+                read.push_str(mark);
+                rest = after;
+            }
+        }
+    }
+    read.push_str(rest);
+    std::borrow::Cow::Owned(read)
 }
 
 /// `found` (`(whole, secret)` ranges) in order, each secret joined with every
@@ -1042,16 +1150,14 @@ pub(crate) fn redact(content: &str, scope: Scope<'_>) -> Option<DetectResult> {
 /// chunk edge was redacted only up to the edge and its tail leaked (review M1).
 ///
 /// `scope` gates file-context patterns (e.g. Kubernetes YAML secrets, `.env`
-/// fine-grained GitHub tokens) so they fire only where they apply.
+/// fine-grained GitHub tokens) so they fire only where they apply. A last
+/// pass reads the literals written in pieces ([`split_literals`]).
 /// A text past `limit` is judged in one pass over its spans.
 pub(crate) fn redact_within(content: &str, scope: Scope<'_>, limit: usize) -> Option<DetectResult> {
     if content.len() > limit {
         return long_text::redact_long(content, scope);
     }
     let matched = matching_patterns(content, scope);
-    if matched.is_empty() {
-        return None;
-    }
     let mut sanitized: Option<String> = None;
     let mut secrets_detected = Vec::new();
     let mut edits = super::Edits::default();
@@ -1059,6 +1165,7 @@ pub(crate) fn redact_within(content: &str, scope: Scope<'_>, limit: usize) -> Op
     // syntax, at the positions of the text the earlier passes left.
     let syntax = scope
         .source_path()
+        .filter(|_| !matched.is_empty())
         .and_then(|path| CodeSyntax::of(path, content));
     for idx in matched.iter() {
         let current = sanitized.as_deref().unwrap_or(content);
@@ -1086,11 +1193,61 @@ pub(crate) fn redact_within(content: &str, scope: Scope<'_>, limit: usize) -> Op
             sanitized = Some(result);
         }
     }
+    // A leaf cut from a source judged whole had its pieces judged there,
+    // with the pieces on the lines around it.
+    let pieces = if matches!(scope, Scope::Judged { .. }) {
+        None
+    } else {
+        split_literals::redact_pieces(sanitized.as_deref().unwrap_or(content))
+    };
+    if let Some(pieces) = pieces {
+        for name in pieces.patterns {
+            if !secrets_detected.iter().any(|detected| detected == name) {
+                secrets_detected.push(name.to_string());
+            }
+        }
+        edits = edits.then(&super::Edits::of_pass(pieces.replaced));
+        sanitized = Some(pieces.text);
+    }
     sanitized.map(|sanitized| DetectResult {
         sanitized,
         secrets_detected,
         edits,
     })
+}
+
+/// Whether `text`, a string of a request (a search term, a keyword, an
+/// address), holds a credential: a value a pattern knows by its own shape
+/// (a provider's token, a key block), or under a pattern that reads a
+/// credential's name a value that is opaque ([`named_values::is_opaque`]).
+/// A term names what it searches for, so the name beside a value says
+/// nothing of it: `password: str` and `token = None` are declarations to
+/// find, `password: <a generated string>` is a secret pasted into the
+/// request. Nothing is redacted here: the caller refuses the request.
+pub(crate) fn holds_credential_as_request(text: &str) -> bool {
+    let scope = Scope::Pathless;
+    let opaque = |value: &str| {
+        value.split_whitespace().any(|piece| {
+            named_values::is_opaque(
+                piece.trim_matches(credential_values::QUOTES),
+                credential_values::OPAQUE_LITERAL_CHARS,
+            )
+        })
+    };
+    let by_pattern = matching_patterns(text, scope).iter().any(|idx| {
+        if let Some(form) = document::Form::of(idx) {
+            return form.redact(text, replacement_for(idx)).0 != text;
+        }
+        let by_shape = VALUE_TESTS[idx] == ValueTest::Every;
+        let mut held = false;
+        Judge::of(idx, scope, text, None).secrets(
+            pattern_regex_for(idx, text),
+            text,
+            |_, secret| held |= by_shape || text.get(secret).is_some_and(opaque),
+        );
+        held
+    });
+    by_pattern || split_literals::redact_pieces(text).is_some()
 }
 
 #[cfg(test)]

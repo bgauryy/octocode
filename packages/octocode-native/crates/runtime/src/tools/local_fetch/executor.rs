@@ -29,7 +29,7 @@ pub fn execute_local_fetch(
     let display_path = &validated.display;
     // Past the whole-file ceiling, only a streamed line window is served
     // (see `large_source`); past the streaming ceiling nothing is read.
-    if meta.len() > super::large_source::MAX_STREAM_SOURCE_BYTES {
+    if meta.len() > crate::tools::large_source::MAX_STREAM_SOURCE_BYTES {
         return source_too_large(
             local_fetch_query::path(q),
             meta.len(),

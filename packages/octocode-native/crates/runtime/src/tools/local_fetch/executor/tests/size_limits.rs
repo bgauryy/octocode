@@ -121,7 +121,7 @@ fn source_above_the_streaming_ceiling_returns_file_too_large() {
     // Sparse file just past the streaming ceiling — the size guard fires
     // before any bytes are read, so this stays cheap.
     let file = fs::File::create(&path).expect("create file");
-    let len = crate::tools::local_fetch::large_source::MAX_STREAM_SOURCE_BYTES + 1;
+    let len = crate::tools::large_source::MAX_STREAM_SOURCE_BYTES + 1;
     file.set_len(len).expect("grow file");
     drop(file);
 

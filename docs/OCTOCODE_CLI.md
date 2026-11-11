@@ -79,7 +79,14 @@ octocode localFetch '{"cursor":"<issued cursor>"}'
 
 ### Text output
 
-Text mode renders readable evidence on stdout and guidance on stderr, on a terminal or a pipe, for every tool. A single-row search, listing or outline prints one line per hit, file or declaration (`path:line:text`, `path:count  [term count …]`), a file with several hits under its path once, as `rg --heading` (`line:text`, a declaration note only where it changes; with context lines, `line:text` hits and `line-text` context, whether `contextLines` was sent as a number or as `{before, after}`); any other result prints every field as indented `key: value` lines, a multi-line value as a `key: |` block. A batch prints each row under `## results[N]` and prefixes that row's stderr notes the same way. Nothing is clipped. Emitted next steps use the same JSON input as MCP. Use JSON mode for programmatic reconstruction and exact row metadata.
+Text mode renders, on a terminal or a pipe and for every tool, the evidence, whether it is complete and how to read it on stdout, and counters, leads and progress on stderr.
+
+- **Content.** A search prints one line per hit, site or declaration: a lone one as `path:line:text` or `path:line: kind name`, a file with several under its path once, as `rg --heading` (`line:text`, a declaration note only where it changes; with context lines, `line:text` hits and `line-text` context, whether `contextLines` was sent as a number or as `{before, after}`). `path:N` is always a line: sites print as `path:5,32`, and a count is a named field (`path  [matchCount 2]`). `[ … ]` after a line or a path lists its other fields. A listing prints each `dir/` once with its entries indented under it, spelled as the JSON spells them. Any other result prints every field as indented `key: value` lines, a multi-line value as a `key: |` block, and a list of single-field items names the field once (`nodes[].node:`).
+- **Trailer.** After a row's content, as `# ` lines on stdout, the same for every tool: its `status` unless ok (`empty`, `error`, `outOfRange`; a failed row's `errorCode` and `error` are its content), each page state (`# pagination: … hasMore`, `# rowPart: part 1 of 3`), its warnings and hints (`# warnings: …`, `# hints: …`: what was redacted, why an answer is partial, what to ask instead), then the commands that continue the answer: `# responsePagination.next: octocode …` first, then `# next.nextPage: octocode …`, then any other. With stderr dropped, stdout still tells no hits, a failure and a first page apart, and carries every warning. A continuation page prints in the format of the request its cursor continues.
+- **Notes.** Every stderr line of a tool call starts with `# `: counters (`matchCount`, `filesScanned`) and `related[]` leads as `# key: value`, and what the call says while it runs (`# graphBuild: parsed 40/40 files`, a rate-limit wait, a notice such as a busy cache store).
+- **Batch.** Each row prints under `## results[N]` exactly as it prints alone, with its own trailer; the envelope's page follows the last row. A row's stderr notes name it: `# results[N] key: value`.
+
+Nothing is clipped. A call the runtime rejects before it runs (invalid input, a timeout) prints on stdout as a failed row does, `errorCode: …` and `error: …` (with any `details`), then `# status: error`, and keeps its exit code: stdout always states the outcome. Emitted next steps use the same JSON input as MCP. Use JSON mode for programmatic reconstruction and exact row metadata.
 
 ### Reading a JSON result
 
@@ -126,7 +133,7 @@ octocode graphQuery --json '{"queries":[{"operation":"issues","path":"."}]}'
 octocode graphQuery --json '{"queries":[{"operation":"unresolved","path":".","target":["src/a.ts","src/b.ts"],"reasons":["not-declared-in-repo"]}],"responseChars":50000}'
 ```
 
-- `graphBuild` runs in the calling process and prints its progress on stderr;
+- `graphBuild` runs in the calling process and prints its progress on stderr as `# ` notes;
   `graphQuery` runs on the warm server, so later pages reuse the decoded snapshot.
 - Follow `responsePagination.next`, else `next.nextPage`, until neither remains, then
   the other `next.*` continuations you need, passing each `input` back unchanged.

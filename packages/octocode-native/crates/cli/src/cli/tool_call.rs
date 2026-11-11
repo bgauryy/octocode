@@ -1,11 +1,10 @@
 //! One tool command: its JSON input, where it runs, and what an interrupt does.
 use super::commands::{self, ToolArgs};
 use super::output::Printed;
-use super::parse::emit_error;
 use super::{OutputMode, cli_host, serve, start_failed};
 use octocode_contract_types::ErrorCode;
 use octocode_native::id::ToolId;
-use octocode_native::runtime::{Channel, HostOptions, ToolRuntime};
+use octocode_native::runtime::{Channel, HostOptions, RuntimeError, ToolRuntime};
 use serde_json::Value;
 
 /// Parse the query, then run it on the workspace's warm server (read-only
@@ -13,9 +12,16 @@ use serde_json::Value;
 pub(super) async fn run_tool(tool: commands::ToolCommand, mode: OutputMode) -> u8 {
     let input = match tool_input(tool.name, &tool.args) {
         Ok(input) => input,
+        // No query to run is a rejected call, printed as the runtime's are.
         Err(message) => {
-            emit_error(ErrorCode::InvalidInput, &message, mode);
-            return 2;
+            let rejected = RuntimeError {
+                code: ErrorCode::InvalidInput,
+                message,
+                payload: None,
+                validation_issues: None,
+            };
+            return Printed::finish(tool.name, Err(rejected), mode.json, &Value::Null, None)
+                .print(mode);
         }
     };
     let mut loaded = None;
@@ -24,9 +30,11 @@ pub(super) async fn run_tool(tool: commands::ToolCommand, mode: OutputMode) -> u
     {
         return code;
     }
-    // Progress (a build's stages, a rate-limit wait) goes to stderr; stdout
-    // keeps only the result.
-    octocode_io::notice::report_progress_to(|line| eprintln!("{line}"));
+    // Progress (a build's stages, a rate-limit wait) goes to stderr as notes;
+    // stdout keeps only the result.
+    octocode_io::notice::report_progress_to(|line| {
+        eprintln!("{}", octocode_io::notice::as_note(line));
+    });
     let host = HostOptions {
         loaded,
         ..cli_host()
@@ -102,7 +110,7 @@ async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, mode: OutputMo
                 execution.await
             } else {
                 runtime.requests.cancel(REQUEST);
-                eprintln!("{CANCELLING}");
+                eprintln!("{}", octocode_io::notice::as_note(CANCELLING));
                 if drain_after_interrupt(&mut execution, tokio::signal::ctrl_c()).await
                     == Interrupted::Forced
                 {

@@ -13,22 +13,27 @@ impl DomainDispatcher {
             Err(row) => return Ok(*row),
         };
         let requested = lsp_search_query::path(&query).map(str::to_owned);
+        let judged = std::sync::Arc::new(crate::security::JudgedFiles::default());
         self.handle.block_on(async {
             match within_request(
                 context,
-                crate::tools::lsp_search::execute(
+                crate::tools::lsp_search::execute_judged(
                     query,
                     context,
                     &self.lsp_pool,
                     self.local_paths(ToolId::LspSearch, &Value::Null, egress),
-                    &self.lsp_execution_config,
+                    (&self.lsp_execution_config, std::sync::Arc::clone(&judged)),
                     local_response_window(ToolId::LspSearch, context, self.limits.auto_page_chars),
                     &self.lsp_answers,
                 ),
             )
             .await?
             {
-                Ok(data) => Ok(dispatch::value_result(data)),
+                Ok(data) => {
+                    let mut row = dispatch::value_result(data);
+                    row.judged = judged.leaves();
+                    Ok(row)
+                }
                 Err(failure) => {
                     // A cancelled/expired request is a runtime outcome,
                     // not a provider failure.

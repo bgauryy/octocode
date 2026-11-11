@@ -145,7 +145,7 @@ impl ToolRuntime {
             .as_ref()
             .and_then(|opened| opened.github_identity().map(str::to_owned));
         let saved = opened.as_ref().map(super::cursors::Opened::member);
-        let fresh = saved.is_none();
+        let (fresh, continued) = (saved.is_none(), saved.map(|member| member.input.clone()));
         let normalized_input = saved.map_or(&input, |member| &member.input);
         let origin = saved.map_or(RowOrigin::Request, |member| member.work.origin());
         let page = saved.and_then(|member| match &member.work {
@@ -257,6 +257,7 @@ impl ToolRuntime {
             })
             .await
             .map_err(runtime_execution_error)?
+            .map(|outcome| outcome.continuing(continued))
     }
 
     /// The domain execution path for this call's rows.

@@ -8,6 +8,12 @@ pub(in super::super) const SCAN_CAPPED: &str = "capped";
 
 pub(in super::super) const SCAN_FAILED: &str = "failed";
 
+/// Every candidate was verified, and files the scan's rules keep out of it
+/// (gitignored or hidden) import the name or could not be checked for an
+/// import, or the scan for them did not finish: the row counts them and
+/// leads to them.
+pub(in super::super) const SCAN_SKIPPED: &str = "skippedFiles";
+
 /// What [`verified_anchors`] verifies: importers of `symbol`, declared at
 /// `declaration`, among `scope`'s candidates in the importer `window` the
 /// request names. `known_files` are files the server already reported; they
@@ -32,6 +38,73 @@ fn no_candidates(stale: bool, failed: bool) -> Importers {
         stale,
         ..Importers::default()
     }
+}
+
+/// The candidates of one search, before they are cut into windows.
+struct CandidateList {
+    /// Sorted files that may import the symbol, under its own name or an
+    /// alias a relay exports it under.
+    candidates: Vec<String>,
+    /// Files that spell the name and whose imports cannot reach its module.
+    unreached: Vec<String>,
+    /// The anchor's module, when the language's imports name their symbols.
+    module: Option<Arc<AnchorModule>>,
+    renamed: Renamed,
+}
+
+/// The list cut into windows and digested: the text scan less the anchor
+/// and the files whose imports cannot reach its module, with the importers
+/// of each alias a relay exports the symbol under. All of it follows from
+/// the sources alone; the server's own answer (which varies with what it
+/// has loaded) only excludes files from verification, so a later window
+/// names the same files from any process. `None` when a text scan failed.
+async fn candidate_list(
+    sources: &mut SourceCache<'_>,
+    cancel: &dyn CancellationCheck,
+    scope: &Scope,
+    (anchor_path, anchor_file, symbol): (&str, &String, &str),
+    reads_imports: bool,
+) -> Result<Option<CandidateList>, LspFailure> {
+    let Some(candidates) = candidate_files(
+        scope,
+        symbol,
+        &HashSet::from([anchor_file.clone()]),
+        sources.policy(),
+        cancel,
+    )
+    .await?
+    else {
+        return Ok(None);
+    };
+    // Module reach reads ES and CommonJS imports; an `#include` names no symbol.
+    let module = if reads_imports {
+        anchor_module(sources, scope, anchor_path, symbol).await
+    } else {
+        None
+    };
+    let (candidates, unreached) =
+        split_reachable(candidates, module.clone(), sources.policy(), cancel).await?;
+    // A relay may export the symbol under another name: its importers spell
+    // only that name, so they join the list as candidates of their own.
+    let Some(renamed) = Renamed::among(
+        scope,
+        module.as_ref(),
+        &candidates,
+        anchor_file,
+        sources.policy(),
+        cancel,
+    )
+    .await?
+    else {
+        return Ok(None);
+    };
+    let (candidates, unreached) = renamed.joined(candidates, unreached);
+    Ok(Some(CandidateList {
+        candidates,
+        unreached,
+        module,
+        renamed,
+    }))
 }
 
 /// Verified importer anchors of one [`ImporterSearch`].
@@ -59,31 +132,24 @@ pub(in super::super) async fn verified_anchors(
     if symbol.trim().is_empty() || scope.root.is_empty() {
         return Ok(no_candidates(request.page > 1, false));
     }
-    // The list cut into windows and digested is the text scan less the
-    // anchor and the files whose imports cannot reach its module: both
-    // follow from the sources alone. The server's own answer (which varies
-    // with what it has loaded) only excludes files from verification, so a
-    // later window names the same files from any process.
     let anchor_file = canonical(anchor_path);
-    let Some(candidates) = candidate_files(
-        scope,
-        symbol,
-        &HashSet::from([anchor_file]),
-        sources.policy(),
+    let Some(listed) = candidate_list(
+        sources,
         cancel,
+        scope,
+        (anchor_path, &anchor_file, symbol),
+        reads_imports,
     )
     .await?
     else {
         return Ok(no_candidates(request.page > 1, true));
     };
-    // Module reach reads ES and CommonJS imports; an `#include` names no symbol.
-    let module = if reads_imports {
-        anchor_module(sources, anchor_path, symbol).await
-    } else {
-        None
-    };
-    let (candidates, unreached) =
-        split_reachable(candidates, module.clone(), sources.policy(), cancel).await?;
+    let CandidateList {
+        candidates,
+        unreached,
+        module,
+        renamed,
+    } = listed;
     let mut window = match Window::cut(candidates, request) {
         Cut::Window(window) => window,
         Cut::Stale => {
@@ -98,27 +164,12 @@ pub(in super::super) async fn verified_anchors(
     if proof == SiteProof::DefinitionChain || request.page <= 1 {
         window.exclude(known_files.clone());
     }
-    let skip = known_files
-        .iter()
-        .cloned()
-        .chain(std::iter::once(canonical(anchor_path)))
-        .collect::<HashSet<_>>();
-    let mut ignored = scope
-        .ignored_text_files(symbol, &skip, sources.policy(), cancel)
-        .await?;
-    // Nested repositories are other repositories: only one holding the
-    // anchor is a cut of this answer's scope.
-    let anchor_file = canonical(anchor_path);
-    ignored
-        .nested_repositories
-        .retain(|repo| Path::new(&anchor_file).starts_with(Path::new(&scope.root).join(repo)));
-    sort_ignored(
-        &mut ignored,
-        reads_imports,
-        sources.policy(),
-        cancel,
+    let ignored = ignored_mentions(
+        scope,
         symbol,
-        module,
+        (known_files, &anchor_file),
+        (sources.policy(), cancel),
+        reads_imports.then_some(&module),
     )
     .await?;
     let Some(declaration) = anchor_declaration(
@@ -145,7 +196,7 @@ pub(in super::super) async fn verified_anchors(
     let mut anchors = Vec::new();
     let mut rejected = unreached;
     let mut unverified = Vec::new();
-    let mut unopened = Vec::new();
+    let mut unopened = Vec::<String>::new();
     let mut elsewhere = HashSet::new();
     loop {
         let (opened, open_failed) = open_candidates(
@@ -154,7 +205,7 @@ pub(in super::super) async fn verified_anchors(
             cancel,
             anchor_path,
             &window.files(),
-            symbol,
+            &|file| renamed.names_in(symbol, file),
         )
         .await?;
         let verified = verify_window(
@@ -192,6 +243,18 @@ pub(in super::super) async fn verified_anchors(
         }
         window.advance();
     }
+    // What the server left undecided, the file's own module references may
+    // decide: a name bound only from other modules is not the anchor's.
+    let (unverified, elsewhere_bound) = split_bound(
+        unverified,
+        module,
+        Arc::clone(&renamed.relays),
+        sources.policy(),
+        cancel,
+    )
+    .await?;
+    rejected.extend(elsewhere_bound);
+    unopened.retain(|file| unverified.contains(file));
     Ok(Importers {
         anchors,
         window: Some(window),
@@ -206,21 +269,140 @@ pub(in super::super) async fn verified_anchors(
     })
 }
 
-/// [`check_imports`] where a language's imports name their symbols; elsewhere no
-/// import does, so a file that spells the name may use it.
-async fn sort_ignored(
-    ignored: &mut IgnoredMentions,
-    reads_imports: bool,
-    policy: &PathPolicy,
-    cancel: &dyn CancellationCheck,
-    symbol: &str,
-    module: Option<Arc<AnchorModule>>,
-) -> Result<(), LspFailure> {
-    if reads_imports {
-        return check_imports(ignored, policy, cancel, symbol, module).await;
+/// The other names relays export the anchor's symbol under, by the files
+/// that may import them.
+#[derive(Default)]
+struct Renamed {
+    /// For each candidate (canonical) of an alias: the relay modules it may
+    /// import the symbol from under another name, in the order found.
+    relays: Arc<HashMap<String, Vec<Arc<AnchorModule>>>>,
+}
+
+impl Renamed {
+    /// The aliases of `module`'s symbol among the `reachable` candidates
+    /// ([`renamed_exports`]) and their importers: the files under the
+    /// `scope` that spell an alias and may reach its relay
+    /// ([`split_reachable`], as for the symbol itself). Each of those may
+    /// rename it again, so the walk goes on from them; a relay's export is
+    /// followed once, which ends a cycle of renames. None without a
+    /// `module`: only a module's own export is imported by name. `Ok(None)`
+    /// when a text scan failed.
+    async fn among(
+        scope: &Scope,
+        module: Option<&Arc<AnchorModule>>,
+        reachable: &[String],
+        anchor_file: &str,
+        policy: &PathPolicy,
+        cancel: &dyn CancellationCheck,
+    ) -> Result<Option<Self>, LspFailure> {
+        let Some(module) = module else {
+            return Ok(Some(Self::default()));
+        };
+        if std::env::var_os("OCTO_D7_BEFORE").is_some() {
+            return Ok(Some(Self::default())); // TEMPORARY failing-first toggle
+        }
+        let own = |module: &AnchorModule| {
+            let (path, name) = module.export();
+            (path.to_path_buf(), name.to_owned())
+        };
+        let mut followed = HashSet::from([own(module)]);
+        let mut relays = HashMap::<String, Vec<Arc<AnchorModule>>>::new();
+        let mut pending = vec![(Arc::clone(module), reachable.to_vec())];
+        while let Some((exporter, files)) = pending.pop() {
+            for relay in renamed_exports(files, exporter, policy, cancel).await? {
+                if !followed.insert(own(&relay)) {
+                    continue;
+                }
+                let (relay_file, alias) = relay.export();
+                let Some(spelling) = scope.files_spelling(alias, policy, cancel).await? else {
+                    return Ok(None);
+                };
+                let importers = spelling
+                    .into_iter()
+                    .filter(|file| file != anchor_file && Path::new(file) != relay_file)
+                    .collect();
+                let (reached, _) =
+                    split_reachable(importers, Some(Arc::clone(&relay)), policy, cancel).await?;
+                for file in &reached {
+                    relays
+                        .entry(file.clone())
+                        .or_default()
+                        .push(Arc::clone(&relay));
+                }
+                pending.push((relay, reached));
+            }
+        }
+        Ok(Some(Self {
+            relays: Arc::new(relays),
+        }))
     }
-    ignored.importing = ignored.files.clone();
-    Ok(())
+
+    /// The one sorted candidate list: the symbol's `candidates` and every
+    /// alias's, and the `unreached` files less those an alias reaches.
+    fn joined(
+        &self,
+        candidates: Vec<String>,
+        unreached: Vec<String>,
+    ) -> (Vec<String>, Vec<String>) {
+        let candidates = candidates
+            .into_iter()
+            .chain(self.relays.keys().cloned())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let unreached = unreached
+            .into_iter()
+            .filter(|file| !self.relays.contains_key(file))
+            .collect();
+        (candidates, unreached)
+    }
+
+    /// The names whose occurrences in `file` (canonical) are checked: the
+    /// `symbol`, and each alias the file is a candidate for.
+    fn names_in(&self, symbol: &str, file: &str) -> Vec<String> {
+        let mut names = vec![symbol.to_owned()];
+        for relay in self.relays.get(file).into_iter().flatten() {
+            let alias = relay.export().1;
+            if !names.iter().any(|name| name == alias) {
+                names.push(alias.to_owned());
+            }
+        }
+        names
+    }
+}
+
+/// The scope's ignored files that spell `symbol`, less the `known` files and
+/// the `anchor` file, sorted by what their imports say: [`check_imports`]
+/// against the anchor's module where the language's imports name their
+/// symbols (`reads`); elsewhere no import does, so a file that spells the name may
+/// use it.
+async fn ignored_mentions(
+    scope: &Scope,
+    symbol: &str,
+    (known, anchor): (&HashSet<String>, &String),
+    (policy, cancel): (&PathPolicy, &dyn CancellationCheck),
+    reads: Option<&Option<Arc<AnchorModule>>>,
+) -> Result<IgnoredMentions, LspFailure> {
+    let skip = known
+        .iter()
+        .chain(std::iter::once(anchor))
+        .cloned()
+        .collect::<HashSet<_>>();
+    let mut ignored = scope
+        .ignored_text_files(symbol, &skip, policy, cancel)
+        .await?;
+    // Nested repositories are other repositories: only one holding the
+    // anchor is a cut of this answer's scope.
+    ignored
+        .nested_repositories
+        .retain(|repo| Path::new(anchor).starts_with(Path::new(&scope.root).join(repo)));
+    match reads {
+        Some(module) => {
+            check_imports(&mut ignored, policy, cancel, symbol, module.clone()).await?;
+        }
+        None => ignored.importing = ignored.files.clone(),
+    }
+    Ok(ignored)
 }
 
 /// What a site's definition chain must reach; an index-backed proof compares with
@@ -356,14 +538,17 @@ pub(super) async fn check_imports(
 }
 
 /// The anchor's module when it exports `symbol` itself (see
-/// [`AnchorModule::of`]); `None` when the anchor cannot be read.
+/// [`AnchorModule::of`]), in the project of the `scope`'s listed files;
+/// `None` when the anchor cannot be read.
 async fn anchor_module(
     sources: &mut SourceCache<'_>,
+    scope: &Scope,
     anchor_path: &str,
     symbol: &str,
 ) -> Option<Arc<AnchorModule>> {
     let source = sources.get(anchor_path).await?;
-    AnchorModule::of(anchor_path, &source.content, symbol).map(Arc::new)
+    let module = AnchorModule::of(anchor_path, &source.content, symbol)?;
+    Some(Arc::new(module.in_scope(scope, symbol, sources.policy())))
 }
 
 /// Whether the parsed `content` imports `symbol` (see [`check_imports`]).

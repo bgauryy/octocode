@@ -208,6 +208,30 @@ fn a_moved_repository_warning_names_the_redirect_target() {
     assert!(named.contains("redirects a/b to c/d (renamed"), "{named}");
 }
 
+/// A moved repository's source lead names it as GitHub does now (the name
+/// its redirect leads to), so the lead runs unchanged; while that name is
+/// unknown the lead keeps the registry's, which GitHub redirects.
+#[test]
+fn a_moved_repository_leads_under_the_name_github_redirects_to() {
+    use crate::providers::artifact::RepositoryStatus;
+    let mut row = item(ArtifactType::Npm, "https://github.com/a/b");
+    row.version = Some("1.0.0".into());
+    row.source_ref = Some("abc".into());
+    row.repository_directory = Some("packages/x".into());
+    row.repository_status = Some(RepositoryStatus::Moved);
+    let lead =
+        |row: &ArtifactItem| leads_of(row)["viewReleaseSource"]["input"]["queries"][0].clone();
+    assert_eq!(
+        lead(&row),
+        json!({"operation":"tree","owner":"a","repo":"b","path":"packages/x","ref":"abc"})
+    );
+    row.successor_repository = Some("c/d".into());
+    assert_eq!(
+        lead(&row),
+        json!({"operation":"tree","owner":"c","repo":"d","path":"packages/x","ref":"abc"})
+    );
+}
+
 /// The row is the one source of the label; a discovery row
 /// without a ref gets none, and a rubygems tag URL is a registry ref.
 #[test]

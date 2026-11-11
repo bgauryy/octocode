@@ -3,29 +3,84 @@ use super::*;
 
 mod builds;
 
+/// Rewrites the manifest of the snapshot at `graph_dir` as the previous
+/// analysis version wrote it.
+fn as_previous_analysis(graph_dir: &Path) {
+    let mut manifest = read_manifest(graph_dir).expect("manifest");
+    manifest["analysisVersion"] = json!(crate::tools::ast_graph::ANALYSIS_VERSION - 1);
+    std::fs::write(
+        graph_dir.join(MANIFEST_FILE),
+        serde_json::to_vec(&manifest).expect("json"),
+    )
+    .expect("write");
+}
+
+/// A snapshot's facts were extracted and judged by the analysis version that
+/// built it. One built by another version is never read for evidence: every
+/// operation refuses it the same way and leads to its rebuild, whether it is
+/// the queried snapshot or a baseline.
 #[test]
-fn older_analysis_is_readable_but_stale_and_rebuilt() {
+fn another_analysis_version_is_refused_by_every_operation_and_rebuilt() {
     let dir = fixture();
-    let first = ingest_fixture(dir.0.as_path(), None);
+    let root = dir.0.as_path();
+    let first = ingest_fixture(root, None);
+    let old_id = first.value["id"].as_str().expect("id").to_owned();
     let graph_dir = PathBuf::from(first.value["dir"].as_str().expect("dir"));
-    let manifest_path = graph_dir.join(MANIFEST_FILE);
-    let mut manifest = read_manifest(&graph_dir).expect("manifest");
-    manifest
-        .as_object_mut()
-        .expect("object")
-        .remove("analysisVersion");
-    std::fs::write(&manifest_path, serde_json::to_vec(&manifest).expect("json")).expect("write");
-    let out = ask(dir.0.as_path(), "stats", None, |o| o.check_freshness = true);
-    assert_eq!(out.class, ExitClass::Success);
-    assert_eq!(out.value["freshness"]["fresh"], false, "{}", out.value);
-    assert_eq!(out.value["freshness"]["analysisCurrent"], false);
-    let stale = ask(dir.0.as_path(), "stale", None, |_| {});
-    assert_eq!(stale.value["fresh"], false);
-    let rebuilt = ingest_fixture(dir.0.as_path(), None);
+    as_previous_analysis(&graph_dir);
+
+    let refused = ask(root, "stats", None, |o| o.check_freshness = true);
+    assert_eq!(
+        refused.class,
+        ExitClass::of(ErrorCode::NotFound),
+        "{}",
+        refused.value
+    );
+    assert_eq!(refused.value["errorCode"], "notFound", "{}", refused.value);
+    let message = refused.value["error"].as_str().expect("error");
+    for stated in [
+        old_id.clone(),
+        format!("version {}", crate::tools::ast_graph::ANALYSIS_VERSION - 1),
+        format!("version {}", crate::tools::ast_graph::ANALYSIS_VERSION),
+        "graphBuild".to_owned(),
+    ] {
+        assert!(message.contains(&stated), "{stated}: {message}");
+    }
+    let lead = &refused.value["related"][0];
+    assert_eq!(lead["tool"], "graphBuild", "{}", refused.value);
+    assert_eq!(lead["input"]["queries"][0]["path"], "app", "{lead}");
+    // The refusal is the whole answer: no fact of the snapshot beside it.
+    let fields = refused.value.as_object().expect("object");
+    assert_eq!(
+        fields.keys().collect::<Vec<_>>(),
+        ["error", "errorCode", "related"],
+        "{}",
+        refused.value
+    );
+    for op in query::OPS {
+        let out = ask(root, op, Some("src/lib.ts"), |o| {
+            o.graph = Some(old_id.clone());
+        });
+        assert_eq!(out.value, refused.value, "{op}");
+        assert_eq!(out.class, refused.class, "{op}");
+    }
+
+    // graphBuild does not reuse it: the same path builds a current snapshot.
+    let rebuilt = ingest_fixture(root, None);
     assert_eq!(rebuilt.class, ExitClass::Success);
     assert_fresh_build(&rebuilt);
     assert_ne!(rebuilt.value["id"], first.value["id"]);
-    assert_fresh_build(&ingest_fixture(dir.0.as_path(), None));
+    assert_fresh_build(&ingest_fixture(root, None));
+    let current = ask(root, "stats", None, |o| o.check_freshness = true);
+    assert_eq!(current.class, ExitClass::Success, "{}", current.value);
+    assert_eq!(current.value["freshness"]["analysisCurrent"], true);
+
+    // The old snapshot is kept, and as a baseline it is refused alike.
+    assert!(graph_dir.is_dir(), "the older snapshot is retained");
+    for op in ["drift", "issues"] {
+        let out = ask(root, op, None, |o| o.baseline = Some(old_id.clone()));
+        assert_eq!(out.value, refused.value, "{op}");
+        assert_eq!(out.class, refused.class, "{op}");
+    }
 }
 
 /// Facts extracted under an older schema build another graph: such a

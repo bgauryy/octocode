@@ -392,6 +392,14 @@ fn resolve_call(
                     });
                 if names_recovered {
                     "recovered-declaration"
+                } else if linker.rust_keyword_qualified(&site) {
+                    // A module path has no receiver and names one module:
+                    // the name is not ours, or that module does not bind it.
+                    if in_repo == 0 {
+                        "not-declared-in-repo"
+                    } else {
+                        "other"
+                    }
                 } else {
                     unlinked_reason(&unit.bindings, qualifier, name, in_repo)
                 }

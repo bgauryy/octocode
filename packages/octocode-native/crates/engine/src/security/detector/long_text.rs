@@ -7,7 +7,8 @@
 //! the memory budget here, and past it every value of what the text names goes.
 use super::document::Form;
 use super::every_value::every_value_spans;
-use super::source_names::{Named, SecretSpan, SecretSpans, SourceNames, SourceWalk};
+use super::source_names::{Named, SecretForm, SecretSpan, SecretSpans, SourceNames, SourceWalk};
+use super::yaml_secret;
 use super::{
     CodeSyntax, DetectResult, Judge, PATTERNS, Scope, SourceSyntax, applicable_patterns,
     pattern_regex_for, secret_groups,
@@ -54,9 +55,28 @@ fn document_spans(text: &str, named: Named, budget: usize) -> (Vec<SecretSpan>, 
     let mut walk = SourceWalk::new(named, budget);
     walk.feed(text.as_bytes());
     match walk.finish() {
-        SecretSpans::Exact(spans) => (spans, false),
+        SecretSpans::Exact(spans) => (yaml_values(text, spans), false),
         SecretSpans::TooMany => (every_value_spans(text.as_bytes(), named), true),
     }
+}
+
+/// `spans` with each block of a Secret in YAML as the values its lines hold
+/// ([`yaml_secret::block_values`]): a text in hand shows its names.
+fn yaml_values(text: &str, spans: Vec<SecretSpan>) -> Vec<SecretSpan> {
+    let mut out = Vec::with_capacity(spans.len());
+    let mut values = Vec::new();
+    for span in spans {
+        if span.form != SecretForm::SecretInYaml {
+            out.push(span);
+            continue;
+        }
+        yaml_secret::block_values(text, span.range, &mut values);
+        out.extend(values.drain(..).map(|range| SecretSpan {
+            range,
+            form: SecretForm::SecretInYaml,
+        }));
+    }
+    out
 }
 
 /// The walk budgets a test set, by the directory whose files they judge at.
@@ -151,7 +171,10 @@ pub(super) fn secret_spans_within(text: &str, scope: Scope<'_>, budget: usize) -
             }
         }
     }
-    spans.sort_unstable_by_key(|(range, _)| range.start);
+    // Where two spans start together, the pattern that knows the value's
+    // shape or its document names it, not the name beside it.
+    let named = super::named_values::PATTERN;
+    spans.sort_by_key(|(range, idx)| (range.start, PATTERNS[*idx].name == named));
     let mut apart: Vec<(Range<usize>, usize)> = Vec::with_capacity(spans.len());
     for (mut range, idx) in spans {
         if let Some((last, _)) = apart.last() {

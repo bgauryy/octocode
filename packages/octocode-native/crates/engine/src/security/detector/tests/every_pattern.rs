@@ -22,13 +22,16 @@ pub(super) fn path_for(context: Option<&str>, rng: &mut Lcg) -> String {
 /// cannot satisfy (a `\b` beside a dash at a line start) or a file context
 /// nothing can name leaves a pattern that never runs, and this names it. A
 /// pattern a document's shape decides is sampled in `document_forms` instead: its
-/// regex alone spells no secret.
+/// regex alone spells no secret. Nor does the regex of the pattern that reads a
+/// credential's name: it spells more names and values than are any, and what it
+/// hides is shown layout by layout in `named_values`.
 #[test]
 fn every_pattern_redacts_a_sample_of_itself_on_its_own_line() {
     let mut rng = Lcg(0x5eed);
     let mut dead = Vec::new();
     for (idx, pattern) in PATTERNS.iter().enumerate() {
-        if document::Form::of(idx).is_some() {
+        if document::Form::of(idx).is_some() || pattern.name == super::super::named_values::PATTERN
+        {
             continue;
         }
         let hir = regex_syntax::parse(pattern.regex).expect(pattern.name);

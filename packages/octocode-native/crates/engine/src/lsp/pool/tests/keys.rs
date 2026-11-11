@@ -48,30 +48,6 @@ fn readiness_timeout_gates_the_slow_indexing_languages() {
 }
 
 #[test]
-fn readiness_maximum_is_the_largest_configured_wait() {
-    let longest = [
-        "go",
-        "rust",
-        "java",
-        "csharp",
-        "swift",
-        "shellscript",
-        "typescript",
-        "typescriptreact",
-        "javascript",
-        "javascriptreact",
-        "python",
-        "c",
-        "cpp",
-        "cuda",
-    ]
-    .into_iter()
-    .filter_map(|language| readiness_timeout(Some(language)))
-    .max();
-    assert_eq!(longest.map(u64::from), Some(MAX_READINESS_TIMEOUT_MS));
-}
-
-#[test]
 fn canonical_key_normalizes_root_and_all_effective_config() {
     let root = std::env::current_dir().expect("cwd");
     let mut env_a = HashMap::new();

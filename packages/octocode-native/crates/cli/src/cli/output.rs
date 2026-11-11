@@ -10,22 +10,14 @@ use serde_json::Value;
 use serde_json::json;
 use std::io::{self, Write};
 
-/// Where a finished call's output goes.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum Stream {
-    Stdout,
-    Stderr,
-}
-
 /// A finished tool call as printed: the warm server sends it whole, so a
 /// call answers byte-for-byte alike in process and through the server.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct Printed {
     /// The exit code of the call's [`ExitClass`].
     pub(super) exit: u8,
-    pub(super) stream: Stream,
-    /// The serialized JSON (compact) or a view's lines, without a trailing
-    /// newline.
+    /// What stdout gets: the serialized JSON (compact) or a view's lines,
+    /// without a trailing newline.
     pub(super) body: String,
     /// Whether `body` is the serialized JSON (printed indented on a
     /// terminal) rather than a view's lines.
@@ -38,12 +30,13 @@ pub(super) struct Printed {
 }
 
 impl Printed {
-    /// The one projection of a finished call: its JSON, or its view when
-    /// the result has one and JSON was not asked for; or the call's error
-    /// envelope (JSON on stdout) or text (stderr).
-    /// `query` is the call's input: the line format reads whether it asked
-    /// for context lines. `cwd` is the caller's directory (the client's,
-    /// under the warm server): a root equal to it needs no note.
+    /// The one projection of a finished call, always on stdout: its JSON,
+    /// or its view when the result has one and JSON was not asked for; a
+    /// rejected call's error envelope as JSON, or as the text of a failed
+    /// row. `query` is the call's input: the line format reads whether it
+    /// asked for context lines, from the request a cursor continued when
+    /// the call was a continuation. `cwd` is the caller's directory (the
+    /// client's, under the warm server): a root equal to it needs no note.
     pub(super) fn finish(
         tool: &str,
         result: Result<ToolOutcome, RuntimeError>,
@@ -54,9 +47,9 @@ impl Printed {
         match result {
             Ok(outcome) => {
                 let structured = &outcome.structured_content;
-                // Text prints a single-row search, listing or symbol result
-                // in its standard line format, and any other result or batch
-                // as `key: value` text ([`super::lines::render`]).
+                let query = outcome.continued.as_ref().unwrap_or(query);
+                // Text prints each row's content, then the facts that decide
+                // "am I done" ([`super::lines::render`]).
                 let view = ToolId::from_name(tool)
                     .filter(|_| !json_out)
                     .and_then(|id| super::lines::render(id, structured, query, cwd));
@@ -68,48 +61,39 @@ impl Printed {
                     ),
                     None => (wire_json(structured), true, None),
                 };
-                // A call whose every row failed prints on stderr, so a pipe
-                // never reads an error as data.
-                let stream = if !json_out && super::lines::all_rows_failed(structured) {
-                    Stream::Stderr
-                } else {
-                    Stream::Stdout
-                };
                 Self {
                     exit: exit_code(outcome.exit_class()),
-                    stream,
                     body,
                     json,
                     error_text: None,
                     notes,
                 }
             }
+            // A rejected call states its outcome on stdout as a failed row
+            // does: stdout alone tells it from an empty answer.
             Err(error) => {
                 let projected = tool_error_result(tool, &error);
-                let (stream, body, error_text, notes) = if json_out {
-                    let envelope = wire_json(&projected.envelope);
-                    (Stream::Stdout, envelope, Some(projected.text), None)
+                let (body, error_text) = if json_out {
+                    (wire_json(&projected.envelope), Some(projected.text))
                 } else {
-                    (Stream::Stderr, projected.text, None, None)
+                    (super::lines::rejected(&projected.envelope), None)
                 };
                 Self {
                     exit: exit_code(error.exit_class()),
-                    stream,
                     body,
                     json: json_out,
                     error_text,
-                    notes,
+                    notes: None,
                 }
             }
         }
     }
 
-    /// The warm server's reply line: `{exit, stderr, body, json[, errorText,
+    /// The warm server's reply line: `{exit, body, json[, errorText,
     /// notes]}`.
     #[cfg(unix)]
     pub(super) fn to_json(&self) -> Value {
-        let mut reply = json!({"exit": self.exit, "stderr": self.stream == Stream::Stderr,
-            "body": self.body, "json": self.json});
+        let mut reply = json!({"exit": self.exit, "body": self.body, "json": self.json});
         if let Some(text) = &self.error_text {
             reply["errorText"] = json!(text);
         }
@@ -124,11 +108,6 @@ impl Printed {
     pub(super) fn from_json(mut reply: Value) -> Option<Self> {
         Some(Self {
             exit: u8::try_from(reply["exit"].as_u64()?).ok()?,
-            stream: if reply["stderr"].as_bool()? {
-                Stream::Stderr
-            } else {
-                Stream::Stdout
-            },
             body: match reply["body"].take() {
                 Value::String(body) => body,
                 _ => return None,
@@ -151,28 +130,19 @@ impl Printed {
     /// on stderr when [`OutputMode::tells_stderr`]; a failed write (other
     /// than a closed pipe) is exit 5.
     pub(super) fn print(&self, mode: OutputMode) -> u8 {
-        let printed = match self.stream {
-            Stream::Stdout if self.json => write_serialized_json(&self.body),
-            Stream::Stdout => {
-                let printed = if self.body.is_empty() {
-                    0
-                } else {
-                    write_text(&self.body)
-                };
-                if let Some(notes) = &self.notes {
-                    let _ = io::stdout().lock().flush();
-                    eprintln!("{notes}");
-                }
-                printed
-            }
-            Stream::Stderr => {
-                eprintln!("{}", self.body);
-                // A failed row's restart and repair calls are its recovery.
-                if let Some(notes) = &self.notes {
-                    eprintln!("{notes}");
-                }
+        let printed = if self.json {
+            write_serialized_json(&self.body)
+        } else {
+            let printed = if self.body.is_empty() {
                 0
+            } else {
+                write_text(&self.body)
+            };
+            if let Some(notes) = &self.notes {
+                let _ = io::stdout().lock().flush();
+                eprintln!("{notes}");
             }
+            printed
         };
         if let Some(text) = self.error_text.as_deref()
             && mode.tells_stderr()
@@ -251,6 +221,7 @@ mod tests {
             structured_content: Sanitized::scrubbed(fixture.clone()),
             failure: Some(FailureKind::Execution),
             all_failed: false,
+            continued: None,
         };
         let cli = Printed::finish("localSearch", Ok(outcome()), true, &Value::Null, None);
         let mcp = mcp_result("localSearch", Ok(outcome())).expect("MCP result");

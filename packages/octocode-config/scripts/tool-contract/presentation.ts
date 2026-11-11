@@ -13,6 +13,7 @@ import {
   publishedJson,
   publishedRow,
   publishedRowSchema,
+  selectedRowSchemas,
   sentForms,
   rowVariants,
   toolVariants,
@@ -147,9 +148,9 @@ function rendered(definition: Definition, selection: boolean) {
       variants: { name, description: definition.description, variants: toolVariants(definition, selection) },
     },
     selections: Object.fromEntries(
-      Object.entries(operationRows(definition)).map(([operation, operationRow]) => [
-        `operation=${operation}`,
-        view(definition, publishedJson(operationRow)),
+      Object.entries(selectedRowSchemas(definition, selection)).map(([selected, schema]) => [
+        selected,
+        view(definition, schema),
       ])
     ),
     mcp: {

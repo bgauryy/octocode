@@ -115,6 +115,17 @@ pub(super) fn prescan_candidates(content: &str) -> PatternSet {
     candidates
 }
 
+/// Where each literal a gated pattern requires starts in `content`, with
+/// the pattern it gates: every occurrence, overlapping ones too.
+pub(super) fn gate_hits(content: &str) -> impl Iterator<Item = (usize, usize)> + '_ {
+    PRESCAN.find_overlapping_iter(content).map(|hit| {
+        (
+            hit.start(),
+            gates::GATE_LITERALS[hit.pattern().as_usize()].1,
+        )
+    })
+}
+
 /// Whether `content` holds `needle`, exactly.
 fn holds(content: &str, needle: &str) -> bool {
     match needle.as_bytes() {

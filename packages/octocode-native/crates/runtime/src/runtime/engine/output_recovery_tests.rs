@@ -13,6 +13,7 @@ fn mcp_from_rows(mut structured: Value) -> Value {
             structured_content: crate::security::Sanitized::sealed(structured),
             failure: Some(FailureKind::Execution),
             all_failed,
+            continued: None,
         }),
     )
     .expect("MCP response");

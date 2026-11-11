@@ -37,7 +37,7 @@ impl Form {
         placeholder: &str,
     ) -> (String, Vec<(Range<usize>, usize)>) {
         let ranges = match self {
-            Self::SecretInYaml => yaml_secret::secret_blocks(text),
+            Self::SecretInYaml => yaml_secret::secret_values(text),
             Self::SecretInJson => objects::walk(text).secret_values,
             Self::JsonWebKey => objects::walk(text).private_members,
             Self::DockerAuths => objects::walk(text).registry_credentials,

@@ -196,14 +196,11 @@ async fn a_small_limit_walk_lists_every_row_exactly_once() {
     }
 }
 
-/// An omitted `limit` is the page size each tool served before `limit`
-/// existed (50 rows), read from the contract: the list mocks answer only
-/// `per_page=50`, the search mocks that and GitHub's largest page.
+/// An omitted `limit` is each tool's contract default: the list mocks answer
+/// only `per_page` of that size, the search mocks that and GitHub's largest
+/// page.
 #[tokio::test]
 async fn an_omitted_limit_requests_the_contract_default() {
-    assert_eq!(query_limits::gh_search_repo::LIMIT_DEFAULT, 50);
-    assert_eq!(query_limits::gh_search_code::LIMIT_DEFAULT, 50);
-    assert_eq!(query_limits::gh_search_history::LIMIT_DEFAULT, 50);
     for case in cases() {
         let server = MockServer::builder().start().await;
         let default = match case.tool {
@@ -268,6 +265,11 @@ fn admission_bounds_limit_by_githubs_per_page_maximum() {
         assert!(with(octocode_github::MAX_PER_PAGE + 1).is_err(), "{label}");
         assert!(with(0).is_err(), "{label}");
         let defaulted = crate::contracts::validate_query(tool, row.clone()).expect(&label);
-        assert_eq!(defaulted["limit"], json!(50), "{label}");
+        let default = match tool {
+            "ghSearchRepo" => query_limits::gh_search_repo::LIMIT_DEFAULT,
+            "ghSearchCode" => query_limits::gh_search_code::LIMIT_DEFAULT,
+            _ => query_limits::gh_search_history::LIMIT_DEFAULT,
+        };
+        assert_eq!(defaulted["limit"], json!(default), "{label}");
     }
 }

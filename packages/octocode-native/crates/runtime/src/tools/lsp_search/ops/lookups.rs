@@ -120,12 +120,34 @@ impl Operation<'_, '_> {
                 "noHover",
                 "hoverProvider returned no hover at this position",
             ),
-            hover => json!({
-                "lsp": { "serverAvailable": true, "provider": "hoverProvider" },
-                "operation": "hover",
-                "hover": public_hover(hover)
-            }),
+            hover => {
+                Box::pin(self.note_declaring_files()).await?;
+                json!({
+                    "lsp": { "serverAvailable": true, "provider": "hoverProvider" },
+                    "operation": "hover",
+                    "hover": public_hover(hover)
+                })
+            }
         })
+    }
+
+    /// Names the files that declare the anchor and its type as files this
+    /// row's hover is about ([`crate::tools::lsp_search::server_text::is_about`]): the server computed
+    /// its text from them, so their whole-source judgment decides what it
+    /// shows of their values. Two location requests under the request's
+    /// cancellation and deadline, their snippet reads shared with the
+    /// request's. A server that cannot answer one names no file: what the
+    /// hover then quotes from an unnamed file is withheld.
+    async fn note_declaring_files(&self) -> Result<(), LspFailure> {
+        for request in [LocationRequest::Definition, LocationRequest::TypeDefinition] {
+            match self.location_request(request).await {
+                Ok(found) => found.iter().for_each(|snippet| {
+                    crate::tools::lsp_search::server_text::is_about(uri_to_path(&snippet.uri));
+                }),
+                Err(_) => self.cancel.check().map_err(LspFailure::cancelled)?,
+            }
+        }
+        Ok(())
     }
 
     pub(super) async fn location_request(

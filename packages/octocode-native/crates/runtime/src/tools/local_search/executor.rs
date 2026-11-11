@@ -215,6 +215,13 @@ pub(super) fn page_of(
     }
     for file in &mut result.files {
         let absolute = output_root.join(&file.path);
+        // A row of a source judged whole shows cuts of that judgment, with
+        // the line numbers and joins of its window: judged, for the gate.
+        if security.judged_whole(&absolute) {
+            for row in file.matches.iter().flatten() {
+                security.show(&absolute, &row.value);
+            }
+        }
         file.path = paths
             .workspace_relative(&absolute)
             .unwrap_or_else(|| absolute.to_string_lossy().into_owned());

@@ -39,6 +39,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 mod answered;
+pub(super) use answered::Gap;
 mod code_use_memo;
 mod dependents;
 pub(super) use dependents::Dependents;
@@ -56,7 +57,10 @@ mod spelling_index;
 mod text;
 use fingerprint::{Fingerprint, fingerprint};
 pub(super) use fingerprint::{same_file, written_since};
-pub(super) use paths::{canonical, canonical_uri, widest_authorized_dir, with_canonical_memo};
+pub(super) use paths::{
+    canonical, canonical_uri, judged_files, widest_authorized_dir, with_canonical_memo,
+    with_judged_files,
+};
 pub(super) use question::Question;
 pub(super) use scan::IgnoredMentions;
 use scan::scan_text;
@@ -107,6 +111,9 @@ struct TextScan {
     files: Option<Arc<BTreeSet<String>>>,
     /// Canonical paths of the markup files it found ([`Scope::markup`]).
     markup: Arc<BTreeSet<String>>,
+    /// Every file the scan listed ([`Scope::listed_files`]); `None` when it
+    /// failed.
+    listed: Option<Arc<[PathBuf]>>,
 }
 
 pub(super) struct Scope {

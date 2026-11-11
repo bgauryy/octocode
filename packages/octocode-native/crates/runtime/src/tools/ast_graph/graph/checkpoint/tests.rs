@@ -290,13 +290,11 @@ fn checksummed_but_invalid_facts_never_count_as_resumed() {
 fn quotas_and_io_failures_do_not_commit_incomplete_artifacts() {
     let (dir, scan) = fixture();
     let policy = workspace_policy(&scan.root);
-    let security = ContentSecurity::new();
     let job = Job::open(
         &scan,
         &scan.root,
         &[],
         &policy,
-        &security,
         RegistryView::installed(),
         &NeverCancel,
     )
@@ -336,8 +334,8 @@ fn quotas_and_io_failures_do_not_commit_incomplete_artifacts() {
     // from its decoded facts; it is only not checkpointed.
     job.state().memory_bytes = LIMITS.memory_only_bytes;
     assert!(matches!(
-        job.keep(&view, source),
-        Ok(Ok((super::super::scan::Kept::Memory(_), _)))
+        job.keep(&view, source, true),
+        Ok((super::super::scan::Kept::Memory(_), _))
     ));
     assert_eq!(job.progress().checkpointed_files, 0);
     assert!(!job.target("secret.ts").exists());

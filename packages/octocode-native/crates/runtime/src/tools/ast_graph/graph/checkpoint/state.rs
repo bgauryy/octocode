@@ -59,7 +59,6 @@ impl<'a> Job<'a> {
         root: &Path,
         inventory: &[octocode_engine::types::FileSystemEntry],
         paths: &'a PathPolicy,
-        security: &'a ContentSecurity,
         registry: RegistryView<'_>,
         cancel: &dyn CancellationCheck,
     ) -> Result<Option<Self>, ToolError> {
@@ -194,7 +193,6 @@ impl<'a> Job<'a> {
             resumed,
             state: Mutex::new(state),
             paths,
-            security,
             limits: scan.limits,
         }))
     }

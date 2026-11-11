@@ -77,6 +77,12 @@ fn assert_no_pattern_matches(result: &DetectResult) {
         let value_test = super::credential_values::VALUE_TESTS[idx];
         let left = if value_test == super::credential_values::ValueTest::Every {
             pattern_regex(idx).is_match(&result.sanitized)
+        } else if value_test == super::credential_values::ValueTest::Named {
+            let mut left = false;
+            super::named_values::secrets(pattern_regex(idx), &result.sanitized, |_, _| {
+                left = true;
+            });
+            left
         } else {
             replace_secrets(
                 pattern_regex(idx),
@@ -113,6 +119,42 @@ fn detect_in(content: &str, scope: Scope<'_>) -> DetectResult {
         result.sanitized
     );
     result
+}
+
+/// That `content` at `path` loses `secret` and nothing else: with each
+/// placeholder turned back into the secret, the text is the content again,
+/// so every comment, delimiter and line around the value stays.
+fn assert_redacts_only(content: &str, path: Option<&str>, secret: &str) {
+    let result = detect(content, path);
+    assert!(
+        !result.sanitized.contains(secret),
+        "{path:?} leaked: {content:?}"
+    );
+    let restored = crate::security::placeholder_regex().replace_all(&result.sanitized, secret);
+    assert_eq!(restored, content, "{path:?}: {:?}", result.sanitized);
+}
+
+/// [`assert_redacts_only`] for the `secrets` a text holds, in the order it
+/// holds them: one placeholder stands for each, and nothing else changed.
+fn assert_redacts_each(content: &str, path: Option<&str>, secrets: &[&str]) {
+    let result = detect(content, path);
+    let kept: Vec<&str> = crate::security::placeholder_regex()
+        .split(&result.sanitized)
+        .collect();
+    let mut restored = String::new();
+    for (at, text) in kept.iter().enumerate() {
+        restored.push_str(text);
+        if at + 1 < kept.len() {
+            restored.push_str(secrets.get(at).copied().unwrap_or("<no secret here>"));
+        }
+    }
+    assert_eq!(restored, content, "{path:?}: {:?}", result.sanitized);
+    assert_eq!(
+        kept.len(),
+        secrets.len() + 1,
+        "{path:?}: {:?}",
+        result.sanitized
+    );
 }
 
 impl DetectResult {
@@ -159,6 +201,7 @@ fn b64(text: &str) -> String {
 }
 
 mod ascii_boundaries;
+mod assignment_layouts;
 mod comment_tails;
 mod credential_files;
 mod credential_values;
@@ -169,8 +212,11 @@ mod key_armors;
 mod large_input;
 mod long_line_every_value;
 mod markerless;
+mod named_values;
 mod one_long_line;
+mod positional_credentials;
 mod prescan;
+mod provider_shapes;
 mod regex_forms;
 mod sampling;
 mod scope;

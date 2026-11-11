@@ -42,8 +42,9 @@ pub(super) fn parse_content_payload(
         _ => Err(not_a_file(format!("GitHub path \"{path}\" is not a file"))),
     }
 }
-/// A directory read, typed so `runtime::github::file_error` keys its
-/// tree-listing recovery on the reason rather than the message.
+/// A directory read, typed so ghGetFileContent's failure row keys its
+/// tree-listing recovery on the reason ([`crate::ProviderErrorReason::PathIsDirectory`])
+/// rather than the message.
 fn is_a_directory(path: &str) -> ProviderError {
     not_a_file(format!("Path \"{path}\" is a directory, not a file"))
         .with_reason(crate::ProviderErrorReason::PathIsDirectory)

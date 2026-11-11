@@ -24,10 +24,10 @@ fn localsearch_emits_structured_results() {
     assert_eq!(data["files"][0]["matches"][0]["value"], "needle", "{data}");
 }
 
-/// Execution failures stay off the text data stream and print every field of
-/// their row as text; `--json` keeps the typed row.
+/// A failed row prints on stdout as text, its fields and then its status,
+/// so stdout alone tells a failure from no hits; `--json` keeps the typed row.
 #[test]
-fn text_mode_failed_rows_print_their_text_on_stderr() {
+fn text_mode_failed_rows_state_their_status_on_stdout() {
     let workspace = Workspace::new();
     let query = serde_json::json!({"queries":[{"path":"missing.rs"}]}).to_string();
     let output = workspace
@@ -36,14 +36,15 @@ fn text_mode_failed_rows_print_their_text_on_stderr() {
         .output()
         .expect("missing read");
     assert_eq!(exit_code(&output), Some(3));
-    assert!(stdout(&output).is_empty(), "{}", stdout(&output));
-    let text = stderr(&output);
+    let text = stdout(&output);
     assert!(
         serde_json::from_str::<serde_json::Value>(text.trim()).is_err(),
         "{text}"
     );
-    for line in ["errorCode: pathNotFound\n", "# status: error"] {
-        assert!(text.contains(line), "{text}");
+    assert!(text.starts_with("errorCode: pathNotFound\n"), "{text}");
+    assert!(text.ends_with("# status: error\n"), "{text}");
+    for note in stderr(&output).lines() {
+        assert!(note.starts_with("# "), "an unprefixed stderr line: {note}");
     }
 }
 

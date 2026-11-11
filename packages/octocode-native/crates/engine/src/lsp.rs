@@ -20,20 +20,6 @@ pub mod workspace;
 
 pub use transport::with_caller_deadline;
 
-/// Worst configured cold path before a request's own wait may be cut by its
-/// caller's deadline, without process-start and transport overhead:
-/// `initialize` (a background start no caller bounds) waiting out its
-/// ceiling, `CEILING_FACTOR` times the request timeout, then readiness, the
-/// content-modified retry delays, and the request's base timeout, which a
-/// hung server gets before it fails. A progressing server is then waited for
-/// up to the caller's deadline ([`with_caller_deadline`]). Host deadlines must
-/// be strictly larger, so a cold request always reaches its base.
-pub const MAX_COLD_LSP_EXECUTION_BUDGET_MS: u64 = (client::REQUEST_TIMEOUT_MS as u64)
-    * (transport::CEILING_FACTOR as u64)
-    + pool::MAX_READINESS_TIMEOUT_MS
-    + client::CONTENT_MODIFIED_RETRY_DELAY_MS * client::CONTENT_MODIFIED_RETRIES as u64
-    + client::REQUEST_TIMEOUT_MS as u64;
-
 /// Largest source the LSP layer reads, synchronizes (`didOpen`), resolves
 /// anchors in, or cuts snippets from. One bound for every path so they cannot
 /// drift; sized for real monolithic sources (TypeScript's 3 MB checker.ts).

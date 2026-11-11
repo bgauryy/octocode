@@ -225,7 +225,7 @@ impl ContentSecurity {
         object.retain(|key, value| {
             // Keys also become provider input and diagnostic field paths.
             // Reject credentials here; renaming keys would change the data.
-            if self.sanitize_text(key, None).has_secrets {
+            if holds_credential(key) {
                 out.refused("A parameter key contains a credential; remove it before retrying");
                 out.has_secrets = true;
                 return false;
@@ -254,17 +254,15 @@ impl ContentSecurity {
                         ));
                         return false;
                     }
-                    let result = self.sanitize_text(text, None);
-                    if result.has_secrets {
+                    if holds_credential(text) {
+                        let result = self.sanitize_text(text, None);
                         out.has_secrets = true;
                         out.secret_fields.push(key.clone());
                         for secret in result.secrets_detected {
                             out.warnings
                                 .push(format!("Secrets detected in {key}: {secret}"));
                         }
-                    }
-                    if let std::borrow::Cow::Owned(content) = result.content {
-                        *text = content;
+                        *text = hidden(result.content);
                     }
                     true
                 }
@@ -317,10 +315,9 @@ impl ContentSecurity {
                 false
             }
             Value::String(text) => {
-                let result = self.sanitize_text(text, None);
-                item_secrets |= result.has_secrets;
-                if let std::borrow::Cow::Owned(content) = result.content {
-                    *text = content;
+                if holds_credential(text) {
+                    item_secrets = true;
+                    *text = hidden(self.sanitize_text(text, None).content);
                 }
                 true
             }
@@ -343,6 +340,27 @@ impl ContentSecurity {
             out.secret_fields.push(format!("{key}[]"));
         }
         true
+    }
+}
+
+/// Whether a request string holds a credential. A request names what it
+/// looks for, so the name beside a value says nothing of the value
+/// (`password: str` is a declaration to find): only a value a pattern knows
+/// by its shape, or an opaque one, is a credential. A scan that fails counts
+/// as one.
+fn holds_credential(text: &str) -> bool {
+    octocode_engine::security::sanitizer::request_holds_credential(text).unwrap_or(true)
+}
+
+/// The text a refused string leaves in its place: `redacted` when the scan
+/// rewrote it, and the scan-failure placeholder when it did not, so a
+/// refused value never stays as written.
+fn hidden(redacted: std::borrow::Cow<'_, str>) -> String {
+    match redacted {
+        std::borrow::Cow::Owned(content) => content,
+        std::borrow::Cow::Borrowed(_) => {
+            octocode_engine::security::SANITIZER_FAILURE_PLACEHOLDER.to_owned()
+        }
     }
 }
 

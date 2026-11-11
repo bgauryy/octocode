@@ -20,6 +20,7 @@ mod compare;
 mod issue;
 mod pull_request;
 mod redaction;
+mod renamed;
 
 const BASE: &str = "1111111111111111111111111111111111111111";
 const HEAD: &str = "2222222222222222222222222222222222222222";

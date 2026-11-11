@@ -331,6 +331,7 @@ fn listing_page<Q: Listing>(
         q.early_exit(),
         (q.scan_offset(), q.walk_offset()),
         snapshot,
+        prefix,
     );
     let shown = pages.get(page - 1).cloned().unwrap_or(total..total);
     let shown_rows = rows::page_entries(&walk.rows[shown.clone()], q.view(), detail, cancel)?;
@@ -361,6 +362,11 @@ fn listing_page<Q: Listing>(
     let ranking = cut.limit_cut && cut.whole_walk();
     let facts = if ranking {
         crate::response::pages::PageFacts::open(page, None, has_more).with_items(cut.matched())
+    } else if cut.limit_cut || cut.time_cut.is_some() {
+        // The walk left rows past this window (its row limit or its time
+        // budget cut it): the rows are what the window loaded, a floor of the
+        // listing's, and no one has counted the pages after them.
+        crate::response::pages::PageFacts::open(page, None, has_more).with_items(total)
     } else {
         crate::response::pages::PageFacts::sized(page, cut.total_pages, total, has_more)
     }

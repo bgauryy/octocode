@@ -46,6 +46,51 @@ macro_rules! comment_lead {
     };
 }
 
+/// What source code may write between a credential's name, its operator and
+/// its value, and between the pieces of one literal: blanks, line breaks, a
+/// backslash that continues the line, and comments (`/* … */`, and `// …` or
+/// `# …` to the end of its line). None of
+/// it is part of the name or of the value, so an assignment is read through
+/// it; the detector drops the comments from the key it judges
+/// (`without_inner_comments`).
+macro_rules! code_gap {
+    () => {
+        r"(?:\s|\\\r?\n|/\*(?:[^*]|\*+[^*/])*\*+/|(?://|#)[^\r\n]*(?:\r?\n|\r))*"
+    };
+}
+
+/// The digits that number a credential's name (`apiKey2`, `API_KEY2`): the
+/// name still says what its value is.
+macro_rules! name_number {
+    () => {
+        "[0-9]*"
+    };
+}
+
+/// The delimiter that closes a block comment after a value written inside
+/// it (`/* token: … */`, `<!-- token: … -->`), a blank before it: the
+/// comment's own, no part of the value.
+macro_rules! comment_close {
+    () => {
+        r"(?:[ \t]+(?:\*+/|-->))?"
+    };
+}
+
+/// The characters of an opaque run, as a class body: what tokens, encoded
+/// keys and generated passwords are made of, no blank, quote, bracket or
+/// separator among them.
+macro_rules! opaque_chars {
+    () => {
+        r###"A-Za-z0-9+/_.~!@#$%^*-"###
+    };
+}
+
+/// [`opaque_chars`] as text: the detector reads the same set.
+pub(crate) const OPAQUE_CHARS: &str = opaque_chars!();
+
+/// [`code_gap`] as text.
+pub(crate) const CODE_GAP: &str = code_gap!();
+
 /// [`credential_words`] as text.
 pub(crate) const CREDENTIAL_WORDS: &str = credential_words!();
 
@@ -55,6 +100,7 @@ mod config_files;
 mod dev_tooling;
 mod git_hosting;
 mod keys_and_databases;
+mod named_values;
 mod observability_and_payments;
 mod platforms;
 mod workspace_and_messaging;
@@ -102,7 +148,7 @@ pub static PATTERNS: &[SecretPattern] = &join::<PATTERN_COUNT>(&SLICES);
 pub(crate) const PATTERN_COUNT: usize = total(&SLICES);
 
 /// The slices of [`PATTERNS`], in evaluation order.
-const SLICES: [&[SecretPattern]; 9] = [
+const SLICES: [&[SecretPattern]; 10] = [
     config_files::PATTERNS,
     ai_and_analytics::PATTERNS,
     auth_and_cloud::PATTERNS,
@@ -112,6 +158,7 @@ const SLICES: [&[SecretPattern]; 9] = [
     observability_and_payments::PATTERNS,
     workspace_and_messaging::PATTERNS,
     git_hosting::PATTERNS,
+    named_values::PATTERNS,
 ];
 
 /// The number of patterns in `slices`.

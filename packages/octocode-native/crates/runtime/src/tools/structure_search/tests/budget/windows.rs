@@ -122,3 +122,72 @@ fn windows_count_what_the_walk_left_out_once_whatever_the_timing() {
         assert!(chains > 0, "{operation}: no chain of resumed windows");
     }
 }
+
+/// A window whose walk goes on (its `nextPage` lists the next window or
+/// resumes the walk) counts only the rows it loaded, a floor: its page block
+/// says there is more and states no page count, whichever cut ended the
+/// window and whether the listing is in walk order or ranked.
+#[test]
+fn a_window_whose_walk_continues_states_no_page_count() {
+    let small = STEP * 8 / 3;
+    let schedules: [&[Duration]; 3] = [&[UNSPENT], &[small], &[small, UNSPENT]];
+    for extra in [
+        json!({"sort":{"by":"traversal","order":"asc"}}),
+        json!({"sort":{"by":"sizeBytes","order":"desc"}}),
+        json!({}),
+    ] {
+        let mut continued = 0;
+        for budgets in schedules {
+            let root = Fixture::new();
+            let start = flat_listing("files", &root, extra.clone());
+            let (outs, _) = with_window(3, || follow_outputs(&root.0, start, budgets));
+            for out in &outs {
+                if out["next"].get("nextPage").is_none() {
+                    continue;
+                }
+                continued += 1;
+                let block = &out["pagination"];
+                assert_eq!(block["hasMore"], true, "{extra} {budgets:?}: {out}");
+                assert!(
+                    block.get("totalPages").is_none(),
+                    "{extra} {budgets:?}: {out}"
+                );
+            }
+        }
+        assert!(continued > 0, "{extra}: no window continued its walk");
+    }
+}
+
+/// The warning of a window cut by time names the entry the walk stopped
+/// before as a row names its path: from the workspace root, not from the
+/// listed directory.
+#[test]
+fn a_time_cut_names_its_entry_from_the_workspace_root() {
+    let root = Fixture::new();
+    for index in 0..9 {
+        root.write(&format!("pkg/src/f{index}.rs"), "fn f() {}\n");
+    }
+    let listed = root.0.join("pkg");
+    for extra in [
+        json!({"sort":{"by":"traversal","order":"asc"}}),
+        json!({"sort":{"by":"sizeBytes","order":"desc"}}),
+    ] {
+        let mut query = rows("files", &listed);
+        query
+            .as_object_mut()
+            .expect("row")
+            .extend(extra.as_object().expect("extra").clone());
+        let _walking = super::super::super::windows::walking_firsts();
+        let out = within_checked(&root.0, query, STEP * 8 / 3, &Slow);
+        let warning = out["warnings"]
+            .as_array()
+            .and_then(|warnings| {
+                warnings
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .find(|warning| warning.contains("time budget before"))
+            })
+            .unwrap_or_else(|| panic!("{extra}: no time cut: {out}"));
+        assert!(warning.contains("before `pkg/src"), "{extra}: {warning}");
+    }
+}

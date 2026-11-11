@@ -85,8 +85,9 @@ pub(super) struct Cut {
     /// Rows past this window's `limit` remain: `next.nextPage`
     /// lists them in the next window.
     pub(super) limit_cut: bool,
-    /// The walk ran out of time before this root-relative entry: it and
-    /// everything after it in walk order is unscanned.
+    /// The walk ran out of time before this entry, named as a row names its
+    /// path (from the workspace root): it and everything after it in walk
+    /// order is unscanned.
     pub(super) time_cut: Option<String>,
     /// How the window's rows end at a time cut.
     pub(super) time_window: TimeWindow,

@@ -149,9 +149,12 @@ pub(super) fn build(
             root,
             extensions,
             policy,
+            // Hidden entries are out of the honored walk as ignored ones
+            // are: a file under either may import the name. The default
+            // prune (generated and credential directories) stays.
             IgnorePolicy {
                 include_ignored: true,
-                include_hidden: false,
+                include_hidden: true,
             },
             Some(lifted_nested),
             stopped,

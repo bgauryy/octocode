@@ -2,12 +2,15 @@
 //! references can reach the anchor's module at all.
 //!
 //! An importer of a module export names the module it imports from: a
-//! relative specifier that resolves to the anchor file or to a module that
-//! relays it (a barrel), or a bare or aliased specifier (a package name, a
-//! `paths` alias) that only the project's resolution settings could place,
-//! when it binds the name or a namespace whose member the file spells. A
-//! file whose every module reference resolves elsewhere cannot use the
-//! anchor's export, so it is checked without opening it in the server.
+//! specifier that resolves to the anchor file or to a module that relays it
+//! (a barrel). A relative one resolves beside its file; a bare or aliased
+//! one (a package name, a `paths` alias) as the project's settings place it
+//! over the scope's listed files (`project`), and one they name as project
+//! code without a listed file stays a candidate when it binds the name or a
+//! namespace whose member the file spells. A file whose every module
+//! reference resolves elsewhere (another file, a builtin, an installed
+//! package) cannot use the anchor's export, so it is checked without
+//! opening it in the server.
 //!
 //! The filter applies only when the anchor exports `symbol` itself (a
 //! script's global, a CommonJS export or a class member is reached without
@@ -20,6 +23,9 @@ use super::*;
 use octocode_engine::graph::{GraphFactCode, GraphFactsDocument};
 use octocode_engine::text::lexical;
 use std::path::PathBuf;
+
+mod project;
+use project::{Placed, Project};
 
 /// A dynamic `import(…)`: the literal specifier (single or double
 /// quoted), or no group for a computed one.
@@ -53,6 +59,10 @@ pub(super) struct AnchorModule {
     /// Canonical anchor file.
     path: PathBuf,
     symbol: String,
+    /// The project's placement of bare specifiers ([`Self::within`]);
+    /// without it a bare specifier that binds the name stays a candidate.
+    /// A relay of this module's export ([`Self::relay`]) shares it.
+    project: Option<Arc<Project>>,
 }
 
 /// Graph facts of a parsed file (CommonJS loads included; parsed once per
@@ -110,7 +120,82 @@ impl AnchorModule {
             .then(|| Self {
                 path: PathBuf::from(canonical(path)),
                 symbol: symbol.to_owned(),
+                project: None,
             })
+    }
+
+    /// This module in the project of the scope `root` (canonical) whose
+    /// text scan `listed` these files ([`Scope::listed_files`]): a bare
+    /// specifier is then placed as the project resolves it.
+    pub(super) fn within(mut self, root: &Path, listed: &[PathBuf], policy: &PathPolicy) -> Self {
+        self.project = Some(Arc::new(Project::new(root, listed, &self.path, policy)));
+        self
+    }
+
+    /// [`Self::within`] the `scope`'s root and the files its text scan of
+    /// `symbol` listed; unchanged when that scan did not run or failed.
+    pub(super) fn in_scope(self, scope: &Scope, symbol: &str, policy: &PathPolicy) -> Self {
+        match scope.listed_files(symbol) {
+            Some(listed) => self.within(Path::new(&scope.root), &listed, policy),
+            None => self,
+        }
+    }
+
+    /// The module `relay` (canonical file) as it exports this module's
+    /// symbol under `alias` ([`Self::renamed_by`]): what an importer of the
+    /// alias must reach, read with the same rules and in the same project.
+    fn relay(&self, relay: &str, alias: String) -> Self {
+        Self {
+            path: PathBuf::from(relay),
+            symbol: alias,
+            project: self.project.clone(),
+        }
+    }
+
+    /// The file and the name of the export this module stands for.
+    pub(super) fn export(&self) -> (&Path, &str) {
+        (&self.path, &self.symbol)
+    }
+
+    /// The other names `file` (canonical) exports this module's symbol
+    /// under, sorted: `export { symbol as alias } from '…'` whose source
+    /// may be this module, or `export { local as alias }` (`export { local
+    /// }`) of a binding that imports the symbol from it. An importer of the
+    /// alias never spells the symbol, so the alias is the name to look for
+    /// among the files that reach `file`. A default export names nothing an
+    /// importer must spell, a namespace (`export * as ns`) is read as
+    /// `ns.symbol`, and a file that cannot be parsed cleanly names none.
+    fn renamed_by(
+        &self,
+        file: &str,
+        content: &str,
+        relays: &mut HashMap<PathBuf, bool>,
+    ) -> BTreeSet<String> {
+        let mut aliases = BTreeSet::new();
+        let Some(facts) = clean_facts(content, file) else {
+            return aliases;
+        };
+        let locals = facts
+            .imports
+            .iter()
+            .filter(|import| import.imported_name.as_deref() == Some(self.symbol.as_str()))
+            .filter(|import| self.names(&import.specifier, file, true, relays))
+            .filter_map(|import| import.local_name.as_deref())
+            .collect::<Vec<_>>();
+        for export in &facts.exports {
+            if export.name == self.symbol || matches!(export.name.as_str(), "default" | "*") {
+                continue;
+            }
+            let local = export.local_name.as_deref().unwrap_or(&export.name);
+            let renames = match export.source.as_deref() {
+                Some(source) => local == self.symbol && self.names(source, file, true, relays),
+                None => locals.contains(&local),
+            };
+            if renames {
+                aliases.insert(export.name.clone());
+            }
+        }
+        aliases
     }
 
     /// Whether `file` (canonical) may reach the anchor's export through its
@@ -256,11 +341,15 @@ impl AnchorModule {
         (binds || reading != Reading::Binding) && self.names(specifier, file, binds, relays)
     }
 
-    /// Whether one module reference of `file` may reach the anchor: a
-    /// relative one that resolves to it (any binding: a default import may
-    /// be the symbol under another name), or that `binds` the name from a
-    /// module that may relay it; or a bare one that `binds` the name (its
-    /// resolution is the project's).
+    /// Whether one module reference of `file` may reach the anchor: one
+    /// that resolves to it (any binding: a default import may be the symbol
+    /// under another name), or that `binds` the name from a module that may
+    /// relay it. A relative specifier resolves beside `file`; a bare one as
+    /// the project places it ([`Project::place`]: an alias, a workspace
+    /// package, a `baseUrl` module), so a builtin or an installed package
+    /// reaches nothing. A bare one the project cannot place (project code
+    /// with no listed file, or no project at all) may reach the anchor when
+    /// it `binds` the name.
     pub(super) fn names(
         &self,
         specifier: &str,
@@ -268,19 +357,29 @@ impl AnchorModule {
         binds: bool,
         relays: &mut HashMap<PathBuf, bool>,
     ) -> bool {
-        if !is_relative(specifier) {
-            return binds;
-        }
-        let Some(directory) = Path::new(file).parent() else {
-            return true;
-        };
-        let candidates = module_candidates(&lexical(&directory.join(specifier)));
-        if candidates.contains(&self.path) {
-            return true;
-        }
-        // The module the specifier resolves to; none binds nothing.
-        let Some(target) = candidates.into_iter().find(|candidate| candidate.is_file()) else {
-            return false;
+        let target = if is_relative(specifier) {
+            let Some(directory) = Path::new(file).parent() else {
+                return true;
+            };
+            let candidates = module_candidates(&lexical(&directory.join(specifier)));
+            if candidates.contains(&self.path) {
+                return true;
+            }
+            // The module the specifier resolves to; none binds nothing.
+            let Some(target) = candidates.into_iter().find(|candidate| candidate.is_file()) else {
+                return false;
+            };
+            target
+        } else {
+            let placed = self
+                .project
+                .as_ref()
+                .map_or(Placed::Unknown, |project| project.place(specifier, file));
+            match placed {
+                Placed::At(target) => target,
+                Placed::Elsewhere => return false,
+                Placed::Unknown => return binds,
+            }
         };
         let target = std::fs::canonicalize(&target).unwrap_or(target);
         if target == self.path {
@@ -365,6 +464,85 @@ pub(super) async fn split_reachable(
     })
     .await?;
     // A failed worker decided nothing: every candidate stays.
+    Ok(split.unwrap_or((all, Vec::new())))
+}
+
+/// The relays among `files` (canonical) that export `module`'s symbol under
+/// another name ([`AnchorModule::renamed_by`]), one module per relay and
+/// alias, in the order of `files`. One blocking worker reads the files in
+/// turn and keeps none; a file it cannot read names no alias.
+pub(super) async fn renamed_exports(
+    files: Vec<String>,
+    module: Arc<AnchorModule>,
+    policy: &PathPolicy,
+    cancel: &dyn CancellationCheck,
+) -> Result<Vec<Arc<AnchorModule>>, LspFailure> {
+    let policy = policy.clone();
+    let renamed = super::super::blocking_cancellable(cancel, move |stopped| {
+        let mut relays = HashMap::new();
+        let mut found = Vec::new();
+        for file in files {
+            if stopped() {
+                break;
+            }
+            let Some(content) = read_checked(&policy, &file) else {
+                continue;
+            };
+            for alias in module.renamed_by(&file, &content, &mut relays) {
+                found.push(Arc::new(module.relay(&file, alias)));
+            }
+        }
+        found
+    })
+    .await?;
+    // A read the request stopped is the request's end, not a shorter list.
+    cancel.check().map_err(LspFailure::cancelled)?;
+    Ok(renamed.unwrap_or_default())
+}
+
+/// Split `files` (candidates the server proved nothing of) into those
+/// holding a reference that binds the name from a module that may be the
+/// anchor's ([`AnchorModule::bound_by`]) and those whose every such
+/// reference names another module: a builtin, an installed package, another
+/// file. The second kind cannot use the anchor's export, whatever the server
+/// left undecided. A file that cannot be read or parsed stays in the first
+/// kind, and so does every file when no `anchor` module is known. A file
+/// that is a candidate for an alias (`relays`: the modules it may import the
+/// symbol from under another name) is judged against each of those too: it
+/// binds the alias, not the anchor's name. One blocking worker reads the
+/// files in turn and keeps none.
+pub(super) async fn split_bound(
+    files: Vec<String>,
+    anchor: Option<Arc<AnchorModule>>,
+    relays: Arc<HashMap<String, Vec<Arc<AnchorModule>>>>,
+    policy: &PathPolicy,
+    cancel: &dyn CancellationCheck,
+) -> Result<(Vec<String>, Vec<String>), LspFailure> {
+    let Some(anchor) = anchor.filter(|_| !files.is_empty()) else {
+        return Ok((files, Vec::new()));
+    };
+    let policy = policy.clone();
+    let all = files.clone();
+    let split = super::super::blocking_cancellable(cancel, move |stopped| {
+        let mut memo = HashMap::<(PathBuf, String), HashMap<PathBuf, bool>>::new();
+        files.into_iter().partition(|file| {
+            stopped()
+                || read_checked(&policy, file).is_none_or(|content| {
+                    crate::tools::declarations::graph_facts(&content, file).is_none_or(|facts| {
+                        std::iter::once(&anchor)
+                            .chain(relays.get(file).into_iter().flatten())
+                            .any(|module| {
+                                // What relays a name depends on the name.
+                                let key = (module.path.clone(), module.symbol.clone());
+                                let relays = memo.entry(key).or_default();
+                                module.bound_by(file, &content, &facts, relays)
+                            })
+                    })
+                })
+        })
+    })
+    .await?;
+    // A failed worker decided nothing: every file stays.
     Ok(split.unwrap_or((all, Vec::new())))
 }
 

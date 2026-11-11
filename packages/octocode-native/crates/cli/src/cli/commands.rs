@@ -225,6 +225,8 @@ const SCHEMA_HELP: &str =
   octocode schema <tool>                  compact query schema
   octocode schema <tool> --select operation=symbols
                                           one operation's query schema
+  octocode schema <tool> --select operation=match,view=content
+                                          one form of that operation
   octocode schema <tool> --view variants  required fields and examples
   octocode schema <tool> --view output    what output fields and reasons mean
   octocode schema --view full             fields, instructions and grammars

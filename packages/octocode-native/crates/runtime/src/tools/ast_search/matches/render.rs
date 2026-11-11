@@ -123,9 +123,11 @@ pub(super) fn render_match_page(
     // scan repeats nothing (a scan window reads other files).
     if q.page() <= 1 {
         let one_language = scope.language.is_some() || scope.inferred.is_some();
-        let (unparsed, skipped_grammars) = scan
-            .unparsed
-            .disclosed(one_language, grouped.skipped_grammars.clone());
+        let (unparsed, skipped_grammars) = scan.unparsed.disclosed(
+            &super::types::SEARCH,
+            one_language,
+            grouped.skipped_grammars.clone(),
+        );
         push_census(
             &mut out,
             [

@@ -149,13 +149,16 @@ pub(crate) async fn run<S: ContentScan + Clone + Send + Sync + 'static>(
     let canonical = scope
         .canonical
         .and_then(|(owner, repo)| crate::tools::gh_shared::with_repo(query, &owner, &repo).ok());
+    let renamed = canonical.is_some();
     let query = canonical.as_ref().unwrap_or(query);
     let at = crate::tools::gh_shared::RepoPath {
         reference: commit.or(asked.as_deref()),
         ..errors::repo_path(query)
     };
     let found = if missing_path(&error, Some(at.path)) {
-        locate_path(provider, &at, request_context).await
+        locate_path(provider, &at, request_context)
+            .await
+            .map(|found| errors::Located { found, renamed })
     } else {
         None
     };

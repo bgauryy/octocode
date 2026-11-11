@@ -63,11 +63,14 @@ pub(crate) fn exposes(redacted: &Edits, cut: &Range<usize>) -> bool {
 
 /// What a row shows of source bytes `at`, its `text`, judged by the scan that
 /// decided it exposed: `text` with each run of `runs` it reaches (source ranges,
-/// in `at`'s coordinates, with what replaced them) replaced once. A run that
-/// reaches past `bound`, the row's own lines, or left nothing, shows as
-/// [`REDACTED`]: what replaced it may hold other lines' text. Each byte left
-/// shown is checked against `source` (the source's bytes of an unreplaced
-/// range), so a row that is not the source's bytes at its place goes whole.
+/// in `at`'s coordinates, with what replaced them) replaced once: by what the
+/// pass wrote for a run inside `bound`, the row's own lines, and by the
+/// placeholders that text holds ([`stated`]) for a run that reaches past them,
+/// since the text between them is other lines'. Either way a value shows
+/// under the placeholder a read of its lines shows, and [`REDACTED`] stands
+/// only for a run whose replacement states none. Each byte left shown is
+/// checked against `source` (the source's bytes of an unreplaced range), so a
+/// row that is not the source's bytes at its place goes whole.
 pub(crate) fn rendered<'a, 'b>(
     runs: impl IntoIterator<Item = (Range<usize>, &'a str)>,
     text: &str,
@@ -104,11 +107,11 @@ pub(crate) fn rendered<'a, 'b>(
         };
         out.push_str(shown);
         let within = bound.start <= range.start && range.end <= bound.end;
-        out.push_str(if within && !placeholder.trim().is_empty() {
-            placeholder
+        if within && !placeholder.trim().is_empty() {
+            out.push_str(placeholder);
         } else {
-            REDACTED
-        });
+            stated(placeholder, &mut out);
+        }
         (from, replaced) = (hi, true);
     }
     let Some(shown) = kept(from..text.len()) else {
@@ -118,7 +121,23 @@ pub(crate) fn rendered<'a, 'b>(
     out
 }
 
-/// What a span shows for a run whose replacement is unknown or blank.
+/// Appends the redaction placeholders `replacement` holds, each once and in
+/// order, without the text between them: the kinds the pass named its values
+/// by. [`REDACTED`] when it holds none.
+fn stated(replacement: &str, out: &mut String) {
+    let mut kinds: Vec<&str> = Vec::new();
+    for found in octocode_engine::security::placeholder_regex().find_iter(replacement) {
+        if !kinds.contains(&found.as_str()) {
+            kinds.push(found.as_str());
+            out.push_str(found.as_str());
+        }
+    }
+    if kinds.is_empty() {
+        out.push_str(REDACTED);
+    }
+}
+
+/// What a span shows for a run whose replacement states no placeholder.
 pub(crate) const REDACTED: &str = "[REDACTED]";
 
 #[cfg(test)]
@@ -164,6 +183,47 @@ mod tests {
                 |r| unicode.get(r)
             ),
             "[A]\u{b7}\u{e9}"
+        );
+    }
+
+    /// A run that reaches past the row's lines shows as the placeholders its
+    /// replacement holds, each once and nothing between them: the kind a
+    /// read of its lines shows, on whichever of its lines the row is.
+    #[test]
+    fn a_run_past_the_rows_lines_keeps_its_kind() {
+        let source = "a = \"0123\" \\\n    \"4567\"\nb = 1";
+        let run = source.find("0123").expect("start")..source.find("4567").expect("end") + 4;
+        let from = |r: Range<usize>| source.get(r);
+        let eol = source.find('\n').expect("eol");
+        let lines = [0..eol, eol + 1..source.rfind('\n').expect("eol")];
+        let render = |replacement: &str, literal: &str, bound: &Range<usize>| {
+            let start = source.find(literal).expect("literal");
+            let at = start..start + literal.len();
+            rendered([(run.clone(), replacement)], literal, &at, bound, from)
+        };
+        let kind = "[REDACTED-ENVVARSECRETS]";
+        let broken = format!("{kind}\n");
+        assert_eq!(render(&broken, "\"0123\"", &lines[0]), format!("\"{kind}"));
+        assert_eq!(render(&broken, "\"4567\"", &lines[1]), format!("{kind}\""));
+        // Within the row's lines the replacement stands as the pass wrote it.
+        assert_eq!(
+            render(&broken, "\"0123\"", &(0..lines[1].end)),
+            format!("\"{broken}")
+        );
+        // Text of other lines between two placeholders stays out.
+        let two = format!("{kind} kept\n[REDACTED-B]{kind}");
+        assert_eq!(
+            render(&two, "\"4567\"", &lines[1]),
+            format!("{kind}[REDACTED-B]\"")
+        );
+        let failed = octocode_engine::security::SANITIZER_FAILURE_PLACEHOLDER;
+        assert_eq!(
+            render(&format!("{failed}\n{failed}"), "\"4567\"", &lines[1]),
+            format!("{failed}\"")
+        );
+        assert_eq!(
+            render("other text", "\"4567\"", &lines[1]),
+            format!("{REDACTED}\"")
         );
     }
 

@@ -72,7 +72,7 @@ pub(super) fn path_failure(
             let hint = if found.file.is_some() {
                 Some("The path names a file (its case differs).")
             } else if found.directory.eq_ignore_ascii_case(requested) {
-                Some("Only the path's case differs.")
+                Some(crate::tools::gh_shared::CASE_DIFFERS_HINT)
             } else {
                 None
             };

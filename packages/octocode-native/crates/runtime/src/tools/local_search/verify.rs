@@ -12,6 +12,7 @@ use octocode_engine::num::saturating_u32;
 mod decoded;
 mod exposed;
 mod guard;
+mod large;
 pub(super) mod lines;
 mod redaction;
 mod settle;
@@ -251,7 +252,10 @@ pub(super) fn verify_shown(
             })
             .flatten();
         let expected = expected_digest(&source);
-        let verification = match &bytes {
+        // Bytes past what this scanner judges whole are judged as the file's
+        // read streams them, not from the buffer.
+        let whole = |bytes: &&Vec<u8>| bytes.len() <= security.limits().whole_source;
+        let verification = match bytes.as_ref().filter(whole) {
             Some(bytes) => guard_read(
                 file,
                 &source,

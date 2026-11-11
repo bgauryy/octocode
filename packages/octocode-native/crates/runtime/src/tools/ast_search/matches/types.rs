@@ -1,4 +1,6 @@
 use crate::tools::ast_rule::GlobParsers;
+use crate::tools::leads::unparsed::Reader;
+pub(super) use crate::tools::leads::unparsed::{NAMED_EXAMPLES, NamedFiles, Unparsed};
 use octocode_engine::structural::FileMatches;
 use octocode_engine::structural::StructuralDiagnostic;
 use serde_json::Value;
@@ -98,48 +100,14 @@ pub(super) struct Scan {
     pub(super) test_code_unread: Vec<std::path::PathBuf>,
 }
 
-/// Example paths a file-count warning names.
-pub(super) const NAMED_EXAMPLES: usize = 3;
-
-/// A tally of files a warning names: their count and the first
-/// [`NAMED_EXAMPLES`] paths in path order, spelled as the response's row
-/// paths are (workspace-relative, else absolute).
-#[derive(Default)]
-pub(super) struct NamedFiles {
-    pub(super) count: u32,
-    pub(super) examples: std::collections::BTreeSet<String>,
-}
-
-impl NamedFiles {
-    pub(super) fn record(&mut self, path: String) {
-        self.count = self.count.saturating_add(1);
-        self.examples.insert(path);
-        if self.examples.len() > NAMED_EXAMPLES {
-            self.examples.pop_last();
-        }
-    }
-
-    /// The same tally with each path respelled by `spell`.
-    pub(super) fn respelled(&self, spell: impl Fn(&str) -> String) -> Self {
-        Self {
-            count: self.count,
-            examples: self.examples.iter().map(|path| spell(path)).collect(),
-        }
-    }
-
-    /// The paths a warning lists: `a, b, c, …` when more files follow.
-    pub(super) fn listed(&self) -> String {
-        let more = if self.count as usize > self.examples.len() {
-            ", …"
-        } else {
-            ""
-        };
-        format!(
-            "{}{more}",
-            self.examples.iter().cloned().collect::<Vec<_>>().join(", ")
-        )
-    }
-}
+/// astSearch's reading of a file no grammar parses: it was not searched.
+pub(super) const SEARCH: Reader = Reader {
+    grammar: "AST grammar",
+    unread: [
+        "it was not searched, so absence there is unproven",
+        "they were not searched, so absence there is unproven",
+    ],
+};
 
 /// Macro bodies, by file, line and macro, whose re-parse could hide a
 /// match: how many, and the first few.
@@ -193,70 +161,6 @@ pub(super) fn recovered_bodies_notice(bodies: &NamedBodies) -> Option<String> {
         bodies.count,
         names.join(", ")
     ))
-}
-
-/// The files a walk passed over because no grammar parses their names.
-#[derive(Default)]
-pub(super) struct Unparsed {
-    /// Every such file.
-    pub(super) files: NamedFiles,
-    /// Of those, the files of no known type (ripgrep's default type table):
-    /// the ones that could hold source of a rule's language.
-    pub(super) untyped: NamedFiles,
-    /// The rest, counted by type name.
-    pub(super) typed: std::collections::BTreeMap<String, usize>,
-}
-
-impl Unparsed {
-    /// Record `path` (its row spelling `shown`), of type `known` when its
-    /// name is of one.
-    pub(super) fn record(&mut self, shown: String, known: Option<&str>) {
-        if let Some(known) = known {
-            *self.typed.entry(known.to_owned()).or_default() += 1;
-        } else {
-            self.untyped.record(shown.clone());
-        }
-        self.files.record(shown);
-    }
-
-    /// What a page discloses: under one rule language (`parser`, or the
-    /// grammar inferred from the scan) a file of a known other type is not
-    /// that language's source, so it is a quiet count beside the grammars
-    /// the query does not compile in, and only a file of unknown type warns;
-    /// without one language every such file warns.
-    pub(super) fn disclosed(
-        &self,
-        one_language: bool,
-        mut skipped_grammars: Option<Value>,
-    ) -> (Option<String>, Option<Value>) {
-        if !one_language {
-            return (unparsed_notice(&self.files), skipped_grammars);
-        }
-        if !self.typed.is_empty() {
-            let counts = skipped_grammars.get_or_insert_with(|| Value::Object(Default::default()));
-            for (name, files) in &self.typed {
-                let known = counts[name.as_str()].as_u64().unwrap_or_default();
-                counts[name.as_str()] = Value::from(known.saturating_add(*files as u64));
-            }
-        }
-        (unparsed_notice(&self.untyped), skipped_grammars)
-    }
-}
-
-/// The notice that names the files passed over for want of a grammar, that
-/// absence there is unproven (an empty result included), and the field
-/// that parses them.
-pub(super) fn unparsed_notice(files: &NamedFiles) -> Option<String> {
-    let names = files.listed();
-    match files.count {
-        0 => None,
-        1 => Some(format!(
-            "1 file skipped: no AST grammar for its name ({names}); it was not searched, so absence there is unproven; if it is source code, parserGlobs maps its name to a grammar."
-        )),
-        count => Some(format!(
-            "{count} files skipped: no AST grammar for their names ({names}); they were not searched, so absence there is unproven; if they are source code, parserGlobs maps their names to a grammar."
-        )),
-    }
 }
 
 /// The warning that names the files whose recovered parse could hide a

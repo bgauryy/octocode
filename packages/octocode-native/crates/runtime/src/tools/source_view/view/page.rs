@@ -332,15 +332,22 @@ struct Sealed<'a> {
 impl Sealed<'_> {
     /// The whole-source pass's output this page is a slice of. A whole read
     /// moved it into its view (`view.rs`, `select_view`), where it stays
-    /// as long as no transform (compact, outline) or classifier rewrote the
-    /// view; a replayed page cuts from that same kept view. Any other read
-    /// keeps it in its source. A rewritten whole view has neither: its text
-    /// is empty, so no page of it is marked.
+    /// as long as no outline or classifier rewrote the view; a replayed page
+    /// cuts from that same kept view. The compact view is that output laid
+    /// out again: compaction drops whitespace and comments between the
+    /// tokens of the sealed text and numbers the lines it keeps, so each
+    /// token it shows was judged with the syntax around it, and a secret the
+    /// pass replaced is a placeholder in it. Judging its pages again, as
+    /// numbered fragments no grammar reads, would redact code the content
+    /// view of the same lines shows. Any other read keeps the pass's output
+    /// in its source. A rewritten whole view has neither: its text is empty,
+    /// so no page of it is marked.
     fn text(&self) -> &str {
         let untouched_whole = super::super::extraction::selects_whole(self.asked)
             && self.view.mode.is_none()
             && !self.classified;
-        if untouched_whole {
+        let laid_out_again = self.view.mode == Some(ReadView::Compact) && !self.classified;
+        if untouched_whole || laid_out_again {
             &self.view.text
         } else {
             &self.source.text
@@ -350,8 +357,10 @@ impl Sealed<'_> {
 
 /// The page's judged-leaf mark: only for text the whole-source pass of this
 /// request (or the read it replays) sealed, and only when the page is a
-/// slice of it ([`crate::security::JudgedSource::leaf`]); a window of a
-/// sealed large source arrives judged elsewhere.
+/// slice of it, or slices of it with the read's own separators between its
+/// windows ([`crate::security::JudgedSource::leaf`]): a read of ranges
+/// shows each line as the whole read does. A window of a sealed large
+/// source arrives judged elsewhere.
 fn judged_page(
     page: &str,
     sealed: Sealed<'_>,
@@ -361,7 +370,8 @@ fn judged_page(
     if facts.byte_origin.is_some() {
         return None;
     }
-    crate::security::JudgedSource::new(sealed.text(), source_path).leaf(page)
+    crate::security::JudgedSource::new(sealed.text(), source_path)
+        .leaf(page, crate::response::numbered::is_separator)
 }
 
 /// The hint of a read whose minified view removed every selected line.

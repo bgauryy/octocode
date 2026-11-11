@@ -42,6 +42,7 @@ async fn renamed_repository_is_followed_with_every_filter() {
         crate::tools::gh_shared::renamed_warning("a", "b", &("c".into(), "d".into())),
         "one shared rename wording: {data}"
     );
+    crate::tools::gh_shared::test_support::assert_leads_canonical(data);
     let searched = server
         .received_requests()
         .await

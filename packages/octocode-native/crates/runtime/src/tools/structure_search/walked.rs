@@ -321,6 +321,7 @@ impl Walked {
 
     /// Where this page cuts the listing. An early-exit walk that found one
     /// more match than the limit has more; only a full walk knows the total.
+    /// `prefix` is the listed path as the response spells it.
     pub(super) fn cut(
         &self,
         page: usize,
@@ -329,6 +330,7 @@ impl Walked {
         early_exit: bool,
         (scan_offset, walk_offset): (usize, u32),
         snapshot: String,
+        prefix: &str,
     ) -> Cut {
         let meta = &self.meta;
         let limit_cut = if early_exit {
@@ -343,7 +345,12 @@ impl Walked {
             requested,
             available: meta.available,
             limit_cut,
-            time_cut: meta.time_cut.clone(),
+            // Named as a row of the listing names its path: from the
+            // workspace root, not from the listed directory.
+            time_cut: meta
+                .time_cut
+                .as_deref()
+                .map(|at| super::group_dir(prefix, at)),
             time_window: meta.time_window,
             walk_position: meta.walk_position,
             walk_offset: walk_offset as usize,

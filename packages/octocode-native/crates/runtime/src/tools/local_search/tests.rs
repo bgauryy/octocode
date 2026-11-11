@@ -217,6 +217,7 @@ mod binaries;
 mod build_identity;
 mod changed;
 mod empty_pages;
+mod large_sources;
 mod limit;
 mod long_text_every_value;
 mod match_list;
@@ -230,6 +231,7 @@ mod seek;
 mod special_files;
 mod stored;
 mod test_code;
+mod timing;
 mod windows;
 
 /// A generated Rust file of `functions` functions with five `let ` lines

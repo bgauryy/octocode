@@ -27,6 +27,13 @@ pub(in crate::tools::local_search) fn guard_source_secrets(
     shown: std::ops::Range<usize>,
     check: &ValueCheck<'_, impl CancellationCheck>,
 ) -> Result<Verification, String> {
+    // A source a read streams instead of judging whole shows the lines that
+    // read serves: one decision for a file of any size.
+    if let Ok((opened, meta)) = octocode_engine::text::open_regular(source)
+        && meta.len() > check.security.limits().whole_source_bytes()
+    {
+        return super::large::guard_large(file, source, (&opened, &meta), expected, shown, check);
+    }
     guard_read(
         file,
         source,
@@ -109,13 +116,57 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
     let Some(last_line) = windows.iter().map(|&(_, hi)| hi).max() else {
         return Ok(Verification::Verified);
     };
-    let across = WholeSourcePatterns::for_path(&source.to_string_lossy());
+    // A source an earlier page of this walk judged whole is not read for a
+    // scan again: its bytes are proved to be the ones judged, and each row is
+    // cut from that judgment.
+    if let (Some(known), Expected::Stored(Some(stored))) = (known, expected)
+        && let Some(verdict) = known.whole_verdict(source, stored)
+    {
+        let proven = open().map_err(VerifyReadError::from).and_then(|opened| {
+            drain_digest(
+                std::io::BufReader::new(HashingReader {
+                    inner: opened,
+                    hasher: Some(octocode_engine::digest::HashWriter::default()),
+                }),
+                cancel,
+            )
+        });
+        return match proven {
+            Ok(Some(digest)) if digest == stored => {
+                security.note_judged_whole(source);
+                Ok(settle::settle_judged(
+                    shown,
+                    &placed,
+                    shape,
+                    &settle::WholeScan::Judged(verdict),
+                    usize::MAX,
+                    security,
+                ))
+            }
+            Ok(_) => Ok(Verification::Changed),
+            Err(VerifyReadError::Io) => {
+                for matched in shown.iter_mut() {
+                    matched.value = UNVERIFIED_PLACEHOLDER.to_owned();
+                }
+                Ok(Verification::Unverified)
+            }
+            Err(VerifyReadError::Cancelled(reason)) => Err(reason),
+        };
+    }
+    // Every source is read whole: a row's lines alone hold nothing of the
+    // key that names a value on another line a secret, nor of the syntax
+    // that makes a line code, so only the whole source judges them.
+    let across = Some(
+        WholeSourcePatterns::any_file()
+            .and(WholeSourcePatterns::for_path(&source.to_string_lossy())),
+    );
     let pass = |across| {
         open().map_err(VerifyReadError::from).and_then(|opened| {
+            // Hashed for a fresh scan too: its judgment is kept under the
+            // digest, for the stored scan's later pages.
             let mut reader = std::io::BufReader::new(HashingReader {
                 inner: opened,
-                hasher: matches!(expected, Expected::Stored(_))
-                    .then(octocode_engine::digest::HashWriter::default),
+                hasher: Some(octocode_engine::digest::HashWriter::default()),
             });
             let read = match decoded::byte_order(&mut reader)? {
                 Some(order) => {
@@ -129,32 +180,31 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
             Ok((read, digest))
         })
     };
-    let read = pass(across).and_then(|(read, digest)| {
+    let read = pass(across).and_then(|(mut read, digest)| {
+        // A source held whole is judged whole. One too large to hold is
+        // judged whole only where a line names a pattern its windows cannot
+        // show; its other rows are judged in their windows.
+        if read.whole_retained {
+            read.source_wide = true;
+        }
         if read.source_wide {
             return Ok((read, digest));
         }
-        // A window shows a value only the rest of its source can judge, or follows
-        // a key's armor, whose judgment a read makes from the whole file.
-        let named = read
+        read.source_wide = read
             .retained
             .values()
             .any(|line| WholeSourcePatterns::shown_by(line).is_some())
             && decoded::names_an_object(std::io::BufReader::new(open()?), cancel)?;
-        if !named && read.key_ranges.is_empty() {
-            return Ok((read, digest));
-        }
-        let (mut whole, digest) = pass(Some(WholeSourcePatterns::any_file().and(across)))?;
-        whole.source_wide |= named;
-        Ok((whole, digest))
+        Ok((read, digest))
     });
     let judged = read.and_then(|(read, digest)| {
         // A source too large to scan whole fails closed only where its windows
         // cannot decide; a key block's own rows are settled by its ranges below.
         let scan = (read.source_wide || !read.key_ranges.is_empty())
-            .then(|| settle::whole_source_scan(&read, source, security))
-            .flatten();
+            .then(|| settle::whole_source_scan(&read, source, security, known.zip(digest)));
         let none = std::collections::BTreeMap::new();
-        if read.unclassified || !read.source_wide || scan.is_some() {
+        let held = matches!(scan, Some(settle::WholeScan::Judged(_)));
+        if read.unclassified || !read.source_wide || held {
             return Ok((read, digest, scan, none));
         }
         // What its structure says then decides each row. Only when that outruns the
@@ -166,7 +216,8 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
         })
     });
     let (read, proven, scan, masked) = match judged {
-        Ok((_, Some(digest), ..)) if expected != Expected::Stored(Some(digest)) => {
+        Ok((_, Some(digest), ..)) if matches!(expected, Expected::Stored(stored) if stored != Some(digest)) =>
+        {
             return Ok(Verification::Changed);
         }
         Ok((read, proven, scan, masked)) if !read.unclassified => (read, proven, scan, masked),
@@ -179,8 +230,9 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
         Err(VerifyReadError::Cancelled(reason)) => return Err(reason),
     };
     let whole = match scan {
-        None if !read.source_wide => None,
-        scan => Some(settle::WholeScan(scan)),
+        Some(settle::WholeScan::Judged(verdict)) => Some(settle::WholeScan::Judged(verdict)),
+        _ if read.source_wide => Some(settle::WholeScan::Unheld),
+        _ => None,
     };
     Ok(settle::settle_rows(
         shown,

@@ -998,10 +998,11 @@ fn comment_line_keys(text: &str, comment: Range<usize>, lines: &mut Vec<CommentL
     for line in text[comment].split_inclusive(['\n', '\r']) {
         let end = line_start + line.trim_end_matches(['\n', '\r']).len();
         let body = &text[line_start..end];
+        // A block's closer is its whole run of stars (`**/`).
         let closed = COMMENT_CLOSERS
             .iter()
-            .find(|closer| body.trim_end().ends_with(**closer))
-            .map_or(body.len(), |closer| body.trim_end().len() - closer.len());
+            .find_map(|closer| body.trim_end().strip_suffix(closer))
+            .map_or(body.len(), |open| open.trim_end_matches('*').len());
         line_keys(&body[..closed], line_start, lines);
         line_start += line.len();
     }

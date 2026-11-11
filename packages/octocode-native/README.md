@@ -158,8 +158,10 @@ Field reference: [OCTOCODE_TOOLS.md](../../docs/OCTOCODE_TOOLS.md).
 ## Commands
 
 Tool commands take one JSON envelope (positional, `--input <file>`, or `--input -`). They print text on a terminal or a pipe:
-rg-style lines for search hits, the rendered result otherwise, with notes and
-runnable follow-up commands on stderr (`crates/cli/src/cli/lines.rs`). `--json`
+rg-style lines for search hits, the rendered result otherwise, each row followed on
+stdout by its status, page state, warnings, hints and runnable continuation commands as `# ` lines;
+counters, `related[]` leads and progress are `# ` notes on stderr (`crates/cli/src/cli/lines.rs`). A call
+rejected before it runs prints on stdout as a failed row does. `--json`
 prints JSON, indented on a terminal. `octocode --help` and `schema` expose every tool in
 the build. Credentials and storage prerequisites are checked when a tool runs.
 MCP has independent beta, classification and clone opt-ins; the
@@ -167,7 +169,7 @@ MCP has independent beta, classification and clone opt-ins; the
 
 | Command | What it does |
 |---|---|
-| `schema [tool]` | Tool catalog with agent instructions, or one tool's contract (`--view query`, `--view variants`, `--select FIELD=VALUE`) |
+| `schema [tool]` | Tool catalog with agent instructions, or one tool's contract (`--view query`, `--view variants`, `--select operation=VALUE[,FIELD=VALUE]`) |
 | `config` | Config paths, loaded key names, and warnings; never values (`--json`). Subcommands: `view`, `home`, `get KEY`, `set KEY VALUE` / `set KEY --stdin`, `unset KEY`, `check KEY` |
 | `cache clear` | Drain warm CLI servers and remove tool caches; [scope and MCP restart](../../docs/OCTOCODE_CLI.md#clear-tool-caches) |
 | `auth` | `status`, `login` (device flow; `--hostname`, `--force`, `--refresh`), `logout` |

@@ -62,7 +62,9 @@ pub(in super::super) async fn flag_markup_importers(
     if unanswered.is_empty() {
         return Ok(());
     }
-    let module = anchor_text.and_then(|text| AnchorModule::of(anchor, text, name));
+    let module = anchor_text
+        .and_then(|text| AnchorModule::of(anchor, text, name))
+        .map(|module| module.in_scope(scope, name, policy));
     let (symbol, policy_owned) = (name.to_owned(), policy.clone());
     let users = crate::tools::lsp_search::blocking_cancellable(cancel, move |stopped| {
         let mut relays = HashMap::new();

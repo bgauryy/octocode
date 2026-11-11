@@ -10,7 +10,10 @@
 //! not load, uses through the types it defines are missing: reason
 //! `buildScriptsOff` (build-script output, loaded by a rerun) or
 //! `includeOutsidePackage` (a file outside the package), on the same
-//! file-level evidence. rust-analyzer analyzes one feature set, so code
+//! file-level evidence; a missed file a target gate leaves out is no such
+//! evidence. rust-analyzer analyzes one target, so a file whose uses sit
+//! under a `cfg` of another target (`windows`, `target_os`) is missing:
+//! reason `cfgGatedFiles`, with a `rustContext.target` rerun. rust-analyzer analyzes one feature set, so code
 //! under disabled `cfg(feature)` gates is compiled out: reason
 //! `cfgGatedFiles` when files the answer did not cover use the name in code
 //! and carry such gates, with an `expandFeatures` rerun page. An all-features run compiles out
@@ -33,11 +36,14 @@ use std::path::Path;
 mod gates;
 mod includes;
 mod projects;
+mod targets;
 use gates::*;
 use includes::{annotate_includes, record_text_coverage};
 pub(super) use includes::{include_declaring, package_declares, package_includes};
 use projects::annotate_unanswered;
 pub(super) use projects::answer_settled_files;
+pub(super) use targets::AnalysisTarget;
+use targets::{annotate_targets, target_gated_files};
 
 pub(super) const DYNAMIC_REASON: crate::response::paging::PartialReason =
     crate::response::paging::PartialReason::DynamicDispatch;
@@ -112,7 +118,15 @@ pub(super) fn annotate(
             // A workspace symbol is a declaration the server found: no use
             // of it is missing.
             if lsp_search_query::op(query) != Op::WorkspaceSymbol {
-                annotate_includes(row, query, server.anchor, scope, rust, stopped);
+                // A file a target gate leaves out is missing for that
+                // reason, whatever an include would load: it is no
+                // evidence of an unloaded include.
+                let gated = lsp_search_query::symbol_name(query)
+                    .filter(|name| !name.trim().is_empty())
+                    .map(|name| target_gated_files(scope, server.root, name, rust.target, stopped))
+                    .unwrap_or_default();
+                annotate_includes(row, query, server.anchor, scope, rust, &gated, stopped);
+                annotate_targets(row, query, scope, rust.target, &gated);
             }
             annotate_rust(row, query, server.root, scope, rust.all_features, stopped);
             // An answer naming no use stands only where the server placed every

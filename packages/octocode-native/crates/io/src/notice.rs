@@ -1,4 +1,5 @@
-//! Warnings a call says on stderr, outside its result.
+//! Warnings a call says on stderr, outside its result, each line a `# `
+//! note ([`as_note`]).
 //!
 //! Stdout carries CLI results and MCP JSON-RPC, so a condition that is not
 //! part of any result (no usable credential store, an unwritable shared
@@ -198,6 +199,17 @@ impl Drop for Entered {
     }
 }
 
+/// `text` as stderr says it: every physical line a `# ` note, the one form
+/// of a stderr line beside a call's result, so a reader that merges the
+/// streams tells them from content.
+#[must_use]
+pub fn as_note(text: &str) -> String {
+    text.split('\n')
+        .map(|line| format!("# {line}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Say `text` on stderr unless this process already said a notice of this
 /// `kind`, and record it in the current [`Scope`]. Outside every scope a
 /// [`kind::PROCESS`] kind is recorded in every live one; any other kind has
@@ -227,7 +239,7 @@ fn raise_among(kind: &'static str, text: impl Into<String>, process_kinds: &[&st
         None => {}
     }
     if lock(&PRINTED).insert(kind) {
-        eprintln!("{text}");
+        eprintln!("{}", as_note(&text));
     }
 }
 
@@ -247,7 +259,7 @@ pub fn emit(text: impl Into<String>, scope: Option<&Scope>) {
     if let Some(scope) = scope {
         lock(&scope.0).push(("", text.clone()));
     }
-    eprintln!("{text}");
+    eprintln!("{}", as_note(&text));
 }
 
 #[cfg(test)]

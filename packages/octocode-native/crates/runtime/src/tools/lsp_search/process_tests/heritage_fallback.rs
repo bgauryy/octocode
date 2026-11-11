@@ -261,4 +261,180 @@ fn rust_subtypes_anchor_a_trait_in_a_file_with_an_unexpanded_macro() {
     });
 }
 
+/// A Rust server whose `implementation` answer lists `listed` (JS location
+/// literals built with `at(name, line, character, length)`) and whose
+/// `definition` names the declaration at `a.rs` `declared` (line, start,
+/// end): rust-analyzer without a type hierarchy.
+fn rust_implementation_server(listed: &str, declared: (u32, u32, u32)) -> String {
+    let (line, start, end) = declared;
+    FAKE_SERVER
+        .replace(
+            "hoverProvider: true",
+            "implementationProvider: true, definitionProvider: true",
+        )
+        .replace(
+            "  } else if (msg.method === 'textDocument/hover') {\n    process.exit(3);",
+            &format!(
+                r"  }} else if (msg.method === 'textDocument/implementation') {{
+    const dir = msg.params.textDocument.uri.slice(0, msg.params.textDocument.uri.lastIndexOf('/') + 1);
+    const at = (name, line, character, length) => ({{ uri: dir + name, range: {{ start: {{ line, character }}, end: {{ line, character: character + length }} }} }});
+    send({{ jsonrpc: '2.0', id: msg.id, result: [{listed}] }});
+  }} else if (msg.method === 'textDocument/definition') {{
+    const dir = msg.params.textDocument.uri.slice(0, msg.params.textDocument.uri.lastIndexOf('/') + 1);
+    send({{ jsonrpc: '2.0', id: msg.id, result: [{{ uri: dir + 'a.rs', range: {{ start: {{ line: {line}, character: {start} }}, end: {{ line: {line}, character: {end} }} }} }}] }});"
+            ),
+        )
+}
+
+/// One Rust operation at `a.rs` (zero-based `line`, `character`) against
+/// `server`, over the files of `root`.
+fn rust_row(
+    root: &Path,
+    script: &Path,
+    server: &str,
+    (operation, symbol, line, character): (&str, &str, u32, u32),
+) -> serde_json::Value {
+    use crate::execution::cancel::NeverCancel;
+    use crate::tools::lsp_search::ops::Operation;
+    use crate::tools::lsp_search::source::{SourceCache, snippet_policy};
+    crate::tools::lsp_search::tests::write_executable(script, server);
+    let paths = crate::tools::test_support::workspace_policy(root);
+    let path = root.join("a.rs").to_string_lossy().into_owned();
+    tokio::runtime::Runtime::new().expect("rt").block_on(async {
+        let client = NativeLspClient::new(config(root, script, None));
+        client.start().await.expect("server starts");
+        let query = serde_json::from_value(serde_json::json!({
+            "operation": operation, "path": path, "symbolName": symbol, "line": line + 1
+        }))
+        .expect("query");
+        let mut sources = SourceCache::new(&paths);
+        let policy = snippet_policy(&paths);
+        let answer = Operation {
+            client: &client,
+            query: &query,
+            sources: &mut sources,
+            snippet_policy: &policy,
+            cancel: &NeverCancel,
+            path: &path,
+            scope: &crate::tools::lsp_search::scope::Scope::new(
+                root.to_string_lossy().into_owned(),
+                vec!["*.rs".into()],
+            ),
+            root_only: false,
+            line,
+            character,
+            language_id: Some("rust"),
+            budget: 16_000,
+            security: &crate::security::ContentSecurity::new(),
+        }
+        .run()
+        .await;
+        assert!(
+            answer.is_ok(),
+            "{operation} answers: {:?}",
+            answer.as_ref().err()
+        );
+        let row = answer.expect("checked above");
+        client.stop().await.expect("fixture server closed");
+        row
+    })
+}
+
+/// `(file name, one-based line, source label)` of each location row.
+fn located(row: &serde_json::Value) -> Vec<(String, u64, Option<String>)> {
+    let mut found = location_rows(row)
+        .iter()
+        .map(|found| {
+            (
+                Path::new(found["path"].as_str().unwrap_or_default())
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                found["displayRange"]["startLine"].as_u64().unwrap_or(0),
+                found["source"].as_str().map(str::to_owned),
+            )
+        })
+        .collect::<Vec<_>>();
+    found.sort();
+    found
+}
+
+/// Rust `subtypes` on a trait: the server's implementation answer leaves
+/// out an `impl Trait for X` declared inside a function body. The heritage
+/// scan's declaration is a candidate like the server's own, and the walk
+/// checks it against the trait its clause names: both impls are subtypes,
+/// and the row is complete.
+#[test]
+fn rust_subtypes_list_an_impl_declared_inside_a_function_body() {
+    assert!(
+        node_available(),
+        "Node is required for the real LSP fixture"
+    );
+    let (_dir, root, script) = fixture();
+    std::fs::write(root.join("a.rs"), "pub trait AsyncRead {}\n").expect("trait");
+    std::fs::write(
+        root.join("b.rs"),
+        "pub struct Foo;\nimpl AsyncRead for Foo {}\nfn local() {\n    struct Bar;\n    impl AsyncRead for Bar {}\n}\n",
+    )
+    .expect("impls");
+    octocode_engine::stamp::settle_written_so_far();
+    let server = rust_implementation_server("at('b.rs', 1, 19, 3)", (0, 10, 19));
+    let row = rust_row(&root, &script, &server, ("subtypes", "AsyncRead", 0, 10));
+    assert_eq!(row["lsp"]["source"], "implementation", "{row}");
+    let lines = located(&row)
+        .into_iter()
+        .map(|(file, line, _)| (file, line))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        lines,
+        [("b.rs".to_owned(), 2), ("b.rs".to_owned(), 5)],
+        "{row}"
+    );
+    assert!(row.get("isPartial").is_none(), "{row}");
+}
+
+/// `implementation` on a trait method: the server lists the method of the
+/// top-level impl and leaves out the one of an impl declared inside a
+/// function body. The scan reads the methods of that name in the trait's
+/// impl blocks: the one the server left out follows its row, labelled, and
+/// the row says scan rows stand beside the answer.
+#[test]
+fn implementation_of_a_trait_method_lists_the_impl_inside_a_function_body() {
+    assert!(
+        node_available(),
+        "Node is required for the real LSP fixture"
+    );
+    let (_dir, root, script) = fixture();
+    std::fs::write(
+        root.join("a.rs"),
+        "pub trait Check {\n    fn check(&self) -> bool;\n}\n",
+    )
+    .expect("trait");
+    std::fs::write(
+        root.join("b.rs"),
+        "struct A;\nimpl Check for A {\n    fn check(&self) -> bool { true }\n}\nfn local() {\n    struct B;\n    impl Check for B {\n        fn check(&self) -> bool { false }\n    }\n}\nstruct C;\nimpl C {\n    fn check(&self) {}\n}\n",
+    )
+    .expect("impls");
+    octocode_engine::stamp::settle_written_so_far();
+    let server = rust_implementation_server("at('b.rs', 2, 7, 5)", (1, 7, 12));
+    let row = rust_row(&root, &script, &server, ("implementation", "check", 1, 7));
+    assert_eq!(
+        located(&row),
+        [
+            ("b.rs".to_owned(), 3, None),
+            (
+                "b.rs".to_owned(),
+                8,
+                Some(crate::tools::lsp_search::ops::SCAN_SOURCE.to_owned())
+            ),
+        ],
+        "{row}"
+    );
+    assert_eq!(
+        row["partialReasons"],
+        serde_json::json!(["scanOnlyImplementations"]),
+        "{row}"
+    );
+}
+
 mod scan;

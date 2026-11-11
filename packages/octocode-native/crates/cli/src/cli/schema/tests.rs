@@ -118,6 +118,63 @@ fn selection_schema_follows_the_resolved_presentation_switch() {
     assert!(message(full).starts_with("A tool's views"));
 }
 
+/// A second pair selects the row the presentation narrows to it; where the
+/// presentation has none, a pair a form of the operation admits selects the
+/// operation's row, and any other pair is a usage error that names the fix.
+#[test]
+fn select_takes_a_second_pair() {
+    let m = machine(&[]);
+    let view = |selection| tool_view(&m, "astSearch", Some("query"), Some(selection));
+    let operation = view("operation=match").expect("operation");
+    let presentation = octocode_native::contracts::cli_presentation().expect("presentation");
+    let narrowed = presentation["tools"]
+        .as_array()
+        .expect("tools")
+        .iter()
+        .find(|tool| tool["name"] == "astSearch")
+        .expect("astSearch")["selections"]
+        .get("operation=match,view=content");
+    let pair = view("operation=match,view=content").expect("a second pair");
+    match narrowed {
+        Some(narrowed) => {
+            assert_eq!(pair["querySchema"], narrowed["querySchema"]);
+            assert!(
+                pair["querySchema"].to_string().len() <= operation["querySchema"].to_string().len(),
+                "a narrowed row is no larger than its operation's"
+            );
+        }
+        None => assert_eq!(pair, operation),
+    }
+    assert_eq!(
+        view("operation=\"match\", view=\"content\"").expect("quoted"),
+        pair
+    );
+    assert_eq!(
+        message(view("operation=match,view=nope")).split(':').next(),
+        Some("operation=match takes view")
+    );
+    assert_eq!(
+        message(view("operation=match,nope=1")),
+        "operation=match has no field nope."
+    );
+    for malformed in [
+        "operation=match,",
+        "operation=match,view",
+        "view=content",
+        "operation=match,view=content,limit=1",
+    ] {
+        assert!(
+            message(view(malformed)).starts_with("--select expects operation=VALUE[,FIELD=VALUE]"),
+            "{malformed}"
+        );
+    }
+    // A field every form takes freely narrows nothing and selects the row.
+    assert_eq!(
+        view("operation=match,limit=5").expect("an open field"),
+        operation
+    );
+}
+
 #[test]
 fn select_reads_one_operation_row() {
     let m = machine(&[]);

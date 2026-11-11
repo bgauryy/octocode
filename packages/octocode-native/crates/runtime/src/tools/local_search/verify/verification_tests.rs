@@ -20,7 +20,9 @@ fn hit(line: u32, value: &str) -> octocode_engine::types::TextSearchMatch {
 
 /// Files redact on parallel workers, yet the record lists key-block
 /// reads and replaced values in file and match order, every time, and
-/// each replaced value is marked redacted on its row.
+/// each replaced value is marked redacted on its row. Only a key block's
+/// rows are replaced here, by what the whole file says of them: every other
+/// value is judged with its whole source when a page shows it, never alone.
 #[test]
 fn a_parallel_redaction_records_in_file_order() {
     let dir = tempfile::tempdir().expect("fixture");
@@ -96,7 +98,7 @@ fn a_parallel_redaction_records_in_file_order() {
     assert!(order.is_sorted(), "{order:?}");
     assert!(record.key_files.iter().map(|key| key.index).is_sorted());
     assert_eq!(record.key_files.len(), 7, "{:?}", record.key_files);
-    assert!(record.changes.len() >= 16 + 7, "{:?}", record.changes);
+    assert_eq!(record.changes.len(), 7, "{:?}", record.changes);
     assert_eq!(redacted.len(), record.changes.len());
     assert!(parsed.files.iter().all(|file| !file.path.starts_with('/')));
     for (file, row, value) in &record.changes {
@@ -171,7 +173,12 @@ fn streamed_key_state_matches_the_whole_file_scan() {
 fn an_unbufferable_line_mentioning_a_private_key_fails_closed() {
     let dir = tempfile::tempdir().expect("fixture");
     let source = dir.path().join("source.txt");
-    let giant = format!("{}PRIVATE KEY{}", " ".repeat(200_000), "-".repeat(10));
+    // Longer than a whole read keeps: a line that fits is read and judged.
+    let giant = format!(
+        "{}PRIVATE KEY{}",
+        " ".repeat(super::guard::MAX_VERIFY_RETAINED_BYTES + 1),
+        "-".repeat(10)
+    );
     std::fs::write(
         &source,
         format!("{giant}\nspacer\nspacer\nspacer\nMIIEpQIBAAKCAQEAinteriorKeyBody\n"),

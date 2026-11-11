@@ -131,14 +131,13 @@ fn a_scan_past_its_held_bound_is_refused_with_leads_that_answer() {
     drop(bounded);
 }
 
-/// A walk of spans on one line judges that line's window at most twice,
-/// however many pages and spans it has: the fresh page, which has no stored
-/// digest to bind a judgment to, and the first continuation, whose judgment
-/// the stored scan keeps for the rest (see `JudgedWindows`). So a page's
-/// scanning does not grow with the line or the scan. Every span is
-/// delivered once.
+/// A walk of spans on one line judges that line once, however many pages
+/// and spans it has: the page that first shows it keeps its judgment under
+/// the digest of the bytes read, and every later page of the stored scan
+/// cuts its spans from that (see `JudgedWindows`). So a page's scanning does
+/// not grow with the line or the scan. Every span is delivered once.
 #[test]
-fn a_walk_of_spans_on_one_line_judges_the_line_at_most_twice() {
+fn a_walk_of_spans_on_one_line_judges_the_line_once() {
     for spans in [3_000usize, 12_000] {
         let root = tempfile::tempdir().expect("fixture");
         fs::write(
@@ -157,8 +156,45 @@ fn a_walk_of_spans_on_one_line_judges_the_line_at_most_twice() {
         assert!(pages.len() > 1, "{spans}: one page");
         assert_eq!(walk.rows.len(), spans, "{spans}: each span once");
         assert!(pages.len() > 2, "{spans}: {} pages", pages.len());
-        assert_eq!(judged, 2 * spans, "{spans}: {} pages", pages.len());
+        assert_eq!(judged, spans, "{spans}: {} pages", pages.len());
     }
+}
+
+/// A walk of 2,000 hits judges each file whole once, however many of its
+/// hits a page shows and however many pages they span: the page that first
+/// shows a file keeps its judgment for the rest of the walk. So whole-source
+/// judgment costs one scan per shown file, never one per hit or per page.
+/// Every hit is delivered once, with its line.
+#[test]
+fn a_walk_of_many_hits_judges_each_file_once() {
+    let root = tempfile::tempdir().expect("fixture");
+    let (files, hits) = (40usize, 50usize);
+    let mut bytes = 0;
+    for file in 0..files {
+        let body = (0..hits)
+            .map(|hit| format!("const v{hit} = needle({file}, {hit});\n// plain line {hit}\n"))
+            .collect::<String>();
+        bytes += body.len();
+        fs::write(root.path().join(format!("f{file:02}.ts")), body).expect("file");
+    }
+    settle();
+    let before = crate::tools::local_search::verify::judged_on_this_thread();
+    let started = std::time::Instant::now();
+    let (walk, pages) = walk_search(
+        root.path(),
+        serde_json::json!({"path":root.path(),"matchString":["needle"]}),
+        None,
+    );
+    let judged = crate::tools::local_search::verify::judged_on_this_thread() - before;
+    eprintln!(
+        "{} hits, {} pages, {bytes} source bytes, {judged} bytes judged, {:?}",
+        walk.rows.len(),
+        pages.len(),
+        started.elapsed()
+    );
+    assert_eq!(walk.rows.len(), files * hits, "each hit once");
+    assert!(pages.len() > 1, "one page");
+    assert!(judged <= bytes, "{judged} bytes judged of {bytes}");
 }
 
 /// A continuation of a stored scan prices about the rows it shows, not

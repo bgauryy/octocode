@@ -85,7 +85,9 @@ fn base64_of_an_rfc4716_header_is_a_private_key() {
         );
     }
     let public = "LS0tLSBCRUdJTiBTU0gyIFBVQkxJQyBLRVkgLS0tLQpVdkltWmFZTUV0S0pHRjJWRHVpQk5na1diMnNSUFJlTmJBL1RrQi95T2FHZ2xmSVBrNVZsRFBrNEM0N2JJa3ByCg==";
-    let result = detect(&format!("data:\n  key: {public}\n"), None);
+    // Under a name that says nothing: a credential's name hides any opaque
+    // value, whatever it encodes.
+    let result = detect(&format!("data:\n  blob: {public}\n"), None);
     assert!(result.sanitized.contains(public), "{}", result.sanitized);
 }
 

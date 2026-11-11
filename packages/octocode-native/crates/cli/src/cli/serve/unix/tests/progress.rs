@@ -2,7 +2,7 @@ use super::*;
 use crate::cli::serve::unix::frames::{forward, progress_scope};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-const REPLY: &[u8] = b"{\"exit\":0,\"stderr\":false,\"body\":\"{}\",\"json\":true}\n";
+const REPLY: &[u8] = b"{\"exit\":0,\"body\":\"{}\",\"json\":true}\n";
 
 /// A call that raises two progress lines, the second only after the client
 /// has shown the first, reaches the client as two frames in order, both

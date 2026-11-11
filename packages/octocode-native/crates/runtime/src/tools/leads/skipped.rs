@@ -109,14 +109,19 @@ fn withheld(root: &str, withheld: &crate::policy::discovery::Withheld) -> Vec<Sk
     dirs.chain(entries).collect()
 }
 
-/// The directory `holder` as the walk shows its paths: from `root`, with `/`
-/// separators; the walk root itself when the files sit directly in it.
+/// The directory `holder` as every skipped path is recorded
+/// ([`SkippedEntry::path`]): absolute, so the response spells it from the
+/// workspace root like the paths beside it. A holder the walk recorded from
+/// its root is joined to `root`.
 fn held_in(root: &str, holder: &str) -> String {
-    match std::path::Path::new(holder).strip_prefix(root) {
-        Ok(inside) if inside.as_os_str().is_empty() => root.to_owned(),
-        Ok(inside) => octocode_engine::text::slash_path(inside),
-        Err(_) => octocode_engine::text::slash_path(std::path::Path::new(holder)),
+    let holder = std::path::Path::new(holder);
+    if holder.is_absolute() {
+        return holder.to_string_lossy().into_owned();
     }
+    std::path::Path::new(root)
+        .join(holder)
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// What no flag lifts from a walk of `root`: what the path policy withheld

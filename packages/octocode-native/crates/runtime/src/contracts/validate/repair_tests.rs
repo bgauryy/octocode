@@ -2,7 +2,7 @@
 //! how to send it instead. The cases are the shapes seen in the field and
 //! their near relatives; each asserts the whole first line, so a vaguer
 //! message fails here.
-use crate::contracts::{format_input_error, prepare_rows};
+use crate::contracts::{ContractValidationError, format_input_error, prepare_rows};
 use serde_json::{Value, json};
 
 /// The first error line `tool` answers `input` with.
@@ -210,4 +210,60 @@ fn a_distribution_purl_type_names_each_ecosystem_the_contract_lists() {
         let want = format!("use {head} or \"{}\"; ", ecosystems.last().unwrap());
         assert!(line.contains(&want), "{purl_type}: {line}");
     }
+}
+
+/// An astSearch rule sent as a string, or holding only a key rules do not
+/// take, reads the error of what was sent: the type, or the unknown key with
+/// the keys a rule takes. Neither reads a relation or matcher rule of a
+/// shape it never had.
+#[test]
+fn a_misshapen_ast_rule_names_its_own_fault() {
+    let row = |rule: Value| json!({"queries":[{"operation":"match","path":".","rule":rule}]});
+    let string = first_line("astSearch", row(json!("errorMessage($E)")));
+    assert_eq!(
+        string,
+        r#"queries.0.rule: Expected object {all, any, field, follows, has, inside, kind, not, nthChild, pattern, precedes, range, regex, stopBy}; "errorMessage($E)" is the value of one field: send {"<field>":"errorMessage($E)"} with <field> one of field, kind, pattern, regex"#
+    );
+    let allowed = "Allowed fields: all, any, field, follows, has, inside, kind, not, nthChild, pattern, precedes, range, regex, stopBy.";
+    for rule in [
+        json!({"contains":{"kind":"identifier"}}),
+        json!({"kind":"call_expression","contains":{"kind":"identifier"}}),
+    ] {
+        assert_eq!(
+            first_line("astSearch", row(rule)),
+            format!("Unknown field 'contains' in queries[0].rule. {allowed}")
+        );
+    }
+    // A rule of the right shape without a matcher still reads its guidance.
+    assert_eq!(
+        first_line("astSearch", row(json!({}))),
+        "queries.0.rule: rule must contain at least one matcher"
+    );
+}
+
+/// A validation error shown as text states its issues: a caller that embeds
+/// it (a tool validating a derived query) passes on the correction, never a
+/// count of issues.
+#[test]
+fn a_validation_error_shown_as_text_states_its_issues() {
+    let error = crate::contracts::validate_query(
+        "artifactSearch",
+        json!({"operation":"resolve","ecosystem":"npm","packageName":"ws@8.5.0"}),
+    )
+    .expect_err("a version in the name is refused");
+    let shown = error.to_string();
+    assert!(
+        shown.contains("packageName") && shown.contains("version is separate"),
+        "{shown}"
+    );
+    assert!(!shown.contains("issue(s)"), "{shown}");
+    let two = ContractValidationError {
+        issues: vec![
+            super::issue("probe.a", vec!["a".into(), "0".into()], "first")
+                .issues
+                .remove(0),
+            super::issue("probe.b", vec![], "second").issues.remove(0),
+        ],
+    };
+    assert_eq!(two.to_string(), "a.0: first; second");
 }

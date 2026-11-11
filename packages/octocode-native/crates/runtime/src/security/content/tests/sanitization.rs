@@ -258,19 +258,25 @@ fn frozen_input_bounds_and_nested_secret_projection_match_reference() {
     );
 }
 
-/// A source past what a read holds at once is judged like any other: a row cannot
-/// be judged alone only on the lines its object hides.
+/// A source past what a read holds at once is judged like any other: a row cut
+/// from it shows the lines its object hides as the whole pass left them.
 #[test]
 fn past_the_bound_only_a_named_source_s_values_are_out_of_a_row_s_reach() {
+    use crate::security::JudgedText;
     let pad = "ordinary words\n";
     let lines = octocode_engine::security::MAX_CONTENT_SIZE / pad.len() + 1;
     let named = format!(
         "{{\"data\":{{\n\"k\":\"c2VjcmV0\"\n}},\"kind\":\"Secret\"}}\n{}",
         pad.repeat(lines)
     );
-    assert_eq!(
-        lines_a_row_cannot_judge(&named, Path::new("dump.json")),
-        vec![(1, 1), (2, 2)]
-    );
-    assert!(lines_a_row_cannot_judge(&pad.repeat(lines), Path::new("dump.json")).is_empty());
+    let security = ContentSecurity::new();
+    let judged = JudgedText::judge(&named, Path::new("dump.json"), &security);
+    let value = judged.line_span(2, 1).expect("line 2");
+    assert!(judged.exposes(&value));
+    assert!(!judged.cut(value).contains("c2VjcmV0"));
+    let pad_line = judged.line_span(4, 1).expect("line 4");
+    assert!(!judged.exposes(&pad_line));
+    assert_eq!(judged.cut(pad_line), "ordinary words");
+    let plain = JudgedText::judge(&pad.repeat(lines), Path::new("dump.json"), &security);
+    assert!(!plain.is_redacted());
 }

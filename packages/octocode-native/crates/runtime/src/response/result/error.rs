@@ -86,9 +86,10 @@ impl ToolError {
     }
 
     /// A continuation whose snapshot no longer describes the source:
-    /// `restart` (usually [`restart_query`]) is `next.restart`. The runtime
-    /// writes the one shared `error` text and clears `isPartial`
-    /// (`response::pages::restart_stale`); a tool never words it.
+    /// `restart` (usually [`restart_query`]) is `next.restart`. The `error`
+    /// text is the one shared sentence ([`STALE_SNAPSHOT_ERROR`]), and the
+    /// runtime requires the restart of every such row
+    /// (`response::rows::require_restart`); a tool never words it.
     pub(crate) fn stale_snapshot(restart: Value) -> Self {
         Self {
             calls: Some(Box::new(serde_json::json!({ "restart": restart }))),

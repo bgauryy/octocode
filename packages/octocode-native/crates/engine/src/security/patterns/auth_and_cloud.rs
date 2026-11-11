@@ -40,7 +40,9 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "jsonWebTokenEnhanced",
         file_context: None,
-        regex: r###"\bey[a-zA-Z0-9]+\.ey[a-zA-Z0-9/_-]+\.(?:[a-zA-Z0-9/_-]+={0,2})?\b"###,
+        // A signed token, or any compact serialization a JOSE header opens
+        // (`eyJ` is `{"`): an encrypted token's parts after it are not JSON.
+        regex: r###"\bey[a-zA-Z0-9]+\.ey[a-zA-Z0-9/_-]+\.(?:[a-zA-Z0-9/_-]+={0,2})?\b|\beyJ[A-Za-z0-9_-]{14,}(?:\.[A-Za-z0-9_-]{10,}){2,4}"###,
     },
     SecretPattern {
         name: "authressServiceClientAccessKey",

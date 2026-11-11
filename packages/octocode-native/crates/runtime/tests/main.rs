@@ -53,6 +53,7 @@ mod runtime_judged_leaves;
 mod runtime_local;
 mod runtime_mcp_json_text;
 mod runtime_one_walk;
+mod runtime_output_alignment;
 mod runtime_page_replay;
 mod runtime_path_policy_names;
 mod runtime_read_span;

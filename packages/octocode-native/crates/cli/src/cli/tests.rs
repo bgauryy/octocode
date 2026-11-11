@@ -1,4 +1,4 @@
-use super::output::{Printed, Stream};
+use super::output::Printed;
 use super::parse::parse_args_from;
 use super::{Command, OutputMode, dispatch, lsp_provision, start_failed};
 use octocode_contract_types::ErrorCode;
@@ -87,9 +87,9 @@ async fn second_interrupt_stops_waiting_for_uncooperative_work() {
     assert_eq!(drained, Interrupted::Drained);
 }
 
-/// A rejected call prints the runtime's one projection: the typed
-/// envelope on stdout in JSON mode, its text on stderr otherwise, and
-/// exits by the code's class.
+/// A rejected call prints the runtime's one projection on stdout: the typed
+/// envelope in JSON mode, the text of a failed row otherwise (its fields,
+/// then `# status: error`), and exits by the code's class.
 #[test]
 fn rejected_calls_print_the_runtime_projection() {
     use octocode_native::contracts;
@@ -106,22 +106,20 @@ fn rejected_calls_print_the_runtime_projection() {
         validation_issues: None,
     };
     let json_out = Printed::finish(tool, Err(invalid()), true, &json!({}), None);
-    assert_eq!((json_out.exit, json_out.stream), (2, Stream::Stdout));
+    assert_eq!((json_out.exit, json_out.json), (2, true));
     let envelope: serde_json::Value = serde_json::from_str(&json_out.body).expect("json");
     assert!(envelope.get("kind").is_none(), "{envelope}");
     assert_eq!(envelope["errorCode"], "invalidInput", "{envelope}");
     let text = Printed::finish(tool, Err(invalid()), false, &json!({}), None);
-    assert_eq!((text.exit, text.stream), (2, Stream::Stderr));
+    assert_eq!((text.exit, text.json), (2, false));
     assert!(
-        text.body.contains("Unknown field 'matchstring'"),
+        text.body
+            .starts_with("errorCode: invalidInput\nerror: Unknown field 'matchstring'"),
         "{}",
         text.body
     );
-    assert!(
-        text.body.ends_with("(errorCode: invalidInput)"),
-        "{}",
-        text.body
-    );
+    assert!(text.body.contains("\n# status: error"), "{}", text.body);
+    assert_eq!((&text.error_text, &text.notes), (&None, &None));
 
     let timeout = RuntimeError {
         code: ErrorCode::Timeout,
@@ -131,8 +129,72 @@ fn rejected_calls_print_the_runtime_projection() {
     };
     let expected = octocode_native::runtime::error::tool_error_result("localSearch", &timeout);
     let printed = Printed::finish("localSearch", Err(timeout), false, &json!({}), None);
-    assert_eq!((printed.exit, printed.stream), (5, Stream::Stderr));
-    assert_eq!(printed.body, expected.text);
+    assert_eq!((printed.exit, printed.json), (5, false));
+    assert_eq!(
+        printed.body,
+        super::lines::rejected(&expected.envelope),
+        "the envelope's fields, as text"
+    );
+    assert!(
+        printed
+            .body
+            .starts_with("errorCode: timeout\nerror: Tool call timed out."),
+        "{}",
+        printed.body
+    );
+}
+
+/// A continuation's line format is the one of the request it continued:
+/// the runtime names that request, and a bare cursor alone says nothing of
+/// it, so the same page prints as `key: value` text without it.
+#[test]
+fn a_continuation_prints_in_the_line_format_of_the_request_it_continued() {
+    use octocode_native::response::outcome::ToolOutcome;
+    use octocode_native::security::Sanitized;
+    let page = json!({"results":[{"index":0,"data":{"matchCount":9,"files":[{"path":"a.rs","matches":[
+        {"line":26,"value":"25\tuse a;\n26\tuse b;"}]}]}}]});
+    let printed = |continued: Option<serde_json::Value>| {
+        Printed::finish(
+            "localSearch",
+            Ok(ToolOutcome {
+                structured_content: Sanitized::scrubbed(page.clone()),
+                failure: None,
+                all_failed: false,
+                continued,
+            }),
+            false,
+            &json!({"cursor":"cursor2.page"}),
+            None,
+        )
+    };
+    let asked = json!({"queries":[{"path":"a.rs","matchString":["use"],"contextLines":{"before":1,"after":0}}]});
+    let continued = printed(Some(asked));
+    assert_eq!(continued.body, "a.rs\n25-use a;\n26:use b;");
+    assert_eq!(continued.notes.as_deref(), Some("# matchCount: 9"));
+    // A page holding one row of a batch reads that row's own query.
+    let batch = json!({"queries":[{"path":"b.rs","matchString":["x"]},
+        {"path":"a.rs","matchString":["use"],"contextLines":{"before":1,"after":0}}]});
+    let mut second_row = page.clone();
+    second_row["results"][0]["index"] = json!(1);
+    let later = Printed::finish(
+        "localSearch",
+        Ok(ToolOutcome {
+            structured_content: Sanitized::scrubbed(second_row),
+            failure: None,
+            all_failed: false,
+            continued: Some(batch),
+        }),
+        false,
+        &json!({"cursor":"cursor2.page"}),
+        None,
+    );
+    assert_eq!(later.body, "a.rs\n25-use a;\n26:use b;");
+    let unknown = printed(None);
+    assert!(
+        unknown.body.starts_with("matchCount: 9\nfiles:"),
+        "{}",
+        unknown.body
+    );
 }
 
 #[test]
@@ -235,8 +297,9 @@ fn tool_input_reads_a_file_and_rejects_bad_json() {
 }
 
 /// B75: no surface sets a request budget, so a cold language-server request
-/// (worst path `MAX_COLD_LSP_EXECUTION_BUDGET_MS`) always reaches its base;
-/// only a caller's own budget can end it sooner.
+/// (`initialize`, readiness, the content-modified retries, then its own
+/// timeout) always reaches its base; only a caller's own budget can end it
+/// sooner.
 #[test]
 fn no_surface_budget_cuts_a_cold_lsp_request() {
     assert_eq!(

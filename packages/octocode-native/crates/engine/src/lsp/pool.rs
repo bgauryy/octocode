@@ -15,10 +15,6 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
-/// Largest readiness wait in [`readiness_timeout`]; the cold-start budget
-/// (`lsp::MAX_COLD_LSP_EXECUTION_BUDGET_MS`) is built on it.
-pub(crate) const MAX_READINESS_TIMEOUT_MS: u64 = 120_000;
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LspPoolOptions {
     pub idle_timeout_ms: u64,

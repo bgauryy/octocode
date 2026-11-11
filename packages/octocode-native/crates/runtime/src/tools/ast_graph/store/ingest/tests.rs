@@ -150,8 +150,11 @@ fn ingests_of_different_scopes_build_while_no_lock_is_held() {
     }
 }
 
+/// Two builds of one fresh scope both find no snapshot and both build. The
+/// one that reaches publication second finds the first's snapshot of the
+/// unchanged tree and answers with it: one snapshot, one id.
 #[test]
-fn concurrent_ingests_of_one_scope_publish_each_computed_snapshot() {
+fn concurrent_ingests_of_one_scope_publish_one_snapshot() {
     let dir = workspace();
     let root = dir.0.to_path_buf();
     let both = Arc::new(Barrier::new(2));
@@ -175,22 +178,21 @@ fn concurrent_ingests_of_one_scope_publish_each_computed_snapshot() {
         .collect::<Vec<_>>();
     for output in &outputs {
         assert_eq!(output.class, ExitClass::Success, "{}", output.value);
-        assert!(output.value.get("reused").is_none());
         let work = &output.value["extraction"];
         assert_eq!(
             work["parsedFiles"].as_u64().unwrap() + work["reusedFiles"].as_u64().unwrap(),
             output.value["scan"]["filesScanned"].as_u64().unwrap()
         );
     }
-    assert_ne!(id(&outputs[0]), id(&outputs[1]));
-    assert_eq!(outputs[0].value["sha256"], outputs[1].value["sha256"]);
+    assert_eq!(id(&outputs[0]), id(&outputs[1]));
+    for key in ["sha256", "counts", "calls", "scan", "root", "dir"] {
+        assert_eq!(outputs[0].value[key], outputs[1].value[key], "{key}");
+    }
     let home = root.join(".octocode/graph");
-    let snapshots = list_snapshots(&home);
-    assert_eq!(snapshots.len(), outputs.len());
-    assert!(outputs.iter().all(|output| snapshots.contains(&id(output))));
+    assert_eq!(list_snapshots(&home), [id(&outputs[0])]);
     assert_eq!(
         std::fs::read_to_string(home.join(LATEST_FILE)).expect("latest"),
-        *snapshots.last().unwrap()
+        id(&outputs[0])
     );
     let job = super::super::super::graph::checkpoint::job_path(
         &home.join(".facts"),
@@ -200,10 +202,54 @@ fn concurrent_ingests_of_one_scope_publish_each_computed_snapshot() {
         !job.exists(),
         "completed concurrent jobs release their artifacts"
     );
-    // The scope is unchanged since: the next build answers with the latest.
+    // The scope is unchanged since: the next build answers with it too.
     let again = run(&root, "a", &NeverCancel);
-    assert_eq!(id(&again), *snapshots.last().unwrap(), "{}", again.value);
-    assert_eq!(again.value["sha256"], outputs[0].value["sha256"]);
+    assert_eq!(id(&again), id(&outputs[0]), "{}", again.value);
+}
+
+/// A snapshot published while a build ran answers that build only when it
+/// is what the build would publish: `refresh` always publishes its own, and
+/// so does a build of a tree edited since that snapshot.
+#[test]
+fn a_build_publishes_its_own_snapshot_when_the_one_published_meanwhile_differs() {
+    for refresh in [true, false] {
+        let dir = workspace();
+        let root = dir.0.to_path_buf();
+        let (other_root, edited) = (root.clone(), dir.0.join("a/lib.ts"));
+        let meanwhile = Rc::new(RefCell::new(None));
+        let slot = Rc::clone(&meanwhile);
+        hooks::set(move |point, _| {
+            if point != Point::Publish || slot.borrow().is_some() {
+                return;
+            }
+            let root = other_root.clone();
+            let other = std::thread::spawn(move || run(&root, "a", &NeverCancel));
+            *slot.borrow_mut() = Some(other.join().expect("the other ingest"));
+            if !refresh {
+                std::fs::write(&edited, "export function f() { return 42; }\n").expect("edit");
+            }
+        });
+        let options = IngestOptions {
+            path: root.join("a"),
+            workspace: Some(root.clone()),
+            refresh,
+            ..IngestOptions::default()
+        };
+        let own = ingest(
+            &options,
+            &workspace_policy(&root),
+            &ContentSecurity::new(),
+            &NeverCancel,
+            None,
+        );
+        hooks::set(|_, _| {});
+        let other = meanwhile.borrow_mut().take().expect("publish point");
+        assert_eq!(own.class, ExitClass::Success, "{}", own.value);
+        assert_eq!(other.class, ExitClass::Success, "{}", other.value);
+        assert_ne!(id(&own), id(&other), "refresh {refresh}");
+        let home = root.join(".octocode/graph");
+        assert_eq!(list_snapshots(&home), [id(&other), id(&own)]);
+    }
 }
 
 /// Counts the checks an ingest makes once armed, and cancels on request.

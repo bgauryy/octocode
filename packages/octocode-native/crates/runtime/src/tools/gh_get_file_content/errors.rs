@@ -21,6 +21,14 @@ pub(super) fn repo_path(query: &GhGetFileContentQuery) -> RepoPath<'_> {
     }
 }
 
+/// What the missing-path walk found for a read that answered not found.
+pub(crate) struct Located {
+    pub(crate) found: PathRecovery,
+    /// The read was sent under another name than `query`'s: the old name
+    /// of a renamed repository, so a read under `query`'s is another call.
+    pub(crate) renamed: bool,
+}
+
 /// The failure row of a read. `commit` is the commit the read's ref
 /// resolved to, which the recovery leads pin in place of the ref; `found` is
 /// the missing-path walk's answer (only for a path that did not resolve).
@@ -28,7 +36,7 @@ pub(crate) fn failure(
     error: ProviderError,
     query: &GhGetFileContentQuery,
     commit: Option<&str>,
-    found: Option<PathRecovery>,
+    found: Option<Located>,
 ) -> GhFailure {
     let at = RepoPath {
         reference: commit.or(access::reference(query)),
@@ -119,14 +127,26 @@ pub(super) fn path_not_found(at: &RepoPath<'_>, asked: Option<&str>) -> String {
     }
 }
 
+/// The hint of a read that answered not found for a path the tree lists
+/// under that very spelling: its lead lists the directory that answered.
+pub(crate) const LISTED_NOT_READ_HINT: &str =
+    "The tree lists this path, but its read answered not found.";
+
+/// [`LISTED_NOT_READ_HINT`] for a read under a renamed repository's old
+/// name: its lead reads the path under the canonical name.
+pub(crate) const OLD_NAME_NOT_READ_HINT: &str =
+    "The tree lists this path, but its read under the repository's old name answered not found.";
+
 /// A path that did not resolve: the case-corrected file, the nearest
-/// existing directory, or (without a walk answer) the parent directory.
+/// existing directory, or (without a walk answer) the parent directory. A
+/// file the walk found under the very path asked is no case difference:
+/// the lead never repeats the read that failed.
 fn path_recovery(
     query: &GhGetFileContentQuery,
     at: &RepoPath<'_>,
-    found: Option<PathRecovery>,
+    found: Option<Located>,
 ) -> (Option<&'static str>, Option<Value>) {
-    let Some(found) = found else {
+    let Some(Located { found, renamed }) = found else {
         let parent = parent_dir(at.path);
         let listing = RepoPath {
             path: &parent,
@@ -146,25 +166,25 @@ fn path_recovery(
         path: directory,
         ..*at
     };
-    // One repair: the case-corrected file's read, else the listing of the
-    // deepest existing directory (the lead's path is the fact).
-    match found.file {
-        Some(path) => {
-            let mut read = query_row(query, &[]);
-            read["path"] = json!(path);
-            // The lead pins the commit the failed read resolved.
-            if let Some(reference) = at.reference {
-                read["ref"] = json!(reference);
-            }
-            let read = Continuation::related(ToolId::GhGetFileContent, read).build();
-            (
-                Some("Only the path's case differs."),
-                Some(json!({ "read": read })),
-            )
-        }
-        None => (
-            None,
-            Some(json!({ "viewTree": tree_recovery(&listing, None) })),
-        ),
+    let view_tree = || Some(json!({ "viewTree": tree_recovery(&listing, None) }));
+    // One repair: the read of the file under the path the tree names it by
+    // (case-corrected, or the same path under the canonical name), else the
+    // listing of the deepest existing directory (the lead's path is the fact).
+    let Some(path) = found.file else {
+        return (None, view_tree());
+    };
+    let hint = match (path == at.path, renamed) {
+        (false, _) => crate::tools::gh_shared::CASE_DIFFERS_HINT,
+        (true, true) => OLD_NAME_NOT_READ_HINT,
+        // The read led to would be the one that failed.
+        (true, false) => return (Some(LISTED_NOT_READ_HINT), view_tree()),
+    };
+    let mut read = query_row(query, &[]);
+    read["path"] = json!(path);
+    // The lead pins the commit the failed read resolved.
+    if let Some(reference) = at.reference {
+        read["ref"] = json!(reference);
     }
+    let read = Continuation::related(ToolId::GhGetFileContent, read).build();
+    (Some(hint), Some(json!({ "read": read })))
 }

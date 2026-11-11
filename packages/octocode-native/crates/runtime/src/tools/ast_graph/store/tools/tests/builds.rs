@@ -94,32 +94,48 @@ fn builds_pages_and_freshness_are_workspace_scoped() {
     assert_eq!(wrong["errorCode"], "invalidInput");
 }
 
-/// Simultaneous builds are serialized by the build lock, each extracts and
-/// publishes its own snapshot, and retention applies to all of them: never
-/// more than `keep` remain, each remaining one is complete and readable.
+/// Simultaneous `refresh` builds are serialized by the build lock, each
+/// extracts and publishes its own snapshot, and retention applies to all of
+/// them: never more than `keep` remain, each remaining one is complete and
+/// readable. Without `refresh` the builds of the unchanged scope that follow
+/// all answer with the one current snapshot.
 #[test]
 fn simultaneous_builds_each_publish_a_complete_snapshot_under_retention() {
     const BUILDS: usize = 3;
     const KEEP: usize = 2;
     let dir = Fixture::new();
     dir.write("a.ts", "export const a = 1;");
-    let outputs = std::thread::scope(|scope| {
-        let tasks = (0..BUILDS)
-            .map(|_| scope.spawn(|| call(&dir.0, ToolId::GraphBuild, json!({"keep": KEEP}))))
-            .collect::<Vec<_>>();
-        tasks
-            .into_iter()
-            .map(|task| task.join().expect("build"))
-            .collect::<Vec<_>>()
-    });
-    let ids = outputs
-        .iter()
-        .map(|out| out["id"].as_str().expect("id").to_owned())
-        .collect::<BTreeSet<_>>();
+    let simultaneous = |row: Value| {
+        std::thread::scope(|scope| {
+            let tasks = (0..BUILDS)
+                .map(|_| scope.spawn(|| call(&dir.0, ToolId::GraphBuild, row.clone())))
+                .collect::<Vec<_>>();
+            tasks
+                .into_iter()
+                .map(|task| task.join().expect("build"))
+                .collect::<Vec<_>>()
+        })
+    };
+    let ids_of = |outputs: &[Value]| {
+        outputs
+            .iter()
+            .map(|out| out["id"].as_str().expect("id").to_owned())
+            .collect::<BTreeSet<_>>()
+    };
+    let outputs = simultaneous(json!({"keep": KEEP, "refresh": true}));
+    let ids = ids_of(&outputs);
     assert_eq!(
         ids.len(),
         BUILDS,
-        "every build publishes its own id: {outputs:?}"
+        "every refresh publishes its own id: {outputs:?}"
+    );
+    let home = dir.0.join(".octocode/graph");
+    let unchanged = simultaneous(json!({"keep": KEEP}));
+    let latest = std::fs::read_to_string(home.join(LATEST_FILE)).expect("latest");
+    assert_eq!(
+        ids_of(&unchanged),
+        BTreeSet::from([latest]),
+        "an unchanged scope has one current snapshot: {unchanged:?}"
     );
     for out in &outputs {
         assert!(out.get("errorCode").is_none(), "{out}");
@@ -234,6 +250,82 @@ fn a_build_of_only_skipped_files_says_why_it_is_empty() {
     assert!(plain.get("hints").is_none(), "{plain}");
 }
 
+/// A build names the files of its scope that no graph grammar parses, as
+/// astSearch names the ones no AST grammar does: every one of them when the
+/// build holds no file, and beside parsed files the ones of no known type by
+/// name and the rest as a count per type. Script-bearing markup is read by
+/// the build, so it is not among them.
+#[test]
+fn a_build_names_the_files_no_graph_grammar_parses() {
+    let dir = Fixture::new();
+    dir.write("docs/a.md", "# a\n");
+    dir.write("docs/b.md", "# b\n");
+    dir.write("app/a.ts", "export function a() { return 1; }\n");
+    dir.write("app/notes.md", "# notes\n");
+    dir.write("app/tool.unknowntype", "fn main() {}\n");
+    dir.write("app/page.vue", "<script>export default {}</script>\n");
+    dir.write("src/c.ts", "export const c = 1;\n");
+
+    let empty = call(&dir.0, ToolId::GraphBuild, json!({"path": "docs"}));
+    assert_eq!(empty["counts"]["nodes"], 0, "{empty}");
+    let hints = empty["hints"].to_string();
+    assert!(
+        hints.contains("2 files skipped: no graph grammar for their names (docs/a.md, docs/b.md)"),
+        "{empty}"
+    );
+    assert!(hints.contains("parserGlobs"), "{empty}");
+    assert!(!hints.contains("behind skipped paths"), "{empty}");
+    assert!(
+        !hints.contains("searched"),
+        "a build searches nothing: {empty}"
+    );
+
+    let partly = call(&dir.0, ToolId::GraphBuild, json!({"path": "app"}));
+    assert!(
+        partly["counts"]["nodes"].as_u64().unwrap_or(0) > 0,
+        "{partly}"
+    );
+    let hints = partly["hints"].to_string();
+    assert!(
+        hints.contains("1 file skipped: no graph grammar for its name (app/tool.unknowntype)"),
+        "{partly}"
+    );
+    assert!(hints.contains("markdown 1"), "{partly}");
+    assert!(!hints.contains("page.vue"), "{partly}");
+    assert!(!hints.contains("a.ts"), "{partly}");
+
+    // The file `parserGlobs` maps to a grammar is parsed, not named.
+    let mapped = call(
+        &dir.0,
+        ToolId::GraphBuild,
+        json!({"path": "app", "parserGlobs": {"rust": ["*.unknowntype"]}}),
+    );
+    assert!(
+        !mapped["hints"].to_string().contains("tool.unknowntype"),
+        "{mapped}"
+    );
+
+    // A scope every file of which is parsed says nothing.
+    let plain = call(&dir.0, ToolId::GraphBuild, json!({"path": "src"}));
+    assert!(plain.get("hints").is_none(), "{plain}");
+
+    // The graph store the builds above wrote is Octocode's own, never the
+    // scope's: a walk that takes dot entries names none of its files.
+    assert!(dir.0.join(".octocode/graph").is_dir());
+    let whole = call(
+        &dir.0,
+        ToolId::GraphBuild,
+        json!({"path": ".", "includeHidden": true}),
+    );
+    let hints = whole["hints"].to_string();
+    assert!(hints.contains("tool.unknowntype"), "{whole}");
+    assert!(!hints.contains(".octocode"), "{whole}");
+    assert!(
+        !hints.contains("bin "),
+        "the store's files are counted: {whole}"
+    );
+}
+
 /// A build that lost a race with an edit names the cause as transient and
 /// leads to the same graphBuild, runnable as written; it is no tool failure.
 #[test]
@@ -254,4 +346,56 @@ fn a_build_that_lost_a_race_with_an_edit_leads_to_the_same_build() {
     let mut other = GraphOutput::error(ErrorCode::ExecutionFailed, "other");
     retry_after_change(&mut other, &query);
     assert!(other.value.get("related").is_none());
+}
+
+/// A snapshot built by another analysis version is refused by path and by
+/// ID, on the row both interfaces serve; its lead is the build that replaces
+/// it, and the rebuilt snapshot answers.
+#[test]
+fn a_snapshot_of_another_analysis_version_leads_to_its_rebuild() {
+    let dir = Fixture::new();
+    dir.write(
+        "app/a.ts",
+        "export function first() { return 1; }\nexport function final() { return first(); }\n",
+    );
+    let built = call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
+    let id = built["id"].as_str().expect("id");
+    let snapshot = dir.0.join(".octocode/graph").join(id);
+    let mut manifest = read_manifest(&snapshot).expect("manifest");
+    manifest["analysisVersion"] = json!(crate::tools::ast_graph::ANALYSIS_VERSION - 1);
+    std::fs::write(
+        snapshot.join(MANIFEST_FILE),
+        serde_json::to_vec(&manifest).expect("json"),
+    )
+    .expect("write");
+
+    let by_path = call(
+        &dir.0,
+        ToolId::GraphQuery,
+        json!({"operation":"callers","path":"app","target":"a.ts#first"}),
+    );
+    let by_id = call(
+        &dir.0,
+        ToolId::GraphQuery,
+        json!({"operation":"callers","path":"app","graph":id,"target":"a.ts#first"}),
+    );
+    assert_eq!(by_path, by_id);
+    assert_eq!(by_path["errorCode"], "notFound", "{by_path}");
+    assert!(by_path.get("rows").is_none(), "{by_path}");
+    assert!(by_path.get("graph").is_none(), "{by_path}");
+    let lead = &by_path["related"][0];
+    assert_eq!(lead["tool"], "graphBuild", "{by_path}");
+    let rebuilt = call(
+        &dir.0,
+        ToolId::GraphBuild,
+        lead["input"]["queries"][0].clone(),
+    );
+    assert_ne!(rebuilt["id"], built["id"], "{rebuilt}");
+    let callers = call(
+        &dir.0,
+        ToolId::GraphQuery,
+        json!({"operation":"callers","path":"app","target":"a.ts#first"}),
+    );
+    assert_eq!(callers["graph"]["id"], rebuilt["id"], "{callers}");
+    assert_eq!(callers["rows"][0]["id"], "a.ts#final", "{callers}");
 }

@@ -198,8 +198,8 @@ pub(crate) const TIMED_NOTICES: &str = "timedNotices";
 
 /// Record a measured wait on `row`: `text` holds one `{}` where the stage
 /// writes the seconds, and a call that records the same `text` on several rows
-/// states it once, in the envelope's `warnings`, with the longest wait
-/// (`response::notices::state_timed_notices`).
+/// states it once, in the `warnings` of its own response and of no later
+/// page, with the longest wait (`response::notices::take_timed_notices`).
 pub(crate) fn push_timed_notice(row: &mut impl RowFields, text: &str, seconds: f64) {
     let Some(object) = row.fields() else {
         return;
@@ -214,7 +214,7 @@ pub(crate) fn push_timed_notice(row: &mut impl RowFields, text: &str, seconds: f
 
 /// Whether `query` continues an earlier page of its result: a page-number
 /// cursor past 1, an offset cursor past 0, or a cursor token (`snapshot`,
-/// `selection`, …) it carries ([`crate::response::result::CURSOR_FIELDS`]).
+/// `selection`, …) it carries ([`crate::contracts::state_fields`]).
 pub(crate) fn continues_a_page(tool: ToolId, query: &Value) -> bool {
     crate::contracts::state_fields(tool).iter().any(|field| {
         query.get(field).is_some_and(|value| {

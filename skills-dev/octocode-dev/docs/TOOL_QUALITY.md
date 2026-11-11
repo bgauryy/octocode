@@ -12,7 +12,7 @@ How to evaluate the tools in the Octocode catalog.
 
 Every acceptance run covers the shared contract and tool-specific behavior:
 
-- `{queries:[...]}` with one to five independent same-tool rows, or only an issued `{cursor}`; CLI and MCP reject bare input and aliases;
+- `{queries:[...]}` with one to five independent same-tool rows, or only an issued `{cursor}`; CLI and MCP repair a shape with one lossless reading, such as a bare row, and reject ambiguous shapes and unknown fields (`<repo>/docs/TOOL_DATA_CONTRACT.md`);
 - zero-based result index alignment and isolated row failures;
 - authored operations, defaults and typed selectors from core;
 - `next.*`/responsePagination continue calls, related fresh calls and prose-only hints;
@@ -83,7 +83,7 @@ node packages/octocode/out/octocode.js schema localFetch --view query
 | `structureSearch` | `view:"paths"` and `view:"details"` with name and metadata filters. | Listing/tree pagination, snapshots, depth bounds, exclusions. |
 | `astSearch` | `match`, `syntaxTree`, `symbols`. | Structural `rule` composition, parser selection; captures, nodes, results; parser and scan limits. |
 | `lspSearch` | Document, workspace, anchored, hierarchy operations. | Distinguish no server, unsupported capability, failed anchor, valid empty; provenance; snapshots. |
-| `graphBuild` | Scope, force, storage, and CLI/MCP beta availability; one query per batch. | Freshness, durable extraction resume, source invalidation, bounded spill, failed-build preservation, corrupt checkpoint rejection. |
+| `graphBuild` | Scope, `refresh`, storage, and CLI/MCP beta availability; one query per batch. | Freshness, durable extraction resume, source invalidation, bounded spill, failed-build preservation, corrupt checkpoint rejection. |
 | `graphQuery` | Every operation, selector, witness/resolution option, and availability gate. | Pinned continuation union for every collection; integrity errors, stale snapshots, grammar coverage, evidence and unresolved sites. |
 | `ghSearchRepo`, `ghSearchCode`, `ghStructure` | Exercise code, repository, and tree variants (one tool each); code search uses the default-branch index, and an explicit `ref` requires `repo` and re-reads its hits. | Candidate matches, immutable tree identity, metadata pages, indexing uncertainty, provider-limit diagnostics. |
 | `ghGetFileContent` | `content`, `compact`, `symbols`; full and windowed reads. | Local/remote parity; pinned refs, repeated-outline prevention, redaction, directory-input rejection. |

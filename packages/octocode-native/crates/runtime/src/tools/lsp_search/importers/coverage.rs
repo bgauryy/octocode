@@ -180,7 +180,8 @@ impl Importers {
         }
     }
 
-    /// Gitignored files are outside the candidate scan. One that imports the
+    /// Gitignored files and files under hidden directories are outside the
+    /// candidate scan. One that imports the
     /// name may be a hidden importer, and one the import check could not
     /// decide is not ruled out: the row is partial, counts each kind, names
     /// the deciding rules, and leads to exactly those files. Files that only
@@ -249,7 +250,7 @@ impl Importers {
             return;
         }
         let rules = match ignored.rules.as_slice() {
-            [] => "ignore rules".to_owned(),
+            [] => "hidden directories or ignore rules".to_owned(),
             rules => rules.join(", "),
         };
         let mut counts = Vec::new();
@@ -266,12 +267,12 @@ impl Importers {
             ));
         }
         let more = if ignored.unfinished {
-            " The scan for gitignored files did not finish, so more may exist."
+            " The scan for gitignored or hidden files did not finish, so more may exist."
         } else {
             ""
         };
         let warning = format!(
-            "Of the gitignored files that spell this name ({rules}), {}; importer recovery did not verify them, and a localSearch with includeIgnored reads their text.{more}",
+            "Of the gitignored or hidden files that spell this name ({rules}), {}; importer recovery did not verify them, and a localSearch with includeIgnored and includeHidden reads their text.{more}",
             counts.join(" and ")
         );
         crate::response::paging::mark_partial(row, IGNORED_REASON, &[warning]);
@@ -300,6 +301,8 @@ impl Importers {
                 SCAN_FAILED
             } else if more {
                 SCAN_CAPPED
+            } else if self.ignored.may_hide_an_importer() {
+                SCAN_SKIPPED
             } else {
                 SCAN_COMPLETE
             });

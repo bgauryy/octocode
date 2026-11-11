@@ -101,10 +101,10 @@ impl<'a> WalkLog<'a> {
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .record(
+                    path,
                     self.paths
                         .workspace_relative(path)
                         .unwrap_or_else(|| path.to_string_lossy().into_owned()),
-                    known_type(path),
                 );
         }
         let admitted = !unparsed_file;
@@ -158,42 +158,4 @@ impl<'a> WalkLog<'a> {
             }),
         }
     }
-}
-
-/// The type `path`'s name is of in ripgrep's default type table (the one
-/// localSearch's `fileType` selects from), if any; of several
-/// (`CMakeLists.txt` is `cmake` and `txt`), the first by name, so the count
-/// is the same in every process. The table is the `ignore` crate's constant
-/// and its globs compile; a glob that did not would only leave its names of
-/// no known type, so they warn, never the reverse.
-fn known_type(path: &Path) -> Option<&'static str> {
-    static TYPES: std::sync::LazyLock<(Vec<String>, Vec<usize>, globset::GlobSet)> =
-        std::sync::LazyLock::new(|| {
-            let mut table = ignore::types::TypesBuilder::new();
-            table.add_defaults();
-            let (mut names, mut owners, mut set) = (vec![], vec![], globset::GlobSetBuilder::new());
-            // Sorted by name, so the lowest owner is the first name.
-            for (index, def) in table.definitions().into_iter().enumerate() {
-                for glob in def.globs() {
-                    if let Ok(glob) = globset::GlobBuilder::new(glob)
-                        .literal_separator(true)
-                        .build()
-                    {
-                        set.add(glob);
-                        owners.push(index);
-                    }
-                }
-                names.push(def.name().to_owned());
-            }
-            let set = set.build().unwrap_or_else(|_| globset::GlobSet::empty());
-            (names, owners, set)
-        });
-    let (names, owners, set) = &*TYPES;
-    let name = path.file_name()?;
-    let owner = set
-        .matches(name)
-        .into_iter()
-        .filter_map(|glob| owners.get(glob).copied())
-        .min()?;
-    names.get(owner).map(String::as_str)
 }

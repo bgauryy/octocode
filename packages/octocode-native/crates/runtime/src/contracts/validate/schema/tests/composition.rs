@@ -252,3 +252,54 @@ fn a_fields_own_guidance_wins_over_its_generic_issue() {
     let mut valid = json!({"questions":{"q":{"criteria":["low","high"]}}});
     validate_schema(&schema, &schema, &mut valid, &mut vec![]).expect("two levels pass");
 }
+
+/// Authored guidance explains a value of the shape its schema declares. A
+/// value of another type, or an unknown key, is not the guidance's to
+/// explain: the type and the unknown field are named, since the check's
+/// assertion fails on them for a reason its message does not state.
+#[test]
+fn guidance_never_replaces_a_wrong_type_or_an_unknown_field() {
+    let guidance = "set first or second";
+    let schema = json!({
+        "type":"object",
+        "properties":{"choice":{"$ref":"#/$defs/choice"}},
+        "$defs":{"choice":{
+            "type":"object",
+            "properties":{"first":{"type":"string"},"second":{"type":"string"}},
+            "additionalProperties":false,
+            "x-checks":[{
+                "id":"probe.choice", "message":guidance,
+                "assert":{"anyOf":[
+                    {"type":"object","required":["first"]},
+                    {"type":"object","required":["second"]}
+                ]}
+            }]
+        }}
+    });
+    let issues = |choice: serde_json::Value| {
+        let mut value = json!({"choice":choice});
+        validate_schema(&schema, &schema, &mut value, &mut vec![])
+            .expect_err("refused")
+            .issues
+            .into_iter()
+            .map(|issue| (issue.rule_id, issue.path.join(".")))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        issues(json!("first")),
+        [("schema.type".to_owned(), "choice".to_owned())]
+    );
+    assert_eq!(
+        issues(json!({"third":"x"})),
+        [("schema.unknown-field".to_owned(), "choice.third".to_owned())]
+    );
+    assert_eq!(
+        issues(json!({"first":"x","third":"y"})),
+        [("schema.unknown-field".to_owned(), "choice.third".to_owned())]
+    );
+    // A value of the declared shape still reads the guidance.
+    assert_eq!(
+        issues(json!({})),
+        [("probe.choice".to_owned(), "choice".to_owned())]
+    );
+}

@@ -38,7 +38,11 @@ fn a_query_from_another_workspace_names_both_homes() {
             .data;
         assert_eq!(missing["errorCode"], "notFound", "{missing}");
         let text = missing.to_string();
-        assert!(text.contains(&*searched.to_string_lossy()), "{missing}");
+        // The searched home lies in this workspace, so it is named as a row
+        // path is; the other workspace's home has no such name.
+        let error = missing["error"].as_str().expect("error");
+        assert!(error.ends_with("(searched .octocode/graph)"), "{missing}");
+        assert!(!text.contains(&*searched.to_string_lossy()), "{missing}");
         assert!(text.contains(&*built_home.to_string_lossy()), "{missing}");
         // The searched home may be a configured one (`local.graphHome`): the
         // hint names the others as the default home of the workspace that
@@ -46,6 +50,30 @@ fn a_query_from_another_workspace_names_both_homes() {
         assert!(text.contains("default home"), "{missing}");
         assert!(!text.contains("the snapshot home is"), "{missing}");
     }
+}
+
+/// A home configured outside the workspace has no workspace-relative name:
+/// the error names it in full.
+#[test]
+fn a_configured_home_outside_the_workspace_is_named_in_full() {
+    let dir = Fixture::new();
+    dir.write("app/a.ts", "export const a = 1;\n");
+    let app = dir.0.join("app").canonicalize().expect("app");
+    let home = dir.0.canonicalize().expect("root").join("graphs");
+    let row = crate::contracts::validate_built_query(
+        ToolId::GraphQuery.as_str(),
+        json!({"operation":"stats","path":"."}),
+    )
+    .expect("input contract");
+    let missing = execute_query(&row, &policy(&app, &dir.0), &context(), None, Some(&home))
+        .expect("execute")
+        .data;
+    assert_eq!(missing["errorCode"], "notFound", "{missing}");
+    let error = missing["error"].as_str().expect("error");
+    assert!(
+        error.contains(&format!("(searched {}", home.display())),
+        "{missing}"
+    );
 }
 
 /// A home holding a snapshot of the path but outside every allowed root is

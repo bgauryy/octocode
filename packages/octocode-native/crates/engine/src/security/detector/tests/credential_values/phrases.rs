@@ -87,3 +87,84 @@ fn credential_assignments_keep_plain_word_phrases_under_opaque_string_keys() {
         assert!(!result.secrets_detected.is_empty(), "{content:?}");
     }
 }
+
+/// Prose under an opaque-string key stays prose when a word of it carries
+/// ordinary punctuation inside: an abbreviation (`e.g.`), a dotted name
+/// (`devDependencies.vite`), a quoted or bracketed example. Its words are
+/// the runs of letters between those marks, each judged as a word.
+#[test]
+fn credential_assignments_keep_prose_with_punctuation_inside_its_words() {
+    for content in [
+        "{\"matchKeys\":\"each hit line key path, e.g. the name\"}\n",
+        "{\"matchKeys\":\"each hit line key path such as devDependencies.vite here\"}\n",
+        "{\"matchKeys\":\"JSON or TOML file: each hit line's key path, e.g. {\\\"221\\\":\\\"devDependencies.vite\\\"}; [i] is an array item.\"}\n",
+        "{\"matchKeys\":\"JSON or TOML file: each hit line's key path, in line order, e.g. [{\\\"line\\\":289,\\\"keyPath\\\":\\\"devDependencies.typescript\\\"}].\"}\n",
+        "  sort_keys: \"ascending (a.k.a. `natural`) order; see the read.me notes\"\n",
+        "const tokenHint = \"Listens on 127.0.0.1:8080 by default, i.e. loopback only.\";\n",
+    ] {
+        for path in [None, Some("fixtures/row.json"), Some("src/model.rs")] {
+            let result = detect(content, path);
+            assert_eq!(result.sanitized, content, "{path:?}");
+            assert!(result.secrets_detected.is_empty(), "{path:?}: {content:?}");
+        }
+    }
+}
+
+/// Punctuation inside a piece makes no word of an opaque run: a token beside
+/// words, dotted or quoted, a run in a token alphabet's own characters
+/// (`+/=`, `_`), a long number, a run with a digit or a password's
+/// substitution marks stay redacted, as does any phrase under a name a
+/// person may choose a phrase for.
+#[test]
+fn credential_assignments_still_redact_opaque_runs_inside_punctuated_phrases() {
+    let token = "a1B2c3D4e5F6g7H8i9J0k1L2";
+    let jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r";
+    for (content, secret) in [
+        (
+            format!("{{\"matchKeys\":\"use the key, e.g. {token}\"}}\n"),
+            token,
+        ),
+        (
+            format!("{{\"matchKeys\":\"each hit line key path such as {token}.vite here\"}}\n"),
+            token,
+        ),
+        (
+            format!("{{\"accessToken\":\"e.g. {{\\\"221\\\":\\\"{token}\\\"}}; is an item.\"}}\n"),
+            token,
+        ),
+        (format!("  auth_token: \"Bearer {jwt}\"\n"), jwt),
+        (
+            "  api_key: \"see the value, e.g. 123456789.0\"\n".to_owned(),
+            "123456789",
+        ),
+        (
+            "  api_key: \"the name, e.g. abcd/efgh+ijkl==\"\n".to_owned(),
+            "efgh+ijkl",
+        ),
+        (
+            "  api_key: \"the name, e.g. abcdefgh_ijklmnop\"\n".to_owned(),
+            "abcdefgh_ijklmnop",
+        ),
+        (
+            "  api_key: \"my$ecret pa$$word, e.g. this\"\n".to_owned(),
+            "my$ecret pa$$word",
+        ),
+        (
+            "  \"password\": \"correct horse, e.g. battery.staple\"\n".to_owned(),
+            "battery.staple",
+        ),
+        (
+            "{\"clientSecret\":\"each hit line key path, e.g. the name\"}\n".to_owned(),
+            "each hit line key path",
+        ),
+    ] {
+        for path in [None, Some("fixtures/row.json")] {
+            let result = detect(&content, path);
+            assert!(
+                !result.sanitized.contains(secret),
+                "{path:?} leaked: {content:?}"
+            );
+            assert!(!result.secrets_detected.is_empty(), "{path:?}: {content:?}");
+        }
+    }
+}

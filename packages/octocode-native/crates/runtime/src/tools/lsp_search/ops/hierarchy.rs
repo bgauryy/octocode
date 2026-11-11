@@ -19,8 +19,18 @@ impl Operation<'_, '_> {
             super::super::walk::Expansion::Supertypes
         };
         let mut candidates = if kind == "subtypes" {
-            match self.implemented(true, false).await? {
-                Implemented::Server { found, .. } => {
+            // The scan's declarations the server left out (an impl inside a
+            // function body, say) are candidates like the server's own: the
+            // walk checks each against the heritage clause it names.
+            match self
+                .implemented(Some(&heritage::Scannable::Subtypes), true)
+                .await?
+            {
+                Implemented::Server { mut found, scan } => {
+                    if let Some(scan) = scan {
+                        let (extra, _) = scan_only(&found, scan);
+                        found.extend(extra);
+                    }
                     let Some(window) =
                         super::super::fallback_hierarchy::CandidateWindow::cut(query, found)
                     else {
@@ -129,10 +139,12 @@ impl Operation<'_, '_> {
 
     /// `implementation`: the server's answer, or, for a type declaration the
     /// server cannot answer in time, the labelled heritage scan standing in
-    /// for it. Another anchor (a member, a function) has no heritage clause
-    /// a scan could read, so its failure stays the failure. Beside a server
-    /// answer for a type, the scan's declarations the server left out (a
-    /// function-local impl, say) follow its rows, each labelled.
+    /// for it. Beside a server answer for a type, the scan's declarations
+    /// the server left out (a function-local impl, say) follow its rows,
+    /// each labelled; beside one for a member of a type (a trait method),
+    /// the members of that name its subtypes declare do. A member's scan
+    /// never stands in for the server, and another anchor (a function) has
+    /// no heritage clause a scan could read: their failure stays the failure.
     pub(super) async fn implementation(self) -> Result<Value, LspFailure> {
         let query = self.query;
         let content = self
@@ -141,10 +153,12 @@ impl Operation<'_, '_> {
             .await
             .map(|source| source.content.clone())
             .unwrap_or_default();
-        let scannable = lsp_search_query::symbol_name(query).is_some_and(|name| {
-            heritage::anchors_type_declaration(&content, self.path, self.line, name)
-        });
-        let (found, scanned, extra) = match self.implemented(scannable, scannable).await? {
+        let scannable = lsp_search_query::symbol_name(query)
+            .and_then(|name| heritage::scannable(&content, self.path, self.line, name));
+        let (found, scanned, extra) = match self
+            .implemented(scannable.as_ref(), scannable.is_some())
+            .await?
+        {
             Implemented::Server { found, scan } => {
                 let extra = scan.map(|scan| scan_only(&found, scan));
                 (found, None, extra)
@@ -184,27 +198,32 @@ impl Operation<'_, '_> {
     }
 
     /// The server's `textDocument/implementation` answer. The heritage scan
-    /// (when `scannable`) runs while the request is pending: a failure that
-    /// has the scan as fallback takes it without a second wait, and a server
-    /// still silent a grace after the scan finishes yields to it. `keep`
-    /// also waits for the scan beside a server answer.
+    /// (`scannable`, when the anchor has one) runs while the request is
+    /// pending. Where it can stand in for the server
+    /// ([`heritage::Scannable::stands_in`]), a failure that has the scan as
+    /// fallback takes it without a second wait, and a server still silent a
+    /// grace after the scan finishes yields to it. `keep` also waits for
+    /// the scan beside a server answer.
     pub(super) async fn implemented(
         &self,
-        scannable: bool,
+        scannable: Option<&heritage::Scannable>,
         keep: bool,
     ) -> Result<Implemented, LspFailure> {
+        let stands_in = scannable.is_some_and(heritage::Scannable::stands_in);
         let scan = async {
-            if scannable {
-                self.heritage_scan().await
-            } else {
-                Ok(None)
+            match scannable {
+                Some(what) => self.heritage_scan(what).await,
+                None => Ok(None),
             }
         };
         let raced = heritage::hedged(
             self.location_request(LocationRequest::Implementation),
             scan,
-            heritage::implementation_failure_has_fallback,
-            |scan| matches!(scan, Ok(Some(_))).then_some(heritage::SERVER_GRACE_AFTER_SCAN),
+            |failure| stands_in && heritage::implementation_failure_has_fallback(failure),
+            |scan| {
+                (stands_in && matches!(scan, Ok(Some(_))))
+                    .then_some(heritage::SERVER_GRACE_AFTER_SCAN)
+            },
             |wait| {
                 LspFailure::overdue(format!(
                     "no answer within {} s of the syntax scan finishing",
@@ -242,12 +261,23 @@ impl Operation<'_, '_> {
         }
     }
 
-    /// Subtypes read from the heritage clauses of every workspace file that
-    /// spells the queried name: the syntax answer standing by for a failed
-    /// implementation request. `None` when no name is queried or the text
-    /// scan of the workspace could not run.
-    pub(super) async fn heritage_scan(&self) -> Result<Option<heritage::HeritageScan>, LspFailure> {
-        heritage::scan_workspace(self.query, self.scope, self.sources.policy(), self.cancel).await
+    /// What the heritage clauses of the workspace files that spell the
+    /// queried name say of the anchor ([`heritage::scan_for`]): the syntax
+    /// answer beside, or standing by for, the implementation request. `None`
+    /// when no name is queried or the text scan of the workspace could not
+    /// run.
+    pub(super) async fn heritage_scan(
+        &self,
+        what: &heritage::Scannable,
+    ) -> Result<Option<heritage::HeritageScan>, LspFailure> {
+        heritage::scan_for(
+            what,
+            self.query,
+            self.scope,
+            self.sources.policy(),
+            self.cancel,
+        )
+        .await
     }
 
     /// A call or type hierarchy walk; TS/JS incoming walks also verify the

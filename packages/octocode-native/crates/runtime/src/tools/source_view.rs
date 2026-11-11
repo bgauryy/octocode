@@ -28,5 +28,6 @@ pub use types::{
 pub(crate) use types::{local_fetch_query, wire_count};
 pub use view::process_fetched_content;
 pub(crate) use view::{
-    past_end, process_fetched_content_selected, stale_snapshot, unsupported_selection,
+    past_end, process_fetched_content_selected, refuse_binary, stale_snapshot,
+    unsupported_selection,
 };

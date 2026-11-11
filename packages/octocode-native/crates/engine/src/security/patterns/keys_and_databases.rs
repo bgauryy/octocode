@@ -250,7 +250,8 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         name: "ageSecretKey",
         file_context: None,
         // X25519 and post-quantum identities, and a plugin's. Recipients read `age1`.
-        regex: r###"AGE-SECRET-KEY-(?:PQ-)?1[QPZRY9X8GF2TVDW0S3JN54KHCE6MUA7L]{58,}\b|AGE-PLUGIN-[A-Z0-9-]+?-1[QPZRY9X8GF2TVDW0S3JN54KHCE6MUA7L]{20,}\b"###,
+        // The tag says what follows whatever alphabet a copy keeps.
+        regex: r###"AGE-SECRET-KEY-(?:PQ-)?1[A-Z0-9]{58,}\b|AGE-PLUGIN-[A-Z0-9-]+?-1[QPZRY9X8GF2TVDW0S3JN54KHCE6MUA7L]{20,}\b"###,
     },
     SecretPattern {
         name: "vaultBatchToken",

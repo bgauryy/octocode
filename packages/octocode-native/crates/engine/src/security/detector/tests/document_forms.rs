@@ -514,16 +514,28 @@ fn a_docker_registry_credential_is_hidden_and_its_config_stays_readable() {
 }
 
 /// Only a registry's entry under `auths` holds a registry credential: an
-/// `auth` member elsewhere, or one directly in `auths`, says nothing.
+/// `auth` member elsewhere, or one directly in `auths`, is none of this
+/// form's. Its name still says what an opaque value under it is, and the
+/// name's own rule hides that; a value that is no opaque one stays.
 #[test]
-fn an_auth_member_outside_a_registry_entry_stays() {
-    for text in [
-        format!("{{\"auth\":\"{DOCKER_AUTH}\"}}\n"),
-        format!("{{\"settings\":{{\"auth\":\"{DOCKER_AUTH}\"}}}}\n"),
-        format!("{{\"auths\":{{\"auth\":\"{DOCKER_AUTH}\"}}}}\n"),
-        format!("{{\"auths\":[{{\"auth\":\"{DOCKER_AUTH}\"}}]}}\n"),
+fn an_auth_member_outside_a_registry_entry_is_no_registry_credential() {
+    for member in [
+        "{\"auth\":\"VALUE\"}\n",
+        "{\"settings\":{\"auth\":\"VALUE\"}}\n",
+        "{\"auths\":{\"auth\":\"VALUE\"}}\n",
+        "{\"auths\":[{\"auth\":\"VALUE\"}]}\n",
     ] {
-        unchanged(&text, "conf/app.json");
+        let result = detect(&member.replace("VALUE", DOCKER_AUTH), Some("conf/app.json"));
+        assert_eq!(
+            result.secrets_detected,
+            ["credentialNamedValue"],
+            "{}",
+            result.sanitized
+        );
+        unchanged(
+            &member.replace("VALUE", "basic-auth-for-the-registry"),
+            "conf/app.json",
+        );
     }
 }
 
@@ -598,4 +610,24 @@ fn a_registry_credential_that_only_looks_like_a_placeholder_is_hidden() {
         let out = detect(&text, Some("docker/config.json")).sanitized;
         assert!(!out.contains("Zq7xK2mPlanted9"), "{value}: {out}");
     }
+}
+
+/// A Secret's block loses its values and keeps what names them: each
+/// member's name, the quotes around a value, a block scalar's header, the
+/// comments and the indentation, in memory and past the in-memory limit.
+#[test]
+fn a_yaml_secret_keeps_the_names_of_its_values() {
+    let content = format!(
+        "apiVersion: v1\nkind: Secret\nmetadata:\n  name: app\ndata:\n  tls.crt: {VALUE}  # rotated\n  ca.crt: \"{OTHER}\"\nstringData:\n  # the client's\n  blob: {SCALAR}\n  config.yaml: |\n    {VALUE}\n    user: {OTHER}\ntype: Opaque\n"
+    );
+    let placeholder = "[REDACTED-KUBERNETESSECRETS]";
+    let expected = content
+        .replace(VALUE, placeholder)
+        .replace(OTHER, placeholder)
+        .replace(SCALAR, placeholder);
+    let scope = Scope::File("k8s/secret.yaml");
+    assert_eq!(detect_in(&content, scope).sanitized, expected);
+    let long = redact_within(&content, scope, 1).expect("a secret is hidden");
+    assert_eq!(long.sanitized, expected);
+    assert!(redact_within(&expected, scope, 1).is_none());
 }

@@ -11,6 +11,19 @@ pub struct ToolOutcome {
     pub structured_content: Sanitized,
     pub failure: Option<FailureKind>,
     pub all_failed: bool,
+    /// The saved request a `{"cursor":…}` call continued, as it ran; `None`
+    /// for a fresh call, whose input says it. A surface that describes the
+    /// call (the CLI's text output) reads it in place of the opaque cursor.
+    pub continued: Option<Value>,
+}
+
+impl ToolOutcome {
+    /// This outcome of a call that continued the saved request `continued`.
+    #[must_use]
+    pub(crate) fn continuing(mut self, continued: Option<Value>) -> Self {
+        self.continued = continued;
+        self
+    }
 }
 
 pub(crate) struct DomainResult {

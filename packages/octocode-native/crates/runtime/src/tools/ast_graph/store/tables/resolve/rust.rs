@@ -78,6 +78,45 @@ impl Linker<'_> {
         (!targets.is_empty()).then_some((targets, "module-path", confidence))
     }
 
+    /// The call's whole qualifier is one path keyword (`self::f()`,
+    /// `super::f()`, `crate::f()`): a module, never a receiver. `self.f()`
+    /// is a value qualifier.
+    pub(crate) fn rust_keyword_qualified(&self, site: &Site) -> bool {
+        !site.value_qualifier
+            && matches!(site.qualifier, "self" | "super" | "crate")
+            && self.is_rust(site.caller)
+    }
+
+    /// `self::f()`, `super::f()` and `crate::f()` name an item of the module
+    /// the keyword reaches: what that module declares at its top level or
+    /// binds through a `use` (so a `pub use` re-export is followed to its
+    /// declaration). Such a path binds there or nowhere. Inside an inline
+    /// module `self` and `super` belong to [`Self::rust_inline_path`].
+    pub(super) fn rust_keyword_path(&self, site: &Site) -> Option<Linked> {
+        let inline =
+            self.nodes[self.enclosing_module(site.caller) as usize].kind == NodeKind::Symbol;
+        if inline && site.qualifier != "crate" {
+            return None;
+        }
+        let caller_path = self.scope.path(self.file_of(site.caller))?;
+        let mut targets = Vec::new();
+        let mut uncertain = false;
+        for file in self.scope.rust_keyword_files(site.qualifier, caller_path) {
+            let resolved = self.resolver.resolved(file, site.name);
+            uncertain |= resolved.uncertain;
+            targets.extend(site.accepted(resolved.targets));
+        }
+        targets.sort_unstable();
+        targets.dedup();
+        let strong = if uncertain {
+            Confidence::Medium
+        } else {
+            Confidence::High
+        };
+        let confidence = confidence_for(&targets, strong);
+        (!targets.is_empty()).then_some((targets, "module-path", confidence))
+    }
+
     /// Method resolution tries inherent methods before trait methods: an
     /// inherent `impl T` member shadows the same name in an `impl Trait for
     /// T` (one whose trait resolved to a repo declaration).

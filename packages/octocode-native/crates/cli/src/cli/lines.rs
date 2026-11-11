@@ -1,34 +1,53 @@
-//! Text output for a terminal or a pipe. A single-row `localSearch`,
-//! `astSearch`, `lspSearch` or `structureSearch files` result prints its
-//! standard line format on stdout, as rg, ast-grep and fd do:
-//! one `path:line:text` hit, or with several hits or context `rg --heading`
-//! blocks (the path, then `line:text` hits and `line-text` context, `--`
-//! between groups),
-//! `path:line: kind name` declarations, one path per line, `path:line`, or
-//! `path:count`. Every other field of
-//! the result goes to stderr as `# key: value` notes, so stdout pipes cleanly
-//! and no field is dropped. Every other result, and each row of a batch
-//! without a line format, prints as indented `key: value` text ([`outline`]).
+//! Text output for a terminal or a pipe. Stdout carries each row's evidence
+//! and, after it, the facts that decide "am I done" and how to read the
+//! answer; stderr carries the rest as `# key: value` notes. No field is
+//! dropped.
 //!
-//! Follow-up calls (`next.*`, call hints, `responsePagination.next`, a
-//! repair) print as `octocode <tool> '<json>'` commands. They are read from
+//! A row's content: `localSearch`, `astSearch` and `lspSearch` print the
+//! line formats of rg and ast-grep, a file's rows under its path once
+//! (`path`, then `line:text` hits and `line-text` context, `--` between
+//! groups; `line: kind name` declarations), a lone row as `path:line:text` or
+//! `path:line: kind name`, sites as `path:line,line`, and a file without rows
+//! as its path. `path:N` is always a line. A file's other fields (counts, its
+//! page) follow its path in `[ … ]`. A listing prints each `dir/` once with
+//! its entries indented under it. Every other result prints as indented
+//! `key: value` text ([`outline`]).
+//!
+//! The trailer follows the content, one `# ` line each, the same for every
+//! tool: a `status` that is not ok, each page state (an object holding
+//! `hasMore`) and incomplete mark, the row's `warnings` and `hints`, then the
+//! commands that continue the answer: `responsePagination.next` first, then
+//! `next.nextPage`, then any other. A call rejected before it ran prints as
+//! a failed row does ([`rejected`]). A batch prints each row under `## results[N]` with its own trailer,
+//! the envelope's after the last row, and names the row in its stderr notes
+//! (`# results[N] key: value`).
+//!
+//! Counters and `related[]` leads are the stderr notes.
+//! Calls print as `octocode <tool> '<json>'` commands. They are read from
 //! the structured result only, never from rendered text, so fetched content
 //! that looks like a call is never rewritten.
 mod follow;
 mod hits;
 mod listing;
 mod outline;
-pub(super) use follow::all_rows_failed;
-use follow::field_notes;
-use hits::{hits, value_lines};
-use listing::{declarations, is_working_directory, listing, locations, single_row, words};
+use follow::{field_notes, split_stated, stated_notes};
+use hits::{annotation, hits, value_lines};
+use listing::{is_working_directory, listing, locations, outline_rows, words};
 use octocode_native::id::ToolId;
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 
-/// A rendered result: data lines for stdout and notes for stderr.
+/// A rendered result: stdout lines and stderr notes.
 pub(super) struct Lines {
     pub out: String,
     pub notes: String,
+}
+
+/// One row's text: its content, its trailer (stdout, after the content) and
+/// its notes (stderr), the last two without their `# `.
+struct Row {
+    body: Vec<String>,
+    trailer: Vec<String>,
+    notes: Vec<String>,
 }
 
 /// Explicit context determines whether hit values carry source-line prefixes.
@@ -41,16 +60,24 @@ fn context_requested(query: &Value) -> bool {
         .any(|key| context[key].as_u64().is_some_and(|n| n > 0))
 }
 
-/// The text of a result: the line format of a single-row `localSearch`,
-/// `astSearch`, `lspSearch` (sites, locations, call rows, symbols) or
-/// `structureSearch files` result, `key: value` text for any other, each row
-/// of a batch under its own heading; `None` only when the result does not
+/// Each physical line of `notes` behind `prefix`, so a note that spans lines
+/// stays a note on every one.
+fn prefixed<'a>(prefix: &'a str, notes: &'a [String]) -> impl Iterator<Item = String> + 'a {
+    notes
+        .iter()
+        .flat_map(|note| note.split('\n'))
+        .map(move |line| format!("{prefix}{line}"))
+}
+
+/// The text of a result (module docs); `None` only when the result does not
 /// match its tool's output schema, which prints its JSON. `cwd` is the
 /// caller's directory: a root equal to it needs no note.
 ///
-/// `query` is the call as sent; it is read as the runtime ran it, so a
-/// shorthand the runtime repairs (scalar `contextLines`, a bare row) prints
-/// exactly as its contract form does.
+/// `query` is the call as sent, or the request a cursor continued when the
+/// runtime names it; it is read as the runtime ran it, so a shorthand the
+/// runtime repairs (scalar `contextLines`, a bare row) prints exactly as its
+/// contract form does. A bare cursor says nothing of the request, so its
+/// `localSearch` hits print as `key: value` text.
 pub(super) fn render(
     tool: ToolId,
     structured: &Value,
@@ -59,19 +86,60 @@ pub(super) fn render(
 ) -> Option<Lines> {
     let query = &octocode_native::contracts::input_as_run(tool.as_str(), query.clone());
     let (display, calls) = follow::separate_calls(tool, structured)?;
-    let mut lines = match display.get("results").and_then(Value::as_array) {
-        Some(rows) if rows.len() == 1 => render_data(tool, &display, query, cwd)
-            .unwrap_or_else(|| outline::generic(&display, query, cwd)),
-        Some(_) => outline::batch(tool, &display, query, cwd),
-        None => return None,
-    };
-    for call in calls {
-        if !lines.notes.is_empty() {
-            lines.notes.push('\n');
+    let rows = display.get("results")?.as_array()?;
+    let single = rows.len() == 1;
+    let (mut envelope, envelope_notes) = envelope_tail(&display, cwd);
+    let (commands, envelope_leads) = follow::notes_of(&calls, None);
+    envelope.extend(commands);
+    let mut out = Vec::new();
+    let mut notes = Vec::new();
+    let no_fields = Map::new();
+    for (position, row) in rows.iter().enumerate() {
+        let row = row.as_object().unwrap_or(&no_fields);
+        let label = format!("results[{position}]");
+        let index = row.get("index").and_then(Value::as_u64);
+        if !single {
+            out.push(match index {
+                Some(index) if index != position as u64 => format!("## {label} index {index}"),
+                _ => format!("## {label}"),
+            });
         }
-        lines.notes.push_str(&format!("# {call}"));
+        // A row reads its own query (context lines, operation), whichever
+        // rows share its page; a bare cursor names none, so it reads that.
+        let asked = index
+            .and_then(|index| query["queries"].get(usize::try_from(index).ok()?))
+            .map(|asked| json!({"queries": [asked]}));
+        let asked = asked.as_ref().unwrap_or(query);
+        let mut text =
+            render_data(tool, row, asked).unwrap_or_else(|| outline::generic(row, asked));
+        let (commands, leads) = follow::notes_of(&calls, Some(position));
+        out.append(&mut text.body);
+        out.extend(prefixed("# ", &text.trailer));
+        if single {
+            out.extend(prefixed("# ", &envelope));
+            // The heading names a batch row's index; a lone row's is a note.
+            if let Some(index) = index.filter(|index| *index != 0) {
+                text.notes.insert(0, format!("index: {index}"));
+            }
+        }
+        out.extend(prefixed("# ", &commands));
+        let prefix = if single {
+            "# ".to_owned()
+        } else {
+            format!("# {label} ")
+        };
+        notes.extend(prefixed(&prefix, &text.notes));
+        notes.extend(prefixed(&prefix, &leads));
     }
-    Some(lines)
+    if !single {
+        out.extend(prefixed("# ", &envelope));
+    }
+    notes.extend(prefixed("# ", &envelope_notes));
+    notes.extend(prefixed("# ", &envelope_leads));
+    Some(Lines {
+        out: out.join("\n"),
+        notes: notes.join("\n"),
+    })
 }
 
 /// An `lspSearch` answer's location rows, each with its path: `matches`, or
@@ -114,35 +182,35 @@ fn with_declarations(matches: Value, declarations: Option<&Value>) -> Value {
     Value::Array(rows)
 }
 
-fn render_data(
-    tool: ToolId,
-    structured: &Value,
-    query: &Value,
-    cwd: Option<&std::path::Path>,
-) -> Option<Lines> {
-    match tool {
-        ToolId::StructureSearch => return listing(structured, query, cwd),
-        ToolId::LocalSearch | ToolId::AstSearch | ToolId::LspSearch => {}
-        _ => return None,
-    }
-    if tool == ToolId::LocalSearch && query.get("cursor").is_some() {
+/// A row in its line format: a listing of any tool, or the hits, sites and
+/// declarations of a search tool. `None` for a failed row and for any shape
+/// without one, which print as `key: value` text.
+fn render_data(tool: ToolId, row: &Map<String, Value>, query: &Value) -> Option<Row> {
+    if row.get("status").and_then(Value::as_str) == Some("error") {
         return None;
     }
-    let row = single_row(structured)?;
     let data = row.get("data")?.as_object()?;
+    let mut rest = data.clone();
+    let mut body = Vec::new();
+    let mut marks = Vec::new();
+    if listing(data, &mut body).is_some() {
+        rest.shift_remove("files");
+        return Some(tail(query, row, rest, marks, body));
+    }
+    if !matches!(
+        tool,
+        ToolId::LocalSearch | ToolId::AstSearch | ToolId::LspSearch
+    ) || (tool == ToolId::LocalSearch && query.get("cursor").is_some())
+    {
+        return None;
+    }
     if tool == ToolId::LspSearch
         && let Some(matches) = location_rows(data)
     {
-        let mut out = Vec::new();
-        let mut file_notes = Vec::new();
-        locations(&matches, &mut out, &mut file_notes)?;
-        let mut data = data.clone();
-        data.shift_remove("matches");
-        data.shift_remove("files");
-        return Some(Lines {
-            out: out.join("\n"),
-            notes: notes(structured, query, row, data, file_notes, cwd),
-        });
+        locations(&matches, &mut body, &mut marks)?;
+        rest.shift_remove("matches");
+        rest.shift_remove("files");
+        return Some(tail(query, row, rest, marks, body));
     }
     // A single-file outline (`astSearch symbols`, `lspSearch
     // documentSymbols`): the row names its path only when the tool changed it.
@@ -152,155 +220,134 @@ fn render_data(
             .or_else(|| query["queries"].get(0)?.get("path"))
             .and_then(Value::as_str),
     ) {
-        let mut out = Vec::new();
-        declarations(path, symbols, false, &mut out)?;
-        let mut data = data.clone();
-        data.shift_remove("symbols");
-        return Some(Lines {
-            out: out.join("\n"),
-            notes: notes(structured, query, row, data, Vec::new(), cwd),
-        });
+        outline_rows(path, symbols, None, &mut body)?;
+        rest.shift_remove("symbols");
+        return Some(tail(query, row, rest, marks, body));
     }
     let empty = row.get("status").and_then(Value::as_str) == Some("empty");
-    let no_files = Vec::new();
-    let files = match data.get("files") {
-        Some(files) => files.as_array()?,
-        // An empty result prints nothing on stdout, as rg does; its notes say why.
-        None if empty => &no_files,
+    let files = match rest.shift_remove("files") {
+        Some(Value::Array(files)) => files,
+        Some(_) => return None,
+        // An empty result has no content; its trailer says so.
+        None if empty => Vec::new(),
         None => return None,
     };
     let numbered = tool == ToolId::LocalSearch && context_requested(query);
-    let mut out = Vec::new();
-    let mut file_notes = Vec::new();
-    for file in files {
-        let file = file.as_object()?;
-        let path = file.get("path")?.as_str()?;
-        let mut rest = file.clone();
-        rest.shift_remove("path");
-        let terms = term_counts(&rest, query);
-        if let Some(Value::Array(symbols)) = rest.shift_remove("symbols") {
-            declarations(path, &symbols, false, &mut out)?;
-            if !rest.is_empty() {
-                file_notes.push(format!("file {path}: {}", words(&rest)));
-            }
-            continue;
-        }
-        let declarations_of_file = rest.shift_remove("declarations");
-        let matches = rest
-            .shift_remove("matches")
-            .map(|matches| with_declarations(matches, declarations_of_file.as_ref()));
-        let count = ["matchCount", "matchedLineCount"]
-            .into_iter()
-            .find_map(|key| rest.get(key).and_then(Value::as_u64).map(|n| (key, n)));
-        // `lspSearch view:files`: the start line of every site in the file.
-        let site_lines = rest
-            .get("lines")
-            .filter(|_| tool == ToolId::LspSearch)
-            .and_then(|lines| serde_json::from_value::<Vec<u64>>(lines.clone()).ok());
-        match (matches, count, site_lines) {
-            (Some(Value::Array(matches)), _, _)
-                if matches.iter().all(|item| item.get("value").is_some()) =>
-            {
-                hits(path, &matches, numbered, &mut out)?;
-            }
-            // `lspSearch` call rows (`callers`, `callees`): the calling or
-            // called declaration, its call sites in `[ … ]`.
-            (Some(Value::Array(matches)), _, _) if tool == ToolId::LspSearch => {
-                declarations(path, &matches, false, &mut out)?;
-            }
-            // A `path:N` line per site, as sites print without grouping; the
-            // count is the number of lines.
-            (None, count, Some(lines)) => {
-                rest.shift_remove("lines");
-                if count.is_some_and(|(key, n)| key == "matchCount" && n == lines.len() as u64) {
-                    rest.shift_remove("matchCount");
-                }
-                out.extend(lines.iter().map(|n| format!("{path}:{n}")));
-            }
-            (None, Some((key, n)), None) if rest.len() == 1 + usize::from(terms.is_some()) => {
-                rest.shift_remove(key);
-                rest.shift_remove("termCounts");
-                out.push(match &terms {
-                    Some(terms) => format!("{path}:{n}  [{terms}]"),
-                    None => format!("{path}:{n}"),
-                });
-            }
-            (None, _, None) => out.push(path.to_owned()),
-            _ => return None,
-        }
-        if !rest.is_empty() {
-            file_notes.push(format!("file {path}: {}", words(&rest)));
-        }
+    for file in &files {
+        file_rows(tool, file.as_object()?, numbered, &mut body)?;
     }
-    Some(Lines {
-        out: out.join("\n"),
-        notes: notes(structured, query, row, data.clone(), file_notes, cwd),
-    })
+    Some(tail(query, row, rest, marks, body))
 }
 
-/// A count row's `termCounts` as `term count` pairs in `matchString` order
-/// (`planChunks 0 readGraph 10`), or `termCounts 0,10` when the query does
-/// not name the terms (a continuation).
-fn term_counts(rest: &Map<String, Value>, query: &Value) -> Option<String> {
-    let counts = rest.get("termCounts")?.as_array()?.clone();
-    let terms = query["queries"][0]["matchString"]
-        .as_array()
-        .filter(|terms| terms.len() == counts.len());
-    Some(match terms {
-        Some(terms) => terms
-            .iter()
-            .zip(&counts)
-            .map(|(term, count)| format!("{} {count}", term.as_str().unwrap_or_default()))
-            .collect::<Vec<_>>()
-            .join(" "),
-        None => words(&Map::from_iter([(
-            "termCounts".to_owned(),
-            Value::Array(counts),
-        )])),
-    })
+/// One file of a search result: its hits, declarations or sites under its
+/// path, or the path alone; its other fields follow the path in `[ … ]`.
+fn file_rows(
+    tool: ToolId,
+    file: &Map<String, Value>,
+    numbered: bool,
+    out: &mut Vec<String>,
+) -> Option<()> {
+    let path = file.get("path")?.as_str()?;
+    let mut rest = file.clone();
+    rest.shift_remove("path");
+    if let Some(Value::Array(symbols)) = rest.shift_remove("symbols") {
+        return outline_rows(path, &symbols, annotation(&rest).as_deref(), out);
+    }
+    let declarations_of_file = rest.shift_remove("declarations");
+    match rest.shift_remove("matches") {
+        Some(Value::Array(matches)) if matches.iter().all(|item| item.get("value").is_some()) => {
+            let Value::Array(matches) =
+                with_declarations(Value::Array(matches), declarations_of_file.as_ref())
+            else {
+                return None;
+            };
+            return hits(path, &matches, numbered, annotation(&rest).as_deref(), out);
+        }
+        // `lspSearch` call rows (`callers`, `callees`): the calling or
+        // called declaration, its call sites in `[ … ]`.
+        Some(Value::Array(matches)) if tool == ToolId::LspSearch => {
+            return outline_rows(path, &matches, annotation(&rest).as_deref(), out);
+        }
+        Some(_) => return None,
+        None => {}
+    }
+    if let Some(declarations) = declarations_of_file {
+        rest.insert("declarations".into(), declarations);
+    }
+    // `view:"files"` sites: `path:5,32`, every start line in the file. A
+    // count that only repeats their number is not restated.
+    let sites = rest
+        .get("lines")
+        .and_then(|lines| serde_json::from_value::<Vec<u64>>(lines.clone()).ok())
+        .filter(|lines| !lines.is_empty());
+    let mut entry = path.to_owned();
+    if let Some(lines) = sites {
+        rest.shift_remove("lines");
+        if rest.get("matchCount").and_then(Value::as_u64) == Some(lines.len() as u64) {
+            rest.shift_remove("matchCount");
+        }
+        let lines: Vec<String> = lines.iter().map(u64::to_string).collect();
+        entry.push_str(&format!(":{}", lines.join(",")));
+    }
+    // Any other field is named: `path  [matchCount 2]`, never `path:2`.
+    if let Some(note) = annotation(&rest) {
+        entry.push_str(&format!("  {note}"));
+    }
+    out.push(entry);
+    Some(())
 }
 
-/// The stderr notes of a single-row result: its status, the fields of
-/// `data` beside the printed ones (less the searched path it echoes),
-/// `file_notes`, the row and envelope fields, the root, and the follow-up
-/// calls.
-fn notes(
-    structured: &Value,
+/// A row from its `body`: the trailer and notes are its status, `marks`
+/// (omissions the content states), the fields of `data` the body does not
+/// show (less the searched path it echoes) and the row's own fields. Those
+/// that decide "am I done" are the trailer, then its warnings and hints; the
+/// rest are notes.
+fn tail(
     query: &Value,
     row: &Map<String, Value>,
     mut data: Map<String, Value>,
-    file_notes: Vec<String>,
-    cwd: Option<&std::path::Path>,
-) -> String {
-    let mut notes = Vec::new();
-    // The searched path echoed back: every printed line already starts with it.
+    marks: Vec<String>,
+    body: Vec<String>,
+) -> Row {
+    // The searched path echoed back: the printed lines already name it.
     let asked = query["queries"].get(0).unwrap_or(query);
     if data.get("path").is_some_and(|path| *path == asked["path"]) {
         data.shift_remove("path");
     }
+    let mut trailer = Vec::new();
     if let Some(status) = row.get("status").and_then(Value::as_str) {
-        notes.push(format!("status: {status}"));
+        trailer.push(format!("status: {status}"));
     }
-    data.shift_remove("files");
-    notes.extend(field_notes("", &data));
-    notes.extend(file_notes);
+    trailer.extend(marks);
+    let (stated, info) = split_stated(data);
+    let (done, mut advice) = stated_notes(stated);
+    trailer.extend(done);
+    let mut notes = field_notes("", &info);
     // Row fields beside `data` (`rowPart`, …), so a cut response is never
     // silent.
+    if let Some(part) = row.get("rowPart") {
+        trailer.push(row_part_note(part));
+    }
     let row_rest: Map<String, Value> = row
         .iter()
-        .filter(|(key, _)| !matches!(key.as_str(), "index" | "status" | "data" | "rowPart"))
+        .filter(|(key, value)| match key.as_str() {
+            "index" | "data" | "rowPart" => false,
+            "status" => !value.is_string(),
+            _ => true,
+        })
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
-    if let Some(part) = row.get("rowPart") {
-        notes.push(row_part_note(part));
+    let (stated, info) = split_stated(row_rest);
+    let (done, row_advice) = stated_notes(stated);
+    trailer.extend(done);
+    advice.extend(row_advice);
+    trailer.extend(advice);
+    notes.extend(field_notes("", &info));
+    Row {
+        body,
+        trailer,
+        notes,
     }
-    notes.extend(field_notes("", &row_rest));
-    notes.extend(envelope_notes(structured, cwd));
-    notes
-        .iter()
-        .map(|line| format!("# {line}"))
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 /// The `rowPart` note, one form for every part: `rowPart: part N of M`, then
@@ -328,25 +375,47 @@ fn row_part_note(part: &Value) -> String {
     note
 }
 
-/// The envelope's fields beside `results` (`responsePagination`,
-/// `warnings`, …), so a cut response is never silent, and the root unless
-/// it is the working directory.
-fn envelope_notes(structured: &Value, cwd: Option<&std::path::Path>) -> Vec<String> {
-    let mut notes = Vec::new();
-    if let Some(envelope) = structured.as_object() {
-        let rest: Map<String, Value> = envelope
-            .iter()
-            .filter(|(key, _)| !matches!(key.as_str(), "results" | "root"))
-            .map(|(key, value)| (key.clone(), value.clone()))
-            .collect();
-        notes.extend(field_notes("", &rest));
-    }
+/// The envelope's fields beside `results`: its page state and its warnings
+/// and hints as trailer lines, the rest as notes, and the root unless it is
+/// the working directory.
+fn envelope_tail(structured: &Value, cwd: Option<&std::path::Path>) -> (Vec<String>, Vec<String>) {
+    let rest: Map<String, Value> = structured
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(key, _)| !matches!(key.as_str(), "results" | "root"))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    let (stated, info) = split_stated(rest);
+    let mut notes = field_notes("", &info);
     if let Some(root) = structured.get("root").and_then(Value::as_str)
         && !is_working_directory(root, cwd)
     {
         notes.push(format!("root: {root} (paths are relative to it)"));
     }
-    notes
+    let (mut trailer, advice) = stated_notes(stated);
+    trailer.extend(advice);
+    (trailer, notes)
+}
+
+/// A call the runtime rejected before it ran (`envelope`: its `errorCode`,
+/// `error` and any detail), as a failed row prints: its fields, `errorCode`
+/// first, then `# status: error` and its hints.
+pub(super) fn rejected(envelope: &Value) -> String {
+    let fields = envelope.as_object().cloned().unwrap_or_default();
+    let mut data: Map<String, Value> = ["errorCode", "error"]
+        .into_iter()
+        .filter_map(|key| Some((key.to_owned(), fields.get(key)?.clone())))
+        .collect();
+    data.extend(fields);
+    let row = json!({"status": "error", "data": data});
+    let row = outline::generic(row.as_object().unwrap_or(&Map::new()), &Value::Null);
+    row.body
+        .into_iter()
+        .chain(prefixed("# ", &row.trailer))
+        .chain(prefixed("# ", &row.notes))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[cfg(test)]

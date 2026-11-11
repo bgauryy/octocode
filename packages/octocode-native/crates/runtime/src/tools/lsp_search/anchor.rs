@@ -4,7 +4,7 @@
 
 use crate::tools::lsp_search::lsp_search_query;
 use octocode_contract_types::LspSearchQuery;
-use octocode_engine::lsp::resolver::resolve_position_in_file_content;
+use octocode_engine::lsp::resolver::{DEFAULT_RADIUS, resolve_position_in_file_content};
 use octocode_engine::lsp::types::{LspFuzzyPosition, LspResolvedSymbol};
 use serde_json::{Value, json};
 
@@ -85,6 +85,11 @@ pub(super) fn resolve_anchor(
         if last_member_start(name).is_none() {
             disclose_same_line(&mut symbol, &resolved, name);
         }
+        if let Some(asked) =
+            lsp_search_query::anchor_line(query).filter(|_| resolved.line_offset != 0)
+        {
+            disclose_rival_lines(&mut symbol, path, source, name, asked, &resolved);
+        }
         return Ok(Anchor {
             line: resolved.position.line,
             character: resolved.position.character,
@@ -122,6 +127,68 @@ fn disclose_same_line(symbol: &mut Value, resolved: &LspResolvedSymbol, name: &s
         .collect::<Vec<_>>();
     symbol["occurrencesOnLine"] = json!(columns.len());
     symbol["alternatives"] = json!(alternatives);
+}
+
+/// A name that is not on its `line` resolved to the nearest line that
+/// anchors it, which may hold another symbol of that spelling. Every other
+/// line the resolver chose among (within its own reach of the one-based
+/// `asked` line, [`DEFAULT_RADIUS`]) is a rival reading of a stale line
+/// number, and so is the nearest line on the other side of `asked`, however
+/// far: the resolver chose by nearness alone. The receipt names each as an
+/// alternative, nearest first, with the `line` that anchors on it and its
+/// distance.
+fn disclose_rival_lines(
+    symbol: &mut Value,
+    path: &str,
+    source: &str,
+    name: &str,
+    asked: u32,
+    resolved: &LspResolvedSymbol,
+) {
+    let below = resolved.found_at_line > asked;
+    let other_side = |line: u32| if below { line < asked } else { line > asked };
+    let mut lines = super::importers::occurrences(source, name)
+        .into_iter()
+        .map(|(line, _, _)| line + 1)
+        .filter(|line| *line != resolved.found_at_line)
+        .collect::<Vec<_>>();
+    lines.sort_by_key(|line| (line.abs_diff(asked), *line));
+    lines.dedup();
+    // The resolver judges each spelling as it judged the anchor: a line it
+    // anchors on exactly is one a request can name.
+    let anchors = |line: u32| {
+        resolve_symbol(path, source, name, Some(line), None)
+            .ok()
+            .filter(|rival| rival.line_offset == 0)
+    };
+    let mut crossed = false;
+    let mut rivals = Vec::new();
+    for line in lines {
+        let chosen_among = line.abs_diff(asked) as usize <= DEFAULT_RADIUS;
+        let crossing = !crossed && other_side(line);
+        if !chosen_among && crossed {
+            break;
+        }
+        if !chosen_among && !crossing {
+            continue;
+        }
+        let Some(rival) = anchors(line) else {
+            continue;
+        };
+        crossed |= crossing;
+        rivals.push(json!({
+            "foundAtLine": rival.found_at_line,
+            "foundAtCharacter": rival.position.character + 1,
+            "lineDeviation": rival.found_at_line.abs_diff(asked),
+        }));
+    }
+    if rivals.is_empty() {
+        return;
+    }
+    match symbol.get_mut("alternatives").and_then(Value::as_array_mut) {
+        Some(listed) => listed.extend(rivals),
+        None => symbol["alternatives"] = json!(rivals),
+    }
 }
 
 /// `qualifier.name` (or `::`, `->`) when the occurrence at byte `at` of
@@ -284,6 +351,77 @@ mod tests {
                 .expect("receipt")
                 .get("alternatives")
                 .is_none()
+        );
+    }
+
+    /// A name that is not on its line resolves to the nearest line that
+    /// spells it; the nearest one on the other side of the asked line is
+    /// named as the alternative, however far, and a name found on its own
+    /// line names none.
+    #[test]
+    fn a_name_off_its_line_names_the_nearest_line_on_the_other_side() {
+        let source = format!(
+            "function run() {{}}\n{}obj.run();\n",
+            "// filler\n".repeat(8)
+        );
+        let receipt = |line: u32| {
+            let query: LspSearchQuery = serde_json::from_value(json!({
+                "operation": "definition", "path": "/w/a.ts", "symbolName": "run", "line": line
+            }))
+            .expect("query");
+            resolve_anchor(&query, "/w/a.ts", "file:///w/a.ts", Some(&source))
+                .expect("anchor")
+                .resolved_symbol
+                .expect("receipt")
+        };
+        // Line 7 is three lines from the call on line 10 and six from the
+        // declaration on line 1.
+        let off = receipt(7);
+        assert_eq!(off["foundAtLine"], 10, "{off}");
+        assert_eq!(off["lineDeviation"], 3, "{off}");
+        assert_eq!(
+            off["alternatives"],
+            json!([{"foundAtLine": 1, "foundAtCharacter": 10, "lineDeviation": 6}]),
+            "{off}"
+        );
+        let other = receipt(3);
+        assert_eq!(other["foundAtLine"], 1, "{other}");
+        assert_eq!(
+            other["alternatives"],
+            json!([{"foundAtLine": 10, "foundAtCharacter": 5, "lineDeviation": 7}]),
+            "{other}"
+        );
+        assert!(receipt(10).get("alternatives").is_none());
+        assert!(receipt(1).get("alternatives").is_none());
+    }
+
+    /// A stale line resolves to the nearest spelling the resolver accepts;
+    /// every other spelling it chose among is as likely the one meant, on
+    /// either side of the asked line, and the receipt names each (nearest
+    /// first), with the nearest one on the other side however far.
+    #[test]
+    fn a_name_off_its_line_names_every_spelling_the_resolver_chose_among() {
+        let source = format!(
+            "fn a() {{}}\nfn check() {{}}\nfn b() {{ check(); }}\n// filler\n// asked\n{}fn c() {{ check(); }}\n",
+            "// filler\n".repeat(14)
+        );
+        let query: LspSearchQuery = serde_json::from_value(json!({
+            "operation": "hover", "path": "/w/a.rs", "symbolName": "check", "line": 5
+        }))
+        .expect("query");
+        let receipt = resolve_anchor(&query, "/w/a.rs", "file:///w/a.rs", Some(&source))
+            .expect("anchor")
+            .resolved_symbol
+            .expect("receipt");
+        assert_eq!(receipt["foundAtLine"], 3, "{receipt}");
+        assert_eq!(receipt["lineDeviation"], 2, "{receipt}");
+        assert_eq!(
+            receipt["alternatives"],
+            json!([
+                {"foundAtLine": 2, "foundAtCharacter": 4, "lineDeviation": 3},
+                {"foundAtLine": 20, "foundAtCharacter": 10, "lineDeviation": 15},
+            ]),
+            "{receipt}"
         );
     }
 

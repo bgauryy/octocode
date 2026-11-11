@@ -75,7 +75,7 @@ fn redact_with<'a>(
 
 /// `source` with the text of every line replaced by the sanitizer-failure
 /// placeholder, its line breaks kept.
-fn withheld_lines(source: &str) -> String {
+pub(super) fn withheld_lines(source: &str) -> String {
     source
         .split_inclusive('\n')
         .map(|segment| {

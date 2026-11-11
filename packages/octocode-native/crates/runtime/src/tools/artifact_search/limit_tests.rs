@@ -74,11 +74,12 @@ async fn a_small_limit_walk_lists_every_package_once() {
     assert_eq!(listed, (0..7).map(|n| format!("p{n}")).collect::<Vec<_>>());
 }
 
-/// An omitted `limit` is the contract default, 20 rows: today's page size.
+/// An omitted `limit` is the contract default: a registry that holds more
+/// rows serves one page of that size.
 #[tokio::test]
 async fn an_omitted_limit_is_the_contract_default() {
-    assert_eq!(limits::LIMIT_DEFAULT, 20);
-    let server = npm_registry(100).await;
+    let held = 5 * limits::LIMIT_DEFAULT as u64;
+    let server = npm_registry(held).await;
     let deadline = Instant::now() + std::time::Duration::from_secs(300);
     let row = json!({"operation":"search","ecosystem":"npm","keywords":["x"],
         "registryUrl": format!("http://127.0.0.1:{}", server.address().port())});
@@ -86,14 +87,19 @@ async fn an_omitted_limit_is_the_contract_default() {
         .await
         .expect("discovery succeeds");
     assert_eq!(names(&data).len(), limits::LIMIT_DEFAULT, "{data}");
-    assert_eq!(data["pagination"]["pageSize"], 20, "{data}");
+    assert_eq!(
+        data["pagination"]["pageSize"],
+        limits::LIMIT_DEFAULT,
+        "{data}"
+    );
 }
 
-/// Admission bounds `limit` by 100 on every searchable registry; a
-/// resolve takes no `limit`, and 0 is no page.
+/// Admission bounds `limit` by the contract maximum on every searchable
+/// registry; a resolve takes no `limit`, and 0 is no page.
 #[test]
 fn admission_bounds_limit_by_the_smallest_registry_maximum() {
-    assert_eq!(limits::LIMIT_MAXIMUM, 100);
+    let maximum = limits::LIMIT_MAXIMUM as u64;
+    assert!(limits::LIMIT_DEFAULT as u64 <= maximum);
     for ecosystem in [
         "npm",
         "crates",
@@ -109,8 +115,8 @@ fn admission_bounds_limit_by_the_smallest_registry_maximum() {
                 json!({"operation":"search","ecosystem":ecosystem,"keywords":["x"],"limit":limit}),
             )
         };
-        assert!(admit(100).is_ok(), "{ecosystem}");
-        assert!(admit(101).is_err(), "{ecosystem}");
+        assert!(admit(maximum).is_ok(), "{ecosystem}");
+        assert!(admit(maximum + 1).is_err(), "{ecosystem}");
         assert!(admit(0).is_err(), "{ecosystem}");
     }
     assert!(

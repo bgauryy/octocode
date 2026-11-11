@@ -17,7 +17,6 @@ impl CancellationCheck for AfterChecks {
 fn open<'a>(
     scan: &GraphScan,
     policy: &'a PathPolicy,
-    security: &'a ContentSecurity,
     cancel: &dyn CancellationCheck,
 ) -> Result<Option<Job<'a>>, ToolError> {
     Job::open(
@@ -25,7 +24,6 @@ fn open<'a>(
         &scan.root,
         &[],
         policy,
-        security,
         RegistryView::installed(),
         cancel,
     )
@@ -35,14 +33,11 @@ fn open<'a>(
 fn a_held_job_blocks_a_second_build_until_released_and_the_wait_cancels() {
     let (_dir, scan) = fixture();
     let policy = workspace_policy(&scan.root);
-    let security = ContentSecurity::new();
-    let held = open(&scan, &policy, &security, &NeverCancel)
-        .unwrap()
-        .expect("job");
+    let held = open(&scan, &policy, &NeverCancel).unwrap().expect("job");
     let job_dir = job_path(scan.checkpoint.as_ref().unwrap(), &scan.root);
     let artifact = job_dir.join("kept.fact");
     std::fs::write(&artifact, b"in-flight").unwrap();
-    let waited = open(&scan, &policy, &security, &AfterChecks(AtomicUsize::new(3)));
+    let waited = open(&scan, &policy, &AfterChecks(AtomicUsize::new(3)));
     let error = waited.err().expect("the held job is not opened twice");
     assert_eq!(error.code, ErrorCode::Cancelled);
     assert!(
@@ -53,10 +48,6 @@ fn a_held_job_blocks_a_second_build_until_released_and_the_wait_cancels() {
     complete(&job_dir, &held.manifest.generation).unwrap();
     assert!(Manifest::read(&job_dir).is_some_and(|manifest| manifest.stage == Stage::Extracting));
     drop(held);
-    assert!(
-        open(&scan, &policy, &security, &NeverCancel)
-            .unwrap()
-            .is_some()
-    );
+    assert!(open(&scan, &policy, &NeverCancel).unwrap().is_some());
     assert!(!artifact.exists(), "the next holder prunes unknown files");
 }

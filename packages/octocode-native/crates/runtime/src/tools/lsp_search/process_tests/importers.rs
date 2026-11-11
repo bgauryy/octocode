@@ -3,6 +3,7 @@
 
 use super::*;
 
+mod answer_gaps;
 mod c_family;
 mod call_sites;
 mod identity;
@@ -10,6 +11,7 @@ mod markup;
 mod pages;
 mod per_binding;
 mod recovery;
+mod renamed;
 mod scope_work;
 mod two_roots;
 mod unanswered;

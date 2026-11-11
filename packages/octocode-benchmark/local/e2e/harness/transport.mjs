@@ -92,13 +92,13 @@ try {
     const shell = await cli('localFetch', mutation);
     const mcp = await client.raw('localFetch', mutation);
     check('resume rejects caller-supplied request mutations', shell.code === 2 && mcp.isError);
-    // A cursor keeps the page size it was issued with: a size beside it is refused, never ignored.
+    // A cursor keeps the page size it was issued with: a size beside it is not applied, and the page says so.
     const resize = { cursor, responseChars: 4000 };
     const resizedShell = await cli('localFetch', resize);
     const resizedMcp = await client.raw('localFetch', resize);
     check(
-      'resume refuses responseChars beside the cursor and says to send the cursor alone',
-      resizedShell.code === 2 && resizedMcp.isError && [resizedShell, resizedMcp].every(result => result.text.includes('alone')),
+      'resume serves the cursor page with responseChars beside it and says the size was not applied',
+      resizedShell.code === 0 && !resizedMcp.isError && [resizedShell, resizedMcp].every(result => result.text.includes('was not applied') && result.text.includes('alone')),
       JSON.stringify({ shell: resizedShell.text, mcp: resizedMcp.text }),
     );
   }

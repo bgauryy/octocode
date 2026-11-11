@@ -97,6 +97,9 @@ impl Linker<'_> {
         {
             return Some(linked);
         }
+        if self.rust_keyword_qualified(site) {
+            return self.rust_keyword_path(site);
+        }
         if site.receiver()
             && let Some(owner) = self.receiver_owner(site)
         {

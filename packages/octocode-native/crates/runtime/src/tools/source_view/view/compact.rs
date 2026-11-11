@@ -4,7 +4,7 @@ use crate::execution::cancel::CancellationCheck;
 use crate::response::numbered::{GAP, push_numbered};
 use crate::tools::page_memo::PageMemo;
 use crate::tools::source_view::extraction::OMISSION_LINE;
-use octocode_engine::minify::apply::{Lexing, WhitespaceOnly, compact_view, lex};
+use octocode_engine::minify::apply::{AS_IS_REASON, Lexing, WhitespaceOnly, compact_view, lex};
 
 /// Where each source's comments and literals are, by its digest and path, so
 /// later pages lay out lines without parsing again. Only byte offsets are
@@ -14,6 +14,25 @@ static LEXINGS: PageMemo<Arc<Lexing>> = PageMemo::new();
 /// `viewFallback.reason` of a compact read served as content: compact kept
 /// no fewer bytes than the content view of the same lines.
 pub(super) const NOT_SMALLER: &str = "not-smaller";
+
+/// Why a rendered compact view holds what compaction removes elsewhere.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Unreduced {
+    /// Only whitespace changes, for this reason.
+    WhitespaceOnly(WhitespaceOnly),
+    /// The format stays as it is: its comments and blank lines can be values.
+    AsIs,
+}
+
+impl Unreduced {
+    /// The `viewFallback.reason` that says so.
+    pub(super) fn reason(self) -> &'static str {
+        match self {
+            Self::WhitespaceOnly(why) => why.reason(),
+            Self::AsIs => AS_IS_REASON,
+        }
+    }
+}
 
 /// The bytes the content view serves for `selected`: each line under its
 /// source number's gutter (`N\t`), an omission between windows as the gap
@@ -42,26 +61,31 @@ pub(super) fn content_bytes(selected: &str, source_lines: Option<&[usize]>) -> u
 /// Compact the whole source, for its full lexical context (a selected range
 /// may begin inside a literal whose delimiter is outside it), then project the
 /// requested source lines. Every kept line carries the source line it is from.
-/// Also returns why the view holds only whitespace changes, if it does.
+/// Also returns why the view holds the source's comments, if it does.
 pub(super) fn render(
     full_source: &str,
     selected: &str,
     path: &str,
     source_lines: Option<&[usize]>,
     cancel: &impl CancellationCheck,
-) -> (String, Option<WhitespaceOnly>) {
+) -> (String, Option<Unreduced>) {
     let source = if source_lines.is_some() {
         full_source
     } else {
         selected
     };
     let view = compact_view(source, &lexing(source, path, cancel));
+    let unreduced = if view.as_is {
+        Some(Unreduced::AsIs)
+    } else {
+        view.whitespace_only.map(Unreduced::WhitespaceOnly)
+    };
     let mut output = String::with_capacity(source.len());
     let Some(wanted) = source_lines else {
         for row in &view.lines {
             push_numbered(&mut output, row.line, &row.text);
         }
-        return (output, view.whitespace_only);
+        return (output, unreduced);
     };
     let mut rows = view.lines.iter().peekable();
     for &number in wanted {
@@ -76,7 +100,7 @@ pub(super) fn render(
             push_numbered(&mut output, row.line, &row.text);
         }
     }
-    (output, view.whitespace_only)
+    (output, unreduced)
 }
 
 /// `source`'s lexing, from the store when an earlier page made it. A parse

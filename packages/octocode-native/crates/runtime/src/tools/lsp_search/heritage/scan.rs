@@ -145,6 +145,80 @@ pub(in super::super) fn subtype_snippets(
     found
 }
 
+/// The members named `member` that the subtypes of `base` in `content`
+/// declare (a trait method's implementations, an interface method's, a
+/// class method's overrides), located at the member's name. A member
+/// belongs to the innermost declaration around it, so one in a type nested
+/// inside a subtype is not that subtype's. Matched by name like
+/// [`subtype_snippets`]; read from the whole file's facts, which hold the
+/// members.
+pub(in super::super) fn member_snippets(
+    content: &str,
+    file: &str,
+    base: &str,
+    member: &str,
+) -> Vec<LspCodeSnippet> {
+    if !octocode_engine::signatures::may_name_supertypes(content, file) {
+        return Vec::new();
+    }
+    let Some(document) = crate::tools::declarations::graph_facts(content, file) else {
+        return Vec::new();
+    };
+    let Ok(uri) = octocode_engine::lsp::uri::path_to_uri(file) else {
+        return Vec::new();
+    };
+    let subtypes = document
+        .edges
+        .iter()
+        .filter(|edge| matches!(edge.relation.as_str(), "extends" | "implements"))
+        .filter(|edge| edge.to.rsplit(['.', ':']).next() == Some(base))
+        .map(|edge| edge.from.as_str())
+        .collect::<BTreeSet<_>>();
+    let mut found = document
+        .declarations
+        .iter()
+        .filter(|declaration| declaration.name == member)
+        .filter(|declaration| {
+            document
+                .declarations
+                .iter()
+                .filter(|outer| {
+                    outer.id != declaration.id
+                        && outer.range.start <= declaration.range.start
+                        && declaration.range.end <= outer.range.end
+                })
+                .max_by(|left, right| left.range.start.cmp(&right.range.start))
+                .is_some_and(|owner| subtypes.contains(owner.id.as_str()))
+        })
+        .map(|declaration| {
+            let name = &declaration.selection_range;
+            LspCodeSnippet {
+                uri: uri.clone(),
+                range: LspRange {
+                    start: LspExactPosition {
+                        line: name.start.line,
+                        character: name.start.character,
+                    },
+                    end: LspExactPosition {
+                        line: name.end.line,
+                        character: name.end.character,
+                    },
+                },
+                content: content
+                    .lines()
+                    .nth(name.start.line as usize)
+                    .unwrap_or(&declaration.name)
+                    .to_owned(),
+                symbol_kind: None,
+                display_range: None,
+            }
+        })
+        .collect::<Vec<_>>();
+    found.sort_by_key(|snippet| (snippet.range.start.line, snippet.range.start.character));
+    found.dedup_by_key(|snippet| (snippet.range.start.line, snippet.range.start.character));
+    found
+}
+
 /// The subtypes of `base` among `files` (canonical paths of the files that
 /// spell it), by file path then position, and the files that could not be
 /// read, by path. Files are parsed in parallel; `stopped` abandons the scan.
@@ -153,9 +227,35 @@ pub(in super::super) fn scan_subtypes(
     base: &str,
     stopped: &(dyn Fn() -> bool + Sync),
 ) -> (Vec<LspCodeSnippet>, Vec<String>) {
+    scan_files(files, stopped, &|content, file| {
+        subtype_snippets(content, file, base)
+    })
+}
+
+/// [`member_snippets`] of `member` among `files` (canonical paths of the
+/// files that spell it), as [`scan_subtypes`] reads them.
+pub(super) fn scan_members(
+    files: &BTreeSet<String>,
+    base: &str,
+    member: &str,
+    stopped: &(dyn Fn() -> bool + Sync),
+) -> (Vec<LspCodeSnippet>, Vec<String>) {
+    scan_files(files, stopped, &|content, file| {
+        member_snippets(content, file, base, member)
+    })
+}
+
+/// What `read` finds in each of `files`, by file path then position, and
+/// the files that could not be read, by path. Files are parsed in
+/// parallel; `stopped` abandons the scan.
+fn scan_files(
+    files: &BTreeSet<String>,
+    stopped: &(dyn Fn() -> bool + Sync),
+    read: &(dyn Fn(&str, &str) -> Vec<LspCodeSnippet> + Sync),
+) -> (Vec<LspCodeSnippet>, Vec<String>) {
     let mut files = files.iter().collect::<Vec<_>>();
     let workers = crate::tools::workers::workers(files.len(), None);
-    // Per file: its subtypes, or `Err` when it could not be read or parsed
+    // Per file: what it holds, or `Err` when it could not be read or parsed
     // (it is listed unread, never dropped); nothing once the scan stopped.
     let scanned = crate::tools::workers::each_parallel(&mut files, workers, |file| {
         if stopped() {
@@ -164,10 +264,7 @@ pub(in super::super) fn scan_subtypes(
         let parsed = read_bounded_source(std::path::Path::new(file.as_str()))
             .ok()
             .and_then(|content| {
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    subtype_snippets(&content, file, base)
-                }))
-                .ok()
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| read(&content, file))).ok()
             });
         Some(parsed.ok_or_else(|| (*file).clone()))
     });

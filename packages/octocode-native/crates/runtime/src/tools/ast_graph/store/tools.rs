@@ -80,9 +80,16 @@ fn other_homes(home: &Path, root: &Path, paths: &PathPolicy) -> Vec<PathBuf> {
 }
 
 fn missing_snapshot(message: &str, root: &Path, home: &Path, paths: &PathPolicy) -> GraphOutput {
+    // Named as a row path is: from the workspace root, else absolute (a
+    // configured home, or another workspace's).
+    let shown = |path: &Path| {
+        paths
+            .workspace_relative(path)
+            .unwrap_or_else(|| path.display().to_string())
+    };
     let mut out = GraphOutput::error(
         ErrorCode::NotFound,
-        format!("{message} (searched {})", home.display()),
+        format!("{message} (searched {})", shown(home)),
     );
     let others = other_homes(home, root, paths);
     let mut hints = vec![String::from(
@@ -91,7 +98,7 @@ fn missing_snapshot(message: &str, root: &Path, home: &Path, paths: &PathPolicy)
     if !others.is_empty() {
         let others = others
             .iter()
-            .map(|other| other.display().to_string())
+            .map(|other| shown(other))
             .collect::<Vec<_>>()
             .join(", ");
         hints.push(format!(

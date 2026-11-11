@@ -6,10 +6,12 @@ fn nested_file_fields_are_words() {
     let paged = json!({"results":[{"index":0,"data":{"files":[{"path":"a.rs","matches":[{"line":3,"value":"x"}],
             "pagination":{"totalItems":471,"hasMore":true}}]}}]});
     let lines = render(ToolId::LocalSearch, &paged, &json!({}), None).expect("lines");
+    // A file's own fields follow its path, on stdout with its hits.
     assert_eq!(
-        lines.notes,
-        "# file a.rs: pagination (totalItems 471 hasMore)"
+        lines.out,
+        "a.rs  [pagination (totalItems 471 hasMore)]\n3:x"
     );
+    assert_eq!(lines.notes, "");
 }
 
 #[test]
@@ -33,9 +35,22 @@ fn only_schema_declared_calls_become_commands_and_source_evidence_stays_exact() 
     }}]});
     let (display, calls) = follow::separate_calls(ToolId::LocalFetch, &structured).expect("schema");
     assert_eq!(calls.len(), 2);
-    assert!(calls[0].contains("issued"));
-    assert!(calls[1].contains("octocode localSearch"));
-    assert!(calls.iter().all(|call| !call.contains("source-lookalike")));
+    assert!(calls[0].command.contains("issued"));
+    assert_eq!(
+        (calls[0].label.as_str(), calls[0].lead),
+        ("next.read", false)
+    );
+    assert!(calls[1].command.contains("octocode localSearch"));
+    assert_eq!(
+        (calls[1].label.as_str(), calls[1].lead),
+        ("related[0]", true)
+    );
+    assert!(calls.iter().all(|call| call.row == Some(0)));
+    assert!(
+        calls
+            .iter()
+            .all(|call| !call.command.contains("source-lookalike"))
+    );
     assert_eq!(display["results"][0]["data"]["source"], source);
     assert_eq!(
         display["results"][0]["data"]["content"],
@@ -57,7 +72,7 @@ fn captured_resource_reads_are_commands_but_their_sources_are_evidence() {
             "status":"ready","source":source,"read":read}}}}]});
     let (display, calls) = follow::separate_calls(ToolId::Clasify, &sections).expect("schema");
     assert_eq!(calls.len(), 1);
-    assert!(calls[0].contains("captured-source"));
+    assert!(calls[0].command.contains("captured-source"));
     assert_eq!(
         display["results"][0]["data"]["resources"]["file"]["source"],
         source
@@ -77,25 +92,24 @@ fn opaque_search_resumes_print_every_field_when_the_context_mode_is_unknown() {
         assert!(lines.out.contains(evidence), "{}", lines.out);
     }
     for token in ["issued-tool-page", "issued-response-page"] {
-        assert_eq!(lines.notes.matches(token).count(), 1, "{}", lines.notes);
+        assert_eq!(lines.out.matches(token).count(), 1, "{}", lines.out);
     }
 }
 
 #[test]
 fn batches_and_other_tools_print_text() {
-    let two = json!({"results":[{"index":0,"data":{"files":[]}},{"index":1,"data":{"files":[]}}]});
+    let two = json!({"results":[{"index":0,"status":"empty","data":{}},{"index":1,"status":"empty","data":{}}]});
     let lines = render(ToolId::LocalSearch, &two, &json!({}), None).expect("text");
-    assert_eq!(lines.out, "## results[0]\n## results[1]");
+    assert_eq!(
+        lines.out,
+        "## results[0]\n# status: empty\n## results[1]\n# status: empty"
+    );
     let lines = render(ToolId::LocalFetch, &sample(), &json!({}), None).expect("text");
     assert!(
         lines.out.contains("26\tuse SearcherBuilder;"),
         "{}",
         lines.out
     );
-    assert!(all_rows_failed(&json!({"results":[{"status":"error"}]})));
-    assert!(!all_rows_failed(
-        &json!({"results":[{"status":"error"},{"data":{}}]})
-    ));
 }
 
 /// Every part prints `rowPart` in one form, and a later part keeps the
@@ -111,7 +125,7 @@ fn every_row_part_prints_in_one_form() {
     let note = |value: &Value| {
         render(ToolId::LocalSearch, value, &context(), None)
             .expect("lines")
-            .notes
+            .out
             .lines()
             .find(|line| line.starts_with("# rowPart:"))
             .map(str::to_owned)
@@ -120,5 +134,63 @@ fn every_row_part_prints_in_one_form() {
     assert_eq!(note(&first), "# rowPart: part 1 of 2");
     let later = note(&later);
     assert!(later.starts_with("# rowPart: part 2 of 30"), "{later}");
-    assert!(later.contains("continues (tool localSearch index 0)"), "{later}");
+    assert!(
+        later.contains("continues (tool localSearch index 0)"),
+        "{later}"
+    );
+}
+
+/// Warnings and hints say how to read an answer (what was redacted, why it
+/// is partial), so every tool and row shape prints them in the stdout
+/// trailer, after the done facts and before the commands: never in the body,
+/// never only on stderr.
+#[test]
+fn warnings_and_hints_print_in_the_stdout_trailer_of_every_row_shape() {
+    let advice = |data: Value| {
+        let mut data = data;
+        data["warnings"] = json!(["1 secret was redacted."]);
+        data["hints"] = json!(["Narrow the path."]);
+        data
+    };
+    const ADVICE: &str = "# warnings: 1 secret was redacted.\n# hints: Narrow the path.";
+    // A line format.
+    let hits = json!({"results":[{"index":0,"data":advice(json!({"matchCount":1,
+        "pagination":{"page":1,"hasMore":true},
+        "next":{"nextPage":{"kind":"continue","tool":"localSearch","input":{"cursor":"c"}}},
+        "files":[{"path":"a.rs","matches":[{"line":3,"value":"x"}]}]}))}],
+        "warnings":["From the envelope."]});
+    let lines = render(ToolId::LocalSearch, &hits, &json!({}), None).expect("lines");
+    assert_eq!(
+        lines.out,
+        format!(
+            "a.rs:3:x\n# pagination: page 1 hasMore\n{ADVICE}\n# warnings: From the envelope.\n# next.nextPage: octocode localSearch '{{\"cursor\":\"c\"}}'"
+        )
+    );
+    assert_eq!(lines.notes, "# matchCount: 1");
+    // `key: value` text.
+    let read = json!({"results":[{"index":0,"data":advice(json!({"content":"x"}))}]});
+    let lines = render(ToolId::LocalFetch, &read, &json!({}), None).expect("lines");
+    assert_eq!(lines.out, format!("content: x\n{ADVICE}"));
+    assert_eq!(lines.notes, "");
+    // A failed row.
+    let failed = json!({"results":[{"index":0,"status":"error",
+        "data":advice(json!({"errorCode":"anchorUnresolved","error":"No such symbol."}))}]});
+    let lines = render(ToolId::LspSearch, &failed, &json!({}), None).expect("lines");
+    assert_eq!(
+        lines.out,
+        format!("errorCode: anchorUnresolved\nerror: No such symbol.\n# status: error\n{ADVICE}")
+    );
+    assert_eq!(lines.notes, "");
+}
+
+/// A call rejected before it ran prints as a failed row does: `errorCode`
+/// first, every other field of its envelope, then the status and its hints.
+#[test]
+fn a_rejected_call_prints_as_a_failed_row() {
+    let envelope = json!({"error":"Unknown field 'x'.","details":["queries.0.path: Missing required field: path"],
+        "hints":["Run schema localSearch."],"errorCode":"invalidInput"});
+    assert_eq!(
+        rejected(&envelope),
+        "errorCode: invalidInput\nerror: Unknown field 'x'.\ndetails:\n  - queries.0.path: Missing required field: path\n# status: error\n# hints: Run schema localSearch."
+    );
 }

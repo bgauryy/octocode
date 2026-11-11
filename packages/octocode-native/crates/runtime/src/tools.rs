@@ -19,7 +19,10 @@ pub(crate) mod gh_shared;
 pub(crate) mod gh_structure;
 #[cfg(test)]
 mod hints_tests;
+pub(crate) mod import_resolution;
+pub(crate) mod judged_rows;
 pub(crate) mod judgment;
+pub(crate) mod large_source;
 pub(crate) mod leads;
 pub(crate) mod line_spans;
 pub(crate) mod local_fetch;

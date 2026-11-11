@@ -110,8 +110,10 @@ shared	tools/ast_graph/store/tools.rs	A file changed while the graph was being b
 shared	tools/ast_graph/store/tools.rs	Repeat the query with graph {successor}, or omit graph for the newest snapshot of this path. Offsets and pages of {id} do not carry over to a rebuilt snapshot.
 shared	tools/ast_graph/store/tools.rs	Snapshots of this path exist under {others}, the default home of the workspace that built them (<workspace>/.octocode/graph; the workspace follows where Octocode runs). Run Octocode from the directory holding that .octocode, or build here.
 shared	tools/ast_graph/store/tools.rs	Use an existing snapshot ID, or run graphBuild for this path and use its returned ID.
+shared	tools/ast_graph/store/tools/skipped.rs	Files of types with no graph grammar are not in the graph: {listed}.
 shared	tools/ast_graph/store/tools/skipped.rs	graph source file
 shared	tools/ast_graph/store/tools/skipped.rs	graph source files
+shared	tools/ast_graph/store/tools/skipped.rs	{name} {files}
 shared	tools/ast_rule.rs	Make each pattern one parseable node and each rule a rule object; astSearch operation:"syntaxTree" shows the shape.
 astSearch	tools/ast_search/language.rs	set parser:"cpp" (parserGlobs for a directory).
 astSearch	tools/ast_search/language.rs	{} parses as C with {c} syntax error(s) and as C++ with {cpp}; {repair}
@@ -127,10 +129,8 @@ astSearch	tools/ast_search/matches/render.rs	No{language} file under this path w
 astSearch	tools/ast_search/matches/render.rs	Pattern `{pattern}` parsed as {shape}.
 astSearch	tools/ast_search/matches/render.rs	{matches} matches in {} fill {pages} pages; to read fewer, narrow the rule (pattern, has, inside, not) or the scope (include, exclude, a deeper path).
 astSearch	tools/ast_search/matches/scope.rs	In {names}: {message}
-astSearch	tools/ast_search/matches/types.rs	1 file skipped: no AST grammar for its name ({names}); it was not searched, so absence there is unproven; if it is source code, parserGlobs maps its name to a grammar.
 astSearch	tools/ast_search/matches/types.rs	macro bodies
 astSearch	tools/ast_search/matches/types.rs	macro body
-astSearch	tools/ast_search/matches/types.rs	{count} files skipped: no AST grammar for their names ({names}); they were not searched, so absence there is unproven; if they are source code, parserGlobs maps their names to a grammar.
 astSearch	tools/ast_search/matches/types.rs	{count} {noun} parsed with syntax errors that could hide a match ({names}); astSearch syntaxTree shows where.
 astSearch	tools/ast_search/matches/types.rs	{path}:{line} {name}
 astSearch	tools/ast_search/matches/types.rs	{} {noun} re-parsed with recovered syntax that could hide a match ({}); matches inside them may be missing.
@@ -168,6 +168,8 @@ ghCloneRepo	tools/gh_clone_repo/checkout.rs	Move your edits out of this managed 
 ghCloneRepo	tools/gh_clone_repo/checkout.rs	Verify the path with ghStructure, or omit path for a full clone.
 ghCloneRepo	tools/gh_clone_repo/pin.rs	Verify the branch, tag, or SHA (ghStructure lists a ref), or omit ref for the default branch.
 ghCloneRepo	tools/gh_clone_repo/process.rs	Resolve the reported Git process or resource failure before retrying.
+ghGetFileContent	tools/gh_get_file_content/errors.rs	The tree lists this path, but its read answered not found.
+ghGetFileContent	tools/gh_get_file_content/errors.rs	The tree lists this path, but its read under the repository's old name answered not found.
 ghGetFileContent	tools/gh_get_file_content/timestamp.rs	lastModified is absent: the last-change read failed ({})
 ghSearchCode	tools/gh_search_code.rs	Check the owner spelling: a user or organization login.
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	 `{branch}`
@@ -198,7 +200,7 @@ shared	tools/gh_shared/failure.rs	A login in a user qualifier (author, assignee,
 shared	tools/gh_shared/failure.rs	Authorize this token for the organization (SAML SSO) at the row's ssoUrl, then retry.
 shared	tools/gh_shared/failure.rs	Check the owner/repo spelling and this token's access.
 shared	tools/gh_shared/failure.rs	Confirm the owner before using a related[] repository.
-ghStructure	tools/gh_structure/failures.rs	Only the path's case differs.
+shared	tools/gh_shared/failure.rs	Only the path's case differs.
 ghStructure	tools/gh_structure/failures.rs	The path names a file (its case differs).
 ghStructure	tools/gh_structure/listing.rs	One or more repository subdirectories could not be read; retry the same page or narrow the path/depth.
 ghStructure	tools/gh_structure/materialize/writer.rs	{} binary file(s) are in location.skipped: not text, so not written.
@@ -225,6 +227,8 @@ shared	tools/leads/skipped.rs	`{shown}` and {} more {cause}{reason}
 shared	tools/leads/skipped.rs	{count} {cause} under `{shown}`{reason}
 shared	tools/leads/skipped.rs	{text} {}
 shared	tools/leads/skipped.rs	{}{} {} behind skipped paths ({why}).
+shared	tools/leads/unparsed.rs	1 file skipped: no {grammar} for its name ({names}); {one}; if it is source code, parserGlobs maps its name to a grammar.
+shared	tools/leads/unparsed.rs	{count} files skipped: no {grammar} for their names ({names}); {several}; if they are source code, parserGlobs maps their names to a grammar.
 localFetch	tools/local_fetch/executor.rs	Convert a copy to UTF-8 or split the source into smaller text files; line ranges do not lift this decoding limit.
 localFetch	tools/local_fetch/large_source/ranges.rs	Lines {start}-{end} need more than one window page: this page ends inside them and next reads on: first the rest of those lines, then the other ranges after them.
 localFetch	tools/local_fetch/large_source/ranges.rs	Lines {start}-{end} need more than one window page: this page ends inside them and their later pages read that range alone.
@@ -261,14 +265,14 @@ lspSearch	tools/lsp_search/failure/rows.rs	A name a build script generates (incl
 lspSearch	tools/lsp_search/failure/rows.rs	A name a build script generates (include! of OUT_DIR) resolves only with rustContext {{buildScripts:true}}, which {BUILD_SCRIPTS_COST}.
 lspSearch	tools/lsp_search/failure/rows.rs	A name defined in source this package include!s from outside its directory never resolves in rust-analyzer: read it with localSearch.
 lspSearch	tools/lsp_search/failure/rows.rs	`{name}` is declared in a file crate {} include!s from outside its directory, which rust-analyzer never loads: no build context gives it a location. The related localSearch reads it there.
-lspSearch	tools/lsp_search/importers.rs	The scan for gitignored files that spell this name did not finish, so importers among them are unverified; a localSearch with includeIgnored reads them.
-lspSearch	tools/lsp_search/importers/coverage.rs	 The scan for gitignored files did not finish, so more may exist.
+lspSearch	tools/lsp_search/importers.rs	The scan for gitignored or hidden files that spell this name did not finish, so importers among them are unverified; a localSearch with includeIgnored and includeHidden reads them.
+lspSearch	tools/lsp_search/importers/coverage.rs	 The scan for gitignored or hidden files did not finish, so more may exist.
 lspSearch	tools/lsp_search/importers/coverage.rs	 and 
 lspSearch	tools/lsp_search/importers/coverage.rs	1 imports it
 lspSearch	tools/lsp_search/importers/coverage.rs	1 nested repository
-lspSearch	tools/lsp_search/importers/coverage.rs	Of the gitignored files that spell this name ({rules}), {}; importer recovery did not verify them, and a localSearch with includeIgnored reads their text.{more}
+lspSearch	tools/lsp_search/importers/coverage.rs	Of the gitignored or hidden files that spell this name ({rules}), {}; importer recovery did not verify them, and a localSearch with includeIgnored and includeHidden reads their text.{more}
 lspSearch	tools/lsp_search/importers/coverage.rs	The scan for gitignored files did not enter {} (directories with their own .git) under the scope root{listed}.
-lspSearch	tools/lsp_search/importers/coverage.rs	ignore rules
+lspSearch	tools/lsp_search/importers/coverage.rs	hidden directories or ignore rules
 lspSearch	tools/lsp_search/importers/coverage.rs	{count} import it
 lspSearch	tools/lsp_search/importers/coverage.rs	{count} nested repositories
 lspSearch	tools/lsp_search/importers/coverage.rs	{} could not be checked for an import (unreadable, larger than {} MiB, or unparsable)

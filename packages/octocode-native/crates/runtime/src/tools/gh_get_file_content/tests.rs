@@ -21,6 +21,7 @@ mod misses;
 mod missing_repository;
 mod paths;
 mod redaction;
+mod renamed;
 mod rows;
 mod selection;
 mod windows;
