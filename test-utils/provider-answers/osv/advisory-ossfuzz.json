@@ -3,7 +3,8 @@
  "tool": "securityCheck",
  "query": {
   "operation": "advisory",
-  "id": "OSV-2020-111"
+  "id": "OSV-2020-111",
+  "view": "details"
  },
  "recordedAt": "2026-11-08",
  "unread": [

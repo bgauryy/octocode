@@ -164,7 +164,6 @@ impl Opened<'_> {
 pub(super) fn stream_window(
     q: &LocalFetchQuery,
     source: &Opened<'_>,
-    modified: Option<String>,
     share: Option<usize>,
     security: &impl ContentScan,
     cancel: &impl CancellationCheck,
@@ -175,7 +174,7 @@ pub(super) fn stream_window(
         .windows(&[span.want(source.limits.window)], cancel)
         .and_then(|mut windows| windows.pop().ok_or_else(|| "no window streamed".into()));
     match streamed {
-        Ok(streamed) => serve_window(q, streamed, span, source, modified, share, security, cancel),
+        Ok(streamed) => serve_window(q, streamed, span, source, share, security, cancel),
         Err(error) => read_failed(q, error),
     }
 }
@@ -186,7 +185,6 @@ pub(super) fn serve_window(
     streamed: Streamed,
     span: WindowSpan,
     source: &Opened<'_>,
-    modified: Option<String>,
     share: Option<usize>,
     security: &impl ContentScan,
     cancel: &impl CancellationCheck,
@@ -271,12 +269,12 @@ pub(super) fn serve_window(
             &streamed.window,
             path,
             &SourceFacts {
-                modified: modified.clone(),
                 window: share,
                 beside: 0,
                 interior: streamed.first > 1 || streamed.origin.base > 0,
                 byte_origin: Some(streamed.origin.clone()),
                 file_lines: Some(total),
+                local_file: false,
             },
             security,
             cancel,

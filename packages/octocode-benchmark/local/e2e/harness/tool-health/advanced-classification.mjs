@@ -68,8 +68,9 @@ async function literalChecks(ctx, surface, provider) {
 
 async function literalValues(call, provider, questions) {
   const checks = [];
+  // The legend restates the request's criteria, so only the details view carries it.
   for (const content of ['Literal evidence', { enabled: true, nested: [null, 4] }, ['evidence', { enabled: true }]]) {
-    const query = { operation: 'evaluate', content, questions, model: 'jev-1.14.0', longContext: true };
+    const query = { operation: 'evaluate', content, questions, model: 'jev-1.14.0', longContext: true, view: 'details' };
     const before = provider.sent.length;
     const first = data(await call(query));
     const packet = provider.sent.at(-1)?.request;
@@ -78,6 +79,9 @@ async function literalValues(call, provider, questions) {
     checks.push(['literal.typedAnswers', first.answers.fact.noul === 0.9 && first.answers.route.choice === 'allowed' && first.answers.strength.score === 2 && same(first.answers.strength.legend['2'], questions.strength.criteria[2]), first]);
     const repeated = data(await call(query));
     checks.push(['literal.fresh', provider.sent.length === before + 2 && repeated.replayed !== true && same(repeated.answers, first.answers), repeated]);
+    // The summary view keeps each answer's value and drops how it was reached.
+    const summary = data(await call({ ...query, view: 'summary' }));
+    checks.push(['literal.summaryView', same(summary.answers, { fact: { noul: first.answers.fact.noul }, route: { choice: first.answers.route.choice }, strength: { score: first.answers.strength.score } }) && !('model' in summary), summary]);
   }
   return checks;
 }
@@ -129,7 +133,8 @@ async function sourceChecks(ctx, surface, provider) {
 async function imageChecks(ctx, surface, provider) {
   const file = path.join(ctx.cwd, `image-${surface}.png`);
   fs.writeFileSync(file, PNG);
-  const query = { operation: 'evaluate', model: 'jev-1.14.0', content: { image: 'screen' }, assets: { screen: { source: { tool: 'localFetch', query: { path: file } } } }, questions: { object: { type: 'box', instructions: 'Locate the object in screen.' }, visible: noul('Is screen visible?') } };
+  // Image provenance (snapshot, path, bytes) is a details field.
+  const query = { operation: 'evaluate', view: 'details', model: 'jev-1.14.0', content: { image: 'screen' }, assets: { screen: { source: { tool: 'localFetch', query: { path: file } } } }, questions: { object: { type: 'box', instructions: 'Locate the object in screen.' }, visible: noul('Is screen visible?') } };
   const first = data(await ctx.call(ctx.q(query), surface));
   const asset = first?.assets?.screen, packet = provider.sent.at(-1);
   assert.ok(asset && first.answers && packet, JSON.stringify(first));
@@ -148,7 +153,8 @@ async function imageChecks(ctx, surface, provider) {
 async function answerPages(ctx, surface, provider) {
   const criteria = Object.fromEntries(Array.from({ length: 80 }, (_, i) => [`option-${i}-${'evidence'.repeat(4)}`, `Meaning ${i}`]));
   const questions = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`answer${i}`, { type: 'choice', instructions: `Choose for dimension ${i}`, criteria }]));
-  const query = { operation: 'evaluate', content: { large: 'independent choices' }, questions };
+  // Every field of each answer is walked, so the details view.
+  const query = { operation: 'evaluate', view: 'details', content: { large: 'independent choices' }, questions };
   const before = provider.sent.length;
   const pages = await display(ctx, surface, 'clasify', { queries: [query], responseChars: 3000 });
   const entries = pages.rows.flatMap(row => Object.entries(row.answers ?? {}));
@@ -182,7 +188,7 @@ async function batchChecks(ctx, surface, provider) {
   fs.writeFileSync(file, source);
   const queries = [
     { ...batchQuery('invalid'), questions: {} }, batchQuery('left'),
-    { operation: 'sections', resources: { picked: { tool: 'localFetch', query: { path: file, ranges: [{ startLine: 2, endLine: 3 }, { startLine: 7, endLine: 8 }] } } }, questions: { evidence: noul('Does the section print its batch number?') } },
+    { operation: 'sections', view: 'details', resources: { picked: { tool: 'localFetch', query: { path: file, ranges: [{ startLine: 2, endLine: 3 }, { startLine: 7, endLine: 8 }] } } }, questions: { evidence: noul('Does the section print its batch number?') } },
     { operation: 'evaluate', source: { tool: 'localFetch', query: { path: path.join(ctx.cwd, 'missing-batch-source.txt') } }, questions: { sameKey: noul('Is the source available?') } },
     batchQuery('right'),
   ];

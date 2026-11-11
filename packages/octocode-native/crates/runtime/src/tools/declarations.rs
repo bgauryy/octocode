@@ -46,6 +46,8 @@ enum Analysis<'a> {
     Declarations(Option<&'a str>),
     /// The whole graph facts.
     GraphFacts,
+    /// Imports, re-exports and CommonJS loads only.
+    ModuleReferences,
     /// The declarations whose `extends` / `implements` clause names this
     /// type, read from the parts of the file that spell it.
     NamedHeritage(&'a str),
@@ -60,6 +62,7 @@ impl Analysis<'_> {
             }
             Self::Declarations(None) => engine::extract_declarations_document(source, path),
             Self::GraphFacts => engine::extract_graph_facts(source, path),
+            Self::ModuleReferences => engine::extract_module_references(source, path),
             Self::NamedHeritage(name) => engine::extract_named_heritage(source, path, name),
         }
     }
@@ -69,6 +72,7 @@ impl Analysis<'_> {
         match self {
             Self::Declarations(parser) => ("declarations", parser.unwrap_or_default()),
             Self::GraphFacts => ("graphFacts", ""),
+            Self::ModuleReferences => ("moduleReferences", ""),
             Self::NamedHeritage(name) => ("namedHeritage", *name),
         }
     }
@@ -134,6 +138,15 @@ pub(crate) fn file_document(source: &str, path: &str) -> Option<Arc<GraphFactsDo
 
 pub(crate) fn graph_facts(source: &str, path: &str) -> Option<Arc<GraphFactsDocument>> {
     Analysis::GraphFacts.of(source, path)
+}
+
+/// The module references of `source` (imports, re-exports, CommonJS loads and
+/// the parse's cleanliness), kept like the other documents
+/// ([`octocode_engine::signatures::extract_module_references`]): what an
+/// import check reads, without the whole facts' calls and arguments. Read
+/// nothing else from it.
+pub(crate) fn module_references(source: &str, path: &str) -> Option<Arc<GraphFactsDocument>> {
+    Analysis::ModuleReferences.of(source, path)
 }
 
 /// The declarations of `source` whose `extends` / `implements` clause names
@@ -228,7 +241,7 @@ pub(crate) mod parses {
     }
 
     /// Extractions of `path` by the analysis named `analysis`
-    /// (`declarations`, `graphFacts`, `namedHeritage`).
+    /// (`declarations`, `graphFacts`, `moduleReferences`, `namedHeritage`).
     pub(crate) fn of(analysis: &'static str, path: &str) -> usize {
         PARSES
             .lock()

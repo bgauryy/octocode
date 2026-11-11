@@ -23,7 +23,9 @@ fn paths_of(out: &crate::response::result::ToolData) -> Vec<String> {
 /// GitHub's answer to one caller page of a code search (page `page` at
 /// `limit` a page, listing `names` in `a/b` of `total` matches) as the wide
 /// read asks for it: a first page at its `limit`, a later one in the
-/// `MAX_PER_PAGE` page holding it, other files before it. Served once, so mounts in walk order are the successive
+/// provider page holding it (GitHub's second page at `limit` times the largest
+/// power of two no greater than `page - 1`, or a `MAX_PER_PAGE` page once that
+/// passes it), other files before it. Served once, so mounts in walk order are the successive
 /// answers of a search whose results move between page reads.
 async fn mount_answer(
     server: &MockServer,
@@ -33,13 +35,16 @@ async fn mount_answer(
     names: &[&str],
 ) {
     let offset = (page - 1) * limit;
-    // A first page asks for itself; a later one reads through the largest page.
-    let per = if page == 1 {
-        limit
-    } else {
-        octocode_github::MAX_PER_PAGE
+    // A first page asks for itself; a walk reads provider pages that double.
+    let largest = octocode_github::MAX_PER_PAGE;
+    let (provider_page, per) = match page.checked_sub(1).filter(|before| *before > 0) {
+        None => (1, limit),
+        Some(before) => match limit * (1 << before.ilog2()) {
+            size if size <= largest => (2, size),
+            _ => (offset / largest + 1, largest),
+        },
     };
-    let items = (0..offset % per)
+    let items = (0..offset - (provider_page - 1) * per)
         .map(|slot| format!("slot{slot}.rs"))
         .chain(names.iter().map(|name| (*name).to_owned()))
         .map(|name| {
@@ -49,7 +54,7 @@ async fn mount_answer(
         .collect::<Vec<_>>();
     Mock::given(method("GET"))
         .and(path("/api/v3/search/code"))
-        .and(query_param("page", (offset / per + 1).to_string()))
+        .and(query_param("page", provider_page.to_string()))
         .and(query_param("per_page", per.to_string()))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "total_count":total,"incomplete_results":false,"items":items

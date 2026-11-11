@@ -52,6 +52,9 @@ pub(crate) struct LineShapeScan {
     run: usize,
     run_has_text: bool,
     long_run: bool,
+    /// Bytes fed so far, and where the line's first [`BODY_RUN`] starts.
+    fed: usize,
+    long_run_at: Option<usize>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -75,6 +78,8 @@ impl Default for LineShapeScan {
             run: 0,
             run_has_text: false,
             long_run: false,
+            fed: 0,
+            long_run_at: None,
         }
     }
 }
@@ -85,7 +90,11 @@ impl LineShapeScan {
             let base64 = byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'=');
             self.run = if base64 { self.run + 1 } else { 0 };
             self.run_has_text = base64 && (self.run_has_text || byte.is_ascii_alphanumeric());
-            self.long_run |= self.run >= BODY_RUN && self.run_has_text;
+            self.fed += 1;
+            if self.run >= BODY_RUN && self.run_has_text && !self.long_run {
+                self.long_run = true;
+                self.long_run_at = Some(self.fed - self.run);
+            }
             if self.stage == ShapeStage::Bad {
                 if self.long_run {
                     return;
@@ -158,6 +167,15 @@ impl LineShapeScan {
         }
     }
 
+    /// Where the key starts on the fed line when the line is no key's own
+    /// line but holds a key's run ([`LineShape::Body`] by its
+    /// [`BODY_RUN`] alone: `logo: iVBOR…`, `k += b"MIIE…"`): what precedes
+    /// the run is a label or code, no key text. `None` for a line that is a
+    /// body line as a whole, whose key starts after its indentation.
+    fn labelled_run_at(&self) -> Option<usize> {
+        self.long_run_at.filter(|_| self.stage == ShapeStage::Bad)
+    }
+
     /// The fed line as a block reads it; `head` is its leading bytes.
     pub(crate) fn finish(self, head: &[u8]) -> BlockLine {
         BlockLine {
@@ -176,6 +194,14 @@ pub(super) fn opens_with_body_run(line: &str) -> bool {
         .take_while(|byte| byte.is_ascii_alphanumeric() || matches!(**byte, b'+' | b'/' | b'='))
         .count();
     run >= BODY_RUN
+}
+
+/// Whether `line` holds a run of base64 only a key's body is that long,
+/// wherever it stands on the line ([`BODY_RUN`]).
+pub(super) fn holds_body_run(line: &str) -> bool {
+    let mut scan = LineShapeScan::default();
+    scan.feed(line.as_bytes());
+    scan.long_run
 }
 
 /// `Name: value` armor header, judged from a line's leading bytes.
@@ -275,9 +301,14 @@ pub(crate) fn hide_key_line(line: &str) -> String {
     )
 }
 
+/// The leading bytes of a line that say where its key starts
+/// ([`key_line_lead`]): what a streamed read keeps of a line of any length,
+/// so every reader of a source finds the same start.
+pub(crate) const KEY_LINE_HEAD_BYTES: usize = 256;
+
 /// The bytes of a line of a key block that are its key: what comes before a
-/// BEGIN or after an END is not the key, and a body line keeps its
-/// indentation.
+/// BEGIN or after an END is not the key, a body line keeps its indentation,
+/// and a line that only holds a key's run keeps what precedes the run.
 pub(crate) fn key_line_bytes(line: &str) -> std::ops::Range<usize> {
     let begin = line.find("-----BEGIN");
     let end = line
@@ -285,18 +316,30 @@ pub(crate) fn key_line_bytes(line: &str) -> std::ops::Range<usize> {
         .filter(|at| begin.is_none_or(|begin| begin < *at));
     let close = end.and_then(|end| {
         let name = end + "-----END".len();
-        line[name..]
+        line.get(name..)
+            .unwrap_or_default()
             .find("-----")
             .map(|at| name + at + "-----".len())
     });
-    key_line_lead(line.as_bytes()).len()..close.unwrap_or(line.len())
+    let bytes = line.as_bytes();
+    let mut shape = LineShapeScan::default();
+    shape.feed(bytes);
+    let head = bytes.get(..KEY_LINE_HEAD_BYTES).unwrap_or(bytes);
+    key_line_lead(head, &shape).len()..close.unwrap_or(line.len())
 }
 
-/// The bytes of a line of a key block before its key: all that precede a BEGIN, or
-/// an END or a body line's indentation. `head` may be only the line's start.
-pub(crate) fn key_line_lead(head: &[u8]) -> &[u8] {
+/// The bytes of a line of a key block before its key: all that precede a
+/// BEGIN, what precedes the run of a line that only holds a key's run
+/// (`shape`, the whole line's: [`LineShapeScan::labelled_run_at`]), or an END
+/// or a body line's indentation. `head` is the line's first
+/// [`KEY_LINE_HEAD_BYTES`]: a run that starts past them leaves the line a
+/// body line.
+pub(crate) fn key_line_lead<'a>(head: &'a [u8], shape: &LineShapeScan) -> &'a [u8] {
     if let Some(at) = head.windows(10).position(|bytes| bytes == b"-----BEGIN") {
         return &head[..at];
+    }
+    if let Some(label) = shape.labelled_run_at().and_then(|at| head.get(..at)) {
+        return label;
     }
     let blanks = head
         .iter()

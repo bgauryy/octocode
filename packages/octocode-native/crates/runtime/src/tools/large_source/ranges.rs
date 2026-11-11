@@ -23,7 +23,6 @@ const OMISSION_MARKER_CHARS: usize = 48;
 pub(super) fn fetch_ranges(
     q: &LocalFetchQuery,
     source: &Opened<'_>,
-    modified: Option<String>,
     share: Option<usize>,
     security: &impl ContentScan,
     cancel: &impl CancellationCheck,
@@ -116,7 +115,6 @@ pub(super) fn fetch_ranges(
             streamed,
             span,
             source,
-            modified.clone(),
             part_share,
             security,
             cancel,

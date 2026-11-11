@@ -135,7 +135,7 @@ pub(super) fn outline_walked(
             let mut evidence =
                 super::super::evidence::FileEvidence::new(view.source, &mut maps, cancel);
             let file = canonical.join(view.relative_path);
-            let (rows, off_kind, notes) = reduce_document(
+            let (rows, name_columns, off_kind, notes) = reduce_document(
                 q,
                 (
                     filter.as_ref(),
@@ -151,6 +151,7 @@ pub(super) fn outline_walked(
                     OutlineFile {
                         path: rooted(view.relative_path),
                         rows,
+                        name_columns,
                         off_kind,
                         notes,
                         source_descriptors,

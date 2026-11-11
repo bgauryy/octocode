@@ -118,7 +118,9 @@ pub(super) fn guard_large(
     let room = security.limits().window / 2;
     let windows = windows_of(&spans, &read, room);
     let known = hex::encode(digest);
-    let served = match crate::tools::large_source::served_lines(
+    // A read that serves nothing of this source says why on its own row: no
+    // row of it is shown.
+    let Ok(served) = crate::tools::large_source::served_lines(
         source,
         opened,
         meta,
@@ -126,14 +128,9 @@ pub(super) fn guard_large(
         Some(&known),
         security,
         cancel,
-    ) {
-        Ok(served) => served,
-        // The read serves nothing of this source (and says why on its own
-        // row): no row of it is shown.
-        Err(_) => {
-            cancel.check()?;
-            return withhold(file, OVERSIZED_PLACEHOLDER);
-        }
+    ) else {
+        cancel.check()?;
+        return withhold(file, OVERSIZED_PLACEHOLDER);
     };
     // The lines served are of other bytes than the rows' raw lines: the file
     // changed between the two reads.

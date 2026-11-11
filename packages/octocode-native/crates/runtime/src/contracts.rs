@@ -321,6 +321,11 @@ pub(crate) fn published_input_schema(tool: ToolId) -> Option<&'static serde_json
     })
 }
 
+/// The row fields that ask for a classification provider: the predicates a
+/// caller writes, and the sealed plan a continuation carries. A runtime
+/// without a provider refuses a row that holds either.
+pub(crate) const PROVIDER_FIELDS: [&str; 2] = ["classification", "selection"];
+
 /// The row fields `tool` publishes only beside a classification provider:
 /// those its presentation's `selection` schema has and its plain one lacks.
 /// A runtime without a provider publishes the plain schema, so its errors

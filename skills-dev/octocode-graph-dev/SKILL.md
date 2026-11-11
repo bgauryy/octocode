@@ -24,4 +24,4 @@ Use the [battery guide](references/battery.md) for `graph-bench.mjs --help`, the
 
 ## Related skills
 
-Use `rust-best-practices` for open Rust design choices, `octocode-architect` to review the graph modules’ boundaries, and `octocode-graph-view` to render a repository’s architecture.
+Use `rust-best-practices` for open Rust design choices, `octocode-engineer` to review the graph modules’ boundaries, and `octocode-graph-view` to render a repository’s architecture.

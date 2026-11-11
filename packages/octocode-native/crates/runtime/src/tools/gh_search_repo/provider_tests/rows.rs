@@ -106,7 +106,20 @@ async fn rows_carry_creation_date_as_a_detail_and_counts_as_stats() {
         })]),
     )
     .await;
-    let out = run(&server, json!({"keywords":["x"],"operation":"search"})).await;
+    // Dates and forks are a `fields` pick: a default row leaves them out.
+    let lean = run(&server, json!({"keywords":["x"],"operation":"search"})).await;
+    assert_eq!(
+        lean.data["repositories"][0],
+        json!({"owner":"o","repo":"r","stars":5}),
+        "{}",
+        lean.data
+    );
+    let out = run(
+        &server,
+        json!({"keywords":["x"],"operation":"search",
+            "fields":["createdAt","pushedAt","forks","updatedAt","homepage","openIssuesCount"]}),
+    )
+    .await;
     let row = &out.data["repositories"][0];
     assert_eq!(row["createdAt"], "2019-05-06", "{row}");
     assert_eq!(row["pushedAt"], "2026-01-02", "{row}");
@@ -148,7 +161,7 @@ async fn owner_and_repo_return_that_repository_without_searching() {
         json!([{
             "owner": "sindresorhus", "repo": "is", "stars": 1700,
             "language": "TypeScript", "pushedAt": "2026-09-01",
-            "description": "Type check values", "forks": 0,
+            "description": "Type check values",
             "defaultBranch": "main"
         }]),
         "{}",
@@ -176,10 +189,10 @@ async fn owner_and_repo_return_that_repository_without_searching() {
 }
 
 /// Anchors: a search row carries exactly the next hop's coordinates
-/// (`owner`, `repo`, `defaultBranch`) beside its decision facts, and no
-/// query echo.
+/// (`owner`, `repo`; a read without `ref` is at the default branch) beside
+/// its decision facts, and no query echo.
 #[tokio::test]
-async fn a_search_row_carries_owner_repo_and_default_branch() {
+async fn a_search_row_carries_owner_and_repo() {
     let server = MockServer::builder().start().await;
     mount_json(
         &server,
@@ -192,7 +205,7 @@ async fn a_search_row_carries_owner_repo_and_default_branch() {
     let row = &out.data["repositories"][0];
     assert_eq!(
         row,
-        &json!({"owner":"o","repo":"r","defaultBranch":"main","stars":0,"forks":0}),
+        &json!({"owner":"o","repo":"r","stars":0}),
         "{}",
         out.data
     );

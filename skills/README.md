@@ -4,7 +4,14 @@ These published Agent Skills guide research, design, writing, measurement, tool 
 
 Saved skill output lives under the project's `.octocode/` folder: reports and authored artifacts (research reports, RFCs, briefs, reviews, eval runs) in `<workspace>/.octocode/<skill-name>/`, and runtime captures and scratch files in its `tmp/` subfolder, so every file a skill writes stays under its own folder. A path the user names takes precedence; edits to the project's own code, docs, prompts, or skills stay at their source paths.
 
-Report-oriented skills bundle the shared renderer with no npm dependencies, `scripts/render-report.mjs`; Graph View uses its graph-specific renderer. HTML is generated only when requested or an offer is accepted. For people, it turns a saved report, a report folder, or the whole `<workspace>/.octocode/` folder into one local HTML page with navigation, search, a contents rail, a sources list, editor links for code references and local docs, Mermaid diagrams, and light/dark and print styles. It stays closed; agents pass `--open` only when asked. The reader view shows content without an automatic metadata card. For agents, `--manifest` returns compact pages of 20 reports with query filtering and continuation arguments; `--all` explicitly emits the full catalog for file processing. Generation with `--json --strict` rejects validation warnings and reports browser rendering as unverified. Use the page's Render check and inspect readability before claiming visual success. Each skill's `output.md` says when to save, which header and sections to write, and which path goes to whom. The [private common package](common/README.md) owns tool usage, configuration, evidence and protocol guidance, shared script helpers, and report templates. Repository builds copy them into consumers; `node skills/common/build.mjs --check` from the repository root rejects drift.
+| Need | Owner / behavior |
+|---|---|
+| Report format, save trigger and destination | Each skill's `output.md` |
+| HTML report | Bundled `scripts/render-report.mjs`, no npm dependencies; Graph View has its own renderer. Generate only when requested or accepted; `--open` only when asked. |
+| Human reading | One report, folder or `.octocode/` collection becomes a local page with navigation, search, contents, sources, editor/doc links, Mermaid, light/dark and print styles; no automatic metadata card. |
+| Agent discovery | `--manifest`: query-filtered pages of 20 with continuations. `--all`: full catalog for file processing. |
+| Visual verification | `--json --strict` rejects validation warnings; generation remains browser-unverified. Run Render check and inspect readability. |
+| Shared guidance and templates | [Common package](common/README.md); edit canonical sources, regenerate consumers, check with `node skills/common/build.mjs --check`. |
 
 | Skill | Use when |
 |---|---|
@@ -16,15 +23,13 @@ Report-oriented skills bundle the shared renderer with no npm dependencies, `scr
 | [Chrome DevTools](octocode-chrome-devtools/) | A live browser is needed for rendering, interaction, or diagnostics. |
 | [Brainstorming](octocode-brainstorming/) | An open idea or claim needs independent research directions and current, checked evidence. |
 | [Graph View](octocode-graph-view/) | Map repository structure, retain graph evidence, and optionally render an interactive viewer. |
-| [Architect](octocode-architect/) | A software boundary or refactor needs an architecture decision. |
+| [Engineer](octocode-engineer/) | A technical choice or architecture needs trade-offs, failure modes and a check: data structures, storage, concurrency, memory, performance, reliability, APIs, security, testing, boundaries or refactors. |
 | [RFC Generator](octocode-rfc-generator/SKILL.md) | A consequential technical choice needs its decision, design, and plan in one RFC. |
 | [Roast](octocode-roast/) | A blunt, evidence-backed code critique is requested. |
 | [Clean Agentic Code](octocode-clean-agentic-code/SKILL.md) | Proven code or instruction redundancy should be removed. |
 | [Documentation](octocode-documentation/SKILL.md) | Technical documentation needs writing, repair, or review. |
-| [Agentic Prompts](octocode-agentic-prompts/SKILL.md) | Prompts or agent flows need a behavioral rewrite, or past conversations need a prompting audit. |
-| [Skills](octocode-skills/) | Agent Skills need creation, review, tuning, or installation. |
-| [Eval Benchmark](octocode-eval-benchmark/SKILL.md) | A change needs a measured baseline and verdict. |
-| [Agents Communication](octocode-agents-communication/) | Agents or sessions need shared messages, evidence, or handoffs. |
+| [Agentic](octocode-agentic/SKILL.md) | An agent, its prompts or its tooling needs design, review, debugging or measurement: context, memory, tool and MCP contracts, routing, delegation, loop control, security, prompt rewrites and conversation audits, evals and skill activation, agent-to-agent messages and local agent coordination. |
+| [Skills](octocode-skills/SKILL.md) | Find, create, improve, check, install or sync Agent Skills; tune descriptions and reference routes. |
 
 These are public skills. Repository-only development helpers live in [skills-dev](../skills-dev/) and are not part of the public selection catalog. A skill whose frontmatter sets `metadata.excluded-hosts` (space-separated host IDs) stays installable by the octocode CLI but is skipped by a listed host that honors it; Get started names `octocode-code`, whose own setup it would contradict.
 

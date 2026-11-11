@@ -68,3 +68,128 @@ fn a_refused_value_is_redacted_where_it_stands() {
     assert!(!kept.contains("Tr0ub4dor"), "{kept}");
     assert!(kept.contains("password: str"), "{kept}");
 }
+
+const PASSWORD: &str = "Tr0ub4dor&3xK9!zQ";
+const OPENSSH_BODY: &str = "b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAABlwAAAAdzc2gtcn";
+const BODY_LINE: &str = "WzHvuy3fEWJr5musirUr5JYe5CMpm8DI2mKvqGsxgG5oDTudHZGh0Z7tcHL5kVeqJy";
+
+/// Every screened field judges a string alike: a search term, a keyword, the
+/// request's goal, a classification predicate.
+fn refused_everywhere(term: &str) -> bool {
+    let fields = [
+        serde_json::json!({ "matchString": [term] }),
+        serde_json::json!({ "keywords": [term] }),
+        serde_json::json!({ "mainGoal": term }),
+        serde_json::json!({ "classification": { "predicates": [term], "context": "plain" } }),
+        serde_json::json!({ "classification": { "predicates": ["plain"], "context": term } }),
+    ];
+    let verdicts: Vec<bool> = fields
+        .iter()
+        .map(|params| {
+            !ContentSecurity::new()
+                .validate_input_parameters(params)
+                .secret_fields
+                .is_empty()
+        })
+        .collect();
+    assert!(
+        verdicts.iter().all(|refused| *refused == verdicts[0]),
+        "{term:?} is judged apart by field: {verdicts:?}"
+    );
+    verdicts[0]
+}
+
+#[test]
+fn a_named_secret_inside_a_sentence_is_refused() {
+    for term in [
+        format!("locate password: {PASSWORD}"),
+        format!("find password={PASSWORD} in config"),
+        format!("Does the text contain password: {PASSWORD}?"),
+        format!("the password: {PASSWORD}"),
+    ] {
+        assert!(refused_everywhere(&term), "{term:?} was run");
+    }
+    for term in [
+        "locate password: str",
+        "find token: Token in the client",
+        "where api_key: str = None is declared",
+        "the dispatchToken: string member",
+        "Does the function take a password: str parameter?",
+    ] {
+        assert!(!refused_everywhere(term), "{term:?} was refused");
+    }
+}
+
+#[test]
+fn a_secret_spelled_as_a_regex_is_refused() {
+    let github = format!("ghp_{}", "a1B2".repeat(9));
+    let jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\\.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ\\.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+    let class = format!("{}[2]", github.trim_end_matches('2'));
+    for term in [jwt, class.as_str()] {
+        assert!(refused_everywhere(term), "{term:?} was run");
+    }
+    for term in [
+        "ghp_[A-Za-z0-9]{36}",
+        "eyJ[\\w-]+\\.eyJ[\\w-]+\\.",
+        "token\\s*[:=]",
+    ] {
+        assert!(!refused_everywhere(term), "{term:?} was refused");
+    }
+}
+
+/// The armor line is the same text in every key and no part of any: a search
+/// for it runs. A key's body does not, under its armor line or alone when
+/// its format's own header opens it.
+#[test]
+fn a_key_body_is_refused_and_its_armor_line_runs() {
+    let partial = format!("-----BEGIN RSA PRIVATE KEY-----\n{BODY_LINE}");
+    let escaped = format!("-----BEGIN RSA PRIVATE KEY-----\\n{BODY_LINE}");
+    let one_line = format!("-----BEGIN RSA PRIVATE KEY-----{BODY_LINE}");
+    for term in [
+        OPENSSH_BODY,
+        partial.as_str(),
+        escaped.as_str(),
+        one_line.as_str(),
+    ] {
+        assert!(refused_everywhere(term), "{term:?} was run");
+    }
+    for term in [
+        "-----BEGIN RSA PRIVATE KEY-----",
+        "-----BEGIN OPENSSH PRIVATE KEY-----",
+        "-----END OPENSSH PRIVATE KEY-----",
+        "-----BEGIN CERTIFICATE-----",
+        "-----BEGIN (RSA |OPENSSH )?PRIVATE KEY-----",
+        "find files that hold -----BEGIN RSA PRIVATE KEY-----",
+        BODY_LINE,
+    ] {
+        assert!(!refused_everywhere(term), "{term:?} was refused");
+    }
+    // A refused value never stays as written, whichever rule refused it.
+    for term in [OPENSSH_BODY, escaped.as_str()] {
+        let result = ContentSecurity::new()
+            .validate_input_parameters(&serde_json::json!({ "matchString": [term] }));
+        let kept = serde_json::to_string(&result.sanitized_params).expect("serializable");
+        assert!(
+            !kept.contains(&BODY_LINE[..24]) && !kept.contains(&OPENSSH_BODY[..24]),
+            "{kept}"
+        );
+    }
+}
+
+#[test]
+fn a_placeholder_url_runs_and_a_url_password_is_refused() {
+    for term in [
+        "postgres://user:password@localhost:5432/db",
+        "mysql://username:password@host/db",
+        "https://user:pass@example.com",
+        "postgres://user:pass@localhost",
+    ] {
+        assert!(!refused_everywhere(term), "{term:?} was refused");
+    }
+    for term in [
+        "postgres://admin:Tr0ub4dor3xK9zQ@db.internal:5432/app",
+        "https://deploy:s3cr3t!@example.com",
+    ] {
+        assert!(refused_everywhere(term), "{term:?} was run");
+    }
+}

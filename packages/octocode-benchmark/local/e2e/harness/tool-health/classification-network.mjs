@@ -31,7 +31,7 @@ function deniedInputs(port) {
     { label: 'image.loopback', query: assetQuery(`https://${local}`), expected: 'securityValidationFailed' },
     { label: 'source.http', query: sourceQuery(`http://${local}`), expected: 'invalidInput' },
     { label: 'image.http', query: assetQuery(`http://${local}`), expected: 'invalidInput' },
-    { label: 'source.userinfo', query: sourceQuery(`https://user:canary-password@${local}`), expected: 'invalidInput' },
+    { label: 'source.userinfo', query: sourceQuery(`https://user:canary-password@${local}`), expected: 'securityValidationFailed' },
     { label: 'image.fragment', query: assetQuery(`https://${local}#crop`), expected: 'invalidInput' },
   ];
 }
@@ -72,7 +72,8 @@ function imageFixture(ctx, surface) {
     return { body: { type: 'file', encoding: 'base64', path: file, size: bytes.length, sha: blob(bytes), content: bytes.toString('base64') } };
   });
   const query = ref => ({
-    operation: 'evaluate', content: { image: 'screen', evidence: 'GitHub snapshot edge fixture' },
+    // Image provenance (source, snapshot, path) is a details field.
+    operation: 'evaluate', view: 'details', content: { image: 'screen', evidence: 'GitHub snapshot edge fixture' },
     assets: { screen: { source: { tool: 'ghGetFileContent', query: { owner: 'octo', repo: 'demo', path: file, ref } } } },
     questions: { visible: noul('Is screen available as explicit remote evidence?') },
   });

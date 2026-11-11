@@ -272,7 +272,38 @@ fn github_facts(row: &mut SecurityAdvisory, advisory: &RepositoryAdvisory) {
         .collect();
 }
 
-/// The patched versions GitHub states, each once.
+/// The fixed versions one patched-versions text names. Maintainers write it
+/// free hand: a list (`2.0.0, 1.5.3`) or ranges (`>=6.2.6, >=6.1.5 <6.2.0`,
+/// with or without a space after the operator). A bare version, or one after
+/// `=` or `>=`, is a fix; an upper bound (`<6.2.0`) says where a fix's release
+/// line ends, and any other comparator names no version that is fixed. The
+/// text itself stays whole on the `advisory` row (`ecosystemSpecific`).
+fn fixes(text: &str) -> Vec<&str> {
+    let is_operator = |token: &str| token.chars().all(|c| matches!(c, '<' | '>' | '='));
+    let mut found = Vec::new();
+    let mut tokens = text
+        .split(|c: char| c == ',' || c.is_whitespace())
+        .filter(|token| !token.is_empty())
+        .peekable();
+    while let Some(token) = tokens.next() {
+        let at = token.len() - token.trim_start_matches(['<', '>', '=']).len();
+        let (operator, mut version) = token.split_at(at);
+        // `>= 6.2.6`: the operator stands apart from its version.
+        if version.is_empty()
+            && let Some(next) = tokens.next_if(|next| !is_operator(next))
+        {
+            version = next;
+        }
+        if matches!(operator, "" | "=" | ">=") && !version.is_empty() {
+            found.push(version);
+        }
+    }
+    found
+}
+
+/// The fixed versions GitHub states, each once and as a version: `6.2.6` for
+/// `>=6.2.6` as for `6.2.6`, the form OSV's `fixed` events use, so one fix
+/// reads the same from either source.
 fn patched(advisory: &RepositoryAdvisory, own_package: impl Fn(&str) -> bool) -> Vec<String> {
     let mut versions: Vec<String> = Vec::new();
     for entry in &advisory.vulnerabilities {
@@ -287,10 +318,9 @@ fn patched(advisory: &RepositoryAdvisory, own_package: impl Fn(&str) -> bool) ->
             .patched_versions
             .iter()
             .chain(&entry.first_patched_version)
-            .flat_map(|text| text.split(','))
+            .flat_map(|text| fixes(text))
         {
-            let version = version.trim();
-            if !version.is_empty() && !versions.iter().any(|known| known == version) {
+            if !versions.iter().any(|known| known == version) {
                 versions.push(version.to_owned());
             }
         }
@@ -480,10 +510,11 @@ pub(super) async fn list(
         "found"
     });
     let rows = osv.iter().chain(&github).collect::<Vec<_>>();
-    let advisories = record::advisory_groups(&rows)
+    let mut advisories = record::advisory_groups(&rows)
         .iter()
         .map(|group| record::group_brief(group))
-        .collect();
+        .collect::<Vec<_>>();
+    record::most_severe_first(&mut advisories);
     Ok(Listed {
         advisories,
         end,

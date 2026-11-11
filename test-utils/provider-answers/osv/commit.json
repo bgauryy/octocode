@@ -3,7 +3,8 @@
  "tool": "securityCheck",
  "query": {
   "operation": "commit",
-  "commit": "6879efc2c1596d11a6a6ad296f80063b558d5e0f"
+  "commit": "6879efc2c1596d11a6a6ad296f80063b558d5e0f",
+  "view": "details"
  },
  "recordedAt": "2026-11-08",
  "unread": [
@@ -189,6 +190,22 @@
       "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
      }
     ]
+   },
+   "unread": [
+    "affected[*].database_specific.source",
+    "affected[*].package.ecosystem",
+    "affected[*].package.name",
+    "affected[*].ranges[*].database_specific.extracted_events[*].range[*].last_affected",
+    "affected[*].ranges[*].type",
+    "summary"
+   ],
+   "unreadReasons": {
+    "affected[*].ranges[*].type": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown under `affected[].ranges[].type` on the advisory read.",
+    "affected[*].ranges[*].database_specific.extracted_events[*].range[*].last_affected": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown under `affected[].ranges[].database_specific` on the advisory read.",
+    "affected[*].database_specific.source": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as the row's `source` on the advisory read.",
+    "summary": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `summary` on OSV's row of the advisory read (checked by osv/advisory-ghsa.carried and osv/advisory-ossfuzz.carried).",
+    "affected[*].package.name": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `affected[].packageName` on the advisory read.",
+    "affected[*].package.ecosystem": "Not shown by any operation, as osv/advisory-ghsa already declares (`affected[*].package.ecosystem`): the advisory read names the package, not its ecosystem. It matched the list row's `source` URL before the lean row. Pre-existing gap, declared 2026-11-11."
    }
   },
   {
@@ -316,6 +333,22 @@
       "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L"
      }
     ]
+   },
+   "unread": [
+    "affected[*].database_specific.source",
+    "affected[*].package.ecosystem",
+    "affected[*].package.name",
+    "affected[*].ranges[*].database_specific.extracted_events[*].range[*].last_affected",
+    "affected[*].ranges[*].type",
+    "summary"
+   ],
+   "unreadReasons": {
+    "affected[*].ranges[*].type": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown under `affected[].ranges[].type` on the advisory read.",
+    "affected[*].ranges[*].database_specific.extracted_events[*].range[*].last_affected": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown under `affected[].ranges[].database_specific` on the advisory read.",
+    "affected[*].database_specific.source": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as the row's `source` on the advisory read.",
+    "summary": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `summary` on OSV's row of the advisory read (checked by osv/advisory-ghsa.carried and osv/advisory-ossfuzz.carried).",
+    "affected[*].package.name": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `affected[].packageName` on the advisory read.",
+    "affected[*].package.ecosystem": "Not shown by any operation, as osv/advisory-ghsa already declares (`affected[*].package.ecosystem`): the advisory read names the package, not its ecosystem. It matched the list row's `source` URL before the lean row. Pre-existing gap, declared 2026-11-11."
    }
   },
   {
@@ -378,6 +411,22 @@
      }
     ],
     "schema_version": "1.7.3"
+   },
+   "unread": [
+    "affected[*].database_specific.source",
+    "affected[*].package.ecosystem",
+    "affected[*].package.name",
+    "affected[*].ranges[*].database_specific.extracted_events[*].range[*].last_affected",
+    "affected[*].ranges[*].type",
+    "summary"
+   ],
+   "unreadReasons": {
+    "affected[*].ranges[*].type": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown under `affected[].ranges[].type` on the advisory read.",
+    "affected[*].ranges[*].database_specific.extracted_events[*].range[*].last_affected": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown under `affected[].ranges[].database_specific` on the advisory read.",
+    "affected[*].database_specific.source": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as the row's `source` on the advisory read.",
+    "summary": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `summary` on OSV's row of the advisory read (checked by osv/advisory-ghsa.carried and osv/advisory-ossfuzz.carried).",
+    "affected[*].package.name": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `affected[].packageName` on the advisory read.",
+    "affected[*].package.ecosystem": "Not shown by any operation, as osv/advisory-ghsa already declares (`affected[*].package.ecosystem`): the advisory read names the package, not its ecosystem. It matched the list row's `source` URL before the lean row. Pre-existing gap, declared 2026-11-11."
    }
   }
  ]

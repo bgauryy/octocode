@@ -375,7 +375,7 @@ fn a_pattern_read_as_an_absent_construct_names_it_and_offers_a_context() {
         &root.0,
         json!({"operation":"match","path":root.0,"parser":"typescript","rule":{"pattern":"$N: number"}}),
     );
-    assert_eq!(out["matchCount"], json!(0), "{out}");
+    assert_eq!(out["status"], "empty", "{out}");
     let diagnostics = out["diagnostics"].to_string();
     assert!(diagnostics.contains("labeled_statement"), "{out}");
     assert!(diagnostics.contains("selector"), "{out}");

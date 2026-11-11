@@ -1,6 +1,6 @@
 //! The secret scan of one returned page and the warnings it raises.
 
-use super::pagination::{SourceLines, page_within};
+use super::pagination::{LongLines, SourceLines, page_within};
 use super::prepare::*;
 use crate::tools::source_view::local_fetch_query;
 use octocode_contract_types::LocalFetchQuery;
@@ -21,13 +21,15 @@ pub(super) struct ScannedPage {
 
 /// How a page is cut from a view: the page's query, the view text, the
 /// bytes one line page may hold, the raw source lines a transformed view
-/// pages in (see [`page_within`]).
+/// pages in (see [`page_within`]), and how a raw view held whole pages its
+/// long lines.
 #[derive(Clone, Copy)]
 pub(super) struct PageWindow<'a> {
     pub(super) query: &'a LocalFetchQuery,
     pub(super) view: &'a str,
     pub(super) budget: super::pagination::LineBudget,
     pub(super) source_lines: Option<&'a SourceLines>,
+    pub(super) long_lines: Option<LongLines<'a>>,
 }
 
 /// Cut the page from its view. Every view is cut from a source redacted whole
@@ -40,9 +42,10 @@ pub(super) fn page_of(cut: &PageWindow<'_>) -> ScannedPage {
         view,
         budget,
         source_lines,
+        long_lines,
     } = *cut;
     ScannedPage {
-        page: page_within(view, query, budget, source_lines),
+        page: page_within(view, query, budget, source_lines, long_lines),
         redacted: false,
         redactions: 0,
         empty: view.is_empty(),

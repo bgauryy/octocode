@@ -19,7 +19,7 @@ fn summary_dirs_equals_the_stubs_plus_the_groups_the_listing_shows() {
     std::fs::write(root.0.join("top.rs"), "x\n").expect("top");
     let out = run(
         &root.0,
-        json!({"operation":"tree","path":root.0,"maxDepth":4}),
+        json!({"operation":"tree","view":"details","path":root.0,"maxDepth":4}),
     )
     .expect("tree");
     let directories: std::collections::BTreeSet<_> = listed(&out)
@@ -33,8 +33,8 @@ fn summary_dirs_equals_the_stubs_plus_the_groups_the_listing_shows() {
 }
 
 /// `files` counts `summary.dirs` from the walk, like `tree`: a chain of
-/// single-child directories names each directory once (a group header or a
-/// `name/` stub), and the summary counts every one of them.
+/// single-child directories lists each directory as one `name/` row, and
+/// the summary counts every one of them.
 #[test]
 fn files_summary_dirs_counts_every_walked_directory() {
     let root = Fixture::new();
@@ -46,9 +46,8 @@ fn files_summary_dirs_counts_every_walked_directory() {
             json!({"operation":operation,"path":root.0,"maxDepth":10}),
         )
         .expect("listing");
-        let (mut stubs, mut groups) = (0, 0);
+        let mut stubs = 0;
         for group in out["files"].as_array().expect("files") {
-            groups += usize::from(group["dir"] != ".");
             stubs += group["files"]
                 .as_array()
                 .expect("entries")
@@ -57,11 +56,7 @@ fn files_summary_dirs_counts_every_walked_directory() {
                 .count();
         }
         assert_eq!(out["summary"]["dirs"], 5, "{operation}: {out}");
-        assert_eq!(
-            stubs + groups,
-            5,
-            "{operation}: every directory shows once: {out}"
-        );
+        assert_eq!(stubs, 5, "{operation}: every directory is one row: {out}");
     }
 }
 
@@ -79,8 +74,8 @@ fn files_and_tree_report_the_same_totals() {
     #[cfg(unix)]
     std::os::unix::fs::symlink(root.0.join("a/one.txt"), root.0.join("link.txt")).expect("link");
     let summaries = [
-        json!({"operation":"files","path":root.0,"maxDepth":10,"includeHidden":true}),
-        json!({"operation":"tree","path":root.0,"maxDepth":10,"includeHidden":true}),
+        json!({"operation":"files","view":"details","path":root.0,"maxDepth":10,"includeHidden":true}),
+        json!({"operation":"tree","view":"details","path":root.0,"maxDepth":10,"includeHidden":true}),
     ]
     .map(|query| {
         let out = run(&root.0, query.clone()).expect("listing");
@@ -206,7 +201,7 @@ fn a_filtered_listing_names_the_links_it_does_not_follow() {
     for operation in ["tree", "files"] {
         let out = run(
             &root.0,
-            json!({"operation":operation,"path":links,"extensions":["md"]}),
+            json!({"operation":operation,"view":"details","path":links,"extensions":["md"]}),
         )
         .expect("filtered listing");
         let reasons = skipped_reasons(&out, "withheld");
@@ -216,7 +211,7 @@ fn a_filtered_listing_names_the_links_it_does_not_follow() {
             "{operation}: {out}"
         );
         assert!(out.get("warnings").is_none(), "{operation}: {out}");
-        let plain = run(&root.0, json!({"operation":operation,"path":links})).expect("listing");
+        let plain = run(&root.0, json!({"operation":operation,"view":"details","path":links})).expect("listing");
         assert!(plain.get("warnings").is_none(), "{operation}: {plain}");
         // The link row names its own length (the target path's), then `symlink`.
         let length = std::fs::symlink_metadata(links.join("skill"))

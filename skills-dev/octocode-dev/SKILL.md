@@ -13,6 +13,7 @@ octo() { node packages/octocode/out/octocode.js "$@"; }
 ```
 
 For tool calls see [MCP and CLI usage](references/octocode-usage.md).
+Delegating more than one task: [orchestration](references/orchestration.md) (dependency graph, briefs, standups, one build, fresh retest).
 
 ## Task runner
 

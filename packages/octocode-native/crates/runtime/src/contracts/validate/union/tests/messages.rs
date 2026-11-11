@@ -315,7 +315,8 @@ fn a_wrong_value_leads_over_a_missing_operation() {
         "{rendered}"
     );
     let details = rendered["details"].as_array().expect("details");
-    assert_eq!(details.len(), error.issues.len() - 1, "{rendered}");
+    // Every other issue, then the call's example and schema command.
+    assert_eq!(details.len(), error.issues.len() - 1 + 2, "{rendered}");
     assert!(
         details.iter().any(|detail| detail
             .as_str()

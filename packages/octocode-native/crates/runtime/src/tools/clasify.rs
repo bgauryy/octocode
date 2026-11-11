@@ -4,7 +4,9 @@
 //! completely through the authorized readers ([`source_capture`]), or
 //! `resources`, each judged whole as a `source` is. The row
 //! returns the provider's validated answers, the answering model and usage,
-//! and source provenance; never a body. Explicit image assets are captured
+//! and source provenance; never a body. A source the provider window refuses
+//! is judged in sections and answered once per question ([`combined`]).
+//! Explicit image assets are captured
 //! internally as original bytes, with immutable local inspection copies.
 //!
 //! Every row evaluates through the shared [`Evaluator`]: one provider client,
@@ -21,11 +23,14 @@ use serde_json::{Value, json};
 
 mod across;
 mod admission;
+mod combined;
 mod evaluate;
 mod recovery;
 mod reply;
 mod rows;
 pub(crate) mod sections;
+mod units;
+mod view;
 
 pub(crate) use admission::unavailable_source_issues;
 use evaluate::evaluate_row;
@@ -50,6 +55,10 @@ struct Row {
     input: Input,
     assets: Option<Value>,
     long_context: Option<bool>,
+    /// `view: "details"`: the whole row; otherwise the summary ([`view`]).
+    details: bool,
+    /// `perItem`: each item of a `content` array is one unit ([`units`]).
+    per_item: bool,
 }
 
 enum Input {
@@ -162,6 +171,13 @@ pub(crate) fn call(
         kinds.push(kind);
     }
     across.attach(&mut output, &parsed, can_resume);
+    for (row, data) in parsed.iter().zip(&mut output) {
+        if row.details {
+            view::carry_details(data);
+        } else {
+            view::summarize(data);
+        }
+    }
     Ok(receipts(output, kinds))
 }
 
@@ -197,6 +213,12 @@ fn shaped(
             };
             (value, kind)
         }
+        RowOutcome::Combined(combined) => (combined.output, None),
+        RowOutcome::Units(Ok(output)) => (output, None),
+        RowOutcome::Units(Err(error)) => (
+            failed(row, &error, None, can_resume),
+            Some(error_kind(&error)),
+        ),
         RowOutcome::Resources {
             resources,
             notices,
@@ -300,6 +322,10 @@ enum RowOutcome {
         /// The evaluation's identity: rows with one share one request.
         identity: Option<crate::tools::judgment::shared::Identity>,
     },
+    /// A source judged in sections and answered once per question.
+    Combined(Box<combined::Combined>),
+    /// A tool's rows or a content array's items, each judged as one unit.
+    Units(Result<Value, ClassificationError>),
     Models(Result<Value, ClassificationError>),
     Sections(Result<sections::Outcome, ClassificationError>),
     /// An `evaluate` row with `resources`: one judgment per resource, and

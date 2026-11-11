@@ -38,22 +38,15 @@ pub(super) async fn compare(
 ) -> Result<ToolData, ProviderError> {
     let page = gh_get_history_item_query::page(query).unwrap_or(1);
     let per = gh_get_history_item_query::collection_page_size(query);
-    // Omitted sections read both lists; named sections read what they name.
-    // A patch window continues one file page's patches only.
+    // Named sections read what they name. Omitted sections answer with the
+    // range's files; its commits (counted by `aheadBy`) are paged apart, from
+    // their first page, by `contentPagination.commits` or `sections:
+    // ["commits"]`. A patch window continues one file page's patches only.
     let window = gh_get_history_item_query::char_offset(query).is_some_and(|offset| offset > 0);
     let sections = query.sections();
     let named = gh_get_history_item_query::has_sections(query);
-    // `include` or `matchString` asks about files: the range's commits
-    // (which neither scopes) are paged apart, from their first page.
-    let files_asked = !named
-        && (!gh_get_history_item_query::include_patterns(query).is_empty()
-            || gh_get_history_item_query::match_strings(query).is_some());
-    let wants_commits = !window
-        && if named {
-            sections.has(Section::Commits)
-        } else {
-            !files_asked
-        };
+    let files_asked = !named;
+    let wants_commits = !window && named && sections.has(Section::Commits);
     let wants_files = !named || sections.lists_files();
     let Comparison {
         mut raw,

@@ -69,13 +69,6 @@ pub struct NextCalls {
     /// Offset-zero recovery for a page requested past the end of the view.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub restart: Option<FetchCall>,
-    /// The rest of a declaration a `block` range stopped inside.
-    #[serde(
-        rename = "continueBlock",
-        skip_serializing_if = "Option::is_none",
-        default
-    )]
-    pub continue_block: Option<FetchCall>,
     /// A structureSearch tree of a path that is a directory, not a file.
     #[serde(rename = "viewTree", skip_serializing_if = "Option::is_none", default)]
     pub view_tree: Option<serde_json::Value>,
@@ -142,7 +135,6 @@ impl NextCalls {
         "nextPage" Page continue_window,
         "readBoundedLines" Current read_bounded_lines,
         "restart" Current restart,
-        "continueBlock" Page continue_block,
         "ignoreCase" Current ignore_case,
         "read" Current read,
         "repair" Current repair,
@@ -191,14 +183,14 @@ impl NextCalls {
     }
 
     /// Whether a continuation reads evidence this result left unread, as
-    /// opposed to paging on (`nextPage`, `continueBlock`: pagination, not
-    /// partial coverage), an optional lead such as `read`, or `unfiltered`
+    /// opposed to paging on (`nextPage`: pagination, not partial
+    /// coverage), an optional lead such as `read`, or `unfiltered`
     /// (what a finished judgment chose to leave out, which is the request, not a
     /// gap). Other continuing reads (unjudged candidates, other ranges) are
     /// unread evidence. A call of another tool is a lead, never a page.
     pub fn leaves_unread(&self) -> bool {
         self.reads().into_iter().any(|(name, _, read)| {
-            !matches!(name, "nextPage" | "continueBlock" | "unfiltered")
+            !matches!(name, "nextPage" | "unfiltered")
                 && read.as_ref().is_some_and(|read| read.continuing)
         }) || self
             .unfiltered_unknown_rest

@@ -14,7 +14,7 @@ mod tests;
 use crate::id::ToolId;
 use crate::response::result::{Continuation, ToolData};
 use crate::tools::gh_shared::{
-    GhFailure, Rerun, SearchWindow, add_next, pick_rows, rerun_renamed, search_failure,
+    GhFailure, Rerun, SearchWindow, add_next, lean_rows, pick_rows, rerun_renamed, search_failure,
     search_may_be_renamed, with_search_repair,
 };
 use octocode_contract_types::{ErrorCode, GhSearchRepoQuery, GitHubArchive};
@@ -123,11 +123,10 @@ pub(crate) async fn execute(
     }
     let wanted = wanted_topics(query);
     let fields = access::fields(query);
-    let with_topics = fields.iter().any(|field| field == "topics");
     let repositories = data
         .items
         .into_iter()
-        .map(|item| repository_row(item, &wanted, with_topics))
+        .map(|item| repository_row(item, &wanted))
         .collect::<Vec<_>>();
     let ignored_language = match &listing {
         None => ignored_language(provider, query, &repositories, page.matched, context).await,
@@ -146,7 +145,16 @@ pub(crate) async fn execute(
         value["calls"][name] = lead;
     }
     page.disclose(&mut value, query, ignored_language);
-    pick_rows(&mut value, "repositories", REPO_ID, &access::fields(query));
+    // A page ranked by forks or update time states that value on each row:
+    // the order is the answer.
+    let sorted = access::sorted_detail(query);
+    let detail = LISTED_DETAIL
+        .iter()
+        .copied()
+        .filter(|field| Some(*field) != sorted)
+        .collect::<Vec<_>>();
+    lean_rows(&mut value, "repositories", &detail, &fields);
+    pick_rows(&mut value, "repositories", REPO_ID, &fields);
     let owner_has_no_repositories = empty
         && current == 1
         && !page.incomplete
@@ -230,9 +238,10 @@ async fn exact_repository(
             !to_owner.eq_ignore_ascii_case(owner) || !to_repo.eq_ignore_ascii_case(repo)
         })
         .map(|(to_owner, to_repo)| (to_owner.to_owned(), to_repo.to_owned()));
-    let row = repository_row(item, &[], true);
+    let row = repository_row(item, &[]);
     let fields = access::fields(query);
     let mut value = json!({ "repositories": [row] });
+    lean_rows(&mut value, "repositories", EXACT_DETAIL, &fields);
     pick_rows(&mut value, "repositories", REPO_ID, &fields);
     // The repository's natural next reads, on its default branch, under
     // the name it has now: its root tree and its refs.
@@ -258,6 +267,27 @@ async fn exact_repository(
 /// A repository row's id and its `visibility` mark: a `fields` pick keeps
 /// them, so a private row stays marked.
 const REPO_ID: &[&str] = &["owner", "repo", "visibility"];
+
+/// What a listed row leaves to a `fields` pick: a search or an owner listing
+/// answers with each repository's name, stars and description (and its
+/// `archived`, `fork` and `visibility` marks), which choose the repository;
+/// its branch, language, license, dates and forks are read by `fields` or by
+/// `operation: get`.
+const LISTED_DETAIL: &[&str] = &[
+    "defaultBranch",
+    "language",
+    "license",
+    "pushedAt",
+    "createdAt",
+    "topics",
+    "forks",
+    "updatedAt",
+];
+
+/// What one repository's own row leaves to a `fields` pick: `get` names the
+/// repository, its default branch, its size in stars, its language and
+/// license, and when it was last pushed.
+const EXACT_DETAIL: &[&str] = &["createdAt", "topics", "forks", "updatedAt"];
 
 /// The filters a query can set beside its keywords, by wire name, one
 /// group each: the one table every narrowing check reads.

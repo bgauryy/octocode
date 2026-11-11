@@ -231,6 +231,11 @@ fn graph_cases() -> Vec<Case> {
         case(
             "graphQuery",
             "hit",
+            query(json!({"operation":"stats","view":"details"})),
+        ),
+        case(
+            "graphQuery",
+            "hit",
             query(json!({"operation":"find","target":"needle"})),
         ),
         case(
@@ -327,6 +332,16 @@ pub async fn recorded(name: &str, state: &'static str, with_paged: bool) -> Worl
         row["registryUrl"] = json!(server.uri());
     }
     let mut cases = vec![case(tool, state, row.clone())];
+    // A recording made with `view:"details"` (every field the provider
+    // sends) is also asked in the default view, the summary.
+    if let Some(fields) = row
+        .as_object()
+        .filter(|fields| fields.get("view") == Some(&json!("details")))
+    {
+        let mut summary = fields.clone();
+        summary.remove("view");
+        cases.push(case(tool, state, Value::Object(summary)));
+    }
     if with_paged {
         cases.push(paged(tool, row));
     }

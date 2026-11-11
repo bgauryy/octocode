@@ -14,6 +14,7 @@ mod page;
 mod rows;
 mod select;
 
+use super::judged_rows::NamePlaces;
 use continuation::Continuation;
 #[cfg(test)]
 pub(super) use directory::outline_directory;
@@ -79,13 +80,16 @@ pub(crate) mod ast_search_query_symbols {
     }
 }
 
-pub fn execute_symbols(
+/// One page of a symbols query, and where each of its rows was named
+/// ([`NamePlaces`]).
+pub(crate) fn execute_symbols(
     q: &AstSearchQuerySymbols,
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
     response_window: Option<usize>,
-) -> Result<Value, ToolError> {
-    run_symbols(q, paths, cancel, response_window).map(super::output::finish)
+) -> Result<(Value, NamePlaces), ToolError> {
+    run_symbols(q, paths, cancel, response_window)
+        .map(|(page, places)| (super::output::finish(page), places))
 }
 
 fn run_symbols(
@@ -93,7 +97,7 @@ fn run_symbols(
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
     response_window: Option<usize>,
-) -> Result<Value, ToolError> {
+) -> Result<(Value, NamePlaces), ToolError> {
     cancel.check().map_err(ToolError::cancelled)?;
     if let Some(unknown) = q
         .symbol_kinds
@@ -130,11 +134,12 @@ fn run_symbols(
         && before.is_some()
         && ast_search_query_symbols::snapshot(q).is_some_and(|pin| Some(pin) != before.as_deref())
     {
-        return Ok(crate::response::result::stale_snapshot(
-            crate::response::result::restart_query(
+        return Ok((
+            crate::response::result::stale_snapshot(crate::response::result::restart_query(
                 crate::id::ToolId::AstSearch,
                 &crate::response::result::query_row(q, &[]),
-            ),
+            )),
+            NamePlaces::default(),
         ));
     }
     let stored = continuation.stored(q);
@@ -147,13 +152,13 @@ fn run_symbols(
             Arc::new(set)
         }
     };
-    let mut page = render_page(q, &set, row_paths, response_window, cancel)?;
+    let (mut page, places) = render_page(q, &set, row_paths, response_window, cancel)?;
     if stored.is_none() && page["calls"]["nextPage"].is_object() {
         continuation.remember(q, &set);
     }
     note_skipped(q, &p.canonical, mapped.as_ref(), paths, cancel, &mut page);
     note_directory_parser(q, &mut page);
-    Ok(page)
+    Ok((page, places))
 }
 
 /// One page of a single file's outline; the first page that has more stores
@@ -164,7 +169,7 @@ fn file_page(
     file: &std::path::Path,
     response_window: Option<usize>,
     cancel: &dyn CancellationCheck,
-) -> Result<Value, ToolError> {
+) -> Result<(Value, NamePlaces), ToolError> {
     let row_paths = super::RowPaths::new(paths, file, true);
     let scoped = crate::tools::test_code::Scoped::of(q.test_code, paths);
     let started = octocode_engine::stamp::settle_clock();
@@ -176,16 +181,16 @@ fn file_page(
             let display_path = row_paths.delivered(&file.to_string_lossy());
             let outline = match outline_file(q, (file, &display_path), scoped.as_ref(), cancel)? {
                 Ok(outline) => outline,
-                Err(terminal) => return Ok(terminal),
+                Err(terminal) => return Ok((terminal, NamePlaces::default())),
             };
             Arc::new(select(q, file, outline, row_paths, cancel)?)
         }
     };
-    let page = render_page(q, &set, row_paths, response_window, cancel)?;
+    let (page, places) = render_page(q, &set, row_paths, response_window, cancel)?;
     if stored.is_none() && page["calls"]["nextPage"].is_object() {
         continuation.remember(q, &set);
     }
-    Ok(page)
+    Ok((page, places))
 }
 
 /// A directory reads each file by `parserGlobs`, else its extension:

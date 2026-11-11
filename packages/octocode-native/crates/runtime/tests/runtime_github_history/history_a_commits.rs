@@ -169,7 +169,8 @@ async fn history_a_compare_commits_are_headlines_with_login_authors() {
     let outcome = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"compare","owner":"a","repo":"b","baseRef":"v1","headRef":head}),
+        json!({"operation":"compare","owner":"a","repo":"b","baseRef":"v1","headRef":head,
+            "sections":["commits"]}),
     )
     .await
     .expect("compare");

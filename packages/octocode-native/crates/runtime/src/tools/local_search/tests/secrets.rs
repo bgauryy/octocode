@@ -11,6 +11,7 @@ mod large_sources;
 mod long_lines;
 mod member_context;
 mod ranking;
+mod row_windows;
 mod sources;
 
 /// A page's cost follows the rows it shows: redacting the scan reads no file

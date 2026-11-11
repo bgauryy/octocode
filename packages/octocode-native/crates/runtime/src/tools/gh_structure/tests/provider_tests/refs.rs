@@ -175,7 +175,7 @@ async fn refs_pages_continue_at_the_read_size_and_lead_from_page_one() {
         "/api/v3/repos/a/b/git/matching-refs/tags",
         200,
         json!(
-            (1..=101)
+            (1..=31)
                 .map(|n| json!({"ref": format!("refs/tags/v{n}"), "object": {"sha": SHA}}))
                 .collect::<Vec<_>>()
         ),
@@ -192,7 +192,7 @@ async fn refs_pages_continue_at_the_read_size_and_lead_from_page_one() {
     assert!(next.get("pageSize").is_none());
 
     let second = list(&server, next).await.expect("refs page 2");
-    // Newest first: the 101st tag (the oldest) is page 2's one tag.
+    // Newest first: the 31st tag (the oldest) is page 2's one tag.
     assert_eq!(second.data["tags"], json!(["v1"]), "{}", second.data);
     assert!(second.data.get("warnings").is_none(), "{}", second.data);
     assert_eq!(second.data["pagination"]["page"], 2, "{}", second.data);

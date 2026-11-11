@@ -1,5 +1,4 @@
 use super::super::RowPaths;
-use super::super::judged_rows::NAME_AT;
 use crate::response::symbol_outline::declaration_rows;
 use octocode_engine::graph::{GraphFactDeclaration, GraphParseAssessment};
 use serde_json::{Value, json};
@@ -55,22 +54,22 @@ pub(super) fn row_sizes(
     spans
         .iter()
         .map(|span| {
-            // A delivered row states neither the place it was named at
-            // ([`NAME_AT`]) nor, in a directory, its path.
-            let delivered = declarations[span.clone()]
-                .iter()
-                .map(|row| {
-                    let mut row = row.clone();
-                    if let Some(fields) = row.as_object_mut() {
-                        fields.remove(NAME_AT);
-                        if directory.is_some() {
+            let rows = &declarations[span.clone()];
+            let rendered = if directory.is_some() {
+                let unpathed = rows
+                    .iter()
+                    .map(|row| {
+                        let mut row = row.clone();
+                        if let Some(fields) = row.as_object_mut() {
                             fields.remove("path");
                         }
-                    }
-                    row
-                })
-                .collect::<Vec<_>>();
-            let rendered = declaration_rows(&delivered);
+                        row
+                    })
+                    .collect::<Vec<_>>();
+                declaration_rows(&unpathed)
+            } else {
+                declaration_rows(rows)
+            };
             // Each row is one array element: its text and a separator.
             let mut chars = rendered
                 .iter()
@@ -168,9 +167,7 @@ pub(super) fn implemented_traits<'a>(
 /// `line` (1-based) anchors the declaration NAME, so a row feeds lspSearch as
 /// `symbolName`+`line`; `character` (1-based) appears only when another
 /// declaration of the same kind shares that name and line, so the column is
-/// the only difference. Every other row carries that column under
-/// [`NAME_AT`] to the judging of its page, which shows the name as the
-/// source's bytes at that place and takes the key out. `endLine` (1-based) ends the declaration and is omitted when
+/// the only difference. `endLine` (1-based) ends the declaration and is omitted when
 /// equal to `line`; `startLine` appears only when the declaration starts
 /// before its name line (decorators, attributes); `docStartLine` is the first
 /// line of the comment block directly above, when present. `parent` names the
@@ -178,7 +175,11 @@ pub(super) fn implemented_traits<'a>(
 /// filter drops the parent row; `parentLine` is added only when another
 /// declaration in the file has the same name and kind (two `impl A` blocks). `exported` appears only when the engine tags the declaration exported (a member is exported only when its owning type is), with
 /// `exportedAs` listing public names that differ from `name`. Rows are
-/// returned in input order, one per engine declaration.
+/// returned in input order, one per engine declaration, each with the
+/// 1-based column its name starts at on its `line`, in the engine's unit:
+/// the place its name is cut from the judged source at
+/// ([`super::super::judged_rows::NamePlaces`]), which no row states unless
+/// it is the `character` above.
 ///
 /// Per-declaration provenance (`occurrenceId`, `sourceRange`,
 /// `selectionByteRange`, and a clean `parseAssessment`) is added only when
@@ -187,7 +188,7 @@ pub(super) fn compact_declarations(
     raw: &[&GraphFactDeclaration],
     implements: &HashMap<&str, &str>,
     provenance: bool,
-) -> Vec<Value> {
+) -> (Vec<Value>, Vec<u32>) {
     let names: Vec<std::borrow::Cow<'_, str>> =
         raw.iter().map(|d| display_name(d, implements)).collect();
     let anchors: Vec<(&str, u32, u32)> = raw
@@ -235,13 +236,10 @@ pub(super) fn compact_declarations(
             if implemented(d, implements).is_some() {
                 row["typeName"] = json!(d.name);
             }
-            // 1-based, like every column.
-            let column = if per_name_line.get(&(name, line, kind)).copied().unwrap_or(0) > 1 {
-                "character"
-            } else {
-                NAME_AT
-            };
-            row[column] = json!(character + 1);
+            if per_name_line.get(&(name, line, kind)).copied().unwrap_or(0) > 1 {
+                // 1-based, like every column.
+                row["character"] = json!(character + 1);
+            }
             let starts = crate::tools::declarations::StartLines::of(d);
             if let Some(start) = starts.start_line {
                 row["startLine"] = json!(start);
@@ -294,7 +292,7 @@ pub(super) fn compact_declarations(
                     row["parentLine"] = json!(parent_line);
                 }
             }
-            row
+            (row, character + 1)
         })
-        .collect()
+        .unzip()
 }

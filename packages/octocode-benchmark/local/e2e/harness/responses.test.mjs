@@ -129,14 +129,16 @@ test('required evidence on a later part is empty, never a second delivery', () =
 });
 
 test('required evidence the output schema forbids empty repeats whole and agrees', () => {
+  // clasify sections: `status` is an enum (no empty form), `startLine` a number, `sections` an unbounded list.
   const section = ['data', 'resources', 'r', 'sections', '0'];
-  const bytes = [...section, 'target', 'bytes'];
-  assert.equal(laterPartValue('clasify', bytes, [0, 5], [0, 5]), true, 'a pair has no empty form: whole');
-  assert.equal(laterPartValue('clasify', bytes, [], [0, 5]), false, 'an emptied pair breaks the schema');
-  assert.equal(laterPartValue('clasify', bytes, [0, 6], [0, 5]), false, 'a repeated bound value must agree');
-  const context = [{ bytes: [0, 5], lines: { startLine: 1, endLine: 1 } }];
-  assert.equal(laterPartValue('clasify', [...section, 'context'], [], context), true, 'an unbounded list arrives as []');
-  assert.equal(laterPartValue('clasify', [...section, 'context'], context, context), false, 'an unbounded list repeated whole is a second delivery');
+  const status = [...section, 'answers', 'q', 'status'];
+  assert.equal(laterPartValue('clasify', status, 'answered', 'answered'), true, 'a bounded value has no empty form: whole');
+  assert.equal(laterPartValue('clasify', status, '', 'answered'), false, 'an emptied bounded value breaks the schema');
+  const start = [...section, 'target', 'lines', 'startLine'];
+  assert.equal(laterPartValue('clasify', start, 4, 3), false, 'a repeated bound value must agree');
+  const sections = ['data', 'resources', 'r', 'sections'];
+  assert.equal(laterPartValue('clasify', sections, [], [{ answers: {} }]), true, 'an unbounded list arrives as []');
+  assert.equal(laterPartValue('clasify', sections, [{ answers: {} }], [{ answers: {} }]), false, 'an unbounded list repeated whole is a second delivery');
 });
 
 test('unchanged declared evidence collections never disappear as ancestor context', () => {

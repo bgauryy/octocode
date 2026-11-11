@@ -10,6 +10,8 @@ Lead with the conclusion (BLUF), then claim–evidence and limits.
 
 For workflow selection: primary workflow, why it fits, orchestrator and actor duties (RACI), owner skills, next check, and limits.
 
+For workflow design: desired result, current state, participants and capabilities, ordered steps or branches, exchanged messages/artifacts, acceptance and recovery. Name proposed versus available capabilities. Include one success walkthrough and one failure or interruption walkthrough; state whether execution is direct or delegated. A diagram may show communication, but does not replace the acceptance check.
+
 For completion: result and confidence first; then verified scope, decisive evidence, changed or observed boundary, failed/unverified/stale work, and next action. The orchestrator merges raw actor observations into the sole ledger; do not present a message delivery as verified work.
 
 ## Presentation choices

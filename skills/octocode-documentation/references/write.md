@@ -26,6 +26,13 @@ Load when evidence spans files, writing an ADR or agent instruction file, or che
 - A command or signature only when the reader must copy it; else link the source. No code dumps (full config, long JSON or YAML).
 - Links and bullets answer "where do I look?" and "what must I not break?".
 
+| Information | Prefer | Why |
+|---|---|---|
+| Condition, action and reason | Trigger → action → check table | Agent can select one applicable row. |
+| Dependency, branch, state or ordered interaction | Compact Mermaid diagram | Exposes relationships; keep conditions on edges. |
+| Copyable command or exact schema | Code fence with prerequisites and expected result | Preserves executable syntax. |
+| One fact or short explanation | Prose | Avoid a visual that takes longer to parse. |
+
 ## ADR
 
 - Only for a settled choice that is expensive to reverse (stack, schema, auth, API style, infra); not obvious code or prototypes.
@@ -42,7 +49,7 @@ Load when evidence spans files, writing an ADR or agent instruction file, or che
 
 ## Agent instruction files
 
-When `octocode-agentic-prompts` is available, it owns behavioral wording; this section covers index structure and link checks.
+When `octocode-agentic` is available, it owns behavioral wording; this section covers index structure and link checks.
 
 - Check how the target host loads `AGENTS.md` or `CLAUDE.md`; preserve its scope and precedence. Keep nested instructions focused on local differences.
 - Draft as an index; verify every linked path and command.

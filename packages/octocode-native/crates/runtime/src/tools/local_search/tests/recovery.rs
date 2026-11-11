@@ -25,13 +25,37 @@ fn search(root: &std::path::Path, path: &str, extra: serde_json::Value) -> serde
         .expect("row")
 }
 
+/// An empty row is its empty list and what the scan covered: `files: []`
+/// and `filesScanned`, with no counter that says zero and no byte total.
+#[test]
+fn an_empty_row_states_coverage_and_no_zero_counter() {
+    let root = workspace();
+    let row = search(
+        root.path(),
+        &root.path().to_string_lossy(),
+        serde_json::json!({"matchString": ["absent-everywhere"]}),
+    );
+    assert_eq!(row["files"], serde_json::json!([]), "{row}");
+    assert_eq!(row["filesScanned"], 2, "{row}");
+    let data = row.as_object().expect("row");
+    for (key, value) in data {
+        assert_ne!(value.as_u64(), Some(0), "zero counter {key}: {row}");
+    }
+    assert!(!data.contains_key("bytesSearched"), "{row}");
+    // A row with hits keeps its counters, and states no byte total either.
+    let hit = search(root.path(), &root.path().to_string_lossy(), serde_json::json!({}));
+    assert_eq!(hit["matchCount"], 1, "{hit}");
+    assert_eq!(hit["matchedFiles"], 1, "{hit}");
+    assert!(hit.get("bytesSearched").is_none(), "{hit}");
+}
+
 #[test]
 fn a_plain_miss_under_a_narrow_path_leads_to_the_workspace_root() {
     let root = workspace();
     let narrow = root.path().join("narrow").to_string_lossy().into_owned();
     for path in [narrow.clone(), format!("{narrow}/a.txt")] {
         let row = search(root.path(), &path, serde_json::json!({}));
-        assert_eq!(row["matchCount"], 0, "{row}");
+        assert_eq!(row["files"], serde_json::json!([]), "{row}");
         let lead = crate::tools::test_support::checks::related_call(&row, "localSearch", |_| true);
         let query = &lead["input"]["queries"][0];
         assert_eq!(query["path"], ".", "{row}");
@@ -50,7 +74,7 @@ fn a_miss_at_the_workspace_root_has_nothing_wider() {
         &root.path().to_string_lossy(),
         serde_json::json!({"matchString": ["absent-everywhere"]}),
     );
-    assert_eq!(row["matchCount"], 0, "{row}");
+    assert_eq!(row["files"], serde_json::json!([]), "{row}");
     assert!(
         crate::tools::test_support::checks::find_related_call(&row, "localSearch", |_| true)
             .is_none(),

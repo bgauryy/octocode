@@ -1,7 +1,6 @@
 //! Opening a read: the path policy, the regular-file and size checks, the
 //! binary sniff and the streamed path for large sources.
 
-use super::executor::system_time_iso;
 use crate::execution::cancel::CancellationCheck;
 use crate::security::scan::ContentScan;
 use crate::tools::source_view::*;
@@ -187,7 +186,6 @@ pub(super) fn fetch_streamed(
         path,
         source,
         meta,
-        meta.modified().ok().and_then(system_time_iso),
         share,
         security,
         cancel,

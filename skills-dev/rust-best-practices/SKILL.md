@@ -9,14 +9,22 @@ Read the owning crate’s `Cargo.toml`, `src/` and target code. Identify the req
 
 ## Resources
 
-Read [basics](basics.md) first as the quick-start, then open the page for the decision at hand.
+Read only the row for the current decision. Use [basics](basics.md) for an initial Rust overview.
 
-- Choose [idioms](references/idioms.md) for errors, borrowing or async cleanup and [types and patterns](references/types-and-patterns.md) for structs, enums, traits or pointers.
-- Use [crate structure](references/crate-structure.md) for dependency direction and extraction, or [workspace](references/workspace.md) for manifests, features, MSRV and lockfiles.
-- Measure compile time and target size with [build profiles](references/build-profiles.md). For runtime cost, RSS or allocation, use [performance and memory](references/performance-and-memory.md). Support a performance claim with a `--release` benchmark or profile.
-- Use [safety and FFI](references/safety-and-ffi.md) for untrusted input, panics, threads and boundary invariants. Require a demonstrated need for `unsafe` and a written safety invariant per block. [napi](references/napi.md) covers JS signatures and platform packages (for napi-rs projects; not used in this repo).
-- Open [CLI/TUI/subprocess](references/cli-tui-subprocess.md) for streams, exits and child cleanup, or [parsing and codegen](references/parsing-and-codegen.md) for source coordinates and generated contracts.
-- Use the [Octocode guide](references/octocode-usage.md) to inspect source, [sources and crates](references/sources-and-crates.md) to check the official canon or a dependency, and [testing and tooling](references/testing-and-tooling.md) for the crate’s verification gates.
+| When | Read | Why |
+|---|---|---|
+| Errors, borrowing or async cleanup | [Idioms](references/idioms.md) | Ownership and cleanup rules |
+| Structs, enums, traits or pointers | [Types and patterns](references/types-and-patterns.md) | Choose the representation |
+| Dependency direction or extraction | [Crate structure](references/crate-structure.md) | Cohesive ownership |
+| Manifests, features, MSRV or lockfiles | [Workspace](references/workspace.md) | Workspace contract |
+| Compile time or target size | [Build profiles](references/build-profiles.md) | Measure build cost |
+| Runtime, RSS or allocation | [Performance and memory](references/performance-and-memory.md) | Prove with release benchmark/profile |
+| Untrusted input, panics, threads or FFI | [Safety and FFI](references/safety-and-ffi.md) | Require demonstrated need and written invariant per `unsafe` block |
+| napi-rs project | [napi](references/napi.md) | JS signatures/platform packages; not used in this repo |
+| Streams, exits or child processes | [CLI/TUI/subprocess](references/cli-tui-subprocess.md) | Resource and terminal cleanup |
+| Source coordinates or generated contracts | [Parsing and codegen](references/parsing-and-codegen.md) | Preserve source/contract ownership |
+| Source or dependency evidence | [Octocode guide](references/octocode-usage.md), [sources and crates](references/sources-and-crates.md) | Exact reads and official canon |
+| Verification gates | [Testing and tooling](references/testing-and-tooling.md) | Crate checks |
 
 ## Rules
 
@@ -28,4 +36,4 @@ Format edits, preserve observable behavior during cleanup, and run the applicabl
 
 ## Related skills
 
-Use `octocode-research` for upstream evidence, `octocode-brainstorming` for unresolved scope or feasibility, `octocode-architect` for boundaries, `octocode-clean-agentic-code` for cleanup, `octocode-roast` for a smell inventory, `octocode-eval-benchmark` for a tracked measurement, and `octocode-skills` to change this skill.
+Use `octocode-research` for upstream evidence, `octocode-brainstorming` for unresolved scope or feasibility, `octocode-engineer` for boundaries, `octocode-clean-agentic-code` for cleanup, `octocode-roast` for a smell inventory, `octocode-agentic` for a tracked measurement, and `octocode-skills` to change this skill.

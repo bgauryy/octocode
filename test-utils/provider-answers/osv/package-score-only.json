@@ -5,7 +5,8 @@
   "operation": "package",
   "ecosystem": "PyPI",
   "packageName": "requests",
-  "version": "2.19.0"
+  "version": "2.19.0",
+  "view": "details"
  },
  "recordedAt": "2026-11-08",
  "unread": [
@@ -979,6 +980,12 @@
       "score": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:N/A:N"
      }
     ]
+   },
+   "unread": [
+    "summary"
+   ],
+   "unreadReasons": {
+    "summary": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `summary` on OSV's row of the advisory read (checked by osv/advisory-ghsa.carried and osv/advisory-ossfuzz.carried)."
    }
   },
   {
@@ -1065,6 +1072,12 @@
       "score": "CVSS:3.1/AV:L/AC:H/PR:H/UI:R/S:U/C:H/I:H/A:N"
      }
     ]
+   },
+   "unread": [
+    "summary"
+   ],
+   "unreadReasons": {
+    "summary": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `summary` on OSV's row of the advisory read (checked by osv/advisory-ghsa.carried and osv/advisory-ossfuzz.carried)."
    }
   },
   {
@@ -1152,6 +1165,12 @@
       "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
      }
     ]
+   },
+   "unread": [
+    "summary"
+   ],
+   "unreadReasons": {
+    "summary": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `summary` on OSV's row of the advisory read (checked by osv/advisory-ghsa.carried and osv/advisory-ossfuzz.carried)."
    }
   },
   {
@@ -1230,6 +1249,12 @@
      }
     ],
     "schema_version": "1.7.3"
+   },
+   "unread": [
+    "summary"
+   ],
+   "unreadReasons": {
+    "summary": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `summary` on OSV's row of the advisory read (checked by osv/advisory-ghsa.carried and osv/advisory-ossfuzz.carried)."
    }
   },
   {
@@ -1311,6 +1336,12 @@
       "score": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:N/A:N"
      }
     ]
+   },
+   "unread": [
+    "summary"
+   ],
+   "unreadReasons": {
+    "summary": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `summary` on OSV's row of the advisory read (checked by osv/advisory-ghsa.carried and osv/advisory-ossfuzz.carried)."
    }
   },
   {
@@ -1401,6 +1432,12 @@
       "score": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:C/C:H/I:N/A:N"
      }
     ]
+   },
+   "unread": [
+    "summary"
+   ],
+   "unreadReasons": {
+    "summary": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `summary` on OSV's row of the advisory read (checked by osv/advisory-ghsa.carried and osv/advisory-ossfuzz.carried)."
    }
   },
   {
@@ -1487,6 +1524,12 @@
       "score": "CVSS:3.1/AV:L/AC:H/PR:L/UI:R/S:U/C:N/I:H/A:N"
      }
     ]
+   },
+   "unread": [
+    "summary"
+   ],
+   "unreadReasons": {
+    "summary": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `summary` on OSV's row of the advisory read (checked by osv/advisory-ghsa.carried and osv/advisory-ossfuzz.carried)."
    }
   },
   {
@@ -1573,6 +1616,12 @@
      }
     ],
     "schema_version": "1.7.3"
+   },
+   "unread": [
+    "summary"
+   ],
+   "unreadReasons": {
+    "summary": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `summary` on OSV's row of the advisory read (checked by osv/advisory-ghsa.carried and osv/advisory-ossfuzz.carried)."
    }
   },
   {
@@ -1654,6 +1703,12 @@
       "score": "CVSS:3.1/AV:L/AC:H/PR:H/UI:R/S:U/C:H/I:H/A:N"
      }
     ]
+   },
+   "unread": [
+    "summary"
+   ],
+   "unreadReasons": {
+    "summary": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `summary` on OSV's row of the advisory read (checked by osv/advisory-ghsa.carried and osv/advisory-ossfuzz.carried)."
    }
   },
   {
@@ -1731,6 +1786,12 @@
       "score": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:N"
      }
     ]
+   },
+   "unread": [
+    "summary"
+   ],
+   "unreadReasons": {
+    "summary": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `summary` on OSV's row of the advisory read (checked by osv/advisory-ghsa.carried and osv/advisory-ossfuzz.carried)."
    }
   },
   {
@@ -1872,6 +1933,12 @@
       "score": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:N/A:N"
      }
     ]
+   },
+   "unread": [
+    "summary"
+   ],
+   "unreadReasons": {
+    "summary": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `summary` on OSV's row of the advisory read (checked by osv/advisory-ghsa.carried and osv/advisory-ossfuzz.carried)."
    }
   },
   {
@@ -1991,6 +2058,12 @@
       "score": "CVSS:3.1/AV:L/AC:H/PR:L/UI:R/S:U/C:N/I:H/A:N"
      }
     ]
+   },
+   "unread": [
+    "summary"
+   ],
+   "unreadReasons": {
+    "summary": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `summary` on OSV's row of the advisory read (checked by osv/advisory-ghsa.carried and osv/advisory-ossfuzz.carried)."
    }
   },
   {
@@ -2110,6 +2183,12 @@
       "score": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:C/C:H/I:N/A:N"
      }
     ]
+   },
+   "unread": [
+    "summary"
+   ],
+   "unreadReasons": {
+    "summary": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `summary` on OSV's row of the advisory read (checked by osv/advisory-ghsa.carried and osv/advisory-ossfuzz.carried)."
    }
   },
   {
@@ -2256,6 +2335,12 @@
       "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
      }
     ]
+   },
+   "unread": [
+    "summary"
+   ],
+   "unreadReasons": {
+    "summary": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `summary` on OSV's row of the advisory read (checked by osv/advisory-ghsa.carried and osv/advisory-ossfuzz.carried)."
    }
   },
   {
@@ -2366,6 +2451,12 @@
       "score": "CVSS:3.1/AV:L/AC:H/PR:H/UI:R/S:U/C:H/I:H/A:N"
      }
     ]
+   },
+   "unread": [
+    "summary"
+   ],
+   "unreadReasons": {
+    "summary": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `summary` on OSV's row of the advisory read (checked by osv/advisory-ghsa.carried and osv/advisory-ossfuzz.carried)."
    }
   },
   {
@@ -3054,7 +3145,17 @@
       "percentile": 0.94057
      }
     }
-   ]
+   ],
+   "unread": [
+    "[*].cwes[*].name",
+    "[*].summary",
+    "[*].type"
+   ],
+   "unreadReasons": {
+    "[*].summary": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `summary` on GitHub's row of the advisory read (checked by osv/advisory-ghsa.carried).",
+    "[*].type": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `githubType` on GitHub's row of the advisory read; the list row still states it when it is `unreviewed` or `malware`.",
+    "[*].cwes[*].name": "Not shown by any operation: the advisory read states CWE ids (`cwes`), not their names, as osv/advisory-ghsa already declares (`cwes[*].name`). It matched summary text before the lean row. Pre-existing gap, declared 2026-11-11."
+   }
   }
  ]
 }

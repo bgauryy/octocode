@@ -1,9 +1,10 @@
 //! Typed artifact registry discovery and exact metadata lookup.
 mod leads;
 mod pages;
+mod summary;
 
 use crate::providers::artifact::query::artifact_search_query;
-use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
+use octocode_contract_types::{ArtifactSearchQuery, ArtifactSearchView, ArtifactType, ErrorCode};
 use pages::discovery_page;
 pub(crate) use pages::last_reachable_page;
 
@@ -129,8 +130,12 @@ fn respond(
     shape_rows(query, &mut artifacts);
     let mut rows = serde_json::to_value(&artifacts)
         .map_err(|_| ArtifactError::new(ErrorCode::ProviderError, "Failed to encode artifacts."))?;
+    let view = artifact_search_query::view(query);
     for row in rows.as_array_mut().into_iter().flatten() {
         name_github_repository(row);
+        if view == ArtifactSearchView::Summary {
+            summary::row(row, query);
+        }
     }
     let mut data = json!({ "artifacts": rows });
     // An empty page the registry ended the list at reaches only the rows
@@ -191,6 +196,11 @@ fn respond(
     if artifacts.is_empty() && !has_next {
         data["status"] = json!("empty");
         leads::broaden_empty(&mut data, query);
+    }
+    // After the leads that continue the research: the whole row is the
+    // optional one.
+    if view == ArtifactSearchView::Summary && !artifacts.is_empty() {
+        summary::details_lead(&mut data, query);
     }
     crate::response::result::finish_calls(&mut data);
     Ok(data)
@@ -263,10 +273,16 @@ fn drop_repository_homepage(artifact: &mut ArtifactItem) {
     }
 }
 
-/// The generated query for a test's JSON row.
+/// The generated query for a test's JSON row. These tests read the whole
+/// row, so a row that states no view asks for `details`; a test of the
+/// summary states its view.
 #[cfg(test)]
 fn typed(query: &Value) -> ArtifactSearchQuery {
-    serde_json::from_value(query.clone()).expect("valid artifactSearch query")
+    let mut query = query.clone();
+    if query.get("view").is_none() {
+        query["view"] = json!("details");
+    }
+    serde_json::from_value(query).expect("valid artifactSearch query")
 }
 
 /// A test call: no cache, no tag checks, the default network settings.
@@ -290,6 +306,9 @@ static NO_ENV: std::collections::BTreeMap<String, String> = std::collections::BT
 
 #[cfg(test)]
 mod row_tests;
+
+#[cfg(test)]
+mod view_tests;
 
 #[cfg(test)]
 mod anchor_tests;

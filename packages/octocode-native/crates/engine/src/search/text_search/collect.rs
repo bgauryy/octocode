@@ -177,6 +177,7 @@ pub(super) fn file_searcher<'a, M: Matcher>(
             weigh_lines: ranks_by_relevance(opts)
                 && lists_match_density(mode)
                 && !opts.invert_match.unwrap_or(false),
+            row_window: opts.row_window,
             ..match_work(mode, only_matching)
         },
         stop,

@@ -94,3 +94,20 @@ fn a_cross_major_upgrade_names_what_the_current_major_leaves_unfixed() {
     assert_eq!(major_gap("6.3.0", "7.0.0", &within), None);
     assert!(major_gap("v6.3.0", "v7.4.5", &rows).is_some());
 }
+
+/// A package row states the one fix that decides for the asked version.
+#[test]
+fn the_fix_of_the_asked_versions_line_decides() {
+    let fixes = |current: &str, listed: &[&str]| {
+        let mut listed = listed.iter().map(|fix| (*fix).to_owned()).collect();
+        deciding_fix(current, &mut listed);
+        listed
+    };
+    let listed = ["6.2.6", "6.1.5", "5.4.18", "4.5.13", "5.4.0"];
+    assert_eq!(fixes("5.4.1", &listed), ["5.4.18"]);
+    // No fix in the line: the lowest in a later one.
+    assert_eq!(fixes("5.4.1", &["8.0.5", "7.3.2", "6.4.2"]), ["6.4.2"]);
+    // Nothing to choose by: the list stays whole.
+    assert_eq!(fixes("1.0.0-rc1", &["2.0.0", "1.5.3"]), ["2.0.0", "1.5.3"]);
+    assert_eq!(fixes("9.0.0", &["2.0.0"]), ["2.0.0"]);
+}

@@ -3,7 +3,8 @@
  "tool": "securityCheck",
  "query": {
   "operation": "advisory",
-  "id": "GHSA-0000-0000-0000"
+  "id": "GHSA-0000-0000-0000",
+  "view": "details"
  },
  "recordedAt": "2026-11-08",
  "unread": [],

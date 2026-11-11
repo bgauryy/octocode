@@ -11,7 +11,11 @@ The orchestrator selects one feature at a time, owns authority and the ledger, a
 
 ## Process lifetime and handoff
 
-The runtime actor owns a started process and its host process/session lifetime: establish that lifetime before external replay, then keep the owner/session alive through replay or use an explicitly durable supervisor it owns. A receiver treats a handoff as live only after checking the endpoint and artifact identity; delivery or completion does not make a process persist. If the process is missing, reconcile endpoint, process, artifact, and durable-state evidence before a new action; do not kill a remembered or stale PID, or assume prior process state survives.
+| Trigger | Required action | Why |
+|---|---|---|
+| Start a process | Establish host/session lifetime before external replay; keep it alive through replay or use an owned durable supervisor. | Completion of a tool call does not keep a process alive. |
+| Receive a live handoff | Check endpoint and artifact identity. | Delivery alone proves no process lifetime. |
+| Process missing | Reconcile endpoint, process, artifact and durable state before acting. | Never assume prior state survives or stop a remembered/stale PID. |
 
 ```mermaid
 flowchart LR
@@ -30,7 +34,7 @@ flowchart LR
   D -- missing prerequisite --> H[Report unverified row]
 ```
 
-1. Agree a Task contract for the feature: inputs (checkout, baseline including uncommitted work, endpoint, configuration, scenario, build-to-process route) and Definition of Done (the acceptance condition). Use `octocode-agents-communication` for separate identities, leases, durable requests, and completion.
+1. Agree a Task contract for the feature: inputs (checkout, baseline including uncommitted work, endpoint, configuration, scenario, build-to-process route) and Definition of Done (the acceptance condition). Use `octocode-agentic` coordination for separate identities, leases, durable requests, and completion.
 2. Runtime actor captures exact inputs, durable state, expected/actual output, process/build identity, and error/exit evidence through the real interface. If the baseline already meets the acceptance condition, it returns that observation for orchestrator acceptance without an edit. It returns a ledger-row observation, not a verdict.
 3. Code actor owns source research, proven boundary, authorized edit, and build request. It uses Research's exact reads/AST/LSP semantics and Architect's Frame → Model → Prove → Change → Verify, including strongest rival and distinguishing check. It sends only ready build identities and replay instructions.
 4. Runtime actor uses the [identity guard](verification.md#automatically-check-artifact-identity), establishes the actual loaded build, restores required state, and repeats the same acceptance and material edge checks.

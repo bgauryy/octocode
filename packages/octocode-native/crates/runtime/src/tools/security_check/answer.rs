@@ -640,7 +640,8 @@ pub(super) fn advisory_calls(
     let rows = ids
         .iter()
         .map(|id| {
-            let mut row = brief.clone();
+            // The read of a record whole: the advisory operation's `details`.
+            let mut row = super::summary::with_details(brief.clone());
             row.insert("operation".into(), json!("advisory"));
             row.insert("id".into(), json!(id));
             Value::Object(row)
@@ -650,12 +651,11 @@ pub(super) fn advisory_calls(
                 .is_ok()
         })
         .collect::<Vec<_>>();
-    // One call, of the row limit: a call per five advisories made `related`
-    // grow with the list and crowd it out of its page. Every advisory is on
-    // the row with its id, one `advisory` call away.
+    // One call per row limit of ids, so every listed advisory has a ready
+    // read: a lean row leaves its text and ranges to that read.
     let per_call = crate::response::result::rows_per_call(ToolId::SecurityCheck);
-    if let Some(chunk) = rows.chunks(per_call).next() {
-        data["calls"][format!("{key}0")] =
+    for (index, chunk) in rows.chunks(per_call).enumerate() {
+        data["calls"][format!("{key}{index}")] =
             Continuation::related_input(ToolId::SecurityCheck, json!({ "queries": chunk })).build();
     }
 }

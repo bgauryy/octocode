@@ -17,6 +17,21 @@ const repo = { owner: 'octo', repo: 'demo' };
 const source = { tool: 'localFetch', query: { path: 'src/greeter.ts', ranges: [{ startLine: 1, endLine: 4 }] } };
 const questions = { named: { type: 'noul', instructions: 'Does this declare a field named text?' } };
 const LSP_PAGE_CALLS = 24;
+// An artifactSearch resolve summary (named registry): the release and its source, nothing the package
+// declares or depends on, and the same query with `view: "details"` as a lead. advanced-registry.mjs
+// compares the summary with its details row field by field.
+const RESOLVE_SUMMARY = ['packageName', 'version', 'owner', 'repo', 'repositoryDirectory', 'publishedAt', 'ref', 'verification', 'registryUrl'];
+const RESOLVE_DETAILS = ['license', 'homepage', 'dependencies', 'optionalDependencies', 'peerDependencies', 'engines', 'requiresPython', 'rustVersion', 'downloadsMonthly', 'description'];
+const resolveSummaryCheck = data => {
+  const row = data?.artifacts?.[0] ?? {};
+  const details = Object.keys(row).filter(field => RESOLVE_DETAILS.includes(field));
+  if (details.length) return `detail fields in the summary: ${details.join(', ')}`;
+  const missing = ['packageName', 'version', 'owner', 'repo', 'ref', 'verification', 'registryUrl'].filter(field => row[field] === undefined);
+  if (missing.length) return `summary misses ${missing.join(', ')}`;
+  const extra = Object.keys(row).filter(field => !RESOLVE_SUMMARY.includes(field));
+  if (extra.length) return `fields outside the summary: ${extra.join(', ')}`;
+  return (data.related ?? []).some(call => call.tool === 'artifactSearch' && call.input?.queries?.[0]?.view === 'details') ? null : 'no details lead';
+};
 
 function codeSearchRows(data, json, context = new Map(), query) {
   const row = json?.results?.find(result => result.data === data);
@@ -76,7 +91,7 @@ export const CASES = {
     page: { query: { operation: 'find', target: 'greet', limit: 1 }, lead: 'nextPage', unpaged: { query: { operation: 'find', target: 'greet', limit: 1000 } } },
     empty: { query: { operation: 'find', target: 'zzzNoSuchSymbol' } },
     invalid: { query: { operation: 'unknown' } },
-    explore: [{ label: 'stats', query: { operation: 'stats' } }, { label: 'cycles', query: { operation: 'cycles' }, class: 'empty' }],
+    explore: [{ label: 'stats', query: { operation: 'stats' } }, { label: 'stats.summary', query: { operation: 'stats', view: 'summary' } }, { label: 'cycles', query: { operation: 'cycles' }, class: 'empty' }],
   },
   localSearch: {
     budgetMs: LOCAL,
@@ -179,7 +194,12 @@ export const CASES = {
   },
   artifactSearch: {
     budgetMs: REMOTE,
-    happy: { query: ctx => ({ operation: 'resolve', ecosystem: 'npm', packageName: 'tiny-health', registryUrl: `${ctx.mock.url}/` }), fields: ['artifacts'], rows: data => (data.artifacts ?? []).map(a => `${a.packageName}@${a.version}`), min: 1, check: data => data.artifacts?.[0]?.dependencies?.includes('tiny-greet@^2.0.0') ? null : 'fixture dependency missing' },
+    // The default view is the summary: the release and its source; dependencies are `view: "details"`.
+    happy: { query: ctx => ({ operation: 'resolve', ecosystem: 'npm', packageName: 'tiny-health', registryUrl: `${ctx.mock.url}/` }), fields: ['artifacts'], rows: data => (data.artifacts ?? []).map(a => `${a.packageName}@${a.version}`), min: 1, check: resolveSummaryCheck },
+    explore: [
+      { label: 'summary', query: ctx => ({ operation: 'resolve', ecosystem: 'npm', packageName: 'tiny-health', registryUrl: `${ctx.mock.url}/`, view: 'summary' }), check: resolveSummaryCheck },
+      { label: 'details', query: ctx => ({ operation: 'resolve', ecosystem: 'npm', packageName: 'tiny-health', registryUrl: `${ctx.mock.url}/`, view: 'details' }), check: data => data.artifacts?.[0]?.dependencies?.includes('tiny-greet@^2.0.0') ? null : 'fixture dependency missing' },
+    ],
     page: { input: ctx => ({ queries: [{ operation: 'search', ecosystem: 'npm', keywords: ['health'], registryUrl: `${ctx.mock.url}/` }], responseChars: 150 }), lead: 'responsePagination.next', unpaged: { query: ctx => ({ operation: 'search', ecosystem: 'npm', keywords: ['health'], registryUrl: `${ctx.mock.url}/` }) } },
     empty: { query: ctx => ({ operation: 'search', ecosystem: 'npm', keywords: ['zzznosuchpkg'], registryUrl: `${ctx.mock.url}/` }) },
     invalid: { query: { operation: 'resolve', ecosystem: 'npm' } },
@@ -210,7 +230,7 @@ export const CASES = {
   },
   clasify: {
     budgetMs: REMOTE,
-    happy: { query: { operation: 'evaluate', content: { fields: { text: 'string' } }, questions }, fields: ['answers', 'model', 'usage'], rows: data => Object.keys(data.answers ?? {}), min: 1, check: data => typeof data.answers?.named?.noul === 'number' ? null : 'typed answer missing' },
+    happy: { query: { operation: 'evaluate', content: { fields: { text: 'string' } }, questions }, fields: ['answers', 'usage'], rows: data => Object.keys(data.answers ?? {}), min: 1, check: data => typeof data.answers?.named?.noul === 'number' ? null : 'typed answer missing' },
     page: { na: 'one small judgment is indivisible; large-answer walks are covered by native CLI/MCP integration' },
     empty: { na: 'a judgment answers or fails' },
     invalid: { query: { operation: 'evaluate', content: {}, questions: {} } },

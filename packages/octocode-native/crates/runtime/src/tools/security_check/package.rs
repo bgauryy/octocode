@@ -6,7 +6,9 @@ use super::answer;
 use super::dispute;
 use super::ecosystem::{self, Ecosystem};
 use super::global;
+use super::record::SecurityAdvisory;
 use super::source::{Confirmed, SourceResult, Target, View, ask_all, into_row, names_release};
+use super::summary;
 use super::trust::{self, Registered, Trust};
 use super::update::{self, Latest};
 use super::upgrade;
@@ -17,7 +19,7 @@ use crate::providers::artifact::{
 };
 use crate::response::paging::{self, PartialReason};
 use crate::response::result::Continuation;
-use octocode_contract_types::{ArtifactSearchQuery, ErrorCode};
+use octocode_contract_types::{ArtifactSearchQuery, ErrorCode, SecurityCheckView};
 use serde_json::{Map, Value, json};
 
 /// A package row's coordinates, wherever they came from.
@@ -31,6 +33,8 @@ pub(super) struct Package<'a> {
     pub resume: Option<&'a str>,
     /// `mainGoal` and `reasoning`, carried into the next page.
     pub brief: Map<String, Value>,
+    /// How much of the finished row the answer states.
+    pub view: SecurityCheckView,
 }
 
 /// What the registry said beyond the target itself.
@@ -84,10 +88,14 @@ fn registry_failed(data: &mut Value, unread: &Unread) {
     super::source::source_failed(data, std::slice::from_ref(&unread.why));
 }
 
-pub(super) async fn run(package: &Package<'_>, net: &Net<'_>) -> Result<Value, ArtifactError> {
-    ecosystem::check_release(package.ecosystem, package.release)?;
-    let (confirmed, mut notes) = match package.resume {
-        Some(token) => (
+/// The row's target: confirmed by the registry, or, for a resumed walk, the
+/// one its first page confirmed.
+async fn target_of(
+    package: &Package<'_>,
+    net: &Net<'_>,
+) -> Result<(Confirmed, Notes), ArtifactError> {
+    match package.resume {
+        Some(token) => Ok((
             Confirmed {
                 ecosystem: package.ecosystem,
                 name: package.name.to_owned(),
@@ -100,9 +108,14 @@ pub(super) async fn run(package: &Package<'_>, net: &Net<'_>) -> Result<Value, A
                 unconfirmed: ecosystem::registry(package.ecosystem)?.is_none(),
                 ..Notes::default()
             },
-        ),
-        None => confirm(package, net).await?,
-    };
+        )),
+        None => confirm(package, net).await,
+    }
+}
+
+pub(super) async fn run(package: &Package<'_>, net: &Net<'_>) -> Result<Value, ArtifactError> {
+    ecosystem::check_release(package.ecosystem, package.release)?;
+    let (confirmed, mut notes) = target_of(package, net).await?;
     let resumed = package.resume.is_some();
     // GitHub's read of the source repository and the registry's latest release
     // do not depend on OSV's answer.
@@ -169,24 +182,35 @@ pub(super) async fn run(package: &Package<'_>, net: &Net<'_>) -> Result<Value, A
         }
         Err(error) => Some(error.message),
     };
-    let upgrade = match osv_failed {
-        // No upgrade stands on OSV's list when OSV did not answer.
-        Some(_) => Upgrade::default(),
-        None => upgrade_for(&confirmed, &results, net).await,
-    };
-    let mut results = results;
     let finished = results.iter().all(|result| result.resume.is_none());
-    if resumed && finished {
-        // The first page could not compare the source repository's advisories
-        // with a walk that was not whole; this page holds all of OSV's records.
-        last_page_trust(package, &confirmed, &mut notes, net).await;
-    }
-    let disputes = dispute::mark(&confirmed, &mut results, net).await;
-    // GitHub's database is compared with OSV's whole list only.
-    let mut github = match finished {
-        true => global::read(&confirmed, net).await,
-        false => None,
-    };
+    // Each of these reads OSV's answer and none reads another's: the upgrade
+    // probes, the aliases set against the list, GitHub's database (compared
+    // with OSV's whole list only) and, on the last page of a resumed walk, the
+    // source repository (the first page could not compare its advisories with
+    // a walk that was not whole; this page holds all of OSV's records).
+    let (upgrade, disputes, mut github, ()) = tokio::join!(
+        async {
+            match osv_failed {
+                // No upgrade stands on OSV's list when OSV did not answer.
+                Some(_) => Upgrade::default(),
+                None => upgrade_for(&confirmed, &results, net).await,
+            }
+        },
+        disputes(package.view, &confirmed, &results, net),
+        async {
+            match finished {
+                true => global::read(&confirmed, net).await,
+                false => None,
+            }
+        },
+        async {
+            if resumed && finished {
+                last_page_trust(package, &confirmed, &mut notes, net).await;
+            }
+        },
+    );
+    let mut results = results;
+    let disputes = disputes.mark(&mut results);
     if let Some(trust) = &mut notes.trust {
         match osv_failed {
             None => trust.merge(&mut results, finished),
@@ -200,6 +224,11 @@ pub(super) async fn run(package: &Package<'_>, net: &Net<'_>) -> Result<Value, A
             // Nothing of OSV's to merge with or set against: GitHub's records
             // are the rows, GitHub's word.
             Some(_) => github.stand_alone(&mut results),
+        }
+    }
+    if let Some(version) = confirmed.version.as_deref() {
+        for row in results.iter_mut().flat_map(|result| &mut result.advisories) {
+            upgrade::deciding_fix(version, &mut row.fixed_in);
         }
     }
     let compared = notes.trust.as_ref().is_some_and(Trust::compared_in_full);
@@ -251,7 +280,37 @@ pub(super) async fn run(package: &Package<'_>, net: &Net<'_>) -> Result<Value, A
             )],
         );
     }
-    Ok(data)
+    Ok(in_view(package, data, &upgrade))
+}
+
+/// The databases that dispute a listed advisory, read for `details` only:
+/// the summary states no record's standing in another database, and a
+/// dispute changes neither the verdict, the count nor the upgrade.
+async fn disputes(
+    view: SecurityCheckView,
+    confirmed: &Confirmed,
+    results: &[SourceResult],
+    net: &Net<'_>,
+) -> dispute::Read {
+    match view {
+        SecurityCheckView::Details => dispute::read(confirmed, results, net).await,
+        SecurityCheckView::Summary => dispute::Read::default(),
+    }
+}
+
+/// The finished row as the package's view states it.
+fn in_view(package: &Package<'_>, data: Value, upgrade: &Upgrade) -> Value {
+    summary::apply(
+        package.view,
+        data,
+        summary::Target {
+            query: package_row(package, package.name, package.version),
+            asked_name: Some(package.name),
+            asked_version: package.version,
+            unfixed_in_major: upgrade.unfixed_in_major,
+            gives_verdict: true,
+        },
+    )
 }
 
 /// A row whose OSV read failed: OSV is a failed source, the row partial, and
@@ -370,6 +429,45 @@ struct Upgrade {
     to: Option<String>,
     /// Why none is named, or what OSV lists at that version besides.
     note: Option<String>,
+    /// Listed advisories only a later major than the version's clears.
+    unfixed_in_major: usize,
+}
+
+impl Upgrade {
+    /// No upgrade is named, and `note` says why.
+    fn none(note: String) -> Self {
+        Self {
+            note: Some(note),
+            ..Self::default()
+        }
+    }
+
+    /// `named` clears every advisory of `counted` (the row's own list);
+    /// `listed` adds the ones OSV lists on the way there.
+    fn to(
+        version: &str,
+        named: String,
+        counted: &[SecurityAdvisory],
+        listed: &[SecurityAdvisory],
+        besides: Option<String>,
+    ) -> Self {
+        let gap = upgrade::major_gap(version, &named, listed);
+        let unfixed = upgrade::unfixed_in_major(version, &named, counted);
+        // Advisories, not records: a GHSA record and its twin are one.
+        let records = counted.iter().collect::<Vec<_>>();
+        let unfixed_in_major = super::record::advisory_groups(&records)
+            .iter()
+            .filter(|group| group.iter().any(|row| unfixed.contains(&row.id.as_str())))
+            .count();
+        Self {
+            note: match (gap, besides) {
+                (Some(gap), Some(besides)) => Some(format!("{gap} {besides}")),
+                (gap, besides) => gap.or(besides),
+            },
+            to: Some(named),
+            unfixed_in_major,
+        }
+    }
 }
 
 /// The candidate from the listed fixes, then OSV's own answer at it. Another
@@ -391,14 +489,10 @@ async fn upgrade_for(confirmed: &Confirmed, results: &[SourceResult], net: &Net<
     else {
         return Upgrade::default();
     };
+    let counted = listed.clone();
     let mut named = match upgrade::candidate(version, &listed) {
         Ok(candidate) => candidate,
-        Err(why) => {
-            return Upgrade {
-                to: None,
-                note: Some(format!("No upgrade named: {why}.")),
-            };
-        }
+        Err(why) => return Upgrade::none(format!("No upgrade named: {why}.")),
     };
     loop {
         let probe = Target::Package(Confirmed {
@@ -412,12 +506,9 @@ async fn upgrade_for(confirmed: &Confirmed, results: &[SourceResult], net: &Net<
         let answers = match ask_all(&probe, net).await {
             Ok(answers) if answers.iter().all(|result| result.resume.is_none()) => answers,
             _ => {
-                return Upgrade {
-                    to: None,
-                    note: Some(format!(
-                        "No upgrade named: {named} is the highest listed fix, but OSV could not confirm it."
-                    )),
-                };
+                return Upgrade::none(format!(
+                    "No upgrade named: {named} is the highest listed fix, but OSV could not confirm it."
+                ));
             }
         };
         let at_named = answers
@@ -425,22 +516,16 @@ async fn upgrade_for(confirmed: &Confirmed, results: &[SourceResult], net: &Net<
             .flat_map(|result| result.advisories)
             .collect::<Vec<_>>();
         if at_named.is_empty() {
-            return Upgrade {
-                note: upgrade::major_gap(version, &named, &listed),
-                to: Some(named),
-            };
+            return Upgrade::to(version, named, &counted, &listed, None);
         }
         if let Some(still) = at_named
             .iter()
             .find(|row| listed.iter().any(|known| known.id == row.id))
         {
-            return Upgrade {
-                to: None,
-                note: Some(format!(
-                    "No upgrade named: OSV still lists {} at {named}, the highest listed fix.",
-                    still.id
-                )),
-            };
+            return Upgrade::none(format!(
+                "No upgrade named: OSV still lists {} at {named}, the highest listed fix.",
+                still.id
+            ));
         }
         // Each step goes strictly higher, and the call's budget bounds the walk.
         match upgrade::candidate(&named, &at_named) {
@@ -454,13 +539,7 @@ async fn upgrade_for(confirmed: &Confirmed, results: &[SourceResult], net: &Net<
                     .map(|row| row.id.as_str())
                     .collect::<Vec<_>>();
                 let others = format!("OSV lists other advisories at {named}: {}.", ids.join(", "));
-                return Upgrade {
-                    note: Some(match upgrade::major_gap(version, &named, &listed) {
-                        Some(gap) => format!("{gap} {others}"),
-                        None => others,
-                    }),
-                    to: Some(named),
-                };
+                return Upgrade::to(version, named, &counted, &listed, Some(others));
             }
         }
     }
@@ -894,6 +973,7 @@ fn respond(
     }
     if let Some(resume) = results.iter().find_map(|result| result.resume.as_ref()) {
         let mut next = package_row(package, name, version);
+        summary::carry(package.view, &mut next);
         next.insert("resume".into(), json!(resume.token));
         data["calls"]["nextPage"] =
             Continuation::continued(ToolId::SecurityCheck, Value::Object(next)).build();

@@ -230,8 +230,60 @@ async fn answer_inner(
     Ok(outcomes)
 }
 
+/// Whether every window this evaluation would be sent to is known to refuse
+/// it ([`super::windows`]): the default one, and the long one when a refusal
+/// would be retried there. An image request is never known: its size says
+/// nothing of its tokens.
+pub(crate) fn known_refused(
+    input: EvaluationInput<'_>,
+    model: &str,
+    base_url: &str,
+    provider: &dyn ClassificationProvider,
+) -> bool {
+    if input.assets.is_some() {
+        return false;
+    }
+    let questions: Vec<&Value> = input.questions.iter().collect();
+    let Ok(body) = serde_json::to_vec(&provider.build(input.state, &questions, model, None))
+    else {
+        return false;
+    };
+    let refuses = |long| super::windows::refuses(base_url, model, long, body.len());
+    match input.long_context {
+        LongContext::Always => refuses(true),
+        LongContext::Never => refuses(false),
+        LongContext::OnRefusal => {
+            refuses(false) && (!fits_long_window(input, model, provider) || refuses(true))
+        }
+    }
+}
+
 /// POST once through the shared retry, transport and accounting boundary.
+/// What the window says of a text request's size is remembered
+/// ([`super::windows`]).
 async fn send(
+    body: bytes::Bytes,
+    input: EvaluationInput<'_>,
+    model: &str,
+    connection: &Connection<'_>,
+    budget: &RequestBudget,
+    gate: &GateLease,
+) -> Result<(Value, u64), ClassificationError> {
+    let (bytes, long) = (body.len(), input.long_context == LongContext::Always);
+    let sent = post_once(body, input, model, connection, budget, gate).await;
+    if input.assets.is_none() {
+        match &sent {
+            Ok(_) => super::windows::took(connection.base_url, model, long, bytes),
+            Err(error) if error.code == ErrorCode::ClassificationStateTooLarge => {
+                super::windows::refused(connection.base_url, model, long, bytes);
+            }
+            Err(_) => {}
+        }
+    }
+    sent
+}
+
+async fn post_once(
     body: bytes::Bytes,
     input: EvaluationInput<'_>,
     model: &str,

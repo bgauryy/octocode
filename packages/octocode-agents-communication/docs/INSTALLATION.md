@@ -13,11 +13,10 @@ npx -y @octocodeai/octocode-agents-communication /cli --help   # standalone oper
 
 Requirements: Node.js 24.15+ (24.x). The runtime uses Node's built-in `node:sqlite`, which ships SQLite with FTS5, so there is no interpreter, native module, pip package or API key to install, and nothing is read from `.env` files. Route choice and lifecycle: [entry points](INTERFACES.md).
 
-The optional skills ship in the `octocode` package. Use `octocode-communication-bootstrap` for installation and hook setup, and `octocode-agents-communication` for ongoing use:
+The optional `octocode-agentic` skill ships in the `octocode` package. Its coordination setup reference covers installation and hook setup, and its coordination reference covers ongoing use:
 
 ```sh
-npx -y octocode skill install octocode-communication-bootstrap --platform claude,codex --global --dry-run
-npx -y octocode skill install octocode-agents-communication --platform claude,codex --global --dry-run
+npx -y octocode skill install octocode-agentic --platform claude,codex --global --dry-run
 ```
 
 Inspect the destination plan, then repeat without `--dry-run` and reload skill discovery.

@@ -16,7 +16,8 @@ export async function sectionChecks(ctx, surface, provider) {
     github: { tool: 'ghGetFileContent', query: { owner: 'octo', repo: 'demo', ref: 'main', path: 'src/app.ts' } },
     missing: { tool: 'localFetch', query: { path: path.join(ctx.cwd, 'absent-sections.txt') } },
   };
-  const report = await ctx.explore('clasify', ctx.q({ operation: 'sections', resources, questions }), surface);
+  // Section ids, byte ranges and answer status are details fields.
+  const report = await ctx.explore('clasify', ctx.q({ operation: 'sections', view: 'details', resources, questions }), surface);
   const pages = report.responses.filter(entry => entry.tool === 'clasify').flatMap(entry => entry.result.json?.results ?? []).map(row => row.data);
   const collected = collectSections(pages, source);
   const { byId, coordinates, cells } = collected;

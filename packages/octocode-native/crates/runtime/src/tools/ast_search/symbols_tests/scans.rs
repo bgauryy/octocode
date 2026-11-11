@@ -19,6 +19,7 @@ fn cut_page(resume: u32) -> serde_json::Value {
         &crate::execution::cancel::NeverCancel,
     )
     .expect("source evidence")
+    .0
 }
 
 /// A time-budget cut resumes with `next.expandScan` wherever it stopped,

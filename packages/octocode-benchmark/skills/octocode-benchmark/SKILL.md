@@ -6,7 +6,7 @@ compatibility: "Requires the Octocode benchmark package checkout and its compare
 
 # Octocode benchmark
 
-Run from `packages/octocode-benchmark/`. Compare Octocode with one baseline per matchup. Use the [design](references/BENCHMARK.md) for scope or the [execution checklist](references/INSTRUCTIONS.md) to run it. For general experiment design or skill activation, use `octocode-eval-benchmark`.
+Run from `packages/octocode-benchmark/`. Compare Octocode with one baseline per matchup. Use the [design](references/BENCHMARK.md) for scope or the [execution checklist](references/INSTRUCTIONS.md) to run it. For general experiment design or skill activation, use `octocode-agentic`.
 
 ## Run a matchup
 

@@ -22,6 +22,8 @@ pub(super) struct MatchWork {
     pub(super) collect_spans: bool,
     /// Sum [`relevance::line_weight`](crate::search::relevance::line_weight) over matched lines.
     pub(super) weigh_lines: bool,
+    /// Show a matched line too long for a row as windows around its hits.
+    pub(super) row_window: Option<crate::types::RowWindow>,
 }
 
 pub(super) fn match_work(mode: Mode, only_matching: bool) -> MatchWork {
@@ -31,6 +33,7 @@ pub(super) fn match_work(mode: Mode, only_matching: bool) -> MatchWork {
         enumerate_submatches: mode != Mode::CountLines,
         collect_spans: mode == Mode::Normal && only_matching,
         weigh_lines: false,
+        row_window: None,
     }
 }
 

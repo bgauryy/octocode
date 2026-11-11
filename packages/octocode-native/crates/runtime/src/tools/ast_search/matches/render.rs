@@ -162,6 +162,13 @@ pub(super) fn render_match_page(
     let empty = groups.is_empty() && !more && !incomplete;
     if empty {
         out["status"] = json!("empty");
+        // An empty row is its empty list and what the scan covered
+        // (`filesScanned`, skipped grammars, diagnostics): the counter that
+        // says zero again is dropped, as localSearch drops it.
+        if let Some(data) = out.as_object_mut() {
+            data.shift_remove("matchCount");
+            data.shift_insert(0, "files".to_owned(), Value::Array(Vec::new()));
+        }
     }
     // The scan saw its whole scope: the row's later pages are pagination of
     // a complete result (the same on every page), and its expansions and

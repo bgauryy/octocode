@@ -6,7 +6,7 @@ contains only its goal and questions. Repository assignment, tool instructions, 
 and private judge evidence live outside that folder.
 
 Start with the [evaluation method](../README.md#choose-the-benchmark-and-evaluation-method),
-which applies `octocode-eval-benchmark` before executing this local harness.
+which applies `octocode-agentic` evaluation before executing this local harness.
 
 ## Choose a catalog
 

@@ -1,10 +1,11 @@
-use super::types::{ExtractionError, LineRange, NextCalls, line_read, uncovered};
+use super::types::{ExtractionError, LineRange, NextCalls};
 use crate::tools::source_view::local_fetch_query;
 use octocode_contract_types::{ErrorCode, LocalFetchQuery};
 
 mod lines;
 pub(crate) use lines::LineOffsets;
 mod matches;
+pub(crate) use matches::MATCH_MARGIN;
 mod search_lead;
 mod spans;
 
@@ -53,10 +54,10 @@ pub struct Extraction {
     /// of the matches (warned, with a `findText` lead that pages them all;
     /// the response delivers it as `hints.findText`).
     pub match_limited: bool,
-}
-
-fn follow_up(query: LocalFetchQuery) -> Option<super::types::FetchCall> {
-    Some(super::types::FetchCall::continued(query))
+    /// The bytes of `text` around each match that sits in a line too long
+    /// for any byte page: sorted, disjoint, each inside its line. The byte
+    /// walk of such a line shows them first.
+    pub match_windows: Vec<(usize, usize)>,
 }
 
 /// View-line sentinel for an omission marker (source lines are 1-based).
@@ -116,6 +117,7 @@ impl Extraction {
             next: NextCalls::default(),
             blocks: vec![],
             match_limited: false,
+            match_windows: vec![],
         }
     }
 }
@@ -162,24 +164,11 @@ fn ranges_extract(
             ),
         ));
     }
-    let mut rest = vec![];
     if local_fetch_query::block(q) {
-        kept = super::block::widen_ranges(
-            content,
-            local_fetch_query::path(q),
-            kept,
-            &mut warnings,
-            &mut rest,
-        );
+        kept = super::block::widen_ranges(content, local_fetch_query::path(q), kept, &mut warnings);
     }
     let windows = merge_ranges(kept);
-    let (text, selected) = windows_text(content, lines, &windows);
-    // A plain read that stops inside a declaration offers no reread: the
-    // caller chose these lines, and `block` or `ranges` reads the rest.
-    let next = NextCalls {
-        continue_block: line_read(q, &uncovered(&merge_ranges(rest), &windows)).and_then(follow_up),
-        ..NextCalls::default()
-    };
+    let (text, selected, _) = placed_windows_text(content, lines, &windows);
     Ok(Extraction {
         text,
         source_lines: Some(selected),
@@ -189,20 +178,11 @@ fn ranges_extract(
         matched_lines: vec![],
         count: None,
         warnings,
-        next,
+        next: NextCalls::default(),
         blocks: vec![],
         match_limited: false,
+        match_windows: vec![],
     })
-}
-
-/// The unseen lines of the first declaration in `blocks` (in hit order)
-/// that `shown` does not cover whole; empty when every one is shown.
-fn first_unseen(blocks: Vec<LineRange>, shown: &[LineRange]) -> Vec<LineRange> {
-    blocks
-        .into_iter()
-        .map(|block| uncovered(&[block], shown))
-        .find(|rest| !rest.is_empty())
-        .unwrap_or_default()
 }
 
 /// Sorted ranges with overlapping or adjacent ones merged.
@@ -216,9 +196,15 @@ fn merge_ranges(ranges: Vec<LineRange>) -> Vec<LineRange> {
 /// The text of `windows` (sorted, disjoint), with one omission marker
 /// between non-adjacent windows; `selected` maps each view line to its
 /// source line (markers map to [`OMISSION_LINE`]).
-fn windows_text(content: &str, lines: &LineOffsets, windows: &[LineRange]) -> (String, Vec<usize>) {
+/// Third: the byte of the text each window starts at.
+fn placed_windows_text(
+    content: &str,
+    lines: &LineOffsets,
+    windows: &[LineRange],
+) -> (String, Vec<usize>, Vec<usize>) {
     let mut selected = vec![];
     let mut text = String::new();
+    let mut placed = Vec::with_capacity(windows.len());
     let mut prev_end: Option<usize> = None;
     for r in windows {
         if let Some(prev) = prev_end.filter(|prev| r.start > prev + 1) {
@@ -228,11 +214,12 @@ fn windows_text(content: &str, lines: &LineOffsets, windows: &[LineRange]) -> (S
             text.push_str(&omission_marker(prev + 1, r.start - 1));
             selected.push(OMISSION_LINE);
         }
+        placed.push(text.len());
         text.push_str(lines.range(content, r.start, r.end));
         selected.extend(r.start..=r.end);
         prev_end = Some(r.end);
     }
-    (text, selected)
+    (text, selected, placed)
 }
 
 #[cfg(test)]

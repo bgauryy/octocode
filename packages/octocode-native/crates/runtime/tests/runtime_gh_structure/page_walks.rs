@@ -104,3 +104,181 @@ async fn a_scoped_listing_names_repo_relative_dirs() {
     assert!(graphql_requests(&server).await.is_empty());
     runtime.close().await;
 }
+
+/// A repository `a/b` at [`SHA`] whose root lists `entries` (name, type, size).
+async fn sized_server(entries: &[(&str, &str, u64)]) -> MockServer {
+    let server = MockServer::builder().start().await;
+    mount_head_at_sha(&server).await;
+    let rows = entries
+        .iter()
+        .map(|(name, kind, size)| json!({"name": name, "path": name, "type": kind, "size": size}))
+        .collect::<Vec<_>>();
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents"))
+        .and(query_param("ref", SHA))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!(rows)))
+        .mount(&server)
+        .await;
+    server
+}
+
+/// Every entry of a listing walked through its opaque continuations, in the
+/// order the pages state them.
+async fn walk_sorted(
+    runtime: &octocode_native::runtime::ToolRuntime,
+    sort: serde_json::Value,
+    limit: u64,
+) -> (Vec<String>, usize) {
+    let mut pending = Some(json!({"queries":[{"operation":"tree","owner":"a","repo":"b","limit":limit,"sort":sort}]}));
+    let (mut listed, mut pages) = (Vec::new(), 0);
+    while let Some(input) = pending.take() {
+        let outcome = call(runtime, "ghStructure", input).await.expect("listing");
+        let data = row_data(&outcome);
+        assert!(data.get("warnings").is_none(), "{data}");
+        for group in data["files"].as_array().expect("groups") {
+            assert_eq!(group["dir"], ".", "{data}");
+            listed.extend(
+                group["files"]
+                    .as_array()
+                    .expect("entries")
+                    .iter()
+                    .map(|entry| entry.as_str().expect("entry").to_owned()),
+            );
+        }
+        pages += 1;
+        pending = data.pointer("/next/nextPage/input").cloned();
+        if let Some(input) = &pending {
+            support::assert_cursor_only(input);
+        }
+        assert!(pages <= 10, "bounded pages");
+    }
+    (listed, pages)
+}
+
+/// `sort` ranks the whole listing before a page is cut: each key and order
+/// lists every entry once across its pages, in that order. Equal sizes keep
+/// path order; a folder has no size and ranks last in either direction.
+#[tokio::test]
+async fn a_sorted_tree_ranks_the_whole_listing_and_pages_it_stably() {
+    let entries = [
+        ("a.rs", "file", 30),
+        ("b.rs", "file", 500),
+        ("c.rs", "file", 30),
+        ("docs", "dir", 0),
+        ("e.rs", "file", 7),
+        ("src", "dir", 0),
+    ];
+    let server = sized_server(&entries).await;
+    let workspace = Workspace::new();
+    let runtime = github(&workspace, &server);
+    for (sort, expected) in [
+        (
+            json!({"by":"sizeBytes","order":"desc"}),
+            ["b.rs (500)", "a.rs (30)", "c.rs (30)", "e.rs (7)", "docs/", "src/"],
+        ),
+        (
+            json!({"by":"sizeBytes","order":"asc"}),
+            ["e.rs (7)", "a.rs (30)", "c.rs (30)", "b.rs (500)", "docs/", "src/"],
+        ),
+        (
+            json!({"by":"path","order":"desc"}),
+            ["src/", "e.rs (7)", "docs/", "c.rs (30)", "b.rs (500)", "a.rs (30)"],
+        ),
+        (
+            json!({"by":"path","order":"asc"}),
+            ["a.rs (30)", "b.rs (500)", "c.rs (30)", "docs/", "e.rs (7)", "src/"],
+        ),
+    ] {
+        for limit in [1, 2, 4, 6] {
+            let (listed, pages) = walk_sorted(&runtime, sort.clone(), limit).await;
+            assert_eq!(listed, expected, "{sort} limit {limit}");
+            assert_eq!(pages as u64, 6_u64.div_ceil(limit), "{sort} limit {limit}");
+        }
+    }
+    // The largest file is the first row of a one-row page.
+    let outcome = call(
+        &runtime,
+        "ghStructure",
+        json!({"queries":[{"operation":"tree","owner":"a","repo":"b","limit":1,"sort":{"by":"sizeBytes","order":"desc"}}]}),
+    )
+    .await
+    .expect("largest");
+    assert_eq!(
+        row_data(&outcome)["files"],
+        json!([{"dir":".","files":["b.rs (500)"]}])
+    );
+    // A cursor is its own request: a sort beside it is refused.
+    let cursor = row_data(&outcome)
+        .pointer("/next/nextPage/input/cursor")
+        .cloned()
+        .expect("cursor");
+    let error = call(
+        &runtime,
+        "ghStructure",
+        json!({"queries":[{"cursor":cursor,"sort":{"by":"path","order":"asc"}}]}),
+    )
+    .await
+    .expect_err("a cursor with another sort");
+    assert_eq!(error.code, ErrorCode::InvalidInput);
+    runtime.close().await;
+}
+
+/// A sort the schema does not offer is refused before any provider read.
+#[tokio::test]
+async fn an_unknown_tree_sort_key_is_refused() {
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", "http://127.0.0.1:9/api/v3".into())]);
+    for sort in [
+        json!({"by":"modifiedAt","order":"desc"}),
+        json!({"by":"sizeBytes","order":"largest"}),
+    ] {
+        let error = call(
+            &runtime,
+            "ghStructure",
+            json!({"operation":"tree","owner":"a","repo":"b","sort":sort}),
+        )
+        .await
+        .expect_err("unsupported sort");
+        assert_eq!(error.code, ErrorCode::InvalidInput);
+    }
+    runtime.close().await;
+}
+
+/// A rank over a walk that could not read a folder says so: the page is
+/// partial, and the sort is over what was read.
+#[tokio::test]
+async fn a_sort_over_a_partial_walk_says_what_it_ranked() {
+    let server = sized_server(&[("a.rs", "file", 30), ("b.rs", "file", 500), ("sub", "dir", 0)]).await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents/sub"))
+        .respond_with(ResponseTemplate::new(500))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = github(&workspace, &server);
+    let query = |sort: serde_json::Value| {
+        json!({"queries":[{"operation":"tree","owner":"a","repo":"b","maxDepth":2,"sort":sort}]})
+    };
+    let ranked = call(&runtime, "ghStructure", query(json!({"by":"sizeBytes","order":"desc"})))
+        .await
+        .expect("ranked");
+    let data = row_data(&ranked);
+    assert_eq!(data["isPartial"], true, "{data}");
+    let warned = |data: &serde_json::Value| {
+        data["warnings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|warning| warning.as_str().is_some_and(|text| text.starts_with("sort ranks only")))
+    };
+    assert!(warned(data), "{data}");
+    assert_eq!(data["files"][0]["files"][0], "b.rs (500)", "{data}");
+    // Path order claims no rank, so it adds no such warning.
+    let listed = call(&runtime, "ghStructure", query(json!({"by":"path","order":"asc"})))
+        .await
+        .expect("listed");
+    let data = row_data(&listed);
+    assert_eq!(data["isPartial"], true, "{data}");
+    assert!(!warned(data), "{data}");
+    runtime.close().await;
+}

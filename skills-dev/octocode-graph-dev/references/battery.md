@@ -21,7 +21,14 @@ node skills-dev/octocode-graph-dev/scripts/bench-compare.mjs <dir>/before.json <
 - `--edges` adds every call edge into the probe (`witnesses`: from, to, line, confidence) to each row.
 - Per-edge agreement with LSP: [lsp-crosscheck.mjs](../scripts/lsp-crosscheck.mjs) `--peer <graph-view data.json> --crates <dir,...> --out <file>` compares every `witnesses` call edge of each crate with an octocode-graph-view LSP cross-check.
 
-Use [graph-bench.mjs](../scripts/graph-bench.mjs) `--help` for flags. The battery exits 1 on failed calls, oracle execution errors or incomplete callers pages. A failed oracle retains its diagnostic and produces no ratios; ripgrep's successful empty result remains valid. Inspect the failed input before using a partial measurement. [bench-compare.mjs](../scripts/bench-compare.mjs) checks both runs with the battery's failure rules and exits 2 if either contains an invalid measurement. For valid measurements, it exits 1 on a precision drop or a previously successful workflow stage that is now missing. Ratios retain full precision; recall changes are reported for source review.
+Use [graph-bench.mjs](../scripts/graph-bench.mjs) `--help` for flags. Inspect failed input before relying on a partial measurement.
+
+| Command / condition | Result |
+|---|---|
+| Battery: failed call, oracle error or incomplete callers pages | Exit 1; failed oracle keeps diagnostic, produces no ratios. A successful empty ripgrep result is valid. |
+| [bench-compare.mjs](../scripts/bench-compare.mjs): invalid measurement in either run | Exit 2; validates both runs under battery failure rules. |
+| Valid comparison: precision drop or previously successful workflow stage missing | Exit 1. |
+| Valid comparison: recall change | Report for source review; ratios retain full precision. |
 
 When changing the runner, oracle or comparison gate, run these suites from the skill directory:
 

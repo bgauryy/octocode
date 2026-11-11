@@ -47,6 +47,10 @@ pub(super) struct Row {
     pub(super) dir: String,
     /// The entry text inside its directory group ([`entry_text`]).
     pub(super) entry: String,
+    /// The entry text of the names-only view: its name and kind, and under
+    /// a size, line or time rank the one value it ranks by, so the order is
+    /// readable without the details view.
+    pub(super) ranked: String,
     /// The name the entry text starts with.
     pub(super) display_name: String,
     pub(super) kind: EntryKind,
@@ -66,7 +70,7 @@ pub(super) struct Row {
 impl Row {
     /// What of the row a snapshot binds: what its page shows and cuts by.
     pub(super) fn shown(&self) -> impl serde::Serialize + '_ {
-        (&self.dir, &self.entry, &self.path)
+        (&self.dir, &self.entry, &self.ranked, &self.path)
     }
 
     /// The listed directory itself, which is the listing, never one of its
@@ -99,8 +103,15 @@ impl Row {
         }
     }
 
-    /// The row of a walked entry listed under `path` ([`Self::listed_path`]).
-    fn of(e: &FileSystemEntry, path: String, lines: Option<Lines>) -> Self {
+    /// The row of a walked entry listed under `path` ([`Self::listed_path`]),
+    /// ranked by `key` (`None`: walk order).
+    fn of(
+        e: &FileSystemEntry,
+        path: String,
+        lines: Option<Lines>,
+        key: Option<octocode_contract_types::StructureSearchSortAnyOrderBy>,
+    ) -> Self {
+        use octocode_contract_types::StructureSearchSortAnyOrderBy as Key;
         let kind = EntryKind::from(e.entry_type);
         let (dir, name) = path.rsplit_once('/').unwrap_or(("", path.as_str()));
         let dir = dir.to_owned();
@@ -117,9 +128,19 @@ impl Row {
             // Whole epoch milliseconds, shown as an ISO 8601 instant.
             modified_ms.map(|modified| crate::num::i64_of_f64(modified.round())),
         );
+        let ranked = entry_text(
+            name,
+            kind,
+            size.filter(|_| key == Some(Key::SizeBytes)),
+            lines.filter(|_| key == Some(Key::LineCount)),
+            modified_ms
+                .filter(|_| key == Some(Key::ModifiedAt))
+                .map(|modified| crate::num::i64_of_f64(modified.round())),
+        );
         Self {
             dir,
             entry,
+            ranked,
             display_name: name.to_owned(),
             kind,
             path,
@@ -131,8 +152,12 @@ impl Row {
         }
     }
 
-    fn path_entry(&self) -> String {
-        entry_text(&self.display_name, self.kind, None, None, None)
+    /// The entry text `view` shows before a page reads its details.
+    fn shown_as(&self, view: StructureSearchView) -> &str {
+        match view {
+            StructureSearchView::Paths => &self.ranked,
+            StructureSearchView::Details => &self.entry,
+        }
     }
 }
 
@@ -157,7 +182,7 @@ pub(super) fn page_entries(
     if view == StructureSearchView::Paths {
         return Ok(rows
             .iter()
-            .map(|row| (row.dir.clone(), row.path_entry()))
+            .map(|row| (row.dir.clone(), row.ranked.clone()))
             .collect());
     }
     let Some(paths) = detail else {
@@ -199,56 +224,15 @@ pub(super) fn page_entries(
 /// directory with its subdirectory), keep their global rank order exactly;
 /// [`dir_groups`] then names each directory once for `path` ranks and
 /// per run of adjacent rows for metric ranks.
-pub(super) fn group(rows: &mut Vec<Row>, sort: &StructureSearchSort, view: StructureSearchView) {
+///
+/// Every listed directory keeps its own `name/` row in every view, beside
+/// any `{dir, files}` group it heads: a group header is the parent of the
+/// rows under it, which a filtered listing shows whether or not the
+/// directory itself was selected, so only the row says it was.
+pub(super) fn group(rows: &mut [Row], sort: &StructureSearchSort) {
     if super::files::is_traversal(sort) {
         rows.sort_by(|a, b| std::path::Path::new(&a.dir).cmp(std::path::Path::new(&b.dir)));
     }
-    drop_grouped_dirs(rows, view);
-}
-
-/// Names each directory once: by its own `{dir, files}` group when the
-/// group lists an entry, else by its bare `name/` row (a stub: every directory
-/// row of a view that shows no fields; one with fields, `modified`, is no stub
-/// and keeps them). A stub is dropped only
-/// when the directory's group survives, so a directory whose subdirectories
-/// all have groups of their own keeps its stub instead of vanishing from
-/// the listing, even when the two would land on different pages.
-fn drop_grouped_dirs(rows: &mut Vec<Row>, view: StructureSearchView) {
-    let stub = |row: &Row| {
-        row.kind == EntryKind::Directory
-            && (view == StructureSearchView::Paths || row.entry.ends_with('/'))
-    };
-    let mut grouped = rows
-        .iter()
-        .filter(|row| !stub(row))
-        .map(|row| row.dir.clone())
-        .collect::<std::collections::HashSet<_>>();
-    // A group's rows sit deeper than the stub naming it, so the deepest
-    // groups settle first and decide the stubs above them.
-    let depth = |dir: &str| {
-        if dir.is_empty() {
-            0
-        } else {
-            dir.matches('/').count() + 1
-        }
-    };
-    let mut stubs = (0..rows.len())
-        .filter(|&index| stub(&rows[index]))
-        .collect::<Vec<_>>();
-    stubs.sort_by_key(|&index| std::cmp::Reverse(depth(&rows[index].dir)));
-    let mut dropped = std::collections::HashSet::new();
-    for index in stubs {
-        if grouped.contains(&rows[index].path) {
-            dropped.insert(index);
-        } else {
-            grouped.insert(rows[index].dir.clone());
-        }
-    }
-    let mut index = 0;
-    rows.retain(|_| {
-        index += 1;
-        !dropped.contains(&(index - 1))
-    });
 }
 
 /// The page's rows as the response lists them, `dir` workspace-relative
@@ -306,13 +290,7 @@ pub(super) fn costs(
                 .unwrap_or(0)
                     + 1
             });
-            let entry = match view {
-                StructureSearchView::Paths => {
-                    octocode_engine::json_size::utf16_units(&row.path_entry())
-                }
-                StructureSearchView::Details => octocode_engine::json_size::utf16_units(&row.entry),
-            }
-            .unwrap_or(0);
+            let entry = octocode_engine::json_size::utf16_units(row.shown_as(view)).unwrap_or(0);
             RowCost {
                 // Reserve the deferred detail fields before paging so
                 // they cannot overflow the window.
@@ -328,14 +306,14 @@ pub(super) fn costs(
 }
 
 /// Characters the deferred detail fields add to one entry at most:
-/// `, totalLines=<usize>` (33) and `, modified=<ISO 8601 instant>` (35 for
+/// `, totalLines=<usize>` (33) and `, modified=<ISO 8601 instant>` (31 for
 /// a five-digit year).
-const DETAIL_FIELDS_RESERVE: usize = 68;
+const DETAIL_FIELDS_RESERVE: usize = 64;
 
 /// One listed entry inside its directory group: the name, `/` after a
 /// directory, then ` (<fields>)` naming the size in bytes (every non-directory
 /// entry), `symlink`, the line count ([`Lines::field`]) and
-/// `modified=<YYYY-MM-DDTHH:MM:SS.mmmZ>` (UTC) as they apply. The fields never contain ` (`, so the last ` (` of an entry
+/// `modified=<YYYY-MM-DDTHH:MM:SSZ>` (UTC) as they apply. The fields never contain ` (`, so the last ` (` of an entry
 /// ending in `)` opens them, whatever the name holds.
 pub(super) fn entry_text(
     name: &str,
@@ -355,9 +333,11 @@ pub(super) fn entry_text(
         fields.push(lines.field());
     }
     if let Some(modified) = modified_ms {
+        // To the second, as every timestamp a tool states: a listing dates a
+        // file, and `sort` ranks by the full time.
         fields.push(format!(
             "modified={}",
-            crate::civil_date::iso8601_millis(modified)
+            crate::civil_date::iso8601_secs(modified.div_euclid(1_000))
         ));
     }
     crate::tools::root_read::entry_text(name, kind == EntryKind::Directory, &fields)

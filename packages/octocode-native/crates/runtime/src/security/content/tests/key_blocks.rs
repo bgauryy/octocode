@@ -199,3 +199,38 @@ fn key_block_tracker_streams_the_same_ranges_as_the_whole_file_scan() {
         assert_eq!(tracker.finish(), private_key_block_line_ranges(&file));
     }
 }
+
+/// A line of an open block that only holds a key's run keeps what precedes
+/// the run: a label or code is no key text. A body line as a whole (quoted,
+/// commented, indented) is hidden from its indentation, as before, and a
+/// line with no run that long is not hidden at all.
+#[test]
+fn a_line_that_only_holds_a_key_run_keeps_its_label() {
+    const RUN: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    const BODY: &str = "WzHvuy3fEWJr5musirUr5JYe5CMpm8DI2mKvqGsxgG5oDTudHZGh0Z7tcHL5kVeqJy";
+    let placeholder = key_fragment_placeholder();
+    let source = format!(
+        "logo: {RUN}\n-----BEGIN OPENSSH PRIVATE KEY-----\n{BODY}\n  \"{BODY}\\n\" +\nordinary tail text\nlogo2: {RUN}\n  k += b\"{BODY}\"\nshort: abc123\nlast plain line\n"
+    );
+    let (hidden, changed) = redact_private_key_blocks(&source);
+    assert!(changed);
+    assert_eq!(
+        hidden,
+        format!(
+            "logo: {RUN}\n{placeholder}\n{placeholder}\n  {placeholder}\nordinary tail text\nlogo2: {placeholder}\n  k += b\"{placeholder}\nshort: abc123\nlast plain line\n"
+        )
+    );
+    // One rule for every reader of a line: the row a search shows of it.
+    assert_eq!(
+        hide_key_line(&format!("logo2: {RUN}")),
+        format!("logo2: {placeholder}")
+    );
+    assert_eq!(
+        hide_key_line(&format!("\t{BODY}")),
+        format!("\t{placeholder}")
+    );
+    // A label longer than the head a streamed read keeps leaves the line a
+    // body line, in every reader alike.
+    let long_label = "x ".repeat(KEY_LINE_HEAD_BYTES / 2);
+    assert_eq!(hide_key_line(&format!("{long_label}: {RUN}")), placeholder);
+}

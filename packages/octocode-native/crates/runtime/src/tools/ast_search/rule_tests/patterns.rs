@@ -160,7 +160,7 @@ fn an_exact_declaration_miss_counts_the_kind_and_leads_to_its_rule() {
         .expect("match")
     };
     let miss = matched(&dir, "fn $NAME($$$ARGS) -> u16 { $$$BODY }");
-    assert_eq!(miss["matchCount"], 0, "{miss}");
+    assert_eq!(miss["status"], "empty", "{miss}");
     let note = miss["diagnostics"]
         .as_array()
         .into_iter()

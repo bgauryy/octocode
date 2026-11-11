@@ -1,4 +1,5 @@
 use super::super::RowPaths;
+use super::super::judged_rows::NamePlaces;
 use super::ast_search_query_symbols;
 use super::left_out::Suppressed;
 use super::rows::group_by_file;
@@ -10,24 +11,27 @@ use crate::tools::leads::skipped;
 use octocode_contract_types::{AstSearchChannel, AstSearchQuerySymbols};
 use serde_json::{Value, json};
 
+/// One page of `set`, and where each of its rows was named, in the order
+/// the page lists them.
 pub(crate) fn render_page(
     q: &AstSearchQuerySymbols,
     set: &SymbolSet,
     row_paths: RowPaths<'_>,
     response_window: Option<usize>,
     cancel: &dyn crate::execution::cancel::CancellationCheck,
-) -> Result<Value, crate::response::result::ToolError> {
+) -> Result<(Value, NamePlaces), crate::response::result::ToolError> {
     // A page without a snapshot pins nothing: it pages the current outline,
     // as `match` and structureSearch do; only a snapshot that no longer
     // matches is stale.
     if ast_search_query_symbols::page(q) > 1
         && ast_search_query_symbols::snapshot(q).is_some_and(|given| given != set.snapshot)
     {
-        return Ok(crate::response::result::stale_snapshot(
-            crate::response::result::restart_query(
+        return Ok((
+            crate::response::result::stale_snapshot(crate::response::result::restart_query(
                 ToolId::AstSearch,
                 &crate::response::result::query_row(q, &[]),
-            ),
+            )),
+            NamePlaces::default(),
         ));
     }
     let (skipped, truncated) = (set.skipped, set.truncated);
@@ -37,6 +41,10 @@ pub(crate) fn render_page(
     let unproven = crate::tools::test_code::unread_note(&set.test_code_unread);
     let incomplete = truncated || skipped > 0 || unreadable || unproven.is_some();
     let rows = &set.declarations[cut.range.clone()];
+    let places = NamePlaces::of(
+        rows,
+        set.name_columns.get(cut.range.clone()).unwrap_or_default(),
+    );
     // Every scan cut continues ([`scan_window::expand_scan`]): a cut by the
     // scan time budget resumes after the files this window outlined
     // (`scanOffset`), so it is offered once the window's last page is reached.
@@ -137,7 +145,7 @@ pub(crate) fn render_page(
         crate::response::result::add_hints(&mut out, [empty_hint(q, set.files_scanned)]);
     }
     super::super::evidence::attach_page(&mut out, &set.source_descriptors, cancel)?;
-    Ok(out)
+    Ok((out, places))
 }
 
 /// The top-level rows of one symbols page.

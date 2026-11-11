@@ -44,6 +44,7 @@ fn a_fifo_in_place_of_a_source_is_refused_without_blocking() {
                 value_digest: <sha2::Sha256 as sha2::Digest>::digest(value.as_bytes()).into(),
                 count: None,
                 rank: None,
+                window_start: None,
             }],
             source: None,
         };

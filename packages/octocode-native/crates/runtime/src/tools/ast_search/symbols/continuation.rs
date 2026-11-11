@@ -187,6 +187,7 @@ fn weight(set: &SymbolSet) -> usize {
         .map(|row| std::mem::size_of::<Value>() + super::rows::heap_bytes(row))
         .sum::<usize>()
         .saturating_add(set.sizes.len() * std::mem::size_of::<usize>())
+        .saturating_add(set.name_columns.len() * std::mem::size_of::<u32>())
         .saturating_add(beside_rows)
 }
 

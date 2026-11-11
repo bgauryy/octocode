@@ -5,7 +5,8 @@
   "operation": "resolve",
   "ecosystem": "packagist",
   "packageName": "psr/log",
-  "version": "1.1.4"
+  "version": "1.1.4",
+  "view": "details"
  },
  "recordedAt": "2026-11-05",
  "unread": [

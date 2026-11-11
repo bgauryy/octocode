@@ -82,10 +82,10 @@ pub(crate) fn sort(query: &GhSearchHistoryQuery) -> Option<String> {
     let value = sort_value(query)?;
     Some(
         match value.get("by")?.as_str()? {
-            "bestMatch" => "best-match",
+            "relevance" => "best-match",
             "createdAt" => "created",
             "updatedAt" => "updated",
-            "commentCount" => "comments",
+            "commentsCount" => "comments",
             "reactionCount" => "reactions",
             _ => return None,
         }

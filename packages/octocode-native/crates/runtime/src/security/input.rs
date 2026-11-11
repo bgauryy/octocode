@@ -24,13 +24,21 @@ const MAX_ARRAY_LENGTH: usize = crate::id::MAX_INPUT_ARRAY_ITEMS;
 /// refused, so a hostile query cannot exhaust the stack of the recursive
 /// walk. No tool input nests anywhere near it.
 const MAX_DEPTH: usize = 20;
+/// The field of a clasify row that holds the evidence under judgment.
+const EVIDENCE: &str = "content";
 
 /// A query row that passed [`ContentSecurity::check_input`]: its keys are
 /// safe, its strings are within bounds, and it holds no credential outside
 /// the evidence a policy may redact in place.
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 #[serde(transparent)]
-pub(crate) struct CheckedQuery(Value);
+pub(crate) struct CheckedQuery(
+    Value,
+    /// Whether the row's `content` is evidence the gate redacted in place
+    /// ([`InputPolicy::ClasifyEvidence`]), not the caller's own words.
+    #[serde(skip)]
+    bool,
+);
 
 impl CheckedQuery {
     pub(crate) fn into_value(self) -> Value {
@@ -63,6 +71,140 @@ impl Deref for CheckedQuery {
     }
 }
 
+/// The caller's own text: every string the input gate admitted in the rows
+/// of one call, a search term, a question, an address. Only admitted rows
+/// make one ([`Admitted::of`]), so each string in it is one the gate would
+/// not refuse, and a response that repeats it (a lead's input, an error that
+/// quotes a pattern) says nothing the caller did not send. The output gate
+/// therefore lets a redaction stand only where it replaces more than bytes
+/// of such a string ([`Admitted::restore`]): text of a file around the
+/// string, or a value the string is only a part of, stays hidden.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Admitted(Vec<String>);
+
+impl Admitted {
+    /// The strings of `rows`. A clasify row's `content` is evidence the gate
+    /// redacts, not text it admits, and is no part of it.
+    pub(crate) fn of<'a>(rows: impl IntoIterator<Item = &'a CheckedQuery>) -> Self {
+        fn leaves(value: &Value, out: &mut Vec<String>) {
+            match value {
+                Value::String(text) if !text.is_empty() => out.push(text.clone()),
+                Value::Array(items) => items.iter().for_each(|item| leaves(item, out)),
+                Value::Object(fields) => fields.values().for_each(|field| leaves(field, out)),
+                _ => {}
+            }
+        }
+        let mut own = Vec::new();
+        for CheckedQuery(row, evidence) in rows {
+            match row {
+                Value::Object(fields) => fields
+                    .iter()
+                    .filter(|(key, _)| !(*evidence && key.as_str() == EVIDENCE))
+                    .for_each(|(_, field)| leaves(field, &mut own)),
+                other => leaves(other, &mut own),
+            }
+        }
+        own.sort_unstable();
+        own.dedup();
+        Self(own)
+    }
+
+    pub(super) fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Where `text` repeats an admitted string, by byte position.
+    pub(super) fn spans(&self, text: &str) -> Vec<std::ops::Range<usize>> {
+        self.0
+            .iter()
+            .filter(|own| own.len() <= text.len())
+            .flat_map(|own| {
+                memchr::memmem::find_iter(text.as_bytes(), own.as_bytes())
+                    .map(|at| at..at + own.len())
+            })
+            .collect()
+    }
+
+    /// Whether `text` repeats an admitted string anywhere.
+    pub(super) fn occurs_in(&self, text: &str) -> bool {
+        self.0
+            .iter()
+            .any(|own| memchr::memmem::find(text.as_bytes(), own.as_bytes()).is_some())
+    }
+
+    /// `clean`, the redaction of `text` that replaced `edits`, with each
+    /// replacement that took only bytes of one admitted string undone;
+    /// `None` when that leaves `text` as it was.
+    pub(super) fn restore(
+        &self,
+        text: &str,
+        clean: &str,
+        edits: &octocode_engine::security::Edits,
+    ) -> Option<String> {
+        restore_within(&self.spans(text), text, clean, edits)
+    }
+
+    /// `text` with `secret` replaced by `placeholder` wherever it stands
+    /// outside every admitted string `text` repeats; `None` when no place is.
+    pub(super) fn replace_outside(
+        &self,
+        text: &str,
+        secret: &str,
+        placeholder: &str,
+    ) -> Option<String> {
+        if secret.is_empty() || !text.contains(secret) {
+            return None;
+        }
+        if self.is_empty() {
+            return Some(text.replace(secret, placeholder));
+        }
+        let spans = self.spans(text);
+        let mut replaced = String::with_capacity(text.len());
+        let mut from = 0;
+        let mut any = false;
+        for (at, _) in text.match_indices(secret) {
+            let end = at + secret.len();
+            if at < from || spans.iter().any(|span| span.start <= at && end <= span.end) {
+                continue;
+            }
+            replaced.push_str(text.get(from..at)?);
+            replaced.push_str(placeholder);
+            from = end;
+            any = true;
+        }
+        replaced.push_str(text.get(from..)?);
+        any.then_some(replaced)
+    }
+}
+
+/// `clean`, the redaction of `text` that replaced `edits`, with each
+/// replacement that took only bytes of one of `spans` undone; `None` when
+/// that leaves `text` as it was.
+pub(super) fn restore_within(
+    spans: &[std::ops::Range<usize>],
+    text: &str,
+    clean: &str,
+    edits: &octocode_engine::security::Edits,
+) -> Option<String> {
+    let mut restored = String::with_capacity(clean.len());
+    let mut from = 0;
+    for (taken, replacement) in edits.runs(clean) {
+        let own = spans
+            .iter()
+            .any(|span| span.start <= taken.start && taken.end <= span.end);
+        let (Some(before), Some(original)) =
+            (text.get(from..taken.start), text.get(taken.clone()))
+        else {
+            return Some(clean.to_owned());
+        };
+        restored.push_str(before);
+        restored.push_str(if own { original } else { replacement });
+        from = taken.end;
+    }
+    restored.push_str(text.get(from..).unwrap_or_default());
+    (restored != text).then_some(restored)
+}
+
 /// What a row may contain beyond the standard bounds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum InputPolicy {
@@ -71,8 +213,10 @@ pub(crate) enum InputPolicy {
     /// placeholder into continuations.
     Query,
     /// A clasify row: its `content` may be as long as `content_limit` serialized
-    /// characters, and credential-shaped text inside `content` or `questions`
-    /// is redacted in place (it is evidence, not an address).
+    /// characters, and a credential inside `content` is redacted in place: it
+    /// is the evidence under judgment, which holds what its source holds.
+    /// Every other string is the caller's own words (`questions`, `context`,
+    /// a source's address), where a credential is refused as in any query.
     ClasifyEvidence { content_limit: usize },
 }
 
@@ -157,7 +301,10 @@ impl ContentSecurity {
         let checked = self.walk(query, content_limit);
         let issues = input_issues(&checked, content_limit.is_some());
         if issues.is_empty() {
-            Ok(CheckedQuery(Value::Object(checked.sanitized_params)))
+            Ok(CheckedQuery(
+                Value::Object(checked.sanitized_params),
+                content_limit.is_some(),
+            ))
         } else {
             Err(issues)
         }
@@ -186,7 +333,7 @@ impl ContentSecurity {
                 verdict: Verdict::invalid("Invalid parameters: must be an object"),
             };
         };
-        if let (Some(limit), Some(state)) = (content_limit, object.get("content"))
+        if let (Some(limit), Some(state)) = (content_limit, object.get(EVIDENCE))
             && state.to_string().chars().count() > limit
         {
             return ValidationResult {
@@ -197,10 +344,12 @@ impl ContentSecurity {
             };
         }
         let mut verdict = self.walk_object(&mut object, 0, MAX_STRING_LENGTH, content_limit);
+        // Text only some file's rules would hide (a manifest quoted in a
+        // question) is no credential the caller is known to have written:
+        // it is hidden in place and refuses nothing. In the caller's own
+        // words a value the request rules cleared above stays as written.
         if content_limit.is_some() {
-            let fields = self.judge_evidence(&mut object);
-            verdict.has_secrets |= !fields.is_empty();
-            verdict.secret_fields.extend(fields);
+            verdict.has_secrets |= self.hide_provider_text(&mut object, EVIDENCE);
         }
         ValidationResult {
             sanitized_params: object,
@@ -233,7 +382,7 @@ impl ContentSecurity {
             // Ordinary parameter limits count UTF-16 units. The complete state
             // was bounded in Unicode scalar values; allow both UTF-16 units of
             // an astral character without rejecting valid evidence.
-            let limit = if key == "content" {
+            let limit = if key == EVIDENCE {
                 content_limit.map_or(limit, |bound| bound.saturating_mul(2))
             } else {
                 limit
@@ -258,7 +407,7 @@ impl ContentSecurity {
                         let result = self.sanitize_text(text, None);
                         out.has_secrets = true;
                         out.secret_fields.push(key.clone());
-                        for secret in result.secrets_detected {
+                        for secret in &result.secrets_detected {
                             out.warnings
                                 .push(format!("Secrets detected in {key}: {secret}"));
                         }
@@ -266,7 +415,13 @@ impl ContentSecurity {
                     }
                     true
                 }
-                Value::Array(values) => self.walk_array(key, values, depth, limit, &mut out),
+                Value::Array(values) => {
+                    // The evidence under judgment is bounded whole, by its
+                    // serialized length (checked before this walk): its
+                    // items are data, however many, never a parameter list.
+                    let evidence = key == EVIDENCE && content_limit.is_some();
+                    self.walk_array(key, values, depth, limit, !evidence, &mut out)
+                }
                 Value::Object(nested) => {
                     let result = self.walk_object(nested, depth + 1, limit, None);
                     out.absorb(
@@ -294,13 +449,14 @@ impl ContentSecurity {
         values: &mut Vec<Value>,
         depth: usize,
         limit: usize,
+        counted: bool,
         out: &mut Verdict,
     ) -> bool {
         if depth > MAX_DEPTH {
             out.refused("Maximum nesting depth exceeded");
             return false;
         }
-        if values.len() > MAX_ARRAY_LENGTH {
+        if counted && values.len() > MAX_ARRAY_LENGTH {
             out.refused(format!(
                 "Parameter {key} array exceeds maximum length (100 items)"
             ));
@@ -332,7 +488,7 @@ impl ContentSecurity {
             }
             // Nested arrays recurse, so string leaves at any array depth are
             // sanitized.
-            Value::Array(inner) => self.walk_array(key, inner, depth + 1, limit, out),
+            Value::Array(inner) => self.walk_array(key, inner, depth + 1, limit, true, out),
             _ => true,
         });
         if item_secrets {
@@ -346,28 +502,39 @@ impl ContentSecurity {
 /// Whether a request string holds a credential. A request names what it
 /// looks for, so the name beside a value says nothing of the value
 /// (`password: str` is a declaration to find): only a value a pattern knows
-/// by its shape, or an opaque one, is a credential. A scan that fails counts
-/// as one.
+/// by its shape, or an opaque one, is a credential, and so is the body of a
+/// private key under its armor line ([`super::content::holds_private_key_body`]),
+/// as written or as a regex spells it. The armor line alone
+/// (`-----BEGIN RSA PRIVATE KEY-----`) is the same text in every key and no
+/// part of any: a search for it runs. A scan that fails counts as a
+/// credential.
 fn holds_credential(text: &str) -> bool {
-    octocode_engine::security::sanitizer::request_holds_credential(text).unwrap_or(true)
+    use octocode_engine::security::sanitizer::{request_holds_credential, request_literal_form};
+    request_holds_credential(text).unwrap_or(true)
+        || super::content::holds_private_key_body(text)
+        || request_literal_form(text)
+            .is_some_and(|plain| super::content::holds_private_key_body(&plain))
 }
 
-/// The text a refused string leaves in its place: `redacted` when the scan
-/// rewrote it, and the scan-failure placeholder when it did not, so a
-/// refused value never stays as written.
+/// The text a string that holds a credential leaves in its place: `redacted`
+/// (what the scan made of it) with the values only a request's own rule
+/// finds hidden too, and the scan-failure placeholder when neither rewrote
+/// it, so such a value never stays as written.
 fn hidden(redacted: std::borrow::Cow<'_, str>) -> String {
-    match redacted {
-        std::borrow::Cow::Owned(content) => content,
-        std::borrow::Cow::Borrowed(_) => {
+    let named = octocode_engine::security::sanitizer::request_named_values_hidden(&redacted);
+    match (named, redacted) {
+        (Ok(Some(content)), _) | (Ok(None), std::borrow::Cow::Owned(content)) => content,
+        (Ok(None), std::borrow::Cow::Borrowed(_)) | (Err(_), _) => {
             octocode_engine::security::SANITIZER_FAILURE_PLACEHOLDER.to_owned()
         }
     }
 }
 
 /// A walk's refusals as field issues, so they isolate and render like any
-/// other invalid field. Only clasify evidence may be redacted in place: any
-/// other rewritten value, including a clasify `source`, would silently change
-/// what a tool reads and leak the placeholder into continuations.
+/// other invalid field. Only clasify `content` may be redacted in place: it
+/// is the evidence. Any other rewritten value would silently change what a
+/// tool reads or what a question asks, and leak the placeholder into
+/// continuations.
 fn input_issues(checked: &ValidationResult, clasify: bool) -> Vec<ValidationIssue> {
     let issue = |rule_id: &str, field: Option<&str>, message: String| ValidationIssue {
         rule_id: rule_id.into(),
@@ -395,11 +562,9 @@ fn input_issues(checked: &ValidationResult, clasify: bool) -> Vec<ValidationIssu
     }
     let redactable = |field: &str| {
         clasify
-            && ["content", "questions"].iter().any(|root| {
-                field == *root
-                    || field.starts_with(&format!("{root}."))
-                    || field.starts_with(&format!("{root}["))
-            })
+            && (field == EVIDENCE
+                || field.starts_with(&format!("{EVIDENCE}."))
+                || field.starts_with(&format!("{EVIDENCE}[")))
     };
     issues.extend(
         checked

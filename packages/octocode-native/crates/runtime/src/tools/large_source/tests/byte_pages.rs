@@ -7,9 +7,10 @@ fn assert_source_window(source: &str, want: Want, actual: &Streamed) {
     let lines = source
         .split_inclusive('\n')
         .map(|line| {
-            let key = keys.push_line(line.trim_end_matches(['\r', '\n']));
+            let body = line.trim_end_matches(['\r', '\n']);
+            let key = keys.push_line(body);
             let text = if key {
-                format!("{}\n", crate::security::key_fragment_placeholder())
+                format!("{}\n", crate::security::hide_key_line(body))
             } else {
                 line.to_owned()
             };
@@ -219,10 +220,11 @@ fn byte_pages_with_points_inside_a_key_block_match_a_whole_pass() {
             .pop()
             .expect("window");
         assert_source_window(&text, page(from), &paged);
-        // The base64 body stays replaced; the `!!` line is not base64,
-        // so it ends the block (`LineShape::Other`) and shows as text.
+        // The base64 body stays replaced, and so does the run of the `!!`
+        // line, which is no body line as a whole: its `!!` stays.
+        let shown = String::from_utf8_lossy(&paged.window);
         assert!(
-            !String::from_utf8_lossy(&paged.window).contains("AAAA"),
+            !shown.contains("AAAA") && !shown.contains("BBBB"),
             "from {from}"
         );
     }

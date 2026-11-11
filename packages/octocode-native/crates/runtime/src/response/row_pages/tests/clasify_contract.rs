@@ -56,6 +56,7 @@ fn nested_clasify_fragments_validate_and_preserve_every_answer_and_its_context()
     );
     let mut seen = BTreeMap::new();
     let mut contexts = BTreeMap::new();
+    let mut bytes = BTreeMap::new();
     let (mut definitions, mut next_calls) = (0, 0);
     for page in 0..plan.total_pages {
         for row in plan
@@ -82,16 +83,19 @@ fn nested_clasify_fragments_validate_and_preserve_every_answer_and_its_context()
                         .iter()
                         .find(|item| item["id"] == id)
                         .expect("original section");
-                    // `id` and `kind` place the section; `target` has no
-                    // valid empty form (its `bytes` are a pair), so it
-                    // repeats whole; `context` is evidence: once, then `[]`.
-                    for field in ["kind", "target"] {
-                        assert_eq!(
-                            section[field], expected_section[field],
-                            "{key}/{id}/{field}"
-                        );
+                    // `id` and `kind` place the section, and so do the
+                    // target's lines, on every fragment; its `bytes` (a
+                    // details field) and `context` are evidence: once.
+                    assert_eq!(section["kind"], expected_section["kind"], "{key}/{id}/kind");
+                    assert_eq!(
+                        section["target"]["lines"], expected_section["target"]["lines"],
+                        "{key}/{id}/target"
+                    );
+                    if let Some(found) = section["target"].get("bytes") {
+                        assert_eq!(found, &expected_section["target"]["bytes"]);
+                        *bytes.entry((key.clone(), id.to_owned())).or_insert(0) += 1;
                     }
-                    if section["context"] != json!([]) {
+                    if section.get("context").is_some_and(|context| *context != json!([])) {
                         assert_eq!(section["context"], expected_section["context"]);
                         *contexts.entry((key.clone(), id.to_owned())).or_insert(0) += 1;
                     }
@@ -112,6 +116,7 @@ fn nested_clasify_fragments_validate_and_preserve_every_answer_and_its_context()
     assert_eq!(seen, expected);
     assert_eq!(contexts.len(), 6, "every section's context arrives");
     assert!(contexts.values().all(|count| *count == 1), "{contexts:?}");
+    assert_eq!(bytes.len(), 6, "every section's byte range arrives");
     assert_eq!(definitions, 1);
     assert_eq!(next_calls, 1);
 }

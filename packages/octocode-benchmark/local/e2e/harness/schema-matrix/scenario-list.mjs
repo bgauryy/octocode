@@ -18,7 +18,6 @@ const NOT_HOLDING = new Set([
   'code.github.transport',
   'code.largeSourceWindowOnly',
   'code.provider.invalidClassificationResponse',
-  'lead.continueBlock.github',
   'lead.continueMaterialize',
   'lead.expandDepth',
   'lead.listCommits',

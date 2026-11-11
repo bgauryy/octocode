@@ -65,10 +65,19 @@ impl ClassificationProvider for Jev {
                 .map(|(index, question)| (batch_answer_key(index), (*question).clone()))
                 .collect(),
         };
-        let mut request = json!({"model": model, "state": state, "questions": keyed});
         // The provider boundary protects every caller (clasify and all tool
         // selections), including callers that already passed an input gate.
-        crate::security::ContentSecurity::new().sanitize_data(&mut request);
+        // The state is evidence, text of a source, judged as kept text is.
+        // A question is the caller's own words, which only an admitted row
+        // carries (a clasify row's `questions`, a tool row's
+        // `classification`, or the sealed plan either started): it is judged
+        // as the input gate left it, so the text the gate ran is the text
+        // sent, the same bytes a GitHub search sends.
+        let security = crate::security::ContentSecurity::new();
+        let (mut state, mut questions) = (state.clone(), Value::Object(keyed));
+        security.sanitize_data(&mut state);
+        security.sanitize_request_data(&mut questions);
+        let mut request = json!({"model": model, "state": state, "questions": questions});
         if let Some(assets) = assets {
             request["assets"] = assets.clone();
         }

@@ -43,16 +43,24 @@ pub(super) fn budget(
 /// order, and return how many rows the page shows (at least one): every row
 /// when all of them fit `room.whole`, else the rows that fit `room.part`.
 ///
-/// The first row is read alone to measure it. Each later batch holds as many
-/// rows as the room left holds at the largest row measured so far, and no
-/// more than the rows already shown (so batches grow 1, 1, 2, 4, …): a batch
-/// read past the window costs at most the rows shown, so a part reads at
-/// most twice the rows it shows, and the reads of a batch go out together.
+/// Each batch holds as many rows as the room left holds at the largest row
+/// measured so far, and no more than [`READ_AHEAD`] times the rows already
+/// shown (the first, one more than that: a page shows at least one row). So
+/// batches grow 3, 6, 18, …, the reads of a batch go out together, and a
+/// batch read past the window costs at most [`READ_AHEAD`] times the rows
+/// shown: a part reads at most `READ_AHEAD + 1` times the rows it shows, in
+/// about `log3` round trips of the rows it reads.
 /// A row read past the window is not shown: the next part shows it. A row's
 /// size is what it adds to the published page; the first row's counts only
 /// until a second is measured, since it alone adds the page's top read lead
 /// and identity. Past the part's cut, reading goes on only while the rest of
 /// the page, at the smallest row measured, may still fit whole.
+/// How many rows a batch may read for each row already shown. A larger
+/// factor reads a page in fewer round trips (each costs a provider round
+/// trip of latency) and may read more files a small window does not show
+/// (each costs one core-quota request, and the next part shows it unread).
+const READ_AHEAD: usize = 2;
+
 pub(super) async fn read(
     plan: &mut LinePlan,
     items: &[Value],
@@ -74,11 +82,12 @@ pub(super) async fn read(
     let (mut largest, mut smallest) = (0_usize, 0_usize);
     while shown < total {
         let left = |limit: usize| limit.saturating_sub(used.chars());
+        let ahead = shown.saturating_mul(READ_AHEAD);
         let take = match cut {
-            _ if shown == 0 => 1,
-            None => (left(room.part) / largest.max(1)).min(shown),
+            _ if shown == 0 => READ_AHEAD + 1,
+            None => (left(room.part) / largest.max(1)).min(ahead),
             Some(_) if (total - shown).saturating_mul(smallest) > left(room.whole) => 0,
-            Some(_) => (left(room.whole) / largest.max(1)).min(shown),
+            Some(_) => (left(room.whole) / largest.max(1)).min(ahead),
         };
         if take == 0 {
             if cut.is_none() {

@@ -5,7 +5,8 @@
   "operation": "resolve",
   "ecosystem": "npm",
   "packageName": "left-pad",
-  "version": "1.3.0"
+  "version": "1.3.0",
+  "view": "details"
  },
  "recordedAt": "2026-11-08",
  "unread": [

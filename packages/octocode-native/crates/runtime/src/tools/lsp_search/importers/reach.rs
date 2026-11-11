@@ -84,6 +84,16 @@ fn facts_are_clean(facts: &GraphFactsDocument) -> bool {
     })
 }
 
+/// Whether `content` may reference a module at all: it spells `import` or
+/// `require` (`createRequire` too), or a backslash that may escape one. A
+/// file that spells none references no module, which no parse is needed to
+/// say.
+pub(super) fn may_reference_modules(content: &str) -> bool {
+    ["import", "equire", "\\"]
+        .iter()
+        .any(|spelling| content.contains(spelling))
+}
+
 /// Whether `content` spells `word` as a whole identifier after `prefix`
 /// (`.` for any member, `binding.` for one binding's member, empty for the
 /// bare name).

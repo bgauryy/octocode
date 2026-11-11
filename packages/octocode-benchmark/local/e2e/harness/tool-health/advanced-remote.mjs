@@ -397,7 +397,7 @@ async function historyItem(ctx) {
 async function artifacts(ctx) {
   const registryUrl = ctx.mock.url;
   const out = await checks(ctx, [
-    ['resolve.exact', { operation: 'resolve', ecosystem: 'npm', packageName: 'tiny-health', version: '1.0.0', registryUrl }, d => d.artifacts?.[0]?.version === '1.0.0' && equal(d.artifacts[0].dependencies, ['tiny-greet@^2.0.0'])],
+    ['resolve.exact', { operation: 'resolve', ecosystem: 'npm', packageName: 'tiny-health', version: '1.0.0', registryUrl, view: 'details' }, d => d.artifacts?.[0]?.version === '1.0.0' && equal(d.artifacts[0].dependencies, ['tiny-greet@^2.0.0'])],
     ['resolve.range', { operation: 'resolve', ecosystem: 'npm', packageName: 'tiny-health', version: '^1.0.0', registryUrl }, d => d.artifacts?.[0]?.version === '1.2.3'],
     ['resolve.tag', { operation: 'resolve', ecosystem: 'npm', packageName: 'tiny-greet', version: 'latest', registryUrl }, d => d.artifacts?.[0]?.version === '2.1.0' && d.artifacts[0].ref === ctx.mock.model.head.oid && !Object.hasOwn(d.artifacts[0], 'sourceRef')],
     ['resolve.missingVersion', { operation: 'resolve', ecosystem: 'npm', packageName: 'tiny-health', version: '9.0.0', registryUrl }, error('versionNotFound')],

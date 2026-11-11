@@ -108,28 +108,29 @@ pub(crate) struct JudgedText {
     redacted: Option<(String, Edits, Option<LineStarts>)>,
 }
 
+/// What the whole-source pass made of a text it changed.
+pub(crate) struct WholePass {
+    /// The text a read of the source serves.
+    pub(crate) clean: String,
+    /// What the pass replaced of the source, by position.
+    pub(crate) edits: Edits,
+    /// `clean` is the scanner's own text of the source's key-block-redacted
+    /// text ([`ContentSecurity::sanitize_text`]); `false` for a pass that
+    /// changed the text without saying where, whose every line is withheld
+    /// instead.
+    pub(crate) scanned: bool,
+}
+
 impl JudgedText {
     /// `raw` (a source's decoded text, the one its tool's positions count)
     /// judged whole as the file at `path`. A pass that changed the text
     /// without saying where withholds every line, as a read does
     /// ([`crate::security::scan::redact_lines`]).
     pub(crate) fn judge(raw: &str, path: &Path, security: &ContentSecurity) -> Self {
-        #[cfg(test)]
-        JUDGED_BYTES.with(|judged| judged.set(judged.get() + raw.len()));
-        let (keyed, keys) = super::super::private_key_blocks_hidden(raw);
-        let scanned = security.sanitize_text(&keyed, Some(path));
-        let changed = !keys.is_empty() || scanned.has_secrets || scanned.content != keyed;
-        let redacted = changed.then(|| {
-            let edits = keys.then(&scanned.edits);
-            if edits.is_empty() {
-                let withheld = crate::security::scan::withheld_lines(raw);
-                let edits = Edits::of_pass([(0..raw.len(), withheld.len())]);
-                let starts = LineStarts::of(&withheld);
-                return (withheld, edits, Some(starts));
-            }
-            let clean = scanned.content.into_owned();
-            let starts = aligned_lines(raw, &clean);
-            (clean, edits, starts)
+        // A withheld text keeps the line count too ([`aligned_lines`]).
+        let redacted = Self::pass(raw, path, security).map(|pass| {
+            let starts = aligned_lines(raw, &pass.clean);
+            (pass.clean, pass.edits, starts)
         });
         Self {
             path: path.to_path_buf(),
@@ -137,6 +138,33 @@ impl JudgedText {
             raw: raw.to_owned(),
             redacted,
         }
+    }
+
+    /// The whole-source pass over `raw` as the file at `path`: the one scan
+    /// a judgment costs. `None` when it replaced nothing.
+    pub(crate) fn pass(raw: &str, path: &Path, security: &ContentSecurity) -> Option<WholePass> {
+        #[cfg(test)]
+        JUDGED_BYTES.with(|judged| judged.set(judged.get() + raw.len()));
+        let (keyed, keys) = super::super::private_key_blocks_hidden(raw);
+        let scanned = security.sanitize_text(&keyed, Some(path));
+        let changed = !keys.is_empty() || scanned.has_secrets || scanned.content != keyed;
+        changed.then(|| {
+            let edits = keys.then(&scanned.edits);
+            if edits.is_empty() {
+                let clean = crate::security::scan::withheld_lines(raw);
+                let edits = Edits::of_pass([(0..raw.len(), clean.len())]);
+                return WholePass {
+                    clean,
+                    edits,
+                    scanned: false,
+                };
+            }
+            WholePass {
+                clean: scanned.content.into_owned(),
+                edits,
+                scanned: true,
+            }
+        })
     }
 
     /// What the pass made of the source: the text a read serves and what it
@@ -226,6 +254,33 @@ impl JudgedText {
         self.redacted
             .as_ref()
             .is_some_and(|(_, edits, _)| edits.overlaps(range))
+    }
+
+    /// The placeholder the pass wrote for what it replaced of source bytes
+    /// `range`, when every run it replaced there states that one and no
+    /// other: what a row that is some of those bytes, at no place of its own
+    /// (a span an earlier stage already hid), shows in their place, as a
+    /// read of them does. `None` when the runs state several, or one states
+    /// none.
+    pub(crate) fn one_placeholder(&self, range: &Range<usize>) -> Option<&str> {
+        let (clean, edits, _) = self.redacted.as_ref()?;
+        let mut stated = None;
+        for (run, replacement) in edits.runs(clean) {
+            if run.end <= range.start || range.end <= run.start {
+                continue;
+            }
+            let mut found = octocode_engine::security::placeholder_regex()
+                .find_iter(replacement)
+                .map(|placeholder| placeholder.as_str())
+                .peekable();
+            found.peek()?;
+            for placeholder in found {
+                if *stated.get_or_insert(placeholder) != placeholder {
+                    return None;
+                }
+            }
+        }
+        stated
     }
 
     /// What a tool shows of source bytes `range`: the bytes themselves where
@@ -423,13 +478,14 @@ pub(crate) struct JudgedFiles {
 
 impl JudgedFiles {
     /// `raw`, the decoded text of the file at `path`, judged whole: the
-    /// judgment this request already made of the same text, else a new one,
-    /// kept for the request's other rows of that file.
+    /// judgment this request already made of the same text, else the one
+    /// `judge` makes of it (given the text's digest), kept for the request's
+    /// other rows of that file.
     pub(crate) fn judge(
         &self,
         raw: &str,
         path: &Path,
-        security: &ContentSecurity,
+        judge: impl FnOnce(&[u8; 32]) -> JudgedText,
     ) -> Arc<JudgedText> {
         let digest = sha256_digest(raw.as_bytes());
         let mut files = self.files.lock().unwrap_or_else(PoisonError::into_inner);
@@ -438,7 +494,7 @@ impl JudgedFiles {
         {
             return Arc::clone(judged);
         }
-        let judged = Arc::new(JudgedText::judge(raw, path, security));
+        let judged = Arc::new(judge(&digest));
         files.insert(path.to_path_buf(), (digest, Arc::clone(&judged)));
         judged
     }
@@ -501,6 +557,12 @@ impl std::fmt::Debug for JudgedFiles {
 thread_local! {
     /// Source bytes this thread judged whole, for the tests that count scans.
     pub(crate) static JUDGED_BYTES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Source bytes the whole-source pass scanned on this thread so far.
+#[cfg(test)]
+pub(crate) fn scanned_on_this_thread() -> usize {
+    JUDGED_BYTES.with(std::cell::Cell::get)
 }
 
 #[cfg(test)]

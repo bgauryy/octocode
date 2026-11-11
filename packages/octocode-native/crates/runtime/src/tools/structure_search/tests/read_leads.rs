@@ -15,7 +15,7 @@ fn a_files_result_leads_to_the_top_files_outline() {
     std::fs::write(root.0.join("src/main.rs"), "fn main() {}\n").expect("main");
     let out = run(
         &root.0,
-        json!({"operation":"files","path":root.0.join("src"),"include":["*.rs","*.bin"]}),
+        json!({"operation":"files","view":"details","path":root.0.join("src"),"include":["*.rs","*.bin"]}),
     )
     .expect("files");
     let lead = &related(&out, "localFetch");
@@ -39,7 +39,7 @@ fn a_files_result_leads_to_the_top_files_outline() {
     }
     let wide = run_budget(
         &root.0,
-        json!({"operation":"files","path":root.0.join("src"),"include":["*.rs"]}),
+        json!({"operation":"files","view":"details","path":root.0.join("src"),"include":["*.rs"]}),
         200,
     )
     .expect("files");
@@ -53,7 +53,7 @@ fn a_files_result_leads_to_the_top_files_outline() {
     assert!(related(&later, "localFetch").is_null(), "{later}");
     let binary = run(
         &root.0,
-        json!({"operation":"files","path":root.0.join("src"),"include":["*.bin"]}),
+        json!({"operation":"files","view":"details","path":root.0.join("src"),"include":["*.bin"]}),
     )
     .expect("files");
     assert!(related(&binary, "localFetch").is_null(), "{binary}");

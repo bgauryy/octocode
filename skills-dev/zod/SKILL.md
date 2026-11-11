@@ -24,11 +24,17 @@ Decide which unknown keys to strip (`object`), reject (`strictObject`) or preser
 
 ## Resources
 
-- For primitives, formats and optional or nullable values, use [schema types](references/schema-types.md). For parser choice, coercion and type inference, use [parsing](references/parsing-and-inference.md).
-- For objects, unions or recursion, use [composition](references/objects-and-composition.md). For conversion, pipes and cross-field checks, use [refinements and transforms](references/refinements-and-transforms.md). For brands and encode/decode contracts, use [advanced APIs](references/advanced-features.md) and the focused [brand](rules/pattern-branded-types.md) or [codec](rules/pattern-codecs.md) example.
-- For error shape and customization, use [errors](references/error-handling.md) or [custom messages](rules/error-custom-messages.md). When instrumenting failures, use [structured errors](rules/observe-structured-errors.md) and [error metrics](rules/observe-error-metrics.md).
-- For schema placement and evolution, use [boundary architecture](references/boundary-architecture.md) and its [parsing](rules/arch-boundary-parsing.md), [organization](rules/arch-schema-organization.md) or [versioning](rules/arch-schema-versioning.md) rule.
-- When measuring schema composition or bundle cost, check [shape spread](rules/perf-extend-spread.md), [schema reuse](rules/perf-reuse-schemas.md) or [Zod Mini](rules/perf-zod-mini.md).
-- To diagnose a recurring mistake or migrate v3 string formats, enums or errors, look up the symptom in [anti-patterns](references/anti-patterns.md). Use [lint and CI](references/linter-and-ci.md) for enforcement and [testing](references/testing.md) for assertion, fixture and integration examples.
+| When | Read | Why |
+|---|---|---|
+| Primitives, formats, optional/nullable | [Schema types](references/schema-types.md) | Value constraints |
+| Parser, coercion or inferred types | [Parsing](references/parsing-and-inference.md) | Input/output contract |
+| Objects, unions or recursion | [Composition](references/objects-and-composition.md) | Schema structure |
+| Conversion, pipes or cross-field checks | [Refinements and transforms](references/refinements-and-transforms.md) | Validation versus transformation |
+| Brands or encode/decode | [Advanced APIs](references/advanced-features.md), [brand](rules/pattern-branded-types.md), [codec](rules/pattern-codecs.md) | Identity and round trips |
+| Errors or observability | [Errors](references/error-handling.md), [custom messages](rules/error-custom-messages.md), [structured errors](rules/observe-structured-errors.md), [metrics](rules/observe-error-metrics.md) | Safe failure diagnostics |
+| Placement or evolution | [Boundary architecture](references/boundary-architecture.md); [parsing](rules/arch-boundary-parsing.md), [organization](rules/arch-schema-organization.md), [versioning](rules/arch-schema-versioning.md) | One boundary owner |
+| Composition or bundle cost | [Shape spread](rules/perf-extend-spread.md), [reuse](rules/perf-reuse-schemas.md), [Mini](rules/perf-zod-mini.md) | Measure the relevant cost |
+| Recurring mistakes or v3 migration | [Anti-patterns](references/anti-patterns.md) | Symptom → repair |
+| Enforcement or tests | [Lint/CI](references/linter-and-ci.md), [testing](references/testing.md) | Assertions, fixtures and integration |
 
-Use `octocode-research` for unresolved source behavior, `octocode-architect` for boundary design, and `octocode-dev` for Octocode’s generated contracts and checks. Follow [output.md](output.md) for delivery.
+Use `octocode-research` for unresolved source behavior, `octocode-engineer` for boundary design, and `octocode-dev` for Octocode’s generated contracts and checks. Follow [output.md](output.md) for delivery.

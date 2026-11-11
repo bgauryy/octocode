@@ -39,6 +39,6 @@ flowchart TD
 
 - Confidence is not correctness: verify the deciding source before updating. A provider answer never grants implementation authority.
 - Update the same RFC with supported conclusion, dissent, remaining uncertainty; omit requests, receipts, timing, usage.
-- Measuring whether assisted review helps: `octocode-eval-benchmark`; no evaluation report in the RFC.
+- Measuring whether assisted review helps: `octocode-agentic`; no evaluation report in the RFC.
 
 Next: close deciding gaps with the [checklist](checklist.md).

@@ -39,11 +39,11 @@ fn names(out: &Value) -> Vec<String> {
 #[test]
 fn exclude_lists_production_entries_and_counts_the_test_ones() {
     let root = mixed();
-    let all = run(&root.0, json!({"operation":"files","path":"."})).expect("listing");
+    let all = run(&root.0, json!({"operation":"files","view":"details","path":"."})).expect("listing");
     assert!(all.get("testCodeExcluded").is_none(), "{all}");
     let out = run(
         &root.0,
-        json!({"operation":"files","path":".","testCode":"exclude"}),
+        json!({"operation":"files","view":"details","path":".","testCode":"exclude"}),
     )
     .expect("listing");
     let listed = names(&out);
@@ -117,7 +117,7 @@ fn scoped_pages_list_each_kept_entry_once() {
     let root = mixed();
     let pages = walk_pages(
         &root.0,
-        json!({"operation":"files","path":".","testCode":"only","limit":2}),
+        json!({"operation":"files","view":"details","path":".","testCode":"only","limit":2}),
     );
     let listed = pages.iter().flat_map(names).collect::<Vec<_>>();
     assert_eq!(listed.len(), 8, "{pages:?}");

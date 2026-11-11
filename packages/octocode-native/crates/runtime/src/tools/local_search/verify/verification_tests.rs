@@ -15,6 +15,7 @@ fn hit(line: u32, value: &str) -> octocode_engine::types::TextSearchMatch {
         value_digest: octocode_engine::types::TextSearchMatch::digest_of(value),
         count: None,
         rank: None,
+        window_start: None,
     }
 }
 
@@ -627,4 +628,212 @@ fn a_key_block_row_of_a_large_source_judges_its_other_lines_in_their_window() {
     assert!(!shown.contains("LmT2"), "{shown:?}");
     assert!(!shown.contains("BEGIN PRIVATE"), "{shown:?}");
     assert_eq!(shown.split('\n').count(), 2, "{shown:?}");
+}
+
+/// `rows` of `source` settled as a page settles them: the outcome and each
+/// row's value.
+fn settled(
+    source: &std::path::Path,
+    expected: Expected,
+    rows: Vec<octocode_engine::types::TextSearchMatch>,
+) -> (Verification, Vec<String>) {
+    let mut file = file_with(rows);
+    let outcome = guard_source_secrets(
+        &mut file,
+        source,
+        expected,
+        0..10,
+        &ValueCheck {
+            security: &ContentSecurity::new(),
+            shape: RowShape::Lines(Default::default()),
+            cancel: &NeverCancel,
+            judged: None,
+        },
+    )
+    .expect("not cancelled");
+    let values = file.matches.into_iter().map(|row| row.value).collect();
+    (outcome, values)
+}
+
+/// Text bytes the whole-source pass scanned, and text bytes a page asked a
+/// whole-source judgment of (scanned or kept), while `work` ran.
+fn judged_while<T>(work: impl FnOnce() -> T) -> (T, usize, usize) {
+    let scanned = crate::security::scanned_on_this_thread;
+    let asked = super::judged_on_this_thread;
+    let (scanned_before, asked_before) = (scanned(), asked());
+    let done = work();
+    (done, scanned() - scanned_before, asked() - asked_before)
+}
+
+/// A source a search read whole and judged clean is proved by the digest of
+/// its bytes on the next search of them: no line of it is read for a scan,
+/// and every row settles as the read that judged it settled it, a row past
+/// its end and a stored digest included.
+#[test]
+fn a_clean_source_is_proved_by_its_digest_on_the_next_search() {
+    let dir = tempfile::tempdir().expect("fixture");
+    let source = dir.path().join("clean.ts");
+    let text = "const a = 1;\nexport const b = 2;\nconst c = 3;\n";
+    std::fs::write(&source, text).expect("fixture");
+    let digest: super::super::sources::Digest =
+        octocode_engine::digest::sha256_digest(text.as_bytes());
+    let rows = || vec![hit(2, "export const b = 2;"), hit(9, "no such line")];
+    let (first, scanned, asked) = judged_while(|| settled(&source, Expected::Fresh, rows()));
+    assert!(
+        scanned > 0 && asked > 0,
+        "the first search judges the source"
+    );
+    assert_eq!(first.0, Verification::Unverified);
+    assert_eq!(
+        first.1,
+        ["export const b = 2;", super::guard::UNVERIFIED_PLACEHOLDER]
+    );
+    for expected in [Expected::Fresh, Expected::Stored(Some(digest))] {
+        let (again, scanned, asked) = judged_while(|| settled(&source, expected, rows()));
+        assert_eq!(again, first, "{expected:?}");
+        assert_eq!((scanned, asked), (0, 0), "{expected:?}: no line is read");
+    }
+    assert_eq!(
+        settled(&source, Expected::Stored(Some([7; 32])), rows()).0,
+        Verification::Changed
+    );
+    assert_eq!(
+        settled(&source, Expected::Stored(None), rows()).0,
+        Verification::Changed
+    );
+}
+
+/// What is kept of a source answers for its bytes alone: the same path
+/// holding other bytes is read and judged again, and a source the pass
+/// changed shows on every search what its first search showed.
+#[test]
+fn a_changed_source_is_read_again_and_a_redacted_one_is_cut_the_same() {
+    let dir = tempfile::tempdir().expect("fixture");
+    let source = dir.path().join("changing.ts");
+    let clean = "const a = 1;\nexport const b = 2;\n";
+    let token = format!("ghp_{}", "m4N8x2C6".repeat(5));
+    let secret = format!("const a = 1;\nexport const b = \"{token}\";\n");
+    let clean_row = || vec![hit(2, "export const b = 2;")];
+    let secret_line = format!("export const b = \"{token}\";");
+    let secret_row = || vec![hit(2, &secret_line)];
+    std::fs::write(&source, clean).expect("fixture");
+    let shown = settled(&source, Expected::Fresh, clean_row());
+    assert_eq!(shown.1, ["export const b = 2;"]);
+    // Other bytes at the same path: judged for themselves, and hidden.
+    std::fs::write(&source, &secret).expect("fixture");
+    let (hidden, scanned, _) = judged_while(|| settled(&source, Expected::Fresh, secret_row()));
+    assert_eq!(
+        scanned,
+        secret.trim_end().len(),
+        "the new bytes are scanned"
+    );
+    assert!(!hidden.1[0].contains(&token), "{hidden:?}");
+    assert!(hidden.1[0].contains("[REDACTED"), "{hidden:?}");
+    // A source the pass changed is proved the same way: its rows are cut
+    // from the pass kept of its text, and no line is read for a scan.
+    let (again, scanned, asked) = judged_while(|| settled(&source, Expected::Fresh, secret_row()));
+    assert_eq!(again, hidden);
+    assert_eq!((scanned, asked), (0, 0));
+    // The same text with other line breaks is other bytes, and its lines are
+    // not what its bytes spell: it is read line by line, and cut the same.
+    let crlf = dir.path().join("crlf.ts");
+    std::fs::write(&crlf, secret.replace('\n', "\r\n")).expect("fixture");
+    let first = settled(&crlf, Expected::Fresh, secret_row());
+    assert_eq!(first, hidden);
+    let (again, scanned, asked) = judged_while(|| settled(&crlf, Expected::Fresh, secret_row()));
+    assert_eq!(again, hidden);
+    assert_eq!(scanned, 0, "its pass is kept by its text");
+    assert!(asked > 0, "its lines are read for the cut");
+    // The first bytes again: what was kept of them still answers for them.
+    std::fs::write(&source, clean).expect("fixture");
+    let (back, scanned, asked) = judged_while(|| settled(&source, Expected::Fresh, clean_row()));
+    assert_eq!(back, shown);
+    assert_eq!((scanned, asked), (0, 0));
+}
+
+/// What the lines of a source name is asked of each line once the source is
+/// no longer kept whole, of the lines read before that as of those after:
+/// a pattern only the whole source can judge is named whichever side of the
+/// line that ended the keeping it stands on.
+#[test]
+fn what_a_source_names_is_known_whichever_side_of_an_unkept_line() {
+    let across = Some(octocode_engine::security::WholeSourcePatterns::any_file());
+    let named = "{\"kty\":\"EC\",\"d\":\"c2VjcmV0c2VjcmV0c2VjcmV0\"}";
+    let giant = "a".repeat(MAX_VERIFY_RETAINED_BYTES + 1);
+    let read = |text: String| {
+        read_verification_lines(
+            &mut std::io::Cursor::new(text.into_bytes()),
+            &[(1, 1)],
+            1,
+            across,
+            &NeverCancel,
+        )
+        .unwrap_or_else(|_| panic!("readable"))
+    };
+    for (text, names) in [
+        (format!("{named}\n{giant}\nplain\n"), true),
+        (format!("plain\n{giant}\n{named}\n"), true),
+        (format!("plain\n{giant}\nplain\n"), false),
+    ] {
+        let read = read(text);
+        assert!(!read.whole_retained);
+        assert_eq!(read.source_wide, names);
+        assert_eq!(read.lines_read, 3);
+        assert_eq!(read.retained.len(), 1, "only the window's line is kept");
+    }
+    // A source kept whole is judged whole, whatever it names.
+    let whole = read(format!("{named}\nplain\n"));
+    assert!(whole.whole_retained);
+    assert_eq!(whole.retained.len(), 2);
+}
+
+/// A search that takes a source's judgment from what an earlier one kept
+/// notes it as judged whole for its own request, as the search that judged
+/// it did: the output gate honors its rows as cuts of that judgment either
+/// way.
+#[test]
+fn a_source_proved_by_its_digest_is_noted_as_judged_whole() {
+    let dir = tempfile::tempdir().expect("fixture");
+    let token = format!("ghp_{}", "r5T9v3B7".repeat(5));
+    for (name, text, row) in [
+        (
+            "noted_clean.ts",
+            "const a = 1;\nexport const b = 2;\n".to_owned(),
+            "export const b = 2;".to_owned(),
+        ),
+        (
+            "noted_redacted.ts",
+            format!("const a = 1;\nexport const b = \"{token}\";\n"),
+            format!("export const b = \"{token}\";"),
+        ),
+    ] {
+        let source = dir.path().join(name);
+        std::fs::write(&source, &text).expect("fixture");
+        let search = || {
+            let (security, _judged) = ContentSecurity::new().for_request();
+            let mut file = file_with(vec![hit(2, &row)]);
+            let (outcome, scanned, _) = judged_while(|| {
+                guard_source_secrets(
+                    &mut file,
+                    &source,
+                    Expected::Fresh,
+                    0..10,
+                    &ValueCheck {
+                        security: &security,
+                        shape: RowShape::Lines(Default::default()),
+                        cancel: &NeverCancel,
+                        judged: None,
+                    },
+                )
+                .expect("not cancelled")
+            });
+            assert_eq!(outcome, Verification::Verified, "{name}");
+            assert!(security.judged_whole(&source), "{name}");
+            (file.matches[0].value.clone(), scanned)
+        };
+        let (first, scanned) = search();
+        assert!(scanned > 0, "{name}: the first search scans");
+        assert!(!first.contains(&token), "{name}: {first}");
+        assert_eq!(search(), (first, 0), "{name}");
+    }
 }

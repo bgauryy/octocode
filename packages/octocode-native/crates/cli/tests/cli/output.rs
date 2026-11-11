@@ -105,7 +105,19 @@ fn json_mode_errors_go_to_stdout_without_stderr() {
             .is_some_and(|message| message.contains("matchstring")),
         "{error}"
     );
-    assert!(error.get("details").is_none(), "{error}");
+    // After the cause come the static contract example and the schema
+    // command, never a request built from what was sent.
+    let details = error["details"].as_array().expect("repair reference");
+    assert_eq!(details.len(), 2, "{error}");
+    assert!(
+        details[0]
+            .as_str()
+            .is_some_and(|line| line.starts_with("Example: {\"queries\":[")
+                && !line.contains("a.rs")
+                && !line.contains("matchstring")),
+        "{error}"
+    );
+    assert_eq!(details[1], "Schema: octocode schema localFetch", "{error}");
 
     let unknown = workspace
         .cli()

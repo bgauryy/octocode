@@ -5,7 +5,8 @@
   "operation": "resolve",
   "ecosystem": "rubygems",
   "packageName": "rack",
-  "version": "2.2.3"
+  "version": "2.2.3",
+  "view": "details"
  },
  "recordedAt": "2026-11-08",
  "unread": [

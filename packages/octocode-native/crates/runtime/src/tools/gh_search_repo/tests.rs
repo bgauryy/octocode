@@ -74,7 +74,7 @@ fn topic_naming_the_repository_itself_is_dropped() {
         "topics":["rtmp","XIU","rust"]
     }))
     .expect("item");
-    let row = repository_row(item, &[], true);
+    let row = repository_row(item, &[]);
     assert_eq!(row["topics"], json!(["rtmp", "rust"]), "{row}");
 }
 
@@ -86,7 +86,7 @@ fn topic_naming_the_language_is_dropped() {
         "language":"Python","topics":["python","http"]
     }))
     .expect("item");
-    let row = repository_row(item, &[], true);
+    let row = repository_row(item, &[]);
     assert_eq!(row["topics"], json!(["http"]), "{row}");
     assert_eq!(row["language"], "Python", "{row}");
 }
@@ -102,7 +102,7 @@ fn a_repository_that_is_not_public_names_its_visibility() {
         item.as_object_mut()
             .expect("object")
             .extend(extra.as_object().expect("object").clone());
-        repository_row(serde_json::from_value(item).expect("item"), &[], true)
+        repository_row(serde_json::from_value(item).expect("item"), &[])
     };
     assert_eq!(
         row(json!({"visibility":"private","private":true}))["visibility"],
@@ -122,4 +122,46 @@ fn a_repository_that_is_not_public_names_its_visibility() {
         picked["repositories"][0]["visibility"], "private",
         "{picked}"
     );
+}
+
+/// A listed row answers with what chooses the repository (its name, stars,
+/// description and marks); one repository's own row adds its branch,
+/// language, license and last push. A `fields` pick names any other fact
+/// back, on either.
+#[test]
+fn a_default_row_leaves_secondary_facts_to_a_fields_pick() {
+    let item = || -> octocode_github::RepositorySearchItem {
+        serde_json::from_value(json!({
+            "full_name":"psf/requests","name":"requests","html_url":"h","default_branch":"main",
+            "stargazers_count":5,"forks_count":2,"language":"Python","archived":true,
+            "license":{"spdx_id":"Apache-2.0"},"description":"HTTP for Humans","topics":["http"],
+            "pushed_at":"2024-12-17T00:00:00Z","created_at":"2012-02-25T00:00:00Z",
+            "updated_at":"2026-10-01T00:00:00Z"
+        }))
+        .expect("item")
+    };
+    let shown = |detail: &[&str], fields: &[&str]| {
+        let fields = fields.iter().map(|field| (*field).to_owned()).collect::<Vec<_>>();
+        let mut value = json!({"repositories":[repository_row(item(), &[])]});
+        crate::tools::gh_shared::lean_rows(&mut value, "repositories", detail, &fields);
+        crate::tools::gh_shared::pick_rows(&mut value, "repositories", REPO_ID, &fields);
+        value["repositories"][0].clone()
+    };
+    assert_eq!(
+        shown(LISTED_DETAIL, &[]),
+        json!({"owner":"psf","repo":"requests","stars":5,"description":"HTTP for Humans","archived":true})
+    );
+    assert_eq!(
+        shown(EXACT_DETAIL, &[]),
+        json!({"owner":"psf","repo":"requests","defaultBranch":"main","stars":5,
+            "language":"Python","license":"Apache-2.0","pushedAt":"2024-12-17",
+            "description":"HTTP for Humans","archived":true})
+    );
+    // Every fact a default row leaves out is one `fields` pick away.
+    for detail in [LISTED_DETAIL, EXACT_DETAIL] {
+        let picked = shown(detail, detail);
+        for key in detail {
+            assert!(picked.get(*key).is_some(), "{key} is unreachable: {picked}");
+        }
+    }
 }

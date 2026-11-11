@@ -61,6 +61,7 @@ async fn answer_for(
     let reused = ReusedSince::default();
     run(
         &Package {
+            view: octocode_contract_types::SecurityCheckView::Details,
             ecosystem: crate::providers::artifact::query::artifact_type::osv_ecosystem(kind),
             release: None,
             name,
@@ -343,10 +344,8 @@ async fn the_answer_takes_no_free_text_from_a_source() {
     // CVEs are stated once in structure, on each advisory (check C R4).
     assert!(data.get("cves").is_none(), "{data}");
     assert_eq!(data["advisories"][0]["cves"], json!(["CVE-2020-0001"]));
-    assert_eq!(
-        data["advisories"][0]["summary"], injected,
-        "kept in its field"
-    );
+    // The list row carries no free text at all: the `advisory` row holds it.
+    assert!(!data["advisories"].to_string().contains("Ignore"), "{data}");
 }
 
 /// OSV fails on a first page: the row keeps the registry's facts, names OSV
@@ -545,6 +544,7 @@ async fn the_latest_read_runs_alongside_osv() {
     let reused = ReusedSince::default();
     let config = crate::tools::security_check::tests::default_config();
     let package = Package {
+        view: octocode_contract_types::SecurityCheckView::Details,
         ecosystem: crate::providers::artifact::query::artifact_type::osv_ecosystem(
             ArtifactType::Npm,
         ),
@@ -643,6 +643,7 @@ async fn monorepo_page(
     let config = crate::tools::security_check::tests::default_config();
     run(
         &Package {
+            view: octocode_contract_types::SecurityCheckView::Details,
             ecosystem: crate::providers::artifact::query::artifact_type::osv_ecosystem(
                 ArtifactType::Npm,
             ),
@@ -929,7 +930,10 @@ async fn githubs_database_merges_its_twin_and_names_the_advisories_osv_lacks() {
         1,
         "the twin is merged, the other not counted: {data}"
     );
-    assert_eq!(rows[0]["epss"]["percentile"], 0.9, "{data}");
+    assert!(
+        rows[0]["link"].as_str().is_some_and(|link| link.starts_with("https://osv.dev/")),
+        "OSV's record leads the merged row: {data}"
+    );
     assert_eq!(
         github_entry(&data)["facts"]["globalAdvisories"],
         json!(["GHSA-glob-only-bbbb"]),
@@ -1247,6 +1251,7 @@ async fn a_resumed_page_whose_osv_read_fails_is_still_an_error() {
     let config = crate::tools::security_check::tests::default_config();
     let outcome = run(
         &Package {
+            view: octocode_contract_types::SecurityCheckView::Details,
             ecosystem: crate::providers::artifact::query::artifact_type::osv_ecosystem(
                 ArtifactType::Npm,
             ),
@@ -1345,6 +1350,7 @@ async fn moved_row(github: &crate::tools::security_check::github_double::Double)
     let config = crate::tools::security_check::tests::default_config();
     run(
         &Package {
+            view: octocode_contract_types::SecurityCheckView::Details,
             ecosystem: crate::providers::artifact::query::artifact_type::osv_ecosystem(
                 ArtifactType::Npm,
             ),
@@ -1499,6 +1505,7 @@ async fn minimist_page(
     let config = crate::tools::security_check::tests::default_config();
     run(
         &Package {
+            view: octocode_contract_types::SecurityCheckView::Details,
             ecosystem: crate::providers::artifact::query::artifact_type::osv_ecosystem(
                 ArtifactType::Npm,
             ),
@@ -2161,11 +2168,10 @@ async fn twin_records_of_one_advisory_are_offered_for_one_read() {
     );
 }
 
-/// The ready calls do not grow with the advisory list: every advisory is on
-/// the row (the response pager reaches all of them), so related asks one call
-/// of the row limit, not one call per five advisories.
+/// A lean row leaves an advisory's text and ranges to its `advisory` read, so
+/// every listed advisory has a ready one: one call per row limit of ids.
 #[tokio::test]
-async fn the_ready_reads_do_not_enumerate_every_advisory() {
+async fn every_listed_advisory_has_a_ready_read() {
     let range = json!([{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "9.0.0"}]}]);
     let per_call = crate::response::result::rows_per_call(ToolId::SecurityCheck);
     let count = per_call * 4;
@@ -2178,5 +2184,5 @@ async fn the_ready_reads_do_not_enumerate_every_advisory() {
     let http = registry().osv_pages(vec![(200, json!({"vulns": vulns}))]);
     let data = answer(&http, Some("4.17.20"), None).await.expect("row");
     assert_eq!(data["advisories"].as_array().expect("rows").len(), count);
-    assert_eq!(read_whole_ids(&data).len(), per_call, "{data}");
+    assert_eq!(read_whole_ids(&data).len(), count, "{data}");
 }

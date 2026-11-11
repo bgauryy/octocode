@@ -154,10 +154,11 @@ async fn a_part_continues_as_the_response_and_pagination_counts_search_pages() {
     }
 }
 
-/// Mixed row sizes: every part reads at most twice the rows it shows, and
-/// the walk reaches every hit once.
+/// Mixed row sizes: every part reads at most three times the rows it shows
+/// (a batch holds at most twice the rows already shown), and the walk reaches
+/// every hit once.
 #[tokio::test]
-async fn a_part_reads_at_most_twice_the_rows_it_shows() {
+async fn a_part_reads_at_most_three_times_the_rows_it_shows() {
     let server = MockServer::builder().start().await;
     let names = files(130, |n| format!("src/f{n:03}.rs"));
     mount_mixed(&server, &names).await;
@@ -167,7 +168,7 @@ async fn a_part_reads_at_most_twice_the_rows_it_shows() {
     assert_eq!(shown(&calls), names.iter().cloned().collect());
     for (at, call) in calls.iter().enumerate() {
         assert!(
-            call.reads.len() <= 2 * call.listed.len(),
+            call.reads.len() <= 3 * call.listed.len(),
             "call {at} read {} files to show {}: {:?}",
             call.reads.len(),
             call.listed.len(),

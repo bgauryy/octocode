@@ -11,13 +11,17 @@ pub use content::ContentSecurity;
 #[cfg(test)]
 pub(crate) use content::tests::{key_formats, marker_lines};
 pub(crate) use content::{
-    KeyBlockState, KeyBlockTracker, LineShapeScan, MarkerScan, hide_key_line,
+    KEY_LINE_HEAD_BYTES, KeyBlockState, KeyBlockTracker, LineShapeScan, MarkerScan, hide_key_line,
     key_fragment_placeholder, key_line_lead, match_window_intersects_key_block,
     private_key_block_line_ranges, private_key_blocks_hidden, redact_private_key_blocks,
     snippet_may_hold_key_material,
 };
-pub(crate) use input::{CheckedQuery, InputPolicy};
-pub(crate) use judged::{JudgedFiles, JudgedLeaf, JudgedLeaves, JudgedSource, JudgedText};
+pub(crate) use input::{Admitted, CheckedQuery, InputPolicy};
+#[cfg(test)]
+pub(crate) use judged::scanned_on_this_thread;
+pub(crate) use judged::{
+    JudgedFiles, JudgedLeaf, JudgedLeaves, JudgedSource, JudgedText, WholePass,
+};
 pub use limits::SourceLimits;
 pub use output::Sanitized;
 pub(crate) use walk::sanitize_json;

@@ -64,7 +64,7 @@ fn an_unnamed_census_counts_the_nodes_that_contain_the_longest_name() {
     root.write("a.rs", "fn a(c: Config, d: u8) {}\nfn b(x: u8) {}\n");
     root.write("b.rs", "fn c(y: u8) {}\n");
     let out = matched(&root, "fn $N($A: Config) {}");
-    assert_eq!(out["matchCount"], 0, "{out}");
+    assert_eq!(out["status"], "empty", "{out}");
     let notes = exact_notes(&out);
     assert_eq!(notes.len(), 1, "{out}");
     let message = message(notes[0]);
@@ -136,7 +136,7 @@ fn a_wrapper_spelled_name_is_counted_in_the_wrapper() {
         "@Injectable()\nexport class Svc {\n  run() {}\n}\n\n@Injectable()\nexport class Other extends Base {}\n\nexport class Plain {}\n",
     );
     let out = matched(&root, "@Injectable()\nexport class $C extends Zed { $$$B }");
-    assert_eq!(out["matchCount"], 0, "{out}");
+    assert_eq!(out["status"], "empty", "{out}");
     let notes = exact_notes(&out);
     assert_eq!(notes.len(), 1, "{out}");
     let message = message(notes[0]);
@@ -235,10 +235,17 @@ fn an_exact_miss_and_a_qualified_note_both_attach_with_their_own_leads() {
         "pub trait ToolOutput {}\nstruct A;\nstruct B;\nimpl crate::x::ToolOutput for B {}\nimpl Other for A { fn f() {} }\n",
     );
     let out = matched(&root, "impl ToolOutput for $T {}");
-    assert_eq!(out["matchCount"], 0, "{out}");
+    assert_eq!(out["status"], "empty", "{out}");
     assert_eq!(exact_notes(&out).len(), 1, "{out}");
+    // On an empty page the qualified note is a hint.
     assert_eq!(
-        notes(&out, "structural.pattern.qualified").len(),
+        out["hints"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .filter(|hint| hint.starts_with("The pattern matches the path as written"))
+            .count(),
         1,
         "{out}"
     );
@@ -330,7 +337,7 @@ fn a_cut_census_states_what_it_did_not_count() {
             let _cut = super::census_window(1);
             matched(&root, &pattern)
         };
-        assert_eq!(out["matchCount"], 0, "{out}");
+        assert_eq!(out["status"], "empty", "{out}");
         let notes = exact_notes(&out);
         assert_eq!(notes.len(), 1, "{pattern}: {out}");
         let text = message(notes[0]);
@@ -482,7 +489,7 @@ fn the_recovery_names_exactly_the_attached_leads() {
             let _cut = window.map(super::census_window);
             matched(root, pattern)
         };
-        assert_eq!(out["matchCount"], 0, "{label}: {out}");
+        assert_eq!(out["status"], "empty", "{label}: {out}");
         let notes = exact_notes(&out);
         assert_eq!(notes.len(), 1, "{label}: {out}");
         assert_eq!(leads(&out), expected, "{label}: {out}");

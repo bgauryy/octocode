@@ -110,6 +110,18 @@ function reportChecks(dir, check) {
   return { one, rdir };
 }
 
+// A copied renderer with its own contract keeps this check independent of installed sibling skills.
+function invalidStatusCheck(dir, report, check) {
+  const fixture = path.join(dir, 'renderer-fixture', 'octocode-research');
+  fs.mkdirSync(fixture, { recursive: true });
+  fs.cpSync(path.join(SCRIPT_SKILL_DIR, 'scripts'), path.join(fixture, 'scripts'), { recursive: true });
+  fs.writeFileSync(path.join(fixture, 'output.md'), '<!-- report-contract {"statuses":["Confirmed"],"required":[],"anyOf":[]} -->\n');
+  const result = spawnSync(process.execPath, [path.join(fixture, 'scripts', 'render-report.mjs'), report, '--manifest', '--all'], { encoding: 'utf8' });
+  check('isolated status manifest command succeeds', result.status === 0);
+  const manifest = result.status === 0 ? JSON.parse(result.stdout) : null;
+  check('invalid status has no tone', manifest?.documents[0]?.statusTone === null);
+}
+
 function manifestChecks(dir, rdir, check) {
   fs.writeFileSync(path.join(rdir, '2025-01-03-full.md'), '---\nstatus: Confirmed\nconfidence: high\nquestion: Where does it go?\nnext: Ship it\nowner: me\n---\n# Full\n\nThe answer is here,\nacross two lines.\n\n## Evidence\n\nSee `src/a.ts:3` and https://example.com/a.\n\n```md\n# not a heading\n```\n\n### Gaps\n');
   const man = buildManifest(path.join(dir, '.octocode'));
@@ -117,7 +129,7 @@ function manifestChecks(dir, rdir, check) {
   check('manifest lists every report newest first', man.count === 3 && full.path === '.octocode/octocode-research/2025-01-03-full.md');
   check('manifest status tone', full.statusTone === 'done');
   fs.writeFileSync(path.join(rdir, '2025-01-05-invalid.md'), '---\nstatus: Done\nquestion: Q?\n---\n# Invalid\n\nLead.\n');
-  check('invalid status has no tone', buildManifest(path.join(dir, '.octocode')).documents.find((d) => d.path.endsWith('invalid.md')).statusTone === null);
+  invalidStatusCheck(dir, path.join(rdir, '2025-01-05-invalid.md'), check);
   fs.rmSync(path.join(rdir, '2025-01-05-invalid.md'));
   check('manifest header fields', full.status === 'Confirmed' && full.confidence === 'high' && full.question === 'Where does it go?' && full.next === 'Ship it' && full.meta.owner === 'me');
   check('manifest outline', full.title === 'Full' && full.lead === 'The answer is here, across two lines.' && full.headings.length === 2 && full.headings[1].text === 'Gaps');
@@ -129,7 +141,7 @@ function manifestChecks(dir, rdir, check) {
 
 function contractChecks(reportDir, today, check) {
   const warn = (f) => buildReport(path.join(reportDir, f)).warnings.join('\n');
-  const own = contractFor('octocode-architect');
+  const own = contractFor('octocode-engineer');
   if (own) {
     check('report check passes a contract-shaped report', warn(`${today}-good.md`) === '');
     const maintained = path.join(reportDir, `${today}-good.md`);
@@ -163,9 +175,9 @@ function scratchChecks(dir, today, check) {
   check('report check flags a report left in scratch space', /catalog skips/.test(checkReport(path.join(dir, '.octocode', 'tmp', 'agents', 'x', 'r.md'), { status: 'Ready', question: 'Q?' }, '', dir).join('')));
   fs.mkdirSync(path.join(dir, '.octocode', 'octocode-research', 'tmp'), { recursive: true });
   check('report check flags a report left in a skill tmp folder', /catalog skips/.test(checkReport(path.join(dir, '.octocode', 'octocode-research', 'tmp', 'r.md'), { status: 'Ready', question: 'Q?' }, '', dir).join('')));
-  const ap = contractFor('octocode-agentic-prompts');
+  const ap = contractFor('octocode-agentic');
   if (ap) {
-    const apDir = path.join(dir, '.octocode', 'octocode-agentic-prompts');
+    const apDir = path.join(dir, '.octocode', 'octocode-agentic');
     fs.mkdirSync(apDir, { recursive: true });
     const mk = (name, sec) => { fs.writeFileSync(path.join(apDir, `${today}-${name}.md`), `---\nstatus: Ready\nquestion: Q?\n---\n# T\n\nLead.\n\n${sec}\n`); return buildReport(path.join(apDir, `${today}-${name}.md`)).warnings.join('\n'); };
     check('either-or sections accept a review or a change report', mk('review', '## Findings') === '' && mk('change', '## Changes') === '');
@@ -189,7 +201,7 @@ function workspaceChecks(dir, entryFile, check) {
   const { one, rdir } = reportChecks(dir, check);
   const full = manifestChecks(dir, rdir, check);
   const today = localDate(new Date());
-  const reportDir = path.join(dir, '.octocode', 'octocode-architect');
+  const reportDir = path.join(dir, '.octocode', 'octocode-engineer');
   fs.mkdirSync(path.join(reportDir, `${today}-folder`), { recursive: true });
   fs.writeFileSync(path.join(reportDir, '2000-01-01-old.md'), '# Old\n\nNo header.\n');
   fs.writeFileSync(path.join(reportDir, `${today}-good.md`), '---\nstatus: Needs work\nquestion: Q?\n---\n# Good\n\nLead.\n\n## Findings\n\n| a |\n|---|\n| 1 |\n\n## Decision\n\nKeep.\n\n## Checks\n\nNone.\n');

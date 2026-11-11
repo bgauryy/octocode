@@ -6,13 +6,16 @@ Other dev docs: [ADDING_CONFIG.md](ADDING_CONFIG.md) (new settings), [TOOL_QUALI
 
 ## Runtime flow
 
-```text
-octocode CLI launcher ─┐
-octocode-mcp (stdio) ──┴──▶ octocode-native (Rust ToolRuntime: validate → execute → secure → shape)
-                               ├──▶ embedded contract from @octocodeai/config (generated from octocode-core)
-                               └──▶ configuration resolved in Rust, same rules as @octocodeai/config
-
-octocode-mcp-vscode ──▶ editor MCP setup and GitHub sign-in/token sync
+```mermaid
+flowchart TD
+  C["CLI launcher"] --> N["Native Rust ToolRuntime"]
+  M["MCP launcher: stdio"] --> N
+  K["Core contracts"] --> G["Config contract generator"]
+  G --> E["Embedded contract"]
+  E --> N
+  R["Rust configuration resolver: config package rules"] --> N
+  N --> T["Validate → execute → secure → shape"]
+  V["VS Code extension"] --> I["Editor MCP setup; GitHub sign-in and token sync"]
 ```
 
 `octocode-native` is the one owner of public tool validation, providers, security, batching, pagination, response shaping, and cancellation. Interfaces register, delegate, render, or offer interactive selection.

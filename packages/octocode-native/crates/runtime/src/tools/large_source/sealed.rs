@@ -4,7 +4,10 @@
 //! runs as it streams: the pass judges the source in chunks with the read's own
 //! scanner (line-preserving, as an in-memory read redacts its whole source) and
 //! records each redaction as an [`Edit`]: the source bytes it hides and the
-//! placeholder shown instead. A chunk is committed only up to a clean edge, one
+//! placeholder shown instead. The scanner judges what that read's scanner
+//! judges: the text with each private-key line the pass closed shown as its
+//! placeholder ([`KeyLines`]), so a block's marker left in the text names no
+//! other line a key's. A chunk is committed only up to a clean edge, one
 //! no redaction crosses; a redaction that reaches the chunk's end may continue, so
 //! the edge waits behind it until it ends, however long it is. Every window of the
 //! source is then sealed from those edits ([`apply`]) and its pages are cut from
@@ -69,6 +72,15 @@ impl From<RecordError> for ReadError {
     }
 }
 
+/// The lines of a source a private-key block replaces, as its pass found them
+/// so far: each line's source bytes with the bytes of its placeholder line
+/// (in order), and the source byte the pass's lines are closed up to.
+#[derive(Clone, Copy)]
+pub(super) struct KeyLines<'a> {
+    pub(super) lines: &'a [(Range<usize>, usize)],
+    pub(super) closed: usize,
+}
+
 /// Judges a source as it streams and records its edits, each held against the
 /// memory budget (through `held`) from the moment it is recorded.
 pub(super) struct Recorder {
@@ -110,13 +122,18 @@ impl Recorder {
     }
 
     /// Take the source's next `bytes`, judging when a chunk is due.
-    pub(super) fn feed(&mut self, bytes: &[u8], scan: &(impl ContentScan + ?Sized)) {
+    pub(super) fn feed(
+        &mut self,
+        bytes: &[u8],
+        scan: &(impl ContentScan + ?Sized),
+        keys: KeyLines<'_>,
+    ) {
         if self.failed.is_some() {
             return;
         }
         self.decode(bytes);
         if self.text.len() >= self.due {
-            self.judge(scan, false);
+            self.judge(scan, false, keys);
         }
     }
 
@@ -126,13 +143,14 @@ impl Recorder {
     pub(super) fn finish(
         mut self,
         scan: &(impl ContentScan + ?Sized),
+        keys: KeyLines<'_>,
     ) -> Result<(Vec<Edit>, Reservation<'static>), RecordError> {
         if !self.pending.is_empty() {
             let rest = std::mem::take(&mut self.pending);
             self.push_lossy(&rest);
         }
         if self.failed.is_none() {
-            self.judge(scan, true);
+            self.judge(scan, true, keys);
         }
         if let Some(error) = self.failed {
             return Err(error);
@@ -189,6 +207,73 @@ impl Recorder {
         }
     }
 
+    /// The text offset source byte `source` is read at: the inverse of
+    /// [`Self::source_at`], within the text.
+    fn text_at(&self, source: usize) -> usize {
+        let from = source.saturating_sub(self.at);
+        let index = self.shifts.partition_point(|(_, at)| *at <= from);
+        let at = match index.checked_sub(1) {
+            Some(index) => {
+                let (text, at) = self.shifts[index];
+                text.saturating_add(from - at)
+            }
+            None => from,
+        };
+        self.boundary(at)
+    }
+
+    /// The text up to `end` as the scanner judges it, with where it differs
+    /// from the text: each stretch of a private-key line of `keys` shown as
+    /// that line's placeholder, behind the line's own lead, its line break
+    /// kept. Each entry is the stretch's text bytes and where its
+    /// replacement starts in the judged text.
+    fn keyed(&self, end: usize, keys: KeyLines<'_>) -> (std::borrow::Cow<'_, str>, Vec<Keyed>) {
+        let text = self.text.get(..end).unwrap_or_default();
+        let (from, to) = (self.at, self.source_at(end));
+        let first = keys.lines.partition_point(|(line, _)| line.end <= from);
+        let mut judged = String::new();
+        let mut keyed: Vec<Keyed> = Vec::new();
+        let mut copied = 0;
+        let placeholder = crate::security::key_fragment_placeholder();
+        for (line, shown) in keys.lines[first..]
+            .iter()
+            .take_while(|(line, _)| line.start < to)
+        {
+            let start = self.text_at(line.start.max(from));
+            let stop = self.text_at(line.end).min(end);
+            if stop <= start {
+                continue;
+            }
+            // The line's bytes before its key stay the source's own: the
+            // placeholder line is that lead, the placeholder and a line break.
+            let lead = shown.saturating_sub(placeholder.len() + 1);
+            let whole = line.start >= from && text.is_char_boundary(start + lead);
+            let broken = usize::from(
+                text.as_bytes()
+                    .get(start..stop)
+                    .is_some_and(|line| line.ends_with(b"\n")),
+            );
+            let lead = if whole {
+                lead.min(stop - start - broken)
+            } else {
+                0
+            };
+            judged.push_str(text.get(copied..start + lead).unwrap_or_default());
+            keyed.push(Keyed {
+                raw: start + lead..stop - broken,
+                at: judged.len(),
+                len: placeholder.len(),
+            });
+            judged.push_str(&placeholder);
+            copied = stop - broken;
+        }
+        if keyed.is_empty() {
+            return (text.into(), keyed);
+        }
+        judged.push_str(text.get(copied..).unwrap_or_default());
+        (judged.into(), keyed)
+    }
+
     fn boundary(&self, mut at: usize) -> usize {
         at = at.min(self.text.len());
         while !self.text.is_char_boundary(at) {
@@ -206,16 +291,28 @@ impl Recorder {
             .map_or(at, |newline| from + newline + 1)
     }
 
-    fn judge(&mut self, scan: &(impl ContentScan + ?Sized), last: bool) {
-        let found = match scan.redact_source_lines(&self.text, &self.path) {
-            Ok((clean, true)) => align(&self.text, &clean),
+    fn judge(&mut self, scan: &(impl ContentScan + ?Sized), last: bool, keys: KeyLines<'_>) {
+        // A line still open is judged with the lines closed before it once
+        // it closes, when the pass knows whether a key block replaces it;
+        // one longer than an overlap is judged as it passes.
+        let closed = self.text_at(keys.closed);
+        let len = if last || self.text.len() - closed > self.limits.overlap {
+            self.text.len()
+        } else {
+            closed
+        };
+        let (judged, keyed) = self.keyed(len, keys);
+        let found = match scan.redact_source_lines(&judged, &self.path) {
+            Ok((clean, true)) => align(&judged, &clean)
+                .into_iter()
+                .filter_map(|(range, text)| Some((unkeyed(&keyed, range)?, text)))
+                .collect(),
             Ok((_, false)) => Vec::new(),
             Err(error) => {
                 self.failed = Some(RecordError::Failed(error.1));
                 return;
             }
         };
-        let len = self.text.len();
         let mut edge = if last {
             len
         } else {
@@ -230,7 +327,7 @@ impl Recorder {
         if edge <= self.owned {
             // A redaction from the owned text's start reaches past the overlap:
             // it may go on, so the judgement waits for more of it.
-            self.due = len + self.limits.chunk;
+            self.due = self.text.len() + self.limits.chunk;
             return;
         }
         let mut fresh = Vec::new();
@@ -277,6 +374,45 @@ impl Recorder {
         self.owned = edge - keep;
         self.due = self.text.len().max(self.owned) + self.limits.chunk;
     }
+}
+
+/// A stretch of a recorder's text the scanner judged as a key line's
+/// placeholder ([`Recorder::keyed`]).
+struct Keyed {
+    /// The text bytes the placeholder stands for.
+    raw: Range<usize>,
+    /// Where the placeholder starts in the judged text, and its length.
+    at: usize,
+    len: usize,
+}
+
+/// The text bytes `range` of the judged text stands for: an end inside a
+/// placeholder is that end of the stretch it replaced. `None` for a range
+/// wholly inside one, which a key line's own placeholder already shows.
+fn unkeyed(keyed: &[Keyed], range: Range<usize>) -> Option<Range<usize>> {
+    let place = |at: usize, end: bool| {
+        let index = keyed.partition_point(|stretch| stretch.at + stretch.len <= at);
+        match keyed.get(index) {
+            Some(stretch) if stretch.at < at || (stretch.at == at && !end) => {
+                if end {
+                    stretch.raw.end
+                } else {
+                    stretch.raw.start
+                }
+            }
+            // Past every stretch before `index`: as far past the last one's
+            // bytes as past its placeholder.
+            _ => match index.checked_sub(1).and_then(|before| keyed.get(before)) {
+                Some(stretch) => stretch.raw.end + (at - (stretch.at + stretch.len)),
+                None => at,
+            },
+        }
+    };
+    let within = keyed
+        .iter()
+        .any(|stretch| stretch.at <= range.start && range.end <= stretch.at + stretch.len);
+    let (start, end) = (place(range.start, false), place(range.end, true));
+    (!within && start <= end).then_some(start..end)
 }
 
 /// What the edits inside a span of source bytes do to its length: the source

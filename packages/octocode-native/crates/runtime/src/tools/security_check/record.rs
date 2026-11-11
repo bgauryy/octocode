@@ -77,17 +77,24 @@ impl SecurityAdvisory {
             .filter(|id| is_cve(id))
     }
 
-    /// What decides an upgrade: the record's id, its CVEs, one line of what it
-    /// is, the database's severity word, GitHub's EPSS, the database, the fixed
-    /// versions, the link. All the rest is one `advisory` call away.
+    /// GitHub's class of the record when it changes how far to rely on it
+    /// (`unreviewed`, `malware`); `reviewed` is the class that needs no word.
+    fn cautioned_class(&self) -> Option<&str> {
+        self.github_type
+            .as_deref()
+            .filter(|class| *class != "reviewed")
+    }
+
+    /// What decides: the record's id, its CVEs, the database's severity word,
+    /// the fixed versions, a withdrawal or dispute, and the link to read it
+    /// at; GitHub's class when it is not `reviewed`. All the rest (summary,
+    /// details, ranges, references, EPSS, the database's own file) is one `advisory` call away, which the
+    /// row offers once for the whole list.
     pub(super) fn brief(&self) -> Value {
         let mut row = json!({"id": self.id});
         let cves = self.cves().collect::<Vec<_>>();
         if !cves.is_empty() {
             row["cves"] = json!(cves);
-        }
-        if let Some(line) = self.one_line() {
-            row["summary"] = json!(line);
         }
         match &self.severity {
             Some(severity) => row["severity"] = json!(severity),
@@ -95,17 +102,11 @@ impl SecurityAdvisory {
             None if !self.cvss.is_empty() => row["cvss"] = json!(self.cvss),
             None => {}
         }
-        if let Some(epss) = &self.epss {
-            row["epss"] = epss.clone();
-        }
-        if let Some(kind) = &self.github_type {
-            row["githubType"] = json!(kind);
-        }
-        if let Some(source) = &self.source {
-            row["source"] = json!(source);
-        }
         if !self.fixed_in.is_empty() {
             row["fixedIn"] = json!(self.fixed_in);
+        }
+        if let Some(class) = self.cautioned_class() {
+            row["githubType"] = json!(class);
         }
         if let Some(withdrawn) = &self.withdrawn {
             row["withdrawn"] = json!(withdrawn);
@@ -113,26 +114,49 @@ impl SecurityAdvisory {
         if !self.disputed_by.is_empty() {
             row["disputedBy"] = json!(self.disputed_by);
         }
-        // The same URL as `source` is stated once, as `source`.
-        if self.source.as_deref() != Some(self.link.as_str()) {
+        // One reference: the link, or the database's file when there is none.
+        if !self.link.is_empty() {
             row["link"] = json!(self.link);
+        } else if let Some(source) = &self.source {
+            row["source"] = json!(source);
         }
         row
     }
+}
 
-    /// Its summary, else the first line of its details; a database that gives
-    /// neither gives no line.
-    fn one_line(&self) -> Option<&str> {
-        self.summary
-            .as_deref()
-            .or_else(|| {
-                self.details
-                    .as_deref()?
-                    .lines()
-                    .find(|line| !line.trim().is_empty())
-            })
-            .map(str::trim)
+/// Brief rows with the most severe first, by the severity word each database
+/// states (`critical`, `high`, `moderate` or `medium`, `low`); a row with
+/// another word or none comes last. Rows of one severity keep their order.
+pub(super) fn most_severe_first(rows: &mut [Value]) {
+    rows.sort_by_key(severity_rank);
+}
+
+/// Where a row's severity word stands, the most severe lowest.
+pub(super) fn severity_rank(row: &Value) -> u8 {
+    match row["severity"].as_str() {
+        Some("critical") => 0,
+        Some("high") => 1,
+        Some("moderate" | "medium") => 2,
+        Some("low") => 3,
+        _ => 4,
     }
+}
+
+/// One row for one advisory in the `summary` view of the advisory read:
+/// its brief with the database's one-line summary. The ranges and fixes are
+/// in the row's `answer`; the text, references and scores are `details`.
+pub(super) fn group_summary(group: &[&SecurityAdvisory]) -> Value {
+    let mut row = group_brief(group);
+    let stated = group.iter().find_map(|record| record.summary.as_deref());
+    if let (Some(fields), Some(summary)) = (row.as_object_mut(), stated) {
+        // Before the one reference, which a brief row states last.
+        let at = fields
+            .keys()
+            .position(|key| key == "link" || key == "source")
+            .unwrap_or(fields.len());
+        fields.shift_insert(at, "summary".to_owned(), json!(summary));
+    }
+    row
 }
 
 /// The records of `rows` that name one advisory, grouped
@@ -269,17 +293,11 @@ pub(super) fn group_brief(group: &[&SecurityAdvisory]) -> Value {
     {
         row["severity"] = json!(severity);
     }
-    // EPSS is GitHub's: its twin of an OSV record brings it.
-    if row.get("epss").is_none()
-        && let Some(epss) = twins.iter().find_map(|twin| twin.epss.as_ref())
-    {
-        row["epss"] = epss.clone();
-    }
-    // GitHub's class of the advisory comes with its record, as EPSS does.
+    // GitHub's class of the advisory comes with its twin of an OSV record.
     if row.get("githubType").is_none()
-        && let Some(kind) = twins.iter().find_map(|twin| twin.github_type.as_deref())
+        && let Some(class) = twins.iter().find_map(|twin| twin.cautioned_class())
     {
-        row["githubType"] = json!(kind);
+        row["githubType"] = json!(class);
     }
     // `link` stays last, as a brief row states it.
     if let Some(link) = row.as_object_mut().and_then(|fields| fields.remove("link")) {

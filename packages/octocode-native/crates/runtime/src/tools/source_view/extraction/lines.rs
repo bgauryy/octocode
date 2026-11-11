@@ -20,6 +20,14 @@ impl LineOffsets {
         self.0[line]
     }
 
+    /// The 0-based line holding byte `at` (the last line past the end).
+    pub(super) fn line_at(&self, at: usize) -> usize {
+        self.0
+            .partition_point(|start| *start <= at)
+            .clamp(1, self.len().max(1))
+            - 1
+    }
+
     pub(super) fn spans(&self) -> impl Iterator<Item = (usize, usize)> + '_ {
         self.0.windows(2).map(|pair| (pair[0], pair[1]))
     }

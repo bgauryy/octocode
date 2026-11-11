@@ -68,8 +68,7 @@ fn matched_lines_are_stated_only_when_context_hides_the_hits() {
     );
 }
 
-/// Every lead `line_read` builds (continueBlock,
-/// readBoundedLines) spells lines with the published `ranges`, never
+/// Every lead `line_read` builds (readBoundedLines) spells lines with the published `ranges`, never
 /// startLine/endLine, and clears a span the caller sent.
 #[test]
 fn line_reads_spell_published_ranges() {

@@ -167,7 +167,7 @@ impl ToolRuntime {
             // it in place.
             let mut later = Vec::new();
             // A selection plan (sealed in a cursor) is classification's own page.
-            let judged = ["classification", "selection"]
+            let judged = contracts::PROVIDER_FIELDS
                 .into_iter()
                 .find(|field| query.get(*field).is_some());
             if let Some(field) = judged.filter(|_| !self.selection_available) {

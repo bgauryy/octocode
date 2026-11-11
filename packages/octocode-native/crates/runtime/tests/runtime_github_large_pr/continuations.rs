@@ -147,7 +147,7 @@ async fn merged_pr_rows_keep_merge_state_on_every_read() {
     let mut batches = vec![numbered(1, 100), numbered(2, 100), numbered(3, 50)];
     batches[0][0] = rest_file("src/hit.rs", Some("@@ -1 +1 @@\n-a\n+needle"), 1, 1);
     mount_file_batches(&server, batches, Duration::ZERO).await;
-    for (label, query, _full_header) in [
+    for (label, query, full_header) in [
         ("summary", json!({}), true),
         (
             "body+inventory",
@@ -160,7 +160,8 @@ async fn merged_pr_rows_keep_merge_state_on_every_read() {
             json!({"sections":["patches"],"include":["src/hit.rs"]}),
             false,
         ),
-        ("matchString", json!({"matchString": ["needle"]}), true),
+        // A `matchString` with no section named reads the patches it searches.
+        ("matchString", json!({"matchString": ["needle"]}), false),
     ] {
         let data = run(&server, query).await;
         let row = &data["pullRequests"][0];
@@ -169,9 +170,17 @@ async fn merged_pr_rows_keep_merge_state_on_every_read() {
             row["mergeCommitSha"], "fedcba9876543210fedcba9876543210fedcba98",
             "{label}: {row}"
         );
-        assert_eq!(row["mergedAt"], "2024-01-03T00:00:00Z", "{label}: {row}");
-        assert_eq!(row["baseBranch"], "main", "{label}: {row}");
-        assert_eq!(row["labels"], json!(["refactor"]), "{label}: {row}");
+        // The summary is the whole header; a section read names the pull
+        // request and its commits, and leaves the rest to the summary.
+        if full_header {
+            assert_eq!(row["mergedAt"], "2024-01-03T00:00:00Z", "{label}: {row}");
+            assert_eq!(row["baseBranch"], "main", "{label}: {row}");
+            assert_eq!(row["labels"], json!(["refactor"]), "{label}: {row}");
+        } else {
+            for summary_only in ["mergedAt", "baseBranch", "labels", "title", "author"] {
+                assert!(row.get(summary_only).is_none(), "{label}: {row}");
+            }
+        }
     }
 }
 

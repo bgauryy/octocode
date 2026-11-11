@@ -40,11 +40,3 @@ fn payload_line(n: usize) -> String {
     format!("line {n} payload payload payload payload\n")
 }
 
-#[test]
-fn preserves_millisecond_precision() {
-    use std::time::{Duration, UNIX_EPOCH};
-    assert_eq!(
-        system_time_iso(UNIX_EPOCH + Duration::from_millis(1_600_000_000_443)),
-        Some("2020-09-13T12:26:40.443Z".into())
-    );
-}

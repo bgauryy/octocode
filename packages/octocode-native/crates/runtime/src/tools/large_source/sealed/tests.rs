@@ -26,10 +26,16 @@ fn record(raw: &[u8], limits: Limits, piece: usize) -> Vec<Edit> {
         super::super::memory().reserve(0).expect("room"),
     );
     for chunk in raw.chunks(piece) {
-        recorder.feed(chunk, &scan);
+        recorder.feed(chunk, &scan, NO_KEYS);
     }
-    recorder.finish(&scan).expect("recorded").0
+    recorder.finish(&scan, NO_KEYS).expect("recorded").0
 }
+
+/// A source no key block replaces a line of, every line of it closed.
+const NO_KEYS: KeyLines<'static> = KeyLines {
+    lines: &[],
+    closed: usize::MAX,
+};
 
 fn whole(raw: &str) -> String {
     let scan = ContentSecurity::new();
@@ -278,5 +284,49 @@ fn a_long_line_data_object_seals_as_a_whole_scan_does() {
         let edits = record(text.as_bytes(), Limits::REAL, piece);
         let sealed = String::from_utf8(apply(text.as_bytes(), &edits)).expect("utf8");
         assert_eq!(sealed, expected, "piece {piece}");
+    }
+}
+
+/// A private-key line is judged as the placeholder the pass shows of it, and
+/// a line still open waits for its close: a block's marker, closed or cut by
+/// a judgement's end, names no base64 line before it a key's.
+#[test]
+fn a_key_marker_hides_no_line_before_its_block() {
+    let innocent = "QUJDREVGR0hJSktMTU5PUFFSU1RVinnocentB64VldYWVowMTIzNDU2Nzg5\n";
+    let filler = "let filler_value = 0;\n".repeat(12);
+    let marker = "-----BEGIN OPENSSH PRIVATE KEY-----\n";
+    let body = "MIIEpQIBAAKCAQEAinteriorKeyBodyQWERTYAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n";
+    let head = format!("{innocent}{filler}");
+    let text = format!("{head}{marker}{body}");
+    let placeholder = crate::security::key_fragment_placeholder().len() + 1;
+    let key_lines = [
+        (head.len()..head.len() + marker.len(), placeholder),
+        (head.len() + marker.len()..text.len(), placeholder),
+    ];
+    let limits = Limits {
+        chunk: 64,
+        overlap: 64,
+    };
+    let scan = ContentSecurity::new();
+    // The marker's line is open at each cut inside it, then closed.
+    for cut in [head.len() + 5, head.len() + marker.len() - 1] {
+        let mut recorder = Recorder::new(
+            Path::new("/w/big.txt"),
+            limits,
+            super::super::memory().reserve(0).expect("room"),
+        );
+        let open = KeyLines {
+            lines: &[],
+            closed: head.len(),
+        };
+        recorder.feed(&text.as_bytes()[..cut], &scan, open);
+        let closed = KeyLines {
+            lines: &key_lines,
+            closed: text.len(),
+        };
+        recorder.feed(&text.as_bytes()[cut..], &scan, closed);
+        let edits = recorder.finish(&scan, closed).expect("recorded").0;
+        let outside = outside_key_lines(edits, &key_lines);
+        assert_eq!(outside, [], "cut at {cut}");
     }
 }

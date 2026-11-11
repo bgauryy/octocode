@@ -51,6 +51,10 @@
         "tests/runtime_clasify/judgments.rs",
         "tests/runtime_clasify/sources.rs",
         "tests/runtime_clasify/failures.rs",
+        "tests/runtime_clasify/units.rs",
+        "tests/runtime_clasify/views.rs",
+        "src/tools/clasify/view.rs",
+        "src/tools/clasify/units.rs",
         "src/tools/source_capture/assets.rs",
         "tests/runtime_clasify_media/local_images.rs",
         "tests/runtime_clasify_media/github_and_models.rs",
@@ -79,6 +83,9 @@
         "operation": [
           "dispatch"
         ],
+        "perItem": [
+          "selection"
+        ],
         "questions": [
           "selection"
         ],
@@ -87,6 +94,9 @@
         ],
         "source": [
           "source"
+        ],
+        "view": [
+          "view"
         ]
       }
     },
@@ -179,6 +189,7 @@
     },
     "ghStructure": {
       "evidence": [
+        "src/tools/gh_structure/refs.rs",
         "src/tools/gh_structure/tests.rs",
         "src/tools/gh_structure/materialize/tests.rs",
         "tests/runtime_github/materialize.rs",
@@ -209,11 +220,17 @@
         "ref": [
           "source"
         ],
+        "refKinds": [
+          "filter"
+        ],
         "repo": [
           "source"
         ],
         "limit": [
           "view"
+        ],
+        "sort": [
+          "ordering"
         ]
       }
     },
@@ -414,6 +431,7 @@
         "src/providers/artifact/rubygems.rs",
         "src/tools/artifact_search/anchor_tests.rs",
         "src/tools/artifact_search/discovery_tests.rs",
+        "src/tools/artifact_search/view_tests.rs",
         "tests/runtime_artifact_search.rs"
       ],
       "fields": {
@@ -437,6 +455,9 @@
         ],
         "limit": [
           "view"
+        ],
+        "view": [
+          "view"
         ]
       }
     },
@@ -446,7 +467,8 @@
         "src/tools/security_check/package_tests.rs",
         "src/tools/security_check/repository_tests.rs",
         "src/tools/security_check/tests.rs",
-        "src/tools/security_check/url_source_tests.rs"
+        "src/tools/security_check/url_source_tests.rs",
+        "src/tools/security_check/view_tests.rs"
       ],
       "fields": {
         "commit": [
@@ -475,6 +497,9 @@
         ],
         "version": [
           "source"
+        ],
+        "view": [
+          "view"
         ]
       }
     },

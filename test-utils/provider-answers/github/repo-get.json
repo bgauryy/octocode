@@ -213,6 +213,16 @@
     "temp_clone_token": "",
     "network_count": 7388,
     "subscribers_count": 1737
+   },
+   "unread": [
+    "forks",
+    "forks_count",
+    "network_count"
+   ],
+   "unreadReasons": {
+    "forks": "Lean default row (owner decision 2026-11-11): not on the default `get` row; read with `fields: [\"forks\"]` on the same call, which github/repo-get-fields.carried checks.",
+    "forks_count": "Lean default row (owner decision 2026-11-11): not on the default `get` row; read with `fields: [\"forks\"]` on the same call, which github/repo-get-fields.carried checks.",
+    "network_count": "Lean default row (owner decision 2026-11-11): not on the default `get` row; read with `fields: [\"forks\"]` on the same call, which github/repo-get-fields.carried checks."
    }
   }
  ]

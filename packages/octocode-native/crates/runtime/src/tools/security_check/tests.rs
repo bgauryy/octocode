@@ -1,4 +1,7 @@
 //! Rows by operation, against recorded doubles.
+#[path = "view_tests.rs"]
+mod views;
+
 use super::*;
 use crate::providers::artifact::test_http::{RouteHttp, test_budget};
 use crate::tools::security_check::osv_double::OsvPages;
@@ -20,7 +23,12 @@ pub(crate) fn default_config() -> ResolvedConfig {
     .resolved
 }
 
-fn row(query: Value) -> SecurityCheckQuery {
+/// A query row. These tests read the whole row, so a row that states no
+/// view asks for `details`; a test of the summary states its view.
+fn row(mut query: Value) -> SecurityCheckQuery {
+    if query.get("view").is_none() {
+        query["view"] = json!("details");
+    }
     serde_json::from_value(query).expect("securityCheck row")
 }
 

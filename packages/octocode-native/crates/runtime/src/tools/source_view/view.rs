@@ -230,7 +230,7 @@ fn render(
     // own continuation, so a shorter one loses nothing.
     let mut fill = None;
     loop {
-        let cut = match cut_page(q, view, ext, source, facts, fill) {
+        let cut = match cut_page(q, view, ext, source, facts, fill, selection.is_some()) {
             Ok(cut) => cut,
             Err(result) => return *result,
         };

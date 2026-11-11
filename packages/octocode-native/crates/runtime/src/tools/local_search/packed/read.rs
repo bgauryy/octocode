@@ -205,6 +205,7 @@ impl<'a> Reader<'a> {
         let last_line = self.optional()?;
         let count = self.optional()?;
         let rank = self.optional()?;
+        let window_start = self.optional()?;
         let before = u32::try_from(self.number()?).ok()?;
         #[cfg(test)]
         if keep {
@@ -221,6 +222,7 @@ impl<'a> Reader<'a> {
             value_digest,
             count,
             rank,
+            window_start,
         })
     }
 

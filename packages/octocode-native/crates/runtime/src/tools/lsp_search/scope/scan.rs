@@ -9,8 +9,9 @@ pub(in super::super) struct IgnoredMentions {
     pub(in super::super) files: Vec<String>,
     /// Distinct deciding rules (`.gitignore:1 'gen/'`) of the first files.
     pub(in super::super) rules: Vec<String>,
-    /// The scan failed or stopped at its bound: `files` is what it reached,
-    /// and ignored files may mention the name beyond it.
+    /// The walk or the read of ignored files did not finish (a directory it
+    /// could not enter, a failed worker): `files` is what it reached, and
+    /// ignored files may mention the name beyond it.
     pub(in super::super) unfinished: bool,
     /// Of `files`, those that import the name: the evidence that ignore
     /// rules hide an importer. A file that only spells the name (a bundled
@@ -27,11 +28,13 @@ pub(in super::super) struct IgnoredMentions {
 }
 
 impl IgnoredMentions {
-    /// Whether a file outside the candidate scan may import the name: one
-    /// does, one could not be checked, or the scan for them did not finish.
-    /// Such a scan verified every candidate and is still not complete.
+    /// Whether a file outside the candidate scan holds an import of the name
+    /// that may bind the anchor's: the one evidence that makes a scan which
+    /// verified every candidate short of complete. A file the check could
+    /// not decide, or a walk that did not finish, is outside the answer's
+    /// scope and is said so, not counted against it.
     pub(in super::super) fn may_hide_an_importer(&self) -> bool {
-        self.unfinished || !self.importing.is_empty() || !self.unchecked.is_empty()
+        !self.importing.is_empty()
     }
 
     /// A scan that produced nothing: no file is known, and that is not

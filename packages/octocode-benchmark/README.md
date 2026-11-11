@@ -75,7 +75,7 @@ What the verdicts mean:
 - **Regression:** v20 is measurably worse.
 - **Inconclusive:** the direction holds, but the size needs a cleaner run.
 
-As in the [octocode-eval-benchmark](../../skills/octocode-eval-benchmark/SKILL.md) rules, correctness is decided first; cost (characters and time) counts only when correctness holds.
+As in the [octocode-agentic evaluation](../../skills/octocode-agentic/references/evaluation.md) rules, correctness is decided first; cost (characters and time) counts only when correctness holds.
 
 ### How it was evaluated
 
@@ -232,7 +232,7 @@ Offering it is not the same as using it. In a paired run over 40 local and 30 Gi
 
 ## Choose the benchmark and evaluation method
 
-Use the [octocode-eval-benchmark skill](../../skills/octocode-eval-benchmark/SKILL.md)
+Use the [octocode-agentic evaluation guide](../../skills/octocode-agentic/references/evaluation.md)
 to design and assess a comparison. Before launching agents, freeze the following in the campaign plan, and keep the plan beside the raw run:
 - the primary metric and correctness guardrails;
 - which questions are exposed, and how the judge is calibrated;

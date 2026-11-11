@@ -57,7 +57,7 @@ fn continuation_pages_reuse_the_walk_and_restart_on_change() {
     }
     let first = run_budget(
         &root.0,
-        json!({"operation":"files","path":root.0,"entryType": "file"}),
+        json!({"operation":"files","view":"details","path":root.0,"entryType": "file"}),
         1,
     )
     .expect("page 1");

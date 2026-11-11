@@ -353,7 +353,14 @@ async fn credential_files_setting_opens_local_reads_only() {
         fetched["data"]["errorCode"], "pathPolicyDenied",
         "{fetched}"
     );
-    assert_eq!(found["data"]["matchCount"], 0, "{found}");
+    // Withheld by default: an empty row with no files, the credential file
+    // disclosed in skippedPaths.
+    assert_eq!(found["status"], "empty", "{found}");
+    assert_eq!(found["data"]["files"], json!([]), "{found}");
+    assert_eq!(
+        found["data"]["skippedPaths"]["entries"][0]["cause"], "withheld",
+        "{found}"
+    );
 
     let (fetched, found, built) =
         run(json!({"local":{"beta":true},"security":{"credentialFiles":"allow"}})).await;

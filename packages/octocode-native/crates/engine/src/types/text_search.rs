@@ -31,6 +31,11 @@ pub struct TextSearchMatch {
     /// raise), 1 other code, 0 comment or string. Set for line matches;
     /// `None` for only-matching spans.
     pub rank: Option<u32>,
+    /// The byte of its line `value` starts at, when `value` is a window of a
+    /// line too long for a row ([`RowWindow`]): the text around the hits it
+    /// holds, the first of them at `column` / `byte_offset`. `None`: `value`
+    /// is whole lines, or the span of an only-matching search.
+    pub window_start: Option<u32>,
 }
 
 impl TextSearchMatch {
@@ -255,6 +260,23 @@ pub struct TextSearchOptions {
     /// What a [`SourceValues::Deferred`] search does with a line while its
     /// bytes are in hand; `None` keeps only its anchors.
     pub inspect_deferred: Option<DeferredInspector>,
+    /// Which matched lines a [`SearchOutput::Lines`] search shows as windows
+    /// around their hits; `None` shows every matched line whole.
+    pub row_window: Option<RowWindow>,
+}
+
+/// How a line search shows a matched line too long for a row: one row per
+/// window, each the line's text `margin` bytes on each side of a hit
+/// (overlapping and touching windows are one), with the byte it starts at
+/// ([`TextSearchMatch::window_start`]). A line whose windows join into the
+/// whole line is one whole-line row, as is a line without an enumerable hit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RowWindow {
+    /// A matched line of more bytes than this (its line break aside) is
+    /// shown as windows.
+    pub longer_than: usize,
+    /// Bytes shown on each side of a hit, inside its line.
+    pub margin: usize,
 }
 
 /// Decides one deferred line from the bytes the search read: it leaves the

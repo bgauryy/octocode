@@ -218,82 +218,51 @@ fn a_large_source_match_does_not_parse_to_inline_a_cut_declaration() {
     );
 }
 
+/// D1: a `block` read of a declaration longer than one page selects the
+/// whole declaration, by range and by match alike. Page 1 is a full page from
+/// its first line and `next.nextPage` walks the rest: every line once.
 #[test]
-fn an_oversized_block_continues_through_the_declaration_end() {
+fn a_long_block_pages_from_its_first_line_to_its_end() {
     let t = Fixture::new();
     let p = t.0.join("m.py");
-    let body: String = (0..450).map(|i| format!("    x{i} = {i}\n")).collect();
-    // def at line 1, 450 body lines (2-451), return at 452.
-    fs::write(&p, format!("def big():\n{body}    return 0\n")).expect("fixture");
+    let body: String = (0..3_000)
+        .map(|i| format!("    value_{i} = compute({i})\n"))
+        .collect();
+    // def at line 1, the body on 2-3001, return at 3002.
+    let source = format!("def big():\n{body}    return 0\n");
+    fs::write(&p, &source).expect("fixture");
     let paths = Paths(t.0.clone());
-    let ranged = qj(
-        &p,
+    for selector in [
         serde_json::json!({"ranges":[{"startLine":10,"endLine":12}], "block": true}),
-    );
-    let r = fetch(&ranged, &paths);
-    assert_eq!(
-        r.source_line_ranges,
-        vec![LineRange {
-            start: 10,
-            end: 409
-        }]
-    );
-    let rest = r
-        .next
-        .and_then(|next| next.continue_block)
-        .expect("next.continueBlock");
-    assert_eq!(
-        local_fetch_query::line_ranges(&rest.query),
-        vec![LineRange {
-            start: 410,
-            end: 452
-        }],
-        "{rest:?}"
-    );
-    assert!(
-        !local_fetch_query::block(&rest.query),
-        "a block re-read would widen back: {rest:?}"
-    );
-    let r = fetch(&rest.query, &paths);
-    assert_eq!(
-        r.source_line_ranges,
-        vec![LineRange {
-            start: 410,
-            end: 452
-        }]
-    );
-    // A match inside an oversized requested declaration keeps its context
-    // window; the declaration's unread rest is a page of this read.
-    let matched = qj(
-        &p,
-        serde_json::json!({"matchString": ["x200 = 200"], "contextLines":{"before":1,"after":1}, "block": true}),
-    );
-    let r = fetch(&matched, &paths);
-    assert_eq!(
-        r.source_line_ranges,
-        vec![LineRange {
-            start: 201,
-            end: 203
-        }]
-    );
-    let whole = r
-        .next
-        .and_then(|next| next.continue_block)
-        .expect("next.continueBlock");
-    assert_eq!(
-        local_fetch_query::line_ranges(&whole.query),
-        vec![
-            LineRange { start: 1, end: 200 },
-            LineRange {
-                start: 204,
-                end: 452
-            }
-        ],
-        "{whole:?}"
-    );
-    assert!(
-        !local_fetch_query::has_matches(&whole.query) && !local_fetch_query::block(&whole.query)
-    );
+        serde_json::json!({"matchString": ["def big"], "block": true}),
+        serde_json::json!({"matchString": ["value_1500 ="], "block": true}),
+    ] {
+        let mut read = fetch(&qj(&p, selector.clone()), &paths);
+        assert!(
+            !read.warnings.iter().any(|w| w.starts_with("block:")),
+            "{selector}: {:?}",
+            read.warnings
+        );
+        let first = read.pagination.clone().expect("pagination");
+        assert_eq!(first.offset, 0, "{selector}: {first:?}");
+        assert!(first.has_more, "{selector}: one page cannot hold it");
+        // A full page: as many lines as a plain read of the same file takes.
+        let plain = fetch(&q(&p), &paths).pagination.expect("pagination");
+        assert!(
+            first.length + 1 >= plain.length,
+            "{selector}: {first:?} against a plain page {plain:?}"
+        );
+        let mut joined = String::new();
+        loop {
+            assert_eq!(read.status, ReadStatus::Success, "{selector}: {read:?}");
+            joined.push_str(read.content.as_deref().expect("content"));
+            let Some(page) = read.next.take().and_then(|next| next.continue_window) else {
+                break;
+            };
+            read = fetch(&page.query, &paths);
+        }
+        assert_eq!(joined, source, "{selector}");
+    }
 }
 
 /// With a declaration hit present, a call-site hit keeps its window

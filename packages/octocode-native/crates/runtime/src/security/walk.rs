@@ -57,6 +57,7 @@ pub(crate) fn sanitize_json<E, R: Rewrite>(
     sanitize_judged_json(
         value,
         &super::JudgedLeaves::default(),
+        &super::Admitted::default(),
         &mut |text, path, _| sanitize(text, path),
     )
 }
@@ -64,10 +65,14 @@ pub(crate) fn sanitize_json<E, R: Rewrite>(
 /// [`sanitize_json`] where `sanitize` also gets, for a leaf `judged` marks
 /// (and whose text still has the marked digest), the path its whole source
 /// was judged at. Marks are resolved after the structured pass, which may
-/// replace a leaf; each is taken once, as the walk reaches its leaf.
+/// replace a leaf; each is taken once, as the walk reaches its leaf. A value
+/// redacted in one leaf is redacted wherever it recurs, except inside a
+/// string of `own`, the request's admitted text, that a leaf repeats
+/// ([`super::Admitted::replace_outside`]).
 pub(crate) fn sanitize_judged_json<E, R: Rewrite>(
     value: &mut Value,
     judged: &super::JudgedLeaves,
+    own: &super::Admitted,
     sanitize: &mut impl FnMut(&str, Option<&str>, Option<&str>) -> Result<R, E>,
 ) -> Result<bool, E> {
     let mut redacted = Vec::new();
@@ -114,8 +119,8 @@ pub(crate) fn sanitize_judged_json<E, R: Rewrite>(
         let mut changed: Option<String> = None;
         for (secret, placeholder) in &redacted {
             let current = changed.as_deref().unwrap_or(text);
-            if current.contains(secret.as_str()) {
-                changed = Some(current.replace(secret.as_str(), placeholder));
+            if let Some(replaced) = own.replace_outside(current, secret, placeholder) {
+                changed = Some(replaced);
             }
         }
         Ok(changed)

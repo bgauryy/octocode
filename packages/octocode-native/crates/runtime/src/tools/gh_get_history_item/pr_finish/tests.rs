@@ -43,6 +43,18 @@ fn summary_rows_state_each_time_once_and_preview_the_body() {
     assert_eq!(details["updatedAt"], "2026-01-05T00:00:00Z", "{details}");
 }
 
+/// A merged pull request closes when it merges: the one time is `mergedAt`,
+/// and `closedAt` is stated only when GitHub recorded another.
+#[test]
+fn a_merge_time_is_not_restated_as_the_close_time() {
+    let raw = json!({"number":1,"title":"t","user":{"login":"a"},"state":"closed",
+        "created_at":"2026-01-01T00:00:00Z","merged_at":"2026-01-04T00:00:00Z",
+        "closed_at":"2026-01-04T00:00:00Z"});
+    let merged = summary(raw);
+    assert_eq!(merged["mergedAt"], "2026-01-04T00:00:00Z", "{merged}");
+    assert!(merged.get("closedAt").is_none(), "{merged}");
+}
+
 /// The summary names the change's three commits: the head
 /// (`headSha`), the recorded target-branch tip (`baseSha`) and a
 /// merged PR's merge commit. A section read keeps what names the PR
@@ -81,8 +93,12 @@ fn every_pr_view_keeps_source_target_and_merge_commits() {
         ] {
             assert_eq!(row[field], value, "{fields}: {row}");
         }
+        // A file list states how many files the pull request changes; the
+        // other totals and the rest of the header are the summary read's.
         assert_eq!(row["changedFilesCount"], 3);
-        assert_eq!(row["commitsCount"], 4);
+        for summary_only in ["commitsCount", "title", "author", "createdAt", "additions"] {
+            assert!(row.get(summary_only).is_none(), "{fields}: {row}");
+        }
     }
     // An open PR has no merge commit; REST has no review-thread total.
     let open = summary(

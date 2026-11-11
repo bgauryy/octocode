@@ -8,8 +8,7 @@ use super::*;
 impl Found<'_> {
     /// The natural next step on a first page with hits: read the top hit in
     /// context. A shown declaration of the searched symbol reads that
-    /// declaration whole when one block read holds it; a larger one (a big
-    /// class) reads its hit in context, like any other hit. A partial page
+    /// declaration whole (localFetch pages a long one). A partial page
     /// (a binary cut, an unreadable path) still reads its shown hits; a file
     /// cut at a NUL byte is never the read (localFetch rejects binaries).
     pub(in crate::tools::local_search) fn read_lead(&self) -> Option<Value> {
@@ -45,13 +44,9 @@ impl Found<'_> {
                 .zip(Some(definition))
         });
         match declared {
-            Some((file, definition))
-                if (definition.end + 1).saturating_sub(definition.start) as usize
-                    <= crate::tools::source_view::BLOCK_MAX_LINES =>
-            {
+            Some((file, definition)) => {
                 declaration_read(query, self.root, file, definition.start, definition.end)
             }
-            Some((file, _)) => read_handoff(query, self.root, file),
             None => self
                 .files
                 .iter()

@@ -133,5 +133,12 @@ pub(crate) fn search_options(
         // each matched file from the read that searched it (see `manifest`).
         values: SourceValues::Deferred,
         inspect_deferred: Some(super::super::super::verify::scan_inspector()),
+        // A content row of a line no byte page of a read is sure to hold
+        // whole shows the text around each hit, as a read's match walk of
+        // that line does; the line whole is that read's.
+        row_window: (view == View::Content).then_some(octocode_engine::types::RowWindow {
+            longer_than: crate::tools::source_view::pagination::MIN_BYTE_PAGE,
+            margin: crate::tools::source_view::extraction::MATCH_MARGIN,
+        }),
     }
 }

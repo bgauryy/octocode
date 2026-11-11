@@ -96,16 +96,40 @@ pub(super) fn candidate(current: &str, advisories: &[SecurityAdvisory]) -> Resul
     })
 }
 
-/// What is said beside an upgrade that crosses a major version: the advisories
-/// no release of the current major is listed as fixing (so only a later
-/// major clears them), and the highest fix the current major does list for the
-/// others. `None` when the named version stays in the current major, or the
-/// current major clears every advisory.
-pub(super) fn major_gap(
+/// The fix that decides for `current`: the lowest listed fix above it in its
+/// own major line, else the lowest above it in a later one. The other lines'
+/// fixes stay on the record's `advisory` row. A list is kept whole when
+/// `current` or every fix is not plain dotted numbers, or none is above it:
+/// nothing is chosen by guess.
+pub(super) fn deciding_fix(current: &str, fixed_in: &mut Vec<String>) {
+    let Some(at) = numeric(current) else {
+        return;
+    };
+    let above = fixed_in
+        .iter()
+        .filter_map(|fixed| Some((numeric(fixed)?, fixed)))
+        .filter(|(numbers, _)| compare(numbers, &at).is_gt());
+    let lowest = |own_line: bool| {
+        above
+            .clone()
+            .filter(|(numbers, _)| !own_line || numbers.first() == at.first())
+            .min_by(|(left, _), (right, _)| compare(left, right))
+            .map(|(_, fixed)| fixed.clone())
+    };
+    if let Some(fix) = lowest(true).or_else(|| lowest(false)) {
+        *fixed_in = vec![fix];
+    }
+}
+
+/// The advisories no release of `current`'s major is listed as fixing, when
+/// `named` (the upgrade) is in another major, and the highest fix that major
+/// does list for the others. `None` when the named version stays in the
+/// current major or a version is not plain dotted numbers.
+fn outside_major<'a>(
     current: &str,
     named: &str,
-    advisories: &[SecurityAdvisory],
-) -> Option<String> {
+    advisories: &'a [SecurityAdvisory],
+) -> Option<(u64, Vec<&'a str>, Option<&'a str>)> {
     let at = numeric(current)?;
     let major = *at.first()?;
     if *numeric(named)?.first()? == major {
@@ -132,6 +156,30 @@ pub(super) fn major_gap(
             }
         }
     }
+    Some((major, unfixed, within.map(|(_, version)| version)))
+}
+
+/// Ids of the advisories only a later major than `current`'s clears, when
+/// the upgrade `named` crosses a major: what [`major_gap`] names in words.
+pub(super) fn unfixed_in_major<'a>(
+    current: &str,
+    named: &str,
+    advisories: &'a [SecurityAdvisory],
+) -> Vec<&'a str> {
+    outside_major(current, named, advisories).map_or_else(Vec::new, |(_, unfixed, _)| unfixed)
+}
+
+/// What is said beside an upgrade that crosses a major version: the advisories
+/// no release of the current major is listed as fixing (so only a later
+/// major clears them), and the highest fix the current major does list for the
+/// others. `None` when the named version stays in the current major, or the
+/// current major clears every advisory.
+pub(super) fn major_gap(
+    current: &str,
+    named: &str,
+    advisories: &[SecurityAdvisory],
+) -> Option<String> {
+    let (major, unfixed, within) = outside_major(current, named, advisories)?;
     if unfixed.is_empty() {
         return None;
     }
@@ -139,7 +187,7 @@ pub(super) fn major_gap(
         "No {major}.x release is listed as fixing {}; {named} is the lowest listed fix in a later major.",
         unfixed.join(", ")
     );
-    if let Some((_, version)) = within {
+    if let Some(version) = within {
         note.push_str(&format!(
             " {version} is the highest fix listed within {major}.x, for the other advisories."
         ));

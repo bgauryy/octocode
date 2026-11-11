@@ -102,7 +102,8 @@ async fn read(github: &MockServer) -> Value {
     let outcome = call(
         &runtime,
         "securityCheck",
-        json!({"operation": "commit", "commit": SHA, "repo": "o/r"}),
+        // The whole row: these tests read each source's entry and facts.
+        json!({"operation": "commit", "commit": SHA, "repo": "o/r", "view": "details"}),
     )
     .await
     .expect("securityCheck row");

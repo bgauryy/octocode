@@ -600,6 +600,36 @@
     "additions": 6,
     "deletions": 1,
     "changed_files": 1
+   },
+   "unread": [
+    "title",
+    "user.login",
+    "created_at",
+    "updated_at",
+    "closed_at",
+    "head.ref",
+    "head.repo.owner.login",
+    "head.repo.default_branch",
+    "head.user.login",
+    "base.ref",
+    "base.repo.default_branch",
+    "base.sha",
+    "comments"
+   ],
+   "unreadReasons": {
+    "title": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
+    "user.login": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
+    "created_at": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
+    "updated_at": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
+    "closed_at": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
+    "head.ref": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
+    "head.repo.owner.login": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
+    "head.repo.default_branch": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
+    "head.user.login": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
+    "base.ref": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
+    "base.repo.default_branch": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
+    "base.sha": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
+    "comments": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks."
    }
   },
   {

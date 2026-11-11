@@ -7,8 +7,12 @@
 //! before that run, without the `v` (`""`, `ignore-`, `pkg@`, `rmcp-`).
 //! Tags of one prefix are listed together, so a package's releases never
 //! interleave by number with another's (`termcolor-1.4.1` stays with its
-//! own, apart from `13.0.0`). Groups go by their newest version, then
-//! reverse-lexicographic prefix; tags without a version are the last group.
+//! own, apart from `13.0.0`). The repository's own releases lead: the group
+//! with no prefix (`v8.3.8`, `15.2.0`), since a version alone names the
+//! repository, and a package's number says nothing against it
+//! (`create-vite@9.3.4` is not newer than `v8.3.8`). The other groups go by
+//! their newest version, then reverse-lexicographic prefix; tags without a
+//! version are the last group.
 //!
 //! Within a group, versions compare by their numbers (a missing component
 //! is 0), then a release ranks above its pre-releases (`1.0.0` above
@@ -41,8 +45,10 @@ pub(super) fn newest_first(names: &mut [String]) {
         .collect::<Vec<_>>();
     keyed.sort_by(
         |(left_best, left_version, left), (right_best, right_version, right)| {
-            right_best
-                .cmp(left_best)
+            let own = |version: &TagVersion<'_>| version.prefix() == Some("");
+            own(right_version)
+                .cmp(&own(left_version))
+                .then_with(|| right_best.cmp(left_best))
                 .then_with(|| right_version.prefix().cmp(&left_version.prefix()))
                 .then_with(|| right_version.cmp(left_version))
                 .then_with(|| right.cmp(left))
@@ -222,6 +228,34 @@ mod tests {
         }
         assert_eq!(runs.last().and_then(|(prefix, _)| prefix.as_deref()), None);
         assert_eq!(runs.len(), 6 + 1);
+    }
+
+    /// A monorepo's package tags never lead its own releases, whatever
+    /// their numbers: the first page answers "the repository's newest
+    /// release" (vite: `v8.3.8` before `create-vite@9.3.4`).
+    #[test]
+    fn the_repositorys_own_releases_lead_package_groups() {
+        let listed = sorted(&[
+            "create-vite@9.3.4",
+            "v8.3.7",
+            "plugin-legacy@7.0.0",
+            "create-vite@9.3.3",
+            "v8.3.8",
+            "v8.3.8-beta.1",
+            "nightly",
+        ]);
+        assert_eq!(
+            listed,
+            [
+                "v8.3.8",
+                "v8.3.8-beta.1",
+                "v8.3.7",
+                "create-vite@9.3.4",
+                "create-vite@9.3.3",
+                "plugin-legacy@7.0.0",
+                "nightly"
+            ]
+        );
     }
 
     /// One version under several prefixes keeps GitHub's

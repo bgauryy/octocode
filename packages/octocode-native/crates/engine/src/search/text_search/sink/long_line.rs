@@ -16,7 +16,7 @@ pub(super) fn is_long(bytes: &[u8]) -> bool {
 }
 
 /// `bytes` without its line break, as text: its own bytes when they are UTF-8.
-fn line_of(bytes: &[u8]) -> Decoded<'_> {
+pub(super) fn line_of(bytes: &[u8]) -> Decoded<'_> {
     let line = bytes.strip_suffix(b"\n").unwrap_or(bytes);
     Decoded::interior(line.strip_suffix(b"\r").unwrap_or(line))
 }
@@ -63,6 +63,7 @@ impl<M: Matcher> CollectSink<'_, M> {
                 value,
                 count: None,
                 rank: Some(relevance::line_rank(bytes, start)),
+                window_start: None,
             });
         } else {
             self.entry
@@ -73,6 +74,7 @@ impl<M: Matcher> CollectSink<'_, M> {
                     column,
                     byte_offset,
                     rank: relevance::line_rank(bytes, start),
+                    window_start: None,
                 });
         }
         Ok(())
@@ -121,6 +123,7 @@ impl<M: Matcher> CollectSink<'_, M> {
                     value,
                     count: None,
                     rank: None,
+                    window_start: None,
                 };
                 super::keep_span((&mut *om, &mut *charge, stop), span)
             })

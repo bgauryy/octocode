@@ -62,12 +62,13 @@ fn unverified_candidates_are_not_answered_and_fail_the_scan() {
     assert_eq!(row["coverage"]["importerScan"], SCAN_FAILED);
 }
 
-/// A gitignored file that imports the name, one the check could not
-/// decide, or a scan that stopped at its bound makes the row partial;
-/// nested repositories leave a lead and no partial reason. Files the check
-/// ruled out (they only spell the name) are no lead: the scan proved them.
+/// Only a gitignored or hidden file that imports the name makes the row
+/// partial. One the check could not decide, a scan that did not finish and
+/// nested repositories are outside the answer's scope: a note and a lead, no
+/// partial reason. Files the check ruled out (they only spell the name) are
+/// no lead: the scan proved them.
 #[test]
-fn ignored_importers_or_an_unfinished_scan_make_the_row_partial() {
+fn only_an_ignored_importer_makes_the_row_partial() {
     let query: LspSearchQuery = serde_json::from_value(json!({
         "operation": "references", "path": "/r/a.ts", "symbolName": "x", "line": 1
     }))
@@ -139,13 +140,13 @@ fn ignored_importers_or_an_unfinished_scan_make_the_row_partial() {
         "{nested_hidden}"
     );
 
-    // An unfinished scan left importers unverified: a partial row, a
-    // lead over the scope, and a note.
+    // An unfinished scan is outside the answer's scope: the row stays
+    // whole, with a lead over the scope and a note.
     let unfinished = annotate(IgnoredMentions::unfinished());
-    assert_eq!(unfinished["isPartial"], true, "{unfinished}");
+    assert!(unfinished.get("isPartial").is_none(), "{unfinished}");
+    assert!(unfinished.get("partialReasons").is_none(), "{unfinished}");
     assert_eq!(
-        unfinished["partialReasons"],
-        json!([IGNORED_REASON]),
+        unfinished["coverage"]["importerScan"], SCAN_COMPLETE,
         "{unfinished}"
     );
     let lead = &crate::tools::test_support::checks::related_call(
@@ -210,12 +211,13 @@ fn ignored_importers_or_an_unfinished_scan_make_the_row_partial() {
         "{hidden}"
     );
     let warning = hidden["warnings"][0].as_str().expect("warning");
-    assert!(
-        warning.contains("1 imports it")
-            && !warning.contains("could not be checked")
-            && warning.contains("more may exist"),
+    assert!(warning.contains("1 imports it"), "{hidden}");
+    assert_eq!(
+        hidden[crate::response::paging::NOTICES],
+        json!([IGNORED_UNFINISHED_NOTICE]),
         "{hidden}"
     );
+    assert_eq!(hidden["coverage"]["importerScan"], SCAN_SKIPPED, "{hidden}");
     // More may exist past where the scan stopped: the lead names the
     // importer it found, then covers the scope for what it did not reach.
     assert_eq!(
@@ -249,8 +251,35 @@ fn ignored_importers_or_an_unfinished_scan_make_the_row_partial() {
         "{hidden_unchecked}"
     );
 
-    // Files the check could not decide are counted apart, never as
-    // importers, and still lead.
+    // Files the check could not decide alone leave the row whole: the same
+    // note on every row, and a lead to each of them.
+    let only_undecided = annotate(IgnoredMentions {
+        files: vec!["/r/gen/big.js".into(), "/r/gen/copy.ts".into()],
+        unchecked: vec!["/r/gen/big.js".into()],
+        ..IgnoredMentions::default()
+    });
+    assert!(
+        only_undecided.get("isPartial").is_none(),
+        "{only_undecided}"
+    );
+    assert!(only_undecided.get("warnings").is_none(), "{only_undecided}");
+    assert_eq!(
+        only_undecided["coverage"]["importerScan"], SCAN_COMPLETE,
+        "{only_undecided}"
+    );
+    assert_eq!(
+        only_undecided[crate::response::paging::NOTICES],
+        json!([IGNORED_UNCHECKED_NOTICE]),
+        "{only_undecided}"
+    );
+    assert_eq!(
+        lead_paths(&only_undecided),
+        [json!("/r/gen/big.js")],
+        "{only_undecided}"
+    );
+
+    // Beside an importer they are noted apart, never counted as importers,
+    // and still lead.
     let undecided = annotate(IgnoredMentions {
         files: vec!["/r/gen/big.js".into(), "/r/gen/g.ts".into()],
         rules: vec![".gitignore:1 'gen/'".into()],
@@ -261,7 +290,12 @@ fn ignored_importers_or_an_unfinished_scan_make_the_row_partial() {
     assert_eq!(undecided["partialReasons"], json!([IGNORED_REASON]));
     let warning = undecided["warnings"][0].as_str().expect("warning");
     assert!(
-        warning.contains("1 imports it and 1 could not be checked"),
+        warning.contains("1 imports it") && !warning.contains("could not be checked"),
+        "{undecided}"
+    );
+    assert_eq!(
+        undecided[crate::response::paging::NOTICES],
+        json!([IGNORED_UNCHECKED_NOTICE]),
         "{undecided}"
     );
     let leads = crate::tools::test_support::checks::related_call(&undecided, "localSearch", |_| {
@@ -395,4 +429,118 @@ fn a_failed_scan_names_its_step_and_each_candidate_with_its_cause() {
         )),
         "{named}"
     );
+}
+
+/// The import check never runs whole-file facts on a file that merely spells
+/// the name, and parses no file twice: a file with no module reference is
+/// decided by its text, every other by one module-references parse, and the
+/// verdicts are those the whole facts give.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_import_check_decides_each_ignored_file_by_its_cheapest_check() {
+    use crate::tools::declarations::parses;
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().canonicalize().expect("canonical");
+    let write = |name: &str, text: &str| {
+        let path = root.join(name);
+        std::fs::write(&path, text).expect("write");
+        path.to_string_lossy().into_owned()
+    };
+    // Bodies a whole-facts extraction would read call by call.
+    let body = "export function run(a: string) { return a.split(',').map((p) => p.trim()); }\n";
+    let texts = [
+        // Spells the name and references no module: decided by its text.
+        (
+            "plain.ts",
+            format!(
+                "const x = 1;\nx.toString();\n{}",
+                body.replace("export ", "")
+            ),
+        ),
+        // References modules, binds the name nowhere.
+        (
+            "other.ts",
+            format!("import fs from 'node:fs';\nconst x = fs;\n{body}"),
+        ),
+        (
+            "own.ts",
+            format!("import {{ y }} from './a';\nexport const x = y;\n{body}"),
+        ),
+        // Importers: by name, renamed, through a namespace.
+        (
+            "named.ts",
+            format!("import {{ x }} from './a';\nx();\n{body}"),
+        ),
+        (
+            "renamed.ts",
+            format!("import {{ x as z }} from './a';\nz();\n{body}"),
+        ),
+        (
+            "space.ts",
+            format!("import * as a from './a';\na.x();\n{body}"),
+        ),
+        // A CommonJS load, which only the scope build reads: no import by name.
+        (
+            "load.cjs",
+            "const { x } = require('./a');\nx('\\n padded');\n".to_owned(),
+        ),
+    ];
+    let files = texts
+        .iter()
+        .map(|(name, text)| write(name, text))
+        .collect::<Vec<_>>();
+    let expected = files
+        .iter()
+        .zip(&texts)
+        .filter(|(file, (_, text))| {
+            octocode_engine::signatures::extract_graph_facts(text, file)
+                .is_some_and(|facts| imports_name(&facts, text, "x"))
+        })
+        .map(|(file, _)| file.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(expected.len(), 3, "{expected:?}");
+    // The module references are the whole facts' own, load for load.
+    for (file, (_, text)) in files.iter().zip(&texts) {
+        let whole = octocode_engine::signatures::extract_graph_facts(text, file).expect("whole");
+        let light =
+            octocode_engine::signatures::extract_module_references(text, file).expect("light");
+        for (part, whole, light) in [
+            ("imports", json!(whole.imports), json!(light.imports)),
+            ("exports", json!(whole.exports), json!(light.exports)),
+            ("loads", json!(whole.common_js), json!(light.common_js)),
+            (
+                "diagnostics",
+                json!(whole.diagnostics),
+                json!(light.diagnostics),
+            ),
+        ] {
+            assert_eq!(whole, light, "{part} of {file}");
+        }
+        assert!(light.calls.is_empty(), "{file}");
+    }
+    let mut ignored = IgnoredMentions {
+        files: files.clone(),
+        ..IgnoredMentions::default()
+    };
+    let policy = crate::tools::test_support::workspace_policy(&root);
+    let cancel = &crate::execution::cancel::NeverCancel;
+    check_imports(&mut ignored, &policy, cancel, "x", None)
+        .await
+        .expect("check");
+    assert_eq!(ignored.importing, expected);
+    assert!(ignored.unchecked.is_empty(), "{ignored:?}");
+    // A second request reads the kept parses.
+    let mut again = IgnoredMentions {
+        files: files.clone(),
+        ..IgnoredMentions::default()
+    };
+    check_imports(&mut again, &policy, cancel, "x", None)
+        .await
+        .expect("check");
+    assert_eq!(again.importing, expected);
+    for file in &files {
+        assert_eq!(parses::facts_of(file), 0, "whole facts of {file}");
+        assert_eq!(parses::of("declarations", file), 0, "{file}");
+        let wanted = usize::from(!file.ends_with("plain.ts"));
+        assert_eq!(parses::of("moduleReferences", file), wanted, "{file}");
+    }
 }

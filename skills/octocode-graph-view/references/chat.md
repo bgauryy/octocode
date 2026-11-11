@@ -2,7 +2,13 @@ Load when a person wants to ask the agent about graph nodes from the viewer, or 
 
 # Chat with the agent from the viewer
 
-The viewer's **Ask the agent** drawer (header button or `c`) sends a message with the selected node attached as context (path, line 1, its metrics once computed; the chip is removable). Every message is a `chat` event in `events.jsonl` (`{type:'chat', id, role:'user'|'agent'|'system', text, context?, state?, replyTo?, at}`; a later event with the same `id` updates `state`: `queued` → `delivered` → `replied`, or `failed` with `error`), so a replay restores the conversation, also in `--replay`. Replies render `code` spans and fenced blocks, and `path:line` mentions of graph nodes become links that select the node. A reply may carry `nodes` (resolved ids): the newest lights them up and frames them, and each keeps a **Show on graph (N)** action.
+| Viewer behavior | Contract |
+|---|---|
+| Submit | **Ask the agent** (header button or `c`) attaches selected node context: path, line 1 and computed metrics; chip is removable. |
+| Persist | Each message is a `chat` event in `events.jsonl`: `{type:'chat', id, role:'user'\|'agent'\|'system', text, context?, state?, replyTo?, at}`. Replay, including `--replay`, restores it. |
+| Update | Same `id` updates `state`: `queued` → `delivered` → `replied`, or `failed` with `error`. |
+| Render | Replies support code spans/fences; `path:line` mentions select matching graph nodes. |
+| Point | Reply `nodes` are resolved IDs. Newest reply highlights and frames them; each retains **Show on graph (N)**. |
 
 Answer from the graph and the wiki, not memory: read the community's wiki page, prove structural claims with graph queries (impact, path, cycle, community, callers) and source or LSP reads, reply with the files as `nodes`, and promote an answer worth keeping. Queries, pointing and the wiki: [query](query.md).
 

@@ -392,8 +392,11 @@ async fn a_classified_github_read_is_refused_by_name_and_a_plain_read_follows_th
     }
 }
 
-/// No other GitHub reader is a clasify source, a text resource or an image
-/// source: the contract refuses it, so none reaches the provider.
+/// No other GitHub reader is a text resource or an image source, and no
+/// tool that writes is a source at all: the contract refuses it. A search or
+/// history tool may be an `evaluate` source (its rows are the units), and
+/// then its own contract checks the query, which refuses this one. None
+/// reaches the provider or GitHub.
 #[tokio::test]
 async fn no_other_github_tool_is_a_clasify_source() {
     let (provider, github) = (provider().await, github().await);
@@ -408,19 +411,38 @@ async fn no_other_github_tool_is_a_clasify_source() {
         "ghCloneRepo",
     ] {
         let source = json!({"tool":tool,"query":{"owner":"octo","repo":"demo","path":".env"}});
-        for row in [
+        let rows_tool = !matches!(tool, "ghStructure" | "ghCloneRepo");
+        for (at, row) in [
             json!({"operation":"evaluate","source":source,"questions":{"a":noul("Is this set?")}}),
             json!({"operation":"sections","resources":{"r":source},"questions":{"a":noul("Is this set?")}}),
             json!({"operation":"evaluate","content":"image_a","assets":{"image_a":{"source":source}},
                 "questions":{"a":noul("Does image_a show it?")}}),
-        ] {
+        ]
+        .into_iter()
+        .enumerate()
+        {
             let refused = runtime
                 .run("source".into(), "clasify".into(), json!({"queries":[row]}))
                 .await;
-            assert!(refused.is_err(), "{tool}: {refused:?}");
+            if at == 0 && rows_tool {
+                let out = refused.expect("a row").structured_content.into_value();
+                // Its own contract refuses the query, or its own search
+                // finds nothing: no row is judged either way.
+                assert!(
+                    out["results"][0]["data"]["errorCode"].is_string(),
+                    "{tool}: {out}"
+                );
+            } else {
+                assert!(refused.is_err(), "{tool}: {refused:?}");
+            }
         }
     }
     assert!(sent(&provider).await.is_empty());
-    assert!(github.received_requests().await.unwrap().is_empty());
+    // A search may run as its tool runs it; no file is read for any of them.
+    let reads = github.received_requests().await.unwrap();
+    assert!(
+        reads.iter().all(|request| !request.url.path().contains("/contents/")),
+        "{reads:?}"
+    );
     runtime.close().await;
 }

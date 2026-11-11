@@ -55,7 +55,7 @@ fn overlap_returns_complete_matching_nodes_and_contained_excludes_crossing_nodes
     std::fs::write(&file, source).expect("source");
     for (mode, count) in [("contained", 0), ("overlap", 1)] {
         let found = run(&root.0, json!({"path":file,"operation":"match","rule":{"kind":"function_declaration"},"includeCaptures":true,"scope":{"start":{"line":2,"column":3},"end":{"line":2,"column":6},"mode":mode}})).expect("scope");
-        assert_eq!(found["matchCount"], count, "{found}");
+        assert_eq!(found["matchCount"].as_u64().unwrap_or(0), count, "{found}");
         if count == 1 {
             assert_eq!(found["files"][0]["matches"][0]["value"], source.trim_end());
         }

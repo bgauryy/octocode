@@ -110,12 +110,12 @@ pub fn execute_local_fetch(
         path,
         display_path,
         &SourceFacts {
-            modified: meta.modified().ok().and_then(system_time_iso),
             window,
             beside: 0,
             interior: false,
             byte_origin: None,
             file_lines: None,
+            local_file: true,
         },
         security,
         cancel,
@@ -158,13 +158,6 @@ fn bind_continuation_to_source(
         }
     }
     Ok(())
-}
-
-pub(super) fn system_time_iso(t: std::time::SystemTime) -> Option<String> {
-    let elapsed = t.duration_since(std::time::UNIX_EPOCH).ok()?;
-    Some(crate::civil_date::iso8601_millis(
-        i64::try_from(elapsed.as_millis()).ok()?,
-    ))
 }
 
 #[cfg(test)]

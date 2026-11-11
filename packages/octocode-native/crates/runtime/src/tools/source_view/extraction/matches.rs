@@ -1,11 +1,9 @@
 //! `matchString` reads: each hit's context window, grown to a small
 //! declaration or narrowed to bytes around long lines.
-use super::super::types::{
-    ExtractionError, LineRange, NextCalls, RegexSpans, line_read, local_fetch_query,
-};
+use super::super::types::{ExtractionError, LineRange, NextCalls, RegexSpans, local_fetch_query};
 use super::search_lead::match_limit_lead;
 use super::spans::{hit_lines, match_spans, span_budget};
-use super::{Extraction, LineOffsets, first_unseen, follow_up, merge_ranges, windows_text};
+use super::{Extraction, LineOffsets, merge_ranges, placed_windows_text};
 use octocode_contract_types::{ErrorCode, LocalFetchQuery};
 
 /// A requested line range and the byte span it covers.
@@ -125,11 +123,11 @@ pub(super) fn match_extract(
             next,
             blocks: vec![],
             match_limited: truncated,
+            match_windows: vec![],
         });
     }
     let mut warnings = vec![];
     let windows = context_windows(q, lines, &hits, &regions);
-    let mut oversized = vec![];
     let mut blocks = vec![];
     let windows = if local_fetch_query::block(q) {
         super::super::block::widen_matches(
@@ -138,20 +136,15 @@ pub(super) fn match_extract(
             &hits,
             windows,
             &mut warnings,
-            &mut oversized,
             &mut blocks,
         )
     } else {
         windows
     };
     let ranges = merge_ranges(windows);
-    // A requested declaration too large to show whole is unread evidence of
-    // this read: its rest is a page.
-    let mut next = NextCalls {
-        continue_block: line_read(q, &first_unseen(oversized, &ranges)).and_then(follow_up),
-        ..NextCalls::default()
-    };
-    let (text, selected) = windows_text(content, lines, &ranges);
+    let mut next = NextCalls::default();
+    let (text, selected, placed) = placed_windows_text(content, lines, &ranges);
+    let match_windows = long_line_windows(content, lines, &spans, (&ranges, &placed));
     if let Some(line) = limit_line {
         warnings.push(match_limit_warning(Some(line)));
         next.text_search = match_limit_lead(q, patterns);
@@ -168,7 +161,89 @@ pub(super) fn match_extract(
         next,
         blocks,
         match_limited: limit_line.is_some(),
+        match_windows,
     })
+}
+
+/// Bytes shown on each side of a match in a line too long for a byte page:
+/// the context of a hit whose line cannot be its context. A search row of
+/// such a line shows the same.
+pub(crate) const MATCH_MARGIN: usize = 80;
+
+/// Bytes a line holds at most when every byte page holds it whole, whatever
+/// its characters: the smallest page's room over the widest escape.
+const FITS_ANY_BYTE_PAGE: usize = super::super::pagination::MIN_BYTE_PAGE / 6;
+
+/// The bytes of the view around each match in a line longer than
+/// [`FITS_ANY_BYTE_PAGE`]: [`MATCH_MARGIN`] on each side, inside the line,
+/// every edge a clean cut, overlapping and touching windows merged. `shown`
+/// is the view's line ranges with the view byte each starts at. The page
+/// cutter decides which of these lines outgrow its byte page; their byte
+/// walks show these windows first.
+fn long_line_windows(
+    content: &str,
+    lines: &LineOffsets,
+    spans: &[(usize, usize)],
+    shown: (&[LineRange], &[usize]),
+) -> Vec<(usize, usize)> {
+    // Each window as asked, inside its line; spans come in source order, so
+    // the windows of one line mostly merge as they arrive.
+    let mut asked: Vec<(usize, usize)> = vec![];
+    for &(start, end) in spans {
+        let last = lines.line_at(end.max(start + 1) - 1);
+        for line in lines.line_at(start)..=last {
+            let (line_start, line_end) = (lines.start(line), lines.start(line + 1));
+            if line_end - line_start <= FITS_ANY_BYTE_PAGE {
+                continue;
+            }
+            let from = start.saturating_sub(MATCH_MARGIN).max(line_start);
+            let to = end.saturating_add(MATCH_MARGIN).min(line_end);
+            match asked.last_mut() {
+                Some(before) if before.0 >= line_start && before.0 <= from && from <= before.1 => {
+                    before.1 = before.1.max(to);
+                }
+                _ => asked.push((from, to)),
+            }
+        }
+    }
+    asked.sort_unstable();
+    // Clean edges, in order: each scan for a marker looks back no further
+    // than the clean cut before it, so a line is read once however many
+    // windows it holds.
+    let mut line = 0..0;
+    let mut cut: Vec<(usize, usize)> = vec![];
+    for (from, to) in asked {
+        if !line.contains(&from) {
+            let at = lines.line_at(from);
+            line = lines.start(at)..lines.start(at + 1);
+        }
+        match cut.last_mut().filter(|before| before.0 >= line.start) {
+            Some(before) if from <= before.1 => {
+                before.1 =
+                    crate::response::cut::clean_cut_past(content, before.1, to.max(before.1));
+            }
+            before => {
+                let floor = before.map_or(line.start, |before| before.1);
+                let start = crate::response::cut::clean_cut_from(content, floor, from);
+                cut.push((
+                    start,
+                    crate::response::cut::clean_cut_past(content, start, to),
+                ));
+            }
+        }
+    }
+    // Each window's place in the view: its line range's, plus its bytes
+    // into that range.
+    let (ranges, placed) = shown;
+    cut.into_iter()
+        .filter_map(|(start, end)| {
+            let line = lines.line_at(start) + 1;
+            let at = ranges.partition_point(|range| range.end < line);
+            let range = ranges.get(at).filter(|range| range.start <= line)?;
+            let view = placed.get(at)? + start - lines.start(range.start - 1);
+            Some((view, view + end - start))
+        })
+        .collect()
 }
 
 /// The warning of a scan the memory budget stopped, after the last match it

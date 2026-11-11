@@ -41,11 +41,11 @@ fn stats_call_ranking_excludes_global_name_guesses() {
         ingest_fixture(dir.0.as_path(), None).class,
         ExitClass::Success
     );
-    let stats = ask(dir.0.as_path(), "stats", None, |_| {});
-    assert_eq!(stats.value["callConfidence"], "high");
-    let rows = stats.value["mostCalledSymbols"]
-        .as_array()
-        .expect("ranked calls");
+    let stats = ask(dir.0.as_path(), "hubs", None, |o| {
+        o.edges = vec!["calls".into()];
+        o.confidence = Some("high".into());
+    });
+    let rows = stats.value["rows"].as_array().expect("ranked calls");
     let target = rows
         .iter()
         .find(|r| r["id"] == "impl.ts#uniqueTarget")

@@ -168,3 +168,37 @@ fn escaped_units_match_serialized_json() {
     let json = serde_json::to_string(text).expect("json");
     assert_eq!(escaped_len(text) + 2, json.encode_utf16().count());
 }
+
+/// A cut bounded by an earlier clean cut is the unbounded one, and the cut
+/// past a byte is the first clean cut at or after it, on every sample and
+/// from every floor.
+#[test]
+fn bounded_cuts_agree_with_the_unbounded_cut() {
+    for text in samples() {
+        let clean: Vec<usize> = (0..=text.len())
+            .filter(|at| is_clean_cut(&text, *at))
+            .collect();
+        // Floors spread over the text, the nearest one included.
+        let step = (clean.len() / 7).max(1);
+        for at in 0..=text.len() {
+            let nearest = clean.partition_point(|cut| *cut <= at) - 1;
+            let after = clean[clean.partition_point(|cut| *cut < at)];
+            for floor in clean[..=nearest]
+                .iter()
+                .step_by(step)
+                .chain([&clean[nearest]])
+            {
+                assert_eq!(
+                    clean_cut_from(&text, *floor, at),
+                    clean_cut(&text, at),
+                    "{at} from {floor} in {text:.40?}"
+                );
+                assert_eq!(
+                    clean_cut_past(&text, *floor, at),
+                    after,
+                    "past {at} from {floor} in {text:.40?}"
+                );
+            }
+        }
+    }
+}

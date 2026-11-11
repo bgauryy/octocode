@@ -42,6 +42,7 @@ async fn row(github: &Double) -> Value {
         Some("lodash/lodash"),
         None,
         Map::new(),
+        octocode_contract_types::SecurityCheckView::Details,
         &net(&http, &budget, &reused, &config, github),
     )
     .await
@@ -341,6 +342,7 @@ async fn url_row(url: &str, record: Value, github: &Double) -> Value {
     crate::tools::security_check::from_url(
         url,
         Map::new(),
+        octocode_contract_types::SecurityCheckView::Details,
         &net(&http, &budget, &reused, &config, github),
     )
     .await
@@ -387,6 +389,7 @@ async fn row_with_osv_record(github: &Double, record: Value) -> Value {
         Some("lodash/lodash"),
         None,
         Map::new(),
+        octocode_contract_types::SecurityCheckView::Details,
         &net(&http, &budget, &reused, &config, github),
     )
     .await
@@ -569,6 +572,7 @@ async fn commit_call(
         repo,
         resume,
         Map::new(),
+        octocode_contract_types::SecurityCheckView::Details,
         &net(http, &budget, &reused, &config, github),
     )
     .await

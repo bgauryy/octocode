@@ -95,6 +95,14 @@ pub(super) fn drop_implied(
     }
 }
 
+/// States `updatedAt` on a pull-request row: the value its page is sorted by.
+pub(super) fn state_updated(row: &mut Value, item: &Value) {
+    let updated = utc_value(item.get("updated_at"));
+    if !updated.is_null() {
+        row["updatedAt"] = updated;
+    }
+}
+
 /// An issue row: `updatedAt` only when the rows are sorted by it; labels
 /// only when present.
 pub(super) fn map_issue(v: Value, by_update: bool) -> Value {

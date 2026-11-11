@@ -11,7 +11,7 @@ test('discovers nested skill tests without absorbing workspace-owned or hidden t
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-skill-tests-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const paths = [
-    'skills/octocode-agentic-prompts/scripts/interview-grade.test.mjs',
+    'skills/octocode-agentic/scripts/interview-grade.test.mjs',
     'skills/octocode-scraping/scripts/tests/provider-usage.test.mjs',
     'skills-dev/example/scripts/test.test.mjs',
     'skills-dev/octocode-context-audit/scripts/tests/collectors.test.mjs',

@@ -177,6 +177,14 @@ impl Query<'_> {
                 ),
             }));
         }
+        let shared = shared_controls(&findings);
+        if let Some(notes) = summary["notes"].as_array_mut() {
+            notes.extend(
+                shared
+                    .iter()
+                    .map(|(detector, controls)| json!({"detector": detector, "controls": controls})),
+            );
+        }
         extra.insert("summary".into(), summary);
         let mut status = BTreeMap::<String, &str>::new();
         if let Some(base) = &options.baseline {
@@ -188,6 +196,7 @@ impl Query<'_> {
             .iter()
             .map(|finding| {
                 let mut row = finding.to_json();
+                own_controls(&mut row, finding, &shared);
                 if let Some(state) = status.get(&finding.id) {
                     row["status"] = json!(state);
                 }
@@ -355,6 +364,47 @@ fn manifest_above(
             super::paging::call(crate::id::ToolId::GraphBuild.as_str(), row)
         ),
     }))
+}
+
+/// The false-positive controls every listed finding of a detector applied,
+/// by detector: a fact of the detector, stated once (a `summary.notes`
+/// entry `{detector, controls}`) instead of on each of its rows.
+fn shared_controls(
+    findings: &[super::super::detect::Finding],
+) -> BTreeMap<&'static str, Vec<&'static str>> {
+    let mut shared = BTreeMap::<&'static str, Vec<&'static str>>::new();
+    for finding in findings {
+        shared
+            .entry(finding.detector)
+            .and_modify(|common| common.retain(|control| finding.controls.contains(control)))
+            .or_insert_with(|| finding.controls.clone());
+    }
+    shared.retain(|_, common| !common.is_empty());
+    shared
+}
+
+/// Leaves on `row` only the controls its finding applied beyond its
+/// detector's [`shared_controls`].
+fn own_controls(
+    row: &mut Value,
+    finding: &super::super::detect::Finding,
+    shared: &BTreeMap<&'static str, Vec<&'static str>>,
+) {
+    let Some(common) = shared.get(finding.detector) else {
+        return;
+    };
+    let own = finding
+        .controls
+        .iter()
+        .filter(|control| !common.contains(control))
+        .collect::<Vec<_>>();
+    if let Some(fields) = row.as_object_mut() {
+        if own.is_empty() {
+            fields.shift_remove("controls");
+        } else {
+            fields.insert("controls".into(), json!(own));
+        }
+    }
 }
 
 /// A detector's verify step as a related call against this snapshot: a

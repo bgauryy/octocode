@@ -18,6 +18,7 @@ pub(super) use retained::keep_span;
 
 mod columns;
 mod long_line;
+mod row_window;
 use columns::{SpanColumns, block_text, span_value};
 
 /// `grep_searcher::Sink` that accumulates matches/contexts for one file and,
@@ -147,6 +148,7 @@ impl<M: Matcher> CollectSink<'_, M> {
                     value,
                     count: None,
                     rank: None,
+                    window_start: None,
                 };
                 keep_span((om, charge, stop), span)
             })
@@ -167,6 +169,7 @@ impl<M: Matcher> CollectSink<'_, M> {
                 value: line_text,
                 count: None,
                 rank: None,
+                window_start: None,
             };
             keep_span((&mut self.om_matches, &mut self.charge, self.stop), span);
         }
@@ -296,6 +299,8 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
                 .map_err(|error| std::io::Error::other(error.to_string()))?;
             if self.work.materialize_line && long_line {
                 self.long_line_row(bytes, line_number, first_start)?;
+            } else if self.work.materialize_line && self.window_rows(bytes, line_number)? {
+                // Kept as its windows.
             } else if self.work.materialize_line {
                 let (line_text, not_utf8) = block_text(bytes);
                 self.not_utf8 |= not_utf8;
@@ -325,6 +330,7 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
                         column,
                         byte_offset,
                         rank: relevance::line_rank(bytes, start),
+                        window_start: None,
                     });
                 }
             }

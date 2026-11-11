@@ -74,3 +74,45 @@ fn a_near_miss_marker_leaves_its_lines_searchable() {
         assert!(all_values(&found).contains(run), "{miss:?}: {found}");
     }
 }
+
+/// A span inside a key block shows the placeholder a read of its line shows,
+/// in every span view; base64 outside the block shows as written.
+#[test]
+fn a_span_in_a_key_block_shows_the_placeholder_a_read_shows() {
+    let body = "WzHvuy3fEWJr5musirUr5JYe5CMpm8DI2mKvqGsxgG5oDTudHZGh0Z7tcHL5kVeqJy";
+    let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    let file = format!(
+        "logo: {png}\nplain\n-----BEGIN OPENSSH PRIVATE KEY-----\n{body}\n{body}\n-----END OPENSSH PRIVATE KEY-----\nordinary tail text\n"
+    );
+    let placeholder = crate::security::key_fragment_placeholder();
+    for query in [
+        serde_json::json!({"matchString":["[A-Za-z0-9+/=]{30,}"],"regexEngine":"rust","view":"matchOnly"}),
+        serde_json::json!({"matchString":["[A-Za-z0-9+/=]{30,}"],"regexEngine":"rust","view":"matchOnly","unique":"list"}),
+        serde_json::json!({"matchString":["KEY-----\\n.*\\n.*"],"regexEngine":"rust","multiline":"on","view":"matchOnly"}),
+        serde_json::json!({"matchString":["(?<=^)[A-Za-z0-9+/=]{30,}"],"regexEngine":"pcre2","view":"matchOnly"}),
+    ] {
+        let found = search_fixture(
+            &[("notes.txt", file.as_str())],
+            ls_query(query.clone(), None),
+        );
+        let rows = found["files"][0]["matches"]
+            .as_array()
+            .expect("rows")
+            .clone();
+        let in_block: Vec<_> = rows
+            .iter()
+            .filter(|row| (3..=6).contains(&row["line"].as_u64().expect("line")))
+            .collect();
+        assert!(!in_block.is_empty(), "{query}: {found}");
+        for row in in_block {
+            assert_eq!(row["value"], placeholder.as_str(), "{query}: {found}");
+        }
+        for row in rows.iter().filter(|row| row["line"] == 1) {
+            assert_eq!(row["value"], png, "{query}: {found}");
+        }
+        assert!(
+            !all_values(&found).contains(&body[..12]),
+            "{query}: {found}"
+        );
+    }
+}

@@ -24,4 +24,9 @@ Only the parent downloads a PDF, document, data file, or image; gatherers never 
 
 A file a host fetch tool saved on its own is not approved: never quote it; offer its URL in the plan.
 
-Workers read assets with the host file reader. A claim from an asset keeps its origin `url` and adds `"asset"` (the path returned by `fetch-asset.mjs`). `verify-claims.mjs` requires that path to stay inside the ledger run's `assets/`, match an entry for the claim URL in `manifest.jsonl`, and retain its recorded SHA-256. A missing, changed, or unbound asset is not evidence. The verifier checks text assets and PDFs when `pdftotext` is installed; otherwise the parent reads the quote and adds `"verifiedBy":"manual"` with a `"method"`.
+| Asset check | Required condition |
+|---|---|
+| Reader | Workers use the host file reader. |
+| Claim identity | Keep origin `url`; add `"asset"` with the path returned by `fetch-asset.mjs`. |
+| Binding | Path stays inside the ledger run's `assets/`, matches the claim URL in `manifest.jsonl` and retains its SHA-256. Missing, changed or unbound assets are not evidence. |
+| Verification | `verify-claims.mjs` checks text and, with `pdftotext`, PDFs. Otherwise the parent reads the quote and adds `"verifiedBy":"manual"` with `"method"`. |

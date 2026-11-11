@@ -515,6 +515,17 @@ fn the_gate_visits_a_long_key_run_in_linear_work() {
         };
         let (small, large) = (work(2_000), work(4_000));
         assert!(large < 3 * small, "{unit}: {small} bytes, then {large}");
+        // With an operator on the line, before the run, the gate reads the
+        // run's keys: each credential word of it is weighed once.
+        let keyed = |units: usize| {
+            let line = format!("// x = 1 {}\n", unit.repeat(units));
+            let (found, visited) = credential_assignment_scan(&line, grammar);
+            assert!(!found, "no operator follows the run");
+            assert!(visited > 2 * line.len(), "the run's keys are read");
+            visited
+        };
+        let (small, large) = (keyed(2_000), keyed(4_000));
+        assert!(large < 3 * small, "{unit}: {small} bytes, then {large}");
     }
 }
 

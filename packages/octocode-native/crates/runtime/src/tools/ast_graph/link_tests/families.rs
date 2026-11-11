@@ -57,7 +57,9 @@ fn cross_family_names_are_not_counted_as_repository_targets() {
         ("a.ts", "export function main() { only_in_python(); }\n"),
     ]);
     let root = ingested(&temp);
-    let stats = ask(root, "stats", None);
+    let stats = ask_with(root, "stats", None, |options| {
+        options.view = Some("details".into());
+    });
     let typescript = &stats["linkageByLanguage"]["typescript"];
     assert_eq!(typescript["eligible"], 0, "{stats}");
 }

@@ -21,7 +21,8 @@ fn punctuation_is_literal_until_the_caller_selects_a_regex_engine() {
         ls_query(serde_json::json!({"matchString":["[absent]"]}), None),
     );
     assert_eq!(
-        empty["matchedLineCount"], 0,
+        empty["files"],
+        serde_json::json!([]),
         "a miss stays literal: {empty}"
     );
 }

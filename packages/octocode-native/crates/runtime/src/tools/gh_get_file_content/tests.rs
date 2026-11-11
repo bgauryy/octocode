@@ -17,6 +17,7 @@ use wiremock::{
 
 mod continuations;
 mod lfs;
+mod long_reads;
 mod misses;
 mod missing_repository;
 mod paths;

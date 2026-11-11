@@ -62,7 +62,7 @@ async fn refs_list_every_branch_and_tag_once_with_the_default_branch() {
     let first = call(
         &runtime,
         "ghStructure",
-        json!({"owner": "a", "repo": "b", "operation": "refs"}),
+        json!({"owner": "a", "repo": "b", "operation": "refs", "limit": 100}),
     )
     .await
     .expect("refs");

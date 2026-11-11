@@ -290,7 +290,7 @@ impl DomainDispatcher {
 /// captures it for one (`egress`), or the row judges with one.
 fn goes_to_provider(query: &Value, egress: bool) -> bool {
     egress
-        || ["classification", "selection"]
+        || crate::contracts::PROVIDER_FIELDS
             .into_iter()
             .any(|field| query.get(field).is_some())
 }

@@ -285,6 +285,8 @@ mod tests {
             )),
             assets: None,
             long_context: None,
+            details: true,
+            per_item: false,
         }
     }
 

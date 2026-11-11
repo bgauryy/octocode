@@ -284,3 +284,44 @@ fn a_row_beside_a_left_out_test_line_is_placed_at_its_own_lines() {
         }
     }
 }
+
+/// A matchOnly span of a whole line that holds key material after a label:
+/// the scan hides the key and keeps the label, and the span shows that same
+/// text, as the content row of the line and a read of it do, not a bare
+/// placeholder.
+#[test]
+fn a_span_of_a_labelled_key_line_keeps_its_label() {
+    // Fake base64: the alphabet in a fixed walk.
+    let alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let body = |seed: usize| {
+        (0..60)
+            .map(|at| char::from(alphabet.as_bytes()[(seed * 7 + at * 13) % alphabet.len()]))
+            .collect::<String>()
+    };
+    let block = (1..=6).map(body).collect::<Vec<_>>().join("\n");
+    let text = format!(
+        "plain words\n-----BEGIN OPENSSH PRIVATE KEY-----\n{block}\nordinary tail text\nlogo2: {}\nlast plain line\n",
+        body(9)
+    );
+    let root = tempfile::tempdir().expect("fixture directory");
+    let path = root.path().join("ku.txt");
+    fs::write(&path, &text).expect("fixture");
+    let value_of = |view: &str| {
+        let found = search_root(
+            root.path(),
+            serde_json::json!({"matchString": ["^logo2.*$"], "regexEngine": "rust", "view": view}),
+        )
+        .to_row()
+        .expect("serialize");
+        found["files"][0]["matches"][0]["value"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{view}: {found}"))
+            .to_owned()
+    };
+    let content = value_of("content");
+    assert!(
+        content.starts_with("logo2: [REDACTED"),
+        "the fixture's labelled line is hidden as key material: {content}"
+    );
+    assert_eq!(value_of("matchOnly"), content);
+}

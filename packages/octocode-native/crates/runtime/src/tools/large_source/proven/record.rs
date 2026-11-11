@@ -43,7 +43,6 @@ impl<'s> Proof<'s> {
     pub(in super::super) fn feed(&mut self, bytes: &[u8]) {
         self.hasher.update(bytes);
         self.names.feed(bytes);
-        self.recorder.feed(bytes, self.scan);
         let mut rest = bytes;
         while !rest.is_empty() {
             let (piece, newline) = split_line(rest);
@@ -71,6 +70,13 @@ impl<'s> Proof<'s> {
                 }
             }
         }
+        // Behind the lines: the scanner judges the key lines they closed as
+        // their placeholders.
+        let keys = super::super::sealed::KeyLines {
+            lines: &self.key_lines,
+            closed: octocode_engine::num::saturating_usize(self.line_at),
+        };
+        self.recorder.feed(bytes, self.scan, keys);
     }
 
     fn close_line(&mut self) {
@@ -98,7 +104,11 @@ impl<'s> Proof<'s> {
         if self.pending {
             self.close_line();
         }
-        let (edits, held) = self.recorder.finish(self.scan)?;
+        let keys = super::super::sealed::KeyLines {
+            lines: &self.key_lines,
+            closed: octocode_engine::num::saturating_usize(self.offset),
+        };
+        let (edits, held) = self.recorder.finish(self.scan, keys)?;
         let scanned: Arc<[Edit]> = outside_key_lines(edits, &self.key_lines).into();
         drop(held);
         Ok(Pass {

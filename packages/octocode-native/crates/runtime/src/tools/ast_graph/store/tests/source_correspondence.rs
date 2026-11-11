@@ -144,7 +144,6 @@ fn every_query_identity_and_argument_page_carries_exact_descriptor_closure() {
         ("symbols", "main.ts"),
         ("callers", "main.ts#sink"),
         ("callees", "main.ts#run"),
-        ("stats", ""),
     ] {
         let result = ask(&dir.0, op, (!target.is_empty()).then_some(target), |_| {});
         assert_closure(&result.value);

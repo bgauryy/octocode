@@ -3,7 +3,8 @@
  "tool": "securityCheck",
  "query": {
   "operation": "advisory",
-  "id": "GHSA-29mw-wpgm-hmr9"
+  "id": "GHSA-29mw-wpgm-hmr9",
+  "view": "details"
  },
  "recordedAt": "2026-11-08",
  "unread": [

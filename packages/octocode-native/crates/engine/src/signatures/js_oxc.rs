@@ -111,6 +111,22 @@ fn extract_graph_facts_with_metadata_inner(
     parser: Option<&str>,
 ) -> Option<super::GraphFactsExtraction> {
     with_js_program::<true, _>(content, file_path, parser, |ext, parser_ret| {
+        graph_facts_of(ext, parser_ret, content, file_path, true)
+    })
+}
+
+/// The graph facts of a parse that kept its tokens: all of them when `whole`,
+/// else only what module references need (declarations, imports, exports and
+/// CommonJS loads), without calls, heritage, declared types, argument sites
+/// and reference counts.
+fn graph_facts_of(
+    ext: String,
+    parser_ret: oxc_parser::ParserReturn<'_>,
+    content: &str,
+    file_path: &str,
+    whole: bool,
+) -> Option<super::GraphFactsExtraction> {
+    {
         let line_index = SpanPositions::new(content);
         let mut symbols = Vec::new();
         collect_program(&parser_ret.program, &line_index, &mut symbols);
@@ -147,7 +163,9 @@ fn extract_graph_facts_with_metadata_inner(
 
         let mut calls = Vec::new();
         let mut heritage = Vec::new();
-        collect_program_calls(&parser_ret.program, &line_index, &mut calls, &mut heritage);
+        if whole {
+            collect_program_calls(&parser_ret.program, &line_index, &mut calls, &mut heritage);
+        }
         assess_recovery(&parser_ret, &line_index, &mut declarations, &mut calls);
         if job_cancelled() {
             return None;
@@ -182,50 +200,29 @@ fn extract_graph_facts_with_metadata_inner(
                 source: load.specifier.clone(),
             });
         }
-        let callers = callers::Callers::new(&declarations);
-        for (index, call) in calls.iter_mut().enumerate() {
-            // Names are display labels. Source ranges identify the enclosing occurrence;
-            // callee binding resolution requires semantics and remains explicitly unknown.
-            call.id = format!(
-                "call:{}@{}:{}:{index}",
-                file_path, call.range.start.line, call.range.start.character
-            );
-            if let Some(caller) = callers.of(call) {
-                call.caller.clone_from(&caller.name);
-                call.caller_id = Some(caller.id.clone());
-            }
-            edges.push(GraphFactEdge {
-                id: format!("edge:{}", call.id),
-                from: call
-                    .caller_id
-                    .clone()
-                    .unwrap_or_else(|| format!("file:{file_path}")),
-                to: format!(
-                    "reference:{}@{}:{}:{index}",
-                    file_path, call.range.start.line, call.range.start.character
-                ),
-                relation: call.kind.clone(),
-                source: "ast".to_owned(),
-                line: call.line,
-                resolution: "unresolved".to_owned(),
-            });
-        }
+        link_calls(file_path, &declarations, &mut calls, &mut edges);
         push_heritage_edges(&declarations, heritage, &mut edges);
-        let declared_types = declared_types_of(
-            &declarations,
-            super::js_oxc_receiver::declared::declared_types(program, &line_index),
-        );
         let base = super::native_graph_facts(ext, file_path, content);
-        let argument_sites = super::js_oxc_arguments::collect(
-            &semantic,
-            &parser_ret,
-            &line_index,
-            (content, &base.source_digest),
-            file_path,
-            &declarations,
-            &imports,
-            &calls,
-        );
+        let (declared_types, argument_sites) = if whole {
+            (
+                declared_types_of(
+                    &declarations,
+                    super::js_oxc_receiver::declared::declared_types(program, &line_index),
+                ),
+                super::js_oxc_arguments::collect(
+                    &semantic,
+                    &parser_ret,
+                    &line_index,
+                    (content, &base.source_digest),
+                    file_path,
+                    &declarations,
+                    &imports,
+                    &calls,
+                ),
+            )
+        } else {
+            Default::default()
+        };
 
         let facts = GraphFactsDocument {
             declarations,
@@ -258,10 +255,74 @@ fn extract_graph_facts_with_metadata_inner(
                 character: declaration.selection_range.start.character,
             })
             .collect();
-        let reference_counts = value_reference_counts(&semantic, &line_index, &targets);
+        let reference_counts = if whole {
+            value_reference_counts(&semantic, &line_index, &targets)
+        } else {
+            Vec::new()
+        };
         Some(super::GraphFactsExtraction {
             facts,
             reference_counts,
+        })
+    }
+}
+
+/// Give each call its id and enclosing caller, and an unresolved edge from
+/// that caller (the file, outside any declaration) to the call's reference.
+fn link_calls(
+    file_path: &str,
+    declarations: &[crate::graph::GraphFactDeclaration],
+    calls: &mut [crate::graph::GraphFactCall],
+    edges: &mut Vec<GraphFactEdge>,
+) {
+    let callers = callers::Callers::new(declarations);
+    for (index, call) in calls.iter_mut().enumerate() {
+        // Names are display labels. Source ranges identify the enclosing occurrence;
+        // callee binding resolution requires semantics and remains explicitly unknown.
+        call.id = format!(
+            "call:{}@{}:{}:{index}",
+            file_path, call.range.start.line, call.range.start.character
+        );
+        if let Some(caller) = callers.of(call) {
+            call.caller.clone_from(&caller.name);
+            call.caller_id = Some(caller.id.clone());
+        }
+        edges.push(GraphFactEdge {
+            id: format!("edge:{}", call.id),
+            from: call
+                .caller_id
+                .clone()
+                .unwrap_or_else(|| format!("file:{file_path}")),
+            to: format!(
+                "reference:{}@{}:{}:{index}",
+                file_path, call.range.start.line, call.range.start.character
+            ),
+            relation: call.kind.clone(),
+            source: "ast".to_owned(),
+            line: call.line,
+            resolution: "unresolved".to_owned(),
+        });
+    }
+}
+
+/// The module references of a file (its imports, re-exports and CommonJS
+/// loads) from one parse, by the lightest extraction that holds them all:
+/// the scope build that proves loads only when the file's tokens can spell a
+/// CommonJS loader ([`js_oxc_commonjs::may_contain_loader`]), else its
+/// declarations, whose imports and re-exports are the same and which hold no
+/// load to miss. Calls, arguments and reference counts are never read.
+pub(crate) fn extract_module_references(
+    content: &str,
+    file_path: &str,
+) -> Option<GraphFactsDocument> {
+    on_oxc_worker(content, file_path, None, move |content, file_path| {
+        with_js_program::<true, _>(content, file_path, None, |ext, parser_ret| {
+            if js_oxc_commonjs::may_contain_loader(&parser_ret.tokens, content) {
+                graph_facts_of(ext, parser_ret, content, file_path, false)
+                    .map(|extraction| extraction.facts)
+            } else {
+                declarations_of(ext, parser_ret, content, file_path)
+            }
         })
     })
 }
@@ -292,6 +353,18 @@ fn extract_declarations_inner(
     parser: Option<&str>,
 ) -> Option<GraphFactsDocument> {
     with_js_program::<false, _>(content, file_path, parser, |ext, parser_ret| {
+        declarations_of(ext, parser_ret, content, file_path)
+    })
+}
+
+/// The declarations-only facts of a parse.
+fn declarations_of(
+    ext: String,
+    parser_ret: oxc_parser::ParserReturn<'_>,
+    content: &str,
+    file_path: &str,
+) -> Option<GraphFactsDocument> {
+    {
         let line_index = SpanPositions::new(content);
         let mut symbols = Vec::new();
         collect_program(&parser_ret.program, &line_index, &mut symbols);
@@ -321,7 +394,7 @@ fn extract_declarations_inner(
                 .collect(),
             ..super::native_graph_facts(ext, file_path, content)
         })
-    })
+    }
 }
 
 /// Why oxc gives no facts for `content` read as `parser`'s dialect: a nesting

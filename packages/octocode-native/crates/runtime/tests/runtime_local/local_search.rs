@@ -80,8 +80,12 @@ async fn excluded_source_is_reachable_by_an_explicit_related_request() {
     runtime.close().await;
 }
 
+/// A hit in a Unicode line too long for a row: on both transports the row is
+/// one whole-character window of the line around the hit, placed by its
+/// 1-based character column, on one page; the line whole is the ready
+/// `localFetch` read of that line, which runs.
 #[tokio::test]
-async fn long_unicode_search_values_arrive_complete_without_expansion_reads() {
+async fn long_unicode_lines_show_a_window_around_the_hit_and_lead_to_the_whole_line() {
     let workspace = Workspace::new();
     let line = format!(
         "{}needleHere{} END_OF_SOURCE",
@@ -90,78 +94,62 @@ async fn long_unicode_search_values_arrive_complete_without_expansion_reads() {
     );
     workspace.write("src/minified.txt", format!("head\n{line}\ntail\n"));
     let runtime = workspace.runtime(&[]);
+    let hit = line.find("needleHere").expect("hit");
+    let column = line[..hit].chars().count() + 1;
+    let mut values = Vec::new();
     for mcp in [false, true] {
-        let mut input = json!({"queries":[{
+        let input = json!({"queries":[{
             "path":workspace.workspace,"matchString":["needleHere"]
         }]});
-        let mut joined = String::new();
-        let mut seen = std::collections::BTreeSet::new();
-        let mut part = 0;
-        let mut total = None;
-        loop {
-            assert!(seen.insert(input.to_string()), "no repeated continuation");
-            let request = format!("unicode-{mcp}-{part}");
-            let output = if mcp {
-                let result = runtime
-                    .run_mcp(request, "localSearch".into(), input)
-                    .await
-                    .expect("MCP search");
-                crate::support::mcp_payload(&result)
-            } else {
-                runtime
-                    .run(request, "localSearch".into(), input)
-                    .await
-                    .expect("CLI search")
-                    .structured_content
-                    .into_value()
-            };
-            checks::assert_output_contract("localSearch", &output);
-            let rows = output["results"].as_array().expect("rows");
-            assert_eq!(rows.len(), 1);
-            let row = &rows[0];
-            assert_eq!(row["index"], 0);
-            part += 1;
-            let marker = &row["rowPart"];
-            let of = marker["of"].as_u64().expect("total parts");
-            assert_eq!(marker["part"], part);
-            assert_eq!(*total.get_or_insert(of), of);
-            assert!(part <= of);
-            if part > 1 {
-                assert_eq!(marker["text"], "/data/files/0/matches/0/value");
-                assert_eq!(
-                    marker["continues"],
-                    json!({"array":"/data/files/0/matches","index":0})
-                );
-            }
-            let data = &row["data"];
-            let matches = data["files"][0]["matches"].as_array().expect("matches");
-            assert_eq!(matches.len(), 1);
-            assert_eq!(matches[0]["line"], 2);
-            assert!(matches[0].get("clipped").is_none());
-            let value = matches[0]["value"].as_str().expect("text window");
-            assert!(!value.is_empty());
-            joined.push_str(value);
-            assert!(
-                checks::leads(data)
-                    .into_iter()
-                    .all(|lead| lead.kind != "continue" || lead.tool != "localFetch")
-            );
-            let next = output["responsePagination"].get("next");
-            assert_eq!(next.is_some(), part < of);
-            let Some(next) = next else { break };
-            assert_eq!(output["responsePagination"]["hasMore"], true);
-            assert_eq!(next["kind"], "continue");
-            assert_eq!(next["tool"], "localSearch");
-            input = next["input"].clone();
-        }
-        assert!(part > 1, "the fixture exercises text windows");
+        let request = format!("unicode-{mcp}");
+        let output = if mcp {
+            let result = runtime
+                .run_mcp(request, "localSearch".into(), input)
+                .await
+                .expect("MCP search");
+            crate::support::mcp_payload(&result)
+        } else {
+            runtime
+                .run(request, "localSearch".into(), input)
+                .await
+                .expect("CLI search")
+                .structured_content
+                .into_value()
+        };
+        checks::assert_output_contract("localSearch", &output);
         assert!(
-            joined == line,
-            "MCP={mcp}: complete Unicode value, {} of {} bytes",
-            joined.len(),
-            line.len()
+            output.get("responsePagination").is_none(),
+            "MCP={mcp}: one page"
         );
+        let rows = output["results"].as_array().expect("rows");
+        assert_eq!(rows.len(), 1);
+        let row = &rows[0];
+        assert!(
+            row.get("rowPart").is_none(),
+            "MCP={mcp}: a window, not parts"
+        );
+        let data = &row["data"];
+        let matches = data["files"][0]["matches"].as_array().expect("matches");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0]["line"], 2);
+        assert_eq!(matches[0]["column"], column, "MCP={mcp}");
+        let value = matches[0]["value"].as_str().expect("text window");
+        let start = line.find(value).expect("the window is the line's own text");
+        assert!(start < hit && hit + "needleHere".len() < start + value.len());
+        assert!(
+            value.len() < line.len() / 10,
+            "MCP={mcp}: a window of the line"
+        );
+        let lead = checks::related_call(data, "localFetch", |input| {
+            input["queries"][0]["ranges"] == json!([{"startLine":2,"endLine":2}])
+        });
+        let read = call(&runtime, "localFetch", lead["input"].clone())
+            .await
+            .expect("the line read runs");
+        assert_ne!(row_status(&read), "error", "{}", read.structured_content);
+        values.push(value.to_owned());
     }
+    assert_eq!(values[0], values[1], "CLI and MCP show the same window");
     runtime.close().await;
 }
 

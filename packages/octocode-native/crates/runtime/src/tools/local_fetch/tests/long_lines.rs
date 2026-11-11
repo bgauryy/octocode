@@ -59,24 +59,15 @@ fn related_rows(read: &LocalFetchResult) -> Vec<serde_json::Value> {
         .collect()
 }
 
-/// Walk `next.nextPage` from `read`, returning each page's content joined.
-fn walk_on(mut read: LocalFetchResult, paths: &Paths) -> String {
-    let mut joined = String::new();
-    for _ in 0..1_000 {
-        assert_eq!(read.status, ReadStatus::Success, "{read:?}");
-        joined.push_str(read.content.as_deref().expect("content"));
-        let Some(next) = read.next.and_then(|next| next.continue_window) else {
-            return joined;
-        };
-        read = fetch(&next.query, paths);
-    }
-    panic!("the walk did not end");
-}
+/// The most bytes a first answer about a match in a long line takes.
+const WINDOW_PAGE_BYTES: usize = 400;
 
-/// A match deep inside a long line selects that whole line. Required pages
-/// alone keep its redacted prefix, hit and suffix exactly once.
+/// D3: a match deep inside a line too long for one page is on page 1, with
+/// the bytes around it, at the byte offset the page states. The required
+/// pages then hold the rest of the line: its redacted prefix and suffix,
+/// every byte exactly once, with no optional read.
 #[test]
-fn a_match_deep_in_a_long_line_keeps_its_prefix_in_required_pages() {
+fn a_match_deep_in_a_long_line_is_on_page_one_and_the_line_is_walked_once() {
     let fixture = Fixture::new();
     let filler = positional(300_000);
     let hit_at = 200_000;
@@ -90,73 +81,191 @@ fn a_match_deep_in_a_long_line_keeps_its_prefix_in_required_pages() {
     let path = fixture.write("bundle.min.js", format!("{line}\n"));
     let paths = Paths(fixture.0.clone());
     let view = format!("{line}\n").replace("SECRET", "[REDACTED]");
+    let query = qj(&path, serde_json::json!({"matchString":["NEEDLE_HIT"]}));
 
-    let read = fetch(
-        &qj(&path, serde_json::json!({"matchString":["NEEDLE_HIT"]})),
-        &paths,
-    );
+    let read = fetch(&query, &paths);
     assert_eq!(read.status, ReadStatus::Success, "{read:?}");
     let page = read.pagination.clone().expect("pagination");
     assert_eq!(page.unit, ReadProgressUnit::Bytes, "{page:?}");
-    assert_eq!(
-        page.offset, 0,
-        "page 1 starts at the selected line: {page:?}"
+    let text = read.content.as_deref().expect("content");
+    let hit = view.find("NEEDLE_HIT").expect("hit");
+    assert!(
+        text.contains("NEEDLE_HIT"),
+        "page 1 holds the match: {text}"
     );
+    assert!(text.len() <= WINDOW_PAGE_BYTES, "{} bytes", text.len());
+    assert!(
+        page.offset < hit && hit + "NEEDLE_HIT".len() < page.offset + page.length,
+        "the page states where its bytes are, around byte {hit}: {page:?}"
+    );
+    assert_eq!(page.total_bytes, view.len(), "{page:?}");
     assert!(
         related_rows(&read).is_empty(),
         "no optional prefix recovery"
     );
-    assert_eq!(walk_on(read, &paths), view);
+    let pages = walk_exactly_once(&query, &paths, None, &view);
+    assert_eq!(pages[0].0, page.offset);
+    assert_eq!(pages[1].0, 0, "the rest starts at the line's first byte");
+}
+
+/// D3: every match in a long line has its window before the rest of the
+/// line, in source order; windows that touch are one page; a window next to
+/// a redaction never cuts its marker; the walk is the line exactly once.
+#[test]
+fn every_match_window_of_a_long_line_comes_before_the_rest() {
+    let fixture = Fixture::new();
+    let filler = positional(120_000);
+    let line = format!(
+        "NEEDLE{}SECRET{}NEEDLE{}NEEDLE{}NEEDLE{}SECRET{}NEEDLE",
+        &filler[..30_000],
+        &filler[30_000..30_020],
+        // Two hits 40 bytes apart share one window.
+        &filler[30_020..30_060],
+        &filler[30_060..90_000],
+        &filler[90_000..90_010],
+        &filler[90_010..],
+    );
+    let path = fixture.write("bundle.min.js", format!("head\n{line}\ntail\n"));
+    let paths = Paths(fixture.0.clone());
+    let view = format!("{line}\n").replace("SECRET", "[REDACTED]");
+    let hits: Vec<usize> = view.match_indices("NEEDLE").map(|(at, _)| at).collect();
+    assert_eq!(hits.len(), 5);
+    let query = qj(&path, serde_json::json!({"matchString":["NEEDLE"]}));
+    for window in [None, Some(1_000)] {
+        let pages = walk_exactly_once(&query, &paths, window, &view);
+        // First the windows: the line's first bytes, the pair, the hit
+        // after it, the line's last bytes.
+        let windows: Vec<&(usize, String)> = pages
+            .iter()
+            .take_while(|(_, text)| text.contains("NEEDLE"))
+            .collect();
+        assert_eq!(
+            windows.len(),
+            4,
+            "{window:?}: {:?}",
+            &pages[..5.min(pages.len())]
+        );
+        assert!(
+            windows.windows(2).all(|pair| pair[0].0 < pair[1].0),
+            "{window:?}: windows in source order"
+        );
+        let shown: usize = windows
+            .iter()
+            .map(|(_, text)| text.matches("NEEDLE").count())
+            .sum();
+        assert_eq!(shown, hits.len(), "{window:?}: every match has its window");
+        for (at, text) in &windows {
+            assert!(
+                text.len() <= WINDOW_PAGE_BYTES,
+                "{window:?}: {at}+{}",
+                text.len()
+            );
+            assert_eq!(
+                text.matches("[REDACTED").count(),
+                text.matches("[REDACTED]").count(),
+                "{window:?}: a marker shows whole: {text}"
+            );
+        }
+        assert_eq!(windows[0].0, 0, "{window:?}: a hit at the line start");
+        assert!(
+            pages[windows.len()..]
+                .iter()
+                .all(|(_, text)| !text.contains("NEEDLE")),
+            "{window:?}: the rest holds no match"
+        );
+    }
 }
 
 /// A match a line page reaches after short context lines: the short lines
-/// are page 1, and the long line then starts at its own first byte.
+/// are page 1, the match's window is page 2, and the walk is the selection
+/// exactly once.
 #[test]
-fn a_long_line_reached_after_context_lines_keeps_its_prefix() {
+fn a_long_line_reached_after_context_lines_shows_its_match_next() {
     let fixture = Fixture::new();
     let filler = positional(100_000);
     let line = format!("{}NEEDLE_HIT{}", &filler[..80_000], &filler[80_000..]);
-    let path = fixture.write("bundle.min.js", format!("head one\nhead two\n{line}\n"));
+    let source = format!("head one\nhead two\n{line}\n");
+    let path = fixture.write("bundle.min.js", &source);
     let paths = Paths(fixture.0.clone());
-    let read = fetch(
-        &qj(
-            &path,
-            serde_json::json!({"matchString":["NEEDLE_HIT"], "contextLines":{"before":2,"after":0}}),
-        ),
-        &paths,
+    let query = qj(
+        &path,
+        serde_json::json!({"matchString":["NEEDLE_HIT"], "contextLines":{"before":2,"after":0}}),
     );
-    assert_eq!(
-        read.content.as_deref(),
-        Some("head one\nhead two\n"),
-        "{read:?}"
-    );
-    let next = read
-        .next
-        .and_then(|next| next.continue_window)
-        .expect("next");
-    let second = fetch(&next.query, &paths);
+    let read = fetch(&query, &paths);
     assert!(
-        related_rows(&second).is_empty(),
+        related_rows(&read).is_empty(),
         "no optional prefix recovery"
     );
-    assert_eq!(walk_on(second, &paths), format!("{line}\n"));
+    let pages = walk_exactly_once(&query, &paths, None, &source);
+    assert_eq!(pages[0], (0, "head one\nhead two\n".to_owned()));
+    assert!(pages[1].1.contains("NEEDLE_HIT"), "{:?}", pages[1]);
+    assert!(pages[1].1.len() <= WINDOW_PAGE_BYTES);
 }
 
-/// A hit inside the line's first page keeps the page at the line start.
+/// A hit within a window's margin of the line start: its window starts at
+/// the line's first byte and the rest follows it.
 #[test]
-fn a_hit_within_the_first_page_keeps_the_line_start() {
+fn a_hit_near_the_line_start_is_a_window_from_the_first_byte() {
     let fixture = Fixture::new();
     let filler = positional(100_000);
-    let line = format!("{}NEEDLE_HIT{}", &filler[..100], &filler[100..]);
+    let line = format!("{}NEEDLE_HIT{}", &filler[..40], &filler[40..]);
     let path = fixture.write("bundle.min.js", format!("{line}\n"));
     let paths = Paths(fixture.0.clone());
-    let read = fetch(
-        &qj(&path, serde_json::json!({"matchString":["NEEDLE_HIT"]})),
-        &paths,
+    let query = qj(&path, serde_json::json!({"matchString":["NEEDLE_HIT"]}));
+    let pages = walk_exactly_once(&query, &paths, None, &format!("{line}\n"));
+    assert_eq!(pages[0].0, 0);
+    assert!(pages[0].1.contains("NEEDLE_HIT"));
+    assert_eq!(pages[1].0, pages[0].1.len(), "the rest goes on from it");
+}
+
+/// A matched line one byte page holds whole is that page: nothing to put
+/// first.
+#[test]
+fn a_matched_line_within_one_byte_page_is_one_page() {
+    let fixture = Fixture::new();
+    let line = format!("{}NEEDLE_HIT{}\n", "x".repeat(1_500), "y".repeat(1_500));
+    let path = fixture.write("bundle.min.js", format!("head\n{line}tail\n"));
+    let paths = Paths(fixture.0.clone());
+    let query = qj(&path, serde_json::json!({"matchString":["NEEDLE_HIT"]}));
+    for window in [None, Some(600)] {
+        let pages = walk_exactly_once(&query, &paths, window, &line);
+        assert_eq!(pages.len(), 1, "{window:?}");
+    }
+}
+
+/// D4: a plain read whose line page stops at a line too long for it fills
+/// the page with that line's first bytes: one byte page from the read's
+/// first byte, as long as any byte page, and the walk goes on inside the
+/// line. Every byte once, in order.
+#[test]
+fn a_plain_read_fills_its_page_into_the_long_line() {
+    let fixture = Fixture::new();
+    let banner = "/*! bundle v1 | (c) contributors | example.org/license */\n";
+    let source = format!("{banner}{}\nlast();\n", positional(87_000));
+    let path = fixture.write("bundle.min.js", &source);
+    let paths = Paths(fixture.0.clone());
+    let read = fetch(&q(&path), &paths);
+    let page = read.pagination.clone().expect("pagination");
+    assert_eq!(page.unit, ReadProgressUnit::Bytes, "{page:?}");
+    assert_eq!(page.offset, 0, "{page:?}");
+    let full = crate::tools::source_view::pagination::LINE_PAGE_BYTES;
+    // The room counts text as it serializes: a line break is two characters.
+    assert_eq!(page.length + 1, full, "a full page: {page:?}");
+    assert_eq!(
+        read.source_line_ranges,
+        vec![LineRange { start: 1, end: 2 }],
+        "the page cites both lines it holds"
     );
-    assert_eq!(read.pagination.as_ref().expect("pagination").offset, 0);
-    assert!(related_rows(&read).is_empty(), "nothing skipped");
-    assert_eq!(walk_on(read, &paths), format!("{line}\n"));
+    let pages = walk_exactly_once(&q(&path), &paths, None, &source);
+    assert!(
+        pages.windows(2).all(|pair| pair[0].0 < pair[1].0),
+        "a plain read walks in order"
+    );
+    assert_eq!(
+        pages.len(),
+        source.len().div_ceil(full) + 1,
+        "the long line's pages, and the line after it"
+    );
 }
 
 /// A line longer than a streamed window is reachable in full: a byte offset
@@ -252,7 +361,9 @@ fn a_capture_reads_a_selection_within_its_budget_in_one_page() {
 }
 
 /// Tiny windows and multi-line matches must not need optional related reads
-/// or client-side slicing to reconstruct the selected Unicode evidence.
+/// or client-side slicing to reconstruct the selected Unicode evidence: the
+/// required pages are the selection exactly once, each at the place it
+/// states, the match's window first.
 #[test]
 fn required_pages_reconstruct_long_unicode_matched_lines_exactly_once() {
     let fixture = Fixture::new();
@@ -272,38 +383,18 @@ fn required_pages_reconstruct_long_unicode_matched_lines_exactly_once() {
     ] {
         let path = fixture.write(name, format!("outside before\n{selected}outside after\n"));
         for window in [80, 600, 1_000] {
-            let mut query = qj(
+            let query = qj(
                 &path,
                 serde_json::json!({
                     "matchString":[pattern], "contextLines":{"before":0,"after":0}
                 }),
             );
-            let mut joined = String::new();
-            loop {
-                let read =
-                    execute_local_fetch(&query, &paths, &Safe, &NeverCancel, Some(window), None);
-                assert_eq!(read.status, ReadStatus::Success, "{read:?}");
-                let text = read.content.as_deref().expect("content");
-                let end = joined.len() + text.len();
-                assert!(end <= selected.len(), "no duplicate evidence");
-                assert_eq!(
-                    text,
-                    &selected[joined.len()..end],
-                    "contiguous selected bytes"
-                );
-                joined.push_str(text);
-                let page = read.pagination.as_ref().expect("pagination");
-                let next = read.next.and_then(|calls| calls.continue_window);
-                assert_eq!(
-                    page.has_more,
-                    next.is_some(),
-                    "every remainder is reachable"
-                );
-                let Some(next) = next else { break };
-                assert!(!text.is_empty(), "required pages make progress");
-                query = next.query;
-            }
-            assert_eq!(joined, selected, "{name}, response window {window}");
+            let pages = walk_exactly_once(&query, &paths, Some(window), &selected);
+            assert!(
+                pages[0].1.contains("needleTOKEN"),
+                "{name}, response window {window}: {:?}",
+                pages[0]
+            );
         }
     }
 }

@@ -1,10 +1,10 @@
 mod key_blocks;
 mod key_markers;
 pub(crate) use key_blocks::{
-    KeyBlockState, KeyBlockTracker, LineShapeScan, hide_key_line, key_line_lead,
-    match_window_intersects_key_block,
+    KEY_LINE_HEAD_BYTES, KeyBlockState, KeyBlockTracker, LineShapeScan, hide_key_line,
+    key_line_lead, match_window_intersects_key_block,
 };
-use key_blocks::{key_line_bytes, opens_with_body_run};
+use key_blocks::{holds_body_run, key_line_bytes, opens_with_body_run};
 pub(crate) use key_markers::MarkerScan;
 use key_markers::{line_markers, may_hold_key_marker};
 use std::path::Path;
@@ -119,9 +119,9 @@ fn hide_lines(
         if let Some((bytes, hidden)) = hide(line) {
             hid_any = true;
             replaced.push((start + bytes.start..start + bytes.end, hidden.len()));
-            out.push_str(&line[..bytes.start]);
+            out.push_str(line.get(..bytes.start).unwrap_or_default());
             out.push_str(&hidden);
-            out.push_str(&line[bytes.end..]);
+            out.push_str(line.get(bytes.end..).unwrap_or_default());
         } else {
             out.push_str(line);
         }
@@ -134,6 +134,22 @@ fn hide_lines(
         start += piece.len();
     }
     hid_any.then(|| (out, octocode_engine::security::Edits::of_pass(replaced)))
+}
+
+/// Whether `text`, a string of a request, holds the body of a private key:
+/// a line a block hides ([`KeyBlockState`]) that is no armor line itself, or
+/// a body run on the armor line (a block written on one line). The armor
+/// line alone is no key text.
+pub(crate) fn holds_private_key_body(text: &str) -> bool {
+    if !may_hold_key_marker(text) {
+        return false;
+    }
+    let mut block = KeyBlockState::default();
+    text.lines().any(|line| {
+        let hidden = block.push_line(line);
+        let markers = line_markers(line.as_bytes());
+        hidden && (!markers.any() || holds_body_run(line))
+    })
 }
 
 /// Placeholder emitted for a redacted private-key fragment. Shared by the
@@ -188,13 +204,26 @@ fn split_private_key_hidden(
     text: &str,
     file_path: Option<&Path>,
 ) -> Option<(String, octocode_engine::security::Edits)> {
+    split_private_key_hidden_unless(text, file_path, |_| false)
+}
+
+/// [`split_private_key_hidden`] that leaves a boundary line `sent` names:
+/// an armor line a request itself wrote, which holds no key text. The lines
+/// of key text around it are hidden as ever.
+fn split_private_key_hidden_unless(
+    text: &str,
+    file_path: Option<&Path>,
+    sent: impl Fn(&str) -> bool,
+) -> Option<(String, octocode_engine::security::Edits)> {
     let has_boundary = text.lines().any(is_private_key_boundary);
     if !has_boundary && !is_private_key_path(file_path) {
         return None;
     }
     hide_lines(text, |line| {
-        (is_private_key_boundary(line) || is_key_body_line(line) || opens_with_body_run(line))
-            .then(|| hidden_key(line))
+        let hides = is_key_body_line(line)
+            || opens_with_body_run(line)
+            || (is_private_key_boundary(line) && !sent(line));
+        hides.then(|| hidden_key(line))
     })
 }
 
@@ -265,20 +294,21 @@ impl ContentSecurity {
     /// `raw`, the decoded text of the file at `path`, judged whole
     /// ([`super::JudgedText`]): the one redaction decision every text a tool
     /// shows of that source is cut from. A request's policy
-    /// ([`Self::for_request`]) judges the same text of a path once.
-    pub(crate) fn judge_source(&self, raw: &str, path: &Path) -> std::sync::Arc<super::JudgedText> {
+    /// ([`Self::for_request`]) judges the same text of a path once; `judge`
+    /// makes the judgment of a text it has not judged, given the text's
+    /// digest ([`super::JudgedText::judge`], or a pass kept of that text).
+    pub(crate) fn judge_source(
+        &self,
+        raw: &str,
+        path: &Path,
+        judge: impl FnOnce(&[u8; 32]) -> super::JudgedText,
+    ) -> std::sync::Arc<super::JudgedText> {
         match &self.judged {
-            Some(files) => files.judge(raw, path, self),
-            None => std::sync::Arc::new(super::JudgedText::judge(raw, path, self)),
+            Some(files) => files.judge(raw, path, judge),
+            None => std::sync::Arc::new(judge(&octocode_engine::digest::sha256_digest(
+                raw.as_bytes(),
+            ))),
         }
-    }
-
-    /// [`Self::judge_source`] for a tool that settles every row of the file
-    /// in one pass: judged whole and noted ([`Self::judged_whole`]), with
-    /// nothing of the source kept by the request.
-    pub(crate) fn judge_whole(&self, raw: &str, path: &Path) -> super::JudgedText {
-        self.note_judged_whole(path);
-        super::JudgedText::judge(raw, path, self)
     }
 
     /// Notes that this request cuts the rows of the file at `path` from its
@@ -344,6 +374,49 @@ impl ContentSecurity {
         )
     }
 
+    /// [`Self::sanitize_leaf`] of a leaf of a response to the rows `own` was
+    /// admitted with: a redaction that replaces only bytes of a string the
+    /// caller sent is undone ([`super::Admitted::restore`]), so a lead or an
+    /// error that repeats a request value repeats it as sent. A leaf that
+    /// repeats none is judged by [`Self::sanitize_leaf`] alone, and a scan
+    /// that fails hides the whole leaf.
+    pub(crate) fn sanitize_response_leaf(
+        &self,
+        content: &str,
+        source_path: Option<&str>,
+        own: &super::Admitted,
+    ) -> Option<String> {
+        if own.is_empty() || !own.occurs_in(content) {
+            return self.sanitize_leaf(content, source_path);
+        }
+        let Ok(scanned) =
+            octocode_engine::security::sanitizer::sanitize_leaf_edits(content, source_path)
+        else {
+            return Some(octocode_engine::security::SANITIZER_FAILURE_PLACEHOLDER.to_owned());
+        };
+        // The detector's replacements first, each undone where it took only
+        // the caller's bytes; then the split-key guard over that text, which
+        // leaves an armor line the caller sent and hides every line of key
+        // text around it.
+        let judged = match scanned {
+            Some((clean, edits)) => own.restore(content, &clean, &edits),
+            None => None,
+        };
+        let text = judged.as_deref().unwrap_or(content);
+        let sent = own.spans(text);
+        let guarded = split_private_key_hidden_unless(text, None, |line| {
+            let start = (line.as_ptr() as usize).saturating_sub(text.as_ptr() as usize);
+            let within = start..start + line.len();
+            !holds_body_run(line)
+                && sent.iter().any(|span| {
+                    within.start <= span.start
+                        && span.end <= within.end
+                        && text.get(span.clone()).is_some_and(is_private_key_boundary)
+                })
+        });
+        guarded.map(|(text, _)| text).or(judged)
+    }
+
     /// [`Self::sanitize_leaf`] of a leaf cut from text the whole-source pass
     /// judged at `judged_path` ([`super::JudgedLeaves`]): the patterns that
     /// pass did not apply, and the split-key guard.
@@ -383,27 +456,66 @@ impl ContentSecurity {
         .or(redacted)
     }
 
-    /// A clasify row's own text names no file and leaves for a provider, so it
-    /// is judged as kept text is: whatever a read of some file would redact.
-    /// The fields of `row` that held any.
-    pub(super) fn judge_evidence(
+    /// A clasify row's own text names no file and leaves for a provider, so
+    /// it is judged as kept text is: whatever a read of some file would
+    /// redact is hidden in place, in the `evidence` field wholly
+    /// ([`Self::sanitize_stored_leaf`]) and in the caller's words beside it
+    /// except what the request rules cleared ([`Self::sanitize_request_words`]).
+    /// Whether any of `row` was.
+    pub(super) fn hide_provider_text(
         &self,
         row: &mut serde_json::Map<String, serde_json::Value>,
-    ) -> Vec<String> {
-        let mut fields = Vec::new();
-        for field in ["content", "questions", "context"] {
+        evidence: &str,
+    ) -> bool {
+        let mut hidden = false;
+        for field in [evidence, "questions", "context"] {
             let Some(value) = row.get_mut(field) else {
                 continue;
             };
-            let redacted = super::sanitize_json(value, &mut |text: &str, _: Option<&str>| {
-                Ok::<_, std::convert::Infallible>(self.sanitize_stored_leaf(text, None))
+            hidden |= super::sanitize_json(value, &mut |text: &str, _: Option<&str>| {
+                Ok::<_, std::convert::Infallible>(if field == evidence {
+                    self.sanitize_stored_leaf(text, None)
+                } else {
+                    self.sanitize_request_words(text)
+                })
             })
             .unwrap_or_else(|never| match never {});
-            if redacted {
-                fields.push(field.to_owned());
-            }
         }
-        fields
+        hidden
+    }
+
+    /// The caller's own words on their way to a provider (a question, a
+    /// task's context), which the input gate admitted as a request: what a
+    /// read of some file would redact in them is hidden
+    /// ([`Self::sanitize_stored_leaf`]), except a value the request rules
+    /// themselves placed and cleared (a URL's `password`, a name's `str`)
+    /// and a key's armor line, which holds no part of any key: the text the
+    /// gate ran is the text the provider reads, as a GitHub search sends
+    /// it. Text that holds a key's body, which the gate refuses, is hidden
+    /// as any kept text is. `None` when nothing is hidden.
+    pub(crate) fn sanitize_request_words(&self, text: &str) -> Option<String> {
+        use octocode_engine::security::sanitizer::{
+            request_cleared_values, sanitize_stored_leaf_edits,
+        };
+        if holds_private_key_body(text) {
+            return self.sanitize_stored_leaf(text, None);
+        }
+        let (Ok(scanned), Ok(cleared)) = (
+            sanitize_stored_leaf_edits(text, None),
+            request_cleared_values(text),
+        ) else {
+            return Some(octocode_engine::security::SANITIZER_FAILURE_PLACEHOLDER.to_owned());
+        };
+        let (clean, edits) = scanned?;
+        super::input::restore_within(&cleared, text, &clean, &edits)
+    }
+
+    /// [`Self::sanitize_data`] of the caller's own words
+    /// ([`Self::sanitize_request_words`]).
+    pub(crate) fn sanitize_request_data(&self, value: &mut serde_json::Value) {
+        let _ = super::sanitize_json(value, &mut |text: &str, _: Option<&str>| {
+            Ok::<_, std::convert::Infallible>(self.sanitize_request_words(text))
+        });
     }
 
     /// Text data at an external provider boundary has no trusted source path.

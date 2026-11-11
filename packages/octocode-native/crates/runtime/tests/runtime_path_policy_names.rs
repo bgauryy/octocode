@@ -269,10 +269,7 @@ async fn walks_keep_source_folders_and_disclose_only_credential_files() {
                         .as_array()
                         .expect("group files")
                         .iter()
-                        .any(|file| {
-                            file.as_str()
-                                .is_some_and(|file| file.starts_with(&format!("{name} (")))
-                        })
+                        .any(|file| file == name)
             });
         assert_eq!(
             seen,

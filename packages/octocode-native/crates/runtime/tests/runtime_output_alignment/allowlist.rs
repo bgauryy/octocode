@@ -21,10 +21,6 @@ const WAVE_2: &[&str] = &[
     "B4 echo | graphQuery | rows[].kind <- request kind",
     "B4 echo | graphQuery | target.id <- request target",
     "B4 echo | securityCheck | advisories[].id <- request id",
-    "B5 stated once | graphQuery | mostCalledSymbols[].kind",
-    "B5 stated once | graphQuery | mostCalledSymbols[].symbolKind",
-    "B5 stated once | graphQuery | mostImportedFiles[].kind",
-    "B5 stated once | graphQuery | mostImportedFiles[].language",
     "B5 stated once | graphQuery | rows[].kind",
     "B5 stated once | graphQuery | rows[].language",
     "B5 stated once | graphQuery | rows[].symbolKind",
@@ -69,19 +65,12 @@ const WAVE_4: &[&str] = &[
     "B6 format | artifactSearch | timestamp artifacts[].publishedAt: date only",
     "B6 format | ghGetHistoryItem | timestamp responsePagination.expiresAt: fraction of a second",
     "B6 format | ghSearchHistory | timestamp responsePagination.expiresAt: fraction of a second",
-    "B6 format | ghSearchRepo | timestamp repositories[].createdAt: date only",
     "B6 format | ghSearchRepo | timestamp repositories[].pushedAt: date only",
-    "B6 format | ghSearchRepo | timestamp repositories[].updatedAt: date only",
-    "B6 format | localFetch | timestamp modified: fraction of a second",
     "B6 format | localFetch | timestamp responsePagination.expiresAt: fraction of a second",
     "B6 format | securityCheck | number advisories[].epss.percentage: more than 3 fraction digits",
     "B6 format | securityCheck | number advisories[].epss.percentile: more than 3 fraction digits",
     "B6 format | securityCheck | timestamp advisories[].modified: fraction of a second",
     "B6 format | securityCheck | timestamp responsePagination.expiresAt: fraction of a second",
-    "B7 empty row | localSearch | no collection key",
-    "B7 empty row | localSearch | zero counter matchCount",
-    "B7 empty row | localSearch | zero counter matchedFiles",
-    "B7 empty row | localSearch | zero counter matchedLineCount",
 ];
 
 /// Rule H candidates the RFC's hoisting table does not rank: uniform on these
@@ -92,9 +81,6 @@ const UNRANKED: &[&str] = &[
     "B5 stated once | astSearch | files[].symbols[].exported",
     "B5 stated once | astSearch | files[].symbols[].kind",
     "B5 stated once | ghSearchHistory | pullRequests[].state",
-    "B5 stated once | graphQuery | mostCalledSymbols[].exported",
-    "B5 stated once | graphQuery | mostCalledSymbols[].fanIn",
-    "B5 stated once | graphQuery | mostImportedFiles[].fanIn",
     "B5 stated once | graphQuery | rows[].exported",
     "B5 stated once | graphQuery | rows[].fanIn",
     "B5 stated once | graphQuery | rows[].match",
@@ -107,7 +93,6 @@ const UNRANKED: &[&str] = &[
 const KEPT: &[&str] = &[
     "B4 echo | structureSearch | files[].dir <- request path",
     "B4 echo | ghGetHistoryItem | author.login <- request owner",
-    "B4 echo | ghSearchHistory | commits[].author <- request owner",
     "B4 echo | lspSearch | files[].path <- request path",
 ];
 

@@ -30,8 +30,9 @@ fn default_match_context_is_zero_for_long_and_short_lines() {
 /// A `unit:"lines"` walk over a file holding one line longer
 /// than a page reaches every source byte exactly once. Line pages continue
 /// at the next line; the oversized line is served as byte pages that each
-/// cite it as `sourceLineRanges: [{line, endLine}]` (the wire names),
-/// and line paging resumes on the following line.
+/// cite it as `sourceLineRanges: [{line, endLine}]` (the wire names), the
+/// first of them with the short lines before it that fill the page, and
+/// line paging resumes on the following line.
 #[test]
 fn line_walk_over_an_oversized_line_covers_every_byte_once() {
     let t = Fixture::new();
@@ -60,10 +61,17 @@ fn line_walk_over_an_oversized_line_covers_every_byte_once() {
         let unit = page.pagination.as_ref().map(|p| p.unit);
         if unit == Some(ReadProgressUnit::Bytes) {
             byte_pages += 1;
+            // The page that reaches the oversized line fills up with its
+            // first bytes: it cites the short lines it holds too.
+            let first = if last_line < long_line {
+                last_line + 1
+            } else {
+                long_line
+            };
             assert_eq!(
                 wire["sourceLineRanges"],
-                serde_json::json!([{"line": long_line, "endLine": long_line}]),
-                "a byte page cites the oversized line it serves"
+                serde_json::json!([{"line": first, "endLine": long_line}]),
+                "a byte page cites the lines it serves, the oversized line last"
             );
             last_line = long_line;
         } else {

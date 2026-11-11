@@ -94,7 +94,7 @@ flowchart TD
 
 A smaller view answers only what it selects: `view:"files"` holds no lines, `symbols` no bodies, `matchOnly` no owner, `compact` no quotes. Widen when the claim needs more, and finish the pages that claim covers. Selectors choose evidence; they never replace it.
 
-- `block:true` wants a unique literal. It expands declaration heads; on a common term most hits keep their context windows and `next.continueBlock` holds the rest. Check the span closes the declaration, else use `astSearch` symbols `line`/`endLine`; never guess an end.
+- `block:true` wants a unique literal. It expands declaration heads; on a common term most hits keep their context windows. A declaration longer than a page continues with `next.nextPage`. Check the span closes the declaration, else use `astSearch` symbols `line`/`endLine`; never guess an end.
 - `compact` shrinks code by removing comments and spare whitespace: median 26% over 57 source files of this repository (range 0–55%), most on comment-heavy files; Markdown, JSON and minified files effectively not at all. Quote or edit only from `content`.
 - `symbols` scales with declarations: past a few thousand lines of code, or on large JSON, a filtered search costs less. `lspSearch documentSymbols` costs more still; use it when the server's view matters. A missing outline entry is not absence.
 - A file over the parser limit: `symbols` serves `compact` (check `viewFallback`) and `astSearch` answers `fileTooLarge`; use `matchString`.

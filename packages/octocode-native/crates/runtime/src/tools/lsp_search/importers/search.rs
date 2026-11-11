@@ -8,10 +8,9 @@ pub(in super::super) const SCAN_CAPPED: &str = "capped";
 
 pub(in super::super) const SCAN_FAILED: &str = "failed";
 
-/// Every candidate was verified, and files the scan's rules keep out of it
-/// (gitignored or hidden) import the name or could not be checked for an
-/// import, or the scan for them did not finish: the row counts them and
-/// leads to them.
+/// Every candidate was verified, and a file the scan's rules keep out of it
+/// (gitignored or hidden) imports the name from a module that may be the
+/// anchor's: the row counts those files and leads to them.
 pub(in super::super) const SCAN_SKIPPED: &str = "skippedFiles";
 
 /// What [`verified_anchors`] verifies: importers of `symbol`, declared at
@@ -486,11 +485,12 @@ async fn verify_window(
 /// spells) from a module that may be the anchor's (see [`AnchorModule`];
 /// any module when `module` is unknown), and those the check cannot decide:
 /// refused by the policy, unreadable, larger than the parser's bound
-/// ([`crate::security::SourceLimits::whole_source`]), unparsable, or not
-/// reached before the request stopped. Every file is checked: one
-/// cancellable blocking worker reads them in turn and keeps none (the server
-/// never opens them, so no request cache holds them); its parses are
-/// digest-cached for later windows.
+/// ([`crate::security::SourceLimits::REAL`]`.whole_source`), unparsable, or not
+/// reached before the request stopped. Every file is checked, each by the
+/// cheapest check that decides it ([`imports_from`]), on as many threads as
+/// the request has a share of; a cancellable blocking worker owns them and
+/// keeps no text (the server never opens these files, so no request cache
+/// holds them); the parses are digest-cached for later windows.
 pub(super) async fn check_imports(
     ignored: &mut IgnoredMentions,
     policy: &PathPolicy,
@@ -501,25 +501,17 @@ pub(super) async fn check_imports(
     let files = ignored.files.clone();
     let (policy, symbol) = (policy.clone(), symbol.to_owned());
     let checked = super::super::blocking_cancellable(cancel, move |stopped| {
-        let mut relays = HashMap::new();
-        files
-            .into_iter()
-            .map(|file| {
-                let imports = (!stopped())
-                    .then(|| {
-                        let content = read_checked(&policy, &file)?;
-                        let facts = crate::tools::declarations::graph_facts(&content, &file)?;
-                        Some(
-                            imports_name(&facts, &content, &symbol)
-                                && module.as_deref().is_none_or(|module| {
-                                    module.bound_by(&file, &content, &facts, &mut relays)
-                                }),
-                        )
-                    })
-                    .flatten();
-                (file, imports)
-            })
-            .collect::<Vec<_>>()
+        // What relays a name is the same for every file: one memo.
+        let relays = std::sync::Mutex::new(HashMap::new());
+        let workers = crate::tools::workers::workers(files.len(), None);
+        let answers = crate::tools::workers::each_parallel(&files, workers, |file| {
+            if stopped() {
+                return None;
+            }
+            let content = read_checked(&policy, file)?;
+            imports_from(file, &content, &symbol, module.as_deref(), &relays)
+        });
+        files.into_iter().zip(answers).collect::<Vec<_>>()
     })
     .await?;
     let Some(checked) = checked else {
@@ -535,6 +527,40 @@ pub(super) async fn check_imports(
         }
     }
     Ok(())
+}
+
+/// Whether `file` (canonical), whose text is `content`, imports `symbol` from
+/// a module that may be `module` (any module when unknown), decided by the
+/// cheapest sufficient check, each only when the one before left it open:
+/// 1. the text: a file that spells no module reference imports nothing;
+/// 2. its module references, parsed once and never as whole-file facts
+///    ([`crate::tools::declarations::module_references`]): a file that binds
+///    the name nowhere is no importer, whatever module it names;
+/// 3. the specifiers of the references that bind it, resolved against
+///    `module` ([`AnchorModule::bound_by`]).
+///
+/// `None` when the file cannot be parsed. `relays` is the request's memo of
+/// which modules relay the name.
+fn imports_from(
+    file: &str,
+    content: &str,
+    symbol: &str,
+    module: Option<&AnchorModule>,
+    relays: &std::sync::Mutex<HashMap<std::path::PathBuf, bool>>,
+) -> Option<bool> {
+    if !reach::may_reference_modules(content) {
+        return Some(false);
+    }
+    let facts = crate::tools::declarations::module_references(content, file)?;
+    if !imports_name(&facts, content, symbol) {
+        return Some(false);
+    }
+    Some(module.is_none_or(|module| {
+        let mut relays = relays
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        module.bound_by(file, content, &facts, &mut relays)
+    }))
 }
 
 /// The anchor's module when it exports `symbol` itself (see

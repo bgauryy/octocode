@@ -54,7 +54,7 @@ const BYTE_WINDOW_BYTES: usize = 384 * 1024;
 /// short, and a line of this length is judged by its bytes alone.
 const KEY_LINE_BYTES: usize = 1024 * 1024;
 /// Line prefix kept to read a private-key block's named lines and armor headers.
-const MARKER_PREFIX_BYTES: usize = 256;
+const MARKER_PREFIX_BYTES: usize = crate::security::KEY_LINE_HEAD_BYTES;
 
 #[cfg(test)]
 thread_local! {
@@ -180,7 +180,6 @@ pub(crate) fn fetch_window(
     path: &Path,
     source: &std::fs::File,
     meta: &std::fs::Metadata,
-    modified: Option<String>,
     share: Option<usize>,
     security: &impl ContentScan,
     cancel: &impl CancellationCheck,
@@ -192,7 +191,7 @@ pub(crate) fn fetch_window(
         )
         .is_some(),
     };
-    serve_source(q, path, source, meta, modified, share, security, cancel)
+    serve_source(q, path, source, meta, share, security, cancel)
 }
 
 fn serve_source(
@@ -200,7 +199,6 @@ fn serve_source(
     path: &Path,
     source: &std::fs::File,
     meta: &std::fs::Metadata,
-    modified: Option<String>,
     share: Option<usize>,
     security: &impl ContentScan,
     cancel: &impl CancellationCheck,
@@ -242,13 +240,13 @@ fn serve_source(
         })
     };
     if !local_fetch_query::match_strings(q).is_empty() {
-        return matches::fetch_matches(q, &source, modified, noted(true), security, cancel);
+        return matches::fetch_matches(q, &source, noted(true), security, cancel);
     }
     if local_fetch_query::has_ranges(q) && local_fetch_query::start_line(q).is_none() {
-        return fetch_ranges(q, &source, modified, noted(true), security, cancel);
+        return fetch_ranges(q, &source, noted(true), security, cancel);
     }
     let first_page = local_fetch_query::offset(q).unwrap_or(0) == 0;
-    let mut result = stream_window(q, &source, modified, noted(first_page), security, cancel);
+    let mut result = stream_window(q, &source, noted(first_page), security, cancel);
     // The note is the same on every page: the read's first page states it.
     if result.status != ReadStatus::Error && local_fetch_query::offset(q).unwrap_or(0) == 0 {
         result.warnings.insert(0, streamed_warning(len));

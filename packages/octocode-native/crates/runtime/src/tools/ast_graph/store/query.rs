@@ -218,7 +218,7 @@ fn run_with(
             "analysisCurrent": analysis_current})
     });
     let result = (|| match op {
-        Op::Stats => stats(g, cancel),
+        Op::Stats => stats(g, options),
         Op::Candidates => query.candidates(),
         Op::Witnesses | Op::Unresolved => query.evidence(),
         Op::Find => {

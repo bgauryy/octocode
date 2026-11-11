@@ -2,13 +2,152 @@
 //! through the read policy, and judged whole ([`crate::security::JudgedText`]).
 //! Every tool that shows text of a local source cuts it from here by
 //! position, so a search hit, an AST node, an LSP snippet and a read of the
-//! same lines show the same redaction.
+//! same lines show the same redaction. What the pass made of a text is kept
+//! by the text's digest ([`judged`]), so a text is scanned once while its
+//! pass is kept, whichever row, page, request or tool asks next.
 use crate::policy::path::PathPolicy;
-use crate::security::{ContentSecurity, JudgedText};
+use crate::security::{ContentSecurity, JudgedText, WholePass};
+use crate::tools::page_memo::PageMemo;
+use octocode_engine::security::Edits;
 use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
+
+/// What the whole-source pass made of a text it changed
+/// ([`WholePass`]), as the store keeps it; `None` for a
+/// pass that replaced nothing.
+type Pass = Option<Kept>;
+
+#[derive(Clone)]
+struct Kept {
+    /// The text a read serves.
+    clean: Arc<str>,
+    /// What the pass replaced, by position.
+    edits: Arc<Edits>,
+    /// `clean` is the scanner's own text ([`WholePass::scanned`]).
+    scanned: bool,
+}
+
+/// The pass of every source a tool judged whole, kept by the digest of the
+/// text judged, the path it was judged at and the scanner's limits: all a
+/// pass reads. A source's text is judged once while its pass is kept, across
+/// rows, pages, requests and tools; a file whose text changed has another
+/// digest and is judged again. A kept pass holds no source text, and a pass
+/// that replaced nothing holds nothing. Weighed against the one process
+/// budget, in memory only ([`PageMemo`]): eviction or expiry costs a scan.
+static PASSES: PageMemo<Pass> = PageMemo::new();
+
+/// The whole-source pass over `raw`, the decoded text of the file at `path`
+/// whose bytes hash to `digest`: the one kept of this text at this path
+/// ([`PASSES`]), else a scan now ([`JudgedText::pass`]), whose pass is then
+/// kept.
+fn pass(raw: &str, digest: &[u8; 32], path: &Path, security: &ContentSecurity) -> Pass {
+    let key = format!("{}\n{}", hex::encode(digest), path.to_string_lossy());
+    let policy = format!("{:?}", security.limits());
+    if let Some(pass) = PASSES.get(&key, &policy, Clone::clone) {
+        return pass;
+    }
+    let kept = |pass: WholePass| Kept {
+        clean: Arc::from(pass.clean),
+        edits: Arc::new(pass.edits),
+        scanned: pass.scanned,
+    };
+    let pass: Pass = JudgedText::pass(raw, path, security).map(kept);
+    let weight = pass
+        .as_ref()
+        .map_or(0, |kept| kept.clean.len() + kept.edits.heap_bytes());
+    PASSES.put(key, policy, weight, pass.clone());
+    pass
+}
+
+/// `raw`, the decoded text of the file at `path` whose bytes hash to
+/// `digest`, judged whole ([`JudgedText`]): by the pass kept of this text at
+/// this path ([`PASSES`]), else by a scan now, whose pass is then kept.
+pub(crate) fn judged(
+    raw: &str,
+    digest: &[u8; 32],
+    path: &Path,
+    security: &ContentSecurity,
+) -> JudgedText {
+    let pass = pass(raw, digest, path, security);
+    JudgedText::judged_as(
+        raw,
+        path,
+        pass.as_ref().map(|kept| (&*kept.clean, &*kept.edits)),
+    )
+}
+
+/// What `security` makes of `raw`, the decoded text of the file at `path`
+/// with no private-key block in it, scanned whole
+/// ([`ContentSecurity::sanitize_text`]): the text a read of the source cuts
+/// its windows from, `raw` itself when the scan left it as it is. It is the
+/// text of the one pass every tool's rows of this source are cut from
+/// ([`pass`]), so a second read of an unchanged file scans nothing. A pass
+/// that did not say what it replaced kept no text of the scanner's: the
+/// text is then scanned for this read.
+pub(crate) fn scanned_whole<'a>(
+    raw: &'a str,
+    path: &Path,
+    security: &ContentSecurity,
+) -> std::borrow::Cow<'a, str> {
+    let digest = octocode_engine::digest::sha256_digest(raw.as_bytes());
+    match pass(raw, &digest, path, security) {
+        None => raw.into(),
+        Some(kept) if kept.scanned => kept.clean.to_string().into(),
+        Some(_) => security.sanitize_text(raw, Some(path)).content,
+    }
+}
+
+/// What a search's whole read of a local source found, kept by the digest
+/// of the file's bytes, the path it was judged at and the scanner's limits,
+/// as [`PASSES`] keeps a text's pass: a later search of the same bytes
+/// proves them by their digest and reads no line of them for a scan. It
+/// holds no text of the source.
+static WHOLE_SOURCES: PageMemo<WholeSource> = PageMemo::new();
+
+/// A local source a search read whole ([`WHOLE_SOURCES`]).
+#[derive(Clone, Copy)]
+pub(crate) struct WholeSource {
+    /// How many lines the read found.
+    pub(crate) lines: usize,
+    /// The digest of the text the read judged (its lines, as the search
+    /// decoded them), when the pass replaced any of it: the key its pass is
+    /// kept by ([`judged`]). `None` when the pass replaced nothing, so its
+    /// rows show their own bytes.
+    pub(crate) redacted_text: Option<[u8; 32]>,
+}
+
+/// What a whole read of the source at `path` whose bytes hash to `bytes`
+/// found ([`keep_whole_source`]), when one is kept.
+pub(crate) fn whole_source(
+    bytes: &[u8; 32],
+    path: &Path,
+    security: &ContentSecurity,
+) -> Option<WholeSource> {
+    let key = format!("{}\n{}", hex::encode(bytes), path.to_string_lossy());
+    WHOLE_SOURCES.get(&key, &format!("{:?}", security.limits()), |found| *found)
+}
+
+/// Keep what a whole read of the source at `path` whose bytes hash to
+/// `bytes` found.
+pub(crate) fn keep_whole_source(
+    bytes: &[u8; 32],
+    path: &Path,
+    security: &ContentSecurity,
+    found: WholeSource,
+) {
+    let key = format!("{}\n{}", hex::encode(bytes), path.to_string_lossy());
+    let policy = format!("{:?}", security.limits());
+    WHOLE_SOURCES.put(key, policy, std::mem::size_of::<WholeSource>(), found);
+}
+
+/// [`judged`] of a text whose digest is not known yet.
+pub(crate) fn judged_text(raw: &str, path: &Path, security: &ContentSecurity) -> JudgedText {
+    let digest = octocode_engine::digest::sha256_digest(raw.as_bytes());
+    judged(raw, &digest, path, security)
+}
 
 /// The sources a row's files name, each read and judged once.
 pub(crate) struct RowSources<'a> {
@@ -40,7 +179,10 @@ impl<'a> RowSources<'a> {
             let limit = self.security.limits().whole_source;
             let bytes = crate::tools::source::read_bounded(&validated.canonical, limit).ok()?;
             let text = octocode_engine::text::decode(&bytes).text;
-            Some(self.security.judge_source(&text, &validated.canonical))
+            let path = &validated.canonical;
+            Some(self.security.judge_source(&text, path, |digest| {
+                judged(&text, digest, path, self.security)
+            }))
         });
         self.read
             .borrow_mut()
@@ -138,4 +280,66 @@ impl<'a> RowSources<'a> {
 /// A 1-based JSON number as a line, or a 1-based column as a 0-based one.
 pub(crate) fn number(value: &Value) -> Option<usize> {
     value.as_u64().and_then(|n| usize::try_from(n).ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A fake token: no real credential.
+    fn token() -> String {
+        format!("ghp_{}", "abcdefghijklmnopqrstuvwxyz0123456789")
+    }
+
+    /// A kept pass shows exactly what its scan showed, and hides what it
+    /// hid: the same text at the same path is scanned once, and another
+    /// text or another path is another judgment.
+    #[test]
+    fn a_kept_pass_judges_as_its_scan_did() {
+        let security = ContentSecurity::new();
+        let root = tempfile::tempdir().expect("fixture");
+        let path = root.path().join("src/config.ts");
+        let secret = token();
+        let source = format!("const a = 1;\nconst key = \"{secret}\";\nconst b = 2;\n");
+        let scanned = crate::security::scanned_on_this_thread;
+        let before = scanned();
+        let first = judged_text(&source, &path, &security);
+        assert_eq!(scanned() - before, source.len(), "scanned once");
+        let again = judged_text(&source, &path, &security);
+        assert_eq!(
+            scanned() - before,
+            source.len(),
+            "the kept pass scans nothing"
+        );
+        assert!(first.is_redacted() && again.is_redacted());
+        assert_eq!(first.redaction(), again.redaction());
+        for judged in [&first, &again] {
+            let read = judged.lines(1, 3).expect("the read");
+            assert!(!read.contains(&secret), "{read}");
+            assert!(
+                read.contains("const a = 1;") && read.contains("const b = 2;"),
+                "{read}"
+            );
+            let line = judged.line_span(2, 1).expect("line 2");
+            assert!(!judged.cut(line).contains(&secret));
+        }
+        assert_eq!(first.lines(1, 3), again.lines(1, 3));
+
+        // A clean text keeps nothing and still scans once.
+        let clean = "const a = 1;\n";
+        let before = scanned();
+        for _ in 0..3 {
+            assert!(!judged_text(clean, &path, &security).is_redacted());
+        }
+        assert_eq!(scanned() - before, clean.len());
+
+        // The path is part of what a pass reads; so is the text.
+        let before = scanned();
+        let other = judged_text(&source, &root.path().join("src/other.ts"), &security);
+        assert!(other.is_redacted());
+        let longer = format!("{source}const c = 3;\n");
+        let changed = judged_text(&longer, &path, &security);
+        assert!(!changed.lines(1, 4).expect("the read").contains(&secret));
+        assert_eq!(scanned() - before, source.len() + longer.len());
+    }
 }

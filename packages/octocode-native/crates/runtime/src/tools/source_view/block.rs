@@ -11,9 +11,6 @@ use crate::tools::declarations::{self, Declared, all_declarations};
 pub(super) use recovery::outline_recovery_warning;
 use recovery::recovered_parse;
 
-/// Largest declaration a block read returns in one window.
-pub const BLOCK_MAX_LINES: usize = 400;
-
 /// A file's outline as a block read widens with it: the multi-line
 /// declarations, and the lines of the one-line ones (nothing to widen to,
 /// which is not the same as no declaration at all).
@@ -113,15 +110,13 @@ fn no_outline(content: &str, path: &str) -> String {
     )
 }
 
-/// Widen each range to the innermost declaration containing its first line.
-/// A declaration over [`BLOCK_MAX_LINES`] keeps the range start and reads at
-/// most that many lines of it; the lines it stops before go to `rest`.
+/// Widen each range to the innermost declaration containing its first line,
+/// whatever its length: the read's pages bound what one response holds.
 pub fn widen_ranges(
     content: &str,
     path: &str,
     ranges: Vec<LineRange>,
     warnings: &mut Vec<String>,
-    rest: &mut Vec<LineRange>,
 ) -> Vec<LineRange> {
     let Some(blocks) = Blocks::of(content, path) else {
         warnings.push(no_outline(content, path));
@@ -140,25 +135,9 @@ pub fn widen_ranges(
                 }
                 return range;
             };
-            let start = first.min(range.start);
-            let end = last.max(range.end);
-            if end + 1 - start <= BLOCK_MAX_LINES {
-                return LineRange { start, end };
-            }
-            let end = range.end.max(last.min(range.start + BLOCK_MAX_LINES - 1));
-            if end < last {
-                warnings.push(format!(
-                    "block: declaration {first}-{last} exceeds {BLOCK_MAX_LINES} lines; returned {}-{end}.",
-                    range.start,
-                ));
-                rest.push(LineRange {
-                    start: end + 1,
-                    end: last,
-                });
-            }
             LineRange {
-                start: range.start,
-                end,
+                start: first.min(range.start),
+                end: last.max(range.end),
             }
         })
         .collect();
@@ -190,18 +169,16 @@ fn declares(declared: &[Declared], hit: usize) -> bool {
 }
 
 /// Replace each match window with the innermost declaration containing the
-/// matched line, when that declaration fits [`BLOCK_MAX_LINES`]; a larger
-/// one keeps the window and goes to `oversized_spans`. When some hit is a
-/// declaration's own head, only those hits widen: a call site of the
-/// declared name keeps its window instead of reading its caller whole.
-/// Each widened declaration is named in `blocks`.
+/// matched line, whatever its length: the read's pages bound what one
+/// response holds. When some hit is a declaration's own head, only those
+/// hits widen: a call site of the declared name keeps its window instead of
+/// reading its caller whole. Each widened declaration is named in `blocks`.
 pub fn widen_matches(
     content: &str,
     path: &str,
     hits: &[usize],
     windows: Vec<LineRange>,
     warnings: &mut Vec<String>,
-    oversized_spans: &mut Vec<LineRange>,
     blocks: &mut Vec<super::types::DeclaredBlock>,
 ) -> Vec<LineRange> {
     let Some(outline) = Blocks::of(content, path) else {
@@ -212,7 +189,6 @@ pub fn widen_matches(
     let declared = &outline.declared;
     let declaration_first = hits.iter().any(|&hit| declares(declared, hit));
     let lines: Vec<&str> = content.lines().collect();
-    let mut oversized = 0;
     let mut unenclosed = 0;
     let mut one_line = 0;
     let mut call_sites = 0;
@@ -226,7 +202,7 @@ pub fn widen_matches(
             }
             // A hit on the declaration's head reads it as written, docs
             // included; a hit inside reads the declaration it sits in.
-            Some((start, end)) if end + 1 - start <= BLOCK_MAX_LINES => {
+            Some((start, end)) => {
                 if let Some(owner) = declarations::innermost(declared, hit)
                     && !owner.name.is_empty()
                     && !blocks.iter().any(|block| block.line == owner.line)
@@ -243,11 +219,6 @@ pub fn widen_matches(
                     (start, end)
                 };
                 LineRange { start, end }
-            }
-            Some((start, end)) => {
-                oversized += 1;
-                oversized_spans.push(LineRange { start, end });
-                window
             }
             None if outline.is_one_line(hit) => {
                 one_line += 1;
@@ -274,11 +245,6 @@ pub fn widen_matches(
         warnings.push(format!(
             "block: {unenclosed} match(es) sit outside any declaration; those keep their match context window.{}",
             recovered_parse(content, path).unwrap_or_default()
-        ));
-    }
-    if oversized > 0 {
-        warnings.push(format!(
-            "block: {oversized} match(es) sit in declarations over {BLOCK_MAX_LINES} lines; those keep their context window."
         ));
     }
     widened

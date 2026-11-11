@@ -9,7 +9,7 @@ fn response_budgets_preserve_every_path_and_source_metadata_once() {
         }
     }
     for operation in ["tree", "files"] {
-        let row = json!({"operation":operation,"path":root.0,"maxDepth":4,"entryType":"file"});
+        let row = json!({"operation":operation,"view":"details","path":root.0,"maxDepth":4,"entryType":"file"});
         let whole = run(&root.0, row.clone()).expect("whole");
         let mut expected = listed(&whole);
         expected.sort_by_key(|entry| entry["path"].as_str().expect("path").to_owned());

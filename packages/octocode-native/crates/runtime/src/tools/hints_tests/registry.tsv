@@ -125,6 +125,7 @@ astSearch	tools/ast_search/matches/literal_miss.rs	Match the whole node with a c
 astSearch	tools/ast_search/matches/literal_miss.rs	Spell the name in upper case: `{}`.
 astSearch	tools/ast_search/matches/literal_miss.rs	`{token}` is literal text, not a metavariable: a metavariable is a whole node, `$` or `$$$` plus upper-case letters, digits or `_`.
 astSearch	tools/ast_search/matches/literal_miss.rs	{rule} The repair call runs the rule with this rewrite.
+astSearch	tools/ast_search/matches/qualified.rs	{message} {RECOVERY}
 astSearch	tools/ast_search/matches/render.rs	No{language} file under this path was parsed.
 astSearch	tools/ast_search/matches/render.rs	Pattern `{pattern}` parsed as {shape}.
 astSearch	tools/ast_search/matches/render.rs	{matches} matches in {} fill {pages} pages; to read fewer, narrow the rule (pattern, has, inside, not) or the scope (include, exclude, a deeper path).
@@ -164,6 +165,9 @@ clasify	tools/clasify/sections/capture.rs	Use its pinned raw reader or assess a 
 clasify	tools/clasify/sections/capture.rs	Use raw readers or a smaller resource set.
 clasify	tools/clasify/sections/capture.rs	Use the pinned raw reader or a smaller resource selection.
 clasify	tools/clasify/sections/capture.rs	Use the resource's read call to inspect the sanitized source; for a new evaluation, select complete lines.
+clasify	tools/clasify/units.rs	Enable the tool, or supply the rows as content with perItem.
+clasify	tools/clasify/units.rs	Pass the items as a content array, or drop perItem to judge content whole.
+clasify	tools/clasify/units.rs	{name} has more rows than this page: page it with its own query fields and pass that query as source.query.
 ghCloneRepo	tools/gh_clone_repo/checkout.rs	Move your edits out of this managed checkout, restore it to clean, then retry; cloning never discards local files. If its shared store was deleted, git cannot read it: delete the directory to have it cloned again.
 ghCloneRepo	tools/gh_clone_repo/checkout.rs	Verify the path with ghStructure, or omit path for a full clone.
 ghCloneRepo	tools/gh_clone_repo/pin.rs	Verify the branch, tag, or SHA (ghStructure lists a ref), or omit ref for the default branch.
@@ -216,6 +220,10 @@ shared	tools/judgment/stats.rs	 by the original read
 shared	tools/judgment/stats.rs	{retried} refused in the default window retried in the long-context window (slower, less accurate): at least {tokens} input tokens billed{origin}; {unknown} of them reported no usage. longContext:false refuses instead.
 shared	tools/judgment/stats.rs	{retried} refused in the default window retried in the long-context window (slower, less accurate): input tokens billed unknown{origin} (the provider reported no usage). longContext:false refuses instead.
 shared	tools/judgment/stats.rs	{retried} refused in the default window retried in the long-context window (slower, less accurate): {tokens} input tokens billed{origin}. longContext:false refuses instead.
+localFetch	tools/large_source/ranges.rs	Lines {start}-{end} need more than one window page: this page ends inside them and next reads on: first the rest of those lines, then the other ranges after them.
+localFetch	tools/large_source/ranges.rs	Lines {start}-{end} need more than one window page: this page ends inside them and their later pages read that range alone.
+localFetch	tools/large_source/ranges.rs	This page ends inside lines {start}-{end}, whose rest no page reads (see the warnings); next reads the other ranges after them.
+localFetch	tools/large_source/window.rs	redactedContent: this source names a Kubernetes Secret, a JSON Web Key or a Docker registry config, and the walk that places their values outgrew the memory budget (nesting too deep, too many values, or a token too long to carry) before it finished, so every value on this page is hidden, secret or not. Split the source to read it.
 shared	tools/leads/broaden.rs	No match with these filters: each related[] request drops one; run it only if the wider scope still answers the question.
 shared	tools/leads/broaden.rs	No match: search terms are ANDed, so every word must match; try one distinctive word, or a different spelling.
 shared	tools/leads/skipped.rs	 ({reason})
@@ -230,10 +238,6 @@ shared	tools/leads/skipped.rs	{}{} {} behind skipped paths ({why}).
 shared	tools/leads/unparsed.rs	1 file skipped: no {grammar} for its name ({names}); {one}; if it is source code, parserGlobs maps its name to a grammar.
 shared	tools/leads/unparsed.rs	{count} files skipped: no {grammar} for their names ({names}); {several}; if they are source code, parserGlobs maps their names to a grammar.
 localFetch	tools/local_fetch/executor.rs	Convert a copy to UTF-8 or split the source into smaller text files; line ranges do not lift this decoding limit.
-localFetch	tools/local_fetch/large_source/ranges.rs	Lines {start}-{end} need more than one window page: this page ends inside them and next reads on: first the rest of those lines, then the other ranges after them.
-localFetch	tools/local_fetch/large_source/ranges.rs	Lines {start}-{end} need more than one window page: this page ends inside them and their later pages read that range alone.
-localFetch	tools/local_fetch/large_source/ranges.rs	This page ends inside lines {start}-{end}, whose rest no page reads (see the warnings); next reads the other ranges after them.
-localFetch	tools/local_fetch/large_source/window.rs	redactedContent: this source names a Kubernetes Secret, a JSON Web Key or a Docker registry config, and the walk that places their values outgrew the memory budget (nesting too deep, too many values, or a token too long to carry) before it finished, so every value on this page is hidden, secret or not. Split the source to read it.
 localSearch	tools/local_search/coverage.rs	No matches where searched; the withheld entries in skippedPaths may hold it (unproven).
 localSearch	tools/local_search/coverage.rs	Nothing searched: no file under path; check the path, or set includeHidden/includeIgnored when the files are dot or ignored entries.
 localSearch	tools/local_search/coverage.rs	Nothing searched: the target file was skipped ({reasons}). Read it with localFetch.
@@ -265,17 +269,15 @@ lspSearch	tools/lsp_search/failure/rows.rs	A name a build script generates (incl
 lspSearch	tools/lsp_search/failure/rows.rs	A name a build script generates (include! of OUT_DIR) resolves only with rustContext {{buildScripts:true}}, which {BUILD_SCRIPTS_COST}.
 lspSearch	tools/lsp_search/failure/rows.rs	A name defined in source this package include!s from outside its directory never resolves in rust-analyzer: read it with localSearch.
 lspSearch	tools/lsp_search/failure/rows.rs	`{name}` is declared in a file crate {} include!s from outside its directory, which rust-analyzer never loads: no build context gives it a location. The related localSearch reads it there.
-lspSearch	tools/lsp_search/importers.rs	The scan for gitignored or hidden files that spell this name did not finish, so importers among them are unverified; a localSearch with includeIgnored and includeHidden reads them.
-lspSearch	tools/lsp_search/importers/coverage.rs	 The scan for gitignored or hidden files did not finish, so more may exist.
-lspSearch	tools/lsp_search/importers/coverage.rs	 and 
+lspSearch	tools/lsp_search/importers.rs	Gitignored or hidden files could not be checked for an import of this name (unreadable, too large to parse, or unparsable); they are outside this answer's scope, and the localSearch lead reads them.
+lspSearch	tools/lsp_search/importers.rs	The scan for gitignored or hidden files that spell this name did not finish, so files there may be uncounted; they are outside this answer's scope, and a localSearch with includeIgnored and includeHidden reads them.
 lspSearch	tools/lsp_search/importers/coverage.rs	1 imports it
 lspSearch	tools/lsp_search/importers/coverage.rs	1 nested repository
-lspSearch	tools/lsp_search/importers/coverage.rs	Of the gitignored or hidden files that spell this name ({rules}), {}; importer recovery did not verify them, and a localSearch with includeIgnored and includeHidden reads their text.{more}
+lspSearch	tools/lsp_search/importers/coverage.rs	Of the gitignored or hidden files that spell this name ({rules}), {count}; importer recovery did not verify them, and a localSearch with includeIgnored and includeHidden reads their text.
 lspSearch	tools/lsp_search/importers/coverage.rs	The scan for gitignored files did not enter {} (directories with their own .git) under the scope root{listed}.
 lspSearch	tools/lsp_search/importers/coverage.rs	hidden directories or ignore rules
 lspSearch	tools/lsp_search/importers/coverage.rs	{count} import it
 lspSearch	tools/lsp_search/importers/coverage.rs	{count} nested repositories
-lspSearch	tools/lsp_search/importers/coverage.rs	{} could not be checked for an import (unreadable, larger than {} MiB, or unparsable)
 lspSearch	tools/lsp_search/inferred_project/compile_database.rs	Generate compile_commands.json for clangd (CMake: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON), or use astSearch/localSearch.
 lspSearch	tools/lsp_search/level.rs	No {name} server answered: {hint}.
 lspSearch	tools/lsp_search/ops/diagnostics.rs	Proc-macros and build scripts are off by default (they run repository code), so rust-analyzer reports unexpanded macros; pass rustContext {buildScripts:true, procMacros:true} to expand them once lsp.allowBuildScripts is on (home .octocoderc, or OCTOCODE_LSP_ALLOW_BUILD_SCRIPTS=true in the process environment or the home .env); until then such a query is refused.
@@ -301,9 +303,7 @@ lspSearch	tools/lsp_search/server_coverage.rs	{base}; no project beside it was f
 lspSearch	tools/lsp_search/server_coverage.rs	{base}; projects beside it may use this name: {names}. Widen (not narrow) workspaceRoot to {} to search them, or search them with the related text search.
 lspSearch	tools/lsp_search/server_coverage.rs	{base}; the projects beside it were not looked for, as the request stopped first. Widen workspaceRoot to the folder that holds the repository to include them.
 lspSearch	tools/lsp_search/session/waits.rs	The language server pool holds about {} MiB, over its {} MiB budget, because servers busy with requests are never stopped; the pool stops them once they are idle.
-lspSearch	tools/lsp_search/session/waits.rs	This call waited {{}} for the {server} language server to load the project; later calls reuse the loaded server without that wait.
-lspSearch	tools/lsp_search/session/waits.rs	This call waited {{}} for the {server} language server to start; later calls reuse the running server without that wait.
-lspSearch	tools/lsp_search/session/waits.rs	This cold call took {{}} in all at the {server} language server: the waits above, plus the server answering once loaded.
+lspSearch	tools/lsp_search/session/waits.rs	This cold call took {{}} while the {server} language server started and loaded the project; later calls reuse the loaded server without that wait.
 lspSearch	tools/lsp_search/walk/outcome.rs	{out_of_policy} hierarchy items the path policy does not let this tool read were omitted.
 securityCheck	tools/security_check/advisories.rs	GitHub has not reviewed {id}: its database marks it unreviewed.
 securityCheck	tools/security_check/advisories.rs	GitHub's database classes {id} as {other}.

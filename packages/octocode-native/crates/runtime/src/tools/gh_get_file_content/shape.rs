@@ -36,12 +36,12 @@ pub(super) fn shape(
     // bare reads retain the shared source-head preview policy. The shared
     // read fits the row's window less what this row adds around it.
     let facts = crate::tools::source_view::SourceFacts {
-        modified: None,
         window,
         beside: row_envelope_chars(query, &acquired.resolved_ref),
         interior: false,
         byte_origin: None,
         file_lines: None,
+        local_file: false,
     };
     let mut content = if !crate::tools::source_view::local_fetch_query::has_classification(&local)
         && crate::tools::source_view::local_fetch_query::selection(&local).is_none()

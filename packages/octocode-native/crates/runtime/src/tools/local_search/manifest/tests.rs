@@ -38,6 +38,7 @@ fn one_match(path: &std::path::Path, line: u32, value: &str) -> TextSearchResult
                 value_digest: TextSearchMatch::digest_of(value),
                 count: None,
                 rank: None,
+                window_start: None,
             }],
             source: None,
         }],

@@ -5,7 +5,7 @@ Compare how tools answer the same GitHub research question against a fixed revis
 questions. Keep external results separate from local results even when question IDs match.
 
 Start with the [evaluation method](../README.md#choose-the-benchmark-and-evaluation-method):
-use `octocode-eval-benchmark` to freeze metrics, quality guardrails, case exposure, judge
+use `octocode-agentic` evaluation to freeze metrics, quality guardrails, case exposure, judge
 calibration and budgets before running the external harness below.
 
 ## Run workers

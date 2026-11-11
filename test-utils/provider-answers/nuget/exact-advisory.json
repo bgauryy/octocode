@@ -5,7 +5,8 @@
   "operation": "resolve",
   "ecosystem": "nuget",
   "packageName": "Newtonsoft.Json",
-  "version": "12.0.3"
+  "version": "12.0.3",
+  "view": "details"
  },
  "recordedAt": "2026-11-08",
  "unread": [

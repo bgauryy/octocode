@@ -27,6 +27,7 @@ mod matching;
 mod multiline;
 mod ordering;
 mod ranking;
+mod row_windows;
 mod selection;
 mod snippets;
 mod spans;

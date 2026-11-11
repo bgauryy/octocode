@@ -496,11 +496,15 @@ fn a_critical_file_lead_reaches_every_dependent_it_counts() {
         o.limit = Some(100);
     });
     assert_eq!(ids(&walked).len() as u64, counted, "{}", walked.value);
+    // A control every finding of the detector applied is stated once, in
+    // the summary; one of this finding alone stays on its row.
+    let detector = finding["detector"].as_str().expect("detector");
     assert!(
         finding["controls"]
             .as_array()
             .into_iter()
             .flatten()
+            .chain(shared_controls(&issues.value, detector))
             .any(|control| control
                 .as_str()
                 .is_some_and(|text| text.contains("type-only"))),
@@ -525,4 +529,51 @@ fn the_issues_summary_states_no_text_every_answer_would_repeat() {
         .map(|(key, _)| key.as_str())
         .collect::<Vec<_>>();
     assert!(texts.is_empty(), "static text in the summary: {texts:?}");
+}
+
+/// The controls `summary.notes` states once for `detector`.
+fn shared_controls<'a>(answer: &'a Value, detector: &'a str) -> impl Iterator<Item = &'a Value> {
+    answer["summary"]["notes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(move |note| note["detector"] == detector)
+        .filter_map(|note| note["controls"].as_array())
+        .flatten()
+}
+
+/// A detector's controls are facts of the detector: the ones every listed
+/// finding of it applied go out once, in a `summary.notes` entry, and no row
+/// repeats them; together they are every control each finding applied.
+#[test]
+fn controls_every_finding_of_a_detector_shares_are_stated_once() {
+    let dir = issues_fixture();
+    assert_eq!(
+        ingest_fixture(dir.0.as_path(), None).class,
+        ExitClass::Success
+    );
+    let out = ask(dir.0.as_path(), "issues", None, |o| {
+        o.limit = Some(200);
+        o.min_tier = Some(60);
+    });
+    assert_eq!(out.class, ExitClass::Success, "{}", out.value);
+    let rows = out.value["rows"].as_array().expect("rows");
+    let mut stated = 0;
+    for row in rows {
+        let detector = row["detector"].as_str().expect("detector");
+        let common = shared_controls(&out.value, detector).collect::<Vec<_>>();
+        stated += common.len();
+        for control in row["controls"].as_array().into_iter().flatten() {
+            assert!(!common.contains(&control), "{detector} repeats {control}: {row}");
+        }
+    }
+    assert!(stated > 0, "some detector states its controls: {}", out.value);
+    // A later page carries rows only: its rows are the same rows.
+    let later = ask(dir.0.as_path(), "issues", None, |o| {
+        o.limit = Some(1);
+        o.offset = Some(1);
+        o.min_tier = Some(60);
+    });
+    assert!(later.value.get("summary").is_none(), "{}", later.value);
+    assert_eq!(later.value["rows"][0], rows[1], "{}", later.value);
 }

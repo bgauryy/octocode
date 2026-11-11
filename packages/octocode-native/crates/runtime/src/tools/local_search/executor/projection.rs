@@ -173,13 +173,7 @@ fn project_files(
                         shown_redacted += 1;
                     }
                 })
-                .map(project_match)
-                .map(|mut row| {
-                    if !match_only {
-                        row.column = None;
-                    }
-                    row
-                })
+                .map(|matched| project_match(matched, match_only))
                 .collect::<Vec<_>>();
             let shown = match layout.merge_context {
                 Some(context) => {

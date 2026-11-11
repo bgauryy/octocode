@@ -1,7 +1,9 @@
-//! A first search page asks GitHub for what its `limit` needs; continuations
-//! read GitHub's largest search pages, so a walk at a small `limit` costs one
-//! search request per 100 results plus the first page, and every result arrives
-//! once, in the provider's order, with the same totals as one large read.
+//! A first search page asks GitHub for what its `limit` needs, and so does a
+//! second; a longer walk reads provider pages that double in size up to
+//! GitHub's largest, so a walk at a small `limit` costs a request each time it
+//! doubles and then one per 100 results, no page asks for more than the walk
+//! already read, and every result arrives once, in the provider's order, with
+//! the same totals as one large read.
 use crate::support::{self, Run as _, Workspace};
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
@@ -78,11 +80,11 @@ async fn page_sizes(server: &MockServer, route: &str) -> Vec<usize> {
         .collect()
 }
 
-/// A limit-3 repository search walk over 139 results sends one exact first page
-/// then `ceil(139 / 100)` read-through requests, and lists every repository
-/// once, in the index's order.
+/// A limit-3 repository search walk over 139 results sends its first and second
+/// pages as asked, then one request each time the walk doubles, and lists
+/// every repository once, in the index's order.
 #[tokio::test]
-async fn a_small_limit_repository_walk_reads_each_provider_page_once() {
+async fn a_small_limit_repository_walk_reads_pages_that_double() {
     let server = MockServer::builder().start().await;
     let index = (0..RESULTS)
         .map(|n| {
@@ -112,16 +114,17 @@ async fn a_small_limit_repository_walk_reads_each_provider_page_once() {
     assert_eq!(walked.rows, expected);
     assert_eq!(
         page_sizes(&server, "/api/v3/search/repositories").await,
-        [3, PROVIDER_PAGE, PROVIDER_PAGE]
+        [3, 3, 6, 12, 24, 48, 96]
     );
     runtime.close().await;
 }
 
 /// A limit-7 pull-request search walk (GitHub's issue search) over 139
-/// results sends one exact first page then `ceil(139 / 100)` read-through
-/// requests, and lists every pull request once, in the index's order.
+/// results doubles until the next size would pass GitHub's largest page, then
+/// reads whole provider pages, and lists every pull request once, in the
+/// index's order.
 #[tokio::test]
-async fn a_small_limit_history_walk_reads_each_provider_page_once() {
+async fn a_small_limit_history_walk_doubles_up_to_the_largest_page() {
     let server = MockServer::builder().start().await;
     let index = (1..=RESULTS)
         .map(|n| {
@@ -152,7 +155,7 @@ async fn a_small_limit_history_walk_reads_each_provider_page_once() {
     assert_eq!(walked.rows, expected);
     assert_eq!(
         page_sizes(&server, "/api/v3/search/issues").await,
-        [7, PROVIDER_PAGE, PROVIDER_PAGE]
+        [7, 7, 14, 28, 56, PROVIDER_PAGE]
     );
     runtime.close().await;
 }
@@ -167,8 +170,8 @@ fn code_hit(n: usize) -> Value {
     })
 }
 
-/// A limit-7 code search walk over 139 files: an exact first page, then each
-/// provider page once, and every file once in the index's order.
+/// A limit-7 code search walk over 139 files: pages that double, then the
+/// provider page that holds the rest, and every file once in the index's order.
 #[tokio::test]
 async fn a_small_limit_code_walk_lists_every_file_once() {
     let server = MockServer::builder().start().await;
@@ -191,7 +194,7 @@ async fn a_small_limit_code_walk_lists_every_file_once() {
         .collect::<Vec<_>>();
     assert_eq!(walked.rows, expected);
     let sizes = page_sizes(&server, "/api/v3/search/code").await;
-    assert_eq!(sizes, [7, PROVIDER_PAGE, PROVIDER_PAGE]);
+    assert_eq!(sizes, [7, 7, 14, 28, 56, PROVIDER_PAGE]);
     runtime.close().await;
 }
 

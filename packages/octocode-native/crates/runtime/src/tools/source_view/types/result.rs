@@ -50,7 +50,6 @@ pub struct LocalFetchResult {
     /// The declarations a `block:true` match read widened hits to.
     pub blocks: Vec<DeclaredBlock>,
     pub selected_match_count: Option<usize>,
-    pub modified: Option<String>,
     pub returned_bytes: Option<usize>,
     pub returned_lines: Option<usize>,
     pub pagination: Option<Pagination>,
@@ -104,7 +103,6 @@ impl LocalFetchResult {
             match_keys: vec![],
             blocks: vec![],
             selected_match_count: None,
-            modified: None,
             returned_bytes: None,
             returned_lines: None,
             pagination: None,
@@ -304,7 +302,6 @@ impl LocalFetchResult {
     /// stay internal: `totalLines` and the page's own text say what an agent
     /// needs, and the reader only measures with them.
     fn serialize_counters<M: serde::ser::SerializeMap>(&self, map: &mut M) -> Result<(), M::Error> {
-        opt(map, "modified", &self.modified)?;
         // `content:""` states that no line returned.
         let returned = self
             .returned_lines

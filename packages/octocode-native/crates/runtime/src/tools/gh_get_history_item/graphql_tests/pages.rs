@@ -224,10 +224,11 @@ async fn a_graphql_first_page_is_served_though_more_remain() {
     );
 }
 
-/// Labels past GraphQL's first page are read on from their cursor, so the
-/// summary lists every label and never reports a clipped list.
+/// GraphQL serves section reads, whose row names the pull request and its
+/// commits only: labels are the summary read's, so no label page past the
+/// first is asked for.
 #[tokio::test]
-async fn every_label_is_read_on_from_its_cursor() {
+async fn a_section_read_asks_for_no_further_label_page() {
     let label = |n: usize| json!({"name": format!("l{n:03}")});
     let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
@@ -238,7 +239,7 @@ async fn every_label_is_read_on_from_its_cursor() {
                 "pageInfo": {"hasNextPage": false, "endCursor": "l2"},
                 "nodes": (100..130).map(label).collect::<Vec<_>>()}}}
         }})))
-        .expect(1)
+        .expect(0)
         .with_priority(1)
         .mount(&server)
         .await;
@@ -260,6 +261,7 @@ async fn every_label_is_read_on_from_its_cursor() {
     )
     .await;
     let pr = &out.data["pullRequests"][0];
-    assert_eq!(pr["labels"].as_array().map(Vec::len), Some(130), "{pr}");
+    assert!(pr.get("labels").is_none(), "{pr}");
     assert!(pr.get("labelsClipped").is_none(), "{pr}");
+    assert_eq!(pr["number"], 7, "{pr}");
 }

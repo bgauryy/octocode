@@ -2,9 +2,16 @@ Load when using Octocode research tools through MCP or CLI. Source: `skills/comm
 
 ## Choose the surface
 
-Use the connected Octocode MCP tools when available, and call only the tools your MCP host lists. The CLI is a separate surface: it serves every public tool and ignores MCP exposure gates, while path and content security still apply. When Octocode MCP is not connected, or does not list a tool the task needs, prefer the built local CLI from a known Octocode checkout; otherwise use an installed `octocode` or `npx -y octocode`. In the checkout, the local command is `node packages/octocode/out/octocode.js`. From another workspace, use its absolute path and keep the task’s working directory so relative inputs still target that project. Examples use the portable `npx` prefix; substitute the selected CLI. Do not switch versions to hide a failing call.
+| Available surface | Use |
+|---|---|
+| Connected Octocode MCP lists the needed tool | Call that tool. |
+| MCP absent or tool unlisted | Prefer the built CLI from a known checkout; otherwise installed `octocode` or `npx -y octocode`. |
+| This checkout | `node packages/octocode/out/octocode.js` |
+| Another workspace | Absolute checkout CLI path; keep task cwd so relative inputs target that project. |
 
-Research, Chrome DevTools and agents-communication are different executables. Their skills own their command envelopes and mutation rules.
+The CLI serves every public tool regardless of MCP exposure gates; path/content security still applies. Examples use `npx`; substitute the selected CLI. Never switch versions to hide a failing call.
+
+Research, Chrome DevTools and agents-communication are different executables. Their skills (agents-communication: `octocode-agentic`) own their command envelopes and mutation rules.
 
 ## Discover and invoke
 
@@ -41,7 +48,17 @@ The default catalog contains 12 tools over MCP and 16 in the CLI, securityCheck 
 
 Inspect every `results[]` row's index (its position in the request's `queries`), data, status and coverage facts. Success of the envelope does not mean all rows succeeded: a failed row has `status:"error"` with `errorCode` (and `httpStatus` for provider failures), and the exit code is not per row. Each row owns its evidence; there is no shared/root inheritance protocol.
 
-Pagings use literal keys: run `responsePagination.next`, else a `next.nextPage`, until neither remains; `rowPart{part,of}` marks one row split across pages, so read every part; a row's `pagination{hasMore}` and `contentPagination.<collection>` (one `ghGetHistoryItem` list) read on through that same loop. A row's other `next.<name>` is a branch. A continue call is `{kind:"continue",tool,input:{cursor}}`; send its input whole to its tool. A claim about what a `next.<name>` covers needs that call. Complete for a claim: no `hasMore:true` and no `next` covering it, with or without a paging object. `isPartial`, `warnings` or `totalItemsCapped` (then `totalItems` is the reachable count) means incomplete: name the gap or narrow the scope. On `staleSnapshot`, discard pages read from the old snapshot and run `next.restart`. Finish every continuation needed for the claim or name the unread scope. Independent file, patch, source and diagnostic collections can each remain incomplete.
+| Result signal | Required action / meaning |
+|---|---|
+| `responsePagination.next`, else `next.nextPage` | Run in that order until neither remains. Send `{kind:"continue",tool,input:{cursor}}`'s `input` whole to its tool. |
+| `rowPart{part,of}` | Read every part of the split row. |
+| `pagination{hasMore}` or `contentPagination.<collection>` | Continue the same loop; each file, patch, source, diagnostic or history collection can remain incomplete independently. |
+| Other `next.<name>` | Branch, not page. Run it before claiming what it covers. |
+| Claim complete | No `hasMore:true` or `next` covering that claim, with or without a paging object. |
+| `isPartial`, `warnings`, `totalItemsCapped` | Incomplete: name the gap or narrow scope. Capped `totalItems` is the reachable count. |
+| `staleSnapshot` | Discard old snapshot pages; run `next.restart`. |
+
+Use literal emitted keys. Finish every continuation needed for the claim or name unread scope.
 
 `related[]` contains `{kind:"related",tool,input:{queries:[...]}}` for optional fresh work; its calls may widen scope (hidden or ignored paths). `hints[]` is prose only. Input errors name fields to correct; no repair call silently changes scope. Terminal limits require a narrower or different query, never an invented cursor.
 

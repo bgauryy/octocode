@@ -38,6 +38,35 @@ pub(super) fn evaluate_row(
     gate: &crate::providers::classification::gate::GateLease,
     can_resume: bool,
 ) -> RowOutcome {
+    match target {
+        Target::Content(content) if row.per_item => {
+            return super::units::judge_items(
+                evaluator,
+                evaluations,
+                row,
+                content,
+                dispatcher,
+                context,
+                gate,
+            );
+        }
+        Target::Source(source) => {
+            if let Some(tool) = super::units::rows_tool(source) {
+                return super::units::judge_source(
+                    evaluator,
+                    evaluations,
+                    row,
+                    tool,
+                    source,
+                    dispatcher,
+                    context,
+                    gate,
+                    can_resume,
+                );
+            }
+        }
+        Target::Content(_) => {}
+    }
     let (state, captured) = match target {
         // An empty literal is nothing to judge, as an empty source is.
         Target::Content(state) if blank(state) => {
@@ -93,14 +122,27 @@ pub(super) fn evaluate_row(
         crate::execution::cancel::deadline_of(context),
         context.cancellation.clone(),
     );
+    let input = EvaluationInput {
+        state: &state,
+        questions: &row.questions,
+        assets: assets.as_ref().map(|assets| &assets.provider),
+        long_context: LongContext::from_field(row.long_context),
+    };
+    // A source the provider is known to refuse at this size is not uploaded
+    // whole to be refused again: it goes straight to its sections. When they
+    // cannot answer, the provider is asked after all, and its answer stands.
+    let mut sectioned = None;
+    if let Target::Source(source) = target
+        && evaluator.known_refused(input, row.model.as_deref())
+    {
+        match super::combined::judge(row, source, 0, dispatcher, context, can_resume) {
+            Ok(combined) => return RowOutcome::Combined(Box::new(combined)),
+            Err(calls) => sectioned = Some(calls),
+        }
+    }
     let (mut judged, identity) = dispatcher.handle().block_on(evaluator.evaluate_once(
         evaluations,
-        EvaluationInput {
-            state: &state,
-            questions: &row.questions,
-            assets: assets.as_ref().map(|assets| &assets.provider),
-            long_context: LongContext::from_field(row.long_context),
-        },
+        input,
         row.model.as_deref(),
         &budget,
         gate,
@@ -109,6 +151,29 @@ pub(super) fn evaluate_row(
     // on the original image.
     if let (Ok(judged), Some(assets)) = (&mut judged, &assets) {
         assets.attach_source_boxes(&row.questions, &mut judged.answers);
+    }
+    // A text source over the provider's window is judged in sections and
+    // answered once per question; when no section can answer, the refusal
+    // stays the row's error.
+    if let (Err(refusal), Some(calls)) = (&mut judged, sectioned) {
+        // Its sections were tried before the provider was asked: the
+        // refusal counts their requests, and they are not sent twice.
+        refusal.provider_calls = refusal.provider_calls.saturating_add(calls);
+    } else if let (Err(refusal), Target::Source(source), None) = (&mut judged, target, &assets)
+        && refusal.code == ErrorCode::ClassificationStateTooLarge
+    {
+        match super::combined::judge(
+            row,
+            source,
+            refusal.provider_calls,
+            dispatcher,
+            context,
+            can_resume,
+        ) {
+            Ok(combined) => return RowOutcome::Combined(Box::new(combined)),
+            // The sections' requests were sent too: the refusal counts them.
+            Err(calls) => refusal.provider_calls = refusal.provider_calls.saturating_add(calls),
+        }
     }
     RowOutcome::Judgment {
         judged,

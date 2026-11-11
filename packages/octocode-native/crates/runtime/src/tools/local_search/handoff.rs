@@ -134,9 +134,18 @@ pub(super) fn read_handoff(
         return None;
     }
     let path = joined_path(query, root, top);
-    let windows = hit_windows(
-        hits.iter().flat_map(row_lines),
-        SearchContext::symmetric(READ_HANDOFF_CONTEXT),
+    // A window row shows part of a line too long for a row: the read is of
+    // that line alone, which localFetch pages whole. Every other hit opens
+    // its context.
+    let (partial, whole): (Vec<_>, Vec<_>) =
+        hits.iter().partition(|row| row.window_start.is_some());
+    let windows = crate::tools::line_spans::merge_spans(
+        hit_windows(
+            whole.into_iter().flat_map(row_lines),
+            SearchContext::symmetric(READ_HANDOFF_CONTEXT),
+        )
+        .into_iter()
+        .chain(partial.into_iter().map(|row| (row.line, row.line))),
     );
     if windows.len() <= RANGES_MAX_ITEMS {
         return ranges_read(path, &windows);

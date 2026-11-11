@@ -116,6 +116,7 @@ pub(super) fn attach_continuations(output: &mut Value, session: &Session, last: 
                 main_goal: None,
                 operation: ClasifyQuerySectionsAssessmentOperation::Sections,
                 reasoning: None,
+                view: None,
             }),
         };
         insert_next(

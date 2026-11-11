@@ -5,7 +5,10 @@
 //! pattern leaves out its qualified spelling (`impl ToolOutput for $T {}`
 //! against `impl crate::x::ToolOutput for B {}`). A first page counts those
 //! longer spellings in the files its scan evaluated and leads to the rule
-//! that lists them all.
+//! that lists them all. A call on a bare name also leaves out the calls on a
+//! receiver (`sanitize_text($$$A)` against `self.sanitize_text(x)`): in a
+//! grammar with `::` paths those are a second longer spelling, counted and
+//! listed the same way.
 use super::exact_miss::{rule_scan, with_rule};
 use super::query::MatchQuery;
 use super::rows::push_diagnostic;
@@ -18,7 +21,7 @@ use crate::policy::path::PathPolicy;
 use crate::tools::ast_search::RowPaths;
 use octocode_contract_types::AstSearchQueryMatch0;
 use octocode_engine::structural::{
-    QualifiedPattern, Rebuilt, StructuralDetailedMatch, pattern_qualifier,
+    QualifiedPattern, Rebuilt, StructuralDetailedMatch, pattern_qualifiers,
 };
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -42,7 +45,7 @@ pub(super) struct QualifiedMiss {
 }
 
 /// [`QualifiedMiss`] of a first page whose `rule.pattern` has a literal name
-/// a path can qualify ([`pattern_qualifier`]): its skeleton matched over
+/// a path can qualify ([`pattern_qualifiers`]): its skeleton matched over
 /// every file the scan evaluated, and each match that qualifies some of the
 /// names counted. A file the literal prefilter skipped holds no such match,
 /// which spells every literal of the pattern. `None` when the pattern has no
@@ -82,7 +85,7 @@ pub(super) fn qualified_miss(
         .first()
         .map(|path| (unprobed.len(), row_paths.delivered(path)));
     let mut names = Vec::new();
-    for (qualified, found) in grammars.values() {
+    for (qualified, found) in grammars.values().flatten() {
         let spelled = qualified.names();
         for index in found.iter().flatten() {
             if let Some(name) = spelled.get(*index)
@@ -95,11 +98,14 @@ pub(super) fn qualified_miss(
     let pinned = grammars.len() > 1;
     let queries = grammars
         .iter()
-        .map(|(grammar, (qualified, found))| {
-            let mut found = found.iter().collect::<Vec<_>>();
-            found.sort_by(|a, b| (a.len(), a).cmp(&(b.len(), b)));
+        .map(|(grammar, spelled)| {
+            let longer = spelled.iter().flat_map(|(qualified, found)| {
+                let mut found = found.iter().collect::<Vec<_>>();
+                found.sort_by(|a, b| (a.len(), a).cmp(&(b.len(), b)));
+                found.into_iter().map(|names| qualified.spelling(names))
+            });
             let spellings = std::iter::once(pattern.clone())
-                .chain(found.into_iter().map(|names| qualified.spelling(names)))
+                .chain(longer)
                 .map(|spelled| json!({"pattern": spelled}))
                 .collect::<Vec<_>>();
             let mut lead = rule.clone();
@@ -129,11 +135,16 @@ fn extension_grammar(extension: &str) -> String {
         .unwrap_or_default()
 }
 
+/// One longer spelling of the pattern, and each set of names a match
+/// qualified with it.
+type Spelled = (QualifiedPattern, BTreeSet<Vec<usize>>);
+
 /// What the longer spellings matched.
 struct Probe {
-    /// Per grammar (parser ID) that read a longer spelling: the pattern's
-    /// longer spellings there, and each set of names a match qualified.
-    grammars: BTreeMap<String, (QualifiedPattern, BTreeSet<Vec<usize>>)>,
+    /// Per grammar (parser ID) that read a longer spelling: each of the
+    /// pattern's longer spellings there that matched, and each set of names
+    /// a match qualified with it.
+    grammars: BTreeMap<String, Vec<Spelled>>,
     /// The first line per file (by path).
     hits: BTreeMap<String, u64>,
     /// The match count.
@@ -165,11 +176,20 @@ impl Probe {
         let Some(line) = found.iter().map(|(line, _)| *line).min() else {
             return;
         };
-        self.hits.insert(path.to_owned(), line);
+        self.hits
+            .entry(path.to_owned())
+            .and_modify(|first| *first = line.min(*first))
+            .or_insert(line);
         self.count += found.len();
-        self.grammars
-            .entry(extension_grammar(extension))
-            .or_insert_with(|| (qualified.clone(), BTreeSet::new()))
+        let spelled = self.grammars.entry(extension_grammar(extension)).or_default();
+        let at = spelled
+            .iter()
+            .position(|(known, _)| known == qualified)
+            .unwrap_or_else(|| {
+                spelled.push((qualified.clone(), BTreeSet::new()));
+                spelled.len() - 1
+            });
+        spelled[at]
             .1
             .extend(found.into_iter().map(|(_, names)| names));
     }
@@ -245,21 +265,27 @@ fn file_probe(
     cancel: &dyn CancellationCheck,
 ) -> Option<Probe> {
     let extension = scope_extension(scope)?;
-    let qualified = pattern_qualifier(pattern, &extension)?;
-    let query = with_rule(q, scope, probe_rule(rule, qualified.skeleton()))?;
+    let qualifiers = pattern_qualifiers(pattern, &extension);
+    if qualifiers.is_empty() {
+        return None;
+    }
     let mut probe = Probe::new();
-    let found = rule_scan(&query, paths, cancel).and_then(|scan| {
-        let file = scan.files.into_iter().find(|file| file.status == "ok")?;
-        longer_spellings(rule, &qualified, file.matches.held(), |any| {
-            let spelled = rule_scan(&with_rule(q, scope, any)?, paths, cancel)?;
-            let file = spelled.files.first().filter(|file| file.status == "ok")?;
-            Some(file.matches.held().iter().map(span).collect())
-        })
-    });
     let path = scope.canonical.to_string_lossy();
-    match found {
-        Some(found) => probe.add(&path, &extension, &qualified, found),
-        None => probe.unprobed.push(path.into_owned()),
+    for qualified in &qualifiers {
+        let query = with_rule(q, scope, probe_rule(rule, qualified.skeleton()))?;
+        let found = rule_scan(&query, paths, cancel).and_then(|scan| {
+            let file = scan.files.into_iter().find(|file| file.status == "ok")?;
+            longer_spellings(rule, qualified, file.matches.held(), |any| {
+                let spelled = rule_scan(&with_rule(q, scope, any)?, paths, cancel)?;
+                let file = spelled.files.first().filter(|file| file.status == "ok")?;
+                Some(file.matches.held().iter().map(span).collect())
+            })
+        });
+        match found {
+            Some(found) => probe.add(&path, &extension, qualified, found),
+            None if probe.unprobed.is_empty() => probe.unprobed.push(path.to_string()),
+            None => {}
+        }
     }
     Some(probe)
 }
@@ -284,10 +310,10 @@ fn directory_probe(
             continue;
         };
         let extension = parser_extension(scope, source);
-        let qualified = grammars
+        let qualifiers = grammars
             .entry(extension.clone())
-            .or_insert_with(|| pattern_qualifier(pattern, &extension));
-        if qualified.is_some() {
+            .or_insert_with(|| pattern_qualifiers(pattern, &extension));
+        if !qualifiers.is_empty() {
             probed.push((file, source, digest, extension));
         }
     }
@@ -297,16 +323,14 @@ fn directory_probe(
         &mut probed,
         workers,
         |(_, source, digest, extension)| {
-            let qualified = grammars.get(extension.as_str())?.as_ref()?;
+            let qualifiers = grammars.get(extension.as_str())?;
             // Reading the bytes is far cheaper than parsing them: a file
             // that spells no name after a separator holds no longer
             // spelling. One that no longer reads is matched, which says so.
             let limit = crate::security::SourceLimits::REAL.whole_source as u64;
-            if let Ok(read) = octocode_engine::text::read_source(source, limit)
-                && !qualified.may_qualify(&String::from_utf8_lossy(&read.bytes))
-            {
-                return Some(Vec::new());
-            }
+            let text = octocode_engine::text::read_source(source, limit)
+                .ok()
+                .map(|read| String::from_utf8_lossy(&read.bytes).into_owned());
             let matches = |rule: &Value| match octocode_engine::structural::file_matches(
                 source,
                 extension,
@@ -319,16 +343,26 @@ fn directory_probe(
                 Ok(Rebuilt::Matches(matches)) => Some(matches),
                 _ => None,
             };
-            let skeleton = matches(&probe_rule(rule, qualified.skeleton()))?;
-            longer_spellings(rule, qualified, &skeleton, |any| {
-                Some(matches(&any)?.iter().map(span).collect())
-            })
+            qualifiers
+                .iter()
+                .map(|qualified| {
+                    if text.as_deref().is_some_and(|text| !qualified.may_qualify(text)) {
+                        return Some(Vec::new());
+                    }
+                    let skeleton = matches(&probe_rule(rule, qualified.skeleton()))?;
+                    longer_spellings(rule, qualified, &skeleton, |any| {
+                        Some(matches(&any)?.iter().map(span).collect())
+                    })
+                })
+                .collect::<Option<Vec<_>>>()
         },
     );
     for ((file, _, _, extension), outcome) in probed.iter().zip(found) {
         match (grammars.get(extension.as_str()), outcome) {
-            (Some(Some(qualified)), Some(found)) => {
-                probe.add(&file.path, extension, qualified, found);
+            (Some(qualifiers), Some(found)) => {
+                for (qualified, found) in qualifiers.iter().zip(found) {
+                    probe.add(&file.path, extension, qualified, found);
+                }
             }
             _ => probe.unprobed.push(file.path.clone()),
         }
@@ -336,9 +370,13 @@ fn directory_probe(
     Some(probe)
 }
 
+/// Where a [`QualifiedMiss`] note sends its reader.
+const RECOVERY: &str = "The related astSearch rule with `any` lists every spelling found.";
+
 impl QualifiedMiss {
-    /// The note that counts the longer spellings, and the rule query that
-    /// lists every spelling.
+    /// The note that counts the longer spellings (a hint on an empty page, a
+    /// diagnostic beside matches), and the rule query that lists every
+    /// spelling.
     pub(super) fn attach(self, out: &mut Value) {
         let Self {
             names,
@@ -358,19 +396,31 @@ impl QualifiedMiss {
             .map(|name| format!("`{name}`"))
             .collect::<Vec<_>>()
             .join(" or ");
-        let diagnostic = json!({
-            "code": "structural.pattern.qualified",
-            "severity": "info",
-            "stage": "match",
-            "message": match first {
-                Some(first) => format!(
-                    "The pattern matches the path as written: {count} more match(es) in {files} file(s) spell a path or receiver before {names} (first: {first}).{unprobed}"
-                ),
-                None => format!("The pattern matches the path as written.{unprobed}"),
-            },
-            "recovery": "The related astSearch rule with `any` lists every spelling found.",
-        });
-        push_diagnostic(out, diagnostic);
+        let message = match first {
+            Some(first) => format!(
+                "The pattern matches the path as written: {count} more match(es) in {files} file(s) spell a path or receiver before {names} (first: {first}).{unprobed}"
+            ),
+            None => format!("The pattern matches the path as written.{unprobed}"),
+        };
+        if out["status"] == "empty" {
+            // An empty page reads as "no such call": the one line that says
+            // otherwise is a hint, where every surface shows it.
+            crate::response::result::add_hints(
+                out,
+                [format!("{message} {RECOVERY}")],
+            );
+        } else {
+            push_diagnostic(
+                out,
+                json!({
+                    "code": "structural.pattern.qualified",
+                    "severity": "info",
+                    "stage": "match",
+                    "message": message,
+                    "recovery": RECOVERY,
+                }),
+            );
+        }
         if queries.is_empty() {
             return;
         }

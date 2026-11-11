@@ -17,7 +17,7 @@ RACI for every workflow execution, which has one orchestrator and at least one a
 |---|---|---|
 | Objective: goal/scope, target boundary; inputs: relevant Octocode access and anchors; constraints: authority (read/write/process), role; Definition of Done: acceptance condition; next row | Row key; exact source/runtime anchors, relevant non-secret conditions, expected and observed result; counterevidence/gap; requested next action | Re-read deciding anchors, check applicability and identity, retain disproof/uncertainty, update the one ledger |
 
-Use `octocode-agents-communication` for identity, leases, requests, completion, and durable delivery. A delivered handoff is not a verified result. One source/build owner writes a changed boundary; one process owner changes a target process. Inspectors return evidence rather than racing the writer with fixes.
+Use `octocode-agentic` coordination for identity, leases, requests, completion, and durable delivery. A delivered handoff is not a verified result. One source/build owner writes a changed boundary; one process owner changes a target process. Inspectors return evidence rather than racing the writer with fixes.
 
 For an independent check, give the checking actor the requirement, owner contract, and raw inputs before the producer's conclusion when feasible. It derives its own acceptance or distinguishing check and returns primary anchors. Two summaries of the same shared observation do not corroborate each other; the orchestrator records overlapping evidence rather than counting it twice.
 

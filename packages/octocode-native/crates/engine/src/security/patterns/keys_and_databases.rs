@@ -171,7 +171,12 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "opensshPrivateKey",
         file_context: None,
-        regex: r###"-----BEGIN\s+OPENSSH\s+PRIVATE\s+KEY-----[\s\S]*?-----END\s+OPENSSH\s+PRIVATE\s+KEY-----"###,
+        // The armored block, or its body with no armor around it (a pasted
+        // line, a window cut inside the block): the body opens with base64
+        // of the format's own header, `openssh-key-v1` and its NUL, which no
+        // public key or certificate holds, and each next line that is base64
+        // alone continues the match.
+        regex: r###"-----BEGIN\s+OPENSSH\s+PRIVATE\s+KEY-----[\s\S]*?-----END\s+OPENSSH\s+PRIVATE\s+KEY-----|b3BlbnNzaC1rZXktdjEA[A-Za-z0-9+/]{40,}={0,2}(?:\r?\n[ \t]*[A-Za-z0-9+/]{16,}={0,2}[ \t]*(?m:$))*"###,
     },
     SecretPattern {
         name: "ssh2PrivateKey",

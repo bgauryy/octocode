@@ -233,8 +233,11 @@ async fn history_a_graphql_pr_reads_target_sha_and_totals() {
         assert_eq!(pr["headSha"], HISTORY_A_HEAD, "{sections}: {data}");
         assert_eq!(pr["mergeCommitSha"], HISTORY_A_MERGE, "{sections}: {data}");
         assert_eq!(pr["baseSha"], HISTORY_A_BASE, "{sections}: {data}");
-        assert_eq!(pr["commitsCount"], 4, "{data}");
-        assert_eq!(pr["reviewThreadsCount"], 2, "{data}");
+        // The totals are the summary read's: a section read names the pull
+        // request and its commits only.
+        for total in ["commitsCount", "reviewThreadsCount"] {
+            assert!(pr.get(total).is_none(), "{sections}: {data}");
+        }
     }
     let documents = server
         .received_requests()

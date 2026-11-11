@@ -27,7 +27,8 @@ pub(in crate::tools::local_search) struct VerificationLines {
     /// is unknown and nothing read from this source can be trusted.
     pub(in crate::tools::local_search) unclassified: bool,
     /// A line holds what a pattern needing the whole source starts from, so
-    /// only all of it can say whether a shown value is a secret.
+    /// only all of it can say whether a shown value is a secret. Not asked
+    /// of a source `whole_retained` holds: that one is judged whole anyway.
     pub(in crate::tools::local_search) source_wide: bool,
     /// `retained` holds every line of the source.
     pub(in crate::tools::local_search) whole_retained: bool,
@@ -63,6 +64,9 @@ pub(in crate::tools::local_search) fn read_verification_lines(
     let limit = if across.is_some() { usize::MAX } else { limit };
     let in_window = |number: usize| windows.iter().any(|&(lo, hi)| lo <= number && number <= hi);
     let mut buf = Vec::new();
+    // The kept lines, in the order read (ascending): the map is built of
+    // them once, at the end, not searched for the place of each.
+    let mut kept: Vec<(usize, String)> = Vec::new();
     while read.lines_read < limit {
         let number = read.lines_read + 1;
         if number.is_multiple_of(VERIFY_CANCEL_EVERY) {
@@ -86,10 +90,15 @@ pub(in crate::tools::local_search) fn read_verification_lines(
                 let text = octocode_engine::text::Decoded::interior(&buf).text;
                 let text = text.trim_end_matches(['\n', '\r']);
                 tracker.push(text);
-                read.source_wide |= across.is_some_and(|patterns| patterns.named_by(text));
+                // A source still kept whole is judged whole, whatever its
+                // lines name; what they name is asked when a line ends that
+                // (below), of the lines kept until then.
+                if !read.whole_retained {
+                    read.source_wide |= across.is_some_and(|patterns| patterns.named_by(text));
+                }
                 if wanted {
                     read.retained_bytes += text.len();
-                    read.retained.insert(number, text.to_owned());
+                    kept.push((number, text.to_owned()));
                 }
             }
             BoundedLine::Overflow {
@@ -104,13 +113,19 @@ pub(in crate::tools::local_search) fn read_verification_lines(
                     read.long_lines.insert(number);
                 }
                 if std::mem::take(&mut read.whole_retained) {
-                    read.retained.retain(|number, _| in_window(*number));
-                    read.retained_bytes = read.retained.values().map(String::len).sum();
+                    // Every line before this one was kept: each is asked
+                    // now what it would have been asked as it was read.
+                    read.source_wide |= across.is_some_and(|patterns| {
+                        kept.iter().any(|(_, line)| patterns.named_by(line))
+                    });
+                    kept.retain(|(number, _)| in_window(*number));
+                    read.retained_bytes = kept.iter().map(|(_, line)| line.len()).sum();
                 }
             }
         }
     }
     read.key_ranges = tracker.finish();
+    read.retained = kept.into_iter().collect();
     Ok(read)
 }
 

@@ -110,6 +110,7 @@ pub(super) fn assess_and_save(
                 main_goal: None,
                 operation: ClasifyQuerySectionsAssessmentOperation::Sections,
                 reasoning: None,
+                view: None,
             }),
         };
         insert_next(
@@ -170,7 +171,7 @@ pub(super) fn scoped(state: std::borrow::Cow<'_, serde_json::Value>) -> serde_js
 
 /// Every admitted unit's `pending` questions, judged concurrently under the
 /// call's budget and gate; the answers come in admitted order.
-fn judge_units(
+pub(super) fn judge_units(
     session: &Session,
     admitted: &[[usize; 2]],
     pending: &[Vec<usize>],
@@ -247,7 +248,7 @@ fn admit_units(session: &Session, shared: &Budget, whole: bool) -> (Vec<[usize; 
 /// Apply each admitted unit's answers, in admitted order, to its pending
 /// cells; an answer from a model other than the session's pinned one is
 /// refused. Returns how many cells settled.
-fn apply_results(
+pub(super) fn apply_results(
     session: &mut Session,
     admitted: &[[usize; 2]],
     pending: Vec<Vec<usize>>,

@@ -15,6 +15,9 @@ pub(crate) struct OutlineFile {
     pub(crate) path: String,
     /// The declaration rows its `symbolKinds` and `symbolFilter.terms` filters can keep.
     pub(crate) rows: Vec<Value>,
+    /// The 1-based column each of `rows` was named at on its `line`
+    /// ([`compact_declarations`]).
+    pub(crate) name_columns: Vec<u32>,
     /// Declarations of a kind `symbolKinds` leaves out whose name equals a
     /// `symbolFilter.terms` entry: they keep that entry exact, and the answer says
     /// when they are all the entry names.
@@ -24,8 +27,8 @@ pub(crate) struct OutlineFile {
     pub(crate) source_descriptors: octocode_engine::text::analysis::SourceDescriptors,
 }
 
-/// One file's reduced rows: `(rows, off-kind rows, notes)`.
-pub(super) type Reduced = (Vec<Value>, Vec<Value>, Vec<GraphFactDiagnostic>);
+/// One file's reduced rows: `(rows, their name columns, off-kind rows, notes)`.
+pub(super) type Reduced = (Vec<Value>, Vec<u32>, Vec<Value>, Vec<GraphFactDiagnostic>);
 
 /// What one file contributes to a symbols query, reduced as soon as the file
 /// is parsed so a scan holds the answer, not the repository.
@@ -46,14 +49,20 @@ fn reduce_file<'a>(
     spans: &[[u32; 2]],
     source: impl FnOnce() -> Option<String>,
 ) -> Reduced {
-    let mut rows = compact_declarations(declarations, &implemented_traits(edges), provenance);
+    let (mut rows, columns) =
+        compact_declarations(declarations, &implemented_traits(edges), provenance);
     let mut off_kind = vec![];
+    // Each kept row keeps its name column beside it.
+    let mut columns = columns.into_iter();
+    let mut name_columns = Vec::new();
     rows.retain_mut(|row| {
+        let column = columns.next().unwrap_or_default();
         if filter.is_some_and(|filter| !names_match(filter, row)) {
             return false;
         }
         let kind = row["kind"].as_str().unwrap_or("");
         if ast_search_query_symbols::kinds(q).is_none_or(|kinds| kinds.iter().any(|k| k == kind)) {
+            name_columns.push(column);
             return true;
         }
         if filter.is_some_and(|filter| names_equal(filter, row)) {
@@ -80,7 +89,7 @@ fn reduce_file<'a>(
         })
         .cloned()
         .collect();
-    (rows, off_kind, notes)
+    (rows, name_columns, off_kind, notes)
 }
 
 /// The declarations facts of `source` at `path`, parsed with `parser`'s
@@ -123,7 +132,7 @@ pub(super) fn reduce_document(
         .iter()
         .filter(|d| scoped.is_none_or(|(scoped, path)| scoped.keeps(path, d.line)))
         .collect();
-    let (mut rows, mut off_kind, notes) = reduce_file(
+    let (mut rows, name_columns, mut off_kind, notes) = reduce_file(
         q,
         filter,
         &kept,
@@ -139,7 +148,7 @@ pub(super) fn reduce_document(
         source,
     );
     if !provenance {
-        return Ok((rows, off_kind, notes));
+        return Ok((rows, name_columns, off_kind, notes));
     }
     let declarations = facts
         .declarations
@@ -167,7 +176,7 @@ pub(super) fn reduce_document(
             declaration.id
         ])));
     }
-    Ok((rows, off_kind, notes))
+    Ok((rows, name_columns, off_kind, notes))
 }
 
 impl OutlineFile {
@@ -182,7 +191,8 @@ impl OutlineFile {
                     + super::rows::PATH_FIELD_BYTES
                     + self.path.len()
             })
-            .sum()
+            .sum::<usize>()
+            + self.name_columns.len() * std::mem::size_of::<u32>()
     }
 }
 
@@ -293,7 +303,7 @@ pub(super) fn outline_file(
         .bind(&admitted, &mut maps)
         .map_err(ToolError::source)?;
     let mut evidence = super::super::evidence::FileEvidence::new(&bound, &mut maps, cancel);
-    let (rows, off_kind, notes) = reduce_document(
+    let (rows, name_columns, off_kind, notes) = reduce_document(
         q,
         (
             ast_search_query_symbols::name_filter(q).as_ref(),
@@ -307,6 +317,7 @@ pub(super) fn outline_file(
     let files = vec![OutlineFile {
         path,
         rows,
+        name_columns,
         off_kind,
         notes,
         source_descriptors,

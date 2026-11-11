@@ -120,7 +120,7 @@ describe.skipIf(!ready)('launcher → native binary e2e', () => {
     ['install', '--list', '--json'],
     ['install', '--ide', 'not-a-client', '--json'],
     ['skill', 'list', '--json'],
-    ['skill', 'info', 'octocode-architect', '--json'],
+    ['skill', 'info', 'octocode-engineer', '--json'],
     ['localSearch', '{"queries":['],
     ['localFetch', '{"queries":[{"path":"package.json","ranges":["1-3"]}]}'],
   ])('matches native stdout, stderr, and exit status for %j', (...args) => {
@@ -216,7 +216,7 @@ describe.skipIf(!ready)('launcher → native binary e2e', () => {
     const names = (stdout: string) =>
       JSON.parse(stdout).skills.map((skill: { name: string }) => skill.name);
     expect(names(native.stdout)).toEqual(names(node.stdout));
-    expect(names(native.stdout)).toContain('octocode-architect');
+    expect(names(native.stdout)).toContain('octocode-engineer');
   });
 });
 

@@ -83,9 +83,10 @@ fn fields(rows: &[Row]) -> Vec<String> {
     rows.iter()
         .map(|row| {
             format!(
-                "{}|{}|{}|{}|{}|{}|{}|{}",
+                "{}|{}|{}|{}|{}|{}|{}|{}|{}",
                 row.dir,
                 row.entry,
+                row.ranked,
                 row.display_name,
                 row.path,
                 row.name,
@@ -158,7 +159,12 @@ fn a_window_is_the_cut_of_every_entrys_ranked_row() {
             .zip(&lines)
             .filter(|(entry, _)| !Row::is_root_dir(entry, &root.0))
             .map(|(entry, lines)| {
-                let row = Row::of(entry, Row::listed_path(entry, &root.0, &security), *lines);
+                let row = Row::of(
+                    entry,
+                    Row::listed_path(entry, &root.0, &security),
+                    *lines,
+                    crate::tools::structure_search::files::sort_key(&sort),
+                );
                 (row, *lines)
             })
             .collect::<Vec<_>>();

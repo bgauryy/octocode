@@ -80,8 +80,18 @@ async fn compare_row_names_both_resolved_commits_and_each_commit_sha() {
     assert_eq!(out["baseSha"], BASE, "{out}");
     assert_eq!(out["headSha"], HEAD, "{out}");
     assert!(out.get("commitsScope").is_none(), "{out}");
-    assert_eq!(out["commits"][0]["commitSha"], HEAD, "{out}");
     assert_eq!(out["files"], json!(["M +1 -1 src/a.rs"]), "{out}");
+    // The summary counts the range's commits (`aheadBy`) and pages them
+    // apart; the commits section lists each by its SHA.
+    assert!(out.get("commits").is_none(), "{out}");
+    assert_eq!(out["contentPagination"]["commits"]["unshown"], true, "{out}");
+    let listed = read(
+        &server,
+        json!({"operation":"compare","owner":"o","repo":"r","baseRef":"v1","headRef":"feature",
+            "sections":["commits"]}),
+    )
+    .await;
+    assert_eq!(listed["commits"][0]["commitSha"], HEAD, "{listed}");
 }
 
 /// A compare of identical refs changes nothing: an empty answer (exit 1),
@@ -225,9 +235,21 @@ async fn compare_file_filters_page_the_commits_apart() {
         assert_eq!(listed["commits"].as_array().map(Vec::len), Some(100));
         assert_eq!(listed["contentPagination"]["commits"]["page"], 1);
     }
-    let plain = read(
+    // The summary pages the commits apart too; the commits section lists them.
+    let summary = read(
         &server,
         json!({"operation":"compare","owner":"o","repo":"r","baseRef":BASE,"headRef":HEAD}),
+    )
+    .await;
+    assert!(summary.get("commits").is_none(), "{summary}");
+    assert_eq!(
+        summary["contentPagination"]["commits"]["totalItems"], 337,
+        "{summary}"
+    );
+    let plain = read(
+        &server,
+        json!({"operation":"compare","owner":"o","repo":"r","baseRef":BASE,"headRef":HEAD,
+            "sections":["commits"]}),
     )
     .await;
     assert_eq!(

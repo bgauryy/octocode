@@ -136,57 +136,53 @@ fn unknown_and_whole_selection_recovery_reject_source_drift() {
     }
 }
 
+/// The unread rest of a block longer than one page is the read's next page:
+/// it pins the source bytes its first page read and refuses a changed source.
 #[test]
-fn unread_block_and_whole_line_recovery_reject_source_drift() {
+fn the_unread_rest_of_a_long_block_rejects_source_drift() {
     let temp = Fixture::new();
     let paths = Paths(temp.0.clone());
-    let block = format!(
+    let original = format!(
         "fn work() {{\n{}}}\n",
-        (0..450)
+        (0..3_000)
             .map(|n| format!("    let value_{n} = {n};\n"))
             .collect::<String>()
     );
-    let rest = block
-        .lines()
-        .skip(400)
-        .map(|line| format!("{line}\n"))
-        .collect::<String>();
-    let cases = [(
-        "block.rs",
-        block.replace("let value_425 = 425;", "let changed_evidence = 425;"),
-        block,
-        serde_json::json!({"ranges":[{"startLine":1,"endLine":1}],"block":true}),
-        "continueBlock",
-        rest,
-    )];
-    for (name, changed, original, fields, kind, expected) in cases {
-        let path = temp.0.join(name);
-        fs::write(&path, &original).expect("fixture");
-        let first = fetch(&qj(&path, fields), &paths);
-        let next = serde_json::to_value(first.next.expect("unread evidence")).expect("next");
-        let recovery: LocalFetchQuery =
-            serde_json::from_value(next[kind]["input"]["queries"][0].clone()).expect("recovery");
-        let captured = octocode_engine::digest::sha256(original.as_bytes());
-        assert_eq!(
-            local_fetch_query::snapshot(&recovery),
-            Some(captured.as_str()),
-            "{kind} pins the source bytes"
-        );
-        let unchanged = fetch(&recovery, &paths);
-        assert_eq!(unchanged.error_code, None, "{kind}");
-        assert_eq!(
-            unchanged.content.as_deref(),
-            Some(expected.as_str()),
-            "{kind}"
-        );
-        fs::write(&path, changed).expect("change source");
-        let stale = fetch(&recovery, &paths);
-        assert_eq!(stale.error_code, Some(ErrorCode::StaleSnapshot), "{kind}");
-        assert!(
-            stale.content.as_deref().unwrap_or_default().is_empty(),
-            "{kind}"
-        );
-    }
+    let path = temp.0.join("block.rs");
+    fs::write(&path, &original).expect("fixture");
+    let first = fetch(
+        &qj(
+            &path,
+            serde_json::json!({"ranges":[{"startLine":1,"endLine":1}],"block":true}),
+        ),
+        &paths,
+    );
+    let shown = first.content.clone().expect("page 1");
+    let next = serde_json::to_value(first.next.expect("unread evidence")).expect("next");
+    let recovery: LocalFetchQuery =
+        serde_json::from_value(next["nextPage"]["input"]["queries"][0].clone()).expect("page 2");
+    let captured = octocode_engine::digest::sha256(original.as_bytes());
+    assert_eq!(
+        local_fetch_query::snapshot(&recovery),
+        Some(captured.as_str()),
+        "the page pins the source bytes"
+    );
+    let unchanged = fetch(&recovery, &paths);
+    assert_eq!(unchanged.error_code, None);
+    let second = unchanged.content.expect("page 2");
+    assert!(!second.is_empty());
+    assert!(
+        original.starts_with(&format!("{shown}{second}")),
+        "page 2 continues page 1"
+    );
+    fs::write(
+        &path,
+        original.replace("let value_2999 = 2999;", "let changed_evidence = 2999;"),
+    )
+    .expect("change source");
+    let stale = fetch(&recovery, &paths);
+    assert_eq!(stale.error_code, Some(ErrorCode::StaleSnapshot));
+    assert!(stale.content.as_deref().unwrap_or_default().is_empty());
 }
 
 #[test]

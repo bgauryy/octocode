@@ -27,7 +27,7 @@ Load when evaluating what a tool returns through CLI and MCP, or whether an agen
 - `kind`, `confidence`, coverage, and `lowSignal` states are consistent across tools and tell the agent when to verify.
 - Instructions say when to batch independent queries (1–5) and when a dependent query must wait.
 
-Method: replay a realistic task end to end with `$OCTO` (and MCP), starting from the instructions alone. Each moment you must guess the next call is a finding. For routing claims across models, use `octocode-eval-benchmark`, not one replay.
+Method: replay a realistic task end to end with `$OCTO` (and MCP), starting from the instructions alone. Each moment you must guess the next call is a finding. For routing claims across models, use `octocode-agentic` measurement, not one replay.
 
 Record per finding: surface (CLI/MCP/both), reproducing call, short observed vs expected excerpt, producer `file:line`.
 

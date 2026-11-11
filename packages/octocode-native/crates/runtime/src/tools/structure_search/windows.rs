@@ -200,11 +200,12 @@ pub(super) fn ranked_window<Q: Listing>(
         &ranked.entries[start..end],
         ranked.lines.get(start..end).unwrap_or_default(),
         (root, security),
+        &q.sort(),
     );
     let mut walk = Walked::served(rows, &ranked.meta, q.scan_offset(), ranked.dirs.clone());
     walk.meta.pinned_before = (!first).then(|| pin.clone());
     walk.meta.pins_through = Some(pin);
-    rows::group(&mut walk.rows, &q.sort(), q.view());
+    rows::group(&mut walk.rows, &q.sort());
     Some(walk)
 }
 

@@ -204,17 +204,44 @@ fn leaf_forms<'a>(root: &'a Value, schema: &'a Value, out: &mut Vec<&'a Value>) 
     }
 }
 
-/// Whether an enforcement row form takes `operation`: its `operation`
-/// field's literals name it.
-fn form_takes(root: &Value, form: &Value, operation: &str) -> bool {
+/// Whether an object form lets `field` be the string `value`: the field's
+/// literals name it, or the field takes any value. A form without the field
+/// does not.
+fn form_takes(root: &Value, form: &Value, field: &str, value: &str) -> bool {
     let form = crate::contracts::resolve_ref(form, &root["$defs"]);
-    let field = crate::contracts::resolve_ref(&form["properties"]["operation"], &root["$defs"]);
-    field["const"] == operation
-        || field["enum"]
-            .as_array()
-            .is_some_and(|values| values.iter().any(|value| value == operation))
+    let Some(property) = form["properties"].get(field) else {
+        return false;
+    };
+    let property = crate::contracts::resolve_ref(property, &root["$defs"]);
+    let literals: Vec<&Value> = property
+        .get("const")
+        .into_iter()
+        .chain(property["enum"].as_array().into_iter().flatten())
+        .collect();
+    literals.is_empty()
+        || literals
+            .iter()
+            .any(|literal| literal.as_str() == Some(value))
 }
 
+/// The `FIELD=VALUE` pairs of a published selection key
+/// (`operation=match,view=content`).
+fn pairs(selection: &str) -> Vec<(&str, &str)> {
+    selection
+        .split(',')
+        .map(|pair| {
+            pair.split_once('=')
+                .unwrap_or_else(|| panic!("{selection} is FIELD=VALUE pairs"))
+        })
+        .collect()
+}
+
+/// Every selected view a tool publishes (one operation, or an operation
+/// narrowed by a second field's value) publishes exactly the keys the
+/// validator admits for the forms that selection names, in the view's mode:
+/// the plain views are a runtime's without a classification provider, which
+/// refuses [`PROVIDER_FIELDS`](crate::contracts::PROVIDER_FIELDS); the views
+/// under `selection` are a runtime's with one.
 #[test]
 fn every_operation_publishes_exactly_the_keys_its_forms_admit() {
     let mut failures = Vec::new();
@@ -223,25 +250,98 @@ fn every_operation_publishes_exactly_the_keys_its_forms_admit() {
         let query = &tool_contract(tool).expect("contract")["querySchema"];
         let mut forms = Vec::new();
         leaf_forms(query, query, &mut forms);
-        let selections = presentation_tool(name)["selections"].as_object();
-        for (selection, view) in selections.into_iter().flatten() {
-            let operation = selection.trim_start_matches("operation=");
-            let mut admitted = BTreeSet::new();
-            for form in forms
-                .iter()
-                .filter(|form| form_takes(query, form, operation))
-            {
-                key_paths(query, form, "", 0, &mut admitted);
-            }
-            let published = paths_of(&view["querySchema"]);
-            if admitted != published {
-                let hidden: Vec<_> = admitted.difference(&published).collect();
-                let rejected: Vec<_> = published.difference(&admitted).collect();
-                failures.push(format!(
-                    "{name} {selection}: admitted only {hidden:?}; published only {rejected:?}"
-                ));
+        let presented = presentation_tool(name);
+        let modes = [
+            ("plain", Some(presented), false),
+            ("selection", presented.get("selection"), true),
+        ];
+        for (mode, presented, provider) in modes {
+            let selections = presented.and_then(|presented| presented["selections"].as_object());
+            for (selection, view) in selections.into_iter().flatten() {
+                let pairs = pairs(selection);
+                if pairs.first().map(|(field, _)| *field) != Some("operation") || pairs.len() > 2 {
+                    failures.push(format!(
+                        "{name} {mode} {selection}: not operation=VALUE[,FIELD=VALUE]"
+                    ));
+                    continue;
+                }
+                let takes = |root: &Value, form: &Value| {
+                    pairs
+                        .iter()
+                        .all(|(field, value)| form_takes(root, form, field, value))
+                };
+                let mut admitted = BTreeSet::new();
+                for form in forms.iter().filter(|form| takes(query, form)) {
+                    key_paths(query, form, "", 0, &mut admitted);
+                }
+                if !provider {
+                    admitted.retain(|path| {
+                        let field = path.split(['.', '[']).next().unwrap_or(path);
+                        !crate::contracts::PROVIDER_FIELDS.contains(&field)
+                    });
+                }
+                let schema = &view["querySchema"];
+                let published = paths_of(schema);
+                if admitted != published {
+                    let hidden: Vec<_> = admitted.difference(&published).collect();
+                    let rejected: Vec<_> = published.difference(&admitted).collect();
+                    failures.push(format!(
+                        "{name} {mode} {selection}: admitted only {hidden:?}; published only {rejected:?}"
+                    ));
+                }
+                // The view is the selection's own: each form it shows takes
+                // the pairs, and a narrowing pair admits only its value.
+                let mut shown = Vec::new();
+                leaf_forms(schema, schema, &mut shown);
+                if !shown.iter().all(|form| takes(schema, form)) {
+                    failures.push(format!(
+                        "{name} {mode} {selection}: a published form does not take the selection"
+                    ));
+                }
+                if let Some((field, value)) = pairs.get(1) {
+                    let only = shown.iter().all(|form| {
+                        let property = crate::contracts::resolve_ref(
+                            &form["properties"][*field],
+                            &schema["$defs"],
+                        );
+                        property["const"] == *value
+                            || property["enum"] == serde_json::json!([value])
+                    });
+                    if !only {
+                        failures.push(format!(
+                            "{name} {mode} {selection}: {field} admits more than {value}"
+                        ));
+                    }
+                }
+                if mentions_private_state(schema) {
+                    failures.push(format!("{name} {mode} {selection}: carries x-cursor"));
+                }
             }
         }
     }
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+}
+
+/// The guard above compares something: operations are published, a provider
+/// adds classification views, and second pairs narrow an operation.
+#[test]
+fn selected_views_cover_both_modes_and_second_pairs() {
+    let tools = || {
+        ToolId::ALL
+            .into_iter()
+            .map(|tool| presentation_tool(tool.as_str()))
+    };
+    let keys =
+        |presented: &'static Value| presented["selections"].as_object().into_iter().flatten();
+    assert!(tools().flat_map(keys).any(|(key, _)| !key.contains(',')));
+    assert!(tools().flat_map(keys).any(|(key, _)| key.contains(',')));
+    let provider: Vec<_> = tools()
+        .filter_map(|presented| presented.get("selection"))
+        .flat_map(keys)
+        .collect();
+    assert!(provider.iter().any(|(_, view)| {
+        view["querySchema"]["properties"]
+            .get(crate::contracts::PROVIDER_FIELDS[0])
+            .is_some()
+    }));
 }

@@ -15,7 +15,6 @@ fn widening_follows_the_files_comment_syntax() {
         "m.py",
         vec![LineRange { start: 5, end: 5 }],
         &mut vec![],
-        &mut vec![],
     );
     assert_eq!(widened, vec![LineRange { start: 2, end: 6 }]);
     let rs = "const S: &str = \"a\n-- b\";\n#[inline]\nfn f() -> u8 {\n    1\n}\n";
@@ -23,7 +22,6 @@ fn widening_follows_the_files_comment_syntax() {
         rs,
         "lib.rs",
         vec![LineRange { start: 5, end: 5 }],
-        &mut vec![],
         &mut vec![],
     );
     assert_eq!(widened, vec![LineRange { start: 3, end: 6 }]);
@@ -40,7 +38,6 @@ fn ranges_widen_to_the_enclosing_declaration() {
             LineRange { start: 4, end: 4 },
         ],
         &mut warnings,
-        &mut vec![],
     );
     assert_eq!(
         widened,
@@ -56,7 +53,6 @@ fn ranges_widen_to_the_enclosing_declaration() {
         "m.py",
         vec![LineRange { start: 1, end: 1 }],
         &mut warnings,
-        &mut vec![],
     );
     assert_eq!(kept, vec![LineRange { start: 1, end: 1 }]);
     assert!(warnings[0].contains("line 1"), "{warnings:?}");
@@ -70,7 +66,6 @@ fn unsupported_files_keep_the_window_with_a_note() {
         "notes.unknownext",
         vec![LineRange { start: 1, end: 1 }],
         &mut warnings,
-        &mut vec![],
     );
     assert_eq!(kept, vec![LineRange { start: 1, end: 1 }]);
     assert!(
@@ -79,36 +74,33 @@ fn unsupported_files_keep_the_window_with_a_note() {
     );
 }
 
+/// No fixed cap on a declaration's length: a block read selects the whole
+/// declaration and the read's pages bound what one response holds.
 #[test]
-fn oversized_declarations_are_capped() {
+fn a_long_declaration_is_selected_whole() {
     let body: String = (0..450).map(|i| format!("    x{i} = {i}\n")).collect();
     let source = format!("def big():\n{body}    return 0\n");
+    let whole = vec![LineRange { start: 1, end: 452 }];
     let mut warnings = vec![];
     let widened = widen_ranges(
         &source,
         "m.py",
         vec![LineRange { start: 10, end: 12 }],
         &mut warnings,
-        &mut vec![],
     );
-    assert_eq!(
-        widened,
-        vec![LineRange {
-            start: 10,
-            end: 409
-        }]
-    );
-    assert!(warnings[0].contains("exceeds 400 lines"), "{warnings:?}");
+    assert_eq!(widened, whole);
+    let mut blocks = vec![];
     let windows = widen_matches(
         &source,
         "m.py",
         &[20],
         vec![LineRange { start: 18, end: 22 }],
         &mut warnings,
-        &mut vec![],
-        &mut vec![],
+        &mut blocks,
     );
-    assert_eq!(windows, vec![LineRange { start: 18, end: 22 }]);
+    assert_eq!(windows, whole);
+    assert_eq!(blocks.len(), 1, "{blocks:?}");
+    assert!(warnings.is_empty(), "{warnings:?}");
 }
 
 /// A declaration's leading doc comments and attributes belong to it:
@@ -123,7 +115,6 @@ fn blocks_include_leading_doc_comments_and_attributes() {
         "m.rs",
         vec![LineRange { start: 7, end: 7 }],
         &mut warnings,
-        &mut vec![],
     );
     assert_eq!(
         widened,
@@ -142,7 +133,6 @@ fn blocks_include_leading_doc_comments_and_attributes() {
         ],
         &mut warnings,
         &mut vec![],
-        &mut vec![],
     );
     assert_eq!(
         windows,
@@ -158,7 +148,6 @@ fn blocks_include_leading_doc_comments_and_attributes() {
         "m.c",
         vec![LineRange { start: 3, end: 3 }],
         &mut warnings,
-        &mut vec![],
     );
     assert_eq!(widened, vec![LineRange { start: 2, end: 4 }]);
 }
@@ -172,7 +161,6 @@ fn matches_widen_to_their_declaration() {
         &[10],
         vec![LineRange { start: 9, end: 11 }],
         &mut warnings,
-        &mut vec![],
         &mut vec![],
     );
     assert_eq!(windows, vec![LineRange { start: 8, end: 11 }]);
@@ -191,7 +179,6 @@ fn a_match_outside_every_declaration_says_block_did_not_apply() {
             LineRange { start: 9, end: 11 },
         ],
         &mut warnings,
-        &mut vec![],
         &mut vec![],
     );
     assert_eq!(
@@ -226,7 +213,6 @@ fn one_line_declarations_are_named_as_such_not_as_outside() {
         ],
         &mut warnings,
         &mut vec![],
-        &mut vec![],
     );
     assert_eq!(windows[0], LineRange { start: 1, end: 1 });
     assert_eq!(warnings.len(), 2, "{warnings:?}");
@@ -244,7 +230,6 @@ fn one_line_declarations_are_named_as_such_not_as_outside() {
         "m.rs",
         vec![LineRange { start: 2, end: 2 }],
         &mut warnings,
-        &mut vec![],
     );
     assert_eq!(
         warnings,
@@ -269,7 +254,6 @@ fn unenclosed_ranges_state_the_recovered_parse_once() {
             LineRange { start: 4, end: 4 },
         ],
         &mut warnings,
-        &mut vec![],
     );
     let notes = warnings
         .iter()
@@ -295,7 +279,6 @@ fn javascript_member_assigned_functions_are_blocks() {
         vec![LineRange { start: 1, end: 5 }],
         &mut warnings,
         &mut vec![],
-        &mut vec![],
     );
     assert_eq!(windows, vec![LineRange { start: 3, end: 9 }]);
     assert!(warnings.is_empty(), "{warnings:?}");
@@ -317,7 +300,6 @@ fn call_site_hits_keep_window_when_a_declaration_hit_exists() {
             LineRange { start: 10, end: 10 },
         ],
         &mut warnings,
-        &mut vec![],
         &mut blocks,
     );
     assert_eq!(
@@ -350,7 +332,6 @@ fn call_site_hits_keep_window_when_a_declaration_hit_exists() {
         vec![LineRange { start: 10, end: 10 }],
         &mut warnings,
         &mut vec![],
-        &mut vec![],
     );
     assert_eq!(windows, vec![LineRange { start: 8, end: 11 }]);
 }
@@ -371,7 +352,6 @@ fn a_hit_on_an_attribute_line_reads_the_whole_declaration() {
                 end: hit,
             }],
             &mut warnings,
-            &mut vec![],
             &mut vec![],
         );
         assert_eq!(
@@ -399,7 +379,6 @@ fn a_hit_on_a_one_line_attributed_member_reads_its_header_and_body() {
                 end: hit,
             }],
             &mut warnings,
-            &mut vec![],
             &mut vec![],
         );
         assert_eq!(

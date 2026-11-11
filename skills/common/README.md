@@ -12,7 +12,13 @@ yarn workspace @octocodeai/skills-common test
 
 Repository builds run this workspace. `node skills-dev/octocode-dev/scripts/dev.mjs skills:check` checks generated copies without repairing them, so drift fails CI.
 
-The build scans the collections in `COLLECTIONS` (`skills`, `skills-dev`) for `SKILL.md`; package skills (`packages/*/skills`, `packages/*/src/skills`) bundle no shared files and are not scanned. A skill receives a bundle only when its route graph reaches the bundle's entry file: the build starts at `SKILL.md` and follows Markdown links, relative imports and whole paths named in each reached authored file, then continues through the shared pages it copies. A copy no route reaches is not written, and a stale one is deleted, but only when it is byte-identical to its canonical source; an authored file at a shared path is never touched. `routeGraph(dir)` exposes the graph, and a test fails when a skill ships an unreached copy or routes to a shared file that was not copied. The renderer bundle carries no guidance pages: `references/report-output.md` ships when a route links it. New report consumers link `scripts/render-report.mjs` from their lobby and `references/report-output.md` from their output guide.
+| Build decision | Rule |
+|---|---|
+| Scope | Scan `COLLECTIONS`: `skills`, `skills-dev`, for `SKILL.md`. Package skills (`packages/*/skills`, `packages/*/src/skills`) bundle no shared files and are excluded. |
+| Reachability | Start at `SKILL.md`; follow Markdown links, relative imports and named whole paths through authored and canonical shared pages. Copy a bundle only when its entry is reached. |
+| Removal | Delete an unreached copy only when byte-identical to its canonical source. Never touch authored content at a shared path. |
+| Contract | `routeGraph(dir)` exposes routes; tests reject unreached copies and missing routed files. |
+| New report consumer | Link `scripts/render-report.mjs` from the entry and `references/report-output.md` from output. Renderer bundles carry no guidance pages implicitly. |
 
 Shared Markdown under `references/` is discovered automatically. Link a shared page from any skill Markdown file using its installed relative path. The build follows that page's shared dependencies from canonical content, so a fresh standalone install includes the entire reference chain. These are on-demand references, not additions to skill descriptions or automatically loaded instructions.
 
@@ -36,7 +42,7 @@ Shared Markdown under `references/` is discovered automatically. Link a shared p
 
 The graph viewer consumes scan/model JSON; the report viewer consumes Markdown. They have distinct interaction models and each has one canonical template. Skill-specific status values, evidence requirements, and report sections remain in each skill's `output.md`.
 
-Keep specialized methods with their owners: query recipes and classification decisions in Research; browser actions in Chrome DevTools; identity and delivery in agents-communication; sealed comparisons in eval-benchmark; workflow roles and ledgers in Workflows. Similar words do not imply the same contract.
+Keep specialized methods with their owners: query recipes and classification decisions in Research; browser actions in Chrome DevTools; agent identity, delivery and sealed comparisons in Agentic; workflow roles and ledgers in Workflows. Similar words do not imply the same contract.
 
 The report converter accepts Mermaid flows plus validated `graph` and `chart` JSON fences. It supplies shared controls, data tables, errors, export and themes; authors provide content only. Graphs load Cytoscape.js and charts load ECharts only when present. See [the input contract](references/report-widgets.md).
 

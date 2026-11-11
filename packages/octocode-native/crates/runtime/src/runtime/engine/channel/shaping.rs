@@ -67,9 +67,13 @@ impl ChannelRun {
     ) -> Result<(Sanitized, Value), ExecutionError> {
         let envelope = rows::envelope(self.id, rows);
         let before = rows::placeholders_per_row(&envelope);
+        // The rows' own text: a lead or an error that repeats a request
+        // value repeats it as the caller sent it.
+        let own = crate::security::Admitted::of(&self.queries);
         let mut structured = self.dispatcher.security.seal_judged(
             envelope,
             judged,
+            &own,
             self.output.redact_emails && self.id.is_github(),
             || context.check(),
         )?;

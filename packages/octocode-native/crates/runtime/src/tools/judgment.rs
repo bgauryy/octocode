@@ -8,6 +8,7 @@
 pub(crate) mod batch;
 pub(crate) mod shared;
 pub(crate) mod stats;
+mod windows;
 
 #[cfg(test)]
 mod tests;
@@ -244,6 +245,17 @@ impl Evaluator {
         crate::providers::classification::gate::lease(
             self.partition().identity(),
             self.max_concurrency,
+        )
+    }
+
+    /// Whether the provider is known to refuse `input` as too large in every
+    /// window it would be sent to ([`windows`]); nothing is sent to ask.
+    pub(crate) fn known_refused(&self, input: EvaluationInput<'_>, model: Option<&str>) -> bool {
+        batch::known_refused(
+            input,
+            model.unwrap_or(&self.model),
+            &self.base_url,
+            self.provider,
         )
     }
 

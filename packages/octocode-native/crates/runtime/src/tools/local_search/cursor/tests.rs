@@ -13,6 +13,7 @@ fn scan() -> (Vec<TextSearchFile>, TextSearchStats) {
         value_digest: [line as u8; 32],
         count: None,
         rank: Some(1),
+        window_start: None,
     };
     let files = vec![
         TextSearchFile {

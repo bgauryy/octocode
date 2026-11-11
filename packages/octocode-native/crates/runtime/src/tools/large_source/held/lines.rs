@@ -56,10 +56,7 @@ impl InLine {
 impl WindowLines {
     /// The windows of `wants`, streamed from a line start where the
     /// private-key block state is `block`.
-    pub(in crate::tools::large_source) fn new(
-        wants: &[Want],
-        block: KeyBlockState,
-    ) -> Self {
+    pub(in crate::tools::large_source) fn new(wants: &[Want], block: KeyBlockState) -> Self {
         Self {
             held: wants.iter().map(|&want| Held::new(want)).collect(),
             head: Vec::new(),
@@ -117,11 +114,7 @@ impl WindowLines {
 
     /// End the windows inside a `line` of `bytes` bytes that the pass found to be no
     /// key's: the rest of it is known, so it need not be read.
-    pub(in crate::tools::large_source) fn close_known(
-        &mut self,
-        line: usize,
-        bytes: usize,
-    ) {
+    pub(in crate::tools::large_source) fn close_known(&mut self, line: usize, bytes: usize) {
         for held in &mut self.held {
             held.view_pos = bytes;
             if let Some(range) = &mut held.range {
@@ -153,11 +146,7 @@ impl WindowLines {
 
     /// Continue at byte `offset`, a later line start where the block state is
     /// `block`.
-    pub(in crate::tools::large_source) fn restart(
-        &mut self,
-        block: KeyBlockState,
-        offset: u64,
-    ) {
+    pub(in crate::tools::large_source) fn restart(&mut self, block: KeyBlockState, offset: u64) {
         self.at = octocode_engine::num::saturating_usize(offset);
         self.line_at = self.at;
         self.block = block;
@@ -192,7 +181,7 @@ impl WindowLines {
         let inside = self.block.advance(markers, || shape.finish(head))
             && (!markers.any() || self.at - self.line_at <= super::super::KEY_LINE_BYTES);
         let lead = if inside {
-            crate::security::key_line_lead(&self.head)
+            crate::security::key_line_lead(&self.head, &shape)
         } else {
             &[]
         };

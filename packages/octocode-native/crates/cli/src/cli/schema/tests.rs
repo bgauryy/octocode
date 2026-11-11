@@ -175,6 +175,77 @@ fn select_takes_a_second_pair() {
     );
 }
 
+/// The tool `name` of the embedded presentation.
+fn presented(name: &str) -> &'static Value {
+    octocode_native::contracts::cli_presentation().expect("presentation")["tools"]
+        .as_array()
+        .expect("tools")
+        .iter()
+        .find(|tool| tool["name"] == name)
+        .unwrap_or_else(|| panic!("{name} is presented"))
+}
+
+/// A second pair the contract narrows serves that narrowed row: the pair's
+/// field takes only the selected value, and the row is not the operation's.
+#[test]
+fn a_second_pair_serves_the_narrowed_row_of_the_contract() {
+    let m = machine(&[]);
+    for (name, operation, field, value) in [
+        ("astSearch", "match", "view", "files"),
+        ("lspSearch", "references", "view", "files"),
+        ("artifactSearch", "resolve", "ecosystem", "pypi"),
+    ] {
+        let key = format!("operation={operation},{field}={value}");
+        let narrowed = presented(name)["selections"]
+            .get(&key)
+            .unwrap_or_else(|| panic!("{name} publishes {key}"));
+        let view = |selection: &str| {
+            tool_view(&m, name, Some("query"), Some(selection))
+                .unwrap_or_else(|error| panic!("{name} {selection}: {}", error.message))
+        };
+        let row = view(&key);
+        assert_eq!(row["querySchema"], narrowed["querySchema"], "{name} {key}");
+        assert_eq!(row["description"], narrowed["description"], "{name} {key}");
+        assert_eq!(
+            row["querySchema"]["properties"][field]["enum"],
+            json!([value]),
+            "{name} {key}"
+        );
+        let whole = view(&format!("operation={operation}"));
+        assert_ne!(row["querySchema"], whole["querySchema"], "{name} {key}");
+        assert_eq!(row["run"], whole["run"], "{name} {key}");
+        assert_eq!(row["availability"], whole["availability"], "{name} {key}");
+    }
+}
+
+/// Beside a classification provider `--select` serves the rows of the
+/// `selection` presentation, which carry the classification fields; without
+/// one it serves the plain rows, which carry none.
+#[test]
+fn select_follows_the_resolved_presentation_switch() {
+    let mut machine = machine(&[]);
+    let mut classified = 0;
+    let presentation = octocode_native::contracts::cli_presentation().expect("presentation");
+    for tool in super::tools(presentation) {
+        let name = tool["name"].as_str().expect("name");
+        let Some(rows) = tool["selection"]["selections"].as_object() else {
+            continue;
+        };
+        for (key, with_provider) in rows {
+            for (enabled, expected) in [(false, &tool["selections"][key]), (true, with_provider)] {
+                machine["presentation"] = json!({ "selection": enabled });
+                let row = tool_view(&machine, name, Some("query"), Some(key))
+                    .unwrap_or_else(|error| panic!("{name} {key}: {}", error.message));
+                assert_eq!(row["querySchema"], expected["querySchema"], "{name} {key}");
+                let fields = &row["querySchema"]["properties"]["classification"];
+                assert!(enabled || fields.is_null(), "{name} {key}: {fields}");
+                classified += usize::from(enabled && fields.is_object());
+            }
+        }
+    }
+    assert!(classified > 0, "no operation row takes classification");
+}
+
 #[test]
 fn select_reads_one_operation_row() {
     let m = machine(&[]);

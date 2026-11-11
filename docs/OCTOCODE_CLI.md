@@ -94,7 +94,7 @@ Nothing is clipped. A call the runtime rejects before it runs (invalid input, a 
 
 ### Errors
 
-Input failures report `errorCode:"invalidInput"` and the invalid fields. Correct those fields using the schema; the CLI does not guess an alternative query. JSON mode writes structured failures to stdout. A launcher that cannot start native reports the failure on stderr.
+Input failures report `errorCode:"invalidInput"` and the invalid fields, then one request the tool accepts (`Example: {"queries":[…]}`) and the command that prints its schema (`Schema: octocode schema <tool>`). Correct those fields using the schema; the CLI does not guess an alternative query. JSON mode writes structured failures to stdout. A launcher that cannot start native reports the failure on stderr.
 
 ### Exit codes
 

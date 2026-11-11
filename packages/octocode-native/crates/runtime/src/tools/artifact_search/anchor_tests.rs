@@ -117,11 +117,12 @@ fn an_empty_discovery_broadens_by_dropping_each_keyword() {
     assert!(data.get("related").is_none(), "{data}");
 }
 
-/// A failure a call repairs carries exactly that one lead and no text.
+/// A failure a call repairs carries exactly that one lead and no text. The
+/// lead keeps the query's view, here the default, which a call leaves out.
 #[test]
 fn failures_carry_one_repair_lead() {
     let unknown = typed(
-        &json!({"operation":"resolve","ecosystem":"crates","packageName":"no-such-crate","version":"1.0.0"}),
+        &json!({"operation":"resolve","ecosystem":"crates","packageName":"no-such-crate","version":"1.0.0","view":"summary"}),
     );
     let error = respond(&unknown, ArtifactProviderPage::empty(Some(0))).expect_err("missing");
     let error = leads::with_repair(error, &unknown);
@@ -138,7 +139,7 @@ fn failures_carry_one_repair_lead() {
     assert!(error.hints.is_empty());
 
     let pinned = typed(
-        &json!({"operation":"resolve","ecosystem":"npm","packageName":"zod","version":"3.22.9"}),
+        &json!({"operation":"resolve","ecosystem":"npm","packageName":"zod","version":"3.22.9","view":"summary"}),
     );
     let mut missing = ArtifactError::new(ErrorCode::VersionNotFound, "no 3.22.9");
     missing.nearest = vec!["3.22.4".into(), "3.22.0".into()];

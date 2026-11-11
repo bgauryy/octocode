@@ -95,4 +95,4 @@ Follow [output.md](output.md) for the verdict, findings table and saved report. 
 
 ## Related skills
 
-Use `octocode-research` for a change-impact or history question that needs no merge verdict, `octocode-roast` when a blunt critique is requested, `octocode-architect` for a boundary decision, and `octocode-clean-agentic-code` to remove proven dead code.
+Use `octocode-research` for a change-impact or history question that needs no merge verdict, `octocode-roast` when a blunt critique is requested, `octocode-engineer` for a boundary decision, and `octocode-clean-agentic-code` to remove proven dead code.

@@ -30,6 +30,12 @@ pub fn format_input_error(
     if let Some(at) = sent_value_lead(&issues) {
         issues[..=at].rotate_right(1);
     }
+    // A value the input guard refused (a credential, an oversized fragment)
+    // sits in a well-formed call: its cause names the whole repair.
+    let value_refused = !issues.is_empty()
+        && issues
+            .iter()
+            .all(|issue| issue.rule_id.starts_with("security."));
     let details = issues
         .into_iter()
         .map(|issue| {
@@ -54,7 +60,39 @@ pub fn format_input_error(
             }
         })
         .collect::<Vec<_>>();
-    issues_error(details)
+    // A request field sent inside a row, or a refused value, has one repair,
+    // stated whole: a fresh example beside it would point away from it.
+    let reference = if misplaced.is_empty() && !value_refused {
+        call_reference(tool_name)
+    } else {
+        Vec::new()
+    };
+    issues_error(details, reference)
+}
+
+/// What repairs a rejected call when its causes alone do not: one request
+/// the tool accepts (core's example of its first form, the one `schema
+/// <tool> --view variants` shows) and the command that prints every field.
+/// Stated once per rejected call or row, after its causes; empty for a name
+/// that is no tool, and left out where a misplaced request field or a
+/// refused value (`security.*`) is the whole repair.
+fn call_reference(tool_name: &str) -> Vec<String> {
+    let example = crate::contracts::cli_presentation()
+        .ok()
+        .and_then(|presentation| {
+            presentation["tools"]
+                .as_array()?
+                .iter()
+                .find(|entry| entry["name"] == tool_name)
+        })
+        .and_then(|entry| entry["views"]["variants"]["variants"][0].get("example"));
+    let Some(example) = example else {
+        return Vec::new();
+    };
+    vec![
+        format!("Example: {}", serde_json::json!({ "queries": [example] })),
+        format!("Schema: octocode schema {tool_name}"),
+    ]
 }
 
 /// The position of the issue that should lead when the first says only that
@@ -275,12 +313,15 @@ pub fn tool_error(error: &str, details: Vec<String>) -> Value {
     value
 }
 
-/// Repair details as one error: the first names the fix, the rest follow.
-fn issues_error(mut details: Vec<String>) -> Value {
-    if details.is_empty() {
-        return tool_error("Invalid input.", Vec::new());
-    }
-    let first = details.remove(0);
+/// Repair details as one error: the first names the fix, the rest follow,
+/// then the call's `reference` ([`call_reference`]).
+fn issues_error(mut details: Vec<String>, reference: Vec<String>) -> Value {
+    let first = if details.is_empty() {
+        "Invalid input.".to_owned()
+    } else {
+        details.remove(0)
+    };
+    details.extend(reference);
     tool_error(&first, details)
 }
 

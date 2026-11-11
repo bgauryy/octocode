@@ -66,15 +66,27 @@ pub(super) fn order(q: &GhSearchRepoQuery) -> &str {
         _ => "desc",
     }
 }
+/// The row field a search is sorted by, when a default row leaves it to
+/// `fields` (`stars` is on every row; a help-wanted count is on none).
+pub(super) fn sorted_detail(q: &GhSearchRepoQuery) -> Option<&'static str> {
+    let GhSearchRepoQuery::Search(q) = q else {
+        return None;
+    };
+    match serde_json::to_value(&q.sort).ok()?["by"].as_str()? {
+        "forks" => Some("forks"),
+        "updatedAt" => Some("updatedAt"),
+        _ => None,
+    }
+}
 pub(super) fn search_sort(q: &GhSearchRepoQuery) -> Option<String> {
     let GhSearchRepoQuery::Search(q) = q else {
         return None;
     };
     let value = serde_json::to_value(&q.sort).ok()?;
     let by = match value["by"].as_str()? {
-        "bestMatch" => return None,
+        "relevance" => return None,
         "stars" => "stars",
-        "forkCount" => "forks",
+        "forks" => "forks",
         "helpWantedIssueCount" => "help-wanted-issues",
         "updatedAt" => "updated",
         _ => return None,

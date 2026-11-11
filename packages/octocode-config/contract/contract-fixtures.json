@@ -48,7 +48,8 @@
         {
           "operation": "stats",
           "path": ".",
-          "includeProvenance": false
+          "includeProvenance": false,
+          "view": "summary"
         }
       ]
     }
@@ -1586,7 +1587,8 @@
           "operation": "package",
           "ecosystem": "npm",
           "packageName": "lodash",
-          "version": "4.17.20"
+          "version": "4.17.20",
+          "view": "summary"
         }
       ]
     }
@@ -1624,7 +1626,8 @@
           "operation": "resolve",
           "ecosystem": "npm",
           "packageName": "cache",
-          "registryUrl": "http://registry.example.org/npm/"
+          "registryUrl": "http://registry.example.org/npm/",
+          "view": "summary"
         }
       ]
     }
@@ -1652,6 +1655,7 @@
             " parser "
           ],
           "limit": 20,
+          "view": "summary",
           "ecosystem": "crates"
         }
       ]
@@ -2212,7 +2216,8 @@
           "ecosystem": "npm",
           "packageName": "@scope/cache",
           "version": "^2",
-          "registryUrl": "https://registry.example.org/npm/"
+          "registryUrl": "https://registry.example.org/npm/",
+          "view": "summary"
         }
       ]
     }
@@ -2237,7 +2242,8 @@
           "operation": "resolve",
           "ecosystem": "maven",
           "packageName": "org.example:cache",
-          "version": "1.0"
+          "version": "1.0",
+          "view": "summary"
         }
       ]
     }
@@ -2265,6 +2271,7 @@
             "parser"
           ],
           "limit": 20,
+          "view": "summary",
           "ecosystem": "crates"
         }
       ]
@@ -2859,7 +2866,8 @@
           "operation": "resolve",
           "ecosystem": "npm",
           "packageName": "zod",
-          "registryUrl": "https://registry.example.org/%3F%23"
+          "registryUrl": "https://registry.example.org/%3F%23",
+          "view": "summary"
         }
       ]
     }
@@ -2884,7 +2892,8 @@
           "operation": "resolve",
           "ecosystem": "npm",
           "packageName": "zod",
-          "registryUrl": "HTTPS://registry.example.org/npm/"
+          "registryUrl": "HTTPS://registry.example.org/npm/",
+          "view": "summary"
         }
       ]
     }
@@ -2909,7 +2918,8 @@
           "operation": "resolve",
           "ecosystem": "npm",
           "packageName": "zod",
-          "registryUrl": "https:/registry.example.org/"
+          "registryUrl": "https:/registry.example.org/",
+          "view": "summary"
         }
       ]
     }
@@ -2981,7 +2991,7 @@
             "cache"
           ],
           "sort": {
-            "by": "bestMatch",
+            "by": "relevance",
             "order": "desc"
           },
           "limit": 50,
@@ -3008,7 +3018,7 @@
           "operation": "search",
           "owner": "o",
           "sort": {
-            "by": "bestMatch",
+            "by": "relevance",
             "order": "desc"
           },
           "limit": 50,
@@ -3519,6 +3529,10 @@
             "**/*.ts"
           ],
           "materialize": true,
+          "sort": {
+            "by": "path",
+            "order": "asc"
+          },
           "limit": 300
         }
       ]
@@ -3545,7 +3559,7 @@
           "owner": "o",
           "repo": "r",
           "ref": "main",
-          "limit": 100
+          "limit": 30
         }
       ]
     }
@@ -3770,7 +3784,7 @@
       "queries": [
         {
           "path": "src",
-          "view": "details",
+          "view": "paths",
           "page": 1,
           "operation": "tree",
           "maxDepth": 2
@@ -3805,7 +3819,7 @@
       "queries": [
         {
           "path": "src",
-          "view": "details",
+          "view": "paths",
           "page": 1,
           "operation": "files",
           "modifiedAt": {

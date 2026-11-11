@@ -180,7 +180,7 @@ const FALLBACK_PAGE_CHARS: usize = 24_000;
 /// Room for everything a response row holds besides its listed entries:
 /// the envelope, stats, pagination, warnings, and the fixed text of row
 /// continuations and handoffs.
-const ROW_SKELETON_CHARS: usize = 2_000;
+pub(crate) const ROW_SKELETON_CHARS: usize = 2_000;
 
 /// Chars a streamed page's entries may take. With a response window, the
 /// page leaves room for the row around it (`reserve`); a tiny window

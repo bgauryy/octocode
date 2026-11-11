@@ -6,7 +6,7 @@ mod code_syntax;
 mod credential_values;
 mod key_facts;
 
-use code_syntax::CodeSyntax;
+use code_syntax::{CodeSyntax, SyntaxGates};
 use credential_values::VALUE_TESTS;
 use credential_values::{
     ValueTest, before_next_key, expanded_names, is_expanded_name, is_identifier_name, is_sentence,
@@ -35,6 +35,7 @@ pub use source_names::{
 
 mod prescan;
 mod regex_forms;
+mod request;
 mod tail_captures;
 mod tail_reach;
 mod tail_reads;
@@ -57,6 +58,9 @@ pub use gates::LONGEST_BOUNDED_MATCH;
 use regex_forms::{anchored_pattern_regex, pattern_regex_for};
 #[cfg(test)]
 use regex_forms::{ascii_word_boundaries, pattern_regex};
+pub(crate) use request::{
+    cleared_values, hide_named_values, holds_credential_as_request, literal_form,
+};
 
 /// The largest source a read holds whole, and the text this pass judges pattern by
 /// pattern. A longer one is judged in one pass over its spans ([`long_text`]).
@@ -378,13 +382,6 @@ impl<'a> Judge<'a> {
     /// the string literal it starts in. A config line in a literal ends with
     /// the literal (`r"…Password=x\"`, `` `…Pwd=x` ``), so a rule reading to the
     /// line's end never takes the closing quote or the code after it.
-    #[cfg_attr(
-        octocode_clippy_ratchet,
-        expect(
-            clippy::string_slice,
-            reason = "`secret` is a regex match and `end` a char boundary from `continued_end`"
-        )
-    )]
     pub(super) fn value_end(
         &self,
         text: &str,
@@ -403,7 +400,7 @@ impl<'a> Judge<'a> {
         let end = inline_code_end(text, secret.start, end);
         let end = self.field_line_end(text, base, secret.start, end);
         // A literal closes with a quote: a value with none in it ends inside.
-        if !text[secret.start..end].contains(['"', '\'', '`']) {
+        if memchr::memchr3(b'"', b'\'', b'`', &text.as_bytes()[secret.start..end]).is_none() {
             return end;
         }
         self.syntax
@@ -649,17 +646,31 @@ fn applicable_patterns(content: &str, scope: Scope<'_>) -> PatternSet {
 /// anchors do not reach a comment after code, or a config line a literal
 /// opens mid-line ([`Judge::secrets`]).
 fn matching_patterns(content: &str, scope: Scope<'_>) -> PatternSet {
-    let reads_comments = scope
-        .source_path()
-        .and_then(code_syntax::grammar_of)
-        .is_some_and(|grammar| {
-            code_syntax::has_credential_assignment(content, grammar)
-                || code_syntax::has_quoted_credential_assignment(content)
-        });
-    applicable_patterns(content, scope).filter(|idx| {
+    matching_patterns_gated(content, scope).0
+}
+
+/// [`matching_patterns`], and what the lexical gates it read said of
+/// `content`, for the parse of the same text ([`CodeSyntax::gated`]). The
+/// patterns that apply are picked first: with none (a leaf whose source's
+/// whole pass applied every one, [`Scope::Judged`]) nothing is left to
+/// match, and with none that reads comments no gate decides anything, so
+/// the text is not lexed for an answer no pattern asks for.
+fn matching_patterns_gated(content: &str, scope: Scope<'_>) -> (PatternSet, SyntaxGates) {
+    let gates = SyntaxGates::default();
+    let applicable = applicable_patterns(content, scope);
+    if applicable.is_empty() {
+        return (applicable, gates);
+    }
+    let reads_comments = applicable.iter().any(|idx| READS_COMMENT_SYNTAX[idx])
+        && scope
+            .source_path()
+            .and_then(code_syntax::grammar_of)
+            .is_some_and(|grammar| gates.comment(content, grammar) || gates.literal(content));
+    let matched = applicable.filter(|idx| {
         (reads_comments && READS_COMMENT_SYNTAX[idx])
             || pattern_regex_for(idx, content).is_match(content)
-    })
+    });
+    (matched, gates)
 }
 
 /// The group a pattern puts around a diff line's `+` or `-` prefix.
@@ -760,6 +771,10 @@ fn break_len(text: &str) -> Option<usize> {
 /// The line breaks a redacted `secret` spanned, each as it was, so its
 /// replacement keeps the source's lines and line ends.
 fn kept_line_breaks(secret: &str) -> String {
+    // Most secrets sit on one line and keep none.
+    if memchr::memchr2(b'\n', b'\r', secret.as_bytes()).is_none() {
+        return String::new();
+    }
     line_breaks(secret).collect()
 }
 
@@ -882,7 +897,9 @@ fn accepted_secrets(
         } else {
             raw.whole.end
         };
-        if let Some(at) = text[searched_to..raw.whole.start].rfind(LINE_END_CHARS) {
+        if let Some(at) =
+            memchr::memrchr2(b'\n', b'\r', &text.as_bytes()[searched_to..raw.whole.start])
+        {
             line_start = searched_to + at + 1;
         }
         searched_to = raw.whole.start;
@@ -1157,7 +1174,7 @@ pub(crate) fn redact_within(content: &str, scope: Scope<'_>, limit: usize) -> Op
     if content.len() > limit {
         return long_text::redact_long(content, scope);
     }
-    let matched = matching_patterns(content, scope);
+    let (matched, gates) = matching_patterns_gated(content, scope);
     let mut sanitized: Option<String> = None;
     let mut secrets_detected = Vec::new();
     let mut edits = super::Edits::default();
@@ -1166,7 +1183,7 @@ pub(crate) fn redact_within(content: &str, scope: Scope<'_>, limit: usize) -> Op
     let syntax = scope
         .source_path()
         .filter(|_| !matched.is_empty())
-        .and_then(|path| CodeSyntax::of(path, content));
+        .and_then(|path| CodeSyntax::gated(path, content, gates));
     for idx in matched.iter() {
         let current = sanitized.as_deref().unwrap_or(content);
         let (result, replaced) = if let Some(form) = document::Form::of(idx) {
@@ -1214,40 +1231,6 @@ pub(crate) fn redact_within(content: &str, scope: Scope<'_>, limit: usize) -> Op
         secrets_detected,
         edits,
     })
-}
-
-/// Whether `text`, a string of a request (a search term, a keyword, an
-/// address), holds a credential: a value a pattern knows by its own shape
-/// (a provider's token, a key block), or under a pattern that reads a
-/// credential's name a value that is opaque ([`named_values::is_opaque`]).
-/// A term names what it searches for, so the name beside a value says
-/// nothing of it: `password: str` and `token = None` are declarations to
-/// find, `password: <a generated string>` is a secret pasted into the
-/// request. Nothing is redacted here: the caller refuses the request.
-pub(crate) fn holds_credential_as_request(text: &str) -> bool {
-    let scope = Scope::Pathless;
-    let opaque = |value: &str| {
-        value.split_whitespace().any(|piece| {
-            named_values::is_opaque(
-                piece.trim_matches(credential_values::QUOTES),
-                credential_values::OPAQUE_LITERAL_CHARS,
-            )
-        })
-    };
-    let by_pattern = matching_patterns(text, scope).iter().any(|idx| {
-        if let Some(form) = document::Form::of(idx) {
-            return form.redact(text, replacement_for(idx)).0 != text;
-        }
-        let by_shape = VALUE_TESTS[idx] == ValueTest::Every;
-        let mut held = false;
-        Judge::of(idx, scope, text, None).secrets(
-            pattern_regex_for(idx, text),
-            text,
-            |_, secret| held |= by_shape || text.get(secret).is_some_and(opaque),
-        );
-        held
-    });
-    by_pattern || split_literals::redact_pieces(text).is_some()
 }
 
 #[cfg(test)]

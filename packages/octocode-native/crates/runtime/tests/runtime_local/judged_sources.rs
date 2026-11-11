@@ -590,6 +590,58 @@ async fn multiline_redactions_keep_names_and_one_placeholder_per_value() {
                 responses.push((call, output));
             }
 
+            // A search hit inside a hidden value shows under the read's own
+            // placeholder in every view: a line is the read's line, and a
+            // matched span states the kind the read states for its value.
+            for value in &hidden {
+                let needle = &value[4..12];
+                let (call, output) = run(
+                    "localSearch",
+                    query_path(&file, json!({"matchString": needle})),
+                )
+                .await;
+                let mut hits = Vec::new();
+                rows(&output, "value", &mut hits);
+                if hits.is_empty() {
+                    differs.push(format!("{call}\n  no hit: {output}"));
+                }
+                for (line, shown) in hits {
+                    if read.get(&line) != Some(&shown) {
+                        differs.push(format!(
+                            "{call}\n  line {line} shows {shown:?}, the read {:?}",
+                            read.get(&line)
+                        ));
+                    }
+                }
+                responses.push((call, output));
+                for extra in [
+                    json!({"view": "matchOnly"}),
+                    json!({"view": "matchOnly", "unique": "list"}),
+                    json!({"view": "matchOnly", "unique": "count"}),
+                    json!({"contextLines": {"before": 1, "after": 1}}),
+                ] {
+                    let mut query = json!({"matchString": needle});
+                    query
+                        .as_object_mut()
+                        .expect("query")
+                        .extend(extra.as_object().cloned().unwrap_or_default());
+                    let (call, output) = run("localSearch", query_path(&file, query)).await;
+                    let text = output.to_string();
+                    // A kind's placeholder; the warning's own `[REDACTED…]` is prose.
+                    for placeholder in multiline_placeholders(&text)
+                        .into_iter()
+                        .filter(|placeholder| placeholder.starts_with("[REDACTED-"))
+                    {
+                        if !kinds_read.contains(&placeholder) {
+                            differs.push(format!(
+                                "{call}\n  shows {placeholder}, the read {kinds_read:?}"
+                            ));
+                        }
+                    }
+                    responses.push((call, output));
+                }
+            }
+
             // Declaration names are the source's identifiers.
             let (call, output) = run(
                 "astSearch",

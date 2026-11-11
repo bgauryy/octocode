@@ -219,8 +219,16 @@ async fn commit_listing_leads_to_the_squash_pull_request() {
         data.get("owner").is_none() && data.get("repo").is_none(),
         "{data}"
     );
-    assert_eq!(data["issues"][0]["commentsCount"], 4, "{data}");
+    // A comment count is a `fields` pick, not a default row's.
+    assert!(data["issues"][0].get("commentsCount").is_none(), "{data}");
     assert!(data["pagination"].get("totalPages").is_none(), "{data}");
+    let query = serde_json::from_value(json!({"operation":"issue","owner":"o","repo":"r",
+        "keywords":["bug"],"fields":["commentsCount"]}))
+    .expect("query");
+    let picked = execute(&provider, &query, &default_context(), &Passthrough)
+        .await
+        .expect("issue search");
+    assert_eq!(picked["issues"][0]["commentsCount"], 4, "{picked}");
 }
 
 /// The happy-path anchors of each operation's row: the id the next hop
@@ -290,6 +298,12 @@ async fn happy_path_rows_carry_the_next_hop_anchors() {
     for row in prs["pullRequests"].as_array().expect("pull requests") {
         assert_repository(row);
         assert!(row["number"].is_u64(), "{row}");
+        // Who wrote it is a `fields` pick.
+        assert!(row.get("author").is_none(), "{row}");
+    }
+    let authors = run(json!({"operation":"pullRequest","owner":"o","repo":"r","fields":["author"]}))
+        .await;
+    for row in authors["pullRequests"].as_array().expect("pull requests") {
         assert_eq!(row["author"], "dev", "{row}");
     }
     assert_eq!(prs["pullRequests"][0]["state"], "merged");
@@ -411,4 +425,75 @@ async fn a_merge_commit_headline_leads_to_the_pull_request_it_names() {
         });
     assert_eq!(read["input"]["queries"][0]["number"], 6, "{data}");
     assert!(data["next"].get("findPullRequest").is_none(), "{data}");
+}
+
+/// `sort.by` names the row field it orders by: `commentsCount` reaches GitHub
+/// as `comments` and `updatedAt` as `updated`, and a page ranked by either
+/// states that field on each row, which a default row leaves to `fields`.
+#[tokio::test]
+async fn a_sorted_history_search_states_the_field_it_is_ranked_by() {
+    use wiremock::{
+        Mock, MockServer, ResponseTemplate,
+        matchers::{method, path, query_param},
+    };
+    let item = |n: u64, comments: u64, pull_request: bool| {
+        let mut item = json!({"number": n, "title": format!("item {n}"), "state": "open",
+            "user": {"login": "dev"}, "comments": comments,
+            "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-02-02T00:00:00Z"});
+        if pull_request {
+            item["pull_request"] = json!({"merged_at": null});
+        }
+        item
+    };
+    for (operation, rows_key) in [("pullRequest", "pullRequests"), ("issue", "issues")] {
+        for (by, order, provider_key, stated) in [
+            ("commentsCount", "desc", "comments", "commentsCount"),
+            ("updatedAt", "desc", "updated", "updatedAt"),
+            ("updatedAt", "asc", "updated", "updatedAt"),
+        ] {
+            let server = MockServer::builder().start().await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/search/issues"))
+                .and(query_param("sort", provider_key))
+                .and(query_param("order", order))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "total_count": 2, "incomplete_results": false,
+                    "items": [item(7, 40, operation == "pullRequest"), item(9, 3, operation == "pullRequest")]
+                })))
+                .expect(1)
+                .mount(&server)
+                .await;
+            let provider = one_shot_provider(&server);
+            let query = serde_json::from_value(json!({"operation":operation,"owner":"o","repo":"r",
+                "keywords":["cache"],"sort":{"by":by,"order":order}}))
+            .expect("query");
+            let data = execute(&provider, &query, &default_context(), &Passthrough)
+                .await
+                .expect("history search");
+            let rows = data[rows_key].as_array().expect("rows");
+            assert_eq!(rows.len(), 2, "{data}");
+            for row in rows {
+                assert!(row.get(stated).is_some(), "{operation} {by}: {data}");
+                // Nothing else a default row leaves to `fields` comes back.
+                for detail in ["author", "labels", "baseRef"] {
+                    assert!(row.get(detail).is_none(), "{operation} {by} {detail}: {data}");
+                }
+            }
+            if stated == "commentsCount" {
+                assert_eq!(rows[0]["commentsCount"], 40, "{data}");
+            } else {
+                assert!(rows[0].get("commentsCount").is_none(), "{data}");
+                assert_eq!(rows[0]["updatedAt"], "2026-02-02T00:00:00Z", "{data}");
+            }
+        }
+        // The retired spellings are no aliases.
+        for by in ["bestMatch", "commentCount"] {
+            let row = json!({"operation":operation,"owner":"o","repo":"r","keywords":["cache"],
+                "sort":{"by":by,"order":"desc"}});
+            assert!(
+                serde_json::from_value::<GhSearchHistoryQuery>(row.clone()).is_err(),
+                "{row}"
+            );
+        }
+    }
 }

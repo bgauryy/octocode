@@ -161,8 +161,22 @@ pub(super) struct RowLines {
     pub(super) span: usize,
 }
 
+/// The byte of its line `matched`'s value starts at, when the value is a
+/// span of that line and not its lines whole: a matchOnly row (`shape`)
+/// starts at its match, and a window of a line too long for a row where it
+/// says ([`octocode_engine::types::TextSearchMatch::window_start`]), in a
+/// page of any shape. Such a row is judged as the span it is.
+pub(super) fn span_start(
+    shape: RowShape,
+    matched: &octocode_engine::types::TextSearchMatch,
+) -> Option<u32> {
+    matched
+        .window_start
+        .or((shape == RowShape::Span).then_some(matched.byte_offset))
+}
+
 /// Where `matched`'s value starts in its source, for a row of `shape`. A span
-/// starts at its match. A lines row holds its match's lines with the context the
+/// ([`span_start`]) starts at its line. A lines row holds its match's lines with the context the
 /// search joined around them, clamped at the source's start as the search
 /// clamps it, or its match's lines alone. `None` for a value that is neither:
 /// nothing places it.
@@ -176,6 +190,13 @@ pub(super) fn row_lines(
         let span = matched.value.lines().count().max(1);
         return Some(RowLines { first: line, span });
     };
+    if matched.window_start.is_some() {
+        // A window is a span of its one line.
+        return Some(RowLines {
+            first: line,
+            span: 1,
+        });
+    }
     // Where the search says its value starts: the lines it joined.
     let first = matched.first_line as usize;
     let span = matched.value.split('\n').count();
@@ -209,7 +230,6 @@ pub(super) fn settle_rows(
     security: &ContentSecurity,
     (placed, shape, learned): (&[Option<RowLines>], RowShape, Option<Learned<'_>>),
 ) -> Verification {
-    let match_only = shape == RowShape::Span;
     let Judged {
         read,
         whole,
@@ -231,6 +251,8 @@ pub(super) fn settle_rows(
             verified = Verification::Unverified;
             continue;
         };
+        let span_start = span_start(shape, matched);
+        let match_only = span_start.is_some();
         if !read.key_ranges.is_empty()
             && crate::security::match_window_intersects_key_block(
                 matched.line,
@@ -341,7 +363,7 @@ pub(super) fn settle_rows(
             (&window, first, first - lo, span, keyed),
             (redacted, clean),
             masked,
-            match_only,
+            span_start,
         );
     }
     verified
@@ -351,19 +373,21 @@ pub(super) fn settle_rows(
 /// lines (`keyed`: some of them a private key's, masked in `window`), against
 /// the window's scan (`redacted`, leaving `clean`) and the walk's `masked`
 /// lines: what it shows is rendered from the runs that decided it.
+/// `span_start`: the row is a span of its line from that byte ([`span_start`]).
 fn show_in_window(
     matched: &mut octocode_engine::types::TextSearchMatch,
     (window, first, at, span, keyed): (&[&str], usize, usize, usize, bool),
     (redacted, clean): (&Edits, &str),
     masked: &BTreeMap<usize, Edits>,
-    match_only: bool,
+    span_start: Option<u32>,
 ) {
+    let match_only = span_start.is_some();
     let line = matched.line as usize;
     let walked = (first..first + span).any(|at| masked.contains_key(&at));
     if redacted.is_empty() && !walked && !keyed {
         return;
     }
-    let cut = row_cut(match_only, matched.byte_offset, &matched.value, span);
+    let cut = row_cut(span_start, &matched.value, span);
     let joined = window.join("\n");
     // The row's own lines, in the window's coordinates.
     let lines = placed(window, at, &Cut::Lines(span));
@@ -464,16 +488,15 @@ fn masked_place(runs: &[(Range<usize>, &str)], range: Range<usize>) -> Range<usi
     start..start + range.len()
 }
 
-/// What a row shows of its lines: its own span in a matchOnly row, else its
-/// lines whole (a content row's value can be clipped or windowed).
-fn row_cut<'a>(match_only: bool, offset: u32, value: &'a str, span: usize) -> Cut<'a> {
-    if match_only {
-        Cut::Span {
+/// What a row shows of its lines: its own span from byte `span_start` of
+/// its line ([`span_start`]), else its lines whole.
+fn row_cut(span_start: Option<u32>, value: &str, span: usize) -> Cut<'_> {
+    match span_start {
+        Some(offset) => Cut::Span {
             offset: offset as usize,
             text: value,
-        }
-    } else {
-        Cut::Lines(span)
+        },
+        None => Cut::Lines(span),
     }
 }
 
@@ -519,7 +542,9 @@ pub(super) fn whole_source_scan(
     }
     #[cfg(test)]
     JUDGED.with(|judged| judged.set(judged.get() + text.len()));
-    let judged = security.judge_whole(&text, source);
+    // Judged whole and noted, with nothing of the source kept by the request.
+    security.note_judged_whole(source);
+    let judged = crate::tools::judged_rows::judged_text(&text, source, security);
     let verdict = judged.is_redacted().then(|| std::sync::Arc::new(judged));
     if let Some((known, digest)) = learned {
         known.learn_whole((source.to_path_buf(), digest), verdict.clone());
@@ -540,7 +565,6 @@ pub(super) fn settle_judged(
     lines: usize,
     security: &ContentSecurity,
 ) -> Verification {
-    let match_only = shape == RowShape::Span;
     let mut verified = Verification::Verified;
     for (matched, placed) in shown.iter_mut().zip(placed) {
         let Some(RowLines { first, span }) = *placed else {
@@ -569,7 +593,7 @@ pub(super) fn settle_judged(
             WholeScan::Judged(None) => {}
             WholeScan::Judged(Some(judged)) => {
                 let raw = std::mem::take(&mut matched.value);
-                let cut = row_cut(match_only, matched.byte_offset, &raw, span);
+                let cut = row_cut(span_start(shape, matched), &raw, span);
                 let shown = cut_of_whole_source(&cut, first, judged);
                 matched.value = shown.unwrap_or(raw);
                 security.show(judged.path(), &matched.value);
@@ -582,7 +606,11 @@ pub(super) fn settle_judged(
 /// What a row that showed `cut` of the lines from `first` shows of the whole
 /// source `judged`: the cut of its place there, as a read of those bytes
 /// shows it; `None` when the pass replaced nothing of it. A value that is
-/// not the source's bytes at its place is judged by every line it reaches.
+/// not the source's bytes at its place is judged by every line it reaches:
+/// a span of one line that is text a read of that line shows (the scan
+/// already hid a key's line in it, keeping the line's label) stays as it is,
+/// and any other shows as the one placeholder those lines state
+/// ([`crate::security::JudgedText::one_placeholder`]), or [`REDACTED`].
 fn cut_of_whole_source(
     cut: &Cut<'_>,
     first: usize,
@@ -604,8 +632,22 @@ fn cut_of_whole_source(
     match (own, lines) {
         (Some(own), _) => judged.exposes(&own).then(|| judged.cut(own).into_owned()),
         (None, Some(lines)) if !judged.exposes(&lines) => None,
+        // A span of one line that is not the source's bytes at its place,
+        // yet holds only what a read of that line shows, shows nothing that
+        // read hides.
+        (None, Some(lines))
+            if span == 1
+                && matches!(cut, Cut::Span { text, .. } if judged.cut(lines.clone()).contains(text)) =>
+        {
+            None
+        }
+        // Any other shows none of its text: the placeholder a read of its
+        // lines shows for what they hide, when they state one.
         (None, Some(lines)) => Some(match cut {
-            Cut::Span { .. } => REDACTED.to_owned(),
+            Cut::Span { .. } => judged
+                .one_placeholder(&lines)
+                .unwrap_or(REDACTED)
+                .to_owned(),
             Cut::Lines(_) => judged.cut(lines).into_owned(),
         }),
         (None, None) => judged.is_redacted().then(|| REDACTED.to_owned()),
@@ -682,6 +724,7 @@ mod judged_tests {
             value_digest: octocode_engine::types::TextSearchMatch::digest_of(value),
             count: None,
             rank: None,
+            window_start: None,
         }];
         let read = read_of(line);
         let judged = Judged {
@@ -743,6 +786,7 @@ mod judged_tests {
             value_digest: octocode_engine::types::TextSearchMatch::digest_of(value),
             count: None,
             rank: None,
+            window_start: None,
         }];
         let judged = Judged {
             read: &read,
@@ -788,6 +832,7 @@ mod judged_tests {
             value_digest: octocode_engine::types::TextSearchMatch::digest_of(value),
             count: None,
             rank: None,
+            window_start: None,
         }];
         let read = read_of(line);
         let judged = Judged {

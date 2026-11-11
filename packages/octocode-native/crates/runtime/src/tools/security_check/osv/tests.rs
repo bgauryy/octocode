@@ -756,6 +756,55 @@ mod batch_walk {
         }
     }
 
+    /// OSV lists a stamp to the microsecond and the record states the same
+    /// instant to the nanosecond (recorded from api.osv.dev, 2026-11-11): the
+    /// record is the listed one, so the next call that lists it reads nothing.
+    /// A stamp that differs in any digit OSV listed is another version.
+    #[tokio::test]
+    async fn a_record_listed_at_lower_precision_than_it_states_is_not_read_again() {
+        let store = KeptAnswers::new(None);
+        let (budget, reused, config) = (
+            test_budget(),
+            ReusedSince::default(),
+            crate::tools::security_check::tests::default_config(),
+        );
+        let asking = |listed_at: &'static str, stated: &'static str| {
+            let mut stamped = record("A");
+            stamped["modified"] = json!(stated);
+            RouteHttp::new()
+                .json("/v1/vulns/A", stamped)
+                .post_sequence(vec![(
+                    200,
+                    batch(vec![json!({"vulns": [listed("A", listed_at)]})]),
+                )])
+        };
+        let (listed_at, stated) = (
+            "2026-09-10T03:50:56.951750Z",
+            "2026-09-10T03:50:56.951750105Z",
+        );
+        for (call, (listed_at, stated, reads)) in [
+            (listed_at, stated, 1),
+            (listed_at, stated, 0),
+            // One listed digit later: OSV changed the record.
+            (
+                "2026-09-10T03:50:56.951751Z",
+                "2026-09-10T03:50:56.951751000Z",
+                1,
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let http = asking(listed_at, stated);
+            let net = net_of(&http, &budget, &reused, &config, Some(&store));
+            let walked = walk::walk_one(&net, &lodash(&format!("{call}.0.0")), None)
+                .await
+                .expect("walk");
+            assert_eq!(walked.read[0]["modified"], stated);
+            assert_eq!(gets(&http, "A"), reads, "call {call}");
+        }
+    }
+
     /// A kept record that does not state the stamp it was listed with is never trusted.
     #[tokio::test]
     async fn a_record_newer_than_the_stamp_listed_is_kept_under_its_own() {

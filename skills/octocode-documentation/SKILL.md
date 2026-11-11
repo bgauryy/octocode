@@ -9,12 +9,18 @@ Read the requested page and nearby conventions to identify the reader, their nex
 
 ## Writing rules
 
-Follow the user, then project style, local convention and this skill. Preserve meaning in wording-only edits. Verify changed commands, paths, APIs, settings and behavior against their owning code, contracts or tests. Resolve conflicting sources with evidence or state the discrepancy and its impact.
+Follow user instructions, project style, local convention, then this skill. Preserve meaning in wording-only edits.
 
-Lead with the answer. Use concrete verbs and consistent terms. Put prerequisites before ordered steps, conditions beside actions and expected results beside examples. Give each fact one owning page and a descriptive link. Split pages only to improve navigation or ownership. Use stable paths for durable docs and line anchors for review findings.
+| Trigger | Action | Why / check |
+|---|---|---|
+| Changed technical claim | Check owning source, contract or test; resolve conflicts or state their impact. | Commands, paths, APIs, settings and behavior must be accurate. |
+| Drafting | Lead with the answer; use concrete verbs and consistent terms. Put prerequisites before steps, conditions beside actions and expected results beside examples. | Reader can act and recognize success. |
+| Repeated or dense content | Keep one owning page and descriptive links; split only for navigation or ownership. | Remove repeated reads without losing the rule. |
+| Cross-file evidence, APIs, ADRs or agent files | Read [writing and verification](references/write.md). | Source checks and document structure. |
+| Editorial wording | Read [style guide](references/style-guide.md). | Review procedure and word lookup. |
+| Comparison or branching relationship | Use the [format chooser](references/report-output.md#choose-the-format). | Show evidenced relationships and their significance. |
+| Before delivery | Check changed facts, examples, commands and links; run the documentation check and fix failures. | Distinguish examples run from inspected; use stable doc paths and line anchors for findings. |
 
-Use the [writing and verification guide](references/write.md) for cross-file evidence, APIs, settled ADRs and agent instruction files. The [style guide](references/style-guide.md) covers editorial review and word lookup. For comparisons or diagrams, use the [format chooser](references/report-output.md#choose-the-format). Draw evidenced relationships and explain their significance.
+Deliver the document or [review](output.md), including unverified items. Use [render-report.mjs](scripts/render-report.mjs) for saved reports.
 
-Check changed facts, examples, commands and links. Run the project's documentation check, correct failures and distinguish examples run from examples inspected. Deliver the document in its own format or a [review with evidence and unverified items](output.md). Use the [renderer](scripts/render-report.mjs) for saved reports.
-
-Use the [MCP/CLI guide](references/octocode-usage.md) and `octocode-research` for unresolved code claims, `octocode-rfc-generator` for open design decisions, `octocode-agentic-prompts` for behavioral wording and `octocode-skills` for packaging. For multiple actors, use [workflow composition](../octocode-workflows/references/composition.md).
+Use the [MCP/CLI guide](references/octocode-usage.md) and `octocode-research` for unresolved code claims, `octocode-rfc-generator` for open design decisions, `octocode-agentic` for behavioral wording and `octocode-skills` for packaging. For multiple actors, use [workflow composition](../octocode-workflows/references/composition.md).

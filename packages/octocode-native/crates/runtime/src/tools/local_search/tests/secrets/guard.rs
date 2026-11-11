@@ -25,6 +25,7 @@ fn source_secret_guard_fails_closed_when_the_source_cannot_be_reread() {
             .into(),
             count: None,
             rank: None,
+            window_start: None,
         }],
         source: None,
     };
@@ -76,6 +77,7 @@ fn source_secret_guard_fails_closed_when_the_match_line_is_gone() {
             .into(),
             count: None,
             rank: None,
+            window_start: None,
         }],
         source: None,
     };

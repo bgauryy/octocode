@@ -132,7 +132,7 @@ fn symbol_windows_keep_preorder_depth_and_same_line_ties() {
 }
 
 #[test]
-fn hub_windows_and_stats_preserve_degree_order_and_key_ties() {
+fn hub_windows_preserve_degree_order_and_key_ties() {
     let names = (0..12)
         .map(|i| (format!("file-{i:02}.ts"), format!("file-{i:02}.ts")))
         .collect::<Vec<_>>();
@@ -176,12 +176,140 @@ fn hub_windows_and_stats_preserve_degree_order_and_key_ties() {
     assert_eq!(union, full.rows);
     g.t.edges = (1..12).map(|id| edge(0, id, EdgeKind::Imports)).collect();
     g.t.index();
-    let stats = stats(&g, &NeverCancel).unwrap();
+    let top = hubs(
+        &g,
+        &filter,
+        Some(NodeKind::File),
+        Direction::In,
+        0..5,
+        &NeverCancel,
+    )
+    .unwrap();
+    assert_eq!(top.rows.len(), 5);
+    assert_eq!(top.rows[4]["id"], "file-05.ts");
+}
+
+/// `stats` states the snapshot's counts; its rankings are `hubs` rows, which
+/// its `related` call lists against the same snapshot and path.
+#[test]
+fn stats_leads_to_hubs_instead_of_ranking() {
+    let g = graph(&[("a.ts", "a.ts", NodeKind::File, 1)]);
+    let options = QueryOptions {
+        op: "stats".into(),
+        path: Some("src".into()),
+        ..Default::default()
+    };
+    let stats = stats(&g, &options).unwrap().value;
+    for ranking in [
+        "mostImportedFiles",
+        "mostImportedPackages",
+        "mostCalledSymbols",
+    ] {
+        assert!(stats.get(ranking).is_none(), "{ranking}: {stats}");
+    }
+    let lead = &stats["related"][0];
+    assert_eq!(lead["tool"], "graphQuery", "{stats}");
+    let row = &lead["input"]["queries"][0];
+    assert_eq!(row["operation"], "hubs", "{stats}");
+    assert_eq!(row["path"], "src", "{stats}");
+    assert_eq!(row["graph"], g.id.as_str(), "{stats}");
+}
+
+/// A manifest with every section `stats` reads.
+fn measured(mut g: Graph) -> Graph {
+    g.manifest = json!({
+        "octocodeVersion": "1.2.3",
+        "scan": {"filesScanned": 1},
+        "counts": {"nodes": 1, "edges": 0, "nodesByKind": {"file": 1}, "edgesByKind": {}},
+        "imports": {"resolved": 0, "external": 0},
+        "calls": {
+            "sites": 4,
+            "unresolved": 3,
+            "byResolution": {"local": 1},
+            "unresolvedByReason": {"external-package": 3},
+        },
+        "argumentCoverage": {"scope": "snapshot"},
+        "linkage": {"linked": 1, "eligible": 1},
+        "linkageByLanguage": {"typescript": {"linked": 1, "eligible": 1}},
+        "extraction": {"parsedFiles": 1},
+        "languages": [{"language": "typescript", "files": 1}],
+        "diagnostics": {"total": 2, "byCode": {"unresolved-internal": 2}},
+    });
+    g
+}
+
+const STATS_DETAILS_ONLY: [&str; 7] = [
+    "/octocodeVersion",
+    "/argumentCoverage",
+    "/linkageByLanguage",
+    "/extraction",
+    "/calls/byResolution",
+    "/calls/unresolvedByReason",
+    "/diagnostics/byCode",
+];
+const STATS_SUMMARY: [&str; 9] = [
+    "/graph",
+    "/scan",
+    "/counts/nodesByKind",
+    "/imports",
+    "/calls/sites",
+    "/calls/unresolved",
+    "/linkage",
+    "/languages",
+    "/diagnostics/total",
+];
+
+/// The default `stats` row holds the totals and leads once to the same call
+/// with `view:"details"`, which states every breakdown the summary left out.
+#[test]
+fn stats_summary_leads_once_to_the_details_it_leaves_out() {
+    let g = measured(graph(&[("a.ts", "a.ts", NodeKind::File, 1)]));
+    let ask = |view: Option<&str>| {
+        let options = QueryOptions {
+            op: "stats".into(),
+            path: Some("src".into()),
+            view: view.map(str::to_owned),
+            ..Default::default()
+        };
+        stats(&g, &options).unwrap().value
+    };
+    let summary = ask(None);
+    assert_eq!(summary, ask(Some("summary")));
+    for pointer in STATS_SUMMARY {
+        assert!(summary.pointer(pointer).is_some(), "{pointer}: {summary}");
+    }
+    for pointer in STATS_DETAILS_ONLY {
+        assert!(summary.pointer(pointer).is_none(), "{pointer}: {summary}");
+    }
+    let leads = summary["related"].as_array().unwrap();
+    let details_leads = leads
+        .iter()
+        .map(|lead| &lead["input"]["queries"][0])
+        .filter(|row| row["operation"] == "stats")
+        .collect::<Vec<_>>();
+    assert_eq!(details_leads.len(), 1, "{summary}");
     assert_eq!(
-        stats.value["mostImportedFiles"].as_array().unwrap().len(),
-        5
+        details_leads[0],
+        &json!({"operation": "stats", "path": "src", "graph": g.id, "view": "details"})
     );
-    assert_eq!(stats.value["mostImportedFiles"][4]["id"], "file-05.ts");
+
+    let details = ask(Some("details"));
+    for pointer in STATS_SUMMARY {
+        assert_eq!(details.pointer(pointer), summary.pointer(pointer), "{pointer}");
+    }
+    for pointer in STATS_DETAILS_ONLY {
+        assert!(details.pointer(pointer).is_some(), "{pointer}: {details}");
+        assert_eq!(details.pointer(pointer), g.manifest.pointer(pointer), "{pointer}");
+    }
+    // The details row is the whole answer: it offers no further stats call.
+    assert!(
+        details["related"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|lead| lead["input"]["queries"][0]["operation"] == "hubs"),
+        "{details}"
+    );
 }
 
 struct CancelAfter(AtomicUsize);

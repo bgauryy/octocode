@@ -15,6 +15,8 @@ fn hit(line: u32, value: &str) -> TextSearchMatch {
         value_digest: TextSearchMatch::digest_of(value),
         count: line.is_multiple_of(2).then_some(line),
         rank: Some(line % 4),
+        // Windows of long lines among whole-line rows, one starting at byte 0.
+        window_start: line.is_multiple_of(7).then(|| line.saturating_sub(7)),
     }
 }
 
@@ -38,6 +40,7 @@ fn assert_same(left: &TextSearchResult, right: &TextSearchResult) {
                     x.value_digest,
                     x.count,
                     x.rank,
+                    x.window_start,
                 ),
                 (
                     y.line,
@@ -49,6 +52,7 @@ fn assert_same(left: &TextSearchResult, right: &TextSearchResult) {
                     y.value_digest,
                     y.count,
                     y.rank,
+                    y.window_start,
                 )
             );
         }

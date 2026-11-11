@@ -34,27 +34,43 @@ pub(super) fn rank_file_rows(matches: &mut [octocode_engine::types::TextSearchMa
     }
 }
 
-pub(super) fn project_match(matched: &octocode_engine::types::TextSearchMatch) -> SearchMatch {
-    let (mut row, value) = project_shape(matched);
+/// The row a page shows for `matched`. `span_columns`: the view's rows are
+/// spans, each stating its column
+/// ([`shows_span_columns`](super::local_search_query::shows_span_columns)).
+pub(super) fn project_match(
+    matched: &octocode_engine::types::TextSearchMatch,
+    span_columns: bool,
+) -> SearchMatch {
+    let (mut row, value) = project_shape(matched, span_columns);
     row.value = value.to_owned();
     row
 }
 
 /// A row as [`project_match`] shows it, its value left empty, and the value
 /// it shows: a page cut prices the row from both without copying the value.
+/// A row whose value is its lines whole states no column; a span does, and
+/// so does a window of a long line, in a view of any shape.
 pub(super) fn project_shape(
     matched: &octocode_engine::types::TextSearchMatch,
+    span_columns: bool,
 ) -> (SearchMatch, &str) {
     let row = SearchMatch {
         line: matched.line,
         column: Some(crate::num::one_based_column(matched.column)),
         value: String::new(),
+        window_start: matched.window_start,
         byte_offset: matched.byte_offset,
         first_line: matched.first_line,
         match_lines: spanned_lines(matched),
         count: matched.count,
         enclosing: None,
         declaration: (matched.rank == Some(3)).then_some(true),
+    };
+    let row = SearchMatch {
+        column: row
+            .column
+            .filter(|_| span_columns || matched.window_start.is_some()),
+        ..row
     };
     (row, &matched.value)
 }
@@ -87,25 +103,27 @@ pub(super) fn context_window(
         first_line: matched.first_line,
         span,
         counted: matched.count.is_some(),
+        partial: matched.window_start.is_some(),
     };
     shape.window(&matched.value, context)
 }
 
 /// What places a row's value in its source: its match line, the line the
 /// search says the value starts at, how many lines the match spans, and
-/// whether the value is a count rather than lines.
+/// whether the value is a count, or part of a long line, rather than lines.
 struct WindowShape {
     line: u32,
     first_line: u32,
     span: u32,
     counted: bool,
+    partial: bool,
 }
 
 impl WindowShape {
     /// `value`'s first source line and lines when it is a plain window
     /// ([`context_window`]).
     fn window(self, value: &str, context: SearchContext) -> Option<(u32, Vec<&str>)> {
-        if self.counted || self.line == 0 || self.first_line == 0 {
+        if self.counted || self.partial || self.line == 0 || self.first_line == 0 {
             return None;
         }
         let lines: Vec<&str> = value.split('\n').collect();
@@ -141,6 +159,7 @@ impl HitWindow {
             first_line: matched.first_line,
             span: last_matched - matched.line + 1,
             counted: matched.count.is_some(),
+            partial: matched.window_start.is_some(),
         };
         match shape.window(&matched.value, context) {
             Some((first, lines)) => Self {

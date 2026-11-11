@@ -105,6 +105,7 @@ async fn row(read: RepoRead, repo: &str) -> Result<Value, ArtifactError> {
         repo,
         None,
         serde_json::Map::new(),
+        octocode_contract_types::SecurityCheckView::Details,
         &Net {
             http: &http,
             budget: &budget,
@@ -234,6 +235,7 @@ async fn a_github_transport_that_could_not_be_built_says_why_on_the_row() {
         "o/r",
         None,
         serde_json::Map::new(),
+        octocode_contract_types::SecurityCheckView::Details,
         &Net {
             http: &http,
             budget: &budget,
@@ -314,7 +316,11 @@ async fn a_moved_repository_is_named_as_asked_and_as_it_is_now() {
 }
 
 /// One repository row from `query`, against `github`.
-async fn query_row(query: Value, github: &Double) -> Value {
+async fn query_row(mut query: Value, github: &Double) -> Value {
+    // The whole row, unless the test states a view.
+    if query.get("view").is_none() {
+        query["view"] = json!("details");
+    }
     let http = RouteHttp::new();
     let (budget, reused) = (test_budget(), ReusedSince::default());
     let config = crate::tools::security_check::tests::default_config();
@@ -406,4 +412,58 @@ async fn a_resumed_advisory_walk_refused_at_its_first_page_keeps_its_cursor() {
         again["next"]["nextPage"]["input"]["queries"][0]["resume"], next["resume"],
         "the same page is one call away: {again}"
     );
+}
+
+/// The repository row in both views: the summary counts the published
+/// advisories, names the most severe and links it; `details` lists each with
+/// the repository's facts, and is what the summary's one lead returns.
+#[tokio::test]
+async fn a_repository_summary_counts_and_links_and_details_lists() {
+    use crate::tools::security_check::github_double::recorded_advisories;
+    let github = || Double::repo(RepoRead::Found(named("o", "r"))).page(None, recorded_advisories(1), None);
+    let query = |view: &str| json!({"operation": "repository", "repo": "o/r", "view": view});
+    let summary = query_row(query("summary"), &github()).await;
+    let details = query_row(query("details"), &github()).await;
+    let listed = details["advisories"].as_array().expect("advisories");
+    let counted = listed
+        .iter()
+        .filter(|row| row.get("withdrawn").is_none())
+        .collect::<Vec<_>>();
+    assert!(!counted.is_empty(), "{details}");
+    assert_eq!(summary["advisoryCount"], counted.len(), "{summary}");
+    let worst = counted
+        .iter()
+        .min_by_key(|row| crate::tools::security_check::record::severity_rank(row))
+        .expect("a counted advisory");
+    assert_eq!(summary["highestSeverity"], worst["severity"], "{summary}");
+    assert_eq!(summary["link"], worst["link"], "{summary}");
+    for detail in ["answer", "advisories", "repository", "sources"] {
+        assert!(details.get(detail).is_some(), "{detail}: {details}");
+        assert!(summary.get(detail).is_none(), "{detail}: {summary}");
+    }
+    assert_eq!(
+        summary["related"],
+        json!([{"kind": "related", "tool": "securityCheck",
+            "input": {"queries": [{"operation": "repository", "repo": "o/r", "view": "details"}]}}]),
+        "{summary}"
+    );
+    crate::tools::test_support::assert_row_contract(ToolId::SecurityCheck, &summary);
+    // Cautions and a source that did not answer stay in the summary.
+    let archived = Double::repo(RepoRead::Found(RepoFacts {
+        archived: true,
+        ..named("o", "r")
+    }))
+    .page_read(
+        None,
+        crate::tools::security_check::AdvisoryRead::Failed(RepoFailure {
+            code: ErrorCode::RateLimited,
+            why: "resets at 2999".into(),
+        }),
+    );
+    let summary = query_row(query("summary"), &archived).await;
+    assert_eq!(summary["cautions"][0]["rule"], "archived", "{summary}");
+    assert_eq!(summary["isPartial"], true, "{summary}");
+    assert_eq!(summary["sources"][0]["source"], "github", "{summary}");
+    assert!(summary["sources"][0]["why"].is_string(), "{summary}");
+    assert!(summary.get("advisoryCount").is_none(), "not counted: {summary}");
 }

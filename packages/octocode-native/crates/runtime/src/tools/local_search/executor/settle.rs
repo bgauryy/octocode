@@ -257,7 +257,8 @@ fn settle(
 
 /// The response's totals from the scan, in the units the view counted:
 /// countLines counts no occurrences, and a filesWithout listing counts
-/// neither (its files hold no hit). A view with nothing listed states zero.
+/// neither (its files hold no hit). A view with nothing listed counts zero;
+/// an empty row drops those zeros ([`LocalSearchResult::to_row`]).
 pub(crate) fn search_stats(
     view: View,
     scanned: &octocode_engine::types::TextSearchStats,
@@ -283,7 +284,6 @@ pub(crate) fn search_stats(
         matched_files: (shows_hits && whole_scan).then_some(files_matched),
         files_matched,
         files_searched: scanned.files_searched.unwrap_or(0),
-        bytes_searched: scanned.bytes_searched,
         // A binary cut (capReason `binaryQuit`) stays `capped`: coverage ended
         // early, and the result is marked partial/terminal.
         capped: scanned.capped,

@@ -203,6 +203,7 @@ impl Retention {
             + std::mem::size_of::<usize>()
                 * (ext.source_lines.as_ref().map_or(0, Vec::len)
                     + ext.matched_lines.len()
+                    + 2 * ext.match_windows.len()
                     + 2 * source.redacted_lines.len());
         STORE.put(
             key(&self.sha256, &self.policy),

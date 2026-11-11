@@ -7,10 +7,14 @@ description: "Write or review RFCs, design documents and migration proposals bef
 
 Keep the decision and its implementation plan in one RFC. Produce additional deliverables only on explicit request. For a settled decision and a plan-only request, write one plan. An RFC does not authorize implementation.
 
-1. **Find prior decisions.** Before drafting, list earlier RFCs with `--manifest` ([report commands](references/report-output.md#render-and-retrieve)). Revise a selected RFC or mark it `Superseded` when replacing it. For review, [audit the existing RFC](references/workflow.md#audit-an-existing-rfc) against current code. Return findings for review-only requests. Reuse existing authorization for scoped saves and edits.
-2. **Resolve the choice.** Frame the problem, affected users, current behavior, goals and constraints. Use the [evidence workflow](references/workflow.md) and [MCP/CLI guide](references/octocode-usage.md) for deciding facts. Compare viable alternatives, including the status quo when useful. Record the ADR context, decision, header `status` and consequences. Link each recommendation to its evidence and the check that would reverse it.
-3. **Plan from observable success.** Order steps by dependency (contract before consumer). For each, name the change, compatibility, check, rollout and rollback. For a risky plan, a Premortem can turn independent failure explanations into risks. Use an example or [diagram](references/checklist.md#diagrams) for a difficult flow or boundary. Keep the meaning in the text.
-4. **Check readiness.** Verify sources, dependencies, acceptance criteria and project checks. Revisit evidence when a useful check remains. Apply the [closure and readiness rules](references/checklist.md#before-declaring-ready). An unresolved deciding blocker yields a provisional direction with open questions and next checks. Only a consequential disagreement that survives source review and lacks a direct test may warrant [optional `clasify` review](references/workflow.md#optional-clasify-review), which alone needs a classification key.
+| Trigger / stage | Action | Completion check |
+|---|---|---|
+| Existing decision or review | Find prior RFCs with `--manifest` ([commands](references/report-output.md#render-and-retrieve)); revise the selected RFC or mark it `Superseded`. [Audit existing RFCs](references/workflow.md#audit-an-existing-rfc) against current code. | Review-only returns findings; reuse authorization for scoped saves/edits. |
+| Open choice | Frame problem, users, current behavior, goals and constraints. Use [evidence workflow](references/workflow.md) and [MCP/CLI guide](references/octocode-usage.md); compare viable alternatives, including status quo when useful. | Record ADR context, decision, header `status`, consequences, supporting evidence and reversal check. |
+| Implementation plan | Order by dependency; name each change, compatibility, check, rollout and rollback. Use a Premortem for risky plans and a [diagram](references/checklist.md#diagrams) or example for difficult boundaries. | Success is observable; text preserves the meaning. |
+| Readiness | Verify sources, dependencies, acceptance and project checks; follow [closure rules](references/checklist.md#before-declaring-ready). | Resolve deciding blockers or deliver provisional direction, open questions and next checks. |
+
+Continue while a useful evidence check remains. Only a consequential disagreement surviving source review without a direct test may warrant [optional clasify review](references/workflow.md#optional-clasify-review); only that branch needs a classification key.
 
 ## Output
 
@@ -18,4 +22,4 @@ Follow [output.md](output.md) for the required sections and [delivery](output.md
 
 ## Related skills
 
-Use `octocode-research` to verify current behavior and option claims, `octocode-architect` when a boundary decides the choice, and `octocode-brainstorming` when the option space is open. Use `octocode-documentation` for readability or a settled ADR, `octocode-eval-benchmark` for deciding measurements, and [workflow composition](../octocode-workflows/references/composition.md) for multi-actor work.
+Use `octocode-research` to verify current behavior and option claims, `octocode-engineer` when a boundary or design trade-off decides the choice, and `octocode-brainstorming` when the option space is open. Use `octocode-documentation` for readability or a settled ADR, `octocode-agentic` for deciding measurements, and [workflow composition](../octocode-workflows/references/composition.md) for multi-actor work.

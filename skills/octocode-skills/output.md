@@ -7,8 +7,9 @@ Markdown, task content only. `skill-review.mjs --json` returns `errorCount`, `wa
 ## Response
 
 - Review: BLUF readiness verdict; findings as review comments (Conventional Comments): label (issue, suggestion, question, nitpick, praise), blocking or not, file anchor, evidence, why (impact, kind), repair and its check; unchecked areas.
-- Edits: changed skills, support-file changes, checks run.
-- Install: destination, reload step.
+- Edits: changed skills, support-file changes, checks run; for context reduction, discovery, entry and selected-branch sizes separately, with units. Do not equate byte savings with activation or runtime improvement.
+- Discovery: source and revision when available, skill path/name, fit, host requirements, license, risks and unchecked scope; no installation unless requested.
+- Install: destination, reload step and verification.
 
 ## Presentation choices
 
@@ -20,7 +21,7 @@ Readiness verdict → findings or changes → checks and unchecked areas. Separa
 | `flowchart` / `agentflow-beta` | Explain skill activation, resource routes or agent task flow. |
 | `chart` bar / linked JSON | Compare measured activation outcomes / preserve checker results; do not turn editorial impressions into measured scores. |
 
-Use the [shared format guide](references/report-output.md#choose-the-format); load its Mermaid or widget reference only for that syntax.
+Use the [shared format guide](references/report-output.md#choose-the-format); load its Mermaid or widget reference only for that syntax. Run the bundled [report renderer](scripts/render-report.mjs) only when HTML is requested or accepted; use `--help` for its interface.
 
 ## Saved report
 

@@ -12,7 +12,7 @@ use std::ops::Deref;
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 
-use super::{ContentSecurity, JudgedLeaves, sanitize_json};
+use super::{Admitted, ContentSecurity, JudgedLeaves, sanitize_json};
 
 /// A JSON envelope whose keys and string leaves passed the output gate.
 ///
@@ -32,10 +32,11 @@ pub struct Sanitized(
     Value,
     #[serde(skip)] bool,
     /// Tests: the judged leaves the gate honored, by text and judged path,
-    /// so a later edit or cut is checked against the same gate.
+    /// and the request text the gate sealed this envelope for, so a later
+    /// edit or cut is checked against the same gate.
     #[cfg(test)]
     #[serde(skip)]
-    Vec<(String, String)>,
+    std::sync::Arc<(Vec<(String, String)>, Admitted)>,
 );
 
 impl Sanitized {
@@ -61,22 +62,17 @@ impl Sanitized {
         let _ = sanitize_json(&mut payload, &mut |text: &str, _: Option<&str>| {
             Ok::<_, std::convert::Infallible>(super::scrub_error_text(text))
         });
-        Self::of(payload, false, Vec::new())
+        Self::of(payload, false, Vec::new(), &Admitted::default())
     }
 
     #[cfg(test)]
-    fn of(value: Value, held: bool, judged: Vec<(String, String)>) -> Self {
-        Self(value, held, judged)
+    fn of(value: Value, held: bool, judged: Vec<(String, String)>, own: &Admitted) -> Self {
+        Self(value, held, std::sync::Arc::new((judged, own.clone())))
     }
 
     #[cfg(not(test))]
-    fn of(value: Value, held: bool, _: Vec<(String, String)>) -> Self {
+    fn of(value: Value, held: bool, _: Vec<(String, String)>, _: &Admitted) -> Self {
         Self(value, held)
-    }
-
-    #[cfg(test)]
-    fn judged(&self) -> &[(String, String)] {
-        &self.2
     }
 
     /// Reshape the envelope in place after the gate. In tests every edit is
@@ -85,7 +81,7 @@ impl Sanitized {
     pub(crate) fn edit<R>(&mut self, reshape: impl FnOnce(&mut Value) -> R) -> R {
         let result = reshape(&mut self.0);
         #[cfg(test)]
-        assert_gate_fixed_point(&self.0, self.judged());
+        assert_gate_fixed_point(&self.0, &self.2.0, &self.2.1);
         result
     }
 
@@ -96,7 +92,7 @@ impl Sanitized {
     pub(crate) fn cut<E>(&self, cut: impl FnOnce(&Value) -> Result<Value, E>) -> Result<Self, E> {
         let page = cut(&self.0)?;
         #[cfg(test)]
-        assert_gate_fixed_point(&page, self.judged());
+        assert_gate_fixed_point(&page, &self.2.0, &self.2.1);
         #[cfg(test)]
         return Ok(Self(page, self.1, self.2.clone()));
         #[cfg(not(test))]
@@ -153,7 +149,13 @@ impl ContentSecurity {
         emails: bool,
         check: impl Fn() -> Result<(), E>,
     ) -> Result<Sanitized, E> {
-        self.seal_judged(value, &JudgedLeaves::default(), emails, check)
+        self.seal_judged(
+            value,
+            &JudgedLeaves::default(),
+            &Admitted::default(),
+            emails,
+            check,
+        )
     }
 
     /// [`Self::seal_output`] of a value some of whose leaves a tool judged
@@ -161,10 +163,15 @@ impl ContentSecurity {
     /// marked leaf whose text still has the marked digest passes only the
     /// patterns that whole pass did not apply
     /// ([`Self::sanitize_judged_leaf`]); every other leaf the full gate.
+    /// `own` is the text of the rows the value answers: where a leaf repeats
+    /// a string of it, the gate leaves those bytes as the caller sent them
+    /// ([`Self::sanitize_response_leaf`]). A marked leaf is text of a file
+    /// and is never read against `own`.
     pub(crate) fn seal_judged<E>(
         &self,
         mut value: Value,
         judged: &JudgedLeaves,
+        own: &Admitted,
         emails: bool,
         check: impl Fn() -> Result<(), E>,
     ) -> Result<Sanitized, E> {
@@ -177,18 +184,18 @@ impl ContentSecurity {
         #[cfg(not(test))]
         let honored = Vec::new();
         let mut held = false;
-        super::walk::sanitize_judged_json(&mut value, judged, &mut |text, path, source| {
+        super::walk::sanitize_judged_json(&mut value, judged, own, &mut |text, path, source| {
             held |= path.is_some_and(crate::policy::discovery::is_sensitive_repository_file);
             Ok(match source {
                 Some(source) => self.sanitize_judged_leaf(text, path, source),
-                None => self.sanitize_leaf(text, path),
+                None => self.sanitize_response_leaf(text, path, own),
             })
         })?;
         if emails {
             check()?;
             sanitize_json(&mut value, &mut |text, _| Ok(self.redact_emails(text)))?;
         }
-        Ok(Sanitized::of(value, held, honored))
+        Ok(Sanitized::of(value, held, honored, own))
     }
 }
 
@@ -206,18 +213,23 @@ impl Sanitized {
 /// leaf the gate honored as judged (a page cut from it) is judged as that
 /// leaf was.
 #[cfg(test)]
-fn assert_gate_fixed_point(value: &Value, judged: &[(String, String)]) {
+fn assert_gate_fixed_point(value: &Value, judged: &[(String, String)], own: &Admitted) {
     let mut again = value.clone();
     let security = ContentSecurity::new();
-    let _ = sanitize_json(&mut again, &mut |text, path| {
-        let source = judged
-            .iter()
-            .find(|(whole, _)| !text.is_empty() && whole.contains(text));
-        Ok::<_, std::convert::Infallible>(match source {
-            Some((_, source)) => security.sanitize_judged_leaf(text, path, source),
-            None => security.sanitize_leaf(text, path),
-        })
-    });
+    let _ = super::walk::sanitize_judged_json(
+        &mut again,
+        &JudgedLeaves::default(),
+        own,
+        &mut |text, path, _| {
+            let source = judged
+                .iter()
+                .find(|(whole, _)| !text.is_empty() && whole.contains(text));
+            Ok::<_, std::convert::Infallible>(match source {
+                Some((_, source)) => security.sanitize_judged_leaf(text, path, source),
+                None => security.sanitize_response_leaf(text, path, own),
+            })
+        },
+    );
     assert!(
         again == *value,
         "a stage added text the output gate would redact:\n{value}\n{again}"
@@ -372,5 +384,132 @@ mod tests {
             .and_then(Value::as_str)
             .expect("localPath");
         assert!(!local_path.contains("ghp_"), "token leaked in location");
+    }
+
+    const ARMOR: &str = "-----BEGIN RSA PRIVATE KEY-----";
+    const PLACEHOLDER_URL: &str = "postgres://user:password@localhost:5432/db";
+
+    /// `value` sealed as the response to `rows`, which the input gate admits.
+    fn seal_for(rows: &[Value], value: Value, marks: &JudgedLeaves) -> Value {
+        let rows: Vec<_> = rows
+            .iter()
+            .map(|row| crate::security::CheckedQuery::checked(row.clone()))
+            .collect();
+        ContentSecurity::new()
+            .seal_judged(value, marks, &Admitted::of(&rows), false, || {
+                Ok::<_, std::convert::Infallible>(())
+            })
+            .unwrap_or_else(|never| match never {})
+            .into_value()
+    }
+
+    /// A request value the input gate admitted comes back as sent wherever
+    /// the response repeats it: a lead's input, an error that quotes it, a
+    /// hint. The same response to a call that did not send it hides it.
+    #[test]
+    fn an_admitted_request_value_is_echoed_as_sent() {
+        for own in [
+            ARMOR,
+            PLACEHOLDER_URL,
+            "password: str",
+            "token: Token",
+            "api_key: str = None",
+            "dispatchToken: string",
+            "password:\\s*hunter2[",
+        ] {
+            let response = json!({
+                "error": format!("invalidPattern: regex parse error in `{own}`: unclosed class"),
+                "hints": [format!("No match for {own}; widen the path.")],
+                "related": [{"tool": "localSearch", "input": {"path": "config/app.yaml", "matchString": own}}],
+                "next": {"retry": {"tool": "localSearch", "query": {"queries": [{"matchString": own}]}}},
+            });
+            let row = json!({"path": "config/app.yaml", "matchString": own});
+            assert_eq!(
+                seal_for(std::slice::from_ref(&row), response.clone(), &JudgedLeaves::default()),
+                response,
+                "{own}"
+            );
+        }
+        // No request sent these: the gate judges them as any text.
+        for own in [ARMOR, PLACEHOLDER_URL] {
+            let response = json!({"related": [{"input": {"matchString": own}}]});
+            let sealed = seal_for(&[json!({"matchString": "other"})], response.clone(), &JudgedLeaves::default());
+            assert_ne!(sealed, response, "{own}");
+            assert_eq!(sealed, seal(response, false), "{own}");
+        }
+    }
+
+    /// Only the bytes the caller sent are left: text of a file in the same
+    /// leaf, a value the request value is only a part of, and every other
+    /// leaf are judged as before.
+    #[test]
+    fn text_around_an_admitted_request_value_is_still_judged() {
+        let token = format!("ghp_{}", "a".repeat(36));
+        let body = "MIIEowIBAAKCAQEAxyzMIIEowIBAAKCAQEAxyzMIIEowIBAAKCAQEAxyzMIIEowIB";
+        let rows = [json!({"matchString": ARMOR, "path": "src"}), json!({"matchString": "ghp_aaaa"})];
+        let response = json!({
+            "lead": format!("{ARMOR} was found beside {token}"),
+            "window": format!("{ARMOR}\n{body}\n{body}"),
+            "prefix": format!("ghp_aaaa is the start of {token}"),
+            "files": [{"path": "config/app.yaml", "matches": [{"value": "password: hunter2hunter2hunter2"}]}],
+        });
+        let sealed = seal_for(&rows, response.clone(), &JudgedLeaves::default());
+        let text = sealed.to_string();
+        assert!(!text.contains(&token) && !text.contains(body) && !text.contains("hunter2"), "{text}");
+        assert_eq!(
+            sealed["lead"],
+            json!(format!("{ARMOR} was found beside [REDACTED-GITHUBTOKENS]"))
+        );
+        // A key written on one line keeps nothing after its armor.
+        let one_line = json!({"line": format!("{ARMOR} {body}")});
+        let sealed_line = seal_for(&rows, one_line, &JudgedLeaves::default());
+        assert!(!sealed_line.to_string().contains(body), "{sealed_line}");
+        assert!(sealed["window"].as_str().expect("window").starts_with(&format!("{ARMOR}\n")), "{sealed}");
+        assert!(sealed["prefix"].as_str().expect("prefix").starts_with("ghp_aaaa is the start of [REDACTED"), "{sealed}");
+        // Every leaf that repeats no request value is what the gate alone makes it.
+        let alone = seal(response, false);
+        assert_eq!(sealed["files"], alone["files"]);
+    }
+
+    /// A value redacted in one leaf is redacted wherever it recurs, but not
+    /// inside the request value a lead repeats.
+    #[test]
+    fn a_value_hidden_elsewhere_stays_in_the_echoed_request_value() {
+        let rows = [json!({"matchString": "hunter2hunter2 login"})];
+        let response = json!({
+            "files": [{"path": "config/app.yaml", "matches": [{"value": "password: hunter2hunter2"}]}],
+            "capture": "hunter2hunter2",
+            "related": [{"input": {"matchString": "hunter2hunter2 login"}}],
+        });
+        let sealed = seal_for(&rows, response, &JudgedLeaves::default());
+        assert_eq!(sealed["related"][0]["input"]["matchString"], json!("hunter2hunter2 login"));
+        assert!(!sealed["files"].to_string().contains("hunter2"), "{sealed}");
+        assert!(!sealed["capture"].to_string().contains("hunter2"), "{sealed}");
+    }
+
+    /// The gate refuses a credential, so no admitted text holds one: a
+    /// response can never be asked to echo it.
+    #[test]
+    fn a_refused_request_value_is_never_admitted_text() {
+        let token = format!("ghp_{}", "a".repeat(36));
+        for refused in [
+            token.clone(),
+            format!("{}\\w\\w", &token[..38]),
+            "postgres://admin:Tr0ub4dor3xK9zQ@db.internal:5432/app".to_owned(),
+            "the password is Tr0ub4dor&3xK9!zQ".to_owned(),
+        ] {
+            let checked = ContentSecurity::new()
+                .check_input(json!({"matchString": refused}), crate::security::InputPolicy::Query);
+            assert!(checked.is_err(), "{refused}");
+        }
+        // Clasify evidence is redacted, not admitted: it is no request text.
+        let evidence = format!("deploy with {token}");
+        let row = ContentSecurity::new()
+            .check_input(
+                json!({"content": evidence, "context": "review"}),
+                crate::security::InputPolicy::ClasifyEvidence { content_limit: 32_000 },
+            )
+            .expect("redacted in place");
+        assert_eq!(Admitted::of([&row]), Admitted::of([&crate::security::CheckedQuery::checked(json!({"context": "review"}))]));
     }
 }

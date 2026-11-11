@@ -32,6 +32,8 @@ fn parse(row: &Value) -> Row {
         input,
         assets: row.get("assets").cloned(),
         long_context: row["longContext"].as_bool(),
+        details: row["view"] == "details",
+        per_item: row["perItem"] == true,
     }
 }
 

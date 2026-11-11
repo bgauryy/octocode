@@ -74,6 +74,8 @@ fn each_resource_is_judged_whole_and_a_failure_stays_with_it() {
         input: Input::Models,
         assets: None,
         long_context: None,
+        details: true,
+        per_item: false,
     };
     let local = |path: &str| json!({"tool":"localFetch","query":{"path":path}});
     let missing = crate::tools::judgment::ClassificationError::new(
@@ -144,6 +146,8 @@ fn resources_row(resources: Value) -> Row {
         input: Input::Resources(resources),
         assets: None,
         long_context: None,
+        details: true,
+        per_item: false,
     }
 }
 

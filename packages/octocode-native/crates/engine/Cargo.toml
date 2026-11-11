@@ -31,6 +31,7 @@ grep-searcher = "0.1.17"
 globset = { workspace = true }
 hex = { workspace = true }
 ignore = { workspace = true }
+memchr = { workspace = true }
 oxc_allocator = "=0.154.0"
 oxc_ast = "=0.154.0"
 oxc_ast_visit = "=0.154.0"

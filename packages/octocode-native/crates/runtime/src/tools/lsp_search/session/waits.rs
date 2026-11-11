@@ -9,12 +9,13 @@ use std::time::Duration;
 /// A call that waited this long in all on a server gets its waits explained.
 const NOTICE_THRESHOLD: Duration = Duration::from_secs(1);
 
-/// The waits this call measured at the server `config` runs, when their sum
-/// reaches [`NOTICE_THRESHOLD`] (each alone may be under it): each a note
-/// (one `{}` where the seconds go) with its span, saying the later calls reuse
-/// the running server, then the call's total time at the server (`elapsed`),
-/// which also holds what no wait names: the server answering once loaded. The
-/// response stage states each note once for the call
+/// The cold-call note for the server `config` runs, when the waits this call
+/// measured (starting the server, loading the project) sum to
+/// [`NOTICE_THRESHOLD`] (each alone may be under it): one note (one `{}`
+/// where the seconds go) with the call's whole time at the server
+/// (`elapsed`), which also holds the server answering once loaded. It says
+/// what the caller acts on: the delay was the cold server and a repeat call
+/// does not pay it. The response stage states the note once for the call
 /// ([`crate::response::paging::push_timed_notice`]).
 pub(in crate::tools::lsp_search) fn disclose_waits(
     config: &LspLanguageServerConfig,
@@ -27,30 +28,12 @@ pub(in crate::tools::lsp_search) fn disclose_waits(
     if waited < NOTICE_THRESHOLD {
         return Vec::new();
     }
-    let mut notes = Vec::new();
-    if let Some(waited) = waits.starting {
-        notes.push((
-            format!(
-                "This call waited {{}} for the {server} language server to start; later calls reuse the running server without that wait."
-            ),
-            waited,
-        ));
-    }
-    if let Some(waited) = waits.indexing {
-        notes.push((
-            format!(
-                "This call waited {{}} for the {server} language server to load the project; later calls reuse the loaded server without that wait."
-            ),
-            waited,
-        ));
-    }
-    notes.push((
+    vec![(
         format!(
-            "This cold call took {{}} in all at the {server} language server: the waits above, plus the server answering once loaded."
+            "This cold call took {{}} while the {server} language server started and loaded the project; later calls reuse the loaded server without that wait."
         ),
         elapsed.max(waited),
-    ));
-    notes
+    )]
 }
 
 /// The warning for a pool that holds more resident memory than its budget
@@ -131,7 +114,7 @@ mod tests {
     }
 
     /// Two waits that are each under the threshold but together cross it
-    /// are one slow cold call: both are disclosed.
+    /// are one slow cold call: it is disclosed, in one note.
     #[test]
     fn waits_under_the_threshold_each_are_disclosed_when_their_sum_crosses_it() {
         let config = LspLanguageServerConfig {
@@ -149,7 +132,9 @@ mod tests {
             starting: Some(part),
             indexing: Some(part),
         };
-        assert_eq!(disclose_waits(&config, waits, part * 4).len(), 3);
+        let notes = disclose_waits(&config, waits, part * 4);
+        assert_eq!(notes.len(), 1, "one note for the call: {notes:?}");
+        assert_eq!(notes[0].1, part * 4, "the call's whole time at the server");
         let small = ServerWaits {
             starting: Some(part / 2),
             indexing: Some(part / 2),
@@ -214,12 +199,12 @@ mod tests {
         let waited = warnings
             .iter()
             .filter_map(|warning| warning.as_str())
-            .filter(|note| note.starts_with("This call waited "))
+            .filter(|note| note.starts_with("This cold call took "))
             .collect::<Vec<_>>();
         assert_eq!(waited.len(), 1, "{response}");
         let note = waited[0];
         assert!(
-            note.starts_with("This call waited 46.1 s for the rust-analyzer language server"),
+            note.starts_with("This cold call took 46.1 s while the rust-analyzer language server"),
             "{note}"
         );
         for (index, row) in response["results"]

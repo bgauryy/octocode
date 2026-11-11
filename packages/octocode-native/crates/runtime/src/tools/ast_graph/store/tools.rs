@@ -122,6 +122,7 @@ fn stats_lead(id: &str, path: &str) -> Option<Value> {
             operation: GraphQueryStatsOperation::Stats,
             path: Some(path.try_into().ok()?),
             reasoning: None,
+            view: None,
         }),
         ..GraphQueryQuery::default()
     };
@@ -266,13 +267,15 @@ fn options(
     })
 }
 
-/// Build measurements no follow-up call takes and no coverage claim rests on.
-const RECEIPT_INTERNALS: [&str; 7] = [
+/// Build measurements no follow-up call takes and no coverage claim rests on,
+/// and the call-resolution breakdown (`linkage` is its coverage claim).
+const RECEIPT_INTERNALS: [&str; 8] = [
     "dir",
     "bytes",
     "sha256",
     "extraction",
     "argumentCoverage",
+    "calls",
     "buildMs",
     "totalMs",
 ];

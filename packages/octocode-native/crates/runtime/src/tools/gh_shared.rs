@@ -36,7 +36,7 @@ pub(crate) use failure::{
 };
 #[cfg(test)]
 pub(crate) use fields::pick_fields;
-pub(crate) use fields::{ensure_calls, field_names, pick_rows, push_warning_front};
+pub(crate) use fields::{ensure_calls, field_names, lean_rows, pick_rows, push_warning_front};
 #[cfg(test)]
 pub(crate) use paths::repo_path;
 pub(crate) use paths::{

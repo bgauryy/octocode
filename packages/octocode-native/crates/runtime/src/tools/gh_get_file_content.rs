@@ -328,6 +328,11 @@ pub(crate) async fn execute<S: ContentScan + Clone + Send + Sync + 'static>(
             Err(error) => result.file.content.warnings.push(unavailable_note(&error)),
         }
     }
+    // What describes the file, not the page, is said once: a later page
+    // continues a read whose first page stated the file's kind and stamp.
+    if !first_page {
+        result.file.file_type = None;
+    }
     Ok(result)
 }
 

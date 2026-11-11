@@ -1,7 +1,7 @@
 //! `limit` conformance for the GitHub search tools: a REST list request
-//! asks `per_page = limit`, a code, repository or history search reads
-//! GitHub's largest page (`octocode_github::MAX_PER_PAGE`) and pages it by
-//! `limit`, an omitted
+//! asks `per_page = limit`, a code, repository or history search asks for
+//! its first pages as given and then reads pages that double up to GitHub's
+//! largest (`octocode_github::MAX_PER_PAGE`), an omitted
 //! `limit` is the contract default (the page size these tools served
 //! before `limit` existed), the contract bounds it by GitHub's documented
 //! `per_page` maximum, and a walk at a small `limit` lists every row
@@ -17,9 +17,12 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 const LIMIT: usize = 2;
 
 /// One search endpoint answering only what a walk at `per` rows may ask: its
-/// first page at `per`, and GitHub's largest page after it.
+/// first pages at `per`, then pages that double up to GitHub's largest.
 async fn mount_search(server: &MockServer, route: &str, per: usize, rows: &[Value]) {
-    for size in [per, octocode_github::MAX_PER_PAGE] {
+    let largest = octocode_github::MAX_PER_PAGE;
+    let doubled = std::iter::successors(Some(per), |size| Some(size * 2))
+        .take_while(|size| *size < largest);
+    for size in doubled.chain([largest]) {
         Mock::given(method("GET"))
             .and(path(route))
             .and(query_param("per_page", size.to_string()))
@@ -158,7 +161,7 @@ async fn mount(server: &MockServer, case: &Case, per: usize) {
 /// Every page of a `limit: 2` walk holds at most 2 rows, its `nextPage`
 /// carries the same `limit`, and the walk lists each of the 5 rows once,
 /// in provider order. The list mocks answer only `per_page=2`, the search
-/// mocks that and GitHub's largest page.
+/// mocks that and the doubled pages a walk reads.
 #[tokio::test]
 async fn a_small_limit_walk_lists_every_row_exactly_once() {
     for case in cases() {

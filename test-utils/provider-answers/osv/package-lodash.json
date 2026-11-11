@@ -5,7 +5,8 @@
   "operation": "package",
   "ecosystem": "npm",
   "packageName": "lodash",
-  "version": "4.17.20"
+  "version": "4.17.20",
+  "view": "details"
  },
  "recordedAt": "2026-11-08",
  "unread": [
@@ -252,6 +253,12 @@
     },
     "_id": "person@example.test",
     "version": "4.17.20"
+   },
+   "unread": [
+    "license"
+   ],
+   "unreadReasons": {
+    "license": "securityCheck states no registry license on a package row (never did: an advisory summary containing `_.omit` matched `MIT` before the lean row). artifactSearch `resolve` shows the registry license; this row's `repository.license` is GitHub's. Pre-existing gap, declared 2026-11-11."
    }
   },
   {
@@ -350,6 +357,12 @@
     },
     "_id": "person@example.test",
     "version": "4.18.1"
+   },
+   "unread": [
+    "license"
+   ],
+   "unreadReasons": {
+    "license": "securityCheck states no registry license on a package row (never did: an advisory summary containing `_.omit` matched `MIT` before the lean row). artifactSearch `resolve` shows the registry license; this row's `repository.license` is GitHub's. Pre-existing gap, declared 2026-11-11."
    }
   },
   {
@@ -1611,7 +1624,13 @@
       "score": 6.5
      }
     }
-   ]
+   ],
+   "unread": [
+    "[*].summary"
+   ],
+   "unreadReasons": {
+    "[*].summary": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `summary` on GitHub's row of the advisory read (checked by osv/advisory-ghsa.carried)."
+   }
   },
   {
    "request": {
@@ -3018,7 +3037,13 @@
       "percentile": 0.97519
      }
     }
-   ]
+   ],
+   "unread": [
+    "[*].summary"
+   ],
+   "unreadReasons": {
+    "[*].summary": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `summary` on GitHub's row of the advisory read (checked by osv/advisory-ghsa.carried)."
+   }
   }
  ]
 }

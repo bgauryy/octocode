@@ -51,7 +51,6 @@ fn byte_resume(line: usize, bytes: usize) -> Result<ReadProgress, String> {
 pub(super) fn fetch_matches<S: ContentScan>(
     q: &LocalFetchQuery,
     source: &Opened<'_>,
-    modified: Option<String>,
     share: Option<usize>,
     security: &S,
     cancel: &impl CancellationCheck,
@@ -85,7 +84,6 @@ pub(super) fn fetch_matches<S: ContentScan>(
             total_lines: Some(found.total_lines),
             returned_bytes: Some(0),
             returned_lines: Some(0),
-            modified,
             ..LocalFetchResult::blank(ReadStatus::Empty)
         }
     } else {
@@ -115,7 +113,7 @@ pub(super) fn fetch_matches<S: ContentScan>(
                         .or(source.proven),
                     ..*source
                 };
-                fetch_ranges(&page, &proved, modified, share, security, cancel)
+                fetch_ranges(&page, &proved, share, security, cancel)
             }
             Err(error) => {
                 return LocalFetchResult::error(

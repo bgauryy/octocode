@@ -70,6 +70,33 @@ pub fn next_input(output: &Value) -> Option<Value> {
         .cloned()
 }
 
+/// A clasify call as this suite reads it: each fresh row that states no
+/// `view` asks for `details`, the whole row, which is what every assertion
+/// written before the lean `summary` default reads. A test of the default
+/// states `view: "summary"`. Other tools, cursors and `models` rows pass
+/// unchanged.
+fn whole_clasify_rows(tool: &str, mut input: Value) -> Value {
+    if tool != "clasify" {
+        return input;
+    }
+    for row in input
+        .get_mut("queries")
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_object_mut)
+    {
+        let judged = matches!(
+            row.get("operation").and_then(Value::as_str),
+            Some("evaluate" | "sections")
+        );
+        if judged && !row.contains_key("view") {
+            row.insert("view".into(), json!("details"));
+        }
+    }
+    input
+}
+
 pub trait Run {
     fn run(
         &self,
@@ -93,6 +120,7 @@ impl Run for ToolRuntime {
         input: Value,
     ) -> Result<ToolOutcome, RuntimeError> {
         let admission = self.admit(request_id)?;
+        let input = whole_clasify_rows(&tool, input);
         self.execute(admission, tool, input, Channel::Cli).await
     }
 
@@ -102,6 +130,7 @@ impl Run for ToolRuntime {
         tool: String,
         input: Value,
     ) -> Result<Value, RuntimeError> {
+        let input = whole_clasify_rows(&tool, input);
         let result = match self.admit(request_id) {
             Ok(admission) => {
                 self.execute(admission, tool.clone(), input, Channel::Mcp)

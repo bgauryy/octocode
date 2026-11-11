@@ -274,6 +274,65 @@ pub(super) fn build_structure(entries: &[TreeEntry]) -> Vec<Value> {
         .collect()
 }
 
+/// Rank a path-ordered listing by `sort`; `false` when it asks for the path
+/// order the listing already has. `sizeBytes` ranks the files whose size the
+/// provider states, the rest (folders) after them; `path` descending is the
+/// listing reversed. Equal sizes keep path order, so every page of one commit
+/// cuts the same rank.
+pub(super) fn rank(
+    entries: &mut [TreeEntry],
+    sort: &octocode_contract_types::GhStructureTreeSort,
+) -> bool {
+    use octocode_contract_types::{GhStructureTreeSortBy as By, SortOrder};
+    let size = |entry: &TreeEntry| entry.size.filter(|_| entry.kind == EntryKind::File);
+    match (sort.by, sort.order) {
+        (By::Path, SortOrder::Asc) => return false,
+        (By::Path, SortOrder::Desc) => entries.reverse(),
+        (By::SizeBytes, order) => entries.sort_by(|left, right| {
+            let (left_size, right_size) = (size(left), size(right));
+            let sized = match order {
+                SortOrder::Asc => left_size.cmp(&right_size),
+                SortOrder::Desc => right_size.cmp(&left_size),
+            };
+            left_size
+                .is_none()
+                .cmp(&right_size.is_none())
+                .then(sized)
+                .then_with(|| left.path.cmp(&right.path))
+        }),
+    }
+    true
+}
+
+/// Rows of a ranked listing ([`rank`]), in rank order: each run of adjacent
+/// entries of one directory is a `{dir, files}` group, and a directory the
+/// rank returns to opens a new one, as structureSearch lists a metric rank.
+/// Entries keep the [`build_structure`] text.
+pub(super) fn ranked_structure(entries: &[TreeEntry]) -> Vec<Value> {
+    let mut rows: Vec<Value> = Vec::new();
+    for entry in entries {
+        let path = entry.path.as_str();
+        let (parent, name) = path.rsplit_once('/').unwrap_or((".", path));
+        let file = entry.kind == EntryKind::File;
+        let fields = file
+            .then_some(entry.size)
+            .flatten()
+            .map(|size| size.to_string())
+            .into_iter()
+            .collect::<Vec<_>>();
+        let text = Value::String(entry_text(name, !file, &fields));
+        match rows.last_mut().filter(|row| row["dir"] == parent) {
+            Some(row) => {
+                if let Some(files) = row["files"].as_array_mut() {
+                    files.push(text);
+                }
+            }
+            None => rows.push(json!({"dir": parent, "files": [text]})),
+        }
+    }
+    rows
+}
+
 pub(super) fn relative(path: &str, root: &str) -> String {
     if root.is_empty() {
         path.to_owned()

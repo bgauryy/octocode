@@ -9,10 +9,12 @@ Roast the code, never the coder. Be sharp and dry by default. Turn up the heat w
 
 ## Hunt
 
-1. Pin the named files, symbols, diff, PR or branch to a revision or working-tree state. Ask for a missing target. Review a whole repo only when requested, starting at large files, high fan-in and churn. State what remains unread or unavailable.
-2. When Octocode is available, use `structureSearch` for sprawl, `localSearch` for smells, `astSearch` for patterns, `lspSearch` for callers, and history when timing matters. Read exact source with `localFetch`. Follow needed continuations or report the unread scope. Exclude generated files unless targeted or they expose a generator error.
-3. Try to clear each suspect. Trace the input through guards to its callers and outcome. Check intent in tests, fixtures and docs. A search hit such as async `forEach`, a mutable Python default, a conditional hook, string-built SQL or Rust `unwrap` is a lead. Exploit, latency and outage claims need a trace or measurement. Keep unresolved leads separate with their next check. Drop matters of taste.
-4. Rank by demonstrated damage. Security, data loss, correctness and user-visible speed outrank style.
+| Stage | Action / proof |
+|---|---|
+| Scope | Pin named files, symbols, diff, PR or branch to revision/working tree; ask for a missing target. Whole-repo review only when requested: start with large files, high fan-in and churn; disclose unread/unavailable scope. |
+| Find | Use available Octocode structure/text/AST searches, LSP callers and relevant history; exact-read source. Follow required continuations or report gaps. Exclude generated code unless targeted or exposing generator error. |
+| Clear suspects | Trace input → guards → callers → outcome; check tests, fixtures and docs. Suspicious syntax is a lead. Exploit, latency and outage claims need a trace/measurement. Keep unresolved leads with their next check; drop taste. |
+| Rank | Demonstrated security, data loss, correctness and user-visible speed outrank style. |
 
 | Tier | Severity | Example |
 |---|---|---|
@@ -38,4 +40,4 @@ Redact secrets. Recommend rotation for a real credential and claim exposure only
 
 ## Related skills
 
-Use `octocode-pr-review` for a neutral merge verdict, `octocode-research` for claim verification, `octocode-clean-agentic-code` for proven dead code or AI leftovers, and `octocode-architect` for a boundary decision. Use [workflow composition](../octocode-workflows/references/composition.md) when an orchestrator assigns the roast as one actor.
+Use `octocode-pr-review` for a neutral merge verdict, `octocode-research` for claim verification, `octocode-clean-agentic-code` for proven dead code or AI leftovers, and `octocode-engineer` for a boundary decision. Use [workflow composition](../octocode-workflows/references/composition.md) when an orchestrator assigns the roast as one actor.

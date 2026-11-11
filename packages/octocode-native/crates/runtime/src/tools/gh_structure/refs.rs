@@ -78,21 +78,44 @@ pub(super) async fn refs(
         .map_or(1, |page| octocode_engine::num::saturating_usize(page.get()));
     let per_page = octocode_engine::num::saturating_usize(query.limit.get());
     let transport = &provider.transport;
-    let branches =
-        transport.repository_refs(owner, repo, RefKind::Branches, page, per_page, context);
+    // Copy the semantic request before adding the next saved page position.
+    let asked = query_row(query, &["page"]);
+    let wanted = RefLists::of(&asked);
+    let branches = async {
+        if wanted.branches {
+            transport
+                .repository_refs(owner, repo, RefKind::Branches, page, per_page, context)
+                .await
+                .map(Some)
+        } else {
+            Ok(None)
+        }
+    };
+    let tags = async {
+        if wanted.tags {
+            tag_page(transport, owner, repo, page, per_page, context)
+                .await
+                .map(Some)
+        } else {
+            Ok(None)
+        }
+    };
     let (default_branch, head, branches, tags) = tokio::try_join!(
         default_branch(provider, owner, repo, context),
         provider.resolve_reference(owner, repo, None, context),
         branches,
-        tag_page(transport, owner, repo, page, per_page, context),
+        tags,
     )?;
     let mut value = json!({
         "owner": owner,
         "repo": repo,
         "defaultBranch": default_branch,
         "commitSha": head,
-        "tags": tags.names,
     });
+    if let Some(tags) = &tags {
+        value["tags"] = json!(tags.names);
+    }
+    let tags = tags.unwrap_or_default();
     if tags.github_order {
         push_warnings(
             &mut value,
@@ -113,17 +136,19 @@ pub(super) async fn refs(
     if let Some(warning) = renamed_warning {
         push_warning_front(&mut value, warning);
     }
-    // Copy the semantic request before adding the next saved page position.
     let mut continued = query_row(query, &["page"]);
-    let past_end = page > 1 && tags.names.is_empty() && branches.refs.is_empty();
+    let listed_branches = branches.as_ref().map_or(0, |branches| branches.refs.len());
+    let past_end = page > 1 && tags.names.is_empty() && listed_branches == 0;
+    let more = tags.has_more || branches.as_ref().is_some_and(|branches| branches.has_more);
     // Rows, never `{name: sha}`: a branch name is data, and in a JSON key the
     // output secret gate reads `"…-token-x":"<sha>"` as a credential.
-    value["branches"] = branches
-        .refs
-        .iter()
-        .map(|named: &NamedRef| json!({ "name": named.name, "sha": named.sha }))
-        .collect();
-    let more = tags.has_more || branches.has_more;
+    if let Some(branches) = branches {
+        value["branches"] = branches
+            .refs
+            .iter()
+            .map(|named: &NamedRef| json!({ "name": named.name, "sha": named.sha }))
+            .collect();
+    }
     let pages = crate::response::pages::PageFacts::open(page, Some(per_page), more && !past_end);
     if past_end {
         value["pagination"] = pages.out_of_range(true).to_value();
@@ -140,7 +165,35 @@ pub(super) async fn refs(
     Ok(ToolData::from(value))
 }
 
+/// The ref lists one read returns: the request's `refKinds` (`"tags"`,
+/// `"branches"`), else both. A list the request leaves out is neither read
+/// nor shown, so "the newest tags" costs no page of branches. Read from the
+/// request's wire row: the field takes effect when the contract publishes it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct RefLists {
+    pub(super) tags: bool,
+    pub(super) branches: bool,
+}
+
+impl RefLists {
+    pub(super) fn of(asked: &Value) -> Self {
+        let named = asked.get("refKinds").and_then(Value::as_array);
+        let Some(kinds) = named.filter(|kinds| !kinds.is_empty()) else {
+            return Self {
+                tags: true,
+                branches: true,
+            };
+        };
+        let names = |kind: &str| kinds.iter().any(|named| named == kind);
+        Self {
+            tags: names("tags"),
+            branches: names("branches"),
+        }
+    }
+}
+
 /// One page of a repository's tag names.
+#[derive(Default)]
 struct TagPage {
     names: Vec<String>,
     has_more: bool,
@@ -215,4 +268,36 @@ pub(super) async fn languages(
     }
     crate::response::result::finish_calls(&mut value);
     Ok(ToolData::from(value))
+}
+
+#[cfg(test)]
+mod ref_list_tests {
+    use super::RefLists;
+    use serde_json::json;
+
+    /// A request names the lists it wants; one that names none gets both.
+    #[test]
+    fn a_refs_read_lists_what_the_request_names() {
+        let both = RefLists {
+            tags: true,
+            branches: true,
+        };
+        assert_eq!(RefLists::of(&json!({"operation":"refs"})), both);
+        assert_eq!(RefLists::of(&json!({"refKinds":[]})), both);
+        assert_eq!(RefLists::of(&json!({"refKinds":["tags","branches"]})), both);
+        assert_eq!(
+            RefLists::of(&json!({"refKinds":["tags"]})),
+            RefLists {
+                tags: true,
+                branches: false
+            }
+        );
+        assert_eq!(
+            RefLists::of(&json!({"refKinds":["branches"]})),
+            RefLists {
+                tags: false,
+                branches: true
+            }
+        );
+    }
 }

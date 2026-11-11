@@ -166,6 +166,27 @@ pub fn pattern_qualifier(pattern: &str, ext: &str) -> Option<QualifiedPattern> {
     octo::pattern_qualifier(&AgLanguage::new(entry), pattern, separator)
 }
 
+/// Every longer spelling of `pattern` in the grammar of `ext`:
+/// [`pattern_qualifier`]'s, and in a grammar with `::` paths also the member
+/// spelling of a bare callee (`$Q.name(..)`), since a call on a receiver
+/// (`x.name(..)`) is a call of that name the bare pattern leaves out too.
+/// Empty for a pattern without such a name.
+pub fn pattern_qualifiers(pattern: &str, ext: &str) -> Vec<QualifiedPattern> {
+    let Some(entry) = languages::find_entry(ext) else {
+        return Vec::new();
+    };
+    let lang = AgLanguage::new(entry);
+    let separators: &[octo::Separator] = if QUALIFIED_PATH_GRAMMARS.contains(&entry.name) {
+        &[octo::Separator::Path, octo::Separator::Member]
+    } else {
+        &[octo::Separator::Member]
+    };
+    separators
+        .iter()
+        .filter_map(|separator| octo::pattern_qualifier(&lang, pattern, *separator))
+        .collect()
+}
+
 /// The literals every match of `pattern` (or `rule`) spells, any one of
 /// which a reader can look for a match by; `None` when no literal is
 /// required or the query is malformed.

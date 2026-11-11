@@ -31,7 +31,7 @@ octocode schema localSearch --view variants
 | Inclusive line spans | `ranges:[{"startLine":1,"endLine":40}]` |
 | Numeric bounds | `{min,max}`; omit an unbounded endpoint |
 | Date bounds | `{from,to}`; omit an unbounded endpoint |
-| Ordering | `sort:{by,order}` |
+| Ordering | `sort:{by,order}`: `by` names the row field it orders by (or `relevance`, `traversal`), `order` is `asc` or `desc`; a page ranked by a field its default rows leave out states that field on each row |
 | Inline classification | `classification:{predicates:["Does this …?"],context?,longContext?}` |
 | Output projection | `view`, with values advertised by that tool |
 
@@ -68,7 +68,7 @@ Fields: `octocode schema <tool> --view query`. Use a returned immutable commit i
 
 ### `ghSearchRepo`
 
-Use a returned repository identity for code, tree and history calls.
+Use a returned repository identity for code, tree and history calls. A search or owner-listing row names the repository (`owner`, `repo`), its `stars` and `description`, and marks one that is `archived`, a `fork` or not public; `fields` adds `defaultBranch`, `language`, `license`, `pushedAt`, `createdAt`, `updatedAt`, `forks` or `topics`. A search sorted by `forks` or `updatedAt` states that field on each row. `operation: "get"` answers one repository with its `defaultBranch`, `stars`, `language`, `license`, `pushedAt` and `description`; `fields` adds `createdAt`, `updatedAt`, `forks` or `topics`.
 
 ```json
 {"queries":[{"filters":{"language":"TypeScript"},"keywords":["code research"],"operation":"search"}]}
@@ -84,7 +84,9 @@ Hits always come from the default-branch index: `ref` re-reads them at that revi
 
 ### `ghStructure`
 
-`operation: "refs"` lists tags grouped by tag prefix (`termcolor-1.4.1` stays apart from plain `13.0.0`). Within a group the newest version leads, and groups go by their newest version, so the order follows version number, not release date. Tags without a version come last.
+`operation: "refs"` lists tags grouped by tag prefix (`termcolor-1.4.1` stays apart from plain `13.0.0`). Within a group the newest version leads. The repository's own releases (tags that are only a version, such as `v8.3.8`) are the first group; the other groups go by their newest version, so the order follows version number, not release date. Tags without a version come last. `limit` sets how many tags and branches a page holds (`limit: 10` reads the ten newest release tags).
+
+`operation: "tree"` lists in path order; `sort:{"by":"sizeBytes","order":"desc"}` ranks every listed file before the page is cut, folders last, so `limit: 1` answers the largest file. A walk that could not read a folder ranks what it read and says so in `warnings`.
 
 ```json
 {"queries":[{"maxDepth":2,"operation":"tree","owner":"bgauryy","path":"packages","repo":"octocode"}]}
@@ -100,7 +102,7 @@ Copy emitted cursors to finish large reads. Local and GitHub file reads share th
 
 ### `ghSearchHistory`
 
-Search rows are an index, not a complete discussion or patch; read a selected item with `ghGetHistoryItem`.
+Search rows are an index, not a complete discussion or patch; read a selected item with `ghGetHistoryItem`. A row names the item (`number` or `commitSha`), dates it and states its `title` or `messageHeadline` (a pull request or issue also its `state`, a merge commit its `merge` mark); `fields` adds `author`, `labels`, `commentsCount`, `baseRef` or a commit's `committer`. Pull requests and issues sorted by `commentsCount` or `updatedAt` state that field on each row; commits list newest first, the only order GitHub offers. A search past its second page reads provider pages that double in size, so a short walk costs what it shows.
 
 ```json
 {"queries":[{"keywords":["schema"],"operation":"pullRequest","owner":"bgauryy","repo":"octocode"}]}
@@ -108,7 +110,7 @@ Search rows are an index, not a complete discussion or patch; read a selected it
 
 ### `ghGetHistoryItem`
 
-Files, comments, reviews, commits and patches can have independent continuations; complete each requested collection.
+Files, comments, reviews, commits and patches can have independent continuations; complete each requested collection. A read without `sections` is the summary: a pull request's whole header, a commit's message, author, committer, parents and line counts, a comparison's identity and changed files (its commits, counted by `aheadBy`, are `sections: ["commits"]` or the `contentPagination.commits` continuation). A read that names `sections` answers with them under a slim header: a pull request's `number`, `state` and `headSha`; a commit's `commitSha`, `messageHeadline` and `author` (login or name, and date).
 
 ```json
 {"queries":[{"number":1,"operation":"pullRequest","owner":"bgauryy","repo":"octocode"}]}
@@ -126,6 +128,15 @@ Execution requires persistent storage; MCP exposure has a separate [clone opt-in
 
 Provider-native package coordinates remain values, not hidden operation selectors. Results use `packageName` and may offer related source/release reads. Without `version`, `resolve` names the latest stable release; a prerelease only when the registry has nothing else, with a warning (npm: the `latest` dist-tag). PyPI and NuGet rows carry the registry's `advisories`, PyPI and crates.io `yankedReason`. Other registries give no advisory data here, and an empty list does not prove a version clean: a CVE question belongs to [`securityCheck`](#securitycheck).
 
+`view` chooses how much of each row a call states; `summary` is the default and `details` returns every field, with nothing dropped between them.
+
+| `view` | `resolve` row | `search` row |
+|---|---|---|
+| `summary` | `packageName`, `version`, `owner`, `repo`, `repositoryDirectory`, `publishedAt`, `ref`, `verification`; deprecation, yank and registry advisories when the registry states them; `registryUrl` only when the request named a registry | `packageName`, `version`, `description` |
+| `details` | adds `description`, `license`, `homepage`, `dependencies`, `optionalDependencies`, `peerDependencies`, `engines`, `requiresPython`, `rustVersion`, `registryUrl` | adds the repository, `license`, `publishedAt`, `downloadsMonthly`, `registryUrl` |
+
+A summary lists one more `related` call: the same query with `view:"details"`.
+
 ```json
 {"queries":[{"ecosystem":"npm","operation":"resolve","packageName":"zod"}]}
 ```
@@ -142,6 +153,15 @@ Known vulnerabilities (CVE, GHSA and other advisory ids) of a package version, a
 | Repository settings (`.octocoderc`, `.env`) | Can turn it off for MCP, never on: the setting is home-only | Nothing |
 
 Restart MCP after changing the setting. GitHub is read with the credential the other GitHub tools use; without one, anonymously, at GitHub's 60 requests an hour per IP, which a few rows spend. No other tool contacts OSV; `artifactSearch` carries `advisories` only from the PyPI and NuGet registries, and its silence elsewhere says nothing about vulnerabilities.
+
+Every operation takes `view`. `summary` (the default) states what decides the next step; `details` states the whole row, paged, and is what the summary's one `related` call asks for.
+
+| `view` | `package`, `url`, `commit`, `repository` | `advisory` |
+|---|---|---|
+| `summary` | `affected`, `upgradeTo`, `advisoryCount`, `highestSeverity`, `unfixedInMajorCount` (advisories only a later major than the version's fixes), `link` (the most severe advisory), `outdated`, `cautions`, `warnings`; `sources` only for one that failed, stopped early or does not cover the target; `answer` only when the row gives no verdict, to say why; `packageName` and `version` only when the request did not state them | `answer` with every affected range and fix, and one row per advisory: `id`, `cves`, `severity`, `fixedIn`, `summary`, `link` |
+| `details` | adds `answer`, `upgradeNote`, every advisory row, `repository`, the registry's latest release and dates, every `sources` entry with its facts, and the ready calls that read each advisory | one row per source's record, whole: `details`, `affected` ranges, `references`, `cvss`, `epss`, `cwes`, credits |
+
+The summary of a package does not ask whether another database disputes a listed advisory (one read per alias): that changes neither `affected`, the count nor `upgradeTo`, and `details` names it.
 
 | `operation` | Takes | Asks | Leaves this machine |
 |---|---|---|---|
@@ -161,7 +181,7 @@ GitHub reads that are refused (a rate limit, a missing or rejected token) leave 
 
 A Go package path is answered with its module's records; the ones whose stated imports exclude that package are listed, brief, in `moduleOnly.advisories` and are not counted in `answer` or `advisories`.
 
-A row leads with the answer: `answer` in one sentence, then `affected`, `upgradeTo` (the lowest fixed version clearing every listed advisory, confirmed with OSV at that version) or `upgradeNote` (why none can be named). A package row also states the update: `latestVersion` (the registry's latest stable), `latestPublishedAt`, `currentPublishedAt`, `isLatest`, `outdated` (a newer release published after this one; false is not safe) and `upgradeKind` (`patch`, `minor` or `major` when both versions are plain dotted numbers, else `unknown`, never guessed). Each advisory is `id`, `cves`, `summary`, `severity` and its `source`, `fixedIn` and `link`; its `related` calls read every record whole, with details, ranges and references. GitHub's word rides beside it: `epss` (`percentage`, `percentile`), `cvss` as each source published it, `credits` (`login`, `type`) and, on a repository advisory, its `publisher`. `cvss[]` is `{type, vector, score?}`: `score` is the base score GitHub publishes with the vector; OSV publishes the vector only, so OSV's entries have none, and none is ever computed. `disputedBy` names aliases another database keeps for this package without listing this version (the databases disagree; the row still counts the record OSV lists), and `alsoAffects` the other packages a record names. The `advisory` operation states each source's record as its own row: OSV's, GitHub's global record and, with `repo`, the repository's. `sources[]` lists each source asked and its `status`.
+A row leads with the answer: `answer` in one sentence, then `affected`, `upgradeTo` (the lowest fixed version clearing every listed advisory, confirmed with OSV at that version) or `upgradeNote` (why none can be named). A package row also states the update: `latestVersion` (the registry's latest stable), `latestPublishedAt`, `currentPublishedAt`, `isLatest`, `outdated` (a newer release published after this one; false is not safe) and `upgradeKind` (`patch`, `minor` or `major` when both versions are plain dotted numbers, else `unknown`, never guessed). Advisories are listed most severe first, one lean row each: `id`, `cves`, `severity` (the database's CVSS vectors under `cvss` when it gives no word), `fixedIn` and `link`, plus `githubType` when GitHub's class is `unreviewed` or `malware`, `withdrawn` and `disputedBy` when they apply. `fixedIn` holds fixed versions only: GitHub's `>=6.2.6` is `6.2.6`, the form OSV's `fixed` events use, and a range's upper bound (`<6.2.0`) is not a fix. On a `package` row with a version it is the one fix that decides: the lowest above the asked version in its own major line, else the lowest in a later one. Everything else a record holds (summary, details, every range and fix, references, EPSS, credits, the database's `source` file) is on its `advisory` row, which the list's `related` call reads. On the `advisory` row GitHub's word rides beside it: `epss` (`percentage`, `percentile`), `cvss` as each source published it, `credits` (`login`, `type`) and, on a repository advisory, its `publisher`. `cvss[]` is `{type, vector, score?}`: `score` is the base score GitHub publishes with the vector; OSV publishes the vector only, so OSV's entries have none, and none is ever computed. `disputedBy` names aliases another database keeps for this package without listing this version (the databases disagree; the row still counts the record OSV lists), and `alsoAffects` the other packages a record names. The `advisory` operation states each source's record as its own row: OSV's, GitHub's global record and, with `repo`, the repository's. `sources[]` lists each source asked and its `status`.
 
 | Row | Means |
 |---|---|
@@ -183,7 +203,7 @@ Fields: `octocode schema <tool> --view query`. Paths resolve against the workspa
 
 ### `localSearch`
 
-Every shown match keeps its source coordinates. Count and scope disclosures describe what was actually searched.
+Every shown match keeps its source coordinates. Count and scope disclosures describe what was actually searched. A content hit in a line longer than 4,096 bytes (a minified file) is one row per hit neighborhood: the line's own text 80 bytes on each side of the hit, with the hit's `column`; hits closer than that share a row. `related[]` on the first page reads that line with `localFetch`, which pages it whole.
 
 ```json
 {"queries":[{"matchString":["registerHandler"],"path":"src"}]}
@@ -199,7 +219,7 @@ A syntax match does not prove a runtime call or reference. A scan cut by its tim
 
 ### `structureSearch`
 
-`next.nextPage` continues through every page and internal scan window, so no walk ceiling ends a listing; `sort` orders each scan window before paging, so follow every continuation to finish the selected scope. A listing groups file entries by directory; read source separately. `view:"paths"` shows names only and reads no entry's metadata (unless a filter or sort needs it), so its `summary` has no `bytes` and a directory with its own group is named by that group alone. Entries without the sort key (a directory or link for `sizeBytes`; a directory, binary or unreadable file for `lineCount`) rank last in both orders.
+`next.nextPage` continues through every page and internal scan window, so no walk ceiling ends a listing; `sort` orders each scan window before paging, so follow every continuation to finish the selected scope. A listing groups file entries by directory; read source separately. `view:"details"` states `modified` to the second (UTC). `view:"paths"` shows names only, plus the one value a `sizeBytes`, `lineCount` or `modifiedAt` sort ranks by (`listing.rs (17706)`), and reads no entry's metadata (unless a filter or sort needs it), so its `summary` has no `bytes` and a directory with its own group is named by that group alone. Entries without the sort key (a directory or link for `sizeBytes`; a directory, binary or unreadable file for `lineCount`) rank last in both orders.
 
 ```json
 {"queries":[{"maxDepth":2,"operation":"tree","path":".","view":"paths"}]}
@@ -240,7 +260,7 @@ A policy refusal (fetched code, build scripts) is not a fallback: the row stays 
 
 ### `clasify`
 
-Evaluate supplied `content` or an unread `source`, discover models, or assess sections of keyed `resources`. Text sources and image assets keep evidence provenance without returning their provider payloads. `next.read` is the read needed to cite an answer's lines. Routes, limits and recovery: [classification guide](OCTOCODE_CLASIFY.md).
+Evaluate supplied `content` or an unread `source` (a file, a URL, or the rows of a search, listing or history tool, each judged as one unit), discover models, or assess sections of keyed `resources`. Rows answer in `view: "summary"` by default; `"details"` is the whole row. Text sources and image assets keep evidence provenance without returning their provider payloads. `next.read` is the read needed to cite an answer's lines. Routes, limits and recovery: [classification guide](OCTOCODE_CLASIFY.md).
 
 ```json
 {"queries":[{"content":"Create a replacement credential, then restart the service.","operation":"evaluate","questions":{"restart":{"instructions":"Does rotating the credential require restarting the service?","type":"noul"}}}]}

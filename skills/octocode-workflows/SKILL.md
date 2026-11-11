@@ -1,13 +1,22 @@
 ---
 name: octocode-workflows
-description: "Choose, compose, coordinate, resume or verify an agentic workflow, including whole-system audits, role-based investigations, runtime surgery and independent acceptance. Ordinary domain tasks use their owner skill directly."
+description: "Choose, design, compose, coordinate, resume or verify a workflow: practical paths for agents, tools, services and other interacting objects, including audits, runtime changes and independent acceptance. Ordinary domain tasks use their owner skill directly."
 ---
 
 # Octocode Workflows
 
 Use the domain skill directly for ordinary tasks. For a workflow selection, choose one primary workflow from the [catalog](references/catalog.md) by the outcome or evidence needed. A selection alone needs no ledger.
 
-## Execute the selected workflow
+## Design the path
+
+| Decide | Record / next action |
+|---|---|
+| Outcome | Observable result, current state and completion check |
+| Participants | Agents, tools, processes, queues, stores, documents or devices; each capability and state owner. Passive objects need a reader/writer. |
+| Communication | Messages/artifacts, dependencies and recovery; use [interaction patterns](references/interaction-patterns.md) to choose a topology, then a catalog workflow. |
+| Execution | Design returns a proposed path. Acting requires capabilities and authority; roles do not authorize delegation or require extra agents. One agent can work sequentially; disclose reduced independence when relevant. |
+
+## Execute an orchestrated workflow
 
 1. Follow the user's actor assignments and sequence. Before assigning roles, use [composition](references/composition.md#orchestrator-and-actor-contract). One accountable orchestrator owns scope, the sole ledger, verification and the final result. At least one responsible actor executes a bounded Task contract and returns raw observations keyed to its row.
 2. Add a [role pattern](references/role-patterns.md) or evidence technique only for a distinct check or required capability within the user's authority. Keep requested work sequential. Only the orchestrator reassigns roles within that authority. Actors never spawn actors. Report a missing required capability and the affected check.
@@ -15,6 +24,7 @@ Use the domain skill directly for ordinary tasks. For a workflow selection, choo
 
 | Selected work | Procedure |
 |---|---|
+| Design a path across agents, tools, services or passive objects | [Interaction patterns](references/interaction-patterns.md): select a topology, specify handoffs, walk success and failure, then choose the execution workflow. |
 | Bounded execution or whole-system traversal | Assign one actor. The [BFS/DFS audit](references/single-actor-traversal.md) reconciles the inventory and traces each path without fan-out. |
 | Change a running feature | [Runtime surgery](references/runtime-surgery.md) separates the code/architecture actor from the runtime actor that activates and replays the change. |
 | Context growth, runtime resources, memory or caches | [Resource flow](references/resource-flow.md) maps the boundary, measures it and replays the correctness check. |
@@ -26,7 +36,7 @@ The orchestrator and every actor may use Octocode directly, within their authori
 
 ## Related skills
 
-Domain skills own methods, permissions and output. Load `octocode-architect` for code boundaries and change discipline, `octocode-agents-communication` for cross-session identity, leases or delivery, and `octocode-eval-benchmark` to measure a workflow or role split.
+Domain skills own methods, permissions and output. Load `octocode-engineer` for code boundaries, design trade-offs and change discipline, and `octocode-agentic` for cross-session identity, leases or delivery and to measure a workflow or role split.
 
 ## Output
 

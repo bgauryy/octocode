@@ -247,7 +247,9 @@ fn a_warning_accompanies_only_coverage_that_changes_the_conclusion() {
 #[test]
 fn argument_coverage_lists_only_the_selected_sources_languages() {
     let (dir, _) = mixed_sources();
-    let stats = ask(&dir.0, "stats", None, |_| {});
+    let stats = ask(&dir.0, "stats", None, |options| {
+        options.view = Some("details".into());
+    });
     let all = stats.value["argumentCoverage"]["byLanguage"]
         .as_object()
         .unwrap();

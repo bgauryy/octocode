@@ -27,7 +27,7 @@ function entries(ctx, root, query) {
   });
   const ancestors = [...new Set(allowed.flatMap(dirsOf))];
   // A test-only listing keeps test directories; the paths view still names any other parent as a group header.
-  const dirs = (query.testCode ?? 'include') === 'only' && query.view !== 'paths' ? ancestors.filter(dir => dir.split('/').some(part => TEST_DIRS.has(part))) : ancestors;
+  const dirs = (query.testCode ?? 'include') === 'only' && (query.view ?? 'paths') !== 'paths' ? ancestors.filter(dir => dir.split('/').some(part => TEST_DIRS.has(part))) : ancestors;
   const rows = [
     ...allowed.map(file => {
       const stat = fs.statSync(path.join(base, file));
@@ -69,7 +69,7 @@ const headers = pages => pages.flatMap(page => page.json?.results ?? []).flatMap
 function observed(ctx, testCase, pages) {
   const root = rootOf(testCase.assignment);
   const rows = rowsOf(pages).map(row => [rel(ctx, root, row.path), row.type === 'directory' ? 'directory' : 'file']);
-  if (testCase.query.view !== 'paths' || testCase.query.entryType === 'file') return rows;
+  if ((testCase.query.view ?? 'paths') !== 'paths' || testCase.query.entryType === 'file') return rows;
   const named = new Set(rows.map(([file]) => file));
   const implied = new Set(headers(pages).map(dir => rel(ctx, root, dir)).filter(dir => dir && !named.has(dir)));
   return [...rows, ...[...implied].map(dir => [dir, 'directory'])];
@@ -88,10 +88,11 @@ function attributeProblem(ctx, root, row, query) {
   const full = path.join(ctx.world[root], row.path);
   const stat = fs.statSync(full);
   if (row.size !== undefined && row.type !== 'directory' && row.size !== stat.size) return `${row.path} size ${row.size}, on disk ${stat.size}`;
-  if (row.modifiedMs !== undefined && Math.abs(row.modifiedMs - stat.mtimeMs) > 1) return `${row.path} modified ${row.modifiedMs}, on disk ${stat.mtimeMs}`;
+  // A listing states the time to the second.
+  if (row.modifiedMs !== undefined && row.modifiedMs !== Math.floor(Math.round(stat.mtimeMs) / 1000) * 1000) return `${row.path} modified ${row.modifiedMs}, on disk ${stat.mtimeMs}`;
   if (row.totalLines !== undefined && root !== 'perm' && row.totalLines !== lineCount(fs.readFileSync(full, 'utf8'))) return `${row.path} totalLines ${row.totalLines}`;
-  const details = (query.view ?? 'details') === 'details';
-  return details === (row.modifiedMs !== undefined) ? null : `${row.path}: view ${query.view ?? 'details'} ${details ? 'lacks' : 'carries'} metadata`;
+  const details = (query.view ?? 'paths') === 'details';
+  return details === (row.modifiedMs !== undefined) ? null : `${row.path}: view ${query.view ?? 'paths'} ${details ? 'lacks' : 'carries'} metadata`;
 }
 
 function orderProblem(ctx, root, listed, sort) {

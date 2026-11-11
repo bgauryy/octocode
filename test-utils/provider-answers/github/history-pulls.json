@@ -284,6 +284,12 @@
      }
     ],
     "search_type": "lexical"
+   },
+   "unread": [
+    "items[*].user.login"
+   ],
+   "unreadReasons": {
+    "items[*].user.login": "Lean default row (owner decision 2026-11-11): not on the default search row; read as `author` with `fields: [\"author\"]` on the same call, which github/history-pulls-fields.carried checks."
    }
   }
  ]

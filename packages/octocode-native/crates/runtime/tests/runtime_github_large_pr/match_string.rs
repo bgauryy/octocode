@@ -46,7 +46,7 @@ async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
     let none_row = &none["pullRequests"][0];
     assert_eq!(none_row["headSha"], SHA, "{none}");
     assert_eq!(none_row["state"], "merged", "{none}");
-    assert_eq!(none_row["title"], "Large refactor", "{none}");
+    assert!(none_row.get("title").is_none(), "{none}");
     assert!(none_row.get("bodyPreview").is_none(), "{none}");
     // A matchString that hits no patch line is an empty read, not a summary
     // that looks like an ignored filter; its leads run the fix: the same

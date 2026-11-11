@@ -344,3 +344,122 @@ fn a_whole_read_keeps_no_scan() {
     assert!(kept_scan(&whole, &source, "a.rs").is_none());
     assert!(kept_scan(&ranged(), &source, "a.rs").is_none());
 }
+
+/// A local file's read, as the executor names it.
+fn local() -> SourceFacts {
+    SourceFacts {
+        local_file: true,
+        ..SourceFacts::default()
+    }
+}
+
+/// A whole read of a local file takes its redaction from the one pass kept
+/// of its text at its path: the second read of the same bytes, in whatever
+/// view, scans nothing and shows what the first showed, and what a read that
+/// keeps nothing shows.
+#[test]
+fn a_second_read_of_a_local_file_scans_nothing() {
+    let dir = tempfile::tempdir().expect("fixture");
+    let path = dir.path().join("kept_pass.ts");
+    let path = path.to_str().expect("a UTF-8 path");
+    let token = format!("ghp_{}", "k3P7w9Q2".repeat(5));
+    let source = format!(
+        "// kept pass\nconst a = 1;\nconst key = \"{token}\";\n{}",
+        "export const filler = 0;\n".repeat(400)
+    );
+    let scanned = crate::security::scanned_on_this_thread;
+    let security = ContentSecurity::new();
+    let views = [
+        json!({}),
+        json!({"ranges":[{"startLine":1,"endLine":4}]}),
+        json!({"matchString":["key"]}),
+        json!({"view":"compact"}),
+        json!({"view":"symbols"}),
+    ];
+    // What each view shows when every read scans for itself.
+    let unkept: Vec<_> = views
+        .iter()
+        .map(|fields| {
+            let q = query(fields.clone());
+            read(&q, &source, path, &SourceFacts::default(), &security)
+        })
+        .collect();
+    retained::forget_scan(&octocode_engine::digest::sha256(source.as_bytes()));
+    let before = scanned();
+    let first = read(&query(json!({})), &source, path, &local(), &security);
+    assert_eq!(scanned() - before, source.len(), "the first read scans");
+    assert!(!first.to_string().contains(&token), "{first}");
+    for (fields, unkept) in views.iter().zip(&unkept) {
+        let q = query(fields.clone());
+        let before = scanned();
+        let again = read(&q, &source, path, &local(), &security);
+        assert_eq!(scanned() - before, 0, "{fields}: a kept pass scans nothing");
+        assert_eq!(&again, unkept, "{fields}");
+        assert!(!again.to_string().contains(&token), "{fields}");
+    }
+}
+
+/// The kept pass is of one text at one path under one scanner: other bytes,
+/// another path and another scan are each judged for themselves.
+#[test]
+fn a_kept_pass_answers_only_for_its_text_path_and_scanner() {
+    let dir = tempfile::tempdir().expect("fixture");
+    let at = |name: &str| {
+        let path = dir.path().join(name);
+        path.to_str().expect("a UTF-8 path").to_owned()
+    };
+    let source = config("kept pass keys");
+    let scanned = crate::security::scanned_on_this_thread;
+    let security = ContentSecurity::new();
+    let q = query(json!({}));
+    let content = |row: &serde_json::Value| row["content"].as_str().expect("content").to_owned();
+    let code = read(&q, &source, &at("a.rs"), &local(), &security);
+    assert!(content(&code).contains("hunter2"), "{code}");
+    // The same bytes at a path whose redaction differs.
+    let before = scanned();
+    let yaml = read(&q, &source, &at("a.yaml"), &local(), &security);
+    assert_eq!(scanned() - before, source.len());
+    assert!(!content(&yaml).contains("hunter2"), "{yaml}");
+    // Other bytes at the first path.
+    let changed = source.replace("hunter2hunter2hunter2", "another2another2another2");
+    let before = scanned();
+    let other = read(&q, &changed, &at("a.rs"), &local(), &security);
+    assert_eq!(scanned() - before, changed.len());
+    assert!(content(&other).contains("another2"), "{other}");
+    // Each again, in the other order: nothing scans, nothing crosses.
+    let before = scanned();
+    assert_eq!(read(&q, &changed, &at("a.rs"), &local(), &security), other);
+    assert_eq!(read(&q, &source, &at("a.yaml"), &local(), &security), yaml);
+    assert_eq!(read(&q, &source, &at("a.rs"), &local(), &security), code);
+    assert_eq!(scanned() - before, 0);
+    // A scan that is not the process's scanner is served nothing kept, and
+    // nothing of it is kept.
+    let counted = Counted::of(&source);
+    for _ in 0..2 {
+        read(&q, &source, &at("a.yaml"), &local(), &counted);
+    }
+    assert_eq!(counted.scans(), 2, "each read of another scan scans");
+    assert_eq!(read(&q, &source, &at("a.yaml"), &local(), &security), yaml);
+}
+
+/// A source with a private-key block is the request's own text once the
+/// block is hidden: its read scans for itself each time, and shows the same.
+#[test]
+fn a_source_with_a_key_block_is_scanned_by_each_read() {
+    let dir = tempfile::tempdir().expect("fixture");
+    let path = dir.path().join("keyed.ts");
+    let path = path.to_str().expect("a UTF-8 path");
+    let source = format!(
+        "const a = 1;\n-----BEGIN RSA PRIVATE KEY-----\n{}\n-----END RSA PRIVATE KEY-----\nconst b = 2;\n",
+        "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo"
+    );
+    let security = ContentSecurity::new();
+    let q = query(json!({}));
+    let first = read(&q, &source, path, &local(), &security);
+    assert!(!first.to_string().contains("QUJDREVGR0hJ"), "{first}");
+    assert_eq!(read(&q, &source, path, &local(), &security), first);
+    assert_eq!(
+        read(&q, &source, path, &SourceFacts::default(), &security),
+        first
+    );
+}

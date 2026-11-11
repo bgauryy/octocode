@@ -10,13 +10,17 @@ import { firstDiff, parityView } from './compare.mjs';
 
 const data = result => result.json?.results?.[0]?.data;
 const input = query => ({ queries: [query] });
-// A build receipt states no reuse; the extraction record lives in the snapshot, so `stats` rows state it.
+// A build receipt states no reuse; the extraction record lives in the snapshot, so `stats` rows state it,
+// in `view: "details"` only (the default summary omits extraction and the call breakdown).
 const noReuseFlag = row => !Object.hasOwn(row, 'reused');
 const freshBuild = row => noReuseFlag(row) && row.extraction?.parsedFiles > 0
   && row.extraction.parsedFiles === row.scan?.filesScanned && row.extraction.reusedFiles === 0;
 // The graph a receipt states, not the snapshot id or the digest: the digest also covers file stamps,
-// recorded only for settled files, so two builds of one graph can differ in digest.
-const sameGraph = (a, b) => ['counts', 'calls', 'linkage', 'scan'].every(key => JSON.stringify(a[key]) === JSON.stringify(b[key]));
+// recorded only for settled files, so two builds of one graph can differ in digest. The receipt carries
+// linkage but not the call breakdown: the details `stats` row states that.
+const sameGraph = (a, b) => ['counts', 'linkage', 'scan'].every(key => JSON.stringify(a[key]) === JSON.stringify(b[key]));
+const sameCalls = (a, b) => a.calls?.sites >= 0 && JSON.stringify(a.calls) === JSON.stringify(b.calls);
+const stats = graph => ({ operation: 'stats', graph, view: 'details' });
 const argumentSource = [
   "import { imported_target } from './graph-argument-import';",
   'function argumentTarget() {}',
@@ -153,6 +157,26 @@ async function checkWhitespaceEvidence(ctx, graph, checks) {
   }
 }
 
+/** Build, build again and refresh one unchanged scope; returns the first receipt. */
+async function unchangedScope(call, scope, surface, checks) {
+  const initial = data(await call('graphBuild', input({ path: scope, keep: 10, refresh: false })));
+  const repeated = data(await call('graphBuild', input({ path: scope, keep: 10, refresh: false })));
+  const initialStats = data(await call('graphQuery', input({ path: scope, ...stats(initial.id) })));
+  checks.push([`graph.fresh.${surface}`, freshBuild(initialStats), JSON.stringify(initialStats.extraction)]);
+  // The receipt keeps linkage and leaves the call breakdown to the stats row.
+  checks.push([`graph.receipt.linkage-without-calls.${surface}`, initial.linkage?.eligible >= 0 && !Object.hasOwn(initial, 'calls')
+    && initialStats.calls?.sites >= 0 && initialStats.calls.byResolution !== undefined, JSON.stringify({ receipt: Object.keys(initial), calls: initialStats.calls })]);
+  const repeatedStats = data(await call('graphQuery', input({ path: scope, ...stats(repeated.id) })));
+  // An unchanged scope answers with its current snapshot, same id (the build contract's Cost line); only `refresh` rebuilds.
+  checks.push([`graph.repeated-build.reuses-snapshot.${surface}`, repeated.id === initial.id && noReuseFlag(repeated) && freshBuild(repeatedStats)
+    && sameGraph(initial, repeated) && sameCalls(initialStats, repeatedStats) && JSON.stringify(repeatedStats.extraction) === JSON.stringify(initialStats.extraction), JSON.stringify({ initial: initial.id, repeated: repeated.id, extraction: repeatedStats.extraction })]);
+  const refreshed = data(await call('graphBuild', input({ path: scope, keep: 10, refresh: true })));
+  const refreshedStats = data(await call('graphQuery', input({ path: scope, ...stats(refreshed.id) })));
+  checks.push([`graph.refresh.preserves-evidence.${surface}`, refreshed.id !== repeated.id && noReuseFlag(refreshed) && freshBuild(refreshedStats)
+    && sameGraph(initial, refreshed) && sameCalls(initialStats, refreshedStats), JSON.stringify({ extraction: refreshedStats.extraction, calls: [initialStats.calls, refreshedStats.calls] })]);
+  return initial;
+}
+
 export const ADVANCED_GRAPH = {
   graphBuild: async ctx => {
     const checks = [];
@@ -161,25 +185,14 @@ export const ADVANCED_GRAPH = {
       const cwd = path.join(ctx.cwd, scope);
       fs.cpSync(ctx.fixture, cwd, { recursive: true });
       const call = ctx.callOn(surface);
-      const initial = data(await call('graphBuild', input({ path: scope, keep: 10, refresh: false })));
-      const repeated = data(await call('graphBuild', input({ path: scope, keep: 10, refresh: false })));
-      const initialStats = data(await call('graphQuery', input({ path: scope, operation: 'stats', graph: initial.id })));
-      checks.push([`graph.fresh.${surface}`, freshBuild(initialStats), JSON.stringify(initialStats.extraction)]);
-      const repeatedStats = data(await call('graphQuery', input({ path: scope, operation: 'stats', graph: repeated.id })));
-      // An unchanged scope answers with its current snapshot, same id (the build contract's Cost line); only `refresh` rebuilds.
-      checks.push([`graph.repeated-build.reuses-snapshot.${surface}`, repeated.id === initial.id && noReuseFlag(repeated) && freshBuild(repeatedStats)
-        && sameGraph(initial, repeated) && JSON.stringify(repeatedStats.extraction) === JSON.stringify(initialStats.extraction), JSON.stringify({ initial: initial.id, repeated: repeated.id, extraction: repeatedStats.extraction })]);
-      const refreshed = data(await call('graphBuild', input({ path: scope, keep: 10, refresh: true })));
-      const refreshedStats = data(await call('graphQuery', input({ path: scope, operation: 'stats', graph: refreshed.id })));
-      checks.push([`graph.refresh.preserves-evidence.${surface}`, refreshed.id !== repeated.id && noReuseFlag(refreshed) && freshBuild(refreshedStats)
-        && sameGraph(initial, refreshed), JSON.stringify(refreshedStats.extraction)]);
+      const initial = await unchangedScope(call, scope, surface, checks);
       checks.push([`graph.storage.workspace.${surface}`, fs.existsSync(path.join(fs.realpathSync(ctx.cwd), '.octocode/graph', initial.id)), initial.id]);
       fs.writeFileSync(path.join(cwd, 'graph-health.ts'), 'export const graphHealthAdded = 1;\n');
       const stale = data(await call('graphQuery', input({ path: scope, operation: 'stats', graph: initial.id })));
       checks.push([`graph.stale.after-add.${surface}`, stale.freshness?.fresh === false, JSON.stringify(stale.freshness)]);
       const rebuilt = data(await call('graphBuild', input({ path: scope, keep: 10 })));
       checks.push([`graph.rebuild.changed.${surface}`, rebuilt.id !== initial.id && noReuseFlag(rebuilt), rebuilt.id]);
-      const rebuiltStats = data(await call('graphQuery', input({ path: scope, operation: 'stats', graph: rebuilt.id })));
+      const rebuiltStats = data(await call('graphQuery', input({ path: scope, ...stats(rebuilt.id) })));
       checks.push([`graph.rebuild.extracts-all-selected-files.${surface}`, freshBuild(rebuiltStats), JSON.stringify(rebuiltStats.extraction)]);
       const drift = data(await call('graphQuery', input({ path: scope, operation: 'drift', graph: rebuilt.id, baseline: initial.id })));
       checks.push([`graph.drift.added.${surface}`, JSON.stringify(drift).includes('graph-health.ts'), JSON.stringify(drift)]);

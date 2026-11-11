@@ -153,6 +153,12 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
             Err(VerifyReadError::Cancelled(reason)) => Err(reason),
         };
     }
+    // A source a search of this process read and judged whole, as these same
+    // bytes at this path, is proved by its digest: its rows are cut from
+    // that judgment, and no line of it is read for a scan again.
+    if let Some((digest, kept)) = kept_whole(&open, source, security, cancel) {
+        return Ok(kept.settle(shown, &placed, check, (expected, digest), source));
+    }
     // Every source is read whole: a row's lines alone hold nothing of the
     // key that names a value on another line a secret, nor of the syntax
     // that makes a line code, so only the whole source judges them.
@@ -234,6 +240,9 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
         _ if read.source_wide => Some(settle::WholeScan::Unheld),
         _ => None,
     };
+    if let (Some(settle::WholeScan::Judged(verdict)), Some(digest)) = (&whole, proven) {
+        keep_whole(verdict, read.lines_read, &digest, source, security);
+    }
     Ok(settle::settle_rows(
         shown,
         &windows,
@@ -245,6 +254,124 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
         source,
         security,
         (&placed, shape, known.zip(proven)),
+    ))
+}
+
+/// A whole source's judgment taken from what an earlier search kept of it.
+struct KeptWhole {
+    verdict: settle::Verdict,
+    /// How many lines the source has.
+    lines: usize,
+}
+
+impl KeptWhole {
+    /// Settle `shown`, rows of `source`, which this judgment is of and
+    /// whose bytes hash to `digest`: each is cut from the judgment, as on
+    /// the search that made it; bytes a stored scan does not expect are
+    /// `Changed`.
+    fn settle(
+        self,
+        shown: &mut [octocode_engine::types::TextSearchMatch],
+        placed: &[Option<settle::RowLines>],
+        check: &ValueCheck<'_, impl CancellationCheck>,
+        (expected, digest): (Expected, crate::tools::local_search::sources::Digest),
+        source: &std::path::Path,
+    ) -> Verification {
+        if matches!(expected, Expected::Stored(stored) if stored != Some(digest)) {
+            return Verification::Changed;
+        }
+        check.security.note_judged_whole(source);
+        let whole = settle::WholeScan::Judged(self.verdict);
+        settle::settle_judged(
+            shown,
+            placed,
+            check.shape,
+            &whole,
+            self.lines,
+            check.security,
+        )
+    }
+}
+
+/// Keep what this read found of a source it held whole, classified and
+/// judged (`verdict`), as `lines` lines of bytes that hash to `digest`: its
+/// rows are settled by its line count and its judgment alone, which the next
+/// search of these bytes takes by their digest ([`kept_whole`]).
+fn keep_whole(
+    verdict: &settle::Verdict,
+    lines: usize,
+    digest: &crate::tools::local_search::sources::Digest,
+    source: &std::path::Path,
+    security: &ContentSecurity,
+) {
+    let found = crate::tools::judged_rows::WholeSource {
+        lines,
+        redacted_text: verdict
+            .as_ref()
+            .map(|judged| octocode_engine::digest::sha256_digest(judged.raw().as_bytes())),
+    };
+    crate::tools::judged_rows::keep_whole_source(digest, source, security, found);
+}
+
+/// The judgment an earlier search of this process made of the whole source
+/// `open` reads, with the digest of its bytes: `None` when none is kept for
+/// these bytes at this path, or the source cannot be read here (the read
+/// that follows then fails as it would have).
+///
+/// A source judged clean needs nothing but its line count. One the pass
+/// changed is cut from its judged text, which is kept nowhere: the text is
+/// read again from the bytes just hashed, as the lines of a UTF-8 source
+/// whose line breaks are `\n` join, and is the text judged exactly when it
+/// hashes to the digest kept of that text. Any other source is read line by
+/// line, as on its first search.
+fn kept_whole<R: std::io::Read>(
+    open: &impl Fn() -> std::io::Result<R>,
+    source: &std::path::Path,
+    security: &ContentSecurity,
+    cancel: &impl CancellationCheck,
+) -> Option<(crate::tools::local_search::sources::Digest, KeptWhole)> {
+    use std::io::Read;
+    // No more than a source judged whole holds: a longer one is not kept.
+    let limit = security.limits().whole_source_bytes();
+    let mut opened = open().ok()?.take(limit.saturating_add(1));
+    let mut bytes = Vec::new();
+    let mut chunk = vec![0_u8; VERIFY_CHUNK_BYTES];
+    loop {
+        cancel.check().ok()?;
+        let read = opened.read(&mut chunk).ok()?;
+        if read == 0 {
+            break;
+        }
+        bytes.extend_from_slice(&chunk[..read]);
+    }
+    if u64::try_from(bytes.len()).map_or(true, |len| len > limit) {
+        return None;
+    }
+    let digest = octocode_engine::digest::sha256_digest(&bytes);
+    let kept = crate::tools::judged_rows::whole_source(&digest, source, security)?;
+    let verdict = match kept.redacted_text {
+        None => None,
+        Some(judged_text) => {
+            let text = std::str::from_utf8(&bytes).ok()?;
+            let text = text.strip_suffix('\n').unwrap_or(text);
+            if octocode_engine::digest::sha256_digest(text.as_bytes()) != judged_text {
+                return None;
+            }
+            let judged = crate::tools::judged_rows::judged(text, &judged_text, source, security);
+            // A pass that replaces nothing of this text was never kept as one
+            // that did: read the source as a first search does.
+            if !judged.is_redacted() {
+                return None;
+            }
+            Some(std::sync::Arc::new(judged))
+        }
+    };
+    Some((
+        digest,
+        KeptWhole {
+            verdict,
+            lines: kept.lines,
+        },
     ))
 }
 

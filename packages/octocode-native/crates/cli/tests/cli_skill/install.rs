@@ -17,16 +17,16 @@ fn embedded_catalog_and_workflows_need_no_node_or_installed_skills() {
     ] {
         assert!(instructions.contains(reference));
     }
-    let architect = report(&run(&workspace, &["info", ARCHITECT]), 0);
-    assert_eq!(architect["skill"]["name"], ARCHITECT);
-    let architect_instructions = architect["skill"]["skillMd"].as_str().unwrap();
+    let engineer = report(&run(&workspace, &["info", ENGINEER]), 0);
+    assert_eq!(engineer["skill"]["name"], ENGINEER);
+    let engineer_instructions = engineer["skill"]["skillMd"].as_str().unwrap();
     for reference in [
         "../octocode-workflows/references/runtime-surgery.md",
         "../octocode-workflows/references/single-actor-traversal.md",
         "../octocode-workflows/references/ast-lsp-workflows.md",
         "../octocode-workflows/references/verification.md",
     ] {
-        assert!(architect_instructions.contains(reference));
+        assert!(engineer_instructions.contains(reference));
     }
     assert!(!workspace.home.join("skills").exists());
 }
@@ -115,7 +115,7 @@ fn installed_architect_delegates_moved_procedures_to_workflows() {
             &workspace,
             &[
                 "install",
-                ARCHITECT,
+                ENGINEER,
                 "--platform",
                 "codex",
                 "--global",
@@ -126,8 +126,8 @@ fn installed_architect_delegates_moved_procedures_to_workflows() {
         0,
     );
     for root in [
-        workspace.home.join("skills").join(ARCHITECT),
-        workspace.home.join(".agents/skills").join(ARCHITECT),
+        workspace.home.join("skills").join(ENGINEER),
+        workspace.home.join(".agents/skills").join(ENGINEER),
     ] {
         for reference in [
             "runtime-surgery.md",

@@ -18,16 +18,13 @@ matchup, and the rollup presents the matchups side by side.
 | `octocode-vs-gh-rtk` | Octocode | gh + RTK | `rtk gh <args>` (read-only) | `compare/bin/octoc` · `compare/bin/rtkm` |
 | `octocode-vs-gh-headroom` | Octocode | gh + Headroom | `compare/bin/ghc <gh args>` (compressed) | `compare/bin/octoc` · `compare/bin/ghc` |
 
-Within a matchup, each question is answered by **two isolated runner agents** (anchor +
-baseline) — same question and frozen refs, only the CLI differs. A separate **blind judge**
-grades the two answers as **X / Y** (order randomized per question, tools hidden) and must
-**reason its way to a verdict** — establish ground truth, then explain per answer *why* it
-earns each score — before ranking. A **decisive or contested** result is confirmed by an
-order-swap and/or a second independent judge; an unresolvable correctness disagreement is
-marked **unresolved** and excluded. Run **≥3 passes** for stability. An **orchestrator**
-aggregates the verdicts + instrumented logs into the matchup report; the rollup shows every
-matchup together (so you see Octocode / RTK / Headroom correctness), but every blind grade
-and character ratio is **pairwise**.
+| Stage | Required boundary |
+|---|---|
+| Answer | Two isolated runners per question: anchor and baseline, same question/frozen refs, only CLI differs. |
+| Judge | Separate blind judge sees randomized X/Y with tools hidden; establishes ground truth, explains each score, then ranks. |
+| Confirm | Decisive/contested results need order-swap and/or second independent judge. Unresolvable correctness disagreements are excluded and counted as unresolved. |
+| Repeat | At least three passes for stability. |
+| Aggregate | Orchestrator combines verdicts and instrumented logs; rollup shows all matchups, but grades and character ratios stay pairwise. |
 
 **Strict phase order — do not overlap.** For a question, Phase 1 (both runners answer) must
 finish before Phase 2 (the judge grades X/Y) begins. A judge that starts before both answer

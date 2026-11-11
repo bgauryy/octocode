@@ -25,6 +25,7 @@ fn seal(value: Value, marks: &JudgedLeaves) -> Value {
         .seal_judged(
             value,
             marks,
+            &crate::security::Admitted::default(),
             false,
             || Ok::<_, std::convert::Infallible>(()),
         )
@@ -187,9 +188,10 @@ fn a_request_judges_a_source_once_and_its_shown_texts_pass_the_gate() {
     let (security, files) = ContentSecurity::new().for_request();
     let path = Path::new("/w/src/walk.rs");
     text::JUDGED_BYTES.with(|judged| judged.set(0));
-    let first = security.judge_source(SOURCE, path);
+    let scan = |_: &[u8; 32]| JudgedText::judge(SOURCE, path, &security);
+    let first = security.judge_source(SOURCE, path, scan);
     for _ in 0..2_000 {
-        let _ = security.judge_source(SOURCE, path);
+        let _ = security.judge_source(SOURCE, path, scan);
     }
     assert_eq!(text::JUDGED_BYTES.with(std::cell::Cell::get), SOURCE.len());
     security.show(first.path(), FRAGMENT);

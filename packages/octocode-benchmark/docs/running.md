@@ -122,7 +122,7 @@ fixed tool sequences. Preserve only fields consumed by the harness.
 
 ## Related guidance
 
-- `octocode-eval-benchmark`: designing an evaluation from scratch, judge calibration, held-out
+- `octocode-agentic`: designing an evaluation from scratch, judge calibration, held-out
   sets. This package supplies the code-research harness and catalogs built on those rules.
 - `octocode-research`: reading transcripts and verifying a surprising answer by hand.
 

@@ -2075,6 +2075,7 @@ dependencies = [
  "hex",
  "ignore",
  "libc",
+ "memchr",
  "octocode-io",
  "oxc_allocator",
  "oxc_ast",

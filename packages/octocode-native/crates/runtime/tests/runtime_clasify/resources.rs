@@ -255,11 +255,11 @@ async fn credential_files_a_glob_sends_carry_no_secret_to_the_provider() {
     runtime.close().await;
 }
 
-/// A resource past the provider's windows fails on its own (C3eF check 5,
-/// regression guard: it passed at lib level only): the failure keeps its
-/// attempted spend and names its recovery, and a sibling keeps its answer.
+/// A resource past the provider's windows is answered from its sections, as
+/// a `source` is; a sibling keeps its own answer, and the row offers every
+/// section's verdict once.
 #[tokio::test]
-async fn a_resource_too_large_for_the_window_fails_alone_and_says_how_to_split() {
+async fn a_resource_too_large_for_the_window_is_answered_from_its_sections() {
     let server = window_provider(100_000, 100_000).await;
     let workspace = Workspace::new();
     workspace.write(
@@ -276,16 +276,11 @@ async fn a_resource_too_large_for_the_window_fails_alone_and_says_how_to_split()
     )
     .await;
     let (map, _) = resources(&out);
-    assert_eq!(
-        map["big"]["errorCode"], "classificationStateTooLarge",
-        "{out:#}"
-    );
-    assert_eq!(map["big"]["usage"]["inputTokens"], 0, "{out:#}");
-    assert_eq!(map["big"]["usage"]["outputTokens"], 0, "{out:#}");
-    assert!(
-        map["big"]["usage"]["calls"].as_u64().unwrap_or(0) >= 1,
-        "{out:#}"
-    );
+    assert!(map["big"].get("errorCode").is_none(), "{out:#}");
+    assert_eq!(map["big"]["answers"]["set"]["noul"], 0.9, "{out:#}");
+    let sections = map["big"]["coverage"]["totalSections"].as_u64().unwrap();
+    assert!(sections > 1, "{out:#}");
+    assert_eq!(map["big"]["usage"]["calls"], json!(sections + 1), "{out:#}");
     assert_eq!(map["ok"]["answers"]["set"]["noul"], 0.9, "{out:#}");
     let related = &out["results"][0]["data"]["related"];
     assert_eq!(related[0]["tool"], "clasify", "{out:#}");

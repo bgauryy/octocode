@@ -95,6 +95,63 @@ pub(super) fn fetch_with(
 pub(super) fn q(path: &Path) -> LocalFetchQuery {
     qj(path, serde_json::json!({}))
 }
+
+/// Walk `next.nextPage` from `query` to its end under the response `window`,
+/// placing every page in `view` (the read's whole selected text): a byte page
+/// at the offset it states, a line page at its first line. Each page is
+/// `view`'s bytes at its place and starts on a clean cut, and the pages are
+/// `view` exactly once, in whatever order the walk shows them. Returns each
+/// page's place and text in walk order.
+pub(super) fn walk_exactly_once(
+    query: &LocalFetchQuery,
+    paths: &impl PathAccess,
+    window: Option<usize>,
+    view: &str,
+) -> Vec<(usize, String)> {
+    let line_starts: Vec<usize> = std::iter::once(0)
+        .chain(view.match_indices('\n').map(|(at, _)| at + 1))
+        .collect();
+    let mut query = query.clone();
+    let mut pages = Vec::new();
+    loop {
+        let read = execute_local_fetch(&query, paths, &Safe, &NeverCancel, window, None);
+        assert_eq!(read.status, ReadStatus::Success, "{read:?}");
+        let page = read.pagination.as_ref().expect("pagination");
+        let at = match page.unit {
+            octocode_contract_types::ReadProgressUnit::Bytes => page.offset,
+            octocode_contract_types::ReadProgressUnit::Lines => line_starts[page.offset],
+        };
+        let text = read.content.clone().expect("content");
+        assert!(!text.is_empty(), "every page makes progress: {page:?}");
+        assert_eq!(
+            view.get(at..at + text.len()),
+            Some(text.as_str()),
+            "the page is the view's bytes at {at}"
+        );
+        assert!(
+            crate::response::cut::is_clean_cut(view, at)
+                && crate::response::cut::is_clean_cut(view, at + text.len()),
+            "page edges at {at}+{} are clean cuts",
+            text.len()
+        );
+        let next = read.next.and_then(|next| next.continue_window);
+        assert_eq!(page.has_more, next.is_some(), "hasMore has its call");
+        pages.push((at, text));
+        assert!(pages.len() < 2_000, "the walk ends");
+        let Some(next) = next else { break };
+        query = next.query;
+    }
+    let mut placed: Vec<(usize, usize)> =
+        pages.iter().map(|(at, text)| (*at, text.len())).collect();
+    placed.sort_unstable();
+    let mut end = 0;
+    for (at, len) in placed {
+        assert_eq!(at, end, "no gap and no byte twice");
+        end = at + len;
+    }
+    assert_eq!(end, view.len(), "the walk reaches the view's last byte");
+    pages
+}
 fn numbered(n: usize) -> String {
     (1..=n).map(|i| format!("l{i}\n")).collect()
 }

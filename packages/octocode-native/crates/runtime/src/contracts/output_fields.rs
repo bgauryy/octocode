@@ -431,8 +431,7 @@ mod tests {
     /// Required evidence is emptied only where the output schema admits the
     /// empty form: a score question's levels (at least two items), a choice
     /// question's labels (at least one property), array instructions (at
-    /// least one item) and a section's byte pair repeat whole; a section's
-    /// context list, which the schema leaves unbounded, empties.
+    /// least one item) repeat whole.
     #[test]
     fn emptying_honours_the_output_schema_bounds() {
         use serde_json::json;
@@ -446,15 +445,18 @@ mod tests {
             ("/data/questions/q/criteria", json!(["low", "high"])),
             ("/data/questions/q/criteria", json!({"yes": "holds"})),
             ("/data/questions/q/instructions", json!(["one named fact"])),
-            ("/data/resources/r/sections/0/target/bytes", json!([0, 40])),
         ] {
             assert_eq!(later(pointer, value.clone()), value, "{pointer}");
         }
-        let context = json!([{"bytes": [0, 5], "lines": {"startLine": 1, "endLine": 1}}]);
-        assert_eq!(
-            later("/data/resources/r/sections/0/context", context),
-            json!([])
-        );
+        // A section's byte pair and context are details fields, optional in
+        // the schema: a later part leaves them out, they are stated once.
+        for pointer in [
+            "/data/resources/r/sections/0/target/bytes",
+            "/data/resources/r/sections/0/context",
+        ] {
+            let mut kept = json!([0, 40]);
+            assert!(!clasify.keep_later(pointer, &mut kept), "{pointer}");
+        }
     }
 
     /// A later part keeps every required member, so it validates against the

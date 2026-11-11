@@ -16,7 +16,7 @@ Use the agentic-plumber metaphor only to label duties. Trace one representative 
 
 1. The orchestrator assigns a plumber actor one representative task, baseline, correctness check, and units. The actor maps the effective consumer payload and names unavailable observations.
 2. Measure boundaries and state a rival cause. Token count is not heap, CPU, or algorithmic complexity; persistent agent memory is not process memory.
-3. Trace the largest demonstrated issue to its owner: `octocode-agentic-prompts` for effective instructions, `octocode-research` for evidence/tool semantics, `octocode-architect` for code/dataflow/lifetime, and `octocode-eval-benchmark` for comparisons. `octocode-context-audit` is an optional inventory helper when installed.
+3. Trace the largest demonstrated issue to its owner: `octocode-agentic` for effective instructions, `octocode-research` for evidence/tool semantics, `octocode-engineer` for code/dataflow/lifetime, and `octocode-agentic` measurement for comparisons. `octocode-context-audit` is an optional inventory helper when installed.
 4. Repair loop (PDCA): plan from the step 1 baseline, correctness check, and units; do one authorized correction that preserves required evidence and continuations; check by replaying the same acceptance conditions against the baseline; act by keeping the change only when its benefit survives comparison without lost correctness or evidence, else revert it. A flow tester actor is useful only when it can independently check correctness or replicate a comparable measurement.
 5. Record bottleneck, owner, change, before/after, and gaps in the shared ledger.
 

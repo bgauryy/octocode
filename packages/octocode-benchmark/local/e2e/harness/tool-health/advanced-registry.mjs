@@ -13,15 +13,47 @@ const dependencies = { pypi: ['proof-dep>=2'], crates: ['proof-dep ^2'], maven: 
 
 const version = (kind, value) => kind === 'go' ? `v${value}` : value;
 const artifact = result => data(result).artifacts?.[0];
+const sorted = value => JSON.stringify(Object.fromEntries(Object.entries(value ?? {}).toSorted(([a], [b]) => (a < b ? -1 : 1))));
+
+// The default view is the summary; what the package declares and depends on is `view: "details"`.
+// Resolve-row fields only details states (the contract's view description; artifact_search/summary.rs):
+// a registry page the request did not name is one of them.
+const RESOLVE_DETAILS = ['license', 'homepage', 'dependencies', 'optionalDependencies', 'peerDependencies', 'engines',
+  'requiresPython', 'rustVersion', 'downloadsMonthly', 'description'];
+
+/**
+ * Why the summary resolve `result` of `query` is not its details `whole` narrowed exactly: each summary field
+ * is the details field unchanged, details adds only declared detail fields, the registry page stays only
+ * when the request named it, and the summary leads to the same query with `view: "details"`.
+ */
+function resolveSummaryProblem(result, whole, query) {
+  const lean = artifact(result);
+  if (!lean || !whole) return 'no artifact row';
+  const named = Object.hasOwn(query, 'registryUrl');
+  const detailOnly = named ? RESOLVE_DETAILS : [...RESOLVE_DETAILS, 'registryUrl'];
+  const leaked = Object.keys(lean).filter(field => detailOnly.includes(field));
+  if (leaked.length) return `detail fields in the summary: ${leaked.join(', ')}`;
+  const changed = Object.keys(lean).filter(field => !equal(lean[field], whole[field]));
+  if (changed.length) return `summary fields differ from details: ${changed.join(', ')}`;
+  const lost = Object.keys(whole).filter(field => !Object.hasOwn(lean, field) && !detailOnly.includes(field));
+  if (lost.length) return `summary dropped non-detail fields: ${lost.join(', ')}`;
+  const { view: _view, ...asked } = query;
+  const lead = (data(result).related ?? []).find(call => call.tool === 'artifactSearch' && call.input?.queries?.[0]?.view === 'details');
+  return lead?.input.queries.length === 1 && sorted(lead.input.queries[0]) === sorted({ ...asked, view: 'details' })
+    ? '' : `no details lead for the same query: ${JSON.stringify(data(result).related)}`;
+}
 
 async function resolutionChecks(ctx, surface, kind, record) {
   const packageName = coordinate(kind, 'proof');
   const row = { operation: 'resolve', ecosystem: kind, packageName };
-  const result = await ctx.call(ctx.q(row), surface);
+  const result = await ctx.call(ctx.q({ ...row, view: 'details' }), surface);
   const item = artifact(result);
   record(`${kind}.release`, surface, item?.packageName === packageName && item.version === version(kind, '1.2.3') && equal(item.dependencies, dependencies[kind]), JSON.stringify(result.json));
+  const lean = await ctx.call(ctx.q(row), surface);
+  const leanProblem = resolveSummaryProblem(lean, item, row);
+  record(`${kind}.summary`, surface, !leanProblem, `${leanProblem}; ${JSON.stringify({ summary: artifact(lean), details: item })}`);
   if (['pypi', 'crates'].includes(kind)) {
-    const resolved = artifact(await ctx.call(ctx.q({ ...row, version: kind === 'pypi' ? '>=1,<2' : '^1.0' }), surface));
+    const resolved = artifact(await ctx.call(ctx.q({ ...row, version: kind === 'pypi' ? '>=1,<2' : '^1.0', view: 'details' }), surface));
     record(`${kind}.range`, surface, resolved?.version === '1.2.3' && resolved.optionalDependencies?.length === 1, JSON.stringify(resolved));
   }
   const exact = artifact(await ctx.call(ctx.q({ ...row, version: version(kind, '1.0.0') }), surface));
@@ -107,7 +139,7 @@ async function npmSearchPages(ctx, surface, expected, record) {
 }
 
 async function npmDependencies(ctx, surface, fixture, record) {
-  const report = await ctx.explore('artifactSearch', { queries: [packageRow(ctx, fixture.name, { version: '^1' })], responseChars: 700 }, surface);
+  const report = await ctx.explore('artifactSearch', { queries: [packageRow(ctx, fixture.name, { version: '^1', view: 'details' })], responseChars: 700 }, surface);
   const rows = resultRows(report);
   const artifacts = artifactRows(report);
   const expected = Object.entries(fixture.dependencies).map(([name, range]) => `${name}@${range}`);
@@ -197,10 +229,20 @@ async function npmAdmission(ctx, surface, record) {
   }
 }
 
+/** The explicit summary of a release from a named registry: its details row narrowed exactly. */
+async function npmSummary(ctx, surface, record) {
+  const query = packageRow(ctx, 'tiny-health', { version: '1.0.0' });
+  const whole = artifact(await ctx.call(ctx.q({ ...query, view: 'details' }), surface));
+  const lean = await ctx.call(ctx.q({ ...query, view: 'summary' }), surface);
+  const problem = resolveSummaryProblem(lean, whole, { ...query, view: 'summary' });
+  record('npm.summary', surface, !problem, `${problem}; ${JSON.stringify({ summary: artifact(lean), details: whole })}`);
+}
+
 async function npmChecks(ctx, record) {
   const fixtures = npmFixtures(ctx);
   try {
     for (const surface of ctx.surfaces) {
+      await npmSummary(ctx, surface, record);
       await npmVersions(ctx, surface, record);
       await npmSearchPages(ctx, surface, fixtures.search, record);
       await npmDependencies(ctx, surface, fixtures.large, record);

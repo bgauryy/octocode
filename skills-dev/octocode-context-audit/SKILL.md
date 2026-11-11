@@ -28,7 +28,7 @@ Use `--days N` to select Claude transcripts by file mtime. The default scope is 
 
 ## Act on the report
 
-Start with `high` findings. Read each flag against its measured scope and budget. Move reference detail out of always-loaded files, keep per-turn rules, and retain one canonical skill installation. Check routing and schemas with `octocode-agentic-prompts` before treating zero calls in a short window as grounds for deletion. Use `octocode-skills` for structural or installation repairs.
+Start with `high` findings. Read each flag against its measured scope and budget. Move reference detail out of always-loaded files, keep per-turn rules, and retain one canonical skill installation. Check routing and schemas with `octocode-agentic` before treating zero calls in a short window as grounds for deletion. Use `octocode-skills` for structural or installation repairs.
 
 If repairs are authorized, change the owning source, rerun to a fresh destination and compare the saved evidence and retained behavior. Follow [output.md](output.md) for the BLUF, each high finding in 5W2H, the before/after delta and HTML delivery. Use `--html` when requested up front or `--render <saved-context-audit.json>` to render the accepted snapshot later.
 

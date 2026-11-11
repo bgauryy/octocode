@@ -147,7 +147,14 @@ pub(in super::super) async fn judge_content(
             judged.push(None);
             continue;
         };
-        let text = files.judge(&source.content, std::path::Path::new(&path), security);
+        let text = files.judge(&source.content, std::path::Path::new(&path), |digest| {
+            crate::tools::judged_rows::judged(
+                &source.content,
+                digest,
+                std::path::Path::new(&path),
+                security,
+            )
+        });
         let mut line = first;
         let mut out = String::with_capacity(content.len());
         for record in content.split_inclusive('\n') {

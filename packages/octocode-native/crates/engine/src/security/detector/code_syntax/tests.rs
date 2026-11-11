@@ -7,6 +7,7 @@
 use super::*;
 use tree_sitter::Node;
 
+mod fast_paths;
 mod soup;
 
 /// Every `.rs` file under `dir`, recursively.

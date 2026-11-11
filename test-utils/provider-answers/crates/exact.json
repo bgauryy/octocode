@@ -5,7 +5,8 @@
   "operation": "resolve",
   "ecosystem": "crates",
   "packageName": "cfg-if",
-  "version": "1.0.0"
+  "version": "1.0.0",
+  "view": "details"
  },
  "recordedAt": "2026-11-08",
  "unread": [

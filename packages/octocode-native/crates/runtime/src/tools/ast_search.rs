@@ -119,9 +119,9 @@ pub fn execute_ast(
         AstSearchQuery::SyntaxTree(query) => query.path.as_str(),
     };
     run_ast(query, paths, cancellation, response_window)
-        .map(|mut data| {
+        .map(|(mut data, places)| {
             let sources = crate::tools::judged_rows::RowSources::new(paths, security);
-            judged_rows::judge_rows(&mut data, &sources);
+            judged_rows::judge_rows(&mut data, &sources, places);
             data
         })
         .map_err(|mut error| {
@@ -164,7 +164,8 @@ fn run_ast(
     paths: &crate::policy::path::PathPolicy,
     cancellation: &dyn crate::execution::cancel::CancellationCheck,
     response_window: Option<usize>,
-) -> Result<Value, ToolError> {
+) -> Result<(Value, judged_rows::NamePlaces), ToolError> {
+    let unplaced = |data| (data, judged_rows::NamePlaces::default());
     match query {
         AstSearchQuery::Symbols(query) => {
             execute_symbols(query, paths, cancellation, response_window)
@@ -174,22 +175,24 @@ fn run_ast(
             paths,
             cancellation,
             response_window,
-        ),
+        )
+        .map(unplaced),
         AstSearchQuery::MatchView(query) => execute_match(
             MatchQuery::Summary(query),
             paths,
             cancellation,
             response_window,
-        ),
+        )
+        .map(unplaced),
         AstSearchQuery::SyntaxTree(query) => {
-            execute_syntax(query, paths, cancellation, response_window)
+            execute_syntax(query, paths, cancellation, response_window).map(unplaced)
         }
     }
 }
 
 pub use matches::execute_match;
 pub(crate) use output::Output;
-pub use symbols::execute_symbols;
+pub(crate) use symbols::execute_symbols;
 pub use syntax::execute_syntax;
 
 /// A dot-named entry (`.git`, `.env`): out of view of a walk without

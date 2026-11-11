@@ -153,6 +153,8 @@ fn next_quiet_confirms_the_plans_github_identity_before_it_serves() {
         input: super::super::super::Input::Sections(input.clone()),
         assets: None,
         long_context: None,
+        details: true,
+        per_item: false,
     };
     let budget = Budget::new(SelectionLimits { max_chars: 1_000 });
     let replay = |identity| {

@@ -86,7 +86,8 @@ pub(super) async fn commit(
         .flatten();
     let listed = state.skipped + loaded.items.len();
     let commit = CommitFacts::of(raw);
-    let mut out = commit_header(&commit, reference, query.include_diff(), listed, state);
+    let summary = query.sections().is_empty();
+    let mut out = commit_header(&commit, reference, summary, listed, state);
     // A filter that left no file is an empty answer, not a bare `files: []`:
     // the row says so and its leads show.
     let scope_removed_all = unmatched.is_some();
@@ -135,29 +136,40 @@ impl<'a> CommitFacts<'a> {
     }
 }
 
-/// The commit row before its files. A patch read is the diff's evidence: it
-/// names the commit by its headline once; the summary read
-/// offered as related work holds the whole message, whose first line the
-/// headline would repeat.
+/// The commit row before its files. A summary read (no `sections`) is the
+/// commit whole: its message, who wrote and committed it, its parents and its
+/// line counts. A section read answers with its files or patches: the row
+/// names the commit by its SHA and headline and dates it (the author's login,
+/// else name, and date), and leaves the rest to the summary read its
+/// `readCommit` lead names.
 fn commit_header(
     commit: &CommitFacts<'_>,
     reference: &str,
-    patches: bool,
+    summary: bool,
     listed: usize,
     state: WindowState,
 ) -> Value {
     let raw = commit.raw;
     let author = identity(raw, "author");
     let committer = committer(raw, &author);
+    let parents = raw
+        .get("parents")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|v| str_at(v, "/sha").map(str::to_owned))
+        .collect::<Vec<_>>();
     let mut out = json!({
         "ref":reference,"commitSha":commit.sha,
-        "message":(!patches).then_some(commit.message),
-        "messageHeadline":patches.then_some(commit.headline),
-        "author":author,"committer":committer,
-        "parents":raw.get("parents").and_then(Value::as_array).into_iter().flatten().filter_map(|v|str_at(v,"/sha").map(str::to_owned)).collect::<Vec<_>>(),
+        "message":summary.then_some(commit.message),
+        "messageHeadline":(!summary).then_some(commit.headline),
+        "author":if summary { author } else { dated(&author) },
+        "committer":committer.filter(|_| summary),
+        "parents":summary.then_some(parents),
         // Top-level counts always describe the whole commit; a path scope's
         // own count is `contentPagination.files.totalItems`.
-        "additions":raw.pointer("/stats/additions"),"deletions":raw.pointer("/stats/deletions"),
+        "additions":raw.pointer("/stats/additions").filter(|_| summary),
+        "deletions":raw.pointer("/stats/deletions").filter(|_| summary),
         "changedFilesCount":listed,
         // A scan stopped at the batch cap never saw the remaining files; a
         // complete count states no scope.
@@ -169,6 +181,19 @@ fn commit_header(
     {
         fields.remove("ref");
     }
+    out
+}
+
+/// Who a section read's header names: the login, else the git name, and the
+/// date. The email and the name beside a login are the summary read's.
+fn dated(author: &Value) -> Value {
+    let who = if author.get("login").is_some() {
+        "login"
+    } else {
+        "name"
+    };
+    let mut out = json!({ who: author.get(who), "date": author.get("date") });
+    remove_nulls(&mut out);
     out
 }
 
@@ -211,7 +236,7 @@ fn commit_file_page(
 fn commit_leads(query: &HistoryItemRequest, commit: &CommitFacts<'_>, page: FilePage) -> Vec<Lead> {
     let mut leads = Vec::from_iter(page.without_match);
     let pull_request = commit_pull_request_lead(commit.message, &commit.sha, query);
-    if query.include_diff() && commit.message.trim_end() != commit.headline {
+    if !query.sections().is_empty() && commit.message.trim_end() != commit.headline {
         leads.extend(read_commit_lead(query, &commit.sha).map(|read| ("readCommit", read)));
     }
     // A pull request the commit names is the route to its discussion, ahead

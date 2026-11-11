@@ -14,16 +14,22 @@ use super::source::{Confirmed, SourceResult};
 use futures_util::{StreamExt as _, stream};
 use std::collections::{BTreeMap, BTreeSet};
 
-/// Each listed record's aliases that OSV keeps for this package and does not
-/// list at the version, set on the record (`disputed_by`), and the row's
-/// warnings: each disagreement, and each alias that could not be read.
-pub(super) async fn mark(
-    confirmed: &Confirmed,
-    results: &mut [SourceResult],
-    net: &Net<'_>,
-) -> Vec<String> {
+/// What OSV said of each alias no listed record carries: the ones it keeps
+/// for this package, and a warning for each that could not be read.
+#[derive(Default)]
+pub(super) struct Read {
+    version: Option<String>,
+    name: String,
+    disputing: BTreeSet<String>,
+    warnings: Vec<String>,
+}
+
+/// Reads each listed record's aliases that OSV does not list at the version.
+/// It only reads `results`, so it runs beside the row's other reads of OSV's
+/// answer; [`Read::mark`] sets what it found on the records.
+pub(super) async fn read(confirmed: &Confirmed, results: &[SourceResult], net: &Net<'_>) -> Read {
     let Some(version) = confirmed.version.as_deref() else {
-        return Vec::new();
+        return Read::default();
     };
     // Only OSV's own answer at the version: a walk that is not whole, or a
     // version compared here, leaves nothing to set against.
@@ -31,7 +37,7 @@ pub(super) async fn mark(
         .iter()
         .any(|result| result.resume.is_some() || result.compared_here)
     {
-        return Vec::new();
+        return Read::default();
     }
     let listed = results
         .iter()
@@ -71,27 +77,45 @@ pub(super) async fn mark(
             )),
         }
     }
-    let mut disputed = BTreeMap::<String, Vec<String>>::new();
-    for row in results.iter_mut().flat_map(|result| &mut result.advisories) {
-        row.disputed_by = row
-            .aliases
-            .iter()
-            .filter(|alias| disputing.contains(*alias))
-            .cloned()
-            .collect();
-        if !row.disputed_by.is_empty() {
-            disputed.insert(row.id.clone(), row.disputed_by.clone());
+    Read {
+        version: Some(version.to_owned()),
+        name: confirmed.name.clone(),
+        disputing,
+        warnings,
+    }
+}
+
+impl Read {
+    /// Each listed record's aliases that OSV keeps for this package and does
+    /// not list at the version, set on the record (`disputed_by`), and the
+    /// row's warnings: each disagreement, and each alias that could not be read.
+    pub(super) fn mark(self, results: &mut [SourceResult]) -> Vec<String> {
+        let Some(version) = self.version else {
+            return Vec::new();
+        };
+        let mut warnings = self.warnings;
+        let mut disputed = BTreeMap::<String, Vec<String>>::new();
+        for row in results.iter_mut().flat_map(|result| &mut result.advisories) {
+            row.disputed_by = row
+                .aliases
+                .iter()
+                .filter(|alias| self.disputing.contains(*alias))
+                .cloned()
+                .collect();
+            if !row.disputed_by.is_empty() {
+                disputed.insert(row.id.clone(), row.disputed_by.clone());
+            }
         }
+        // Ids and names as the answer states them: no source writes prose here.
+        let version = typed(&version);
+        for (id, by) in disputed {
+            warnings.push(format!(
+                "The databases disagree on {version}: the row counts {} as affecting it, as OSV lists it there; {}, another database's record of it that names {}, does not list {version}. Read each record's ranges.",
+                stated_id(&id),
+                by.iter().map(|id| stated_id(id)).collect::<Vec<_>>().join(", "),
+                typed(&self.name)
+            ));
+        }
+        warnings
     }
-    // Ids and names as the answer states them: no source writes prose here.
-    let version = typed(version);
-    for (id, by) in disputed {
-        warnings.push(format!(
-            "The databases disagree on {version}: the row counts {} as affecting it, as OSV lists it there; {}, another database's record of it that names {}, does not list {version}. Read each record's ranges.",
-            stated_id(&id),
-            by.iter().map(|id| stated_id(id)).collect::<Vec<_>>().join(", "),
-            typed(&confirmed.name)
-        ));
-    }
-    warnings
 }

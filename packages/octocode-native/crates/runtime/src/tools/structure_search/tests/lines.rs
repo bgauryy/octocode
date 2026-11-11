@@ -12,7 +12,7 @@ fn line_counts_only_read_the_selected_page() {
     let before = super::super::rows::line_count_reads(&root.0);
     let first = run_budget(
         &root.0,
-        json!({"operation":"files","path":root.0,"sort":{"by":"name","order":"asc"},"limit":4}),
+        json!({"operation":"files","view":"details","path":root.0,"sort":{"by":"name","order":"asc"},"limit":4}),
         1,
     )
     .expect("listing");
@@ -33,16 +33,19 @@ fn file_metadata_is_available_without_a_projection_switch() {
         .expect("mtime")
         .duration_since(std::time::UNIX_EPOCH)
         .expect("epoch")
-        .as_millis() as i64;
+        .as_secs_f64();
+    // A listing states the time to the second.
+    let expected = (((expected * 1_000.0).round() as i64).div_euclid(1_000)) * 1_000;
     for operation in ["tree", "files"] {
-        let out = run(&root.0, json!({"operation":operation,"path":root.0})).expect("listing");
+        let out = run(
+            &root.0,
+            json!({"operation":operation,"path":root.0,"view":"details"}),
+        )
+        .expect("listing");
         let rows = listed(&out);
         assert_eq!(rows[0]["size"], 7, "{out}");
         assert_eq!(rows[0]["totalLines"], 1, "{out}");
-        assert!(
-            (rows[0]["modifiedMs"].as_i64().expect("mtime") - expected).abs() <= 1,
-            "{out}"
-        );
+        assert_eq!(rows[0]["modifiedMs"].as_i64().expect("mtime"), expected, "{out}");
     }
 }
 
@@ -75,7 +78,7 @@ fn a_line_sort_exposes_each_sort_key() {
     std::fs::create_dir(root.0.join("dir")).expect("dir");
     let out = run(
         &root.0,
-        json!({"operation":"files","path":root.0,"sort":{"by":"lineCount","order":"desc"}}),
+        json!({"operation":"files","view":"details","path":root.0,"sort":{"by":"lineCount","order":"desc"}}),
     )
     .expect("files");
     let rows = listed(&out);
@@ -87,7 +90,7 @@ fn a_line_sort_exposes_each_sort_key() {
     assert_eq!(lines, [json!(9), json!(2), json!(0)], "{out}");
     let by_size = run(
         &root.0,
-        json!({"operation":"files","path":root.0,"entryType": "file","sort":{"by":"sizeBytes","order":"desc"}}),
+        json!({"operation":"files","view":"details","path":root.0,"entryType": "file","sort":{"by":"sizeBytes","order":"desc"}}),
     )
     .expect("files");
     assert_eq!(listed(&by_size)[0]["totalLines"], 9, "{by_size}");
@@ -213,7 +216,7 @@ fn files_line_count_counts_lines_not_newlines_plus_one() {
     std::fs::write(root.0.join("empty.rs"), "").expect("empty");
     let out = run(
         &root.0,
-        json!({"operation":"files","path":root.0,"entryType": "file"}),
+        json!({"operation":"files","view":"details","path":root.0,"entryType": "file"}),
     )
     .expect("files");
     let count = |name: &str| {
@@ -264,8 +267,8 @@ fn a_link_to_a_directory_has_no_line_count_not_unreadable() {
     std::os::unix::fs::symlink("src", root.0.join("to_dir")).expect("dir link");
     std::os::unix::fs::symlink("src/a.rs", root.0.join("to_file")).expect("file link");
     for query in [
-        json!({"operation":"tree","path":root.0}),
-        json!({"operation":"files","path":root.0,"maxDepth":1,"sort":{"by":"lineCount","order":"desc"}}),
+        json!({"operation":"tree","view":"details","path":root.0}),
+        json!({"operation":"files","view":"details","path":root.0,"maxDepth":1,"sort":{"by":"lineCount","order":"desc"}}),
     ] {
         let out = run(&root.0, query).expect("listing");
         let rows = listed(&out);

@@ -11,17 +11,24 @@ fn entries(out: &Value) -> Vec<&str> {
 }
 
 #[test]
-fn explicit_details_preserves_the_default_listing() {
+fn the_default_listing_is_names_only_and_details_adds_the_fields() {
     let root = Fixture::new();
     root.write("source.rs", "one\ntwo\n");
     for operation in ["tree", "files"] {
         let query = json!({"operation": operation, "path": root.0});
         let default = run(&root.0, query.clone()).expect("default");
+        let mut named = query.clone();
+        named["view"] = json!("paths");
+        let paths = run(&root.0, named).expect("paths");
+        assert_eq!(paths["files"], default["files"]);
+        assert_eq!(
+            crate::tools::test_support::pinned_snapshot(&paths),
+            crate::tools::test_support::pinned_snapshot(&default)
+        );
+        assert_eq!(entries(&default), ["source.rs"]);
         let mut query = query;
         query["view"] = json!("details");
         let detailed = run(&root.0, query).expect("details");
-        assert_eq!(detailed["files"], default["files"]);
-        assert_eq!(crate::tools::test_support::pinned_snapshot(&detailed), crate::tools::test_support::pinned_snapshot(&default));
         assert_eq!(listed(&detailed)[0]["totalLines"], 2);
     }
 }
@@ -53,20 +60,58 @@ fn paths_preserves_names_and_kinds_without_reading_file_content() {
     }
 }
 
+/// The names-only view under a size, line or time rank states the one value
+/// it ranks by on each row, in the details view's own spelling, and nothing
+/// else; a name or path rank, whose key is the name itself, states names only.
 #[test]
-fn paths_line_sort_reads_for_ranking_but_emits_only_names() {
+fn paths_under_a_metric_sort_state_that_one_metric() {
     let root = Fixture::new();
     root.write("a-short.rs", "one\n");
     root.write("z-long.rs", "one\ntwo\nthree\n");
+    std::fs::create_dir(root.0.join("dir")).expect("directory");
+    let ranked = |by: &str, order: &str| {
+        run(
+            &root.0,
+            json!({"operation": "files", "path": root.0, "view": "paths", "maxDepth": 1, "sort": {"by": by, "order": order}}),
+        )
+        .expect("ranked paths")
+    };
     let before = super::super::rows::line_count_reads(&root.0);
-    let out = run(
-        &root.0,
-        json!({"operation": "files", "path": root.0, "view": "paths", "sort": {"by": "lineCount", "order": "desc"}}),
-    )
-    .expect("ranked paths");
-    // The ranking reads each file once; emitting names reads none.
+    let out = ranked("lineCount", "desc");
+    // The ranking reads each file once; emitting the rows reads none.
     assert_eq!(super::super::rows::line_count_reads(&root.0) - before, 2);
-    assert_eq!(entries(&out), ["z-long.rs", "a-short.rs"]);
+    assert_eq!(
+        entries(&out),
+        ["z-long.rs (totalLines=3)", "a-short.rs (totalLines=1)", "dir/"]
+    );
+    // A directory has no content size: it ranks last and states none.
+    assert_eq!(
+        entries(&ranked("sizeBytes", "asc")),
+        ["a-short.rs (4)", "z-long.rs (14)", "dir/"]
+    );
+    assert_eq!(
+        entries(&ranked("sizeBytes", "desc")),
+        ["z-long.rs (14)", "a-short.rs (4)", "dir/"]
+    );
+    let by_time = ranked("modifiedAt", "desc");
+    let rows = entries(&by_time);
+    assert_eq!(rows.len(), 3, "{by_time}");
+    for row in rows {
+        let (_, fields) = row.split_once(" (").expect("one field");
+        assert!(fields.starts_with("modified=") && !fields.contains(','), "{row}");
+    }
+    for (by, order) in [("name", "asc"), ("path", "asc"), ("path", "desc"), ("traversal", "asc")] {
+        let mut names = entries(&ranked(by, order)).into_iter().map(str::to_owned).collect::<Vec<_>>();
+        names.sort_unstable();
+        assert_eq!(names, ["a-short.rs", "dir/", "z-long.rs"], "{by} {order}");
+    }
+    // The details view is unchanged by the sort: all of its fields.
+    let mut details = json!({"operation": "files", "path": root.0, "view": "details", "entryType": "file", "sort": {"by": "sizeBytes", "order": "desc"}});
+    let detailed = run(&root.0, details.take()).expect("details");
+    assert!(
+        entries(&detailed)[0].starts_with("z-long.rs (14, totalLines=3, modified="),
+        "{detailed}"
+    );
 }
 
 #[test]
@@ -78,12 +123,11 @@ fn paths_pages_preserve_every_detailed_path_once_and_keep_the_view() {
         }
     }
     for operation in ["tree", "files"] {
-        let mut query = json!({"operation": operation, "path": root.0, "maxDepth": 4});
+        let mut query = json!({"operation":operation,"view":"details", "path": root.0, "maxDepth": 4});
         let detailed = run(&root.0, query.clone()).expect("details");
-        // A directory with its own group is named by it in this view.
+        // The names-only view lists every entry the details view lists.
         let mut expected = listed(&detailed)
             .iter()
-            .filter(|entry| entry["type"] != "directory" || entry["path"] == json!("./b"))
             .map(|entry| entry["path"].as_str().expect("path").to_owned())
             .collect::<Vec<_>>();
         expected.sort();
@@ -98,7 +142,12 @@ fn paths_pages_preserve_every_detailed_path_once_and_keep_the_view() {
             assert_eq!(actual, expected, "{operation}, budget {budget}");
             for page in pages {
                 if let Some(next) = page["next"].get("nextPage") {
-                    assert_eq!(next["input"]["queries"][0]["view"], "paths", "{page}");
+                    // The continuation states the view or leaves its default.
+                    let reopened = crate::tools::test_support::opened(
+                        crate::id::ToolId::StructureSearch,
+                        &next["input"]["queries"][0],
+                    );
+                    assert_eq!(reopened["view"], "paths", "{page}");
                 }
             }
         }
@@ -112,7 +161,7 @@ fn paths_page_costs_exclude_detail_fields() {
         root.write(&format!("f{index:02}.rs"), "one\ntwo\n");
     }
     for operation in ["tree", "files"] {
-        let mut query = json!({"operation": operation, "path": root.0});
+        let mut query = json!({"operation":operation,"view":"details", "path": root.0});
         let detailed = run_budget(&root.0, query.clone(), 250).expect("details");
         query["view"] = json!("paths");
         let compact = run_budget(&root.0, query, 250).expect("paths");

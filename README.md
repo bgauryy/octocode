@@ -317,19 +317,17 @@ Skills guide an agent through a whole task using the tools. Install one with `np
 | [octocode-get-started](https://github.com/bgauryy/octocode/tree/main/skills/octocode-get-started) | Setup, keys and a first task |
 | ⭐ [octocode-research](https://github.com/bgauryy/octocode/blob/main/skills/octocode-research/SKILL.md) | Evidence-first research and debugging |
 | [octocode-pr-review](https://github.com/bgauryy/octocode/blob/main/skills/octocode-pr-review/SKILL.md) | PR and diff review with a merge verdict |
-| [octocode-architect](https://github.com/bgauryy/octocode/tree/main/skills/octocode-architect) | Architecture and dependency review |
+| [octocode-engineer](https://github.com/bgauryy/octocode/tree/main/skills/octocode-engineer) | Architecture review and design trade-offs |
 | [octocode-graph-view](https://github.com/bgauryy/octocode/tree/main/skills/octocode-graph-view) | Mapping files, imports and calls |
 | [octocode-brainstorming](https://github.com/bgauryy/octocode/tree/main/skills/octocode-brainstorming) | Weighing an idea with checked sources |
 | [octocode-rfc-generator](https://github.com/bgauryy/octocode/blob/main/skills/octocode-rfc-generator/SKILL.md) | RFCs and execution plans |
 | [octocode-documentation](https://github.com/bgauryy/octocode/blob/main/skills/octocode-documentation/SKILL.md) | READMEs, guides and ADRs |
 | [octocode-roast](https://github.com/bgauryy/octocode/tree/main/skills/octocode-roast) | Blunt, evidence-backed critique |
 | [octocode-clean-agentic-code](https://github.com/bgauryy/octocode/blob/main/skills/octocode-clean-agentic-code/SKILL.md) | Behavior-preserving cleanup |
-| [octocode-eval-benchmark](https://github.com/bgauryy/octocode/blob/main/skills/octocode-eval-benchmark/SKILL.md) | Evals and honest benchmarks |
-| [octocode-agentic-prompts](https://github.com/bgauryy/octocode/blob/main/skills/octocode-agentic-prompts/SKILL.md) | Prompts and tool schemas |
+| [octocode-agentic](https://github.com/bgauryy/octocode/blob/main/skills/octocode-agentic/SKILL.md) | Agent design, prompts, evals and agent coordination |
 | [octocode-scraping](https://github.com/bgauryy/octocode/tree/main/skills/octocode-scraping) | Page extraction and crawling |
 | [octocode-chrome-devtools](https://github.com/bgauryy/octocode/tree/main/skills/octocode-chrome-devtools) | Live browser evidence |
 | [octocode-skills](https://github.com/bgauryy/octocode/tree/main/skills/octocode-skills) | Creating and maintaining skills |
-| [octocode-agents-communication](https://github.com/bgauryy/octocode/tree/main/skills/octocode-agents-communication) | Coordinating several agents |
 | [octocode-workflows](https://github.com/bgauryy/octocode/tree/main/skills/octocode-workflows) | Multi-actor workflows |
 
 ---

@@ -33,11 +33,18 @@ pub(super) async fn execute_tree(
     };
     let mut traversal = traverse(provider, &listing, context).await?;
     scope.select(&mut traversal);
+    // Every page reads the whole tree of the pinned commit, so a rank is
+    // over the whole listing before its page is cut.
+    let ranked = rank(&mut traversal.entries, &query.sort);
     let page = ListingPage::of(query, &traversal.entries);
     let mut value = json!({
         "owner": query.owner,
         "repo": query.repo,
-        "files": build_structure(page.entries),
+        "files": if ranked {
+            ranked_structure(page.entries)
+        } else {
+            build_structure(page.entries)
+        },
         "summary": summary(&traversal.entries),
     });
     // `commitSha` is the listed commit on every page; `resolvedRef` names the
@@ -66,6 +73,14 @@ pub(super) async fn execute_tree(
         None
     };
     disclose_limits(&traversal, &page, &mut value, &mut output);
+    // A rank over a walk that missed entries is a rank of what it listed.
+    if ranked && (traversal.contents_limit || traversal.failed_subtrees > 0) {
+        crate::response::paging::push_warnings(
+            &mut value,
+            ["sort ranks only the entries this listing read; an unread entry may rank higher."
+                .to_owned()],
+        );
+    }
     // A walk that missed entries wrote what it saw: never a complete checkout.
     if (traversal.contents_limit || traversal.failed_subtrees > 0)
         && let Some(state) = value.pointer_mut("/location/coverage/state")

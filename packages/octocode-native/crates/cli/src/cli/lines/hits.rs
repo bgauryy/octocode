@@ -111,7 +111,7 @@ pub(super) fn hits(
     Some(())
 }
 
-/// `[function build_searcher 992-1016 docStartLine 990]` when a hit's
+/// `[function build_searcher 992-1016]` when a hit's
 /// enclosing declaration differs from the previous hit's in this file, then any other match field
 /// as words (`declaration`).
 pub(super) fn match_note(
@@ -124,25 +124,16 @@ pub(super) fn match_note(
             enclosing.get("kind").and_then(Value::as_str),
             enclosing.get("symbolName").and_then(Value::as_str),
         )
-        && enclosing.keys().all(|key| {
-            matches!(
-                key.as_str(),
-                "kind" | "symbolName" | "line" | "endLine" | "startLine" | "docStartLine"
-            )
-        })
+        && enclosing
+            .keys()
+            .all(|key| matches!(key.as_str(), "kind" | "symbolName" | "line" | "endLine"))
     {
         let span = match (enclosing.get("line"), enclosing.get("endLine")) {
             (Some(start), Some(end)) => format!(" {start}-{end}"),
             (Some(start), None) => format!(" {start}"),
             _ => String::new(),
         };
-        // The attribute and doc lines before the name line belong to the
-        // declaration, so they are stated with it, once per group.
-        let before: String = ["startLine", "docStartLine"]
-            .into_iter()
-            .filter_map(|key| Some(format!(" {key} {}", enclosing.get(key)?)))
-            .collect();
-        let owner = format!("{kind} {name}{span}{before}");
+        let owner = format!("{kind} {name}{span}");
         if last_owner.as_deref() != Some(owner.as_str()) {
             parts.push(owner.clone());
         }

@@ -38,17 +38,14 @@ fn not_public(visibility: &str, private: bool) -> Option<&str> {
     }
 }
 
-/// One compact repository row: `owner`, `repo` and `defaultBranch` (the
-/// next hop's coordinates), the description, license, dates, counts,
-/// `visibility` when not public, and, when `with_topics`, nonredundant topics
-/// (query matches first). A page of rows leaves topics to a `fields` pick
-/// (they rarely decide the next repository and cost a third of a page); one
-/// repository's own row keeps them. Optional `fields` projection is applied
-/// after rows are assembled.
+/// One repository row, whole: `owner` and `repo`, `defaultBranch`, stars,
+/// language, license, dates, the description, forks, `visibility` when not
+/// public, and its nonredundant topics (query matches first). What a default
+/// row keeps of it, and what a `fields` pick names back, is the caller's
+/// ([`super::LISTED_DETAIL`], [`super::EXACT_DETAIL`]).
 pub(super) fn repository_row(
     item: octocode_github::RepositorySearchItem,
     wanted: &[String],
-    with_topics: bool,
 ) -> Value {
     let mut topics = item.topics;
     // A topic equal to the repository's own name repeats `repo`; one equal
@@ -90,7 +87,7 @@ pub(super) fn repository_row(
     if let Some(visibility) = not_public(&item.visibility, item.private.unwrap_or(false)) {
         row["visibility"] = json!(visibility);
     }
-    if with_topics && !topics.is_empty() {
+    if !topics.is_empty() {
         row["topics"] = json!(topics);
     }
     row["forks"] = json!(item.forks_count);

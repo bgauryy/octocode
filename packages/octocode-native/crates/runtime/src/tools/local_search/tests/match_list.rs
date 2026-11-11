@@ -186,7 +186,7 @@ fn a_list_honors_whole_word_and_reports_a_miss_as_empty() {
     );
     assert_eq!(sorted(lines(&words)), ["cat", "dog"], "{words}");
     let miss = run(&files, serde_json::json!({"matchString": ["zzz", "yyy"]}));
-    assert_eq!(miss["matchCount"], 0, "{miss}");
+    assert_eq!(miss["files"], serde_json::json!([]), "{miss}");
 }
 
 /// A count view over a list states each entry's count per file, in entry

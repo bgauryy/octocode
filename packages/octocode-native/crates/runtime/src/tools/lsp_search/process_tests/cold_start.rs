@@ -103,7 +103,7 @@ fn a_cold_start_is_disclosed_and_the_next_call_reuses_the_server() {
             .into_iter()
             .flatten()
             .filter_map(serde_json::Value::as_str)
-            .filter(|note| note.starts_with("This call waited "))
+            .filter(|note| note.starts_with("This cold call took "))
             .map(str::to_owned)
             .collect::<Vec<_>>()
     };
@@ -119,10 +119,11 @@ fn a_cold_start_is_disclosed_and_the_next_call_reuses_the_server() {
     assert!(
         notes
             .iter()
-            .any(|note| note.contains("language server to start")
-                && note.contains("later calls reuse the running server")),
+            .any(|note| note.contains("language server started and loaded the project")
+                && note.contains("later calls reuse the loaded server")),
         "the cold start is disclosed: {notes:?} / {first}"
     );
+    assert_eq!(notes.len(), 1, "one note for the cold call: {notes:?}");
     assert_eq!(spawns(), 1);
     let second = call();
     assert_eq!(spawns(), 1, "the second call reuses the server");

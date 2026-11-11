@@ -60,10 +60,7 @@ pub(crate) fn row_chars(
     if let Some(price) = matched.deferred.filter(|price| *price > 0) {
         return price as usize;
     }
-    let (mut row, value) = project_shape(matched);
-    if !span_columns {
-        row.column = None;
-    }
+    let (row, value) = project_shape(matched, span_columns);
     octocode_engine::json_size::utf16_units(&row).unwrap_or(0)
         + octocode_engine::json_size::string_body_units(value)
         + 1

@@ -206,10 +206,11 @@ pub(super) async fn window_provider(limit: usize, long_limit: usize) -> MockServ
     server
 }
 
-/// A source past the provider's windows fails its row, unbilled, with a ready
-/// call that judges it in parts; a sibling keeps its answer.
+/// A source past the provider's windows is judged in sections and answered
+/// once per question; a missing sibling fails alone and another keeps its
+/// answer.
 #[tokio::test]
-async fn an_oversized_or_missing_source_fails_its_row_and_says_how_to_split() {
+async fn an_oversized_source_is_answered_from_its_sections_beside_its_siblings() {
     let server = window_provider(100_000, 100_000).await;
     let workspace = Workspace::new();
     workspace.write(
@@ -229,18 +230,19 @@ async fn an_oversized_or_missing_source_fails_its_row_and_says_how_to_split() {
     )
     .await;
     let rows = out["results"].as_array().unwrap();
-    let refused = &rows[0]["data"];
-    assert_eq!(refused["errorCode"], "classificationStateTooLarge", "{out}");
-    assert!(refused.get("answers").is_none());
-    // The refused request was sent, unbilled: the row counts it.
-    assert_eq!(
-        refused["usage"],
-        json!({"inputTokens":0,"outputTokens":0,"calls":1}),
-        "{out}"
-    );
-    let split = &refused["related"][0];
-    assert_eq!(split["tool"], "clasify", "{out}");
-    let query = &split["input"]["queries"][0];
+    let big = &rows[0]["data"];
+    assert!(big.get("errorCode").is_none(), "{out}");
+    assert_eq!(big["answers"]["q"]["noul"], 0.9, "{out}");
+    assert!(big["answers"]["q"]["lines"]["startLine"].is_u64(), "{out}");
+    let sections = big["coverage"]["totalSections"].as_u64().unwrap();
+    assert!(sections > 1, "{out}");
+    assert_eq!(big["coverage"]["answered"], json!(sections), "{out}");
+    // The refused whole-source request was sent too: the row counts it. A
+    // source too large to be shown to fit the long window is not sent there.
+    assert_eq!(big["usage"]["calls"], json!(sections + 1), "{out}");
+    let detail = &big["related"][0];
+    assert_eq!(detail["tool"], "clasify", "{out}");
+    let query = &detail["input"]["queries"][0];
     assert_eq!(query["operation"], "sections", "{out}");
     assert_eq!(
         query["resources"]["source"]["query"]["path"], "big.txt",
@@ -251,18 +253,7 @@ async fn an_oversized_or_missing_source_fails_its_row_and_says_how_to_split() {
         rows[2]["data"]["answers"]["restart"]["noul"], 0.9,
         "a sibling keeps its answer"
     );
-    // The default window and the sibling: refusals are not billed, and a
-    // source too large to be shown to fit the long window is not retried
-    // there; the agent splits it.
-    assert_eq!(sent(&server).await.len(), 2);
-    assert!(
-        refused["hints"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|hint| hint.as_str().unwrap().contains("long-context window")),
-        "{out}"
-    );
+    assert_eq!(sent(&server).await.len() as u64, sections + 2);
     runtime.close().await;
 }
 
@@ -390,11 +381,14 @@ async fn an_omitted_long_context_asks_for_the_long_window_only_after_a_refusal()
         (3, 1),
         "refused, then the long window"
     );
+    // false never asks for the long window. The source is tried in sections,
+    // in the default window, which refuses its one section too: the refusal
+    // stays the row's error and counts every request sent.
     let out = clasify(&runtime, vec![row("mid.txt", Some(false))]).await;
-    assert_eq!(
-        out["results"][0]["data"]["errorCode"], "classificationStateTooLarge",
-        "{out}"
-    );
-    assert_eq!(posts(&server).await, (4, 1), "false never asks for it");
+    let data = &out["results"][0]["data"];
+    assert_eq!(data["errorCode"], "classificationStateTooLarge", "{out}");
+    let (sent, long) = posts(&server).await;
+    assert_eq!(long, 1, "false never asks for it");
+    assert_eq!(data["usage"]["calls"], json!(sent - 3), "{out}");
     runtime.close().await;
 }

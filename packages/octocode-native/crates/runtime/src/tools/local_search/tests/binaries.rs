@@ -153,7 +153,7 @@ fn only_an_empty_row_offers_the_skipped_binaries_listing() {
         &files,
         ls_query(serde_json::json!({"matchString": ["zzqqxx"]}), None),
     );
-    assert_eq!(empty["matchCount"], 0, "{empty}");
+    assert_eq!(empty["files"], serde_json::json!([]), "{empty}");
     assert!(
         crate::tools::test_support::checks::find_related_call(
             &empty,

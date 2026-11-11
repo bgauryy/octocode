@@ -81,15 +81,20 @@ pub(super) fn select(
     });
     place_notes(per_row_path, &candidates.notes, &mut diagnostics);
     let recovered = candidates.recovered;
+    let mut name_columns = Vec::new();
     let mut declarations = candidates
         .rows
         .into_iter()
+        .zip(candidates.name_columns)
         .zip(kept_rows)
-        .filter_map(|(mut row, kept)| {
+        .filter_map(|((mut row, column), kept)| {
             if !per_row_path && let Some(fields) = row.as_object_mut() {
                 fields.remove("path");
             }
-            kept.then_some(row)
+            kept.then(|| {
+                name_columns.push(column);
+                row
+            })
         })
         .collect::<Vec<_>>();
     let references = match (&filter, declarations.as_slice()) {
@@ -131,6 +136,7 @@ pub(super) fn select(
         path: canonical.to_string_lossy().into_owned(),
         snapshot,
         declarations,
+        name_columns,
         spans,
         sizes,
         source_descriptors,
@@ -170,6 +176,8 @@ pub(super) fn select(
 /// notes.
 struct Candidates {
     rows: Vec<Value>,
+    /// The name column of each of `rows`.
+    name_columns: Vec<u32>,
     /// Rows of other kinds whose name equals a `symbolFilter.terms` entry.
     off_kind: Vec<Value>,
     /// Per file: (path, its notes).
@@ -181,6 +189,7 @@ struct Candidates {
 fn kind_candidates(files: Vec<OutlineFile>) -> Candidates {
     let mut candidates = Candidates {
         rows: vec![],
+        name_columns: vec![],
         off_kind: vec![],
         notes: vec![],
         recovered: false,
@@ -190,6 +199,7 @@ fn kind_candidates(files: Vec<OutlineFile>) -> Candidates {
             .notes
             .iter()
             .any(|note| note.code == GraphFactCode::RecoveredParse);
+        candidates.name_columns.extend(file.name_columns);
         for (rows, into) in [
             (file.rows, &mut candidates.rows),
             (file.off_kind, &mut candidates.off_kind),
@@ -296,6 +306,10 @@ pub(crate) struct SymbolSet {
     pub(super) path: String,
     pub(super) snapshot: String,
     pub(super) declarations: Vec<Value>,
+    /// The 1-based column each of `declarations` was named at on its `line`:
+    /// a page hands its rows' to the judging of their names
+    /// ([`super::super::judged_rows::NamePlaces`]).
+    pub(super) name_columns: Vec<u32>,
     /// One range of `declarations` per top-level row, the unit of a page.
     pub(super) spans: Vec<std::ops::Range<usize>>,
     /// What each top-level row adds to its page ([`row_sizes`]): these depend
@@ -341,6 +355,7 @@ impl SymbolSet {
             path,
             snapshot: "s".to_owned(),
             declarations: Vec::new(),
+            name_columns: Vec::new(),
             spans: Vec::new(),
             sizes: Vec::new(),
             source_descriptors: Default::default(),

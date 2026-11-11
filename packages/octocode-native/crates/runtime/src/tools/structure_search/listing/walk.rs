@@ -198,7 +198,7 @@ pub(super) fn walk_listing<Q: Listing>(
             (entries, &lines, ranking.order()),
         );
     }
-    rows::group(&mut walk.rows, &sort, q.view());
+    rows::group(&mut walk.rows, &sort);
     Ok(walk)
 }
 

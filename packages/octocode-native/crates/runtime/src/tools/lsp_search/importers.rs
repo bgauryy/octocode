@@ -87,13 +87,16 @@ const DIGEST_PREFIX: &str = "lsp-imp:";
 pub(super) const CAPPED_REASON: crate::response::paging::PartialReason =
     crate::response::paging::PartialReason::ImporterScanCapped;
 /// Partial reason of a scan whose ignore rules or hidden directories hid
-/// files that import the name, or that spell it and could not be checked for an import.
+/// files that import the name from a module that may be the anchor's.
 pub(super) const IGNORED_REASON: crate::response::paging::PartialReason =
     crate::response::paging::PartialReason::ImporterScanIgnored;
-/// The note of an ignored-file scan that did not finish before reaching any
-/// evidence (its index not ready or incomplete): it reads the same on every
-/// row of the scope, and says how to read those files.
-const IGNORED_UNFINISHED_NOTICE: &str = "The scan for gitignored or hidden files that spell this name did not finish, so importers among them are unverified; a localSearch with includeIgnored and includeHidden reads them.";
+/// The scope rule of every operation this scan serves: gitignored and hidden
+/// files are outside the answer, which is partial only when one of them
+/// imports the name from a module that may be the anchor's; whatever else
+/// there could not be decided is said once, with the search that reads it.
+/// These two notes say it: each reads the same on every row of the scope.
+const IGNORED_UNFINISHED_NOTICE: &str = "The scan for gitignored or hidden files that spell this name did not finish, so files there may be uncounted; they are outside this answer's scope, and a localSearch with includeIgnored and includeHidden reads them.";
+const IGNORED_UNCHECKED_NOTICE: &str = "Gitignored or hidden files could not be checked for an import of this name (unreadable, too large to parse, or unparsable); they are outside this answer's scope, and the localSearch lead reads them.";
 /// Settle/ready bounds for the last candidate open of a window; the load it
 /// triggers covers every candidate opened before it. Shorter than a
 /// request's anchor open (the server already loaded the anchor's project),

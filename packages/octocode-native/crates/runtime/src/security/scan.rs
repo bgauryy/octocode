@@ -38,6 +38,13 @@ pub(crate) trait ContentScan {
     ) -> Result<(Cow<'a, str>, bool), (ErrorCode, String)> {
         redact_lines(self, source, path)
     }
+    /// The process's scanner when this scan is it: the one whose whole-source
+    /// pass is kept by text, path and limits (`tools::judged_rows`). `None`
+    /// for any other scan, of which nothing is kept and to which nothing
+    /// kept is served.
+    fn kept(&self) -> Option<&super::ContentSecurity> {
+        None
+    }
 }
 
 /// `source` sanitized with its line structure kept: one whole-source scan.
@@ -58,7 +65,8 @@ pub(crate) fn redact_lines<'a>(
     })
 }
 
-fn redact_with<'a>(
+/// [`redact_lines`] of `source` by `sanitize`, the whole scan of a text.
+pub(crate) fn redact_with<'a>(
     source: &'a str,
     sanitize: impl Fn(&'a str) -> Result<Cow<'a, str>, (ErrorCode, String)>,
 ) -> Result<(Cow<'a, str>, bool), (ErrorCode, String)> {
@@ -144,6 +152,9 @@ impl ContentScan for Passthrough {
 impl ContentScan for super::ContentSecurity {
     fn limits(&self) -> super::SourceLimits {
         Self::limits(self)
+    }
+    fn kept(&self) -> Option<&Self> {
+        Some(self)
     }
     fn sanitize(
         &self,

@@ -1,9 +1,15 @@
-//! The pull-request metadata row, and the slim header of a section read.
+//! The pull-request metadata row of a summary read, and the slim header of a
+//! section read.
 use crate::response::result::remove_nulls;
 use crate::tools::gh_get_history_item::HistoryItemRequest;
 use crate::tools::gh_get_history_item::util::{clean_char_cut, nonzero, str_at, string};
 use crate::tools::gh_shared::dates::{utc_date, utc_value};
 use serde_json::{Value, json};
+
+/// What a section read's row keeps of the header: the pull request's
+/// identity and state, and the commits its files, patches and parents are
+/// read at.
+const SECTION_HEADER: &[&str] = &["number", "state", "headSha", "baseSha", "mergeCommitSha"];
 
 /// Characters a PR summary's `bodyPreview` shows.
 const BODY_PREVIEW_CHARS: usize = 300;
@@ -30,7 +36,6 @@ pub(in crate::tools::gh_get_history_item) fn pr_metadata(
     query: &HistoryItemRequest,
 ) -> Value {
     let merged = raw.get("merged_at").is_some_and(|v| !v.is_null());
-    let open = !merged && str_at(raw, "/state").unwrap_or("open") == "open";
     let labels = raw
         .get("labels")
         .and_then(Value::as_array)
@@ -42,9 +47,11 @@ pub(in crate::tools::gh_get_history_item) fn pr_metadata(
                 .or_else(|| str_at(v, "/name").map(str::to_owned))
         })
         .collect::<Vec<_>>();
-    // The body is opt-in (`include:["body"]`, offered by the menu): the
-    // summary names the change; a merged PR's close time is its merge time,
-    // and only an open PR's last update says whether it is still moving.
+    // The body is opt-in (`sections:["body"]`, offered by the menu): the
+    // summary names the change. A merged PR's close time is its merge time:
+    // `closedAt` is stated beside `mergedAt` only when the two differ.
+    let closed = raw.get("closed_at").filter(|closed| !closed.is_null());
+    let closed_apart = closed.filter(|closed| Some(*closed) != raw.get("merged_at"));
     let mut row = json!({
         "number": raw["number"],
         "title": string(raw.get("title")),
@@ -61,8 +68,8 @@ pub(in crate::tools::gh_get_history_item) fn pr_metadata(
         // old side (that is the merge base, which `readParent` reads).
         "baseSha": str_at(raw,"/base/sha").filter(|v|!v.is_empty()),
         "createdAt": utc_date(str_at(raw, "/created_at")),
-        "updatedAt": open.then(|| utc_date(str_at(raw, "/updated_at"))).filter(|v| !v.is_empty()),
-        "closedAt": (!merged).then(|| utc_value(raw.get("closed_at"))),
+        "updatedAt": utc_value(raw.get("updated_at").filter(|updated| updated.is_string())),
+        "closedAt": utc_value(closed_apart),
         "mergedAt": utc_value(raw.get("merged_at")),
         // Only a merged PR has a real merge commit (open PRs expose GitHub's
         // test-merge SHA, which is not on the base branch).
@@ -83,22 +90,26 @@ pub(in crate::tools::gh_get_history_item) fn pr_metadata(
     {
         row["bodyPreview"] = json!(preview);
     }
-    {
-        if let Some(updated) = raw.get("updated_at").filter(|v| v.is_string()) {
-            row["updatedAt"] = utc_value(Some(updated));
-        }
-        if let Some(closed) = raw.get("closed_at").filter(|v| !v.is_null()) {
-            row["closedAt"] = utc_value(Some(closed));
-        }
-    }
     remove_nulls(&mut row);
-    // A later page continues a row whose first page delivered the header:
-    // it names the pull request and keeps what the contract requires, with
-    // no empty placeholder for the rest.
-    if crate::tools::gh_get_history_item::gh_get_history_item_query::later_page(query)
-        && let Some(fields) = row.as_object_mut()
-    {
-        fields.retain(|key, _| matches!(key.as_str(), "number" | "state" | "headSha"));
+    // A section read answers with its sections: the row names the pull
+    // request (`number`, `state`) and the commits a next read is made at
+    // (`headSha`, which its pages are pinned to, `baseSha` and a merged
+    // one's `mergeCommitSha`), and leaves the rest of the header to the
+    // summary read (no `sections`). A later page continues a row whose first
+    // page said as much: it keeps what the contract requires.
+    let later = crate::tools::gh_get_history_item::gh_get_history_item_query::later_page(query);
+    if let Some(fields) = row.as_object_mut() {
+        if later {
+            fields.retain(|key, _| matches!(key.as_str(), "number" | "state" | "headSha"));
+        } else if !query.sections().is_empty() {
+            // A file list states how many files the pull request changes:
+            // a filter or a page shows fewer.
+            let lists_files = query.sections().lists_files();
+            fields.retain(|key, _| {
+                SECTION_HEADER.contains(&key.as_str())
+                    || (lists_files && key == "changedFilesCount")
+            });
+        }
     }
     row
 }

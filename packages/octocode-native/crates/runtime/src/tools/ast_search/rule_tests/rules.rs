@@ -189,5 +189,5 @@ fn owned_core_sibling_stops_are_applied_by_the_runtime() {
         json!({"path":file,"operation":"match","rule":stopped}),
     )
     .expect("bounded relation");
-    assert_eq!(out["matchCount"], 0, "{out}");
+    assert_eq!(out["status"], "empty", "{out}");
 }

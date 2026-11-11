@@ -11,10 +11,9 @@ const SKIP_DIRS = new Set(['node_modules', 'tmp', 'view']);
 export const PRIMARY = ['rfc.md', 'readme.md', 'index.md'];
 export const KINDS = {
   'octocode-research': 'Research', 'octocode-pr-review': 'PR review', 'octocode-rfc-generator': 'RFC', 'octocode-brainstorming': 'Brainstorm',
-  'octocode-architect': 'Architecture', 'octocode-roast': 'Roast', 'octocode-clean-agentic-code': 'Cleanup',
-  'octocode-documentation': 'Documentation', 'octocode-eval-benchmark': 'Evaluation', 'octocode-skills': 'Skill review',
-  'octocode-agentic-prompts': 'Prompt review', 'octocode-scraping': 'Scrape', 'octocode-chrome-devtools': 'Browser session',
-  'octocode-agents-communication': 'Coordination', 'octocode-workflows': 'Workflow',
+  'octocode-engineer': 'Engineering', 'octocode-roast': 'Roast', 'octocode-clean-agentic-code': 'Cleanup',
+  'octocode-documentation': 'Documentation', 'octocode-skills': 'Skill review', 'octocode-scraping': 'Scrape',
+  'octocode-chrome-devtools': 'Browser session', 'octocode-workflows': 'Workflow', 'octocode-agentic': 'Agentic',
 };
 
 export const toPosix = (p) => p.split(path.sep).join('/');

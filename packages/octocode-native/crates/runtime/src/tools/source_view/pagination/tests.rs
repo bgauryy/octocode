@@ -11,7 +11,13 @@ fn default_line_pages_fill_the_rendered_budget_and_resume_completely() {
     }))
     .expect("query");
     let rendered = octocode_engine::json_size::string_body_units("x\n");
-    let first = page_within(&source, &query, LineBudget::bytes(LINE_PAGE_BYTES), None);
+    let first = page_within(
+        &source,
+        &query,
+        LineBudget::bytes(LINE_PAGE_BYTES),
+        None,
+        None,
+    );
     assert_eq!(first.pagination.length, LINE_PAGE_BYTES / rendered);
     assert_eq!(first.text, source[..2 * (LINE_PAGE_BYTES / rendered)]);
     let mut walked = first.text.clone();
@@ -22,7 +28,13 @@ fn default_line_pages_fill_the_rendered_budget_and_resume_completely() {
             .continue_window
             .expect("window")
             .query;
-        page = page_within(&source, &query, LineBudget::bytes(LINE_PAGE_BYTES), None);
+        page = page_within(
+            &source,
+            &query,
+            LineBudget::bytes(LINE_PAGE_BYTES),
+            None,
+            None,
+        );
         walked.push_str(&page.text);
     }
     assert_eq!(walked, source);
@@ -41,7 +53,7 @@ fn a_line_over_the_configured_page_resumes_line_paging_after_it() {
     let mut walked = String::new();
     let mut units = Vec::new();
     for _ in 0..20 {
-        let page = page_within(&content, &query, LineBudget::bytes(budget), None);
+        let page = page_within(&content, &query, LineBudget::bytes(budget), None, None);
         if page.pagination.unit == ReadProgressUnit::Bytes {
             assert!(
                 long.contains(&page.text),
@@ -79,7 +91,7 @@ fn a_line_rendered_over_the_fill_is_a_one_line_page_and_paging_stays_in_lines() 
     let mut walked = String::new();
     let mut units = Vec::new();
     loop {
-        let page = page_within(&content, &query, budget, None);
+        let page = page_within(&content, &query, budget, None, None);
         units.push(page.pagination.unit);
         walked.push_str(&page.text);
         let Some(next) = continuation(&query, &page.pagination) else {
@@ -110,6 +122,7 @@ fn default_raw_line_windows_keep_source_coordinates_after_transformations() {
         &query,
         LineBudget::bytes(LINE_PAGE_BYTES),
         Some(&source),
+        None,
     );
     assert_eq!(result.text, content);
     assert_eq!(result.pagination.length, source.total);
@@ -208,6 +221,7 @@ fn a_transformed_view_walks_through_an_oversized_line_without_repeating() {
                 &query,
                 LineBudget::bytes(LINE_PAGE_BYTES),
                 Some(&source),
+                None,
             );
             walked.push_str(&page.text);
             let Some(next) = continuation(&query, &page.pagination) else {
@@ -222,4 +236,121 @@ fn a_transformed_view_walks_through_an_oversized_line_without_repeating() {
         }
         assert_eq!(walked, content, "{before}/{long_bytes}/{after}");
     }
+}
+
+/// The byte walk of a line with match windows: after the line page before
+/// it, each window is a page in source order (near windows joined into one
+/// run), then the bytes between them in order, then line paging resumes.
+/// Every byte of the view is on exactly one page, and a page never crosses a
+/// window's edge.
+#[test]
+fn a_match_first_walk_shows_windows_then_the_rest_exactly_once() {
+    let line = "ab".repeat(20_000);
+    let content = format!("head\n{line}\ntail\n");
+    let start = "head\n".len();
+    let end = start + line.len() + 1;
+    let near = crate::response::page_windows::ROW_SKELETON_CHARS - 1;
+    let windows = [
+        (start, start + 100),
+        (start + 10_000, start + 10_200),
+        // Nearer than a row's skeleton: one run with the window before.
+        (start + 10_200 + near, start + 10_300 + near),
+        (end - 51, end),
+    ];
+    let runs = [windows[0], (windows[1].0, windows[2].1), windows[3]];
+    let long_lines = Some(LongLines {
+        match_windows: &windows,
+    });
+    let budget = LineBudget::bytes(LINE_PAGE_BYTES);
+    let mut query: LocalFetchQuery =
+        serde_json::from_value(serde_json::json!({"path":"bundle.min.js"})).expect("query");
+    let mut pages = Vec::new();
+    loop {
+        let page = page_within(&content, &query, budget, None, long_lines);
+        let at = match page.pagination.unit {
+            ReadProgressUnit::Bytes => page.pagination.offset,
+            ReadProgressUnit::Lines => content
+                .split_inclusive('\n')
+                .take(page.pagination.offset)
+                .map(str::len)
+                .sum(),
+        };
+        assert_eq!(&content[at..at + page.text.len()], page.text);
+        pages.push((at, at + page.text.len()));
+        assert!(pages.len() < 50, "the walk ends");
+        let Some(next) = continuation(&query, &page.pagination) else {
+            assert!(!page.pagination.has_more);
+            break;
+        };
+        query = next.continue_window.expect("window").query;
+    }
+    assert_eq!(pages[0], (0, start), "the short line before, by lines");
+    assert_eq!(
+        &pages[1..4],
+        &runs,
+        "each run of windows is a page, in order"
+    );
+    assert_eq!(
+        pages[4].0,
+        start + 100,
+        "then the rest, from its first byte"
+    );
+    assert_eq!(pages.last(), Some(&(end, content.len())), "then the tail");
+    for &(from, to) in &pages[4..] {
+        assert!(
+            runs.iter().all(|window| to <= window.0 || from >= window.1),
+            "{from}..{to} holds no window byte"
+        );
+    }
+    let mut placed = pages.clone();
+    placed.sort_unstable();
+    let mut reached = 0;
+    for (from, to) in placed {
+        assert_eq!(from, reached, "no gap and no byte twice");
+        reached = to;
+    }
+    assert_eq!(reached, content.len());
+}
+
+/// A line one byte page holds whole is not reordered, whatever windows it
+/// has; a line page before a long line without windows fills up with that
+/// line's first bytes, and without the long-line policy it does not.
+#[test]
+fn only_a_line_longer_than_a_byte_page_is_walked_match_first_or_filled() {
+    let query: LocalFetchQuery =
+        serde_json::from_value(serde_json::json!({"path":"a.txt"})).expect("query");
+    let budget = LineBudget::bytes(LINE_PAGE_BYTES);
+    let short = format!("head\n{}\n", "x".repeat(3_000));
+    let windows = [(2_000, 2_100)];
+    let page = page_within(
+        &short,
+        &query,
+        budget,
+        None,
+        Some(LongLines {
+            match_windows: &windows,
+        }),
+    );
+    assert_eq!(page.text, short);
+    assert_eq!(page.pagination.unit, ReadProgressUnit::Lines);
+
+    let long = format!("head\n{}\n", "x".repeat(40_000));
+    let filled = page_within(
+        &long,
+        &query,
+        budget,
+        None,
+        Some(LongLines { match_windows: &[] }),
+    );
+    assert_eq!(filled.pagination.unit, ReadProgressUnit::Bytes);
+    assert_eq!(filled.pagination.offset, 0);
+    assert_eq!(
+        filled.text.len() + 1,
+        LINE_PAGE_BYTES,
+        "full: `\\n` takes two"
+    );
+    assert_eq!(filled.view_lines, (1, 2));
+    let plain = page_within(&long, &query, budget, None, None);
+    assert_eq!(plain.text, "head\n");
+    assert_eq!(plain.pagination.unit, ReadProgressUnit::Lines);
 }

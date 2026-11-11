@@ -141,14 +141,36 @@ pub(super) fn resources_answered(
     let mut hints = notices;
     let mut related = Vec::new();
     for resource in resources {
-        let super::RowOutcome::Judgment {
-            judged,
-            captured,
-            assets,
-            ..
-        } = resource.outcome
-        else {
-            continue;
+        let (judged, captured, assets) = match resource.outcome {
+            super::RowOutcome::Judgment {
+                judged,
+                captured,
+                assets,
+                ..
+            } => (judged, captured, assets),
+            // A resource over the window, answered from its sections: its
+            // row is whole already.
+            super::RowOutcome::Combined(combined) => {
+                let mut value = combined.output;
+                if let Some(fields) = value.as_object_mut() {
+                    model.get_or_insert_with(|| {
+                        fields
+                            .get("model")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_owned()
+                    });
+                    if fields.get("model").and_then(Value::as_str) == model.as_deref() {
+                        fields.remove("model");
+                    }
+                    if let Some(Value::Array(calls)) = fields.remove("related") {
+                        related.extend(calls);
+                    }
+                }
+                out["resources"][resource.key] = value;
+                continue;
+            }
+            _ => continue,
         };
         let mut value = match judged {
             Ok(judged) => {
@@ -235,5 +257,7 @@ fn view(row: &Row, target: Target) -> Row {
         input: Input::Judge(target),
         assets: row.assets.clone(),
         long_context: row.long_context,
+        details: row.details,
+        per_item: row.per_item,
     }
 }

@@ -390,3 +390,87 @@ async fn the_first_page_leads_to_the_first_repositorys_tree() {
         later.data
     );
 }
+
+/// `sort.by` names the row field it orders by and reaches GitHub as its own
+/// sort key; a page ranked by a field a default row leaves to `fields`
+/// (`forks`, `updatedAt`) states that field on each row, and no other detail.
+/// `relevance`, the default, sends no sort.
+#[tokio::test]
+async fn a_sorted_search_sends_the_provider_key_and_states_the_sorted_field() {
+    let item = |name: &str, forks: u64| {
+        let mut item = repo_item(name, false);
+        item["stargazers_count"] = json!(5);
+        item["forks_count"] = json!(forks);
+        item["updated_at"] = json!("2026-03-04T05:06:07Z");
+        item["pushed_at"] = json!("2026-03-01T00:00:00Z");
+        item["language"] = json!("Rust");
+        item
+    };
+    for (by, order, provider_key, stated) in [
+        ("forks", "desc", Some("forks"), Some("forks")),
+        ("forks", "asc", Some("forks"), Some("forks")),
+        ("updatedAt", "desc", Some("updated"), Some("updatedAt")),
+        ("stars", "asc", Some("stars"), None),
+        ("helpWantedIssueCount", "desc", Some("help-wanted-issues"), None),
+        ("relevance", "desc", None, None),
+    ] {
+        let server = MockServer::builder().start().await;
+        mount_json(
+            &server,
+            "/api/v3/search/repositories",
+            200,
+            page(vec![item("big", 90), item("small", 2)]),
+        )
+        .await;
+        let out = run(
+            &server,
+            json!({"operation":"search","keywords":["x"],"sort":{"by":by,"order":order}}),
+        )
+        .await;
+        let requests = server.received_requests().await.expect("requests");
+        let sent = requests
+            .iter()
+            .find(|request| request.url.path() == "/api/v3/search/repositories")
+            .expect("search request");
+        let param = |name: &str| {
+            sent.url
+                .query_pairs()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.into_owned())
+        };
+        assert_eq!(param("sort").as_deref(), provider_key, "{by} {order}");
+        assert_eq!(
+            param("order").as_deref(),
+            provider_key.map(|_| order),
+            "{by} {order}"
+        );
+        let rows = out.data["repositories"].as_array().expect("rows");
+        assert_eq!(rows.len(), 2, "{}", out.data);
+        for row in rows {
+            let keys = row.as_object().expect("row").keys().map(String::as_str).collect::<Vec<_>>();
+            let mut expected = vec!["owner", "repo", "stars"];
+            expected.extend(stated);
+            assert_eq!(keys, expected, "{by} {order}: {}", out.data);
+        }
+        if stated == Some("forks") {
+            assert_eq!(rows[0]["forks"], 90, "{}", out.data);
+        }
+    }
+}
+
+/// The retired sort spellings are no aliases: the schema refuses them, and
+/// `relevance` has one direction.
+#[test]
+fn retired_sort_keys_and_an_ascending_relevance_are_refused() {
+    for sort in [
+        json!({"by":"bestMatch","order":"desc"}),
+        json!({"by":"forkCount","order":"desc"}),
+        json!({"by":"relevance","order":"asc"}),
+    ] {
+        let row = json!({"operation":"search","keywords":["x"],"sort":sort});
+        assert!(
+            serde_json::from_value::<GhSearchRepoQuery>(row.clone()).is_err(),
+            "{row}"
+        );
+    }
+}

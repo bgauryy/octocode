@@ -34,12 +34,16 @@ pub(super) fn stopped(stop: crate::execution::ExecutionError) -> ClassificationE
     )
 }
 
-pub(super) fn read_page(
+/// One row of tool `id` through the path a direct call takes: its own
+/// contract, the input gate, its executor and output sanitization. Returns
+/// the row's sealed `data` and the reader's source digest; a failed row is
+/// the capture's failure.
+pub(crate) fn read_rows(
     id: ToolId,
     row: &Value,
     dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
-) -> Result<Page, ClassificationError> {
+) -> Result<(Value, Option<String>), ClassificationError> {
     let prepared = prepare_source(id, row, dispatcher)?;
     let tool = id.as_str();
     context.check().map_err(stopped)?;
@@ -71,10 +75,23 @@ pub(super) fn read_page(
                 RERUN_HINT,
             )
         })?;
-    let data = &state["results"][0]["data"];
-    if state["results"][0]["status"] == "error" || data.get("errorCode").is_some() {
-        return Err(reader_failure(dispatcher.output(id), data));
+    let failed = state["results"][0]["status"] == "error";
+    let data = state["results"][0]["data"].clone();
+    if failed || data.get("errorCode").is_some() {
+        return Err(reader_failure(dispatcher.output(id), &data));
     }
+    Ok((data, source_digest))
+}
+
+pub(super) fn read_page(
+    id: ToolId,
+    row: &Value,
+    dispatcher: &dyn SourceReader,
+    context: &ExecutionContext,
+) -> Result<Page, ClassificationError> {
+    let tool = id.as_str();
+    let (data, source_digest) = read_rows(id, row, dispatcher, context)?;
+    let data = &data;
     let content = data["content"].as_str().unwrap_or_default();
     if content.is_empty() {
         return Err(ClassificationError::new(

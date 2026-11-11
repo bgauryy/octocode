@@ -81,6 +81,23 @@ pub(crate) fn pick_rows(value: &mut Value, rows: &str, id: &[&str], fields: &[St
     }
 }
 
+/// The default row of a search tool: without a `fields` pick, each row of
+/// `value[rows]` drops its `detail` keys (secondary facts: people, dates,
+/// labels, counts) and keeps what names it and answers the search. A `fields`
+/// pick names any of them back ([`pick_rows`]), so a row carries its
+/// identity and exactly what the caller asked for.
+pub(crate) fn lean_rows(value: &mut Value, rows: &str, detail: &[&str], fields: &[String]) {
+    if !fields.is_empty() {
+        return;
+    }
+    let listed = value.get_mut(rows).and_then(Value::as_array_mut);
+    for row in listed.into_iter().flatten() {
+        if let Some(row) = row.as_object_mut() {
+            row.retain(|key, _| !detail.contains(&key.as_str()));
+        }
+    }
+}
+
 /// The keys beside `id` that some row carries, in first-seen order.
 fn carried_keys(rows: &[Value], id: &[&str]) -> Vec<String> {
     let mut keys: Vec<String> = Vec::new();

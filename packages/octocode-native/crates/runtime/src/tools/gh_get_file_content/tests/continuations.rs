@@ -131,12 +131,12 @@ async fn the_shared_read_leaves_room_for_the_github_row_envelope() {
         body.as_bytes(),
         Path::new("src/lib.rs"),
         &crate::tools::source_view::SourceFacts {
-            modified: None,
             window: Some(1 << 20),
             beside: 0,
             interior: false,
             byte_origin: None,
             file_lines: None,
+            local_file: false,
         },
         &Safe,
         &NeverCancel,

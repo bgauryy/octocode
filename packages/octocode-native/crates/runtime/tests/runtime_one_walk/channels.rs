@@ -394,11 +394,20 @@ async fn a_complete_answer_wider_than_a_tiny_budget_states_no_page_block() {
     let file = workspace.write("tiny.txt", "one line\n");
     let runtime = workspace.runtime(&[]);
     for on in [Transport::Cli, Transport::Mcp] {
+        // A budget under the whole answer's size, whatever fields it carries.
+        let whole = page(
+            &runtime,
+            on,
+            "localFetch",
+            json!({"queries":[{"path":file}]}),
+        )
+        .await;
+        let budget = whole.to_string().len() / 2;
         let output = page(
             &runtime,
             on,
             "localFetch",
-            json!({"queries":[{"path":file}],"responseChars":100}),
+            json!({"queries":[{"path":file}],"responseChars":budget}),
         )
         .await;
         assert!(

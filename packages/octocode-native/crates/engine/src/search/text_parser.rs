@@ -17,6 +17,9 @@ pub(crate) struct RawMatch {
     /// [`relevance::line_rank`](super::relevance::line_rank) of the hit,
     /// taken on its whole source line.
     pub(crate) rank: u32,
+    /// [`TextSearchMatch::window_start`]: `line_text` is a window of its
+    /// line, and joins no context.
+    pub(crate) window_start: Option<u32>,
 }
 
 pub(crate) struct FileEntry {
@@ -84,6 +87,7 @@ pub(crate) fn assemble_file(
                 value: m.line_text,
                 count: None,
                 rank: Some(m.rank),
+                window_start: m.window_start,
             })
             .collect::<Vec<_>>();
         return TextSearchFile {
@@ -96,9 +100,11 @@ pub(crate) fn assemble_file(
     }
     // Neighbouring match lines are context too; without this
     // lookup a snippet silently skipped them and joined non-adjacent lines.
+    // A window is not its line: a long matched line is no neighbour's context.
     let match_lines: HashMap<u32, &str> = entry
         .raw_matches
         .iter()
+        .filter(|m| m.window_start.is_none())
         .flat_map(|m| {
             m.line_text
                 .split('\n')
@@ -120,6 +126,13 @@ pub(crate) fn assemble_file(
         .iter()
         .map(|m| {
             let last_line = last_line(&m.line_text, m.line_number);
+            // A window of a long line is its row: the lines around it are
+            // context of the line, not of the window.
+            let context = if m.window_start.is_some() {
+                SearchContext::default()
+            } else {
+                context
+            };
             // Stop at an absent context line; blank lines retain their slots.
             let mut before: Vec<&str> = (1..=context.before)
                 .map_while(|i| m.line_number.checked_sub(i).and_then(neighbour))
@@ -149,6 +162,7 @@ pub(crate) fn assemble_file(
                 value_digest,
                 count: None,
                 rank: Some(m.rank),
+                window_start: m.window_start,
             }
         })
         .collect();
@@ -185,6 +199,7 @@ pub fn line_match(
         value_digest,
         count: None,
         rank: Some(rank),
+        window_start: None,
     }
 }
 

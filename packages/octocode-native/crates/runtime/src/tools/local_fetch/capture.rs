@@ -59,7 +59,10 @@ pub(crate) fn capture_text(
     let snapshot = octocode_engine::digest::sha256(&bytes);
     let admitted = octocode_engine::text::admit(&bytes, octocode_engine::text::Decoding::Unicode);
     if admitted.as_ref().err() == Some(&octocode_engine::text::Refusal::Binary) {
-        return Err(Box::new(crate::tools::source_view::refuse_binary(query, &validated.display)));
+        return Err(Box::new(crate::tools::source_view::refuse_binary(
+            query,
+            &validated.display,
+        )));
     }
     if let Some(expected) = local_fetch_query::snapshot(query)
         && expected != snapshot

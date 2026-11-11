@@ -56,6 +56,9 @@ The MCP launcher, CLI launcher and VS Code extension are thin adapters with no t
   evidence a report cites. `$DEV clean:leftovers` lists what a run left behind (`--apply` removes
   it; it never touches a worktree with uncommitted changes). In a multi-agent round one owner
   runs full builds and suites; fixers run focused tests only.
+- Don't use `facebook/react` as a live GitHub check target: it was renamed, and the GitHub API
+  blocks or refuses some repositories, so a failure there says nothing about our tools. Check on
+  other public repositories, and on more than one before calling a GitHub result a defect.
 - Several sessions may share this tree and one cargo lock. Apply a change with all its callers in
   one step and keep tests compiling; a break in a file you touched is your first job. Retry a
   blocked build at most every 3 minutes, and report it after 20. Use the repo's `target/`, not a
@@ -63,7 +66,7 @@ The MCP launcher, CLI launcher and VS Code extension are thin adapters with no t
 - Communicate in known protocols: issues and tasks in 5W2H, results BLUF with claim–evidence,
   blockers as SBAR, delegation as a task contract with a Definition of Done. Separate facts,
   assumptions and unknowns; never present a guess as a fact. The rest, rated by fit:
-  [protocol catalog](skills/octocode-agentic-prompts/references/protocols.md#catalog).
+  [protocol catalog](skills/common/references/protocol-catalog.md#catalog).
 
 ## Packages
 

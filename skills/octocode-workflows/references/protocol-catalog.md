@@ -2,7 +2,7 @@ Load when choosing a shared task, finding, handoff, decision, or reporting proto
 
 ## Catalog
 
-Cite the protocol name with task-specific slots in the receiver's words. Fit: 5 default, 4 strong in its niche, 3 situational or covered by a higher row, 2 rarely better than a higher row. These are editorial ratings; behavioral claims need `octocode-eval-benchmark`.
+Cite the protocol name with task-specific slots in the receiver's words. Fit: 5 default, 4 strong in its niche, 3 situational or covered by a higher row, 2 rarely better than a higher row. These are editorial ratings; behavioral claims need an `octocode-agentic` measurement.
 
 ### Describe and decide
 

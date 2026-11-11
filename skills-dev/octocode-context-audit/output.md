@@ -4,7 +4,16 @@ Follow the [shared presentation and HTML delivery rules](references/presentation
 
 ## Response
 
-BLUF in chat: always-loaded totals against their budgets and the count of `high` findings first, then each `high` finding in 5W2H: what (the flag), where (file, skill or server), when (always loaded, on start, on call), who it affects (every session, one client), why (the measured cause), how (the fix from "Act on the report"), how much (chars, ≈ tokens, or error rate). Write "unknown" in a slot the report does not show. A re-run reports a Delta update: totals before and after, and each fix kept or reverted.
+Lead with always-loaded totals against budgets and the `high` finding count. For each high finding, report:
+
+| Slot | Include |
+|---|---|
+| What / where | Flag; file, skill or server |
+| When / who | Always loaded, startup or on call; every session or one client |
+| Why / how | Measured cause; fix from “Act on the report” |
+| How much | Characters, approximate tokens or error rate; label estimates |
+
+Use `unknown` for unavailable evidence. A rerun gives totals before/after and fixes kept/reverted as a Delta update.
 
 ## Saved result
 

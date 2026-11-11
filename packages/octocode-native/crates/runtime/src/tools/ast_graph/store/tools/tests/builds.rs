@@ -31,10 +31,17 @@ fn builds_pages_and_freshness_are_workspace_scoped() {
     );
     assert_ne!(built["id"], rebuilt["id"], "{rebuilt}");
     assert!(rebuilt.get("reused").is_none(), "{rebuilt}");
-    for key in ["root", "counts", "calls", "linkage", "scan"] {
+    for key in ["root", "counts", "linkage", "scan"] {
         assert!(!built[key].is_null(), "{key} missing: {built}");
         assert_eq!(built[key], rebuilt[key], "{key} differs between builds");
     }
+    // The call-resolution breakdown is the snapshot's detail: `stats`, the
+    // receipt's related call, states it.
+    assert!(built.get("calls").is_none(), "{built}");
+    let stats = &built["related"][0]["input"]["queries"][0];
+    assert_eq!(stats["operation"], "stats", "{built}");
+    let stated = call(&dir.0, ToolId::GraphQuery, stats.clone());
+    assert!(stated["calls"]["sites"].is_u64(), "{stated}");
     assert!(
         dir.0
             .join(".octocode/graph")

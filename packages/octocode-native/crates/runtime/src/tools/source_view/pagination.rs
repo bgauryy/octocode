@@ -2,7 +2,10 @@ use super::extraction::line_count;
 use super::types::*;
 use octocode_contract_types::{LocalFetchQuery, ReadProgressUnit};
 
+mod long_lines;
 mod source_lines;
+pub(super) use long_lines::LongLines;
+use long_lines::{MatchFirst, filled_page, oversized_line_end};
 pub(super) use source_lines::SourceLines;
 
 pub struct Page {
@@ -53,36 +56,6 @@ impl LineBudget {
     }
 }
 
-/// Where a byte page that reaches past the end of an oversized line (one
-/// over the line page's `line_page_bytes`, the only reason a line read
-/// pages by bytes) stops instead: that line's end, and the 0-based line line
-/// paging resumes at. `None` when the line fits a line page, the page ends
-/// inside it, or it is the last line.
-fn oversized_line_end(
-    content: &str,
-    line: usize,
-    offset: usize,
-    end: usize,
-    line_page_bytes: usize,
-) -> Option<(usize, usize)> {
-    let bytes = content.as_bytes();
-    // Only a line that ends within the page matters, and only its length
-    // against the line page: the scans stop at the page's end and, behind
-    // the offset, a line page's length. A line start further back than that
-    // makes the line oversized whatever its exact start, so it is not found.
-    let behind = offset.saturating_sub(line_page_bytes);
-    let line_start = bytes[behind..offset]
-        .iter()
-        .rposition(|byte| *byte == b'\n')
-        .map_or(behind, |at| behind + at + 1);
-    let line_end = bytes[offset..end.min(bytes.len())]
-        .iter()
-        .position(|byte| *byte == b'\n')
-        .map(|at| offset + at + 1)?;
-    // The 1-based line at `offset` is also the 0-based index of the next.
-    (line_end - line_start > line_page_bytes && line_end < bytes.len()).then_some((line_end, line))
-}
-
 /// Fewest bytes a byte page defaults to. A narrow response window (a few
 /// rows sharing a small `responseChars`) shrinks the line page budget, but
 /// a byte page cut to the window's half would take thousands of calls to
@@ -107,16 +80,17 @@ pub(super) fn page_within(
     q: &LocalFetchQuery,
     budget: LineBudget,
     source: Option<&SourceLines>,
+    long_lines: Option<LongLines<'_>>,
 ) -> Page {
     let Some(source) = source else {
-        return view_page(content, q, budget);
+        return view_page(content, q, budget, long_lines);
     };
     if local_fetch_query::unit(q) == ReadProgressUnit::Lines {
         return raw_line_page(content, q, budget, source);
     }
     // A byte page of an oversized view line resumes line paging after it, in
     // the raw lines a line page counts, never at the view line's own index.
-    let mut page = view_page(content, q, budget);
+    let mut page = view_page(content, q, budget, None);
     page.pagination.resume_line = page
         .pagination
         .resume_line
@@ -153,7 +127,7 @@ fn raw_line_page(
             offset: wire_count(first),
         }),
     );
-    let mut page = view_page_limited(content, &view_q, budget, count.max(1));
+    let mut page = view_page_limited(content, &view_q, budget, count.max(1), None);
     page.out_of_range = offset > 0 && offset >= source.total;
     let pagination = &mut page.pagination;
     if pagination.unit == ReadProgressUnit::Bytes {
@@ -180,14 +154,32 @@ fn raw_line_page(
 }
 
 /// A window of the view itself, in view lines or bytes.
-fn view_page(content: &str, q: &LocalFetchQuery, budget: LineBudget) -> Page {
-    view_page_limited(content, q, budget, local_fetch_query::line_limit(q))
+fn view_page(
+    content: &str,
+    q: &LocalFetchQuery,
+    budget: LineBudget,
+    long_lines: Option<LongLines<'_>>,
+) -> Page {
+    view_page_limited(
+        content,
+        q,
+        budget,
+        local_fetch_query::line_limit(q),
+        long_lines,
+    )
 }
 
 /// A window of the view, at most `limit` lines of it. A line too long for
-/// one page starts byte paging at its first byte. A match selects the whole
-/// line, so required continuations must reach its prefix as well as its hit.
-fn view_page_limited(content: &str, q: &LocalFetchQuery, budget: LineBudget, limit: usize) -> Page {
+/// one page is read in byte pages: from its first byte, or, when matches sit
+/// in it, their windows first ([`MatchFirst`]); either way the required
+/// continuations reach every byte of the line once.
+fn view_page_limited(
+    content: &str,
+    q: &LocalFetchQuery,
+    budget: LineBudget,
+    limit: usize,
+    long_lines: Option<LongLines<'_>>,
+) -> Page {
     let kind = local_fetch_query::unit(q);
     let offset = local_fetch_query::offset(q).unwrap_or(0);
     match kind {
@@ -197,6 +189,11 @@ fn view_page_limited(content: &str, q: &LocalFetchQuery, budget: LineBudget, lim
             // window's raw offset starts at its character's first byte.
             let offset = content.floor_char_boundary(offset.min(content.len()));
             let chunk_size = byte_page(budget.line);
+            if !out_of_range
+                && let Some(walk) = MatchFirst::of(content, long_lines, offset, chunk_size)
+            {
+                return walk.page(content, offset, chunk_size);
+            }
             // The window that fits the room as serialized text, ending at
             // a line end when one fits, never inside a character, a CRLF
             // pair or a redaction marker.
@@ -243,13 +240,16 @@ fn view_page_limited(content: &str, q: &LocalFetchQuery, budget: LineBudget, lim
             // between them, and the next page never starts on one.
             let mut rows = 0;
             let mut page = 0;
+            // The page stopped at a line too long for a line page.
+            let mut long = false;
             for (at, line) in content[byte_offset..].split_inclusive('\n').enumerate() {
                 let separator = crate::response::numbered::is_separator(line);
                 if !separator && rows == requested_limit {
                     break;
                 }
                 rendered += budget.rendered(line);
-                if (at != 0 && rendered > budget.fill) || line.len() > budget.line {
+                long = line.len() > budget.line;
+                if (at != 0 && rendered > budget.fill) || long {
                     break;
                 }
                 rows += usize::from(!separator);
@@ -257,18 +257,36 @@ fn view_page_limited(content: &str, q: &LocalFetchQuery, budget: LineBudget, lim
             }
             let end = offset + page;
             if end == offset && offset < total {
+                // Matches in the line lead its byte walk.
+                let matched =
+                    MatchFirst::of(content, long_lines, byte_offset, byte_page(budget.line))
+                        .map(|walk| walk.first());
                 let mut byte_query = q.clone();
                 local_fetch_query::set_progress(
                     &mut byte_query,
                     Some(octocode_contract_types::ReadProgress {
                         unit: ReadProgressUnit::Bytes,
-                        offset: wire_count(byte_offset),
+                        offset: wire_count(matched.unwrap_or(byte_offset)),
                     }),
                 );
-                let page = view_page(content, &byte_query, budget);
-                return whole_line_page(page, offset);
+                let page = view_page(content, &byte_query, budget, long_lines);
+                return match matched {
+                    Some(_) => page,
+                    None => whole_line_page(page, offset),
+                };
             }
             let end_byte = advance_lines(content, byte_offset, page).unwrap_or(content.len());
+            if long
+                && let Some(filled) = filled_page(
+                    content,
+                    byte_offset..end_byte,
+                    (offset, page),
+                    budget,
+                    long_lines,
+                )
+            {
+                return filled;
+            }
             let text = content[byte_offset..end_byte].to_owned();
             Page {
                 text,

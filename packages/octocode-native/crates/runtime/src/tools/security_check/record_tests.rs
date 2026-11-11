@@ -309,21 +309,19 @@ fn a_brief_row_states_only_what_decides_an_upgrade() {
         json!({
             "id": "GHSA-29mw-wpgm-hmr9",
             "cves": ["CVE-2020-28500"],
-            "summary": "ReDoS",
             "severity": "moderate",
-            "source": "https://example.test/source.json",
             "fixedIn": ["4.17.21"],
             "link": "https://osv.dev/vulnerability/GHSA-29mw-wpgm-hmr9",
         })
     );
-    // No summary or label: the first line of details, and the vector as published.
+    // No severity word: the vector as published. No text is on a list row.
     let bare = row(
         json!({"id": "PYSEC-1", "details": "\n First line.\nSecond line.",
             "severity": [{"type": "CVSS_V3", "score": "CVSS:3.1/AV:L"}]}),
         ArtifactType::Pypi,
         "x",
     );
-    assert_eq!(bare.brief()["summary"], "First line.");
+    assert!(bare.brief().get("summary").is_none());
     assert_eq!(bare.brief()["cvss"][0]["vector"], "CVSS:3.1/AV:L");
     assert!(
         bare.brief()["cvss"][0].get("score").is_none(),
@@ -412,17 +410,39 @@ fn twin(provider: &str, id: &str) -> SecurityAdvisory {
     }
 }
 
-/// A record whose link is its source URL states that URL once, as `source`;
-/// a link that differs from the source stays.
+/// A list row gives one reference: the record's link, and its database's
+/// file (`source`) only when it has no link. The record's own row keeps both.
 #[test]
-fn a_record_whose_link_is_its_source_states_the_url_once() {
-    let mut same = twin("github", "GHSA-1");
-    same.source = Some(same.link.clone());
-    let brief = same.brief();
-    assert_eq!(brief["source"], json!(same.link));
-    assert!(brief.get("link").is_none(), "{brief}");
-    let mut other = twin("osv", "GHSA-1");
-    other.source = Some("https://github.com/advisories/GHSA-1".into());
-    assert_eq!(other.brief()["link"], json!(other.link));
+fn a_brief_row_gives_one_reference() {
+    let mut record = twin("osv", "GHSA-1");
+    record.source = Some("https://github.example/advisories/GHSA-1.json".into());
+    let brief = record.brief();
+    assert_eq!(
+        brief,
+        json!({"id": "GHSA-1", "link": record.link}),
+        "{brief}"
+    );
+    let whole = serde_json::to_value(&record).expect("row");
+    assert_eq!(whole["source"], json!(record.source));
+    record.link.clear();
+    assert_eq!(record.brief()["source"], json!(record.source));
 }
 
+/// The most severe advisory leads a list; rows of one severity keep their order.
+#[test]
+fn brief_rows_list_the_most_severe_first() {
+    let mut rows = vec![
+        json!({"id": "a", "severity": "low"}),
+        json!({"id": "b"}),
+        json!({"id": "c", "severity": "moderate"}),
+        json!({"id": "d", "severity": "critical"}),
+        json!({"id": "e", "severity": "medium"}),
+        json!({"id": "f", "severity": "high"}),
+    ];
+    most_severe_first(&mut rows);
+    let ids = rows
+        .iter()
+        .map(|row| row["id"].as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, ["d", "f", "c", "e", "a", "b"].map(Some));
+}

@@ -5,12 +5,25 @@ use super::*;
 
 const CODE: &str = "structural.pattern.qualified";
 
-fn qualified_notes(out: &serde_json::Value) -> Vec<&serde_json::Value> {
+/// The qualified notes of a result: its diagnostics beside matches, and on
+/// an empty page the hint that says the same (as `{severity, message}`).
+fn qualified_notes(out: &serde_json::Value) -> Vec<serde_json::Value> {
+    let hints = out["hints"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|hint| {
+            hint.as_str()
+                .is_some_and(|hint| hint.starts_with("The pattern matches the path as written"))
+        })
+        .map(|hint| json!({"severity": "info", "message": hint}));
     out["diagnostics"]
         .as_array()
         .into_iter()
         .flatten()
         .filter(|diagnostic| diagnostic["code"] == CODE)
+        .cloned()
+        .chain(hints)
         .collect()
 }
 
@@ -226,7 +239,7 @@ fn member_paths_get_no_qualified_note() {
     )
     .expect("java");
     let out = matched(&root.0, &java, json!({"pattern":"Collections.sort($X)"}));
-    assert_eq!(out["matchCount"], 0, "{out}");
+    assert_eq!(out["status"], "empty", "{out}");
     assert!(qualified_notes(&out).is_empty(), "{out}");
     assert!(
         out["diagnostics"]
@@ -265,7 +278,7 @@ fn a_bare_callee_counts_the_calls_that_qualify_it() {
     assert_eq!(notes[0]["severity"], "info", "{out}");
     let message = notes[0]["message"].as_str().expect("message");
     assert!(
-        message.contains("2 more match(es) in 1 file(s)")
+        message.contains("3 more match(es) in 1 file(s)")
             && message.contains("`redact_lines`")
             && message.contains("outline.rs:2"),
         "{message}"
@@ -273,12 +286,12 @@ fn a_bare_callee_counts_the_calls_that_qualify_it() {
     let lead = broaden_row(&out).unwrap_or_else(|| panic!("broadenSearch: {out}"));
     assert_eq!(
         lead["rule"],
-        json!({"any":[{"pattern":"redact_lines($$$A)"},{"pattern":"$QUALIFIER::redact_lines($$$A)"}]}),
+        json!({"any":[{"pattern":"redact_lines($$$A)"},{"pattern":"$QUALIFIER::redact_lines($$$A)"},{"pattern":"$QUALIFIER.redact_lines($$$A)"}]}),
         "{lead}"
     );
     crate::contracts::validate_query("astSearch", lead.clone()).expect("a valid lead row");
     let listed = run(&root.0, lead).expect("lead runs");
-    assert_eq!(listed["matchCount"], 4, "{listed}");
+    assert_eq!(listed["matchCount"], 5, "{listed}");
     assert!(qualified_notes(&listed).is_empty(), "{listed}");
 }
 

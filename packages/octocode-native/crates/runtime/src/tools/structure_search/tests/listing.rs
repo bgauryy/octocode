@@ -26,7 +26,7 @@ fn typed_size_and_date_bounds_are_inclusive_and_do_not_match_directories() {
         json!({"modifiedAt":{"from":iso,"to":iso},"sizeBytes":{"min":2,"max":2}}),
         json!({"accessedAt":{"from":iso,"to":iso},"sizeBytes":{"min":2,"max":2}}),
     ] {
-        let mut query = json!({"operation":"files","path":root.0});
+        let mut query = json!({"operation":"files","view":"details","path":root.0});
         query
             .as_object_mut()
             .expect("row")

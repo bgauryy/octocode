@@ -13,12 +13,26 @@ const CODE: &str = "structural.pattern.qualified";
 /// qualified implementation of the same trait.
 const REF_RS: &str = "pub trait ToolOutput {}\nstruct A;\nimpl ToolOutput for A {}\nstruct B;\nimpl crate::x::ToolOutput for B {}\n";
 
-fn qualified_notes(out: &Value) -> Vec<&Value> {
+/// The qualified notes of a result: its diagnostics beside matches, and on
+/// an empty page the hint that says the same (as `{message}`).
+fn qualified_notes(out: &Value) -> Vec<Value> {
     out["diagnostics"]
         .as_array()
         .into_iter()
         .flatten()
         .filter(|diagnostic| diagnostic["code"] == CODE)
+        .cloned()
+        .chain(qualified_hints(out).into_iter().map(|hint| json!({"message": hint})))
+        .collect()
+}
+
+fn qualified_hints(out: &Value) -> Vec<&str> {
+    out["hints"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter(|hint| hint.starts_with("The pattern matches the path as written"))
         .collect()
 }
 
@@ -177,7 +191,7 @@ fn an_empty_page_explains_its_miss_and_counts_the_longer_spellings() {
         "pub trait ToolOutput {}\nstruct A;\nstruct B;\nimpl crate::x::ToolOutput for B {}\nimpl Other for A { fn f() {} }\n",
     );
     let out = matched(&root.0, &root.0, "impl ToolOutput for $T {}");
-    assert_eq!(out["matchCount"], 0, "{out}");
+    assert_eq!(out["status"], "empty", "{out}");
     let explained = out["diagnostics"]
         .as_array()
         .into_iter()
@@ -366,7 +380,7 @@ fn a_typescript_annotation_names_its_qualified_types() {
     );
     assert_eq!(lead_count(&root.0, &lead_rows(&out)), 2, "{out}");
     let empty = matched(&root.0, &root.0.join("only"), "const $V: Bar = $E");
-    assert_eq!(empty["matchCount"], 0, "{empty}");
+    assert_eq!(empty["status"], "empty", "{empty}");
     assert_eq!(qualified_notes(&empty).len(), 1, "{empty}");
     assert_eq!(lead_count(&root.0, &lead_rows(&empty)), 1, "{empty}");
 }
@@ -383,4 +397,76 @@ fn a_scope_without_qualified_spellings_adds_nothing() {
     assert_eq!(out["matchCount"], 1, "{out}");
     assert!(qualified_notes(&out).is_empty(), "{out}");
     assert!(lead_rows(&out).is_empty(), "{out}");
+}
+
+/// A bare call pattern matches a call of the bare name, so over code that
+/// only calls the name on a receiver it is empty: the empty page says in one
+/// hint how many such calls its files hold, and its lead lists them. The
+/// same in each grammar, over a directory and over the file itself.
+#[test]
+fn an_empty_bare_call_names_the_calls_on_a_receiver() {
+    for (file, source, first) in [
+        (
+            "calls.rs",
+            "fn f(x: &S) {\n    x.sanitize_text(1);\n    self.inner.sanitize_text(2);\n    other(3);\n}\n",
+            "calls.rs:2",
+        ),
+        (
+            "calls.ts",
+            "function f(x: S) {\n  x.sanitizeText(1);\n  this.inner.sanitizeText(2);\n  other(3);\n}\n",
+            "calls.ts:2",
+        ),
+        (
+            "calls.py",
+            "def f(x):\n    x.sanitize_text(1)\n    x.inner.sanitize_text(2)\n    other(3)\n",
+            "calls.py:2",
+        ),
+    ] {
+        let name = if file.ends_with(".ts") {
+            "sanitizeText"
+        } else {
+            "sanitize_text"
+        };
+        let root = Fixture::new();
+        root.write(file, source);
+        for path in [root.0.clone(), root.0.join(file)] {
+            let out = matched(&root.0, &path, &format!("{name}($$$A)"));
+            assert_eq!(out["status"], "empty", "{out}");
+            assert!(
+                out["diagnostics"].to_string().find(CODE).is_none(),
+                "said once, as a hint: {out}"
+            );
+            let said = qualified_hints(&out);
+            assert_eq!(said.len(), 1, "{out}");
+            assert!(
+                said[0].contains("2 more match(es) in 1 file(s)")
+                    && said[0].contains(&format!("`{name}`"))
+                    && said[0].contains(first),
+                "{}",
+                said[0]
+            );
+            let rows = lead_rows(&out);
+            assert_eq!(rows.len(), 1, "{out}");
+            assert_eq!(lead_count(&root.0, &rows), 2, "{out}");
+        }
+    }
+}
+
+/// Beside matches the note stays a diagnostic: bare calls are listed, the
+/// receiver calls are counted, and the lead lists both.
+#[test]
+fn a_matched_bare_call_counts_the_calls_on_a_receiver() {
+    let root = Fixture::new();
+    root.write(
+        "calls.rs",
+        "fn f(x: &S) {\n    run(0);\n    x.run(1);\n    crate::a::run(2);\n}\n",
+    );
+    let out = matched(&root.0, &root.0, "run($$$A)");
+    assert_eq!(out["matchCount"], 1, "{out}");
+    let notes = qualified_notes(&out);
+    assert_eq!(notes.len(), 1, "{out}");
+    let message = notes[0]["message"].as_str().expect("message");
+    assert!(message.contains("2 more match(es) in 1 file(s)"), "{message}");
+    let rows = lead_rows(&out);
+    assert_eq!(lead_count(&root.0, &rows), 3, "{out}");
 }

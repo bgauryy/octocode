@@ -32,7 +32,8 @@ pub(super) struct CutPage<'a> {
 /// Cut the returned page from the view. A complete view over the limit
 /// returns its first bounded page inline. A line page's lines take `fill`
 /// response characters at most, as they render (`None`: the row's whole
-/// share, or the fallback page without one).
+/// share, or the fallback page without one). `classified`: a classifier
+/// chose the view's chunks.
 pub(super) fn cut_page<'a>(
     q: &'a LocalFetchQuery,
     view: &View,
@@ -40,6 +41,7 @@ pub(super) fn cut_page<'a>(
     source: &Source<'_>,
     facts: &SourceFacts,
     fill: Option<usize>,
+    classified: bool,
 ) -> Result<CutPage<'a>, Box<LocalFetchResult>> {
     let asked = q;
     let q = std::borrow::Cow::Borrowed(q);
@@ -89,11 +91,14 @@ pub(super) fn cut_page<'a>(
             0
         },
     };
+    let long_lines = (facts.byte_origin.is_none() && view.mode.is_none())
+        .then(|| super::super::pagination::LongLines::of(ext, classified));
     let window = PageWindow {
         query: page_q,
         view: &view.text,
         budget,
         source_lines: source_lines.as_ref(),
+        long_lines,
     };
     let mut scanned = page_of(&window);
     if let Some(origin) = &facts.byte_origin
@@ -272,9 +277,6 @@ pub(super) fn page_result(
         selected_match_count: selection_outcome
             .map(|chosen| chosen.outcome.selected.len())
             .or(ext.count),
-        modified: (view.mode != Some(ReadView::Symbols))
-            .then(|| facts.modified.clone())
-            .flatten(),
         returned_bytes: Some(ret_bytes),
         returned_lines: Some(ret_lines),
         pagination: Some(pg.pagination),

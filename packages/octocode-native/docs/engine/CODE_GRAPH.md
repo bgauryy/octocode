@@ -122,7 +122,7 @@ is required for snapshot creation.
 
 | Operation | Inputs beyond scope | Result and defaults |
 |---|---|---|
-| `stats` | None | Counts, coverage, languages and diagnostic totals |
+| `stats` | Optional `view` (`summary` default, `details`) | `summary`: counts, imports, call sites and unresolved, linkage, languages, diagnostic total. `details` adds `calls.byResolution`, `calls.unresolvedByReason`, `argumentCoverage`, `linkageByLanguage`, `extraction`, `octocodeVersion` and `diagnostics.byCode` |
 | `find` | Optional `target` (a name, path or several words; omit: every node), optional `kind` | Ranked name/path search returning node IDs; without `target`, every node of `kind`, most connected first |
 | `candidates` | Required `target`; optional `kind` | Exact reference candidates, using the same normalization and precedence as node resolution |
 | `node` | Required `target`; optional `kind` | One node, its edge counts and related queries |
@@ -216,7 +216,9 @@ starting with `_`, then by key. A single word therefore keeps the population of
 a plain substring search: names and keys containing it.
 
 `find`, `symbols` and `hubs` construct result rows only for the requested window;
-`stats` constructs only each ranking's first five rows. Exact totals still need
+`stats` states the snapshot's counts and ranks nothing: its `related` call is
+`hubs`, which lists the most imported and most called nodes; the `summary` view
+also offers the same call with `view:"details"`. Exact totals still need
 full enumeration, and `find` sorts its whole population. Search still scans
 nodes, symbols retain a traversal frontier, and hubs retain a full ranking
 vector.
@@ -409,8 +411,8 @@ counts include sites, groups, slots, direct references, non-reference values,
 unsupported slots and unsupported groups. Slots partition into direct references,
 non-reference values and unsupported slots; unsupported groups have no known slot
 count. Unsupported or unassessed extraction has no fabricated counts. Build
-receipts, `stats`, every evidence page and queries explicitly selecting `passes`
-carry the persisted population. Argument observations do not change call linkage.
+receipts, `stats` with `view:"details"`, every evidence page and queries explicitly
+selecting `passes` carry the persisted population. Argument observations do not change call linkage.
 
 Changed trees extract their selected files afresh and rebuild all bindings against
 the current file and configuration inventory. An unfinished build can reuse its

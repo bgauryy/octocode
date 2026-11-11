@@ -84,12 +84,19 @@ fn spans_on_a_long_line_hide_only_what_a_secret_holds() {
     assert_eq!(values[2], "needle", "{found}");
 }
 
-/// Below the limit a row still holds its whole line, as it always has.
+/// Below the limit a row of a line too long for it is the line's own text
+/// around the hit, placed by its column; the line whole is a read's.
 #[test]
-fn a_line_within_the_limit_stays_whole() {
+fn a_line_within_the_limit_shows_its_text_around_the_hit() {
     let text = one_line(9 * MIB, " the needle here ");
     let found = rows(&text, serde_json::json!({"matchString":["needle"]}));
-    assert_eq!(first_value(&found), text.trim_end_matches('\n'));
+    let hit = text.find("needle").expect("hit");
+    let margin = crate::tools::source_view::extraction::MATCH_MARGIN;
+    assert_eq!(
+        first_value(&found),
+        text[hit - margin..hit + "needle".len() + margin]
+    );
+    assert_eq!(found["files"][0]["matches"][0]["column"], hit + 1);
 }
 
 /// A span that selects part of a secret loses only the secret's bytes: what it

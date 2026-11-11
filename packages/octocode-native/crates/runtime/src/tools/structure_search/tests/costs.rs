@@ -141,11 +141,11 @@ fn a_paths_read_lead_checks_the_size_of_what_it_leads_to() {
     assert_eq!(lead(&[("a.rs", huge)]), None);
 }
 
-/// One name per directory: a directory with its own `{dir, files}` group is
-/// not also listed bare in its parent's. One with no group of its own keeps
-/// its stub, and every file stays listed on some page.
+/// Every listed directory is a `name/` row of its parent's group, once, also
+/// when it heads a `{dir, files}` group of its own: the header alone would
+/// not say the directory was selected. Every file stays listed.
 #[test]
-fn a_paths_listing_names_each_directory_once() {
+fn a_paths_listing_lists_each_directory_as_a_row_once() {
     let root = Fixture::new();
     root.write("top.rs", "x");
     root.write("a/one.rs", "x");
@@ -158,39 +158,24 @@ fn a_paths_listing_names_each_directory_once() {
             json!({"operation":operation,"path":root.0,"view":"paths","maxDepth":5}),
         )
         .expect("listing");
-        let mut named = Vec::new();
+        let mut rows = Vec::new();
         for group in out["files"].as_array().expect("groups") {
             let dir = group["dir"].as_str().expect("dir");
-            named.push(dir.to_owned());
             for entry in group["files"].as_array().expect("entries") {
                 let entry = entry.as_str().expect("entry");
-                if let Some(stub) = entry.strip_suffix('/') {
-                    named.push(if dir == "." || dir.is_empty() {
-                        stub.to_owned()
-                    } else {
-                        format!("{dir}/{stub}")
-                    });
+                if let Some(name) = entry.strip_suffix('/') {
+                    let at = std::path::Path::new(dir).join(name);
+                    let at = at.strip_prefix(&root.0).unwrap_or(&at);
+                    rows.push(at.to_string_lossy().trim_start_matches("./").to_owned());
                 }
             }
         }
-        named.retain(|dir| dir != ".");
-        named.sort();
-        named.dedup();
-        for dir in ["a", "a/b", "empty", "only", "only/mid"] {
-            assert!(
-                named.iter().any(|name| name.ends_with(dir)),
-                "{operation}: {dir} unnamed: {out}"
-            );
-        }
-        let bare = out["files"]
-            .as_array()
-            .expect("groups")
-            .iter()
-            .flat_map(|group| group["files"].as_array().expect("entries"))
-            .filter_map(|entry| entry.as_str())
-            .filter(|entry| entry.ends_with('/'))
-            .collect::<Vec<_>>();
-        assert_eq!(bare, ["empty/", "only/"], "{operation}: {out}");
+        rows.sort();
+        assert_eq!(
+            rows,
+            ["a", "a/b", "empty", "only", "only/mid"],
+            "{operation}: {out}"
+        );
         assert_eq!(out["summary"]["dirs"], 5, "{operation}: {out}");
     }
 }

@@ -6,6 +6,7 @@ fn row(first_line: u32, line: u32, value: &str) -> SearchMatch {
         line,
         column: None,
         value: value.into(),
+        window_start: None,
         byte_offset: 0,
         first_line,
         match_lines: None,
@@ -511,6 +512,7 @@ fn ranked_hit(
         value_digest: octocode_engine::types::TextSearchMatch::digest_of(value),
         count: None,
         rank,
+        window_start: None,
     }
 }
 

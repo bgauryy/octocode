@@ -171,7 +171,7 @@ fn a_spelled_part_that_differs_is_a_counted_near_miss() {
     )
     .expect("ts");
     let arrow = run(&root.0, pattern_row(&file, "($X, $Y, $Z) => $B")).expect("arrow");
-    assert_eq!(arrow["matchCount"], 0, "{arrow}");
+    assert_eq!(arrow["status"], "empty", "{arrow}");
     let notes = exact_notes(&arrow);
     assert_eq!(notes.len(), 1, "{arrow}");
     assert!(
@@ -191,7 +191,7 @@ fn a_spelled_part_that_differs_is_a_counted_near_miss() {
         pattern_row(&file, "function $N($$$): string { $$$ }"),
     )
     .expect("fn");
-    assert_eq!(predicate["matchCount"], 0, "{predicate}");
+    assert_eq!(predicate["status"], "empty", "{predicate}");
     assert_eq!(exact_notes(&predicate).len(), 1, "{predicate}");
 }
 
@@ -203,7 +203,7 @@ fn a_reading_the_scope_holds_none_of_says_so() {
     let file = root.0.join("a.cs");
     std::fs::write(&file, "class A { public void M() {} }\n").expect("cs");
     let out = run(&root.0, pattern_row(&file, "$M($$$) { $$$ }")).expect("cs");
-    assert_eq!(out["matchCount"], 0, "{out}");
+    assert_eq!(out["status"], "empty", "{out}");
     let notes = exact_notes(&out);
     assert_eq!(notes.len(), 1, "{out}");
     assert!(
@@ -257,7 +257,7 @@ fn an_empty_relation_says_what_stop_by_end_holds() {
         row(json!({"kind":"class_declaration","has":{"kind":"return_statement"}})),
     )
     .expect("neighbor");
-    assert_eq!(near["matchCount"], 0, "{near}");
+    assert_eq!(near["status"], "empty", "{near}");
     assert_eq!(notes(&near), 1, "{near}");
     let lead = &checks::related_call(&near, "astSearch", |input| {
         input["queries"][0]["rule"]["has"]["stopBy"] == "end"
@@ -279,7 +279,7 @@ fn an_empty_relation_says_what_stop_by_end_holds() {
         json!({"kind":"while_statement"}),
     ] {
         let out = run(&root.0, row(quiet.clone())).expect("quiet");
-        assert_eq!(out["matchCount"], 0, "{quiet}: {out}");
+        assert_eq!(out["status"], "empty", "{quiet}: {out}");
         assert_eq!(notes(&out), 0, "{quiet}: {out}");
     }
 }
@@ -311,7 +311,7 @@ fn an_empty_kind_says_which_kind_holds_its_text() {
         let row = json!({"operation":"match","path":path,"rule":rule,"parser":"rust"});
         let out = run(&root.0, row).expect("empty");
         assert_eq!(out["status"], "empty", "{out}");
-        assert_eq!(out["matchCount"], 0, "{out}");
+        assert_eq!(out["status"], "empty", "{out}");
         let notes = other_kind_notes(&out);
         assert_eq!(notes.len(), 1, "{out}");
         assert!(notes[0].contains("type_identifier"), "{notes:?}");

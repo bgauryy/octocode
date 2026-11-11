@@ -7,7 +7,7 @@ Load when a hot path is slow or allocation-heavy, RSS or peak memory is high, a 
 - Microbenchmarks: `criterion`. Whole program: `cargo flamegraph`, `samply`, `perf`.
 - Allocation counts/peaks: `dhat-rs` (drop-in global allocator, works in tests), `dhat`, `heaptrack`, Instruments/`samply` (macOS). Peak RSS: `/usr/bin/time -l` (macOS) / `-v` (Linux).
 - Type sizes: `std::mem::size_of::<T>()`; pin hot types: `const _: () = assert!(size_of::<Node>() <= 32);`. Nightly `-Zprint-type-sizes` lists all layouts. Binary size (not heap): `cargo bloat --release --crates`.
-- Baseline, change one thing, re-measure, keep only what moves the number. Tracked comparison: `octocode-eval-benchmark`.
+- Baseline, change one thing, re-measure, keep only what moves the number. Tracked comparison: `octocode-agentic`.
 
 ## Cut allocations (biggest lever)
 - Pre-size: `Vec::with_capacity(n)`, `String::with_capacity(n)`.

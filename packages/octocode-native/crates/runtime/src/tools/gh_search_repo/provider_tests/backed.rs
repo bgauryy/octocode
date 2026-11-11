@@ -116,7 +116,8 @@ async fn repository_rows_are_compact_and_paging_is_not_duplicated() {
     assert_eq!(default_row["repo"], "cli", "{default_row}");
     assert_eq!(default_row["owner"], "httpie", "{default_row}");
     assert_eq!(default_row["stars"], 38602);
-    assert_eq!(default_row["pushedAt"], "2024-12-17");
+    // Dates, language, license and forks are a `fields` pick too.
+    assert!(default_row.get("pushedAt").is_none(), "{default_row}");
     let row = &default_row;
     // Every topic and the whole description stay: nothing reaches a
     // cut remainder, so a row never shortens them.
@@ -128,10 +129,9 @@ async fn repository_rows_are_compact_and_paging_is_not_duplicated() {
     );
     assert_eq!(row["description"], long.as_str(), "{row}");
     assert!(row.get("topicCount").is_none(), "{row}");
-    // Forks and the metadata-update date are stats extras: the extras stage
-    // drops them by default and `extras:["stats"]` keeps them.
-    for field in ["forks", "updatedAt"] {
-        assert!(row.get(field).is_some());
+    // Forks and the dates are a `fields` pick: a default row leaves them out.
+    for field in ["forks", "updatedAt", "createdAt"] {
+        assert!(row.get(field).is_none(), "{row}");
     }
 
     assert_eq!(
@@ -139,6 +139,13 @@ async fn repository_rows_are_compact_and_paging_is_not_duplicated() {
         2
     );
 
+    let facts = run(
+        &server,
+        json!({"operation":"search","keywords":["http client"],"fields":["forks","createdAt"]}),
+    )
+    .await
+    .expect("search");
+    let row = &facts.data["repositories"][0];
     assert_eq!(row["forks"], 4012, "{row}");
     assert_eq!(row["createdAt"], "2012-02-25");
 }

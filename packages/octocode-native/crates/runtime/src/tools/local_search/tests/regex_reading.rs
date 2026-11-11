@@ -33,7 +33,8 @@ fn a_literal_miss_says_it_matches_as_a_regex_and_offers_the_call() {
     ] {
         let row = search_fixture(&FILES, literal(&terms));
         assert_eq!(
-            row["matchedLineCount"], 0,
+            row["files"],
+            serde_json::json!([]),
             "the literal answer stands: {row}"
         );
         assert!(
@@ -55,7 +56,7 @@ fn a_literal_hit_gets_no_regex_offer() {
 fn plain_words_broken_regexes_and_regex_misses_stay_plain() {
     for term in ["gamma", "fn gamma(", "gamma|delta"] {
         let row = search_fixture(&FILES, literal(&[term]));
-        assert_eq!(row["matchedLineCount"], 0, "{term}: {row}");
+        assert_eq!(row["files"], serde_json::json!([]), "{term}: {row}");
         assert!(!offers_regex(&row), "{term}: {row}");
     }
 }

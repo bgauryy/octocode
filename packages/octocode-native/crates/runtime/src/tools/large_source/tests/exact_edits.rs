@@ -141,7 +141,9 @@ fn scanner_edits_the_budget_cannot_hold_refuse_the_read_whole() {
     let tight = crate::tools::page_memo::test_budget!(4 * 1024);
     assert!(matches!(pass(tight).err(), Some(ReadError::Refused)));
     assert_eq!(tight.used(), 0, "a refused read holds nothing");
-    let roomy = roomy();
+    // Its own budget: the tests run in parallel, and each checks what its
+    // budget holds.
+    let roomy = crate::tools::page_memo::test_budget!(256 * 1024 * 1024);
     assert!(pass(roomy).is_ok(), "a roomy budget serves the source");
     assert_eq!(roomy.used(), 0, "the edits' room is given back");
 }

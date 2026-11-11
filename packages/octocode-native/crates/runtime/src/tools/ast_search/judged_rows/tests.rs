@@ -1,7 +1,6 @@
 //! Rows of sources whose redaction spans lines, over generated layouts: a
 //! declaration name is the source's identifier, and a node is the cut of its
 //! own range from the source judged whole. All secrets are fake.
-use super::NAME_AT;
 use crate::execution::cancel::NeverCancel;
 use crate::security::JudgedText;
 use crate::tools::test_support::{Fixture, simple_policy};
@@ -223,7 +222,18 @@ fn rows_of_multi_line_redactions_are_cut_at_their_own_place() {
                         && declared.is_some_and(|declared| declared.contains(name)),
                     "{layout}: {row}"
                 );
-                assert!(row.get(NAME_AT).is_none(), "{layout}: {row}");
+                // A row states its name's column only to tell it from
+                // another row of its name, kind and line.
+                let twin = rows
+                    .iter()
+                    .filter(|other| {
+                        ["symbolName", "kind", "line"]
+                            .iter()
+                            .all(|key| other[key] == row[key])
+                    })
+                    .count()
+                    > 1;
+                assert_eq!(row.get("column").is_some(), twin, "{layout}: {row}");
             }
 
             let mut queries: Vec<Value> = kinds
@@ -305,4 +315,57 @@ fn a_name_the_pass_replaced_is_hidden_and_no_other() {
             && names[1].contains("[REDACTED-"),
         "{symbols}, the read {read}"
     );
+}
+
+/// A declaration row's name is the source's bytes at the place the page
+/// names for it ([`super::NamePlaces`]), so a name on a line the pass hides
+/// shows as that line's placeholder; a row the page names no place for is
+/// left to what the pass replaced whole, and no row states a place.
+#[test]
+fn a_name_is_cut_at_the_place_its_page_names() {
+    let root = Fixture::new();
+    let (head, tail) = (body(7, 24), body(11, 40));
+    let source = format!("-----BEGIN OPENSSH PRIVATE KEY-----\n{head}+{tail}\nlet after = 1;\n");
+    let file = root
+        .write("k.ts", &source)
+        .canonicalize()
+        .expect("canonical");
+    let (paths, security) = simple_policy(&root.0);
+    let rows = || {
+        json!({"path": file, "symbols": [
+            {"symbolName": head, "kind": "variable", "line": 2},
+            {"symbolName": "after", "kind": "variable", "line": 3},
+        ]})
+    };
+    let judge = |places: super::NamePlaces| {
+        let mut data = rows();
+        let sources = crate::tools::judged_rows::RowSources::new(&paths, &security);
+        super::judge_rows(&mut data, &sources, places);
+        data
+    };
+    let internal = [
+        json!({"name": head, "kind": "variable", "line": 2}),
+        json!({"name": "after", "kind": "variable", "line": 3}),
+    ];
+    let placed = judge(super::NamePlaces::of(&internal, &[1, 5]));
+    let names = |data: &Value| {
+        data["symbols"]
+            .as_array()
+            .expect("rows")
+            .iter()
+            .map(|row| row["symbolName"].as_str().expect("name").to_owned())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        names(&placed),
+        [crate::security::key_fragment_placeholder(), "after".into()],
+        "{placed}"
+    );
+    for row in placed["symbols"].as_array().expect("rows") {
+        let keys: Vec<&String> = row.as_object().expect("row").keys().collect();
+        assert_eq!(keys, ["symbolName", "kind", "line"], "{row}");
+    }
+    // A place of another line is not this row's: the rows keep their order.
+    let misplaced = judge(super::NamePlaces::of(&internal[1..], &[5]));
+    assert_eq!(names(&misplaced)[1], "after", "{misplaced}");
 }

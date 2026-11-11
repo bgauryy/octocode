@@ -73,35 +73,6 @@ pub fn line_read(q: &LocalFetchQuery, ranges: &[LineRange]) -> Option<LocalFetch
     .ok()
 }
 
-/// `wanted` minus every line in `shown`: the sorted, disjoint ranges of
-/// `wanted` lines a view did not return.
-pub fn uncovered(wanted: &[LineRange], shown: &[LineRange]) -> Vec<LineRange> {
-    let mut rest = vec![];
-    for range in wanted {
-        let mut start = range.start;
-        for seen in shown {
-            if seen.end < start || seen.start > range.end {
-                continue;
-            }
-            if seen.start > start {
-                rest.push(LineRange {
-                    start,
-                    end: seen.start - 1,
-                });
-            }
-            start = start.max(seen.end + 1);
-        }
-        if start <= range.end {
-            rest.push(LineRange {
-                start,
-                end: range.end,
-            });
-        }
-    }
-    rest.sort_by_key(|range| range.start);
-    rest.dedup();
-    rest
-}
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ViewFallback {
@@ -158,8 +129,6 @@ pub struct DeclaredBlock {
 /// What the caller knows about a read besides its bytes.
 #[derive(Clone, Debug, Default)]
 pub struct SourceFacts {
-    /// The file's modification time (ISO 8601), when the caller has one.
-    pub modified: Option<String>,
     /// Target content budget for this reader page. Remaining source is
     /// reachable through `next.nextPage`; the response pager handles
     /// envelope overhead and evidence that exceeds this target.
@@ -178,6 +147,11 @@ pub struct SourceFacts {
     /// The whole source's line count when the bytes are a window of it: the
     /// widest line number a page's gutter shows. `None`: the bytes' own.
     pub file_lines: Option<usize>,
+    /// The bytes are the whole of a local file, read at the path the read
+    /// scans with: the file every local tool judges whole and cuts its rows
+    /// from, by a pass kept by its text, that path and the scanner's limits
+    /// (`tools::judged_rows`). The read takes its redaction from that pass.
+    pub local_file: bool,
 }
 
 /// A byte window's place in the sealed byte view it was cut from: the view is

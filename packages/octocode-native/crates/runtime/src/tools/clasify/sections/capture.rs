@@ -11,8 +11,10 @@ use std::sync::{Arc, Mutex};
 
 /// A section's target text in the default window.
 const SECTION_CHARS: usize = 8_000;
-/// A section's target text with `longContext:true`.
-const LONG_CONTEXT_SECTION_CHARS: usize = 64_000;
+/// A section's target text with `longContext:true`, and of a source judged
+/// whole in sections ([`super::whole`]): the fewest requests whose pages
+/// still sit well inside the default window.
+pub(super) const LONG_CONTEXT_SECTION_CHARS: usize = 64_000;
 
 #[derive(Default)]
 pub(super) struct Pool {
@@ -60,6 +62,7 @@ pub(super) fn create(
     context: &ExecutionContext,
     max_bytes: usize,
     pool: &Pool,
+    grain: Option<usize>,
 ) -> Result<(Session, Vec<String>, Vec<Value>), ClassificationError> {
     let mut resources = Vec::new();
     let mut retained = 0usize;
@@ -89,6 +92,7 @@ pub(super) fn create(
                                     dispatcher,
                                     context,
                                     max_bytes.saturating_sub(retained),
+                                    grain,
                                 )
                             });
                     (source, acquired)
@@ -169,6 +173,7 @@ fn prepare(
     dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
     remaining_bytes: usize,
+    grain: Option<usize>,
 ) -> Result<(Value, Vec<Unit>, Option<Value>), ClassificationError> {
     let selected = resource::selected_ranges(&captured.text, &source["query"])?;
     let mut metadata = resource::selection_metadata(captured, source);
@@ -176,11 +181,21 @@ fn prepare(
     // byte remains in a target even when it needs a fragment, and one section
     // well inside the provider's 32k-token (262k long-context) window leaves
     // room for its context and questions.
-    let target_chars = if LongContext::from_field(row.long_context) == LongContext::Always {
-        LONG_CONTEXT_SECTION_CHARS
-    } else {
-        SECTION_CHARS
-    };
+    let target_chars = grain.unwrap_or(
+        if LongContext::from_field(row.long_context) == LongContext::Always {
+            LONG_CONTEXT_SECTION_CHARS
+        } else {
+            SECTION_CHARS
+        },
+    );
+    // A source judged whole in sections (`grain` given) sends each section
+    // alone: every section is judged, so the page before it is some other
+    // request's target, and repeating it as context doubled the input for
+    // the same answers (measured 2026-11-11 on a 294,466-char source, three
+    // planted-fact questions, 19 sections: 184,677 input tokens with it,
+    // 97,679 without, the same answers and deciding lines). A `sections`
+    // plan keeps it: its sections are read one at a time.
+    let with_context = grain.is_none();
     let safe = SafeSource::new(&captured.text, &captured.path, dispatcher)?;
     let mut units = Vec::new();
     let mut retained_bytes = octocode_engine::json_size::bytes(&metadata).unwrap_or(usize::MAX);
@@ -200,9 +215,13 @@ fn prepare(
                 super::unavailable("The call stopped while planning sections; no inference ran.")
             })?;
             let target = location(&section.target);
-            let context_ranges = section.context.iter().map(&location).collect::<Vec<_>>();
-            let context_text = section
-                .context
+            let supporting: &[std::ops::Range<usize>] = if with_context {
+                &section.context
+            } else {
+                &[]
+            };
+            let context_ranges = supporting.iter().map(&location).collect::<Vec<_>>();
+            let context_text = supporting
                 .iter()
                 .map(|range| {
                     safe.slice(range)

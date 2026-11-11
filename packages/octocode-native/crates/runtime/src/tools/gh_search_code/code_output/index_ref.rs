@@ -102,6 +102,10 @@ pub(in crate::tools::gh_search_code) async fn disclose_index_ref(
                 reasoning: None,
                 ref_: Some(reference),
                 repo,
+                sort: octocode_contract_types::GhStructureTreeSort {
+                    by: octocode_contract_types::GhStructureTreeSortBy::Path,
+                    order: octocode_contract_types::SortOrder::Asc,
+                },
             },
         );
     if let Some(listing) = listing {

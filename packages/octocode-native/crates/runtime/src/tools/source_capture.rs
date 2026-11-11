@@ -25,6 +25,7 @@ use crate::tools::judgment::ClassificationError;
 use crate::tools::judgment::Evaluator;
 use octocode_contract_types::ErrorCode;
 use page::read_page;
+pub(crate) use page::read_rows;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 

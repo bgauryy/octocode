@@ -18,6 +18,7 @@ fn hit(line: u32) -> TextSearchMatch {
         value_digest: [0; 32],
         count: None,
         rank: Some(1),
+        window_start: None,
     }
 }
 
@@ -73,10 +74,19 @@ fn row_chars_price_the_row_as_shown() {
     matched.value = "quote \" tab \t é 😀 needle".into();
     matched.column = 4;
     for span_columns in [false, true] {
-        let mut row = project_match(&matched);
-        if !span_columns {
-            row.column = None;
-        }
+        let row = project_match(&matched, span_columns);
+        assert_eq!(row.column.is_some(), span_columns);
+        assert_eq!(
+            row_chars(&matched, span_columns),
+            octocode_engine::json_size::utf16_units(&row).unwrap_or(0) + 1,
+            "{span_columns}"
+        );
+    }
+    // A window of a long line states its column in a view of any shape.
+    matched.window_start = Some(2);
+    for span_columns in [false, true] {
+        let row = project_match(&matched, span_columns);
+        assert_eq!(row.column, Some(5));
         assert_eq!(
             row_chars(&matched, span_columns),
             octocode_engine::json_size::utf16_units(&row).unwrap_or(0) + 1,

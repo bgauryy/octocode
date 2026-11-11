@@ -129,7 +129,7 @@ fn directory_scans_disclose_in_workspace_links_they_do_not_follow() {
         json!({"operation":"match","path":root.0.join("empty"),"rule":{"pattern":"register($A)"}}),
     )
     .expect("an empty scope is no languageRequired");
-    assert_eq!(empty["matchCount"], 0, "{empty}");
+    assert_eq!(empty["status"], "empty", "{empty}");
 }
 
 #[test]
@@ -198,7 +198,8 @@ fn an_empty_match_over_ignored_and_hidden_files_leads_to_them() {
         std::fs::write(pkg.join(dir).join("a.py"), "print(1)\n").expect("source");
         let request = json!({"operation":"match","path":pkg,"parser":"python","rule":{"pattern":"print($A)"}});
         let empty = run(&root.0, request.clone()).expect("empty match");
-        assert!(empty["files"].is_null(), "{dir}: {empty}");
+        assert_eq!(empty["files"], json!([]), "{dir}: {empty}");
+        assert!(empty["matchCount"].is_null(), "{dir}: {empty}");
         assert!(empty["next"].get("repair").is_none(), "{dir}: {empty}");
         let lead = &super::super::test_rows::skipped_call(&empty)
             .unwrap_or_else(|| panic!("missing skipped-scope lead: {empty}"));

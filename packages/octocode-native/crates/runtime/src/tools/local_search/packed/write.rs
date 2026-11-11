@@ -124,7 +124,7 @@ impl<W: Write> Writer<W> {
             } else {
                 self.bytes(&hit.value_digest)?;
             }
-            for value in [hit.last_line, hit.count, hit.rank] {
+            for value in [hit.last_line, hit.count, hit.rank, hit.window_start] {
                 self.optional(value)?;
             }
             // How many context lines before its match the value starts.

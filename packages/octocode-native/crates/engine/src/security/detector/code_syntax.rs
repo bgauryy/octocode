@@ -34,6 +34,35 @@ pub(crate) struct CodeSyntax<'a> {
     lines: OnceCell<Vec<CommentLine>>,
     data: OnceCell<Vec<DataSpan>>,
     literal_lines: OnceCell<Vec<Range<usize>>>,
+    gates: SyntaxGates,
+}
+
+/// What the lexical gates say of one source-code text, each read at most
+/// once however many passes ask: whether a comment may hold a credential
+/// ([`has_credential_assignment`]) and whether a string literal may
+/// ([`has_quoted_credential_assignment`]). The pass that picks a text's
+/// patterns reads them first and hands them to the text's [`CodeSyntax`]
+/// ([`CodeSyntax::gated`]), so the text is lexed once a judgment.
+#[derive(Default)]
+pub(super) struct SyntaxGates {
+    comment: OnceCell<bool>,
+    literal: OnceCell<bool>,
+}
+
+impl SyntaxGates {
+    /// Whether a comment of `text` may hold a credential.
+    pub(super) fn comment(&self, text: &str, grammar: &LanguageEntry) -> bool {
+        *self
+            .comment
+            .get_or_init(|| has_credential_assignment(text, grammar))
+    }
+
+    /// Whether a string literal of `text` may hold a credential's line.
+    pub(super) fn literal(&self, text: &str) -> bool {
+        *self
+            .literal
+            .get_or_init(|| has_quoted_credential_assignment(text))
+    }
 }
 
 /// Where the grammar places the first character of a match.
@@ -66,9 +95,29 @@ pub(super) fn parses() -> usize {
     PARSES.with(std::cell::Cell::get)
 }
 
+#[cfg(test)]
+thread_local! {
+    /// The texts this thread lexed line by line for the comment gate
+    /// ([`credential_assignment_scan`]).
+    static GATE_SCANS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many texts this thread has lexed for the comment gate: a test reads
+/// what one judgment costs.
+#[cfg(test)]
+pub(super) fn gate_scans() -> usize {
+    GATE_SCANS.with(std::cell::Cell::get)
+}
+
 impl<'a> CodeSyntax<'a> {
     /// `None` when `path` names no source-code file: its text is no code.
     pub(super) fn of(path: &str, text: &'a str) -> Option<Self> {
+        Self::gated(path, text, SyntaxGates::default())
+    }
+
+    /// [`Self::of`] with what the lexical gates already said of this same
+    /// `text` at this `path`: a gate read before is not read again.
+    pub(super) fn gated(path: &str, text: &'a str, gates: SyntaxGates) -> Option<Self> {
         Some(Self {
             text,
             grammar: grammar_of(path)?,
@@ -76,6 +125,7 @@ impl<'a> CodeSyntax<'a> {
             lines: OnceCell::new(),
             data: OnceCell::new(),
             literal_lines: OnceCell::new(),
+            gates,
         })
     }
 
@@ -107,7 +157,7 @@ impl<'a> CodeSyntax<'a> {
         self.lines.get_or_init(|| {
             let mut lines = Vec::new();
             // No parse for a text no comment can carry a credential in.
-            if has_credential_assignment(self.text, self.grammar) {
+            if self.gates.comment(self.text, self.grammar) {
                 match self.parse() {
                     Some(tree) => collect_comment_lines(self.text, tree.root_node(), &mut lines),
                     // No tree tells a comment from code: the lines read as
@@ -219,7 +269,7 @@ impl CodeSyntax<'_> {
     pub(super) fn literal_lines(&self) -> &[Range<usize>] {
         self.literal_lines.get_or_init(|| {
             // No parse for a text no literal can hold such a line in.
-            if !has_quoted_credential_assignment(self.text) {
+            if !self.gates.literal(self.text) {
                 return Vec::new();
             }
             let Some(tree) = self.parse() else {
@@ -229,6 +279,14 @@ impl CodeSyntax<'_> {
             let mut lines = Vec::new();
             for span in data.iter().filter(|span| !span.comment) {
                 let literal = &self.text[span.range.clone()];
+                // A listed line names a credential word and holds an
+                // operator, and lies within its literal: a literal with
+                // neither holds no such line, whatever its lines are.
+                if memchr::memchr2(b'=', b':', literal.as_bytes()).is_none()
+                    || !names_a_credential_word(literal)
+                {
+                    continue;
+                }
                 let (Some(open), Some(close)) = (opener_len(literal), closer_len(literal)) else {
                     continue;
                 };
@@ -419,9 +477,21 @@ fn line_break_escapes(text: &str, node: Node<'_>, starts: &mut Vec<usize>) {
 fn data_ranges(root: Node<'_>) -> Vec<DataSpan> {
     let mut ranges = Vec::new();
     let mut cursor = root.walk();
+    // What each kind of node is ([`kind_holds_data`]), read once a kind: a
+    // kind's name is the grammar's for its id, and a tree has few kinds and
+    // a node for every token of its text.
+    let mut kinds: Vec<Option<bool>> = Vec::new();
     loop {
         let node = cursor.node();
-        let data = holds_data(node);
+        let data = node.is_error()
+            || node.is_missing()
+            || (node.is_named() && {
+                let id = usize::from(node.kind_id());
+                if kinds.len() <= id {
+                    kinds.resize(id + 1, None);
+                }
+                *kinds[id].get_or_insert_with(|| kind_holds_data(node.kind()))
+            });
         if data {
             ranges.push(DataSpan {
                 range: node.byte_range(),
@@ -452,6 +522,7 @@ const COMMENT_OPENERS: [&str; 10] = [
 /// ever holds a comment open longer than a grammar that does not nest would,
 /// which costs a parse and never leaves a comment's text readable.
 #[derive(Clone, Copy, Default)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 struct BlockState {
     depth: u32,
     triple: bool,
@@ -498,6 +569,7 @@ fn lexicon(grammar: &LanguageEntry) -> Lexicon {
 
 /// A literal that runs over line ends in Rust.
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
+#[cfg_attr(test, derive(Debug))]
 enum Literal {
     #[default]
     None,
@@ -516,13 +588,29 @@ impl BlockState {
 /// The state after `line`, given the state before it.
 fn block_after(line: &str, before: BlockState, grammar: &LanguageEntry) -> BlockState {
     match lexicon(grammar) {
+        // Every step of the Rust scan that changes its state starts at a
+        // quote or a slash (a string's, a raw string's or a character's
+        // quote, `//`, `/*`, `*/`), in whichever state the line starts: a
+        // line with none of them leaves the state as it was. (No Rust scan
+        // opens a triple quote; a state that holds one is scanned.)
+        Lexicon::Rust
+            if !before.triple && memchr::memchr3(b'"', b'\'', b'/', line.as_bytes()).is_none() =>
+        {
+            before
+        }
         // Rust has no construct but a literal, a character or a comment that
         // holds a double quote, and its scan reads each of them exactly, so a
         // literal that hides a mark hides it: no pairing is in doubt.
         Lexicon::Rust => rust_block_after(line, before),
         Lexicon::LineHash => BlockState::default(),
         Lexicon::Generic => {
-            let mut after = generic_block_after(line, before);
+            // Likewise every mark of a generic scan holds a slash or a
+            // double quote (`/*`, `*/`, `//`, `"`, `"""`).
+            let mut after = if memchr::memchr2(b'"', b'/', line.as_bytes()).is_none() {
+                before
+            } else {
+                generic_block_after(line, before)
+            };
             after.continued = line.ends_with('\\') && (before.continued || line.contains("//"));
             after
         }
@@ -835,21 +923,37 @@ pub(super) fn has_quoted_credential_assignment(text: &str) -> bool {
         .collect();
     let mut visited = 0;
     text.lines().any(|line| {
-        line.contains(['"', '\'', '`']) && line_assigns_credential(line, 0, &words, &mut visited)
+        memchr::memchr3(b'"', b'\'', b'`', line.as_bytes()).is_some()
+            && memchr::memchr2(b'=', b':', line.as_bytes()).is_some()
+            && names_a_credential_word(line)
+            && line_assigns_credential(line, 0, &words, &mut visited)
     })
 }
 
-/// [`has_credential_assignment`] and the bytes its key-character scan looked
-/// at, which stays within a bounded multiple of the text's length.
+/// [`has_credential_assignment`] and the bytes it looked at (each line for
+/// an operator and a word, then its key characters), which stays within a
+/// bounded multiple of the text's length.
 pub(super) fn credential_assignment_scan(text: &str, grammar: &LanguageEntry) -> (bool, usize) {
+    #[cfg(test)]
+    GATE_SCANS.with(|count| count.set(count.get() + 1));
     let words: Vec<&str> = crate::security::patterns::CREDENTIAL_WORDS
         .split('|')
         .collect();
     let mut visited = 0;
     let mut block = BlockState::default();
     let found = text.lines().any(|line| {
-        let lead_end = comment_start(line, block.is_open(), grammar);
+        let opened = block.is_open();
         block = block_after(line, block, grammar);
+        // A key that assigns a credential holds a credential word, and an
+        // operator follows it: a line with no such word, or no operator,
+        // assigns none wherever its comment starts, so that start is not
+        // looked for. The look for an operator and a word reads the line.
+        visited += line.len();
+        if memchr::memchr2(b'=', b':', line.as_bytes()).is_none() || !names_a_credential_word(line)
+        {
+            return false;
+        }
+        let lead_end = comment_start(line, opened, grammar);
         line_assigns_credential(line, lead_end, &words, &mut visited)
     });
     (found, visited)
@@ -894,12 +998,14 @@ fn line_assigns_credential(line: &str, from: usize, words: &[&str], visited: &mu
 /// Whether `node` is text rather than code: a string, a comment or a label in
 /// the grammar's own node names, or an error or missing node.
 fn holds_data(node: Node<'_>) -> bool {
-    node.is_error()
-        || node.is_missing()
-        || (node.is_named()
-            && ["string", "comment", "text_block", "template", "label"]
-                .iter()
-                .any(|word| node.kind().contains(word)))
+    node.is_error() || node.is_missing() || (node.is_named() && kind_holds_data(node.kind()))
+}
+
+/// Whether a named node of `kind` is text rather than code ([`holds_data`]).
+fn kind_holds_data(kind: &str) -> bool {
+    ["string", "comment", "text_block", "template", "label"]
+        .iter()
+        .any(|word| kind.contains(word))
 }
 
 /// Appends the credential-holding lines ([`CodeSyntax::comment_lines`]) of every
@@ -923,7 +1029,7 @@ fn collect_comment_lines(text: &str, root: Node<'_>, lines: &mut Vec<CommentLine
 const COMMENT_CLOSERS: [&str; 2] = ["*/", "-->"];
 
 /// The characters of a word of a key: the word a tail starts at runs over them.
-fn is_key_char(c: char) -> bool {
+pub(super) fn is_key_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-')
 }
 
@@ -1023,7 +1129,7 @@ fn comment_line_keys(text: &str, comment: Range<usize>, lines: &mut Vec<CommentL
         reason = "offsets are ASCII key bytes and the line's end: char boundaries of `body`"
     )
 )]
-fn line_keys(body: &str, offset: usize, lines: &mut Vec<CommentLine>) {
+pub(super) fn line_keys(body: &str, offset: usize, lines: &mut Vec<CommentLine>) {
     let bytes = body.as_bytes();
     let blank = |byte: &u8| matches!(byte, b' ' | b'\t');
     let mut keys = Vec::new();
@@ -1082,11 +1188,22 @@ fn line_keys(body: &str, offset: usize, lines: &mut Vec<CommentLine>) {
 }
 
 /// Whether `word` holds a credential word, in any case.
-fn names_a_credential_word(word: &str) -> bool {
-    let lower = word.to_ascii_lowercase();
-    crate::security::patterns::CREDENTIAL_WORDS
-        .split('|')
-        .any(|credential| lower.contains(credential))
+pub(super) fn names_a_credential_word(word: &str) -> bool {
+    /// The credential words, each lowercase ASCII, in one automaton that
+    /// reads any ASCII case: what lowering the text and looking for each
+    /// word in turn finds, in one pass and without a copy.
+    static WORDS: std::sync::LazyLock<aho_corasick::AhoCorasick> = std::sync::LazyLock::new(|| {
+        // An automaton over a fixed set of literals cannot fail to build.
+        #[expect(
+            clippy::expect_used,
+            reason = "built from static literals, valid by construction"
+        )]
+        aho_corasick::AhoCorasickBuilder::new()
+            .ascii_case_insensitive(true)
+            .build(crate::security::patterns::CREDENTIAL_WORDS.split('|'))
+            .expect("credential word automaton must build")
+    });
+    WORDS.is_match(word)
 }
 
 #[cfg(test)]

@@ -38,7 +38,8 @@ pub(crate) mod artifact_type {
 /// Registry-facing views over the generated wire query.
 pub(crate) mod artifact_search_query {
     use octocode_contract_types::{
-        ArtifactSearchQuery, ArtifactType, ResolveNugetGoPackagistOrRubygemsEcosystem,
+        ArtifactSearchQuery, ArtifactSearchView, ArtifactType,
+        ResolveNugetGoPackagistOrRubygemsEcosystem,
         ResolvePypiOrCratesEcosystem, SearchCratesMavenNugetGoPackagistOrRubygemsEcosystem,
     };
 
@@ -79,6 +80,19 @@ pub(crate) mod artifact_search_query {
                 }
             },
         }
+    }
+    /// How much of each row the answer states: the query's `view`, its
+    /// contract default when omitted.
+    pub(crate) fn view(query: &ArtifactSearchQuery) -> ArtifactSearchView {
+        match query {
+            ArtifactSearchQuery::ResolveNpm(query) => query.view,
+            ArtifactSearchQuery::SearchNpm(query) => query.view,
+            ArtifactSearchQuery::ResolvePypiOrCrates(query) => query.view,
+            ArtifactSearchQuery::ResolveMaven(query) => query.view,
+            ArtifactSearchQuery::ResolveNugetGoPackagistOrRubygems(query) => query.view,
+            ArtifactSearchQuery::SearchCratesMavenNugetGoPackagistOrRubygems(query) => query.view,
+        }
+        .unwrap_or_default()
     }
     pub(crate) fn package_name(query: &ArtifactSearchQuery) -> Option<&str> {
         match query {

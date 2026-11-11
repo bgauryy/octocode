@@ -63,7 +63,7 @@ fn section_query(home: &std::path::Path) -> Value {
         "Second source: stop the service.\n",
     )
     .expect("second");
-    json!({"queries":[{"operation":"sections","resources":{
+    json!({"queries":[{"operation":"sections","view":"details","resources":{
             "first":{"tool":"localFetch","query":{"path":home.join("first.txt")}},
             "second":{"tool":"localFetch","query":{"path":home.join("second.txt")}}
         },"questions":{"restart":{"type":"noul","instructions":"Does this section require a restart?"}}}]})
@@ -247,7 +247,7 @@ async fn sections_runtime_checks_paths_and_sanitizes_before_inference() {
     let secret = format!("ghp_{}", "A".repeat(36));
     let file = home.path().join("secret.txt");
     std::fs::write(&file, format!("Restart with token {secret}.\n")).expect("source");
-    let result = section_call(&runtime, json!({"queries":[{"operation":"sections","resources":{
+    let result = section_call(&runtime, json!({"queries":[{"operation":"sections","view":"details","resources":{
             "secret":{"tool":"localFetch","query":{"path":file}},
             "outside":{"tool":"localFetch","query":{"path":outside.path()}}
         },"questions":{"check":{"type":"noul","instructions":"Does this section require a restart?"}}}]}), Channel::Mcp, "caller").await;

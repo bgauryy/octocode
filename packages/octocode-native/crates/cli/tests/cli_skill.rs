@@ -7,7 +7,7 @@ mod install;
 mod scopes;
 
 const SKILL: &str = "octocode-workflows";
-const ARCHITECT: &str = "octocode-architect";
+const ENGINEER: &str = "octocode-engineer";
 fn run(workspace: &Workspace, args: &[&str]) -> Output {
     workspace
         .cli()

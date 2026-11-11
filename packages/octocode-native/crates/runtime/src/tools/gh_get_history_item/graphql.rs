@@ -21,7 +21,7 @@ mod projection;
 mod tests;
 
 use document::{
-    COMMITS, CONNECTION_PAGE, Connection, DISCUSSION, FILES, LABELS, REVIEWS, pull_request_document,
+    COMMITS, CONNECTION_PAGE, Connection, DISCUSSION, FILES, REVIEWS, pull_request_document,
 };
 use errors::{connection_warning, describe_errors, error_field, graphql_failure};
 pub(super) use projection::{
@@ -186,23 +186,9 @@ pub(super) async fn graphql_pull_request(
     if !page.errors.iter().all(in_connection) {
         return Ok(GraphqlOutcome::Failed(graphql_failure(&page.errors)));
     }
-    // Every label, page by page within the request's deadline: a label the
-    // read could not reach stays disclosed (`labelsClipped`). A labels page
-    // answered with errors leaves the header to REST.
-    let mut label_errors = Vec::new();
-    read_on(
-        source,
-        context,
-        &variables,
-        &mut pr,
-        &LABELS,
-        (usize::MAX, usize::MAX),
-        &mut label_errors,
-    )
-    .await?;
-    if !label_errors.is_empty() {
-        return Ok(GraphqlOutcome::Failed(label_errors.join("; ")));
-    }
+    // GraphQL serves section reads only, whose row names the pull request
+    // and its commits: the labels are the summary read's (REST), so no
+    // further label page is read here.
     let mut states = [GraphqlCollection::Unused; 4];
     let mut warnings = Vec::new();
     for (slot, (connection, wanted, need, max_pages)) in states.iter_mut().zip(plans) {

@@ -73,6 +73,8 @@ async fn a_credential_row_is_isolated_and_never_reaches_continuations() {
     let message = rows[1]["data"]["error"].as_str().unwrap_or_default();
     assert!(message.contains("queries.1.matchString"), "{}", rows[1]);
     assert!(message.contains("credential"), "{}", rows[1]);
+    // The refusal names its whole repair (search a non-secret fragment); the
+    // call's shape was valid, so no generic example or schema pointer follows.
     assert!(rows[1]["data"].get("hints").is_none(), "{}", rows[1]);
     assert!(support::checks::leads(&rows[1]).is_empty(), "{}", rows[1]);
     assert_no_rewrite(&outcome.structured_content);

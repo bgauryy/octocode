@@ -294,3 +294,35 @@ fn only_a_source_with_a_separated_name_may_qualify_it() {
     assert!(call.may_qualify("ns.format(1)"));
     assert!(!call.may_qualify("format(1)"));
 }
+
+/// A call on a receiver (`x.run(4)`) is a call of the name too. A grammar
+/// with `::` paths has both longer spellings of a bare callee, each matching
+/// only its own sites; a `.` grammar has the one that already covers a
+/// receiver. A name that is not called has no member spelling there.
+#[test]
+fn a_bare_callee_in_a_path_grammar_also_has_its_member_spelling() {
+    let spelled = |pattern: &str, ext: &str| {
+        pattern_qualifiers(pattern, ext)
+            .iter()
+            .map(|qualified| qualified.spelling(&[0]))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        spelled("run($X)", "rs"),
+        ["$QUALIFIER::run($X)", "$QUALIFIER.run($X)"]
+    );
+    assert_eq!(
+        spelled("seconds($X)", "cpp"),
+        ["$QUALIFIER::seconds($X)", "$QUALIFIER.seconds($X)"]
+    );
+    for ext in ["ts", "py", "go"] {
+        assert_eq!(spelled("run($X)", ext), ["$QUALIFIER.run($X)"], "{ext}");
+    }
+    assert_eq!(
+        spelled("impl ToolOutput for $T {}", "rs"),
+        ["impl $QUALIFIER::ToolOutput for $T {}"]
+    );
+    assert!(pattern_qualifiers("$X.run($Y)", "rs").is_empty());
+    let rust = "fn f() {\n    run(1);\n    crate::a::run(2);\n    x.run(4);\n    self.inner.run(5);\n    x.runner(6);\n}\n";
+    assert_eq!(match_lines(rust, "rs", "$QUALIFIER.run($X)"), vec![4, 5]);
+}

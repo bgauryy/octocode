@@ -62,7 +62,7 @@ fn argument_evidence_variants_and_continuations_match_the_generated_contract() {
     let stats = call(
         &dir.0,
         ToolId::GraphQuery,
-        json!({"operation":"stats","path":"app","graph":built["id"]}),
+        json!({"operation":"stats","path":"app","graph":built["id"],"view":"details"}),
     );
     assert_eq!(
         stats["argumentCoverage"]["population"],

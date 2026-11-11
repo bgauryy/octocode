@@ -210,8 +210,33 @@ impl<'a> Prepared<'a> {
         path: &std::path::Path,
         security: &impl ContentScan,
     ) -> Result<Redaction, (ErrorCode, String)> {
-        let (text, changed) = security.redact_source_lines(&self.keyed, path)?;
-        Ok(if changed {
+        Ok(self.redacted(security.redact_source_lines(&self.keyed, path)?))
+    }
+
+    /// [`Self::redaction`] of a whole source's text: the same pass, taken
+    /// from the one kept of this text at this path
+    /// ([`crate::tools::judged_rows::scanned_whole`]) when the scan is the
+    /// process's scanner and no key-block pass changed the text (the keyed
+    /// text is then the source's decoded text, which that pass is kept by).
+    /// A read of bytes already judged cuts from that pass and scans nothing.
+    pub(super) fn whole_redaction(
+        &self,
+        path: &std::path::Path,
+        security: &impl ContentScan,
+    ) -> Result<Redaction, (ErrorCode, String)> {
+        let Some(real) = security.kept().filter(|_| !self.key_blocks_redacted) else {
+            return self.redaction(path, security);
+        };
+        let whole = crate::security::scan::redact_with(&self.keyed, |text| {
+            Ok(crate::tools::judged_rows::scanned_whole(text, path, real))
+        })?;
+        Ok(self.redacted(whole))
+    }
+
+    /// What a line-preserving pass that made `text` of the keyed text
+    /// changed (`changed`: anything at all).
+    fn redacted(&self, (text, changed): (std::borrow::Cow<'_, str>, bool)) -> Redaction {
+        if changed {
             Redaction {
                 lines: redacted_lines(&self.keyed, &text),
                 text: Some(text.into_owned()),
@@ -221,7 +246,7 @@ impl<'a> Prepared<'a> {
                 text: None,
                 lines: Vec::new(),
             }
-        })
+        }
     }
 
     /// This source sealed by `redaction`: its text and every line either pass
@@ -410,9 +435,12 @@ pub(super) fn prepare_source<'a>(
         // A window of a sealed view is redacted already.
         Redaction::sealed_already(&origin.redacted)
     } else {
-        prepared
-            .redaction(source_path, security)
-            .map_err(scan_refused)?
+        let redaction = if facts.local_file {
+            prepared.whole_redaction(source_path, security)
+        } else {
+            prepared.redaction(source_path, security)
+        };
+        redaction.map_err(scan_refused)?
     };
     let SealedView {
         text,

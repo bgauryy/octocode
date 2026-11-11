@@ -181,20 +181,20 @@ impl Importers {
     }
 
     /// Gitignored files and files under hidden directories are outside the
-    /// candidate scan. One that imports the
-    /// name may be a hidden importer, and one the import check could not
-    /// decide is not ruled out: the row is partial, counts each kind, names
-    /// the deciding rules, and leads to exactly those files. Files that only
-    /// spell the name were checked and import nothing of it: they are no
-    /// evidence and no lead, so a finished scan without evidence or nested
-    /// repositories leaves none. A scan that stopped at its bound left the
-    /// rest unverified: its lead is over the scope, which holds the files it
-    /// found and those it did not reach, and without evidence the row is
-    /// partial and says the scan did not finish. Nested repositories the scan
-    /// did not enter (only one holding the anchor is kept, see
-    /// `verified_anchors`) are counted, and the lead reaches into each of
-    /// them (a row with no name to search names them instead); they are no
-    /// evidence on their own, so they never make the row partial.
+    /// candidate scan, and so outside the answer. One that imports the name
+    /// from a module that may be the anchor's is evidence of a hidden
+    /// importer: the row is partial, counts those files, names the deciding
+    /// rules, and leads to them. Nothing else there is evidence. Files that
+    /// only spell the name were checked and import nothing of it: no lead.
+    /// Files the import check could not decide, and a scan that did not
+    /// finish, are said once ([`IGNORED_UNCHECKED_NOTICE`],
+    /// [`IGNORED_UNFINISHED_NOTICE`]) with the lead that reads them (the
+    /// undecided files; the scope, for a scan that did not finish), and
+    /// leave the row whole: absence is claimed over the scanned scope only.
+    /// Nested repositories the scan did not enter (only one holding the
+    /// anchor is kept, see `verified_anchors`) are counted, and the lead
+    /// reaches into each of them (a row with no name to search names them
+    /// instead); they never make the row partial either.
     pub(super) fn disclose_ignored(&self, row: &mut Value, query: &LspSearchQuery, scope: &Scope) {
         let ignored = &self.ignored;
         if !ignored.nested_repositories.is_empty() {
@@ -223,57 +223,42 @@ impl Importers {
         }) else {
             return;
         };
-        let evidence = ignored
-            .importing
-            .iter()
-            .chain(&ignored.unchecked)
-            .cloned()
-            .collect::<Vec<_>>();
         let nested = ignored.nested_repositories.iter().map(|repo| {
             Path::new(&scope.root)
                 .join(repo)
                 .to_string_lossy()
                 .into_owned()
         });
-        let listed = evidence.iter().cloned().chain(nested).collect::<Vec<_>>();
+        let listed = ignored
+            .importing
+            .iter()
+            .chain(&ignored.unchecked)
+            .cloned()
+            .chain(nested)
+            .collect::<Vec<_>>();
         if listed.is_empty() && !ignored.unfinished {
             return;
         }
         if let Some(lead) = ignored_text_lead(name, scope, &listed, ignored.unfinished) {
             crate::response::result::attach_related(row, lead);
         }
-        if evidence.is_empty() {
-            if ignored.unfinished {
-                crate::response::paging::mark_partial(row, IGNORED_REASON, &[]);
-                crate::response::paging::push_notice(row, IGNORED_UNFINISHED_NOTICE);
-            }
-            return;
+        if !ignored.unchecked.is_empty() {
+            crate::response::paging::push_notice(row, IGNORED_UNCHECKED_NOTICE);
         }
+        if ignored.unfinished {
+            crate::response::paging::push_notice(row, IGNORED_UNFINISHED_NOTICE);
+        }
+        let count = match ignored.importing.len() {
+            0 => return,
+            1 => "1 imports it".to_owned(),
+            count => format!("{count} import it"),
+        };
         let rules = match ignored.rules.as_slice() {
             [] => "hidden directories or ignore rules".to_owned(),
             rules => rules.join(", "),
         };
-        let mut counts = Vec::new();
-        match ignored.importing.len() {
-            0 => {}
-            1 => counts.push("1 imports it".to_owned()),
-            count => counts.push(format!("{count} import it")),
-        }
-        if !ignored.unchecked.is_empty() {
-            counts.push(format!(
-                "{} could not be checked for an import (unreadable, larger than {} MiB, or unparsable)",
-                ignored.unchecked.len(),
-                crate::security::SourceLimits::REAL.whole_source / (1024 * 1024),
-            ));
-        }
-        let more = if ignored.unfinished {
-            " The scan for gitignored or hidden files did not finish, so more may exist."
-        } else {
-            ""
-        };
         let warning = format!(
-            "Of the gitignored or hidden files that spell this name ({rules}), {}; importer recovery did not verify them, and a localSearch with includeIgnored and includeHidden reads their text.{more}",
-            counts.join(" and ")
+            "Of the gitignored or hidden files that spell this name ({rules}), {count}; importer recovery did not verify them, and a localSearch with includeIgnored and includeHidden reads their text."
         );
         crate::response::paging::mark_partial(row, IGNORED_REASON, &[warning]);
     }

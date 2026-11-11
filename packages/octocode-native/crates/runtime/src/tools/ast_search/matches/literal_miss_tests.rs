@@ -50,7 +50,7 @@ fn a_glued_sigil_is_named_and_its_repair_matches() {
     let (root, dir) = rust_tree();
     for path in [dir.join("a.rs"), dir.clone()] {
         let out = run(&root.0, row(&path, json!({"pattern":"search_$X($$$A)"}))).expect("empty");
-        assert_eq!(out["matchCount"], 0, "{out}");
+        assert_eq!(out["status"], "empty", "{out}");
         let named = notes(&out, "structural.pattern.literalSigil");
         assert_eq!(named.len(), 1, "{out}");
         assert_eq!(named[0]["severity"], "warning", "{out}");
@@ -161,7 +161,7 @@ fn an_empty_result_states_each_pattern_shape() {
     let file = dir.join("a.rs");
     for path in [file.clone(), dir.clone()] {
         let out = run(&root.0, row(&path, json!({"pattern":"$X.unwrap($Y)"}))).expect("empty");
-        assert_eq!(out["matchCount"], 0, "{out}");
+        assert_eq!(out["status"], "empty", "{out}");
         let shapes = notes(&out, "structural.pattern.shape");
         assert_eq!(shapes.len(), 1, "{out}");
         assert_eq!(shapes[0]["severity"], "info", "{out}");
@@ -176,7 +176,7 @@ fn an_empty_result_states_each_pattern_shape() {
         {"inside":{"pattern":"loop { $$$B }","stopBy":"end"},"pattern":"$X.expect($Y)"}
     ]});
     let out = run(&root.0, row(&file, nested)).expect("nested");
-    assert_eq!(out["matchCount"], 0, "{out}");
+    assert_eq!(out["status"], "empty", "{out}");
     let shapes = notes(&out, "structural.pattern.shape");
     assert_eq!(shapes.len(), 2, "one per distinct pattern: {out}");
     assert!(
@@ -206,7 +206,7 @@ fn a_mixed_grammar_directory_explains_its_empty_result_per_grammar() {
     let (root, dir) = rust_tree();
     std::fs::write(dir.join("b.ts"), "search_files(a);\nother(b);\n").expect("ts");
     let out = run(&root.0, row(&dir, json!({"pattern":"search_$X($$$A)"}))).expect("empty");
-    assert_eq!(out["matchCount"], 0, "{out}");
+    assert_eq!(out["status"], "empty", "{out}");
     assert!(out.get("inferredLanguage").is_none(), "two grammars: {out}");
     let named = notes(&out, "structural.pattern.literalSigil");
     assert_eq!(named.len(), 1, "both grammars agree: {out}");
@@ -221,7 +221,7 @@ fn a_mixed_grammar_directory_explains_its_empty_result_per_grammar() {
     assert_eq!(run(&root.0, lead).expect("repair")["matchCount"], 3);
 
     let out = run(&root.0, row(&dir, json!({"pattern":"$X.unwrap($Y)"}))).expect("empty");
-    assert_eq!(out["matchCount"], 0, "{out}");
+    assert_eq!(out["status"], "empty", "{out}");
     let mut shapes = notes(&out, "structural.pattern.shape")
         .into_iter()
         .map(|d| d["message"].as_str().expect("message").to_owned())
@@ -247,7 +247,7 @@ fn a_context_pattern_names_its_literal_sigils() {
     std::fs::write(&file, "function f() { a.on(1); }\n").expect("js");
     let pattern = json!({"context":"function f() { $x.on($A); }","selector":"call_expression"});
     let out = run(&root.0, row(&file, json!({"pattern": pattern}))).expect("empty");
-    assert_eq!(out["matchCount"], 0, "{out}");
+    assert_eq!(out["status"], "empty", "{out}");
     let named = notes(&out, "structural.pattern.literalSigil");
     assert_eq!(named.len(), 1, "{out}");
     assert!(
@@ -291,7 +291,7 @@ fn a_dollar_name_the_source_spells_leaves_the_relation_lead() {
     .expect("js");
     let rule = json!({"kind":"function_declaration","has":{"pattern":"$el.on($A)"}});
     let out = run(&root.0, row(&file, rule)).expect("empty");
-    assert_eq!(out["matchCount"], 0, "{out}");
+    assert_eq!(out["status"], "empty", "{out}");
     assert_eq!(
         notes(&out, "structural.pattern.literalSigil"),
         Vec::<Value>::new(),
@@ -320,7 +320,7 @@ fn a_sigil_under_not_is_not_named_and_the_relation_lead_stays() {
         "not":{"pattern":"$y.unwrap()"}
     });
     let out = run(&root.0, row(&file, rule)).expect("empty");
-    assert_eq!(out["matchCount"], 0, "{out}");
+    assert_eq!(out["status"], "empty", "{out}");
     assert_eq!(
         notes(&out, "structural.pattern.literalSigil"),
         Vec::<Value>::new(),
@@ -360,7 +360,7 @@ fn a_glued_repair_matches_exactly_what_the_token_meant() {
         let file = root.0.join(name);
         std::fs::write(&file, source).expect("source");
         let out = run(&root.0, row(&file, json!({"pattern": pattern}))).expect("empty");
-        assert_eq!(out["matchCount"], 0, "{name}: {out}");
+        assert_eq!(out["status"], "empty", "{name}: {out}");
         assert_eq!(
             notes(&out, "structural.pattern.literalSigil").len(),
             1,
@@ -422,7 +422,7 @@ fn only_a_whole_node_spelling_the_token_makes_it_a_real_name() {
         let file = root.0.join(name);
         std::fs::write(&file, source).expect("source");
         let out = run(&root.0, row(&file, json!({"pattern": pattern}))).expect("empty");
-        assert_eq!(out["matchCount"], 0, "{name}: {out}");
+        assert_eq!(out["status"], "empty", "{name}: {out}");
         assert_eq!(
             notes(&out, "structural.pattern.literalSigil").len(),
             named,
@@ -441,7 +441,7 @@ fn the_sigil_note_sits_beside_the_relation_lead() {
     std::fs::write(&file, "fn f() {\n    if ok {\n        a.on(x);\n    }\n}\n").expect("rs");
     let rule = json!({"kind":"function_item","has":{"any":[{"pattern":"$x.foo()"},{"pattern":"$X.on($A)"}]}});
     let out = run(&root.0, row(&file, rule)).expect("empty");
-    assert_eq!(out["matchCount"], 0, "{out}");
+    assert_eq!(out["status"], "empty", "{out}");
     assert_eq!(
         notes(&out, "structural.pattern.literalSigil").len(),
         1,
@@ -459,7 +459,7 @@ fn no_message_spells_the_metavariable_placeholder() {
     let file = root.0.join("s.rs");
     std::fs::write(&file, "fn f() {\n    let x = Foo_bar { a: 1 };\n}\n").expect("rs");
     let out = run(&root.0, row(&file, json!({"pattern":"Foo_$X { a: $V }"}))).expect("empty");
-    assert_eq!(out["matchCount"], 0, "{out}");
+    assert_eq!(out["status"], "empty", "{out}");
     let text = out.to_string();
     assert!(
         !text.contains('\u{b5}') && !text.contains('\u{10000}'),
@@ -489,7 +489,7 @@ fn a_macro_metavariable_in_the_scan_does_not_silence_the_note() {
         json!({"operation":"match","path":root.0,"rule":{"pattern":"$x.unwrap()"}}),
     )
     .expect("empty");
-    assert_eq!(out["matchCount"], 0, "{out}");
+    assert_eq!(out["status"], "empty", "{out}");
     assert_eq!(
         notes(&out, "structural.pattern.literalSigil").len(),
         1,

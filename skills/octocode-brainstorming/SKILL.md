@@ -33,7 +33,12 @@ Give each direction a different [thinking lens](references/critical-thinking.md#
 
 Look for prior work with [render-report.mjs](scripts/render-report.mjs) `--manifest` per [output.md](output.md#saved-report). Build on a match. Record issue, constraints, open choice and time window. Ask for missing constraints only if they change the work. Before searching, record the expected answer and confidence, then [2–4 refutable hypotheses](references/critical-thinking.md#hypotheses-before-search) including the strongest rival and “no difference.”
 
-For multi-phase or resumable work, update the [checkpoint](output.md#checkpoints) at `<workspace>/.octocode/octocode-brainstorming/tmp/<run>/state.md` after each phase. A short low-effort answer needs no state file. Pause for requested steering or a missing decision affecting scope, spend or authority. Resume at the unfinished phase. Reopen verified evidence only if identity, applicability or the claim changed. If stopped, deliver the verified interim and what the next phase would add.
+| Trigger | Action | Why |
+|---|---|---|
+| Multi-phase or resumable work | Update the [checkpoint](output.md#checkpoints) at `<workspace>/.octocode/octocode-brainstorming/tmp/<run>/state.md` after each phase. | Preserve progress; short low-effort answers need no state file. |
+| Requested steering or missing scope, spend or authority decision | Pause dependent work. | Respect the decision boundary. |
+| Resume | Continue the unfinished phase; reopen evidence only if identity, applicability or claim changed. | Avoid repeated research. |
+| Stopped | Deliver verified interim and what the next phase adds. | Preserve a usable handoff. |
 
 ### 2 Gather and verify
 
@@ -56,7 +61,7 @@ Run `node <skill-folder>/scripts/<name>.mjs --help` for options and `node --test
 
 ## Related skills
 
-Use `octocode-research` for code evidence, `octocode-scraping` for a saved corpus or failed fetch, `octocode-chrome-devtools` for rendered pages, `octocode-rfc-generator` for a decision document and `octocode-eval-benchmark` for a measured experiment. Use [workflow composition](../octocode-workflows/references/composition.md) when coordinating actors.
+Use `octocode-research` for code evidence, `octocode-scraping` for a saved corpus or failed fetch, `octocode-chrome-devtools` for rendered pages, `octocode-rfc-generator` for a decision document and `octocode-agentic` for a measured experiment. Use [workflow composition](../octocode-workflows/references/composition.md) when coordinating actors.
 
 ## Output
 

@@ -14,11 +14,19 @@ pub enum SearchStatus {
 #[serde(rename_all = "camelCase")]
 pub struct SearchMatch {
     pub line: u32,
-    /// Start of the span on its line; only span rows (`matchOnly`) carry it,
-    /// since several spans can share a line. A line row's value shows it.
+    /// Start of the hit on its line. Span rows (`matchOnly`) carry it, since
+    /// several spans can share a line, and so does a window row
+    /// (`window_start`), whose value is part of its line. A whole-line row's
+    /// value shows it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub column: Option<u32>,
     pub value: String,
+    /// Byte of its line the value starts at, when the value is a window
+    /// around the hit of a line too long for a row and not the line whole
+    /// (see [`octocode_engine::types::RowWindow`]). Read to keep the row's
+    /// `column` and to hand the line to a read, never shown.
+    #[serde(skip)]
+    pub window_start: Option<u32>,
     /// Byte offset of the hit in its line: where a byte-window read of a long
     /// line starts at the match. Read by leads, never shown.
     #[serde(skip)]
@@ -72,13 +80,6 @@ pub struct Enclosing {
     pub kind: String,
     pub line: u32,
     pub end_line: u32,
-    /// First line of its attributes or decorators, when before `line`
-    /// ([`crate::tools::declarations::StartLines`]).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub start_line: Option<u32>,
-    /// First line of its doc comment.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub doc_start_line: Option<u32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -112,7 +113,7 @@ pub struct SearchFile {
 }
 
 /// The response's totals. They serialize flat into the row (`matchCount`,
-/// `matchedLineCount`, `filesScanned`, `bytesSearched`, `binarySkipped`,
+/// `matchedLineCount`, `filesScanned`, `binarySkipped`,
 /// `fileErrors`, `partialReasons`); the fields marked `skip` are what the
 /// runtime reads and the row never carries.
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
@@ -133,8 +134,6 @@ pub struct SearchStats {
     pub files_matched: u32,
     #[serde(rename = "filesScanned")]
     pub files_searched: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub bytes_searched: Option<i64>,
     #[serde(skip)]
     pub capped: Option<bool>,
     #[serde(skip)]
@@ -225,6 +224,19 @@ impl LocalSearchResult {
     /// partial writer ([`crate::response::paging::mark_partial`]).
     pub fn to_row(&self) -> serde_json::Result<serde_json::Value> {
         let mut row = serde_json::to_value(self)?;
+        if self.status == SearchStatus::Empty
+            && let Some(data) = row.as_object_mut()
+        {
+            // An empty row is its empty list and what the scan covered
+            // (`filesScanned`, skipped and partial facts): a counter that
+            // says zero again is dropped.
+            for counter in ["matchCount", "matchedLineCount", "matchedFiles"] {
+                if data.get(counter).and_then(serde_json::Value::as_u64) == Some(0) {
+                    data.remove(counter);
+                }
+            }
+            data.shift_insert(0, "files".to_owned(), serde_json::Value::Array(Vec::new()));
+        }
         for reason in &self.stats.partial_reasons {
             crate::response::paging::mark_partial(&mut row, *reason, &[]);
         }

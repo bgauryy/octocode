@@ -17,6 +17,7 @@ mod package;
 mod record;
 mod repository;
 mod source;
+mod summary;
 mod trust;
 mod update;
 mod upgrade;
@@ -30,7 +31,7 @@ use crate::response::paging::{self, PartialReason};
 use crate::response::result::Continuation;
 pub(crate) use advisories::{AdvisoryFuture, AdvisoryRead, GhsaFuture, GhsaRead};
 pub(crate) use commit::{CommitFacts, CommitFuture, CommitLookup, OtherRefs, Unread};
-use octocode_contract_types::{ErrorCode, SecurityCheckQuery};
+use octocode_contract_types::{ErrorCode, SecurityCheckQuery, SecurityCheckView};
 use octocode_io::budget::{PROVIDER_BODY_BYTES, RequestBudget};
 use octocode_io::cancellation::Cancellation;
 use package::Package;
@@ -126,7 +127,20 @@ fn mark_anonymous(data: &mut Value, net: &Net<'_>) {
     }
 }
 
+/// The row's view; the contract's default when the row states none.
+fn view_of(query: &SecurityCheckQuery) -> SecurityCheckView {
+    match query {
+        SecurityCheckQuery::Package(row) => row.view,
+        SecurityCheckQuery::Repository(row) => row.view,
+        SecurityCheckQuery::Url(row) => row.view,
+        SecurityCheckQuery::Advisory(row) => row.view,
+        SecurityCheckQuery::Commit(row) => row.view,
+    }
+    .unwrap_or_default()
+}
+
 async fn operation(query: &SecurityCheckQuery, net: &Net<'_>) -> Result<Value, ArtifactError> {
+    let view = view_of(query);
     match query {
         SecurityCheckQuery::Package(row) => {
             package::run(
@@ -137,6 +151,7 @@ async fn operation(query: &SecurityCheckQuery, net: &Net<'_>) -> Result<Value, A
                     release: row.release.as_deref().map(String::as_str),
                     resume: row.resume.as_deref().map(String::as_str),
                     brief: brief(query),
+                    view,
                 },
                 net,
             )
@@ -147,13 +162,14 @@ async fn operation(query: &SecurityCheckQuery, net: &Net<'_>) -> Result<Value, A
                 &row.repo,
                 row.resume.as_deref().map(String::as_str),
                 brief(query),
+                view,
                 net,
             )
             .await
         }
-        SecurityCheckQuery::Url(row) => from_url(&row.url, brief(query), net).await,
+        SecurityCheckQuery::Url(row) => from_url(&row.url, brief(query), view, net).await,
         SecurityCheckQuery::Advisory(row) => {
-            advisory(&row.id, row.repo.as_deref().map(String::as_str), net).await
+            advisory(&row.id, row.repo.as_deref().map(String::as_str), view, net).await
         }
         SecurityCheckQuery::Commit(row) => {
             commit(
@@ -161,6 +177,7 @@ async fn operation(query: &SecurityCheckQuery, net: &Net<'_>) -> Result<Value, A
                 row.repo.as_deref().map(String::as_str),
                 row.resume.as_deref().map(String::as_str),
                 brief(query),
+                view,
                 net,
             )
             .await
@@ -173,15 +190,18 @@ async fn operation(query: &SecurityCheckQuery, net: &Net<'_>) -> Result<Value, A
 async fn from_url(
     text: &str,
     brief: Map<String, Value>,
+    view: SecurityCheckView,
     net: &Net<'_>,
 ) -> Result<Value, ArtifactError> {
     match url_source::github(text) {
-        Some(Ok(url_source::GithubUrl::Advisory { id })) => return advisory(&id, None, net).await,
+        Some(Ok(url_source::GithubUrl::Advisory { id })) => {
+            return advisory(&id, None, view, net).await;
+        }
         Some(Ok(url_source::GithubUrl::Repository { owner, repo })) => {
-            return repository::run(&format!("{owner}/{repo}"), None, brief, net).await;
+            return repository::run(&format!("{owner}/{repo}"), None, brief, view, net).await;
         }
         Some(Ok(url_source::GithubUrl::Commit { owner, repo, sha })) => {
-            return commit(&sha, Some(&format!("{owner}/{repo}")), None, brief, net).await;
+            return commit(&sha, Some(&format!("{owner}/{repo}")), None, brief, view, net).await;
         }
         Some(Err(why)) => return Err(ArtifactError::new(ErrorCode::InvalidInput, why.reason)),
         None => {}
@@ -196,6 +216,7 @@ async fn from_url(
             release: found.release.as_deref(),
             resume: None,
             brief,
+            view,
         },
         net,
     )
@@ -223,7 +244,12 @@ fn canonical_advisory_id(id: &str) -> String {
 /// canonical spelling asked, if it differs, and the row says it was. A GHSA id
 /// is also read on GitHub ([`advisories::ghsa`]): its global record, and with
 /// `repo` the repository's own, so an advisory OSV lacks is read whole there.
-async fn advisory(id: &str, repo: Option<&str>, net: &Net<'_>) -> Result<Value, ArtifactError> {
+async fn advisory(
+    id: &str,
+    repo: Option<&str>,
+    view: SecurityCheckView,
+    net: &Net<'_>,
+) -> Result<Value, ArtifactError> {
     let mut retried = None;
     let osv = match source::ask_all(&Target::Advisory(id.to_owned()), net).await {
         Err(missing) if missing.code == ErrorCode::NotFound => {
@@ -305,6 +331,29 @@ async fn advisory(id: &str, repo: Option<&str>, net: &Net<'_>) -> Result<Value, 
     }
     malware::fire(&mut data, &malware::reports(&results), false, None);
     crate::response::result::finish_calls(&mut data);
+    if view == SecurityCheckView::Summary {
+        // One row per advisory: OSV's record and GitHub's twin of it state
+        // one claim, which `answer` gives with every range and fix.
+        if data.get("advisories").is_some() {
+            let records = results
+                .iter()
+                .flat_map(|result| &result.advisories)
+                .collect::<Vec<_>>();
+            let mut rows = record::advisory_groups(&records)
+                .iter()
+                .map(|group| record::group_summary(group))
+                .collect::<Vec<_>>();
+            record::most_severe_first(&mut rows);
+            data["advisories"] = Value::Array(rows);
+        }
+        let mut query = Map::new();
+        query.insert("operation".into(), json!("advisory"));
+        query.insert("id".into(), json!(id));
+        if let Some(repo) = repo {
+            query.insert("repo".into(), json!(repo));
+        }
+        data = summary::advisory(data, query);
+    }
     Ok(data)
 }
 
@@ -316,6 +365,7 @@ async fn commit(
     repo: Option<&str>,
     resume: Option<&str>,
     brief: Map<String, Value>,
+    view: SecurityCheckView,
     net: &Net<'_>,
 ) -> Result<Value, ArtifactError> {
     let target = Target::Commit {
@@ -361,6 +411,7 @@ async fn commit(
         if let Some(repo) = repo {
             next.insert("repo".into(), json!(repo));
         }
+        summary::carry(view, &mut next);
         next.insert("resume".into(), json!(resumed.token));
         data["calls"]["nextPage"] =
             Continuation::continued(ToolId::SecurityCheck, Value::Object(next)).build();
@@ -374,7 +425,23 @@ async fn commit(
         );
     }
     crate::response::result::finish_calls(&mut data);
-    Ok(data)
+    let mut query = Map::new();
+    query.insert("operation".into(), json!("commit"));
+    query.insert("commit".into(), json!(commit));
+    if let Some(repo) = repo {
+        query.insert("repo".into(), json!(repo));
+    }
+    Ok(summary::apply(
+        view,
+        data,
+        summary::Target {
+            query,
+            asked_name: None,
+            asked_version: None,
+            unfixed_in_major: 0,
+            gives_verdict: true,
+        },
+    ))
 }
 
 /// A warning when no returned record names `repo`: the hash matched in another

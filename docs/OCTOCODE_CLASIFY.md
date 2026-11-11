@@ -106,9 +106,16 @@ sequenceDiagram
 - **The reader** is the same one a normal call uses: `localFetch` for local files,
   `ghGetFileContent` for GitHub (pinned to the resolved commit), or an HTTPS `url`. Path, auth
   and network policies apply before anything reaches Jev.
-- **Oversized sources fail explicitly.** Octocode never judges a silently clipped prefix. The
-  provider's window decides: Octocode sends the default window, asks for the long-context one only
-  after a refusal, and passes on the provider's refusal of that with a ready `sections` call.
+- **Oversized sources are judged in sections.** Octocode never judges a silently clipped prefix.
+  The provider's window decides: Octocode sends the default window and asks for the long-context
+  one only after a refusal. A text source that still does not fit is cut into sections, every
+  question is asked on every section, and the row holds one answer per question with `lines` of the
+  deciding section: `noul` and `score` take the highest section, `choice` the label of the most
+  confident section that did not choose `unknown` (a section without the evidence abstains, so many
+  of them never outvote the one that holds it; `unknown` only when every section chose it, with no
+  lines to read). Each label's share of the sections is its probability. `coverage` counts the sections,
+  `next.read` reads the deciding lines, and the `sections` call in `related[]` lists every
+  section's own answer. Literal `content` and image rows are not cut: they keep the refusal.
 - **Jev sees only** the captured text, your questions and `context`. It has no conversation
   history and no sibling answers, so each question must stand alone.
 - **No answer cache across requests.** Each fresh request is judged and billed again, so an
@@ -217,6 +224,35 @@ the lines of the sections that said yes to a `noul` question, adjacent ones merg
 source. Or read other lines with `ranges` at the same path and ref, or use `matchString` if the answer
 has a term. A section is a share (a quarter) of the section grain, so even a short file splits into
 sections an answer can point into.
+
+**Views.** A row answers in `view: "summary"` by default: each answer's value (`noul`, `choice`,
+`score`, `box`), the `lines` of the deciding section where there is one, `coverage`, the tokens and
+the ready calls. `view: "details"` is the whole row: it adds `probabilities`, `confidence`, `legend`,
+the answering `model`, a request count of one, image provenance (a summary keeps only the pixel sizes
+a `box` maps to), a section's `id`, `kind`, `name`, `context` and byte range, the `status` wrapper of
+each answered cell, and quiet units. A summary only removes; a `details` continuation stays in
+`details`. An `evaluate` row bills again when re-run in another view, so ask for `details` up front
+when you need the distribution; a saved `sections` page replays in either view without inference.
+
+**A source over every window** is judged in sections within the same row: one answer per question
+with the deciding section's `lines`, and `coverage`. A size the provider refused for a model is
+remembered for the life of the process, so the next source at least that large goes straight to its
+sections instead of being uploaded whole to be refused again; `longContext: false` does the same
+without the long window.
+
+**A tool's rows as the source.** `source: {tool, query}` over `localSearch`, `structureSearch`,
+`astSearch`, `lspSearch`, `ghSearchCode`, `ghSearchRepo`, `ghSearchHistory`, `ghGetHistoryItem` or
+`artifactSearch` runs that tool's query for you and judges each row of its page as one unit: a hit, a
+listed path, a commit, a pull request, a comment, a changed file, a package. `units` holds the
+answers keyed by the unit's identity (`path:line`, number, id, name), never the rows' text; a summary
+holds back units whose every `noul` answer is under 0.3 and counts them in `coverage.quiet`.
+`coverage.totalUnits` is one page of the tool; `next.nextPage` judges the tool's next page. Each unit
+is one provider request. `classification` on the tool itself is the other route: it returns the kept
+rows themselves.
+
+**A list in hand.** A `content` array is one source, judged whole; with `perItem: true` each item is
+one unit, answered under `units` by its index. An array has no item cap: its serialized length bounds
+it.
 
 ### clasify sections: map questions across many files
 

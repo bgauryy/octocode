@@ -1,26 +1,31 @@
 //! Single-node answers: stats, node and symbols.
 use super::*;
 
-pub(super) fn stats(
-    g: &Graph,
-    cancel: &dyn crate::execution::cancel::CancellationCheck,
-) -> Result<GraphOutput, GraphOutput> {
-    // The rankings read production code: test edges are left out.
-    let imports = EdgeFilter {
-        kinds: vec![EdgeKind::Imports],
-        weakest: Confidence::Low,
-        tests: false,
-    };
-    let calls = EdgeFilter {
-        kinds: vec![EdgeKind::Calls],
-        weakest: Confidence::High,
-        tests: false,
-    };
-    let top = |filter: &EdgeFilter, kind: NodeKind| -> Result<Vec<Value>, GraphOutput> {
-        Ok(hubs(g, filter, Some(kind), Direction::In, 0..5, cancel)?.rows)
-    };
+/// The snapshot's size, coverage and build facts. Its rankings are `hubs`
+/// rows (most imported, most called), one call away: `related` is that call.
+///
+/// `view:"summary"` (the default) is what decides the next call: size,
+/// import and call linkage, languages and how many diagnostics there are.
+/// `view:"details"` adds the breakdowns behind those numbers and the build's
+/// own measurements; the summary's `related` offers that call once.
+pub(super) fn stats(g: &Graph, options: &QueryOptions) -> Result<GraphOutput, GraphOutput> {
     let m = &g.manifest;
-    let answer = json!({
+    let details = options.view.as_deref() == Some(STATS_DETAILS);
+    let lead = |operation: &str, view: Option<&str>| {
+        let mut row = Map::new();
+        row.insert("operation".into(), json!(operation));
+        super::paging::pin(&mut row, options, &g.id);
+        if let Some(view) = view {
+            row.insert("view".into(), json!(view));
+        }
+        crate::response::result::Continuation::related(
+            crate::id::ToolId::GraphQuery,
+            Value::Object(row),
+        )
+        .build()
+    };
+    let mut related = vec![lead("hubs", None)];
+    let mut answer = json!({
         "graph": g.summary(),
         "operation": "stats",
         "octocodeVersion": m["octocodeVersion"],
@@ -34,15 +39,38 @@ pub(super) fn stats(
         "extraction": m["extraction"],
         "languages": m["languages"],
         "diagnostics": m["diagnostics"],
-        "mostImportedFiles": top(&imports, NodeKind::File)?,
-        "mostImportedPackages": top(&imports, NodeKind::Package)?,
-        "mostCalledSymbols": top(&calls, NodeKind::Symbol)?,
-        "callConfidence": calls.weakest.as_str(),
-        "testEdges": "excluded",
-        "evidence": m["evidence"],
     });
+    if !details {
+        if let Some(fields) = answer.as_object_mut() {
+            fields.retain(|field, _| !STATS_DETAIL_FIELDS.contains(&field.as_str()));
+        }
+        for (holder, kept) in STATS_SUMMARY_PARTS {
+            if let Some(whole) = answer[holder].as_object_mut() {
+                whole.retain(|key, _| kept.contains(&key.as_str()));
+            }
+        }
+        related.push(lead("stats", Some(STATS_DETAILS)));
+    }
+    answer["related"] = Value::Array(related);
     Ok(GraphOutput::ok(answer))
 }
+
+/// The `view` value that asks `stats` for everything the manifest measured.
+const STATS_DETAILS: &str = "details";
+/// Manifest sections only `view:"details"` states.
+const STATS_DETAIL_FIELDS: [&str; 4] = [
+    "octocodeVersion",
+    "argumentCoverage",
+    "linkageByLanguage",
+    "extraction",
+];
+/// Sections the summary states in part: the totals stay, their breakdowns
+/// (`calls.byResolution`, `calls.unresolvedByReason`, `diagnostics.byCode`)
+/// are details.
+const STATS_SUMMARY_PARTS: [(&str, &[&str]); 2] = [
+    ("calls", &["sites", "unresolved"]),
+    ("diagnostics", &["total"]),
+];
 
 pub(super) fn degree_counts<'a>(
     edges: impl Iterator<Item = &'a EdgeRec>,

@@ -9,34 +9,28 @@ use selective_tests::{ask, fixture, section};
 fn topology_reads_only_selected_declaration_and_source_blocks() {
     let (dir, graph) = fixture();
     let bytes = std::fs::read(graph).unwrap();
-    for op in ["hubs", "cycles", "stale", "diagnostics"] {
+    // `stats` states the manifest's counts: no node row, so no block.
+    for op in ["stats", "hubs", "cycles", "stale", "diagnostics"] {
         let out = ask(&dir, op, "code.ts", 0, false);
         assert!(matches!(out.class, ExitClass::Success | ExitClass::Empty));
         assert_eq!(out.validation["declarationBlocksRead"], 0, "{op}");
         assert_eq!(out.validation["sourceBlocksRead"], 0, "{op}");
     }
-    for op in ["stats", "callers"] {
-        let out = ask(&dir, op, "fn0000", 255, false);
-        assert_eq!(out.class, ExitClass::Success, "{}", out.value);
-        for (tag, metric) in [
-            (b"DECL", "declarationBlocksRead"),
-            (b"SRCO", "sourceBlocksRead"),
-        ] {
-            let (offset, _) = section(&bytes, tag);
-            let blocks = u32::from_le_bytes(bytes[offset + 4..offset + 8].try_into().unwrap());
-            let read = out.validation[metric].as_u64().unwrap();
-            assert!(
-                read > 0 && read < u64::from(blocks),
-                "{op}/{metric}: {read}/{blocks}"
-            );
-        }
-        if op == "stats" {
-            assert_eq!(out.value["mostCalledSymbols"][0]["id"], "code.ts#fn0000");
-            assert!(out.value["mostCalledSymbols"][0]["sourceOrigin"].is_object());
-        } else {
-            assert_eq!(out.value["rows"].as_array().unwrap().len(), 7);
-        }
+    let out = ask(&dir, "callers", "fn0000", 255, false);
+    assert_eq!(out.class, ExitClass::Success, "{}", out.value);
+    for (tag, metric) in [
+        (b"DECL", "declarationBlocksRead"),
+        (b"SRCO", "sourceBlocksRead"),
+    ] {
+        let (offset, _) = section(&bytes, tag);
+        let blocks = u32::from_le_bytes(bytes[offset + 4..offset + 8].try_into().unwrap());
+        let read = out.validation[metric].as_u64().unwrap();
+        assert!(
+            read > 0 && read < u64::from(blocks),
+            "callers/{metric}: {read}/{blocks}"
+        );
     }
+    assert_eq!(out.value["rows"].as_array().unwrap().len(), 7);
 }
 
 fn query(dir: &Fixture, graph: &Path, operation: &str, decode: Decode) -> GraphOutput {
@@ -104,14 +98,13 @@ fn topology_checks_required_tables_and_every_source_block_it_renders() {
             "{tag:?}: {}",
             hubs.value
         );
-        for op in ["stats", "callers"] {
-            let selected = ask(&dir, op, "fn0000", 255, false);
-            assert_eq!(
-                selected.value["errorCode"], "decode",
-                "{tag:?}/{op}: {}",
-                selected.value
-            );
-        }
+        // `stats` reads no block; a row answer reads the damaged one.
+        let selected = ask(&dir, "callers", "fn0000", 255, false);
+        assert_eq!(
+            selected.value["errorCode"], "decode",
+            "{tag:?}/callers: {}",
+            selected.value
+        );
     }
     for tag in [b"NODE", b"EDGE"] {
         let (offset, length) = section(&original, tag);

@@ -23,7 +23,7 @@ Trace one real call per variant: `$OCTO <tool> '<json>'` → `contracts/prepare.
 
 - Complexity on real corpora: quadratic scans over files/matches, sort-then-filter where filter-then-sort works, repeated regex compilation, reading whole files for a window.
 - Streaming and bounds: reads, pipes, and child processes are bounded (OOM, zombie LSP servers, ReDoS via backtracking `regexEngine:"pcre2"` patterns).
-- Parallelism only where measured; claims need `octocode-eval-benchmark` or a release-profile timing.
+- Parallelism only where measured; claims need an `octocode-agentic` measurement or a release-profile timing.
 
 ## Caching
 

@@ -12,7 +12,7 @@ use crate::id::ToolId;
 use crate::providers::artifact::ArtifactError;
 use crate::response::paging::{self, PartialReason};
 use crate::response::result::Continuation;
-use octocode_contract_types::ErrorCode;
+use octocode_contract_types::{ErrorCode, SecurityCheckView};
 use serde_json::{Map, Value, json};
 use std::{future::Future, pin::Pin};
 
@@ -485,6 +485,7 @@ pub(super) async fn run(
     repo: &str,
     resume: Option<&str>,
     brief: Map<String, Value>,
+    view: SecurityCheckView,
     net: &Net<'_>,
 ) -> Result<Value, ArtifactError> {
     let (owner, name) = parse(repo)?;
@@ -618,6 +619,7 @@ pub(super) async fn run(
         let mut next = brief;
         next.insert("operation".into(), json!("repository"));
         next.insert("repo".into(), json!(repo));
+        super::summary::carry(view, &mut next);
         next.insert("resume".into(), json!(saved.token()));
         data["calls"]["nextPage"] =
             Continuation::continued(ToolId::SecurityCheck, Value::Object(next)).build();
@@ -628,7 +630,26 @@ pub(super) async fn run(
         );
     }
     crate::response::result::finish_calls(&mut data);
-    Ok(data)
+    Ok(in_view(view, repo, data))
+}
+
+/// The finished row as `view` states it.
+fn in_view(view: SecurityCheckView, repo: &str, data: Value) -> Value {
+    let mut query = Map::new();
+    query.insert("operation".into(), json!("repository"));
+    query.insert("repo".into(), json!(repo));
+    super::summary::apply(
+        view,
+        data,
+        super::summary::Target {
+            query,
+            asked_name: None,
+            asked_version: None,
+            unfixed_in_major: 0,
+            // A repository row counts and cautions; it never says `affected`.
+            gives_verdict: false,
+        },
+    )
 }
 
 #[cfg(test)]

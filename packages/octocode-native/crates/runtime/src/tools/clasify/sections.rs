@@ -230,6 +230,7 @@ pub(super) fn run(
             context,
             octocode_engine::memory::MEMORY.limit(),
             &shared.captures,
+            None,
         )?
     };
     session.github_identity = dispatcher.retained_github_identity(context)?;
@@ -315,6 +316,93 @@ fn withheld_saved_source(
                 ..withheld
             })
         })
+}
+
+/// One judged section of a source judged whole: its target lines and each
+/// question's outcome, in question order (`None`: not assessed).
+pub(super) struct JudgedSection {
+    pub lines: Value,
+    pub cells: Vec<Option<Value>>,
+}
+
+/// A source judged whole in sections within one call.
+pub(super) struct Whole {
+    /// The resource row a `sections` call shows for it: status, snapshot.
+    pub metadata: Value,
+    pub sections: Vec<JudgedSection>,
+    pub usage: ClassificationUsage,
+    pub model: Option<String>,
+}
+
+/// Judge one `source` whole in sections: the plan a `sections` row makes for
+/// it at the long grain, every section judged with every question
+/// concurrently under the call's gate and deadline. Nothing is kept: the
+/// caller combines the sections into one answer per question.
+pub(super) fn whole(
+    row: &Row,
+    source: &Value,
+    dispatcher: &dyn SourceReader,
+    context: &ExecutionContext,
+) -> Result<Whole, ClassificationError> {
+    let questions = row
+        .keys
+        .iter()
+        .cloned()
+        .zip(row.questions.iter().cloned())
+        .collect::<serde_json::Map<_, _>>();
+    let input = json!({"resources":{"source":source},"questions":questions});
+    let (mut session, _, _) = capture::create(
+        row,
+        &input,
+        dispatcher,
+        context,
+        octocode_engine::memory::MEMORY.limit(),
+        &capture::Pool::default(),
+        Some(capture::LONG_CONTEXT_SECTION_CHARS),
+    )?;
+    let admitted: Vec<[usize; 2]> = session
+        .resources
+        .iter()
+        .enumerate()
+        .flat_map(|(resource, planned)| (0..planned.units.len()).map(move |unit| [resource, unit]))
+        .collect();
+    let pending: Vec<Vec<usize>> = admitted
+        .iter()
+        .map(|&[resource, unit]| {
+            session.resources[resource].units[unit]
+                .cells
+                .iter()
+                .enumerate()
+                .filter_map(|(index, cell)| cell.is_none().then_some(index))
+                .collect()
+        })
+        .collect();
+    let results = assess::judge_units(&session, &admitted, &pending, dispatcher, context);
+    let mut usage = ClassificationUsage::default();
+    assess::apply_results(
+        &mut session,
+        &admitted,
+        pending,
+        results.into_iter(),
+        &mut usage,
+    );
+    let model = session.resolved_model.take();
+    let Some(resource) = session.resources.into_iter().next() else {
+        return Err(unavailable("The source named no resource to judge."));
+    };
+    Ok(Whole {
+        metadata: resource.metadata,
+        sections: resource
+            .units
+            .into_iter()
+            .map(|unit| JudgedSection {
+                lines: unit.metadata["target"]["lines"].clone(),
+                cells: unit.cells,
+            })
+            .collect(),
+        usage,
+        model,
+    })
 }
 
 fn new_id(input: &Value) -> String {

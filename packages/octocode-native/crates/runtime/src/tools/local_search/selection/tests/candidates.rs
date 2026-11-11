@@ -153,6 +153,7 @@ fn hits_are_ordered_by_source_position() {
         value_digest: [0; 32],
         count: None,
         rank: None,
+        window_start: None,
     };
     let file = TextSearchFile {
         term_counts: Vec::new(),

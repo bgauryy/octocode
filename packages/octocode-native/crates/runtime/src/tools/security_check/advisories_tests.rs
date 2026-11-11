@@ -155,6 +155,7 @@ async fn the_repository_row_merges_github_with_osv_by_id_and_lists_each_advisory
         "lodash/lodash",
         None,
         serde_json::Map::new(),
+        octocode_contract_types::SecurityCheckView::Details,
         &net(&http, &budget, &reused, &config, &github),
     )
     .await
@@ -164,7 +165,8 @@ async fn the_repository_row_merges_github_with_osv_by_id_and_lists_each_advisory
     assert_eq!(rows.len(), expected, "{data}");
     let merged = rows.iter().find(|row| row["id"] == first).expect("merged");
     assert_eq!(
-        merged["summary"], "from OSV",
+        merged["link"],
+        format!("https://osv.dev/vulnerability/{first}"),
         "OSV's record leads: {merged}"
     );
     assert!(
@@ -192,6 +194,7 @@ async fn a_refused_page_leaves_the_row_partial_with_the_reset_time_and_no_adviso
         "lodash/lodash",
         None,
         serde_json::Map::new(),
+        octocode_contract_types::SecurityCheckView::Details,
         &net(&http, &budget, &reused, &config, &github),
     )
     .await
@@ -233,6 +236,7 @@ async fn a_later_page_that_fails_keeps_the_advisories_read_and_marks_github_part
         "lodash/lodash",
         None,
         serde_json::Map::new(),
+        octocode_contract_types::SecurityCheckView::Details,
         &net(&http, &budget, &reused, &config, &github),
     )
     .await
@@ -272,6 +276,7 @@ async fn a_private_repositorys_advisory_ids_are_never_sent_to_osv_and_the_row_sa
         "lodash/lodash",
         None,
         serde_json::Map::new(),
+        octocode_contract_types::SecurityCheckView::Details,
         &net(&http, &budget, &reused, &config, &github),
     )
     .await
@@ -340,6 +345,7 @@ async fn a_repository_whose_visibility_github_did_not_state_never_has_advisory_i
         "lodash/lodash",
         None,
         serde_json::Map::new(),
+        octocode_contract_types::SecurityCheckView::Details,
         &net(&http, &budget, &reused, &config, &github),
     )
     .await
@@ -372,6 +378,7 @@ async fn a_public_repositorys_advisories_are_still_merged_with_osv() {
         "lodash/lodash",
         None,
         serde_json::Map::new(),
+        octocode_contract_types::SecurityCheckView::Details,
         &net(&http, &budget, &reused, &config, &github),
     )
     .await
@@ -408,6 +415,7 @@ async fn osv_asked_for_a_repositorys_advisories_is_a_source_even_when_it_knows_n
         "lodash/lodash",
         None,
         serde_json::Map::new(),
+        octocode_contract_types::SecurityCheckView::Details,
         &net(&http, &budget, &reused, &config, &github),
     )
     .await
@@ -472,6 +480,7 @@ async fn the_advisories_are_asked_of_osv_together_not_one_after_another() {
         "lodash/lodash",
         None,
         serde_json::Map::new(),
+        octocode_contract_types::SecurityCheckView::Details,
         &net,
     )
     .await
@@ -507,6 +516,7 @@ async fn an_osv_failure_for_one_advisory_keeps_github_rows_and_names_the_unread_
         "lodash/lodash",
         None,
         serde_json::Map::new(),
+        octocode_contract_types::SecurityCheckView::Details,
         &net(&http, &budget, &reused, &config, &github),
     )
     .await
@@ -515,8 +525,8 @@ async fn an_osv_failure_for_one_advisory_keeps_github_rows_and_names_the_unread_
     let rows = data["advisories"].as_array().expect("advisories");
     assert_eq!(rows.len(), expected, "every GitHub row stays: {data}");
     assert_eq!(
-        rows.iter().find(|row| row["id"] == read).expect("read")["summary"],
-        "from OSV",
+        rows.iter().find(|row| row["id"] == read).expect("read")["link"],
+        format!("https://osv.dev/vulnerability/{read}"),
         "{data}"
     );
     let osv = data["sources"]
@@ -587,7 +597,12 @@ fn a_github_advisory_row_keeps_its_scores_epss_publisher_credits_and_address() {
         "{:?}",
         row.references
     );
-    assert_eq!(row.brief()["epss"]["percentile"], 0.80029);
+    // The list row leaves EPSS to the record's own row.
+    assert!(row.brief().get("epss").is_none());
+    assert_eq!(
+        serde_json::to_value(&row).expect("row")["epss"]["percentile"],
+        0.80029
+    );
 }
 
 /// A public repository's advisory OSV keeps no record of is one ready
@@ -607,6 +622,7 @@ async fn a_repository_row_offers_each_advisory_osv_lacks_with_its_repo() {
         "lodash/lodash",
         None,
         serde_json::Map::new(),
+        octocode_contract_types::SecurityCheckView::Details,
         &net(&http, &budget, &reused, &config, &github),
     )
     .await
@@ -651,7 +667,11 @@ fn a_github_record_states_its_class_as_github_type() {
     for kind in ["reviewed", "unreviewed", "malware"] {
         let advisory = of(kind);
         assert_eq!(advisory.github_type.as_deref(), Some(kind));
-        assert_eq!(advisory.brief()["githubType"], kind);
+        // A list row states the class only when it is a caution.
+        assert_eq!(
+            advisory.brief().get("githubType"),
+            (kind != "reviewed").then(|| json!(kind)).as_ref()
+        );
         assert_eq!(
             serde_json::to_value(&advisory).expect("row")["githubType"],
             kind
@@ -675,6 +695,7 @@ async fn a_repository_row_never_counts_a_withdrawn_advisory_as_published() {
         "lodash/lodash",
         None,
         serde_json::Map::new(),
+        octocode_contract_types::SecurityCheckView::Details,
         &net(&http, &budget, &reused, &config, &github),
     )
     .await
@@ -707,6 +728,7 @@ async fn a_withdrawn_duplicate_never_hides_a_live_repository_advisory() {
         "lodash/lodash",
         None,
         serde_json::Map::new(),
+        octocode_contract_types::SecurityCheckView::Details,
         &net(&http, &budget, &reused, &config, &github),
     )
     .await
@@ -719,4 +741,34 @@ async fn a_withdrawn_duplicate_never_hides_a_live_repository_advisory() {
     let rows = data["advisories"].as_array().expect("advisories");
     assert_eq!(rows.len(), 1, "{data}");
     assert!(rows[0].get("withdrawn").is_none(), "{data}");
+}
+
+/// A maintainer writes patched versions free hand, as a list or as ranges:
+/// each fix is stated once, as the version OSV's `fixed` event names, and a
+/// range's upper bound is no fix, so no entry is a range.
+#[test]
+fn patched_ranges_state_each_fix_once_as_a_version() {
+    let fixes = |patched: &str, first: Option<&str>| {
+        let advisory: RepositoryAdvisory = serde_json::from_value(json!({
+            "ghsa_id": "GHSA-aaaa-bbbb-cccc",
+            "summary": "s",
+            "vulnerabilities": [{"package": {"ecosystem": "npm", "name": "x"},
+                "vulnerable_version_range": "< 6.2.6", "patched_versions": patched,
+                "first_patched_version": first}],
+        }))
+        .expect("advisory");
+        row(&advisory, &Selection::All).expect("row").fixed_in
+    };
+    assert_eq!(
+        fixes(
+            ">=6.2.6, >=6.1.5, <6.2.0, >= 6.0.15 < 6.1.0, 5.4.18",
+            Some("6.2.6")
+        ),
+        ["6.2.6", "6.1.5", "6.0.15", "5.4.18"]
+    );
+    assert_eq!(fixes("2.0.0, 1.5.3", None), ["2.0.0", "1.5.3"]);
+    // Only a fixed version is listed: a bound that names none is left to the
+    // record's own text on the `advisory` row.
+    assert!(fixes("< 2.0.0", None).is_empty());
+    assert_eq!(fixes(">1.9.9, 2.0.0", None), ["2.0.0"]);
 }

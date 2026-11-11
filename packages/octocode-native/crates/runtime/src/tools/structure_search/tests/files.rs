@@ -7,7 +7,7 @@ fn snapshots_bind_corpus_and_response_budget_and_offer_fresh_restart() {
         for n in 0..8 {
             root.write(&format!("sub/f{n}.rs"), "one\ntwo\n");
         }
-        let row = json!({"operation":operation,"path":root.0.join("sub")});
+        let row = json!({"operation":operation,"view":"details","path":root.0.join("sub")});
         let first = run_budget(&root.0, row, 1).expect("first");
         let mut next = first["next"]["nextPage"]["input"]["queries"][0].clone();
         assert!(next.is_object(), "{first}");
@@ -55,7 +55,7 @@ fn tree_and_files_summaries_count_symlinks_alike() {
     let summary = |operation: &str| {
         let out = run(
             &root.0,
-            json!({"operation":operation,"path":root.0.join("links")}),
+            json!({"operation":operation,"view":"details","path":root.0.join("links")}),
         )
         .expect("listing");
         out["summary"].clone()
@@ -79,7 +79,7 @@ fn summaries_total_the_listing_not_the_whole_walk() {
         let out = with_window(2, || {
             run(
                 &root.0,
-                json!({"operation": operation, "path": root.0, "entryType": "file"}),
+                json!({"operation":operation,"view":"details", "path": root.0, "entryType": "file"}),
             )
         })
         .expect("listing");

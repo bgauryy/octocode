@@ -5,7 +5,9 @@ use crate::id::ToolId;
 use crate::response::result::{insert_next, remove_null_fields};
 use crate::tools::gh_search_history::gh_search_history_query;
 use crate::tools::gh_shared::commit;
-use crate::tools::gh_shared::{SearchCompleteness, SearchWindow, apply_partial, pick_rows};
+use crate::tools::gh_shared::{
+    SearchCompleteness, SearchWindow, apply_partial, lean_rows, pick_rows,
+};
 use octocode_github::HistoryPage;
 use serde_json::{Value, json};
 
@@ -201,7 +203,40 @@ pub(super) fn shape(
         );
     }
     disclose_provider_limits(&mut value, query, paging, narrow);
+    // `effectiveQuery` is the request in GitHub's search syntax: it explains
+    // an answer the rows do not (none matched, or GitHub capped or cut the
+    // search). Beside a whole page of rows it only restates the request.
+    if value["status"] != "empty"
+        && !paging.capped
+        && !paging.incomplete
+        && let Some(fields) = value.as_object_mut()
+    {
+        fields.remove("effectiveQuery");
+    }
     value
+}
+
+/// What a history row leaves to a `fields` pick. A default row names the
+/// item (number or SHA), dates it and states its title or headline (a pull
+/// request or issue also its `state`, a commit its `merge` mark): enough to
+/// choose the one to read. Who wrote it, its labels, its comment count and
+/// its target branch are read by `fields`, or by ghGetHistoryItem.
+const PULL_REQUEST_DETAIL: &[&str] = &["author", "labels", "commentsCount", "baseRef"];
+const ISSUE_DETAIL: &[&str] = &["author", "labels", "commentsCount"];
+const COMMIT_DETAIL: &[&str] = &["author", "committer"];
+
+/// `detail` less the field the rows are sorted by: a page ranked by comment
+/// count states each row's count, since the order is the answer.
+fn detail_unless_sorted(query: &HistorySearch, detail: &'static [&'static str]) -> Vec<&'static str> {
+    let sorted = match gh_search_history_query::sort(query).as_deref() {
+        Some("comments") => Some("commentsCount"),
+        _ => None,
+    };
+    detail
+        .iter()
+        .copied()
+        .filter(|field| Some(*field) != sorted)
+        .collect()
 }
 
 /// Whether pull-request rows keep `createdAt` beside `mergedAt`: when they
@@ -221,10 +256,14 @@ fn pull_requests(query: &HistorySearch, items: &[Value], paging: &Paging, terms:
     let fields = gh_search_history_query::fields(query);
     let state = query.state();
     let keep_created = keeps_created(query);
+    let by_update = gh_search_history_query::sort(query).as_deref() == Some("updated");
     let rows = items
         .iter()
         .map(|item| {
             let mut row = rows::map_pr(item.clone());
+            if by_update {
+                rows::state_updated(&mut row, item);
+            }
             rows::drop_implied(&mut row, state.as_deref(), keep_created, &fields);
             rows::name_repository(
                 &mut row,
@@ -237,6 +276,12 @@ fn pull_requests(query: &HistorySearch, items: &[Value], paging: &Paging, terms:
         .collect::<Vec<_>>();
     let mut v = json!({"pullRequests":rows,"effectiveQuery":terms,
         "pagination":paging.pagination()});
+    lean_rows(
+        &mut v,
+        "pullRequests",
+        &detail_unless_sorted(query, PULL_REQUEST_DETAIL),
+        &fields,
+    );
     pick_rows(
         &mut v,
         "pullRequests",
@@ -294,6 +339,12 @@ fn issues(query: &HistorySearch, items: &[Value], paging: &Paging, terms: String
         .collect::<Vec<_>>();
     let mut v = json!({"issues":issues,
         "effectiveQuery":terms,"pagination":paging.pagination()});
+    lean_rows(
+        &mut v,
+        "issues",
+        &detail_unless_sorted(query, ISSUE_DETAIL),
+        &fields,
+    );
     pick_rows(&mut v, "issues", &["number", "owner", "repo"], &fields);
     if let Some(total) = paging.reported_total() {
         v["pagination"]["totalItems"] = json!(total);
@@ -327,6 +378,7 @@ fn commits(query: &HistorySearch, items: Vec<Value>, paging: &Paging) -> Value {
             })
             .collect::<Vec<_>>();
         let mut v = json!({"commits":commits});
+        lean_rows(&mut v, "commits", COMMIT_DETAIL, &fields);
         pick_rows(&mut v, "commits", &["commitSha", "owner", "repo"], &fields);
         // `shape` adds the reachable `next.nextPage`. A complete list says
         // so too (`hasMore:false`): the REST list has no total, so a missing
@@ -359,6 +411,7 @@ fn commits(query: &HistorySearch, items: Vec<Value>, paging: &Paging) -> Value {
         facts = facts.with_items(total);
     }
     let mut v = json!({"commits":commits,"pagination":facts.to_value()});
+    lean_rows(&mut v, "commits", COMMIT_DETAIL, &fields);
     pick_rows(&mut v, "commits", &["commitSha", "owner", "repo"], &fields);
     v
 }

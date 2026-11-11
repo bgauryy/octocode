@@ -267,3 +267,84 @@ fn a_validation_error_shown_as_text_states_its_issues() {
     };
     assert_eq!(two.to_string(), "a.0: first; second");
 }
+
+/// Every tool's rejected call ends with what repairs it when the cause is
+/// not enough: one request the tool accepts and the command that prints its
+/// schema, each once. The answer stays its causes and those two lines,
+/// never the schema itself.
+#[test]
+fn a_rejected_call_names_an_accepted_example_and_the_schema_command() {
+    for tool in crate::id::ToolId::ALL {
+        let tool = tool.as_str();
+        let error = prepare_rows(tool, json!({"queries": [{"noSuchField": 1}]}))
+            .map(|rows| {
+                rows.into_iter()
+                    .find_map(Result::err)
+                    .unwrap_or_else(|| panic!("{tool} rejects an unknown field"))
+            })
+            .unwrap_or_else(|error| error);
+        let envelope = format_input_error(tool, &error, &[]);
+        let details = envelope["details"].as_array().expect("details");
+        let lines = details.iter().filter_map(Value::as_str).collect::<Vec<_>>();
+        let examples = lines
+            .iter()
+            .filter_map(|line| line.strip_prefix("Example: "))
+            .collect::<Vec<_>>();
+        let [example] = examples.as_slice() else {
+            panic!("{tool}: one example, got {lines:?}");
+        };
+        let example: Value = serde_json::from_str(example).expect("the example is a request");
+        crate::contracts::validate(tool, example.clone())
+            .unwrap_or_else(|error| panic!("{tool}: its example {example} is rejected: {error}"));
+        assert_eq!(
+            lines.last().copied(),
+            Some(format!("Schema: octocode schema {tool}").as_str()),
+            "{tool}: {lines:?}"
+        );
+        assert!(
+            !envelope["error"].as_str().expect("cause").starts_with("Example"),
+            "{tool}: the cause leads: {envelope}"
+        );
+        assert!(
+            !envelope.to_string().contains("\"properties\""),
+            "{tool}: the answer is not the schema: {envelope}"
+        );
+    }
+    // A name that is no tool has no example to offer.
+    let unknown = format_input_error("noSuchTool", &ContractValidationError { issues: vec![] }, &[]);
+    assert!(unknown.get("details").is_none(), "{unknown}");
+}
+
+/// A value the input guard refused sits in a well-formed call: the cause
+/// names the whole repair, so no unrelated example or schema pointer
+/// follows it. Beside a shape issue the reference still comes.
+#[test]
+fn a_refused_value_is_its_own_repair_without_an_example() {
+    let refused = super::issue(
+        "security.credential",
+        vec!["queries".into(), "0".into(), "matchString[]".into()],
+        "Value looks like a credential and was not run",
+    );
+    let envelope = format_input_error("localSearch", &refused, &[]);
+    assert!(envelope.get("details").is_none(), "{envelope}");
+
+    let mut mixed = refused;
+    mixed.issues.push(
+        super::issue(
+            "schema.type",
+            vec!["queries".into(), "0".into(), "path".into()],
+            "Expected a string",
+        )
+        .issues
+        .remove(0),
+    );
+    let envelope = format_input_error("localSearch", &mixed, &[]);
+    assert!(
+        envelope["details"]
+            .as_array()
+            .is_some_and(|lines| lines.iter().any(|line| line
+                .as_str()
+                .is_some_and(|line| line.starts_with("Example: ")))),
+        "{envelope}"
+    );
+}

@@ -12,6 +12,8 @@ use octocode_engine::types::FileSystemEntry;
 pub(in crate::tools::structure_search) struct Ranking {
     order: Vec<usize>,
     delivered: Vec<Option<String>>,
+    /// The sort's key, whose value a names-only row states.
+    key: Option<octocode_contract_types::StructureSearchSortAnyOrderBy>,
 }
 
 impl Ranking {
@@ -39,7 +41,11 @@ impl Ranking {
             }
         }
         rank(&mut order, sort, entries, lines, &delivered);
-        Self { order, delivered }
+        Self {
+            order,
+            delivered,
+            key: super::super::files::sort_key(sort),
+        }
     }
 
     /// The entries in listing order, by their index in the walk.
@@ -62,25 +68,27 @@ impl Ranking {
                 let path = self.delivered[at]
                     .take()
                     .unwrap_or_else(|| Row::listed_path(&entries[at], root, security));
-                Row::of(&entries[at], path, lines.get(at).copied().flatten())
+                Row::of(&entries[at], path, lines.get(at).copied().flatten(), self.key)
             })
             .collect()
     }
 }
 
-/// The rows of `entries`, already in listing order, each with its line count
-/// from `lines` (empty when none was counted).
+/// The rows of `entries`, already in listing order by `sort`, each with its
+/// line count from `lines` (empty when none was counted).
 pub(in crate::tools::structure_search) fn rows_of(
     entries: &[FileSystemEntry],
     lines: &[Option<Lines>],
     (root, security): (&std::path::Path, &ContentSecurity),
+    sort: &StructureSearchSort,
 ) -> Vec<Row> {
+    let key = super::super::files::sort_key(sort);
     entries
         .iter()
         .enumerate()
         .map(|(at, entry)| {
             let path = Row::listed_path(entry, root, security);
-            Row::of(entry, path, lines.get(at).copied().flatten())
+            Row::of(entry, path, lines.get(at).copied().flatten(), key)
         })
         .collect()
 }

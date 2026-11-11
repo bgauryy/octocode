@@ -298,3 +298,37 @@ fn cross_repository_rows_name_owner_and_repo() {
         json!({"commitSha":"abc", "owner":"acme", "repo":"widget"})
     );
 }
+
+/// `effectiveQuery` restates the request in GitHub's search syntax. It
+/// explains an answer the rows do not (nothing matched, or GitHub cut the
+/// search short); beside a whole page of rows it is left out.
+#[test]
+fn the_search_terms_are_said_only_where_the_rows_do_not_explain_the_answer() {
+    let query: GhSearchHistoryQuery = serde_json::from_value(json!({"operation":"pullRequest",
+        "owner":"o","repo":"r","keywords":["fix"]}))
+    .expect("query");
+    let query = search(&query).expect("search");
+    let shaped = |items: Vec<Value>, incomplete: bool| {
+        let page = octocode_github::HistoryPage {
+            total_count: items.len(),
+            incomplete_results: incomplete,
+            items,
+            warnings: Vec::new(),
+            listed: false,
+            has_more: false,
+        };
+        let paging = super::shape::Paging::new(&page, 1, 10);
+        super::shape::shape(&query, page, &paging, "fix is:pr repo:o/r".to_owned())
+    };
+    let row = || {
+        json!({"number":1,"title":"t","state":"open","user":{"login":"a"},
+        "created_at":"2026-01-01T00:00:00Z"})
+    };
+    let hit = shaped(vec![row()], false);
+    assert_eq!(hit["pullRequests"][0]["number"], 1, "{hit}");
+    assert!(hit.get("effectiveQuery").is_none(), "{hit}");
+    let empty = shaped(Vec::new(), false);
+    assert_eq!(empty["effectiveQuery"], "fix is:pr repo:o/r", "{empty}");
+    let cut = shaped(vec![row()], true);
+    assert_eq!(cut["effectiveQuery"], "fix is:pr repo:o/r", "{cut}");
+}

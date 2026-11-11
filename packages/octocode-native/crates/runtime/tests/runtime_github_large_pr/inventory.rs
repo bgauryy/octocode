@@ -56,20 +56,15 @@ async fn pr_inventory_carries_the_identity_header_and_its_own_next_steps_only() 
     let data = run(&server, json!({"sections":["files"]})).await;
     let row = &data["pullRequests"][0];
     // A section read keeps what names the PR and the commits code is read at.
-    for kept in [
-        "number",
-        "title",
-        "author",
-        "state",
-        "headSha",
-        "mergeCommitSha",
-    ] {
+    for kept in ["number", "state", "headSha", "mergeCommitSha"] {
         assert!(row.get(kept).is_some(), "{kept} missing: {row}");
     }
     // The first page of a file inventory states how many files it lists.
     assert_eq!(row["changedFilesCount"], 250, "{row}");
-    assert_eq!(row["additions"], 5000);
-    assert_eq!(row["labels"], json!(["refactor"]));
+    // The rest of the header is the summary read's.
+    for summary_only in ["title", "author", "additions", "labels", "createdAt"] {
+        assert!(row.get(summary_only).is_none(), "{summary_only}: {row}");
+    }
     // One page holds the whole inventory: it states no block, and the
     // count is the list itself.
     assert!(row["contentPagination"].get("files").is_none(), "{row}");

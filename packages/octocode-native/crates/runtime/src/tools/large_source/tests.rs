@@ -54,7 +54,6 @@ fn fetch(
         file.path(),
         &opened(file.path()),
         &std::fs::metadata(file.path()).expect("meta"),
-        None,
         share,
         &crate::security::ContentSecurity::with_limits(LIMITS),
         &NeverCancel,
@@ -200,6 +199,35 @@ fn unterminated_key_redacts_its_body_run_and_leaves_later_code_readable() {
         "{window}"
     );
     assert_eq!(streamed.key_lines, 4);
+}
+
+/// A key block the pass replaces line by line is no key marker left in the
+/// text its scanner judges: a line of base64 far from an unterminated block
+/// stays the source's own, as a read of the same bytes held whole shows it.
+#[test]
+fn an_unterminated_key_hides_no_line_outside_its_block() {
+    let innocent = "QUJDREVGR0hJSktMTU5PUFFSU1RVinnocentB64VldYWVowMTIzNDU2Nzg5";
+    let body = "MIIEpQIBAAKCAQEAinteriorKeyBodyQWERTYAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    let text =
+        format!("{innocent}\nlet a = 1;\n-----BEGIN OPENSSH PRIVATE KEY-----\n{body}\n{body}\n");
+    let file = temp(text.as_bytes());
+    let streamed = stream_one(file.path(), 1, 5);
+    let window = String::from_utf8(streamed.window).expect("utf8");
+    assert!(!window.contains("interior"), "{window}");
+    assert!(
+        window.starts_with(&format!("{innocent}\nlet a = 1;\n")),
+        "{window}"
+    );
+    let whole = crate::tools::source_view::prepare::sealed_view(
+        text.as_bytes(),
+        file.path(),
+        &crate::security::ContentSecurity::new(),
+    )
+    .expect("sealed");
+    assert_eq!(
+        window, whole.text,
+        "the stream seals as the whole read does"
+    );
 }
 
 /// Every request proves the full source again and preserves selected windows,

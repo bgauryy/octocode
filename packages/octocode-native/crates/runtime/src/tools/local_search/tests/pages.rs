@@ -165,36 +165,70 @@ fn a_walk_of_spans_on_one_line_judges_the_line_once() {
 /// shows a file keeps its judgment for the rest of the walk. So whole-source
 /// judgment costs one scan per shown file, never one per hit or per page.
 /// Every hit is delivered once, with its line.
+///
+/// The pass of a text is kept by its digest beyond the walk
+/// (`tools::judged_rows`): a matchOnly page and a second walk of the same
+/// files, each a fresh search, scan nothing, and a file whose text changed
+/// is scanned again, alone.
 #[test]
 fn a_walk_of_many_hits_judges_each_file_once() {
     let root = tempfile::tempdir().expect("fixture");
     let (files, hits) = (40usize, 50usize);
     let mut bytes = 0;
-    for file in 0..files {
-        let body = (0..hits)
+    let body_of = |file: usize| {
+        (0..hits)
             .map(|hit| format!("const v{hit} = needle({file}, {hit});\n// plain line {hit}\n"))
-            .collect::<String>();
+            .collect::<String>()
+    };
+    for file in 0..files {
+        let body = body_of(file);
         bytes += body.len();
         fs::write(root.path().join(format!("f{file:02}.ts")), body).expect("file");
     }
     settle();
-    let before = crate::tools::local_search::verify::judged_on_this_thread();
-    let started = std::time::Instant::now();
+    let asked = crate::tools::local_search::verify::judged_on_this_thread;
+    let scanned = crate::security::scanned_on_this_thread;
+    let (before, scanned_before) = (asked(), scanned());
     let (walk, pages) = walk_search(
         root.path(),
         serde_json::json!({"path":root.path(),"matchString":["needle"]}),
         None,
     );
-    let judged = crate::tools::local_search::verify::judged_on_this_thread() - before;
-    eprintln!(
-        "{} hits, {} pages, {bytes} source bytes, {judged} bytes judged, {:?}",
-        walk.rows.len(),
-        pages.len(),
-        started.elapsed()
-    );
     assert_eq!(walk.rows.len(), files * hits, "each hit once");
     assert!(pages.len() > 1, "one page");
-    assert!(judged <= bytes, "{judged} bytes judged of {bytes}");
+    // Each file's text once: its bytes, less its last line break.
+    let once = bytes - files;
+    assert_eq!(asked() - before, once, "each file judged once a walk");
+    assert_eq!(scanned() - scanned_before, once, "each file scanned once");
+
+    // Fresh searches of the same texts: a page of spans, and the walk again.
+    let scanned_before = scanned();
+    let (spans, _) = walk_search(
+        root.path(),
+        serde_json::json!({"path":root.path(),"matchString":["needle"],"view":"matchOnly"}),
+        None,
+    );
+    assert_eq!(spans.rows.len(), files * hits, "each span once");
+    let (again, _) = walk_search(
+        root.path(),
+        serde_json::json!({"path":root.path(),"matchString":["needle"]}),
+        None,
+    );
+    assert_eq!(again.rows, walk.rows, "the same walk");
+    assert_eq!(scanned() - scanned_before, 0, "kept passes scan nothing");
+
+    // Another text of one file is another digest: it alone is scanned.
+    let changed = format!("{}const last = needle(0, 0);\n", body_of(0));
+    fs::write(root.path().join("f00.ts"), &changed).expect("file");
+    settle();
+    let scanned_before = scanned();
+    let (after, _) = walk_search(
+        root.path(),
+        serde_json::json!({"path":root.path(),"matchString":["needle"]}),
+        None,
+    );
+    assert_eq!(after.rows.len(), files * hits + 1, "the new hit too");
+    assert_eq!(scanned() - scanned_before, changed.len() - 1, "one file");
 }
 
 /// A continuation of a stored scan prices about the rows it shows, not
@@ -496,6 +530,7 @@ fn the_read_handoff_windows_hits_without_reading_the_file() {
             line: hit,
             column: None,
             value: "x".into(),
+            window_start: None,
             byte_offset: 0,
             first_line: hit,
             match_lines: None,
@@ -567,10 +602,14 @@ fn overlapping_context_windows_reconstruct_every_requested_source_line_once() {
     }
 }
 
+/// A line a row holds whole (no longer than the smallest byte page of a
+/// read) stays whole on a page whose budget it outgrows.
 #[test]
 fn complete_unicode_values_are_retained_even_when_larger_than_the_page_budget() {
     let root = tempfile::tempdir().expect("fixture");
-    let source = format!("needle {} END_OF_EVIDENCE\n", "λ🦀text ".repeat(3000));
+    let source = format!("needle {} END_OF_EVIDENCE\n", "λ🦀text ".repeat(350));
+    assert!(source.len() <= crate::tools::source_view::pagination::MIN_BYTE_PAGE);
+    assert!(octocode_engine::json_size::string_body_units(&source) > 2500);
     fs::write(root.path().join("a.txt"), &source).expect("source");
     let (policy, security) = policy_for(root.path());
     let q = ls_query(
@@ -677,20 +716,17 @@ fn a_file_lists_each_declaration_once_and_hits_name_it_by_index() {
     assert_eq!(owners, [0, 0, 1]);
 }
 
-/// A declaration lists the same start lines in localSearch `declarations[]`
-/// as in astSearch `symbols`: `docStartLine` (its doc comment) and
-/// `startLine` (its attributes) when they come before the name line, so a
-/// read from either starts at the same line. A declaration with neither
-/// lists neither.
+/// A declaration in localSearch `declarations[]` is its identity and one
+/// locator: `symbolName`, `kind`, `line` (the name line astSearch `symbols`
+/// prints) and `endLine`; `line`-`endLine` is the localFetch range that reads
+/// it. Its attribute and doc lines stay with astSearch `symbols`, so a row
+/// carries neither `startLine` nor `docStartLine`.
 #[test]
-fn declarations_carry_the_start_lines_astsearch_symbols_print() {
+fn declarations_carry_one_locator_and_no_start_lines() {
     let root = tempfile::tempdir().expect("fixture directory");
     let source = root.path().join("a.rs");
-    fs::write(
-        &source,
-        "/// Checks the needle.\n/// Twice.\n#[test]\n#[allow(dead_code)]\nfn checked() {\n    needle();\n}\nfn plain() {\n    needle();\n}\n",
-    )
-    .expect("fixture");
+    let text = "/// Checks the needle.\n/// Twice.\n#[test]\n#[allow(dead_code)]\nfn checked() {\n    needle();\n}\nfn plain() {\n    needle();\n}\n";
+    fs::write(&source, text).expect("fixture");
     let (policy, security) = policy_for(root.path());
     let request = ls_query(
         serde_json::json!({"path": root.path().to_string_lossy(), "matchString":["needle"]}),
@@ -725,24 +761,36 @@ fn declarations_carry_the_start_lines_astsearch_symbols_print() {
             .cloned()
             .unwrap_or_else(|| panic!("{name} in {symbols}"))
     };
-    let lines = |row: &serde_json::Value| {
-        (
-            row["line"].as_u64(),
-            row["startLine"].as_u64(),
-            row["docStartLine"].as_u64(),
-        )
-    };
     assert_eq!(declarations.len(), 2, "{result}");
-    for declaration in &declarations {
-        let name = declaration["symbolName"].as_str().expect("name");
-        assert_eq!(lines(declaration), lines(&symbol(name)), "{declaration}");
+    let source_lines: Vec<&str> = text.lines().collect();
+    for (declaration, (name, line, end)) in declarations
+        .iter()
+        .zip([("checked", 5, 7), ("plain", 8, 10)])
+    {
+        let fields: Vec<&str> = declaration
+            .as_object()
+            .expect("declaration row")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            fields,
+            ["symbolName", "kind", "line", "endLine"],
+            "{declaration}"
+        );
+        assert_eq!(declaration["symbolName"], name, "{declaration}");
+        assert_eq!(declaration["line"], line, "{declaration}");
+        assert_eq!(declaration["endLine"], end, "{declaration}");
+        assert_eq!(declaration["line"], symbol(name)["line"], "{declaration}");
+        assert_eq!(
+            declaration["endLine"],
+            symbol(name)["endLine"],
+            "{declaration}"
+        );
+        // The range reads the declaration whole: its header to its closing brace.
+        assert!(source_lines[line - 1].starts_with(&format!("fn {name}(")));
+        assert_eq!(source_lines[end - 1], "}");
     }
-    assert_eq!(
-        lines(&declarations[0]),
-        (Some(5), Some(3), Some(1)),
-        "{result}"
-    );
-    assert_eq!(lines(&declarations[1]), (Some(8), None, None), "{result}");
 }
 
 /// `matchOnly` selects each hit's text and place; the content view is the one

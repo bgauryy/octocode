@@ -89,6 +89,37 @@ pub(crate) fn clean_cut(text: &str, at: usize) -> usize {
     }
 }
 
+/// [`clean_cut`] of `at` when `floor`, at or before it, is itself a clean
+/// cut of `text`: no marker covering `at` opens before `floor`, so the scan
+/// for one looks no further back. Many cuts of one long line, taken in
+/// order, read the line once.
+#[must_use]
+pub(crate) fn clean_cut_from(text: &str, floor: usize, at: usize) -> usize {
+    let mut at = text.floor_char_boundary(at.min(text.len())).max(floor);
+    if at > floor && splits_crlf(text, at) {
+        at -= 1;
+    }
+    match marker_around(text, floor, at) {
+        Marker::Around(marker) => marker.start,
+        Marker::None => at,
+    }
+}
+
+/// The first clean cut of `text` at or after `at` (see [`clean_cut`]), when
+/// `floor`, at or before it, is itself one: `at` moved past its character,
+/// the `\r\n` pair it would split and the redaction marker it falls inside.
+#[must_use]
+pub(crate) fn clean_cut_past(text: &str, floor: usize, at: usize) -> usize {
+    let mut at = text.ceil_char_boundary(at.min(text.len())).max(floor);
+    if splits_crlf(text, at) {
+        at += 1;
+    }
+    match marker_around(text, floor, at) {
+        Marker::Around(marker) => marker.end,
+        Marker::None => at,
+    }
+}
+
 /// Whether byte `at` is a cut [`clean_cut`] leaves where it is: a cursor
 /// naming any other byte was not emitted by a window of `text`.
 #[must_use]

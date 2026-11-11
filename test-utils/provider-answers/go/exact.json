@@ -5,7 +5,8 @@
   "operation": "resolve",
   "ecosystem": "go",
   "packageName": "github.com/pkg/errors",
-  "version": "v0.9.1"
+  "version": "v0.9.1",
+  "view": "details"
  },
  "recordedAt": "2026-11-08",
  "unread": [

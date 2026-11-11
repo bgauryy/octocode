@@ -104,7 +104,7 @@ fn capped_incompatible_grammar_preserves_partial_coverage_and_reaches_later_gram
     let next = first["next"]["expandScan"]["input"]["queries"][0].clone();
     assert!(next.is_object(), "{first}");
     let last = run(&root.0, next).expect("the later grammar is named, not a failure");
-    assert_eq!(last["matchCount"], 0, "{last}");
+    assert_eq!(last["status"], "empty", "{last}");
     assert_eq!(last["skippedGrammars"], json!({"typescript":1}), "{last}");
     assert!(last["next"].get("expandScan").is_none(), "{last}");
     // A pattern no grammar reads is an error in a capped window too: no later
@@ -145,7 +145,7 @@ fn a_final_window_of_an_inapplicable_grammar_is_whole_and_names_it() {
     let next = first["next"]["expandScan"]["input"]["queries"][0].clone();
     assert!(next.is_object(), "{first}");
     let last = run(&root.0, next).expect("last grammar cannot invalidate earlier hits");
-    assert_eq!(last["matchCount"], 0, "{last}");
+    assert_eq!(last["status"], "empty", "{last}");
     // The walk met a grammar that compiles the rule (the earlier window's),
     // so the python file is outside what the rule applies to: the final
     // window is whole and names it.
