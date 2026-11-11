@@ -87,9 +87,9 @@ async fn issue_read_lists_closing_pull_requests_and_reads_the_merged_fix() {
     let issue = &data["issues"][0];
     assert_eq!(
         issue["closedBy"],
+        // #13794 was closed without merging: it declared a fix, it closed nothing.
         json!([
-            {"number": 13825, "state": "merged", "mergedAt": "2026-09-25T00:29:36Z"},
-            {"number": 13794, "state": "closed"}
+            {"number": 13825, "state": "merged", "mergedAt": "2026-09-25T00:29:36Z"}
         ]),
         "{data}"
     );
@@ -155,7 +155,7 @@ async fn issue_body_windows_keep_closing_reference_coverage() {
         .mount(&server)
         .await;
     let nodes = (0..25)
-        .map(|n| json!({"number": 101 + n, "state": "CLOSED", "mergedAt": null}))
+        .map(|n| json!({"number": 101 + n, "state": "MERGED", "mergedAt": "2026-10-01T00:00:00Z"}))
         .collect::<Vec<_>>();
     Mock::given(method("POST"))
         .and(path("/api/graphql"))

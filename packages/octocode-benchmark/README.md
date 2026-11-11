@@ -207,7 +207,7 @@ curl -sL -A octocode-benchmark https://crates.io/api/v1/crates/serde | wc -c
 
 ## Classification
 
-Main-agent token savings per task are owned by the [classification guide](../../docs/OCTOCODE_CLASIFY.md#benchmarks-main-agent-tokens-with-and-without-jev).
+Main-agent token savings per task are owned by the [classification guide](../../docs/OCTOCODE_CLASIFY.md#main-agent-tokens-with-and-without-jev).
 
 Offering it is not the same as using it. In a paired run over 40 local and 30 GitHub questions (2026-10-13, `gpt-5.6-terra`), agents made no `clasify` or goal calls in the enabled arm, so no general saving appeared: enabled ÷ disabled character ratios were 1.009 (95% CI 0.885–1.137) locally and 1.041 (0.923–1.179) on GitHub.
 
@@ -372,7 +372,7 @@ Then add its row to that folder's `README.md`.
 compare/       CLI matchups: bin/ wrappers and timing, github-questions/, per-run folders
 skills/        octocode-benchmark skill: protocol, primers, judging, preflight
 scripts/       scripted harness: runners, guards, measurement, judges and tests
-prompts/       worker briefs and primers for the scripted harness
+prompts/       worker briefs and primers; check-local.md and check-github.md: hand checks vs smart rg/ast-grep and gh lean
 local/         local cookbook, repos/, e2e/, questions, pinned datasets, saved-run review
 external/      GitHub cookbook and questions
 dashboard/     dashboard source, data builder and release notes

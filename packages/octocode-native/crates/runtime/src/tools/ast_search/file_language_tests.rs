@@ -151,13 +151,15 @@ fn match_parses_files_named_by_language_globs() {
 
 /// Without `languageGlobs`, the files no grammar parses are named in one
 /// warning by their workspace paths, with the field that maps them to a
-/// grammar; the parsed scope stays whole.
+/// grammar; the parsed scope stays whole. A file of binary content (an
+/// image) is source of no language: never counted or named.
 #[test]
 fn match_reports_files_skipped_without_a_grammar() {
     let root = Fixture::new();
     for name in NAMED_FILES {
         root.write(name, SCRIPT);
     }
+    root.write("logo.png", "\u{89}PNG\r\n\u{1a}\n\u{0}\u{0}\u{0}\rIHDR");
     let out = run(
         &root.0,
         json!({"operation":"match","path":root.0,"rule":{"kind":"function_declaration"}}),

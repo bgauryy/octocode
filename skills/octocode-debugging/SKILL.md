@@ -1,6 +1,6 @@
 ---
 name: octocode-debugging
-description: "Debug crashes, hangs, deadlocks and wrong values with breakpoints, stacks and locals. Profile CPU functions/callers, memory/allocations, processes, timing, event-loop/GC, I/O and browser/GPU work. Use for profiling requests, bottlenecks, leaks or unexplained slowness."
+description: "Use when diagnosing or fixing an observed crash, hang, wrong result, failing test, slow request or memory leak. Reproduce the workload, inspect logs, breakpoints, stacks or profiles, test rival causes and rerun the failure. Covers CPU, memory, async waits and latency, especially in Node.js and Rust."
 ---
 
 # Octocode Debugging
@@ -24,6 +24,8 @@ flowchart LR
 ## Reason → act → observe
 
 Use [controlled experiments](references/experiments.md): state a hypothesis and rival, predict a difference, run one probe, inspect the artifact, then update the hypothesis. Repeat until the reproduction and a regression check establish the cause. The reference covers structured logs, bounded reproduction loops, spikes and browser–Node–Rust correlation.
+
+Use the [investigation prompts](references/investigation-prompts.md) to turn a debugging or profiling request into an executable investigation. Before changing behavior, preserve a failing reproduction or regression test. After an unsuccessful fix, update the hypothesis from new evidence instead of stacking speculative changes. If reproduction is unavailable, report the uncertainty and the next discriminating probe.
 
 ## Reproduce first
 

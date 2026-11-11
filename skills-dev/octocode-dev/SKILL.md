@@ -1,6 +1,6 @@
 ---
 name: octocode-dev
-description: "Develop and verify the Octocode monorepo. Run setup, builds, tests, lint and release preparation, regenerate contracts, or audit a tool or configuration across its owning layers."
+description: "Use when developing or verifying the Octocode monorepo: setup, builds, tests, lint, release preparation, contract regeneration, or tool and configuration audits across their owning layers."
 ---
 
 # Octocode Dev
@@ -14,6 +14,7 @@ octo() { node packages/octocode/out/octocode.js "$@"; }
 
 For tool calls see [MCP and CLI usage](references/octocode-usage.md).
 Delegating more than one task: [orchestration](references/orchestration.md) (dependency graph, briefs, standups, one build, fresh retest).
+Checking tools and workflows: [tool checks](references/tool-checks.md) (direct calls judged by reading, compared with gh/rg; no saved harness scripts).
 
 ## Task runner
 

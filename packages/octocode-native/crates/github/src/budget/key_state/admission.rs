@@ -158,7 +158,9 @@ impl KeyState {
         cancellation: &Cancellation,
         client_waits: &ClientWaits,
     ) -> Result<(Option<Reserved>, Vec<OwnedSemaphorePermit>), ProviderError> {
-        let kind = waits::slot_kind(config, group);
+        // A group's start gap, fixed or derived from the reported quota, is
+        // routine spacing: how every request of the group is sent.
+        let kind = ClientWaitKind::Spacing;
         let mut permits = Vec::with_capacity(2);
         let plan = SlotPlan::new(group, config, 1, deadline);
         let persisted = matches!(group, Group::Search | Group::CodeSearch | Group::Graphql);

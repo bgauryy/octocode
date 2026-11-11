@@ -1,6 +1,6 @@
 ---
 name: octocode-clean-agentic-code
-description: "Remove proven dead code, unused exports, duplicate helpers, debug logs and agent leftovers; investigate weakened tests while preserving behavior and useful contracts."
+description: "Use when cleaning up existing code without changing behavior: proven dead code, unused exports, duplicate helpers, temporary logs and agent leftovers. Check callers and contracts before removal; report weakened tests or masked defects rather than hiding failures."
 ---
 
 # Octocode clean agentic code

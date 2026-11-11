@@ -128,7 +128,8 @@ async fn crate_default_release(
 }
 
 /// The commit a GitHub-hosted crate version was packaged from (cargo's VCS
-/// info, with the crate's directory in the repository), else its upstream
+/// info, with the crate's directory in the repository), checked against the
+/// version's upstream release tag as npm's recorded commit is; else that
 /// release tag.
 async fn crate_source_ref(artifact: &mut ArtifactItem, client: &RegistryClient<'_>) {
     let (Some(repository), Some(version)) = (artifact.repository.clone(), artifact.version.clone())
@@ -138,12 +139,14 @@ async fn crate_source_ref(artifact: &mut ArtifactItem, client: &RegistryClient<'
     if !repository.contains("github.com") {
         return;
     }
+    let name = artifact.package_name.clone();
     if let Some((sha, directory)) = vcs::crate_vcs(&artifact.package_name, &version, client).await {
-        artifact.source_ref = Some(sha);
+        artifact.source_ref = Some(sha.clone());
         artifact.repository_directory = directory.filter(|directory| !directory.is_empty());
+        super::release_ref::check_commit_against_tag(artifact, &name, &version, &sha, client)
+            .await;
         return;
     }
-    let name = artifact.package_name.clone();
     super::release_ref::pin_release_tag(artifact, &name, &version, None, client).await;
 }
 

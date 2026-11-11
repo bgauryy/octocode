@@ -29,13 +29,18 @@ fn another_analysis_version_is_refused_by_every_operation_and_rebuilt() {
     as_previous_analysis(&graph_dir);
 
     let refused = ask(root, "stats", None, |o| o.check_freshness = true);
+    // It exists: the refusal says it must be rebuilt, never that it is missing.
     assert_eq!(
         refused.class,
-        ExitClass::of(ErrorCode::NotFound),
+        ExitClass::of(ErrorCode::SnapshotIncompatible),
         "{}",
         refused.value
     );
-    assert_eq!(refused.value["errorCode"], "notFound", "{}", refused.value);
+    assert_eq!(
+        refused.value["errorCode"], "snapshotIncompatible",
+        "{}",
+        refused.value
+    );
     let message = refused.value["error"].as_str().expect("error");
     for stated in [
         old_id.clone(),

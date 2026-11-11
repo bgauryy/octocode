@@ -65,19 +65,20 @@ fn placed_values(text: &str, held: bool) -> Vec<std::ops::Range<usize>> {
         }
         let regex = pattern_regex_for(idx, text);
         // A pattern with no `secret` group spells the credential itself; one
-        // with a group spells where a credential stands, whatever stands
-        // there: a placeholder (`postgres://user:password@localhost`) is none.
-        let by_shape = VALUE_TESTS[idx] == ValueTest::Every;
-        let placed = !secret_groups(regex).is_empty();
+        // with a group spells where a credential stands, and its own test
+        // judged what stands there as a file's read judges it: a placeholder
+        // (`postgres://user:password@localhost`, `Bearer <token>`) is none,
+        // any other value is one ([`ValueTest::Placed`]).
+        let own_judgement = matches!(VALUE_TESTS[idx], ValueTest::Every | ValueTest::Placed);
         Judge::of(idx, scope, text, None).secrets(regex, text, |_, secret| {
             let Some(value) = text.get(secret.clone()) else {
                 return;
             };
-            let is_credential = if by_shape && placed {
-                ValueTest::Written.redacts("", value) || is_opaque_text(value)
-            } else {
-                by_shape || is_opaque_text(value)
-            };
+            // A value a rule finds under a name is one its own test judged
+            // a credential as a file holds it, at any length: a request
+            // clears only a value that names a type or a field to find
+            // (`password: str`), which no opaque word of any length is.
+            let is_credential = own_judgement || is_opaque_text(value);
             if is_credential == held {
                 values.push(secret);
             }
@@ -86,27 +87,23 @@ fn placed_values(text: &str, held: bool) -> Vec<std::ops::Range<usize>> {
     values
 }
 
-/// Whether a word of `value` is opaque, its quotes aside.
+/// Whether a word of `value` is opaque ([`named_values::is_opaque_word`]),
+/// its quotes aside.
 fn is_opaque_text(value: &str) -> bool {
-    value.split_whitespace().any(|piece| {
-        named_values::is_opaque(
-            piece.trim_matches(credential_values::QUOTES),
-            credential_values::OPAQUE_LITERAL_CHARS,
-        )
-    })
+    value
+        .split_whitespace()
+        .any(|piece| named_values::is_opaque_word(piece.trim_matches(credential_values::QUOTES)))
 }
-
-/// What ends a sentence or a clause after a value: no part of the value.
-const SENTENCE_CLOSERS: [char; 5] = ['.', ',', ';', ')', '?'];
 
 /// Whether a name with a credential word, anywhere in `text`, is followed by
 /// its operator and a value whose first word is a credential by that name
-/// ([`ValueTest::Named`]: opaque, and no value such a name publishes or
-/// locates). The file rules that read `name: value` and `NAME=value` start at
-/// a line's start and read to its end, and the rule that reads a name in any
-/// layout takes one run of [`crate::security::patterns::OPAQUE_CHARS`]: a
-/// request is a sentence, where the name follows other words, words follow
-/// the value, and a generated password holds any symbol (`&`).
+/// ([`named_values::named_word`]: opaque, and no value such a name
+/// publishes or locates). The file rules that read `name: value` and
+/// `NAME=value` start at a line's start and read to its end, and the rule
+/// that reads a name in any layout takes one run of
+/// [`crate::security::patterns::OPAQUE_CHARS`]: a request is a sentence,
+/// where the name follows other words, words follow the value, and a
+/// generated password holds any symbol (`&`).
 fn names_an_opaque_value(text: &str) -> bool {
     !named_opaque_values(text).is_empty()
 }
@@ -134,14 +131,8 @@ fn named_opaque_values(text: &str) -> Vec<std::ops::Range<usize>> {
             let Some(word) = rest.split_whitespace().next() else {
                 continue;
             };
-            let opened = word.trim_start_matches(credential_values::QUOTES);
-            let own = opened
-                .trim_end_matches(credential_values::QUOTES)
-                .trim_end_matches(SENTENCE_CLOSERS)
-                .trim_end_matches(credential_values::QUOTES);
-            if ValueTest::Named.redacts(name, own) {
-                let at = value + (word.len() - opened.len());
-                values.push(at..at + own.len());
+            if let Some(own) = named_values::named_word(name, word) {
+                values.push(value + own.start..value + own.end);
             }
         }
     }
@@ -150,14 +141,11 @@ fn named_opaque_values(text: &str) -> Vec<std::ops::Range<usize>> {
     values
 }
 
-/// What states a name's value in a sentence, in place of an operator.
-const STATES_A_VALUE: &str = "is";
-
 /// The values a sentence of `text` states for a credential's name with no
-/// operator (`the password is …`): the word after the name is
-/// [`STATES_A_VALUE`], and the one after that is a credential by that name
-/// ([`ValueTest::Named`]), which no word of prose is (`the password is
-/// required`, `the token is expired`).
+/// operator (`the password is …`, `my password was: …`): the word after the
+/// name states a value ([`named_values::states_a_value`]), and the one after
+/// that is a credential by that name ([`named_values::named_word`]), which no
+/// word of prose is (`the password is required`, `the token was expired`).
 fn stated_opaque_values(text: &str) -> Vec<std::ops::Range<usize>> {
     let mut values = Vec::new();
     let (mut name, mut states) = ("", "");
@@ -169,18 +157,12 @@ fn stated_opaque_values(text: &str) -> Vec<std::ops::Range<usize>> {
         if word.is_empty() {
             continue;
         }
-        let opened = word.trim_start_matches(credential_values::QUOTES);
-        let own = opened
-            .trim_end_matches(credential_values::QUOTES)
-            .trim_end_matches(SENTENCE_CLOSERS)
-            .trim_end_matches(credential_values::QUOTES);
-        if states.eq_ignore_ascii_case(STATES_A_VALUE)
+        if named_values::states_a_value(states)
             && code_syntax::names_a_credential_word(name)
             && name.chars().all(code_syntax::is_key_char)
-            && ValueTest::Named.redacts(name, own)
+            && let Some(own) = named_values::named_word(name, word)
         {
-            let at = at + (word.len() - opened.len());
-            values.push(at..at + own.len());
+            values.push(at + own.start..at + own.end);
         }
         (name, states) = (states, word);
     }
@@ -277,12 +259,24 @@ fn spells_most_of_a_credential(text: &str) -> bool {
         return false;
     };
     forms.into_iter().any(|(filled, stands_in)| {
+        // The characters written, without those a wildcard stands for: a
+        // value that writes only a placeholder (`pass` in `user:pass.@`)
+        // spells no credential, whatever the wildcard adds.
+        let written_text = |value: &std::ops::Range<usize>| {
+            filled
+                .char_indices()
+                .filter(|(at, _)| value.contains(at) && stands_in.get(*at) == Some(&false))
+                .map(|(_, c)| c)
+                .collect::<String>()
+        };
         let mostly_written = |value: &std::ops::Range<usize>| {
             let stood_in = stands_in
                 .get(value.clone())
                 .map_or(0, |bytes| bytes.iter().filter(|stands| **stands).count());
             let written = value.len() - stood_in;
-            stood_in > 0 && written * WRITTEN_SHARE.1 >= value.len() * WRITTEN_SHARE.0
+            stood_in > 0
+                && written * WRITTEN_SHARE.1 >= value.len() * WRITTEN_SHARE.0
+                && !credential_values::is_written_placeholder(&written_text(value))
         };
         pattern_values(&filled).iter().any(mostly_written)
             || named_opaque_values(&filled).iter().any(mostly_written)

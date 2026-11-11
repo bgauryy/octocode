@@ -1,6 +1,6 @@
 ---
 name: octocode-skills
-description: "Use when finding, creating, improving, reviewing, checking, installing or syncing Agent Skills (SKILL.md), or turning a recurring workflow into a skill. Covers trigger descriptions, minimal-context entries, reference routing and missed or overlapping activation."
+description: "Use when finding, creating, improving, reviewing, validating, installing or syncing Agent Skills and SKILL.md files. Covers concise entries, descriptions and triggers, overlapping activation, reference routing and standalone packaging. Use octocode-agentic for broader prompt behavior and controlled activation experiments."
 ---
 
 # Octocode Skills

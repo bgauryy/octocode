@@ -218,6 +218,10 @@ fn prepare_rows_from(
             .chain(batch.envelope)
             .collect();
         issues.dedup();
+        // A request that mixes forms is read as no form: that leads, and
+        // the row issues of the form it was not are the details.
+        issues
+            .sort_by_key(|issue| !(issue.rule_id == "schema.union-mixed" && issue.path.is_empty()));
         ContractValidationError { issues }
     };
     if failed == 0 && batch.envelope.is_empty() {

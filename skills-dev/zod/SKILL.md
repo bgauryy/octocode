@@ -1,6 +1,6 @@
 ---
 name: zod
-description: "Create, change, review or test Zod schemas, or migrate v3 to v4. Covers parsing, inferred types, composition, errors, transforms and boundary tests against the installed version."
+description: "Use when creating, changing, reviewing or testing Zod schemas, or migrating v3 to v4. Covers parsing, inferred types, composition, errors, transforms and boundary tests against the installed version."
 license: MIT
 user-invocable: false
 agentic: false

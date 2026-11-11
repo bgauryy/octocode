@@ -3,8 +3,10 @@
 //! lines, an object or a list of objects nested under its key (`- ` leads
 //! each list item), a list of strings one `- ` item per line, numbers and
 //! flags inline. A list whose items all hold the same single field names it
-//! once (`nodes[].node:`). Every field prints; nothing is clipped.
+//! once (`nodes[].node:`); a list of flat rows prints as a [`table`]. Every
+//! field prints; nothing is clipped.
 use super::follow::split_stated;
+use super::table::{is_word, table};
 use super::{Row, tail, words};
 use serde_json::{Map, Value};
 
@@ -29,15 +31,6 @@ pub(super) fn object(fields: &Map<String, Value>, indent: &str, out: &mut Vec<St
     }
 }
 
-/// A value no wider than one word: it reads unambiguously among words.
-fn is_word(value: &Value) -> bool {
-    match value {
-        Value::String(text) => !text.is_empty() && !text.contains(char::is_whitespace),
-        Value::Number(_) | Value::Bool(_) | Value::Null => true,
-        _ => false,
-    }
-}
-
 /// `head` (`key:` or `-`) and `value`, nested `indent` deep.
 fn entry(head: &str, value: &Value, indent: &str, out: &mut Vec<String>) {
     let inner = format!("{indent}  ");
@@ -58,6 +51,12 @@ fn entry(head: &str, value: &Value, indent: &str, out: &mut Vec<String>) {
             indent,
             out,
         );
+    }
+    if let Value::Array(items) = value
+        && let Some(key) = head.strip_suffix(':')
+        && let Some(mut lines) = table(key.trim_start(), items, indent)
+    {
+        return out.append(&mut lines);
     }
     match value {
         Value::String(text) if text.contains('\n') => {

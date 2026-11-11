@@ -2,29 +2,51 @@
 use super::*;
 
 /// The snapshot's size, coverage and build facts. Its rankings are `hubs`
-/// rows (most imported, most called), one call away: `related` is that call.
+/// rows, one call away: `related` offers one call whose rows rank the most
+/// imported files and packages (`hubs`) and the most called symbols (`hubs`
+/// over `calls`).
 ///
 /// `view:"summary"` (the default) is what decides the next call: size,
 /// import and call linkage, languages and how many diagnostics there are.
-/// `view:"details"` adds the breakdowns behind those numbers and the build's
-/// own measurements; the summary's `related` offers that call once.
+/// `view:"details"` adds the breakdowns behind those numbers, the build's
+/// own measurements and what the rankings read (`callConfidence`,
+/// `testEdges`); the summary's `related` offers that call once.
 pub(super) fn stats(g: &Graph, options: &QueryOptions) -> Result<GraphOutput, GraphOutput> {
     let m = &g.manifest;
     let details = options.view.as_deref() == Some(STATS_DETAILS);
-    let lead = |operation: &str, view: Option<&str>| {
+    let row = |operation: &str, field: Option<(&str, Value)>| {
         let mut row = Map::new();
         row.insert("operation".into(), json!(operation));
         super::paging::pin(&mut row, options, &g.id);
-        if let Some(view) = view {
-            row.insert("view".into(), json!(view));
+        if let Some((name, value)) = field {
+            row.insert(name.into(), value);
         }
-        crate::response::result::Continuation::related(
-            crate::id::ToolId::GraphQuery,
-            Value::Object(row),
-        )
-        .build()
+        Value::Object(row)
     };
-    let mut related = vec![lead("hubs", None)];
+    // The rankings `hubs` answers read production edges only, calls at the
+    // default confidence floor: what the calls ranking reads.
+    let ranked_calls = EdgeFilter {
+        kinds: vec![EdgeKind::Calls],
+        weakest: DEFAULT_CONFIDENCE,
+        tests: true,
+    }
+    .production();
+    let calls = json!(
+        ranked_calls
+            .kinds
+            .iter()
+            .map(|kind| kind.as_str())
+            .collect::<Vec<_>>()
+    );
+    // One call answers both rankings: the most imported files and packages
+    // (`hubs`, imports by default) and the most called symbols.
+    let mut related = vec![
+        crate::response::result::Continuation::related_input(
+            crate::id::ToolId::GraphQuery,
+            json!({"queries": [row("hubs", None), row("hubs", Some(("edges", calls)))]}),
+        )
+        .build(),
+    ];
     let mut answer = json!({
         "graph": g.summary(),
         "operation": "stats",
@@ -49,7 +71,18 @@ pub(super) fn stats(g: &Graph, options: &QueryOptions) -> Result<GraphOutput, Gr
                 whole.retain(|key, _| kept.contains(&key.as_str()));
             }
         }
-        related.push(lead("stats", Some(STATS_DETAILS)));
+        related.push(
+            crate::response::result::Continuation::related(
+                crate::id::ToolId::GraphQuery,
+                row("stats", Some(("view", json!(STATS_DETAILS)))),
+            )
+            .build(),
+        );
+    } else {
+        answer["callConfidence"] = json!(ranked_calls.weakest.as_str());
+        if !ranked_calls.tests {
+            answer["testEdges"] = json!("excluded");
+        }
     }
     answer["related"] = Value::Array(related);
     Ok(GraphOutput::ok(answer))

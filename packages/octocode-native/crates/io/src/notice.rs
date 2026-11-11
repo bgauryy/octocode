@@ -37,6 +37,73 @@ pub struct Scope(Arc<Notices>, Option<Progress>);
 
 thread_local! {
     static THREAD: RefCell<Option<Scope>> = const { RefCell::new(None) };
+    static RESULT: RefCell<Option<ResultNotes>> = const { RefCell::new(None) };
+}
+
+/// What one call says in its own result rather than on stderr: the first
+/// note of each kind, in the order raised ([`raise_in_result`]). The runtime
+/// enters one per call where its rows run and states what it holds in the
+/// response's `warnings`, so the line never lands outside the envelope.
+/// Work handed to another thread carries it as it carries the [`Scope`]
+/// ([`carried`]).
+#[derive(Clone, Default)]
+pub struct ResultNotes(Arc<Notices>);
+
+impl ResultNotes {
+    /// Make these the current thread's result notes until the guard drops.
+    #[must_use = "the notes stop collecting when the guard drops"]
+    pub fn enter(&self) -> EnteredResult {
+        let previous = RESULT.with(|thread| thread.replace(Some(self.clone())));
+        EnteredResult {
+            previous,
+            _thread: std::marker::PhantomData,
+        }
+    }
+
+    fn current() -> Option<Self> {
+        RESULT.with(|thread| thread.borrow().clone())
+    }
+
+    /// The notes said so far, removed: each is stated once.
+    #[must_use]
+    pub fn take(&self) -> Vec<String> {
+        std::mem::take(&mut *lock(&self.0))
+            .into_iter()
+            .map(|(_, text)| text)
+            .collect()
+    }
+}
+
+/// The thread's [`ResultNotes`], entered by [`ResultNotes::enter`]; dropping
+/// it restores the ones the thread had before.
+pub struct EnteredResult {
+    previous: Option<ResultNotes>,
+    _thread: std::marker::PhantomData<*const ()>,
+}
+
+impl Drop for EnteredResult {
+    fn drop(&mut self) {
+        let previous = self.previous.take();
+        RESULT.with(|thread| *thread.borrow_mut() = previous);
+    }
+}
+
+/// Say `text` in the result of the call running this code, once per kind
+/// ([`ResultNotes`]); never on stderr. Code that runs for no call (no notes
+/// entered) has no result to say it in, so it is said as [`raise`] says it.
+pub fn raise_in_result(kind: &'static str, text: impl Into<String>) {
+    match ResultNotes::current() {
+        Some(notes) => record(&notes.0, kind, &scrubbed(text.into())),
+        None => raise(kind, text),
+    }
+}
+
+/// `text` through the installed scrubber ([`set_scrubber`]).
+fn scrubbed(text: String) -> String {
+    match SCRUBBER.get() {
+        Some(scrub) => scrub(&text),
+        None => text,
+    }
 }
 
 /// The notice kinds about the whole process, not one call: each call in
@@ -171,9 +238,10 @@ pub fn progress_sink() -> Option<Progress> {
 /// `work`, made to run in the caller's [`Scope`] on whichever thread runs
 /// it: how work handed to another thread keeps its call's notices.
 pub fn carried<R>(work: impl FnOnce() -> R) -> impl FnOnce() -> R {
-    let scope = Scope::current();
+    let (scope, notes) = (Scope::current(), ResultNotes::current());
     move || {
         let _in = scope.as_ref().map(Scope::enter);
+        let _noting = notes.as_ref().map(ResultNotes::enter);
         work()
     }
 }
@@ -223,11 +291,7 @@ pub fn raise(kind: &'static str, text: impl Into<String>) {
     reason = "the notice owner: stderr is where a notice is said"
 )]
 fn raise_among(kind: &'static str, text: impl Into<String>, process_kinds: &[&str]) {
-    let text: String = text.into();
-    let text = match SCRUBBER.get() {
-        Some(scrub) => scrub(&text),
-        None => text,
-    };
+    let text = scrubbed(text.into());
     match Scope::current() {
         Some(scope) => record(&scope.0, kind, &text),
         None if process_kinds.contains(&kind) => {
@@ -251,11 +315,7 @@ fn raise_among(kind: &'static str, text: impl Into<String>, process_kinds: &[&st
     reason = "the notice owner: stderr is where a diagnostic is said"
 )]
 pub fn emit(text: impl Into<String>, scope: Option<&Scope>) {
-    let text = text.into();
-    let text = match SCRUBBER.get() {
-        Some(scrub) => scrub(&text),
-        None => text,
-    };
+    let text = scrubbed(text.into());
     if let Some(scope) = scope {
         lock(&scope.0).push(("", text.clone()));
     }
@@ -386,6 +446,36 @@ mod tests {
                 "an unscoped request notice is in no call"
             );
         }
+    }
+
+    /// A note for the result is the call's own, carried to its workers,
+    /// said once per kind and never among the scope's stderr notices.
+    #[test]
+    fn a_result_note_stays_with_its_call_and_off_stderr() {
+        let (call, other) = (super::ResultNotes::default(), super::ResultNotes::default());
+        let scope = Scope::default();
+        {
+            let _in = scope.enter();
+            let _noting = call.enter();
+            super::raise_in_result("notice-test-result", "notice-test-result: one");
+            std::thread::spawn(carried(|| {
+                super::raise_in_result("notice-test-result", "notice-test-result: two");
+                super::raise_in_result("notice-test-result-b", "notice-test-result-b: b");
+            }))
+            .join()
+            .expect("worker");
+        }
+        assert_eq!(
+            call.take(),
+            ["notice-test-result: one", "notice-test-result-b: b"]
+        );
+        assert!(call.take().is_empty(), "taken once");
+        assert!(other.take().is_empty(), "not another call's");
+        assert!(
+            of(&scope, "notice-test-result").is_empty(),
+            "{:?}",
+            scope.notices()
+        );
     }
 
     /// Progress lines go to the call's listener, else its notices (a warm

@@ -119,7 +119,81 @@ async fn sized_server(entries: &[(&str, &str, u64)]) -> MockServer {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!(rows)))
         .mount(&server)
         .await;
+    // Each folder is empty: a size rank opens every level.
+    for (name, _, _) in entries.iter().filter(|(_, kind, _)| *kind == "dir") {
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v3/repos/a/b/contents/{name}")))
+            .and(query_param("ref", SHA))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .mount(&server)
+            .await;
+    }
     server
+}
+
+/// A size rank without `maxDepth` opens every folder, as "the largest files
+/// under a folder" reads: the largest nested file leads, and the page's read
+/// lead is that top row, not the listing's entry file. `maxDepth` still bounds it.
+#[tokio::test]
+async fn a_size_rank_opens_every_level_and_leads_to_its_top_row() {
+    let server = listing_server(&[]).await;
+    let top = [
+        json!({"path":"index.ts","type":"blob","size":10}),
+        json!({"path":"config.ts","type":"blob","size":900}),
+        json!({"path":"plugins","type":"tree"}),
+    ];
+    let mut whole = top.to_vec();
+    whole.push(json!({"path":"plugins/css.ts","type":"blob","size":1200}));
+    Mock::given(method("GET"))
+        .and(path(format!("/api/v3/repos/a/b/git/trees/{SHA}:node")))
+        .and(query_param("recursive", "1"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"sha": SHA, "truncated": false, "tree": whole})),
+        )
+        .with_priority(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("/api/v3/repos/a/b/git/trees/{SHA}:node")))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"sha": SHA, "truncated": false, "tree": top})),
+        )
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = github(&workspace, &server);
+    let ranked = |depth: Option<u64>| {
+        let mut row = json!({"operation":"tree","owner":"a","repo":"b","path":"node",
+            "sort":{"by":"sizeBytes","order":"desc"},"limit":2});
+        if let Some(depth) = depth {
+            row["maxDepth"] = json!(depth);
+        }
+        json!({"queries":[row]})
+    };
+    let outcome = call(&runtime, "ghStructure", ranked(None))
+        .await
+        .expect("ranked");
+    let data = row_data(&outcome);
+    assert_eq!(
+        data["files"],
+        json!([
+            {"dir": "node/plugins", "files": ["css.ts (1200)"]},
+            {"dir": "node", "files": ["config.ts (900)"]},
+        ]),
+        "{data}"
+    );
+    let read = &crate::support::checks::related_call(data, "ghGetFileContent", |_| true)["input"]["queries"]
+        [0];
+    assert_eq!(read["path"], "node/plugins/css.ts", "{data}");
+    // An explicit depth bounds the rank to the levels it names.
+    let outcome = call(&runtime, "ghStructure", ranked(Some(1)))
+        .await
+        .expect("bounded");
+    let data = row_data(&outcome);
+    assert_eq!(data["files"][0]["files"][0], "config.ts (900)", "{data}");
+    runtime.close().await;
 }
 
 /// Every entry of a listing walked through its opaque continuations, in the
@@ -252,6 +326,8 @@ async fn a_sort_over_a_partial_walk_says_what_it_ranked() {
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/sub"))
         .respond_with(ResponseTemplate::new(500))
+        // Before the empty folder `sized_server` mounts.
+        .with_priority(1)
         .mount(&server)
         .await;
     let workspace = Workspace::new();

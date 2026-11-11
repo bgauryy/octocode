@@ -33,6 +33,7 @@
   "nvd_published_at",
   "schema_version",
   "source_code_location",
+  "url",
   "vulnerabilities[*].package.ecosystem"
  ],
  "exchanges": [

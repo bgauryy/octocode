@@ -10,26 +10,41 @@ use std::path::Path;
 /// and last member's and its count ([`Group::finish`]).
 pub(crate) const GROUP_KIND: &str = "declarations";
 
-/// A merged page holds at most this share of the section grain
+/// A plan's merged page holds at most this share of the section grain
 /// (`target_chars`), the same share a section's supporting context gets. Whole
 /// pages at the full grain made every file under one section's size a single
 /// page, which no answer could narrow.
 const PAGE_SHARE: usize = 4;
 
+/// How large a merged page grows.
+#[derive(Clone, Copy)]
+pub(crate) enum Pages {
+    /// A share of the grain ([`PAGE_SHARE`]): a plan read one page at a
+    /// time, whose answers point into the file.
+    Share,
+    /// The whole grain: every page is judged at once and the grain is what
+    /// one request holds, so a smaller page is only another request.
+    Grain,
+}
+
 /// [`visit`], with consecutive byte-contiguous sections merged while their
-/// combined target stays within a share of `target_chars` (a section already
-/// larger than the share stays alone). A merged page keeps the first
-/// member's supporting context and covers exactly its members' bytes, so
-/// every selected byte still belongs to exactly one target.
+/// combined target stays within the `pages` size (a section already larger
+/// stays alone). A merged page keeps the first member's supporting context
+/// and covers exactly its members' bytes, so every selected byte still
+/// belongs to exactly one target.
 pub(crate) fn visit_grouped<E>(
     source: &str,
     path: &Path,
     selected: &[Range<usize>],
     target_chars: usize,
+    pages: Pages,
     mut emit: impl FnMut(Section) -> Result<bool, E>,
 ) -> Result<bool, E> {
     let mut pending: Option<Group> = None;
-    let page_chars = target_chars / PAGE_SHARE;
+    let page_chars = match pages {
+        Pages::Share => target_chars / PAGE_SHARE,
+        Pages::Grain => target_chars,
+    };
     let complete = visit(source, path, selected, target_chars, |section| {
         let chars = source[section.target.clone()].chars().count();
         if let Some(group) = &mut pending

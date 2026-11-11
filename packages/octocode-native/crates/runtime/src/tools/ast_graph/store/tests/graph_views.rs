@@ -176,10 +176,12 @@ fn not_found_path_suggests_only_nodes_under_its_directory() {
     assert_eq!(out.value["find"], "fmt", "{}", out.value);
 }
 
-/// Every symbol row of `find`, `symbols` and `hubs` carries a runnable
-/// lspSearch lead at its declaration, its path workspace-relative (the
-/// snapshot's root is `app`, below the workspace). Edge rows (`callers`)
-/// verify their edge instead: see the test after this one.
+/// The first symbol row of a `find`, `symbols` or `hubs` page carries a
+/// runnable lspSearch lead at its declaration, its path workspace-relative
+/// (the snapshot's root is `app`, below the workspace); the other symbol
+/// rows carry none, since each rebuilds the same call from its own `file`,
+/// `name` and `line`. Edge rows (`callers`) verify their edge instead: see
+/// the test after this one.
 #[test]
 fn symbol_rows_carry_a_workspace_relative_lsp_lead() {
     let dir = built();
@@ -202,19 +204,29 @@ fn symbol_rows_carry_a_workspace_relative_lsp_lead() {
     ];
     for out in &answers {
         let rows = out.value["rows"].as_array().unwrap();
-        assert!(!rows.is_empty(), "{}", out.value);
-        for row in rows.iter().filter(|row| row["kind"] == "symbol") {
-            let lead = &row["verify"][0]["input"]["queries"][0];
-            let path = lead["path"]
-                .as_str()
-                .unwrap_or_else(|| panic!("no lead: {row}"));
-            assert!(root.join(path).is_file(), "{path} does not exist: {row}");
-            let name = lead["symbolName"].as_str().unwrap();
-            assert!(
-                row["name"].as_str().unwrap().ends_with(name),
-                "{name}: {row}"
-            );
-            assert_eq!(lead["line"], row["line"], "{row}");
+        let mut symbols = rows.iter().filter(|row| row["kind"] == "symbol");
+        let row = symbols
+            .next()
+            .unwrap_or_else(|| panic!("no symbol row: {}", out.value));
+        let lead = &row["verify"][0]["input"]["queries"][0];
+        let path = lead["path"]
+            .as_str()
+            .unwrap_or_else(|| panic!("no lead: {row}"));
+        assert!(root.join(path).is_file(), "{path} does not exist: {row}");
+        // The lead is the row's own fields: the snapshot root, then `file`.
+        assert_eq!(
+            path,
+            format!("app/{}", row["file"].as_str().unwrap()),
+            "{row}"
+        );
+        let name = lead["symbolName"].as_str().unwrap();
+        assert!(
+            row["name"].as_str().unwrap().ends_with(name),
+            "{name}: {row}"
+        );
+        assert_eq!(lead["line"], row["line"], "{row}");
+        for other in symbols {
+            assert!(other.get("verify").is_none(), "{other}");
         }
     }
 }
@@ -578,9 +590,10 @@ fn witnesses_count_calls_filtered_by_confidence() {
 }
 
 /// Every edge kind the graph stores answers with rows that follow one lead
-/// rule: a row that is a symbol carries a runnable lspSearch lead, a file or
-/// package row carries none. The test walks `EdgeKind::ALL`, so a new kind
-/// must appear in the fixture and obey the rule.
+/// rule: the first symbol row of a page carries a runnable lspSearch lead
+/// (the others carry their edge's, or rebuild it from their own fields), a
+/// file or package row carries none. The test walks `EdgeKind::ALL`, so a
+/// new kind must appear in the fixture and obey the rule.
 #[test]
 fn every_edge_kind_leads_its_symbol_rows_and_only_them() {
     let dir = git_app(&[
@@ -598,26 +611,120 @@ fn every_edge_kind_leads_its_symbol_rows_and_only_them() {
     assert_eq!(built.class, ExitClass::Success, "{}", built.value);
     for kind in super::super::format::EdgeKind::ALL {
         let name = kind.as_str();
-        let mut rows = Vec::<Value>::new();
+        let mut listed = 0;
         for target in ["app.ts", "app.ts#main", "app.ts#Crate", "lib.ts"] {
             let out = ask(root, "deps", Some(target), |o| {
                 o.edges = vec![name.into()];
             });
-            rows.extend(out.value["rows"].as_array().cloned().unwrap_or_default());
-        }
-        assert!(!rows.is_empty(), "no {name} row in the fixture");
-        for row in &rows {
-            assert_eq!(row["edge"], name, "{row}");
-            let lead = row["verify"][0]["tool"].as_str();
-            if row["kind"] == "symbol" {
+            let rows = out.value["rows"].as_array().cloned().unwrap_or_default();
+            listed += rows.len();
+            let lead = |row: &Value| row["verify"][0]["tool"].as_str().map(str::to_owned);
+            if let Some(first) = rows.iter().find(|row| row["kind"] == "symbol") {
                 assert_eq!(
-                    lead,
+                    lead(first).as_deref(),
                     Some("lspSearch"),
-                    "{name} symbol row has no lead: {row}"
+                    "{name} first symbol row has no lead: {first}"
                 );
-            } else {
-                assert_eq!(lead, None, "{name} non-symbol row has a lead: {row}");
+            }
+            for row in &rows {
+                assert_eq!(row["edge"], name, "{row}");
+                if row["kind"] == "symbol" {
+                    assert!(
+                        lead(row).is_none_or(|tool| tool == "lspSearch"),
+                        "{name}: {row}"
+                    );
+                } else {
+                    assert_eq!(lead(row), None, "{name} non-symbol row has a lead: {row}");
+                }
             }
         }
+        assert!(listed > 0, "no {name} row in the fixture");
+    }
+}
+
+/// The stats summary's calls lead is the most-called ranking: run as
+/// offered, it ranks symbols by distinct production callers, and the details
+/// row states what that ranking read.
+#[test]
+fn stats_calls_lead_ranks_the_most_called_symbols() {
+    let dir = built();
+    let root = dir.0.as_path();
+    let stats = ask(root, "stats", None, |_| {});
+    let lead = stats.value["related"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|lead| {
+            lead["input"]["queries"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+        })
+        .find(|row| row["operation"] == "hubs" && row["edges"] == json!(["calls"]))
+        .unwrap_or_else(|| panic!("no calls hubs lead: {}", stats.value));
+    let hubs = ask(root, "hubs", None, |o| {
+        o.edges = vec!["calls".into()];
+        o.graph = lead["graph"].as_str().map(str::to_owned);
+    });
+    assert_eq!(hubs.class, ExitClass::Success, "{}", hubs.value);
+    let top = &hubs.value["rows"][0];
+    assert_eq!(top["id"], "util/fmt.ts#fmt", "{}", hubs.value);
+    assert_eq!(top["fanIn"], 2, "{}", hubs.value);
+    assert!(
+        hubs.value["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|row| row["kind"] == "symbol"),
+        "{}",
+        hubs.value
+    );
+    let details = ask(root, "stats", None, |o| o.view = Some("details".into()));
+    assert_eq!(details.value["callConfidence"], "high", "{}", details.value);
+    assert_eq!(details.value["testEdges"], "excluded", "{}", details.value);
+}
+
+/// A `hubs` ranking states what it counts once, on its first page, in
+/// `rankBy` (a fresh request's `edges` and defaulted `confidence` are echoes
+/// the runtime drops); a later page carries rows only.
+#[test]
+fn hubs_state_their_ranking_once_on_the_first_page() {
+    let dir = built();
+    let root = dir.0.as_path();
+    let first = ask(root, "hubs", None, |o| {
+        o.edges = vec!["calls".into()];
+        o.limit = Some(1);
+    });
+    assert_eq!(first.class, ExitClass::Success, "{}", first.value);
+    assert_eq!(
+        first.value["rankBy"], "fanIn of calls (confidence high)",
+        "{}",
+        first.value
+    );
+    assert_eq!(first.value["testEdges"], "excluded", "{}", first.value);
+    for duplicate in ["edges", "confidence"] {
+        assert!(first.value.get(duplicate).is_none(), "{}", first.value);
+    }
+    let imports = ask(root, "hubs", None, |o| o.direction = Some("out".into()));
+    assert_eq!(
+        imports.value["rankBy"], "fanOut of imports",
+        "{}",
+        imports.value
+    );
+    let later = ask(root, "hubs", None, |o| {
+        o.edges = vec!["calls".into()];
+        o.limit = Some(1);
+        o.offset = Some(1);
+    });
+    assert_eq!(later.class, ExitClass::Success, "{}", later.value);
+    assert!(
+        later.value["rows"]
+            .as_array()
+            .is_some_and(|rows| !rows.is_empty()),
+        "{}",
+        later.value
+    );
+    for header in ["rankBy", "testEdges", "edges", "confidence"] {
+        assert!(later.value.get(header).is_none(), "{}", later.value);
     }
 }

@@ -168,7 +168,30 @@ pub(super) fn entry_read(
     entries: &[TreeEntry],
     commit_sha: &str,
 ) -> Option<Value> {
-    let path = entry_path(query, entries.iter())?;
+    Some(file_read(
+        query,
+        entry_path(query, entries.iter())?,
+        commit_sha,
+    ))
+}
+
+/// The read a size-ranked page leads to: its top file, the rank's answer.
+pub(super) fn top_read(
+    query: &GhStructureQueryTree,
+    ranked: &[TreeEntry],
+    commit_sha: &str,
+) -> Option<Value> {
+    let top = ranked.iter().find(|entry| entry.kind == EntryKind::File)?;
+    Some(file_read(query, top.path.clone(), commit_sha))
+}
+
+/// Whether the listing ranks its files by size.
+pub(super) fn ranks_by_size(query: &GhStructureQueryTree) -> bool {
+    query.sort.by == octocode_contract_types::GhStructureTreeSortBy::SizeBytes
+}
+
+/// `path` read at `commit_sha`; source and docs outlined.
+fn file_read(query: &GhStructureQueryTree, path: String, commit_sha: &str) -> Value {
     let mut read = json!({
         "owner": query.owner.as_str(),
         "repo": query.repo.as_str(),
@@ -178,7 +201,7 @@ pub(super) fn entry_read(
     if crate::tools::outlines(&path) {
         read["view"] = json!("symbols");
     }
-    Some(crate::response::result::Continuation::related(ToolId::GhGetFileContent, read).build())
+    crate::response::result::Continuation::related(ToolId::GhGetFileContent, read).build()
 }
 
 /// The read a materialized listing leads to: [`entry_path`] over the entries

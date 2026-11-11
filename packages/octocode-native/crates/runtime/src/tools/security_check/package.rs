@@ -442,16 +442,16 @@ impl Upgrade {
         }
     }
 
-    /// `named` clears every advisory of `counted` (the row's own list);
-    /// `listed` adds the ones OSV lists on the way there.
+    /// `named` clears every advisory of `counted` (the row's own list). The
+    /// major-line note names only those: an advisory OSV lists at a skipped
+    /// candidate does not affect `version`, and `besides` says why it was skipped.
     fn to(
         version: &str,
         named: String,
         counted: &[SecurityAdvisory],
-        listed: &[SecurityAdvisory],
         besides: Option<String>,
     ) -> Self {
-        let gap = upgrade::major_gap(version, &named, listed);
+        let gap = upgrade::major_gap(version, &named, counted);
         let unfixed = upgrade::unfixed_in_major(version, &named, counted);
         // Advisories, not records: a GHSA record and its twin are one.
         let records = counted.iter().collect::<Vec<_>>();
@@ -490,6 +490,8 @@ async fn upgrade_for(confirmed: &Confirmed, results: &[SourceResult], net: &Net<
         return Upgrade::default();
     };
     let counted = listed.clone();
+    // Each candidate passed over, with what OSV lists at it.
+    let mut skipped: Vec<String> = Vec::new();
     let mut named = match upgrade::candidate(version, &listed) {
         Ok(candidate) => candidate,
         Err(why) => return Upgrade::none(format!("No upgrade named: {why}.")),
@@ -515,8 +517,18 @@ async fn upgrade_for(confirmed: &Confirmed, results: &[SourceResult], net: &Net<
             .into_iter()
             .flat_map(|result| result.advisories)
             .collect::<Vec<_>>();
+        let ids = at_named
+            .iter()
+            .map(|row| row.id.as_str())
+            .fold(Vec::new(), |mut ids, id| {
+                if !ids.contains(&id) {
+                    ids.push(id);
+                }
+                ids
+            })
+            .join(", ");
         if at_named.is_empty() {
-            return Upgrade::to(version, named, &counted, &listed, None);
+            return Upgrade::to(version, named, &counted, skipped_note(&skipped));
         }
         if let Some(still) = at_named
             .iter()
@@ -530,19 +542,25 @@ async fn upgrade_for(confirmed: &Confirmed, results: &[SourceResult], net: &Net<
         // Each step goes strictly higher, and the call's budget bounds the walk.
         match upgrade::candidate(&named, &at_named) {
             Ok(next) => {
+                skipped.push(format!("{named} (OSV lists {ids} at it)"));
                 listed.extend(at_named);
                 named = next;
             }
             Err(_) => {
-                let ids = at_named
-                    .iter()
-                    .map(|row| row.id.as_str())
-                    .collect::<Vec<_>>();
-                let others = format!("OSV lists other advisories at {named}: {}.", ids.join(", "));
-                return Upgrade::to(version, named, &counted, &listed, Some(others));
+                let others = format!("OSV lists other advisories at {named}: {ids}.");
+                let besides = match skipped_note(&skipped) {
+                    Some(note) => format!("{note} {others}"),
+                    None => others,
+                };
+                return Upgrade::to(version, named, &counted, Some(besides));
             }
         }
     }
+}
+
+/// Why lower candidates were passed over, in one sentence; `None` when none was.
+fn skipped_note(skipped: &[String]) -> Option<String> {
+    (!skipped.is_empty()).then(|| format!("Skipped {}.", skipped.join("; ")))
 }
 
 /// The anonymous read of the public registry: the one resolve path, with no

@@ -39,9 +39,28 @@ pub(super) fn heading(path: &str, file_note: Option<&str>, out: &mut Vec<String>
     });
 }
 
+/// The fields every hit of a file holds as a text value (`role call`): a
+/// run of hits with the same value states it once, on the first of the run.
+fn run_labels(matches: &[Value]) -> Vec<String> {
+    let Some(first) = matches.first().and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    first
+        .keys()
+        .filter(|key| !matches!(key.as_str(), "value" | "enclosing"))
+        .filter(|key| {
+            matches
+                .iter()
+                .all(|item| item.get(key.as_str()).is_some_and(Value::is_string))
+        })
+        .cloned()
+        .collect()
+}
+
 /// The hit lines of one file. Hit lines are `matchedLines` when present,
 /// else `line..=endLine`; the rest are context. Fields the line does not
-/// show follow the first hit line in `[ … ]`.
+/// show follow the first hit line in `[ … ]`; a text field every hit holds
+/// only where its value changes ([`run_labels`]).
 pub(super) fn hits(
     path: &str,
     matches: &[Value],
@@ -58,6 +77,8 @@ pub(super) fn hits(
     }
     let mut last_line: Option<u64> = None;
     let mut last_owner: Option<String> = None;
+    let labels = run_labels(matches);
+    let mut last_labels = Map::new();
     for item in matches {
         let item = item.as_object()?;
         let line = item.get("line")?.as_u64()?;
@@ -71,6 +92,13 @@ pub(super) fn hits(
         let mut extra = item.clone();
         for key in ["line", "value"] {
             extra.shift_remove(key);
+        }
+        for label in &labels {
+            let value = extra.get(label).cloned();
+            if last_labels.get(label) == value.as_ref() {
+                extra.shift_remove(label);
+            }
+            last_labels.extend(value.map(|value| (label.clone(), value)));
         }
         let matched: Option<Vec<u64>> = extra
             .shift_remove("matchedLines")

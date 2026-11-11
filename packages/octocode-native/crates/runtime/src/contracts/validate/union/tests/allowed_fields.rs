@@ -7,7 +7,8 @@ use super::*;
 fn unknown_field_error(tool: &str, row: Value) -> String {
     let error =
         prepare_many_and_validate(tool, json!({ "queries": [row] })).expect_err("unknown field");
-    let shown = crate::contracts::validate::format_input_error(tool, &error, &[]);
+    let shown =
+        crate::contracts::validate::format_input_error(tool, &error, &[], &serde_json::Value::Null);
     shown["error"].as_str().unwrap_or_default().to_owned()
 }
 
@@ -116,11 +117,15 @@ fn the_row_s_other_fields_narrow_the_allowed_forms() {
 fn an_unknown_field_is_never_corrected_to_a_field_already_sent() {
     let error = prepare_many_and_validate("localSearch", json!({"cursor": "x", "cursor2": "y"}))
         .expect_err("unknown field");
-    let message =
-        crate::contracts::validate::format_input_error("localSearch", &error, &[])["error"]
-            .as_str()
-            .unwrap_or_default()
-            .to_owned();
+    let message = crate::contracts::validate::format_input_error(
+        "localSearch",
+        &error,
+        &[],
+        &serde_json::Value::Null,
+    )["error"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
     assert!(!message.contains("use 'cursor'"), "{message}");
     assert!(message.contains("cursor2"), "{message}");
     let row = unknown_field_error(

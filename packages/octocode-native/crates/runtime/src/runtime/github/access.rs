@@ -7,8 +7,9 @@ use octocode_github::{
 /// Request-owned GitHub access of one call, never shared with another call:
 /// the credential its rows send, resolved once, and the identities actually
 /// used. Failed or mixed resolution cannot authorize saved pages.
-#[derive(Default)]
 pub(in crate::runtime) struct ResponseAccess {
+    /// When the call began, in milliseconds since the Unix epoch.
+    started_ms: u64,
     used: std::sync::Mutex<(std::collections::BTreeSet<String>, bool)>,
     selection: CallSelection,
     /// The provider evidence the continuation this call resumes owns, and
@@ -18,7 +19,33 @@ pub(in crate::runtime) struct ResponseAccess {
     observed: std::sync::Mutex<ProviderEvidence>,
 }
 
+impl Default for ResponseAccess {
+    /// A call that begins now.
+    fn default() -> Self {
+        Self {
+            started_ms: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |since| {
+                    u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
+                }),
+            used: std::sync::Mutex::default(),
+            selection: CallSelection::default(),
+            resumed: None,
+            observed: std::sync::Mutex::default(),
+        }
+    }
+}
+
 impl ResponseAccess {
+    /// Whether an answer observed at `observed_ms` predates this call (or
+    /// came in the millisecond it began): an
+    /// older observation, which a row reusing it discloses (`observedAt`).
+    /// An answer one of this call's own rows observed is as fresh as the
+    /// call.
+    pub(super) fn predates(&self, observed_ms: u64) -> bool {
+        observed_ms <= self.started_ms
+    }
+
     /// A call resuming a continuation that owns `evidence`, retained under
     /// `digest`.
     pub(in crate::runtime) fn resuming(
@@ -152,5 +179,14 @@ mod tests {
         let changed = resumed();
         *changed.observed.lock().unwrap() = evidence("another body");
         assert_eq!(changed.retained_digest(), None);
+    }
+
+    /// A saved answer observed before the call is an older observation; one
+    /// a row of the call observed after it began is fresh.
+    #[test]
+    fn only_an_answer_older_than_the_call_predates_it() {
+        let access = ResponseAccess::default();
+        assert!(access.predates(access.started_ms - 1_000));
+        assert!(!access.predates(access.started_ms + 1));
     }
 }

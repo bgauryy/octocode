@@ -14,6 +14,12 @@ const PLANTED: &str = "The worker opens a socket to the ledger.";
 /// The largest request body the stand-in provider's window takes.
 const WINDOW_BYTES: usize = 100_000;
 
+/// The input tokens a taken request of `bytes` reports: the stated window's
+/// tokens over [`WINDOW_BYTES`], so the window holds exactly that many bytes.
+fn tokens(bytes: usize) -> usize {
+    (bytes * crate::support::WINDOW_TOKENS).div_ceil(WINDOW_BYTES)
+}
+
 /// Refuses a body over [`WINDOW_BYTES`] in any window; else answers from the
 /// section's own target: yes and the second label where it holds [`PLANTED`].
 async fn windowed() -> MockServer {
@@ -50,7 +56,7 @@ async fn windowed() -> MockServer {
                 .collect::<serde_json::Map<_, _>>();
             ResponseTemplate::new(200).set_body_json(json!({
                 "model":"jev-test","answers":answers,
-                "usage":{"input_tokens":100,"output_tokens":5},
+                "usage":{"input_tokens":tokens(request.body.len()),"output_tokens":5},
             }))
         })
         .mount(&server)
@@ -83,11 +89,11 @@ async fn an_oversized_source_is_judged_in_sections_and_answered_once_per_questio
     workspace.write("big.txt", &text);
     let runtime = clasify_runtime(&workspace, &server, &[]);
     let row = json!({"operation":"evaluate",
-        "source":{"tool":"localFetch","query":{"path":"big.txt"}},
-        "questions":{
-            "socket":noul("The text says the worker opens a socket."),
-            "gpu":{"type":"choice","criteria":{"clean":"Only routine entries.","odd":"An entry that is not routine."}},
-        }});
+    "source":{"tool":"localFetch","query":{"path":"big.txt"}},
+    "questions":{
+        "socket":noul("The text says the worker opens a socket."),
+        "gpu":{"type":"choice","criteria":{"clean":"Only routine entries.","odd":"An entry that is not routine."}},
+    }});
     let out = clasify(&runtime, vec![row]).await;
     let data = &out["results"][0]["data"];
     assert!(data.get("errorCode").is_none(), "{out}");
@@ -105,14 +111,19 @@ async fn an_oversized_source_is_judged_in_sections_and_answered_once_per_questio
     // minority visible as its share.
     let kind = &data["answers"]["gpu"];
     assert_eq!(kind["choice"], "clean", "{out}");
-    assert!(kind["probabilities"]["odd"].as_f64().unwrap() > 0.0, "{out}");
+    assert!(
+        kind["probabilities"]["odd"].as_f64().unwrap() > 0.0,
+        "{out}"
+    );
 
     // Coverage: every section answered both questions.
     let sections = data["coverage"]["totalSections"].as_u64().unwrap();
     assert!(sections > 1, "{out}");
     assert_eq!(data["coverage"]["answered"], json!(sections * 2), "{out}");
-    // Spend: the refused whole-source request and one request per section.
+    // Spend: the refused whole-source request and one request per section;
+    // `refused` says which of the calls was the whole source.
     assert_eq!(data["usage"]["calls"], json!(sections + 1), "{out}");
+    assert_eq!(data["usage"]["refused"], 1, "{out}");
     assert_eq!(
         server.received_requests().await.unwrap().len() as u64,
         sections + 1
@@ -126,7 +137,77 @@ async fn an_oversized_source_is_judged_in_sections_and_answered_once_per_questio
         .flatten()
         .find(|call| call["tool"] == "clasify")
         .expect("sections call");
-    assert_eq!(detail["input"]["queries"][0]["operation"], "sections", "{out}");
+    assert_eq!(
+        detail["input"]["queries"][0]["operation"], "sections",
+        "{out}"
+    );
+    runtime.close().await;
+}
+
+/// Sections fill the window: a source of N tokens takes about N / window
+/// requests. The first call learns what a token costs from its first
+/// section; a second call, which knows the window, sends exactly the
+/// sections that fill it. Every answer still names its deciding lines.
+#[tokio::test]
+async fn sections_fill_the_window_the_provider_states() {
+    let server = windowed().await;
+    let workspace = Workspace::new();
+    let (lines, planted) = (6_000, 4_321);
+    let text = source(lines, planted);
+    workspace.write("big.txt", &text);
+    let runtime = clasify_runtime(&workspace, &server, &[]);
+    let row = json!({"operation":"evaluate",
+        "source":{"tool":"localFetch","query":{"path":"big.txt"}},
+        "questions":{"socket":noul("The text says the worker opens a socket.")}});
+    // The fewest requests that hold the source's tokens.
+    let fewest = tokens(text.len()).div_ceil(crate::support::WINDOW_TOKENS) as u64;
+    let requests = || async { server.received_requests().await.unwrap() };
+
+    let first = clasify(&runtime, vec![row.clone()]).await;
+    let data = &first["results"][0]["data"];
+    let sections = data["coverage"]["totalSections"].as_u64().unwrap();
+    eprintln!(
+        "window fill: {} bytes, {fewest} windows; first call {sections} sections",
+        text.len()
+    );
+    // One small section at one byte per token, then the rest at the window.
+    assert!(
+        sections <= fewest + 2,
+        "{sections} sections for {fewest} windows: {first}"
+    );
+    assert_eq!(
+        data["usage"]["calls"],
+        json!(sections + 1),
+        "only the whole source refused: {first}"
+    );
+
+    let before = requests().await.len();
+    let again = clasify(&runtime, vec![row]).await;
+    let data = &again["results"][0]["data"];
+    let sections = data["coverage"]["totalSections"].as_u64().unwrap();
+    eprintln!("window fill: second call {sections} sections");
+    assert!(
+        sections <= fewest + 1,
+        "{sections} sections for {fewest} windows: {again}"
+    );
+    assert_eq!(data["usage"]["calls"], json!(sections), "{again}");
+    // The learned window sent no whole source to be refused.
+    assert!(data["usage"].get("refused").is_none(), "{again}");
+    let sent = requests().await;
+    assert!(
+        sent[before..]
+            .iter()
+            .all(|request| request.body.len() <= WINDOW_BYTES),
+        "every section fits the window"
+    );
+    let socket = &data["answers"]["socket"];
+    assert_eq!(socket["noul"], 0.96, "{again}");
+    let (start, end) = (
+        socket["lines"]["startLine"].as_u64().unwrap() as usize,
+        socket["lines"]["endLine"].as_u64().unwrap() as usize,
+    );
+    assert!((start..=end).contains(&planted), "{again}");
+    assert!(end - start < lines, "a section, not the source: {again}");
     runtime.close().await;
 }
 
@@ -200,7 +281,10 @@ async fn a_size_the_provider_refused_is_not_uploaded_whole_again() {
             .map(|request| request.body.len())
             .max()
             .unwrap();
-        assert!(largest <= WINDOW_BYTES, "{file}: no whole upload ({largest})");
+        assert!(
+            largest <= WINDOW_BYTES,
+            "{file}: no whole upload ({largest})"
+        );
     }
 
     // Under the refused size nothing is known: the provider is asked whole.
@@ -239,7 +323,7 @@ async fn a_deadline_mid_sections_answers_from_the_judged_ones_and_counts_the_res
                 .collect::<serde_json::Map<_, _>>();
             let reply = ResponseTemplate::new(200).set_body_json(json!({
                 "model":"jev-test","answers":answers,
-                "usage":{"input_tokens":100,"output_tokens":5},
+                "usage":{"input_tokens":tokens(request.body.len()),"output_tokens":5},
             }));
             // The sections past line 3000 answer after the call's time.
             if target.contains("Entry 5000:") || target.contains("Entry 3500:") {
@@ -266,7 +350,8 @@ async fn a_deadline_mid_sections_answers_from_the_judged_ones_and_counts_the_res
     let coverage = &data["coverage"];
     let total = coverage["totalSections"].as_u64().unwrap();
     let answered = coverage["answered"].as_u64().unwrap();
-    let rest = coverage["unassessed"].as_u64().unwrap_or(0) + coverage["error"].as_u64().unwrap_or(0);
+    let rest =
+        coverage["unassessed"].as_u64().unwrap_or(0) + coverage["error"].as_u64().unwrap_or(0);
     assert!(answered > 0 && rest > 0, "{out}");
     assert_eq!(answered + rest, total, "{out}");
     // The way to the rest: the same questions as a sections call.
@@ -276,6 +361,9 @@ async fn a_deadline_mid_sections_answers_from_the_judged_ones_and_counts_the_res
         .flatten()
         .find(|call| call["tool"] == "clasify")
         .expect("sections call");
-    assert_eq!(detail["input"]["queries"][0]["operation"], "sections", "{out}");
+    assert_eq!(
+        detail["input"]["queries"][0]["operation"], "sections",
+        "{out}"
+    );
     runtime.close().await;
 }

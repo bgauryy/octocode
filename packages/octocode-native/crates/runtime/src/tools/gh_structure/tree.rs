@@ -147,7 +147,12 @@ pub(super) async fn execute_tree(
         // `location.localPath`; re-listing the tree it just returned adds
         // nothing.
     } else if page.current == 1
-        && let Some(read) = entry_read(&pinned, &traversal.entries, &commit_sha)
+        && let Some(read) = if ranks_by_size(query) {
+            // A size rank answers with its top row: that is the file to read.
+            top_read(&pinned, page.entries, &commit_sha)
+        } else {
+            entry_read(&pinned, &traversal.entries, &commit_sha)
+        }
     {
         value["calls"]["read"] = read;
     }

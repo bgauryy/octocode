@@ -346,5 +346,7 @@ mod imports;
 mod versions;
 mod walk;
 
+pub(super) use versions::{restates_range, written_ranges_clear};
+
 #[cfg(test)]
 mod tests;

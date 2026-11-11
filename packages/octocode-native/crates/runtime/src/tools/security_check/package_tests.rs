@@ -732,6 +732,59 @@ async fn a_package_row_reads_its_repositorys_advisories_filtered_to_the_package(
     );
 }
 
+/// A repository advisory OSV does not list is named on the row only when its
+/// own range does not leave the version out: one whose range excludes
+/// 4.17.20 is about other versions and stays with the repository operation;
+/// one whose range is not read stays named, as nothing cleared it.
+#[tokio::test]
+async fn a_repository_advisory_whose_own_range_excludes_the_version_is_not_named() {
+    use crate::tools::security_check::github_double::Double;
+    use crate::tools::security_check::repository::{RepoFacts, RepoRead, Visibility};
+    let ranged = |ghsa: &str, range: &str| -> octocode_github::RepositoryAdvisory {
+        serde_json::from_value(json!({
+            "ghsa_id": ghsa,
+            "html_url": format!("https://github.com/o/mono/security/advisories/{ghsa}"),
+            "summary": "s",
+            "vulnerabilities": [{
+                "package": {"ecosystem": "npm", "name": "lodash"},
+                "vulnerable_version_range": range,
+            }],
+        }))
+        .expect("advisory")
+    };
+    let http = monorepo_registry().osv_pages(vec![(
+        200,
+        json!({"vulns": [{"id": "OSV-1", "aliases": ["GHSA-mono-twin-aaaa"],
+            "affected": [{"package": {"name": "lodash", "ecosystem": "npm"}}]}]}),
+    )]);
+    let github = Double::repo(RepoRead::Found(RepoFacts {
+        owner: "o".into(),
+        name: "mono".into(),
+        stars: 5000,
+        default_branch: "main".into(),
+        pushed_at: Some("2999-01-01T00:00:00Z".into()),
+        visibility: Visibility::Public,
+        ..RepoFacts::default()
+    }))
+    .page(
+        None,
+        vec![
+            monorepo_advisory("GHSA-mono-twin-aaaa", &["lodash"]),
+            ranged("GHSA-mono-past-dddd", "< 4.3.9"),
+            ranged("GHSA-mono-next-eeee", "= 6.4.4"),
+            ranged("GHSA-mono-span-ffff", ">= 4.0.0, <= 4.17.20"),
+            ranged("GHSA-mono-text-gggg", "< 5.0.0rc1"),
+        ],
+        None,
+    );
+    let data = monorepo_page(&http, &github, None).await;
+    assert_eq!(
+        github_entry(&data)["facts"]["repositoryAdvisories"],
+        json!(["GHSA-mono-span-ffff", "GHSA-mono-text-gggg"]),
+        "only the advisories whose own range does not leave 4.17.20 out: {data}"
+    );
+}
+
 /// OSV's record and the repository's advisory of one id are one advisory: the
 /// ready call that reads it whole asks it once.
 #[tokio::test]

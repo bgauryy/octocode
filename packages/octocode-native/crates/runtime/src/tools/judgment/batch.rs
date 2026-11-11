@@ -167,7 +167,7 @@ async fn answer_inner(
     if questions.len() > 1
         && let Some((request, body)) = grouped(input, model, provider)
     {
-        match send(body, input, model, connection, budget, gate).await {
+        match send(body, &request, input, model, connection, budget, gate).await {
             Ok((response, calls)) => return grouped_outcomes(&request, &response, calls, provider),
             // The provider's window, not a byte count, decides whether a
             // group fits: its refusal tries the long window, then splits the
@@ -213,7 +213,8 @@ async fn answer_inner(
                     "Split the source with ranges or resources, send fewer images, or shorten the questions.",
                 ));
             }
-            let (response, calls) = send(body.into(), single, model, connection, budget, gate).await?;
+            let (response, calls) =
+                send(body.into(), &request, single, model, connection, budget, gate).await?;
             let read = provider.read(&request, &response);
             let answer = read
                 .answers
@@ -244,8 +245,7 @@ pub(crate) fn known_refused(
         return false;
     }
     let questions: Vec<&Value> = input.questions.iter().collect();
-    let Ok(body) = serde_json::to_vec(&provider.build(input.state, &questions, model, None))
-    else {
+    let Ok(body) = serde_json::to_vec(&provider.build(input.state, &questions, model, None)) else {
         return false;
     };
     let refuses = |long| super::windows::refuses(base_url, model, long, body.len());
@@ -259,10 +259,11 @@ pub(crate) fn known_refused(
 }
 
 /// POST once through the shared retry, transport and accounting boundary.
-/// What the window says of a text request's size is remembered
-/// ([`super::windows`]).
+/// What the window says of a text request's size, and the input tokens it
+/// reports for one it took, are remembered ([`super::windows`]).
 async fn send(
     body: bytes::Bytes,
+    request: &Value,
     input: EvaluationInput<'_>,
     model: &str,
     connection: &Connection<'_>,
@@ -273,7 +274,14 @@ async fn send(
     let sent = post_once(body, input, model, connection, budget, gate).await;
     if input.assets.is_none() {
         match &sent {
-            Ok(_) => super::windows::took(connection.base_url, model, long, bytes),
+            Ok((response, _)) => {
+                let tokens = connection
+                    .provider
+                    .read(request, response)
+                    .usage
+                    .map(|usage| usage.input_tokens);
+                super::windows::took(connection.base_url, model, long, bytes, tokens);
+            }
             Err(error) if error.code == ErrorCode::ClassificationStateTooLarge => {
                 super::windows::refused(connection.base_url, model, long, bytes);
             }

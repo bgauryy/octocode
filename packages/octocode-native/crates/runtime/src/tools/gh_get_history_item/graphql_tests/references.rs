@@ -40,8 +40,7 @@ async fn an_issue_lists_its_closing_pull_requests_from_graphql() {
     assert_eq!(
         first.data.pointer("/issues/0/closedBy"),
         Some(
-            &json!([{"number": 6, "state": "merged", "mergedAt": "2026-01-02T00:00:00Z"},
-            {"number": 5, "state": "closed"}])
+            &json!([{"number": 6, "state": "merged", "mergedAt": "2026-01-02T00:00:00Z"}])
         ),
         "{}",
         first.data
@@ -126,7 +125,7 @@ async fn every_closing_reference_is_read_on_from_its_cursor() {
     .await;
     let nodes = |range: std::ops::Range<u64>| {
         range
-            .map(|number| json!({"number": number, "state": "CLOSED", "mergedAt": null}))
+            .map(|number| json!({"number": number, "state": "MERGED", "mergedAt": "2026-01-02T00:00:00Z"}))
             .collect::<Vec<_>>()
     };
     Mock::given(method("POST"))

@@ -4,12 +4,14 @@ use serde_json::Value;
 /// Projects transport-neutral validation issues into the stable tool-error
 /// envelope. `unpublished` names the row fields the schema this runtime
 /// publishes lacks (a classification field without a provider): no repair
-/// offers one.
+/// offers one. `sent` is the request as the caller sent it: the example
+/// shown is of the operation its rejected row asked for.
 #[must_use]
 pub fn format_input_error(
     tool_name: &str,
     error: &ContractValidationError,
     unpublished: &[String],
+    sent: &Value,
 ) -> Value {
     // A request field inside a row explains every other issue of that row
     // (the row lacks its own fields because it was never a row).
@@ -49,6 +51,9 @@ pub fn format_input_error(
                     unpublished,
                 );
             }
+            if let Some(message) = mixed_with_whole_request(tool_name, issue) {
+                return message;
+            }
             let message = match required_guidance(issue) {
                 Some(guidance) => format!("{} ({guidance})", issue.message),
                 None => issue.message.clone(),
@@ -63,7 +68,7 @@ pub fn format_input_error(
     // A request field sent inside a row, or a refused value, has one repair,
     // stated whole: a fresh example beside it would point away from it.
     let reference = if misplaced.is_empty() && !value_refused {
-        call_reference(tool_name)
+        call_reference(tool_name, sent_operation(error, sent))
     } else {
         Vec::new()
     };
@@ -71,12 +76,13 @@ pub fn format_input_error(
 }
 
 /// What repairs a rejected call when its causes alone do not: one request
-/// the tool accepts (core's example of its first form, the one `schema
-/// <tool> --view variants` shows) and the command that prints every field.
-/// Stated once per rejected call or row, after its causes; empty for a name
-/// that is no tool, and left out where a misplaced request field or a
-/// refused value (`security.*`) is the whole repair.
-fn call_reference(tool_name: &str) -> Vec<String> {
+/// the tool accepts (core's example of the form whose `operation` the row
+/// sent, else of its first form, the one `schema <tool> --view variants`
+/// shows) and the command that prints every field. Stated once per rejected
+/// call or row, after its causes; empty for a name that is no tool, and left
+/// out where a misplaced request field or a refused value (`security.*`) is
+/// the whole repair.
+fn call_reference(tool_name: &str, operation: Option<&str>) -> Vec<String> {
     let example = crate::contracts::cli_presentation()
         .ok()
         .and_then(|presentation| {
@@ -85,7 +91,19 @@ fn call_reference(tool_name: &str) -> Vec<String> {
                 .iter()
                 .find(|entry| entry["name"] == tool_name)
         })
-        .and_then(|entry| entry["views"]["variants"]["variants"][0].get("example"));
+        .and_then(|entry| {
+            let variants = entry["views"]["variants"]["variants"].as_array()?;
+            operation
+                .and_then(|operation| {
+                    variants.iter().find(|variant| {
+                        variant["operations"]
+                            .as_array()
+                            .is_some_and(|names| names.iter().any(|name| name == operation))
+                    })
+                })
+                .or_else(|| variants.first())?
+                .get("example")
+        });
     let Some(example) = example else {
         return Vec::new();
     };
@@ -93,6 +111,19 @@ fn call_reference(tool_name: &str) -> Vec<String> {
         format!("Example: {}", serde_json::json!({ "queries": [example] })),
         format!("Schema: octocode schema {tool_name}"),
     ]
+}
+
+/// The `operation` the first rejected row of `sent` names, read at the row
+/// index its first issue's path states (`queries.<n>.…`).
+fn sent_operation<'a>(error: &ContractValidationError, sent: &'a Value) -> Option<&'a str> {
+    let path = &error.issues.first()?.path;
+    let row = match path.as_slice() {
+        [queries, index, ..] if queries == "queries" => {
+            sent["queries"].get(index.parse::<usize>().ok()?)?
+        }
+        _ => return None,
+    };
+    row.get("operation").and_then(Value::as_str)
 }
 
 /// The position of the issue that should lead when the first says only that
@@ -151,7 +182,7 @@ fn unknown_field_message(
     if let Some(alone) = misplaced_request_field(tool_name, issue) {
         return if alone {
             format!(
-                "'{field}' is a whole request, not a query field: send {{\"{field}\":\"…\"}} alone, as next.input gives it, without queries."
+                "'{field}' is a whole request, not a query field: send {{\"{field}\":\"…\"}} alone, as next.nextPage or responsePagination.next gives it, without queries."
             )
         } else {
             format!("'{field}' is a request field: put it beside queries, not in {query}.")
@@ -164,7 +195,7 @@ fn unknown_field_message(
             && let Some(alone) = whole_request_field(tool_name).filter(|alone| alone != field)
         {
             return format!(
-                "'{field}' is not allowed beside {alone}: send {{\"{alone}\":\"…\"}} alone, as next.input gives it; '{field}' requires {requires}, in a new request."
+                "'{field}' is not allowed beside {alone}: send {{\"{alone}\":\"…\"}} alone, as next.nextPage or responsePagination.next gives it; '{field}' requires {requires}, in a new request."
             );
         }
         return format!(
@@ -265,6 +296,41 @@ fn owning_row_field<'a>(tool_name: &str, row_fields: &'a [String], field: &str) 
 
 /// The field `tool_name`'s request envelope holds alone in one of its forms
 /// (`cursor`), when exactly one form is a single field.
+/// A request that mixes the form a field holds alone (`cursor`) with
+/// another form's fields: a resumed call is that field and nothing else.
+fn mixed_with_whole_request(tool_name: &str, issue: &ValidationIssue) -> Option<String> {
+    if issue.rule_id != "schema.union-mixed" || !issue.path.is_empty() {
+        return None;
+    }
+    let alone = whole_request_field(tool_name)?;
+    let forms = issue.schema.as_ref()?["forms"].as_array()?;
+    let fields = |form: &Value| {
+        form.as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    let others = forms
+        .iter()
+        .map(fields)
+        .find(|form| *form != [alone.as_str()])?;
+    forms
+        .iter()
+        .any(|form| fields(form) == [alone.as_str()])
+        .then(|| {
+            let others = others
+                .iter()
+                .map(|field| format!("'{field}'"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "A {alone} call takes the {alone} alone: send {{\"{alone}\":\"…\"}} as next.nextPage or responsePagination.next gives it, without {others}; a new request sends {others} without {alone}."
+            )
+        })
+}
+
 fn whole_request_field(tool_name: &str) -> Option<String> {
     let tool = crate::id::ToolId::from_name(tool_name)?;
     let input = &crate::contracts::tool_contract(tool).ok()?["inputSchema"];

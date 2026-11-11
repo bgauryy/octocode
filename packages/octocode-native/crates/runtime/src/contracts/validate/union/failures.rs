@@ -116,14 +116,20 @@ pub(super) fn selected_failures<'a>(
     }
 }
 
+/// One field's allowed literals across the failed branches, and the former
+/// values their branches map onto them (`x-replacedValues`).
+pub(super) struct AllowedLiterals {
+    path: Vec<String>,
+    literals: Vec<Value>,
+    replaced: serde_json::Map<String, Value>,
+}
+
 /// Collects the allowed literal values for each field path across every failed
 /// branch. A branch reports one `schema.const` (a single literal) or
 /// `schema.enum` (a set) per selector; their union is the field's true allowed
 /// set, which no single branch's issue can name on its own.
-pub(super) fn aggregate_allowed_literals(
-    failures: &[&[ValidationIssue]],
-) -> Vec<(Vec<String>, Vec<Value>)> {
-    let mut allowed: Vec<(Vec<String>, Vec<Value>)> = Vec::new();
+pub(super) fn aggregate_allowed_literals(failures: &[&[ValidationIssue]]) -> Vec<AllowedLiterals> {
+    let mut allowed: Vec<AllowedLiterals> = Vec::new();
     for issues in failures {
         for item in *issues {
             let literals: Vec<Value> = match item.rule_id.as_str() {
@@ -148,16 +154,32 @@ pub(super) fn aggregate_allowed_literals(
             }
             let index = allowed
                 .iter()
-                .position(|(field, _)| field == &item.path)
+                .position(|field| field.path == item.path)
                 .unwrap_or_else(|| {
-                    allowed.push((item.path.clone(), Vec::new()));
+                    allowed.push(AllowedLiterals {
+                        path: item.path.clone(),
+                        literals: Vec::new(),
+                        replaced: serde_json::Map::new(),
+                    });
                     allowed.len() - 1
                 });
             let entry = &mut allowed[index];
             for literal in literals {
-                if !entry.1.contains(&literal) {
-                    entry.1.push(literal);
+                if !entry.literals.contains(&literal) {
+                    entry.literals.push(literal);
                 }
+            }
+            if let Some(replaced) = item
+                .schema
+                .as_ref()
+                .and_then(|schema| schema.get("x-replacedValues"))
+                .and_then(Value::as_object)
+            {
+                entry.replaced.extend(
+                    replaced
+                        .iter()
+                        .map(|(former, now)| (former.clone(), now.clone())),
+                );
             }
         }
     }
@@ -169,23 +191,29 @@ pub(super) fn aggregate_allowed_literals(
 /// for that field, so a wrong selector is self-correcting instead of naming one
 /// arbitrary branch's literal. Only widens when the aggregated set has more than
 /// one value; a genuinely single-valued field keeps its precise const message.
-pub(super) fn widen_literal_issues(
-    issues: &mut [ValidationIssue],
-    allowed: &[(Vec<String>, Vec<Value>)],
-) {
+pub(super) fn widen_literal_issues(issues: &mut [ValidationIssue], allowed: &[AllowedLiterals]) {
     for item in issues {
         if !matches!(item.rule_id.as_str(), "schema.const" | "schema.enum") {
             continue;
         }
-        let Some((_, literals)) = allowed.iter().find(|(field, _)| field == &item.path) else {
+        let Some(field) = allowed.iter().find(|field| field.path == item.path) else {
             continue;
         };
-        if literals.len() < 2 {
+        if field.literals.len() < 2 {
             continue;
         }
+        let replaced = Value::Object(field.replaced.clone());
         item.rule_id = "schema.enum".into();
-        item.message = super::super::literals::enum_message(item.received.as_ref(), literals);
-        item.schema = Some(serde_json::json!({ "enum": literals }));
+        item.message = super::super::literals::enum_message(
+            item.received.as_ref(),
+            &field.literals,
+            Some(&replaced),
+        );
+        let mut schema = serde_json::json!({ "enum": field.literals });
+        if !field.replaced.is_empty() {
+            schema["x-replacedValues"] = replaced;
+        }
+        item.schema = Some(schema);
     }
 }
 
@@ -223,18 +251,22 @@ pub(super) fn mixed_forms(
                     .collect::<Vec<_>>()
                     .join(", ")
             };
-            return Some(ContractValidationError {
-                issues: issue(
-                    "schema.union-mixed",
-                    path.to_vec(),
-                    format!(
-                        "{} and {} belong to different forms and cannot be combined; send one form",
-                        quote(right),
-                        quote(left)
-                    ),
-                )
-                .issues,
-            });
+            let mut issues = issue(
+                "schema.union-mixed",
+                path.to_vec(),
+                format!(
+                    "{} and {} belong to different forms and cannot be combined; send one form",
+                    quote(right),
+                    quote(left)
+                ),
+            )
+            .issues;
+            // The two forms' fields, for a message that knows which form a
+            // request field holds alone (`cursor`).
+            for item in &mut issues {
+                item.schema = Some(serde_json::json!({"forms": [right, left]}));
+            }
+            return Some(ContractValidationError { issues });
         }
     }
     None

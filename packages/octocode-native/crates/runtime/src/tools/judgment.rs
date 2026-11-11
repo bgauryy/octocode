@@ -9,6 +9,7 @@ pub(crate) mod batch;
 pub(crate) mod shared;
 pub(crate) mod stats;
 mod windows;
+pub(crate) use windows::RequestFit;
 
 #[cfg(test)]
 mod tests;
@@ -256,6 +257,23 @@ impl Evaluator {
             model.unwrap_or(&self.model),
             &self.base_url,
             self.provider,
+        )
+    }
+
+    /// The request one section of a source judged whole in sections may
+    /// fill: the provider's stated window (`long`: the long-context one) at
+    /// what this endpoint's answers taught of its tokens ([`windows`]).
+    pub(crate) fn request_fit(&self, model: Option<&str>, long: bool) -> RequestFit {
+        let defaults = self.provider.defaults();
+        windows::request_bytes(
+            &self.base_url,
+            model.unwrap_or(&self.model),
+            long,
+            if long {
+                defaults.long_context_tokens
+            } else {
+                defaults.context_tokens
+            },
         )
     }
 

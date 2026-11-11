@@ -359,3 +359,54 @@ async fn a_local_binding_reaches_only_its_scope() {
         }]
     );
 }
+
+/// A file no Cargo package compiles (a scratch copy of the module, under a
+/// directory with no manifest) cannot name a `pub(super)` or `pub(crate)`
+/// item: out of reach, so it neither leaves the row partial nor becomes a
+/// lead. One the defining crate places by `#[path]` or `include!` is source
+/// of that crate: in reach.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_file_no_package_compiles_is_out_of_reach_unless_placed() {
+    let (_dir, root) = fixture();
+    workspace(&root);
+    write(&root.join("alpha/src/lib.rs"), "mod search;\nmod other;\n");
+    write(
+        &root.join("alpha/src/search.rs"),
+        "mod executor;\n#[path = \"../../shared/relocated.rs\"]\nmod relocated;\n",
+    );
+    let anchor = root.join("alpha/src/search/executor.rs");
+    write(
+        &anchor,
+        "pub(super) fn page_of() {}\npub(crate) fn crate_of() {}\n",
+    );
+    let copy = root.join("scratch/executor.rs");
+    write(
+        &copy,
+        "pub(super) fn page_of() {}\nfn c() {\n    page_of();\n    crate_of();\n}\n",
+    );
+    let relocated = root.join("shared/relocated.rs");
+    write(
+        &relocated,
+        "fn r() {\n    super::executor::page_of();\n}\n",
+    );
+    write(
+        &root.join("alpha/src/other.rs"),
+        "fn o() {\n    include!(\"../../shared/included.rs\");\n}\n",
+    );
+    let included = root.join("shared/included.rs");
+    write(&included, "crate::search::executor::crate_of();\n");
+
+    let scope = checked(&root, "page_of", (&anchor, 0, 14), &[&anchor]).await;
+    assert_eq!(
+        scope.text_only_files("page_of"),
+        Some(vec![shown(&relocated)])
+    );
+    assert_eq!(scope.out_of_reach("page_of").map(|out| out.files), Some(1));
+
+    let scope = checked(&root, "crate_of", (&anchor, 1, 14), &[&anchor]).await;
+    assert_eq!(
+        scope.text_only_files("crate_of"),
+        Some(vec![shown(&included)])
+    );
+    assert_eq!(scope.out_of_reach("crate_of").map(|out| out.files), Some(1));
+}

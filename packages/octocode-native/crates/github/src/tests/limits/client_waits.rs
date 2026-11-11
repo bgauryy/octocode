@@ -4,10 +4,21 @@ use super::*;
 use octocode_contract_types::ClientWaitKind;
 use std::time::Instant;
 
-/// Milliseconds `context` waited of `kind`.
+/// Milliseconds `context` discloses it waited of `kind`.
 fn waited(context: &RequestContext, kind: ClientWaitKind) -> i64 {
     context
         .client_waits()
+        .iter()
+        .filter(|wait| wait.kind == kind)
+        .map(|wait| wait.ms)
+        .sum()
+}
+
+/// Milliseconds `context` recorded it waited of `kind`, disclosed or not.
+fn recorded(context: &RequestContext, kind: ClientWaitKind) -> i64 {
+    context
+        .waits
+        .summed()
         .iter()
         .filter(|wait| wait.kind == kind)
         .map(|wait| wait.ms)
@@ -82,10 +93,11 @@ async fn a_spent_quota_wait_is_disclosed_as_quota_pacing() {
     );
 }
 
-/// A fixed start spacing (here GraphQL's) is disclosed on the request it held
-/// back, never on the one that went first.
+/// A fixed start spacing (here GraphQL's) is recorded on the request it held
+/// back, never on the one that went first, and disclosed on neither: it is
+/// routine, not a limit.
 #[tokio::test]
-async fn a_fixed_spacing_is_disclosed_on_the_spaced_request_alone() {
+async fn a_fixed_spacing_is_recorded_on_the_spaced_request_alone() {
     let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .respond_with(ok_json())
@@ -107,21 +119,23 @@ async fn a_fixed_spacing_is_disclosed_on_the_spaced_request_alone() {
     transport.execute(query(), &first).await.expect("first");
     transport.execute(query(), &second).await.expect("second");
     assert_eq!(
-        first.client_waits(),
+        first.waits.summed(),
         Vec::new(),
         "the first start waits for nothing"
     );
     assert!(
-        waited(&second, ClientWaitKind::Spacing) >= 250,
+        recorded(&second, ClientWaitKind::Spacing) >= 250,
         "{:?}",
-        second.client_waits()
+        second.waits.summed()
     );
+    assert_eq!(second.client_waits(), Vec::new(), "spacing is not disclosed");
 }
 
 /// A quota-paced lane holds a search until the one ahead reports its quota:
-/// the held request discloses quota pacing, the one ahead nothing.
+/// the held request records it as spacing (the lane's routine gap), the one
+/// ahead nothing, and neither discloses it.
 #[tokio::test]
-async fn a_search_held_for_its_lane_is_disclosed_as_quota_pacing() {
+async fn a_search_held_for_its_lane_is_recorded_as_spacing() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .respond_with(Delayed::new(
@@ -145,8 +159,8 @@ async fn a_search_held_for_its_lane_is_disclosed_as_quota_pacing() {
     a.expect("one");
     b.expect("two");
     let mut paced = [
-        waited(&one, ClientWaitKind::QuotaPacing),
-        waited(&two, ClientWaitKind::QuotaPacing),
+        recorded(&one, ClientWaitKind::Spacing),
+        recorded(&two, ClientWaitKind::Spacing),
     ];
     paced.sort_unstable();
     assert_eq!(
@@ -155,14 +169,7 @@ async fn a_search_held_for_its_lane_is_disclosed_as_quota_pacing() {
     );
     assert!(paced[1] >= 300, "the held search: {paced:?}");
     for context in [&one, &two] {
-        assert!(
-            context
-                .client_waits()
-                .iter()
-                .all(|wait| wait.kind == ClientWaitKind::QuotaPacing),
-            "{:?}",
-            context.client_waits()
-        );
+        assert_eq!(context.client_waits(), Vec::new(), "{:?}", context.waits.summed());
     }
 }
 
@@ -230,7 +237,8 @@ async fn a_spent_quota_without_a_reset_is_disclosed_and_a_cancel_ends_its_wait()
 
 /// B91 r2: a row that read the batch warm-up's answer waited for the warm-up's
 /// admission: those waits are added to the row, once however often it reads,
-/// beside the row's own.
+/// beside the row's own. Only the first row to read it takes them in: the
+/// batch states the warm-up's wait once.
 #[tokio::test]
 async fn a_row_reading_the_warm_up_carries_its_admission_waits_once() {
     let server = MockServer::builder().start().await;
@@ -244,7 +252,7 @@ async fn a_row_reading_the_warm_up_carries_its_admission_waits_once() {
     memo.record_ref("acme", "repo", Some("main"), Ok(sha.to_owned()));
     memo.observed_by(&warm);
     memo.refs_known();
-    let row = with_token("warm", Duration::from_secs(5), 1024).with_last_commits(memo);
+    let row = with_token("warm", Duration::from_secs(5), 1024).with_last_commits(memo.clone());
     row.waits
         .record(ClientWaitKind::Spacing, Duration::from_millis(7));
     for _ in 0..2 {
@@ -261,11 +269,17 @@ async fn a_row_reading_the_warm_up_carries_its_admission_waits_once() {
         row.client_waits()
     );
     assert_eq!(
-        waited(&row, ClientWaitKind::Spacing),
+        recorded(&row, ClientWaitKind::Spacing),
         7,
         "{:?}",
-        row.client_waits()
+        row.waits.summed()
     );
+    let other = with_token("warm", Duration::from_secs(5), 1024).with_last_commits(memo);
+    provider
+        .resolve_reference("acme", "repo", Some("main"), &other)
+        .await
+        .expect("the warm-up's answer");
+    assert_eq!(other.client_waits(), Vec::new(), "stated once, on the first row");
     assert!(
         server
             .received_requests()

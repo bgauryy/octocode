@@ -1,6 +1,6 @@
 ---
 name: octocode-scraping
-description: "Extract text, tables and links from public pages such as pricing, documentation, changelogs and blogs. Build bounded crawls and reusable local corpora with complete source evidence and citations."
+description: "Use when extracting text, tables and links from public web pages or crawling them into a reusable local corpus with source citations and resumable extraction. Owns public extraction even when browser rendering is needed; octocode-chrome-devtools supports rendering and owns live actions or authenticated sessions."
 ---
 
 # Octocode Scraping

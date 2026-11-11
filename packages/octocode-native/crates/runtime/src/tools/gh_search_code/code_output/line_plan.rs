@@ -45,9 +45,6 @@ pub(in crate::tools::gh_search_code) struct LinePlan {
     rows: Vec<Option<(usize, usize)>>,
     keywords: Vec<String>,
     window: Window,
-    /// Files read so far that reached GitHub's contents API: a read the
-    /// continuation's evidence or a saved answer holds costs no request.
-    reads: usize,
 }
 
 impl LinePlan {
@@ -99,13 +96,7 @@ impl LinePlan {
             rows: at,
             keywords: query.keywords.iter().map(ToString::to_string).collect(),
             window,
-            reads: 0,
         }
-    }
-
-    /// Files read so far from GitHub ([`LinePlan::reads`]).
-    pub(in crate::tools::gh_search_code) fn reads(&self) -> usize {
-        self.reads
     }
 
     /// Read the files of `rows` not read yet, concurrently across groups.
@@ -122,29 +113,6 @@ impl LinePlan {
                 wanted[group].push(file);
             }
         }
-        // Counted before the reads: once read, every file is in the evidence.
-        self.reads += wanted
-            .iter()
-            .enumerate()
-            .map(|(group, files)| {
-                let group = &self.groups[group];
-                let (owner, repo, sha) = &group.key;
-                files
-                    .iter()
-                    .filter(|&&file| {
-                        provider.file_read_unanswered(
-                            &octocode_github::ContentRequest {
-                                owner: owner.clone(),
-                                repo: repo.clone(),
-                                path: group.paths[file].clone(),
-                                reference: Some(sha.clone()),
-                            },
-                            context,
-                        )
-                    })
-                    .count()
-            })
-            .sum::<usize>();
         let listing = Listing {
             keywords: &self.keywords,
             goal: "",

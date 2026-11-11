@@ -456,3 +456,146 @@ async fn no_view_shows_a_value_assigned_through_comments_or_line_breaks() {
     }
     runtime.close().await;
 }
+
+/// Round 12 fixtures: a named value in an expression, a literal joined to
+/// text, a plain scalar with text after its token, prose that states a
+/// value, a type annotation and the handshake nonce. Each with the values no
+/// view may show and the text every view keeps.
+/// One round 12 fixture: file name, source, a search needle, the values no
+/// view may show and the text every view keeps.
+type BoundFixture = (
+    &'static str,
+    String,
+    &'static str,
+    Vec<&'static str>,
+    Vec<&'static str>,
+);
+
+fn bound_fixtures() -> Vec<BoundFixture> {
+    const KEY: &str = "Zq7Xk2Pm9Vt4Lw8Rb3Nc6Hy1Jd5Fg0Ts7Qe2Ua4";
+    vec![
+        (
+            "expr.ts",
+            format!(
+                "const apiKey = cond ? \"{KEY}\" : \"otherVisible3\";\nconst apiKey3 = \"{KEY}\" + \"tail-visible1\";\nconst k2 = 1; // my password was Tr0ub4dor&3xK9!zQ\n"
+            ),
+            "apiKey",
+            vec![KEY, "Tr0ub4dor&3xK9!zQ"],
+            vec!["otherVisible3", "tail-visible1", "my password was "],
+        ),
+        (
+            "conf.py",
+            format!("api_key = \"{KEY}\" + suffix_visible5\nother = \"x\"\n"),
+            "api_key",
+            vec![KEY],
+            vec!["suffix_visible5"],
+        ),
+        (
+            "notes.txt",
+            "Sec-Fake-Api-Key: ghp_x7Kq2Lm9Zp4Vw8Rt1Yb6Nc3Hd5Jf0GsAeUoI  tailJ\npassword: str\ndispatchToken: string\nurl = postgres://user:password@localhost\n"
+                .to_owned(),
+            "Key",
+            vec!["ghp_x7Kq2Lm9Zp4Vw8Rt1Yb6Nc3Hd5Jf0GsAeUoI"],
+            vec!["tailJ", "password: str", "dispatchToken: string", "user:password@"],
+        ),
+        (
+            "ws.ts",
+            "const headers = { \"Sec-WebSocket-Key\": \"dGhlIHNhbXBsZSBub25jZQ==\" };\n".to_owned(),
+            "Sec",
+            vec![],
+            vec!["dGhlIHNhbXBsZSBub25jZQ=="],
+        ),
+    ]
+}
+
+/// One redaction decision per line, whatever view shows it: a read, the
+/// compact view, a search's content and matchOnly rows and an AST match show
+/// the same placeholders on a line, none shows a planted value, and each
+/// keeps the text around the value.
+#[tokio::test]
+async fn every_view_bounds_a_value_as_a_read_does() {
+    use crate::support::{call, query_path};
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[]);
+    for (name, source, needle, secrets, kept) in bound_fixtures() {
+        let path = workspace.write(name, &source);
+        let content = view_lines(&runtime, &path, json!({"view": "content"})).await;
+        let read = content.values().cloned().collect::<Vec<_>>().join("\n");
+        for secret in &secrets {
+            assert!(!read.contains(secret), "{name}: {read}");
+        }
+        for text in &kept {
+            assert!(read.contains(text), "{name} lost {text:?}: {read}");
+        }
+        let compact = view_lines(&runtime, &path, json!({"view": "compact"})).await;
+        // The compact view drops comments: a line it keeps whole shows the
+        // read's placeholders, and one it cut shows the first of them only.
+        for (line, text) in &compact {
+            let (shown, read) = (placeholders(text), placeholders(&content[line]));
+            if text.trim() == content[line].trim() {
+                assert_eq!(shown, read, "{name} compact line {line}");
+            } else {
+                assert!(
+                    read.starts_with(&shown),
+                    "{name} compact line {line}: {text:?}"
+                );
+            }
+        }
+        let mut responses = Vec::new();
+        for view in ["content", "matchOnly"] {
+            let query = query_path(&path, json!({"matchString": needle, "view": view}));
+            responses.push(call(&runtime, "localSearch", query).await.expect("search"));
+        }
+        let ast =
+            json!({"operation": "match", "rule": {"kind": "string"}, "includeCaptures": true});
+        if !name.ends_with(".txt") {
+            responses.push(
+                call(&runtime, "astSearch", query_path(&path, ast))
+                    .await
+                    .expect("ast"),
+            );
+        }
+        for outcome in responses {
+            let output = outcome.structured_content.into_value();
+            let text = output.to_string();
+            for secret in &secrets {
+                assert!(!text.contains(secret), "{name}: {output}");
+            }
+            let mut rows = Vec::new();
+            collect_rows(&output, &mut rows);
+            for (line, value) in rows {
+                let Some(whole) = content.get(&line) else {
+                    continue;
+                };
+                for piece in value.split('\n') {
+                    assert!(
+                        whole.contains(piece) || piece.is_empty(),
+                        "{name} line {line}: a view shows {piece:?}, the read {whole:?}"
+                    );
+                }
+            }
+        }
+    }
+    runtime.close().await;
+}
+
+/// Every `(line, value)` a response holds in an object that states its
+/// `line` beside a `value` or `text`.
+fn collect_rows(value: &Value, out: &mut Vec<(usize, String)>) {
+    match value {
+        Value::Array(items) => items.iter().for_each(|item| collect_rows(item, out)),
+        Value::Object(fields) => {
+            let line = fields
+                .get("line")
+                .and_then(Value::as_u64)
+                .and_then(|line| usize::try_from(line).ok());
+            for key in ["value", "text"] {
+                if let (Some(line), Some(text)) = (line, fields.get(key).and_then(Value::as_str)) {
+                    out.push((line, text.to_owned()));
+                }
+            }
+            fields.values().for_each(|field| collect_rows(field, out));
+        }
+        _ => {}
+    }
+}

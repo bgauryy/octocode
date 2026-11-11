@@ -53,8 +53,7 @@ The MCP launcher, CLI launcher and VS Code extension are thin adapters with no t
   session may run the same command.
 - Clean up after yourself before you report: stop the processes you started (by PID), remove
   your scratch files, private target directories and pinned test binaries, and keep only the
-  evidence a report cites. `$DEV clean:leftovers` lists what a run left behind (`--apply` removes
-  it; it never touches a worktree with uncommitted changes). In a multi-agent round one owner
+  evidence a report cites. Never remove a worktree with uncommitted changes. In a multi-agent round one owner
   runs full builds and suites; fixers run focused tests only.
 - Don't use `facebook/react` as a live GitHub check target: it was renamed, and the GitHub API
   blocks or refuses some repositories, so a failure there says nothing about our tools. Check on

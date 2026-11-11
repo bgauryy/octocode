@@ -5,7 +5,9 @@
 //! (`coverage.outOfReachFiles`), and it neither makes a row partial nor
 //! becomes a lead. Rust bounds reach by the item's written visibility and
 //! its inherent container's (a method of a `pub(super)` type), and by crate:
-//! the defining package, or one that depends on it ([`rust`]). TS/JS reach
+//! the defining package, or one that depends on it ([`rust`]); a file no
+//! Cargo package compiles (a scratch copy) joins the defining crate only
+//! where it places that file by `#[path]` or `include!`. TS/JS reach
 //! is the importer pre-filter (`importers::reach`): a file whose imports
 //! name only other modules is set aside as checked there. Other languages,
 //! an anchor that does not start a declaration, trait items, macros and
@@ -131,6 +133,9 @@ pub(super) struct ItemReach {
     /// The modules of the territory placed by `#[path]`, which may sit
     /// outside its directory; read once, on the first file outside it.
     relocated: std::sync::OnceLock<Vec<PathBuf>>,
+    /// The files outside its directory the package `include!`s (canonical);
+    /// read once, on the first file no Cargo package compiles.
+    included: std::sync::OnceLock<Vec<PathBuf>>,
     /// Whether a package (its manifest directory) depends on the defining
     /// one, directly or through local path dependencies.
     dependents: std::sync::Mutex<std::collections::HashMap<PathBuf, bool>>,
@@ -156,6 +161,7 @@ impl ItemReach {
             name,
             written: declared.written,
             relocated: std::sync::OnceLock::new(),
+            included: std::sync::OnceLock::new(),
             dependents: std::sync::Mutex::new(std::collections::HashMap::new()),
         })
     }
@@ -165,8 +171,15 @@ impl ItemReach {
     fn reaches(&self, file: &str, stopped: &dyn Fn() -> bool) -> bool {
         let file = Path::new(file);
         let Some(package) = cargo::package_of(file) else {
-            // No Cargo package compiles it: nothing bounds what it names.
-            return true;
+            // No Cargo package compiles it on its own: it joins the defining
+            // crate only where that crate places it (`#[path]`, `include!`),
+            // and a crate-bounded item reaches no other. A public item may be
+            // named by whatever compiles it, which nothing here bounds.
+            return match &self.bound {
+                rust::Bound::Territory(territory) => self.placed(file, territory, stopped),
+                rust::Bound::Crate => self.placed(file, &self.package, stopped),
+                rust::Bound::Public => true,
+            };
         };
         match &self.bound {
             rust::Bound::Territory(territory) => {
@@ -192,6 +205,36 @@ impl ItemReach {
             },
         };
         targets.iter().any(|target| rust::in_module(file, target))
+    }
+
+    /// Whether `file`, outside every Cargo package, is source the defining
+    /// package compiles into `territory`: a module it places there by
+    /// `#[path]` ([`Self::relocated`]), or a file it `include!`s from outside
+    /// its directory (placed wherever the include sits, so counted for any
+    /// territory). A scan `stopped` before it decided keeps the file in reach.
+    fn placed(&self, file: &Path, territory: &Path, stopped: &dyn Fn() -> bool) -> bool {
+        if self.relocated(file, territory, stopped) {
+            return true;
+        }
+        let included = match self.included.get() {
+            Some(included) => included,
+            None => match octocode_engine::lsp::workspace::cargo_package_includes(
+                &self.package.join("Cargo.toml"),
+                stopped,
+            )
+            .filter(|includes| !includes.has_more)
+            {
+                Some(includes) => self.included.get_or_init(|| {
+                    includes
+                        .outside
+                        .iter()
+                        .map(|target| std::fs::canonicalize(target).unwrap_or(target.clone()))
+                        .collect()
+                }),
+                None => return true,
+            },
+        };
+        included.iter().any(|target| target == file)
     }
 
     fn depends(&self, package: &Path) -> bool {

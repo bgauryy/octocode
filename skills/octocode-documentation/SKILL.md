@@ -1,6 +1,6 @@
 ---
 name: octocode-documentation
-description: "Write, revise or review READMEs, guides, tutorials, runbooks, ADRs for settled decisions, docstrings and code comments. Verify technical claims against their owning source and keep documentation useful to its reader."
+description: "Use when writing, shortening, correcting or reviewing technical documentation: READMEs, guides, tutorials, runbooks, settled ADRs, docstrings and comments. Verify claims against source. Use octocode-rfc-generator for proposed decisions and octocode-skills for SKILL.md instructions and triggers."
 ---
 
 # Octocode Documentation

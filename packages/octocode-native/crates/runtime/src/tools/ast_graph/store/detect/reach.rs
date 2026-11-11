@@ -71,6 +71,16 @@ pub(super) fn detect_reachability(c: &mut Ctx) {
         return;
     }
     let (unreachable, test_only, skipped_library) = unreached_files(v, &entries);
+    if unreachable.is_empty() && test_only.is_empty() {
+        // An empty answer says what was checked: the files walked from how
+        // many entrypoints (every one was reached, or skipped as noted).
+        let files = v.files.iter().filter(|f| v.file_level(**f)).count();
+        note_evaluated(
+            &mut c.notes,
+            &["unreachable-file", "test-only"],
+            json!({"files": files, "entrypoints": entries.len()}),
+        );
+    }
     let entry_quality = if entries.len() >= 2 { 0.7 } else { 0.5 };
     let rules = v.entries.values().copied().collect::<BTreeSet<_>>();
     let scoped = v
@@ -156,29 +166,44 @@ pub(super) fn detect_reachability(c: &mut Ctx) {
     }
 }
 
-/// Files whose exports are public API: entries and anything they
-/// re-export, transitively.
-pub(super) fn public_api_files(v: &View<'_>) -> BTreeSet<u32> {
+/// The public API, per exported name: the files whose every export is
+/// public (entries, and what they `export *` or re-export as a namespace,
+/// transitively) and the declarations those files re-export by name.
+pub(super) struct PublicApi {
+    pub(super) files: BTreeSet<u32>,
+    pub(super) names: BTreeSet<u32>,
+}
+
+pub(super) fn public_api(v: &View<'_>) -> PublicApi {
     let t = v.t;
-    let mut public = v.entries.keys().copied().collect::<BTreeSet<_>>();
-    let mut queue = public.iter().copied().collect::<VecDeque<_>>();
+    let mut files = v.entries.keys().copied().collect::<BTreeSet<_>>();
+    let mut names = BTreeSet::new();
+    let mut queue = files.iter().copied().collect::<VecDeque<_>>();
     while let Some(file) = queue.pop_front() {
         for edge in t.out(file) {
-            if edge.kind == EdgeKind::Imports
-                && t.str(edge.detail).contains("reexport")
-                && public.insert(edge.dst)
-            {
+            let to_file = t.nodes[edge.dst as usize].kind == NodeKind::File;
+            let whole = match edge.kind {
+                EdgeKind::Imports => t.str(edge.detail).ends_with("star-reexport"),
+                EdgeKind::Uses if t.str(edge.detail) == REEXPORTED_NAME => {
+                    if !to_file {
+                        names.insert(edge.dst);
+                    }
+                    to_file
+                }
+                _ => false,
+            };
+            if whole && files.insert(edge.dst) {
                 queue.push_back(edge.dst);
             }
         }
     }
-    public
+    PublicApi { files, names }
 }
 
 pub(super) fn detect_unused_exports(c: &mut Ctx) {
     let v = &c.v;
     let t = v.t;
-    let public = public_api_files(v);
+    let public = public_api(v);
     // An unreachable file is one `unreachable-file` finding: its exports
     // are not listed again.
     let entries = v.entries.keys().copied().collect::<Vec<_>>();
@@ -203,11 +228,16 @@ pub(super) fn detect_unused_exports(c: &mut Ctx) {
         .filter(|e| e.kind == EdgeKind::Imports && t.str(e.detail) == "dynamic-import")
         .map(|e| e.dst)
         .collect::<BTreeSet<_>>();
-    // Per file: each export's name and the line it is declared on.
-    let mut by_file = BTreeMap::<u32, Vec<(&str, u32)>>::new();
-    let mut local_only = BTreeMap::<u32, Vec<&str>>::new();
+    // Per file and by whether only tests use the export from another file:
+    // each export's name and the line it is declared on. A test-used export
+    // is a hypothesis (un-exporting needs the test changed), so it is never
+    // grouped with exports nothing else touches.
+    let mut by_file = BTreeMap::<(u32, bool), Vec<(&str, u32, u32)>>::new();
+    let mut local_only = BTreeMap::<(u32, bool), Vec<&str>>::new();
     // Files whose exports this detector cannot judge, by language.
     let mut unjudged = BTreeMap::<&str, BTreeSet<u32>>::new();
+    // Every top-level export, by the first rule that settled it.
+    let mut settled = BTreeMap::<&str, usize>::new();
     for (id, node) in t.node_ids().zip(&t.nodes) {
         if node.kind != NodeKind::Symbol || node.flags & FLAG_EXPORTED == 0 || node.parent != NONE {
             continue;
@@ -215,30 +245,37 @@ pub(super) fn detect_unused_exports(c: &mut Ctx) {
         let file = node.file;
         // Judged languages are never package-scoped, so production is
         // file-level here; the language check below discloses the rest.
-        if !v.production(file)
-            || v.meta(file).contains(";library")
-            || v.is_entry(file)
-            || public.contains(&file)
-            || namespace_used.contains(&file)
-            || unreachable.contains(&file)
-        {
+        let excluded = [
+            (!v.production(file), "notProduction"),
+            (v.meta(file).contains(";library"), "library"),
+            (v.is_entry(file), "entry"),
+            (
+                public.files.contains(&file) || public.names.contains(&id),
+                "reexportedByEntry",
+            ),
+            (namespace_used.contains(&file), "namespaceImported"),
+            (unreachable.contains(&file), "unreachableFile"),
+        ]
+        .into_iter()
+        .find_map(|(applies, rule)| applies.then_some(rule));
+        if let Some(rule) = excluded {
+            *settled.entry(rule).or_default() += 1;
             continue;
         }
         if !exports_judged(v.key(file), t.str(node.detail)) {
             if !NAMED_IMPORT_LANGUAGES.contains(&v.language(file)) {
                 unjudged.entry(v.language(file)).or_default().insert(file);
             }
+            *settled.entry("notJudged").or_default() += 1;
             continue;
         }
-        let used = t.incoming(id).any(|e| {
-            matches!(
-                e.kind,
-                EdgeKind::Uses | EdgeKind::Calls | EdgeKind::Inherits | EdgeKind::Passes
-            ) && v.file_of[e.src as usize] != file
-        });
-        if used {
+        let users = other_file_users(v, id, file);
+        if users == Users::Production {
+            *settled.entry("usedByAnotherFile").or_default() += 1;
             continue;
         }
+        let name = t.str(node.name);
+        let tested = users == Users::Tests;
         // Referenced inside its own file: the export is unnecessary, the
         // code is not dead (knip `ignoreExportsUsedInFile`).
         let local = node.flags & FLAG_LOCAL_USE != 0
@@ -246,16 +283,19 @@ pub(super) fn detect_unused_exports(c: &mut Ctx) {
                 e.kind != EdgeKind::Contains && v.file_of[e.src as usize] == file && e.src != id
             });
         if local {
-            local_only.entry(file).or_default().push(t.str(node.name));
+            local_only.entry((file, tested)).or_default().push(name);
         } else {
             by_file
-                .entry(file)
+                .entry((file, tested))
                 .or_default()
-                .push((t.str(node.name), node.line));
+                .push((name, node.line, id));
         }
     }
     note_unjudged_exports(&mut c.notes, &unjudged);
-    for (file, names) in local_only {
+    if local_only.is_empty() && by_file.is_empty() {
+        note_settled_exports(&mut c.notes, v, &settled);
+    }
+    for ((file, tested), names) in local_only {
         let key = v.key(file).to_owned();
         push(
             &mut c.findings,
@@ -264,8 +304,9 @@ pub(super) fn detect_unused_exports(c: &mut Ctx) {
                 subject: key,
                 id_parts: &[&names.join(",")],
                 title: format!(
-                    "{} export(s) used only inside this file: could be un-exported",
-                    names.len()
+                    "{} export(s) used only inside this file{}: could be un-exported",
+                    names.len(),
+                    if tested { " and by tests" } else { "" }
                 ),
                 severity: 0.15,
                 confidence: 0.8,
@@ -275,10 +316,11 @@ pub(super) fn detect_unused_exports(c: &mut Ctx) {
                 verify: Vec::new(),
             },
         );
+        tier_tested(&mut c.findings, tested);
     }
-    for (file, exports) in by_file {
-        let names = exports.iter().map(|(name, _)| *name).collect::<Vec<_>>();
-        let (first, line) = exports[0];
+    for ((file, tested), exports) in by_file {
+        let names = exports.iter().map(|(name, ..)| *name).collect::<Vec<_>>();
+        let (first, line, _) = exports[0];
         let key = v.key(file).to_owned();
         let lazy = dynamic.contains(&file);
         push(
@@ -288,15 +330,16 @@ pub(super) fn detect_unused_exports(c: &mut Ctx) {
                 subject: key.clone(),
                 id_parts: &[&names.join(",")],
                 title: format!(
-                    "{} export(s) with no importer outside the file",
-                    names.len()
+                    "{} export(s) with no importer outside the file{}",
+                    names.len(),
+                    if tested { " except tests" } else { "" }
                 ),
                 severity: 0.4 * magnitude(names.len()),
                 confidence: if lazy { 0.3 } else { 0.6 },
                 impact: v.impact(file),
                 evidence: json!({"exports": names, "count": names.len(), "dynamicallyImported": lazy}),
                 controls: vec![
-                    "entry files and everything they re-export treated as public API",
+                    "entry files and the names they re-export (all of an `export *`) treated as public API",
                     "namespace-imported files skipped",
                     "only languages with named-import linking (JS/TS/Python)",
                 ],
@@ -306,6 +349,47 @@ pub(super) fn detect_unused_exports(c: &mut Ctx) {
                 )],
             },
         );
+        tier_tested(&mut c.findings, tested);
+    }
+}
+
+/// Who uses an export from another file.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Users {
+    None,
+    /// Test code only.
+    Tests,
+    Production,
+}
+
+/// The users of export `id` (declared in `file`) in other files. A
+/// re-export statement records what a file makes public and is no use.
+fn other_file_users(v: &View<'_>, id: u32, file: u32) -> Users {
+    let t = v.t;
+    let mut users = Users::None;
+    for edge in t.incoming(id).filter(|e| {
+        matches!(
+            e.kind,
+            EdgeKind::Uses | EdgeKind::Calls | EdgeKind::Inherits | EdgeKind::Passes
+        ) && v.file_of[e.src as usize] != file
+            && t.str(e.detail) != REEXPORTED_NAME
+    }) {
+        if !edge.test {
+            return Users::Production;
+        }
+        users = Users::Tests;
+    }
+    users
+}
+
+/// A finding whose exports a test imports is a hypothesis: tier 60, as a
+/// text mention makes it.
+fn tier_tested(findings: &mut [Finding], tested: bool) {
+    if let Some(finding) = findings.last_mut().filter(|_| tested) {
+        finding.tier = finding.tier.min(60);
+        finding
+            .controls
+            .push("a test imports it: un-exporting needs the test changed");
     }
 }
 
@@ -326,4 +410,35 @@ fn note_unjudged_exports(notes: &mut Vec<Value>, unjudged: &BTreeMap<&str, BTree
         NAMED_IMPORT_LANGUAGES.join(", ")
     );
     note_detectors(notes, &["unused-export", "export-only-local"], &reason);
+}
+
+/// An export run that found nothing says what it checked and which rule
+/// settled each export; the entries whose re-exports made names public API
+/// are named, for the lead to their re-exports.
+fn note_settled_exports(notes: &mut Vec<Value>, v: &View<'_>, settled: &BTreeMap<&str, usize>) {
+    let t = v.t;
+    let mut evaluated = json!({"exports": settled.values().sum::<usize>()});
+    for (rule, count) in settled {
+        evaluated[*rule] = json!(count);
+    }
+    if settled.contains_key("reexportedByEntry") {
+        let reexporting = v
+            .entries
+            .keys()
+            .filter(|entry| {
+                t.out(**entry).iter().any(|edge| {
+                    edge.kind == EdgeKind::Imports && t.str(edge.detail).contains("reexport")
+                })
+            })
+            .map(|entry| v.key(*entry))
+            .collect::<Vec<_>>();
+        evaluated["reexportingEntries"] = json!(reexporting);
+    }
+    note_evaluated(notes, &["unused-export", "export-only-local"], evaluated);
+}
+
+/// What a detector step checked when it found nothing: an empty answer is
+/// never read as "nothing to check".
+fn note_evaluated(notes: &mut Vec<Value>, detectors: &[&str], evaluated: Value) {
+    notes.push(json!({"detectors": detectors, "evaluated": evaluated}));
 }

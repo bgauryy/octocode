@@ -134,9 +134,8 @@ impl ToolRuntime {
         let clasify = id.is_clasify();
         let access = page_replay_key("", &[], &[], admission.github_credential());
         let opened = if let Some(token) = input.get("cursor").and_then(Value::as_str) {
-            contracts::validate(&tool, input.clone()).map_err(|error| {
-                super::admission::invalid_input_error(&tool, error, &self.unpublished_fields(&tool))
-            })?;
+            contracts::validate(&tool, input.clone())
+                .map_err(|error| self.invalid_input(&tool, error, &input))?;
             Some(self.open_cursor(id, token, admission.github_credential())?)
         } else {
             None

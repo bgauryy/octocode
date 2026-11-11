@@ -5,12 +5,15 @@ use std::sync::LazyLock;
 
 use super::PATTERNS;
 use super::key_facts::{KeyFacts, SpanKeys};
-use super::named_values::{is_opaque, spells_a_credential_word};
+use super::named_values::{
+    is_nonce_shape, is_opaque, names_a_credential, spells_a_credential_word,
+};
 use crate::security::patterns::CREDENTIAL_WORDS;
 
 /// Patterns that take any value assigned to a credential-named key, each
 /// with the test that tells which of those values are credentials; every
-/// other pattern is [`ValueTest::Every`].
+/// other pattern is [`ValueTest::Every`], or [`ValueTest::Placed`] when it
+/// names its value in a `secret` group.
 const CREDENTIAL_ASSIGNMENT_PATTERNS: &[(&str, ValueTest)] = &[
     ("envVarSecrets", ValueTest::Quoted),
     ("base64EncodedSecrets", ValueTest::KeyName),
@@ -40,6 +43,12 @@ pub(super) const QUOTES: [char; 3] = ['"', '\'', '`'];
 pub(super) enum ValueTest {
     /// The pattern matches only credentials: every value is one.
     Every,
+    /// The pattern knows a credential by where it stands (its `secret`
+    /// group: a URL's password, the token after an auth scheme), whatever
+    /// its characters: every value is one except a placeholder written in
+    /// its place ([`is_written_placeholder`]). A request and a file judge it
+    /// alike.
+    Placed,
     /// Only the key's name says "credential", so a value that is not one is
     /// kept: a value that spells a code identifier
     /// (`"x-kubernetes-patch-merge-key": "resourceClaimName"`) names a field,
@@ -109,7 +118,7 @@ impl ValueTest {
     /// locator holds no credential whatever its value ([`names_a_location`]),
     /// so a reader can skip the value of a key this rejects.
     pub(super) fn admits_key_in_comment(self, key: &impl KeyFacts) -> bool {
-        self == Self::Every || !key.names_a_locator()
+        matches!(self, Self::Every | Self::Placed) || !key.names_a_locator()
     }
 
     /// Whether a match in the text of a source-code file (a string, or a file
@@ -143,6 +152,7 @@ impl ValueTest {
     fn redacts_by_name(self, key: &impl KeyFacts, secret: &str) -> bool {
         match self {
             Self::Every => true,
+            Self::Placed => !is_written_placeholder(secret),
             // A connection string may quote a field's value (`Password="…"`):
             // the quotes framing it are the string's, not the value's.
             Self::Field => !is_template(secret.trim().trim_matches(QUOTES)),
@@ -155,6 +165,7 @@ impl ValueTest {
             Self::Scalar => {
                 assigns_a_credential(key, secret)
                     && !is_non_string_scalar(secret)
+                    && !is_type_annotation(secret)
                     && !is_template(secret.trim())
                     && (!key.ends_with_quote() || is_quoted_credential(key, secret))
             }
@@ -332,6 +343,56 @@ fn ends_a_code_member(key: &str, secret: &str) -> bool {
         })
 }
 
+/// The names a language gives its built-in scalar types, any case
+/// (`str`, `String`, `number`): after `name:` one is a type annotation.
+const SCALAR_TYPE_NAMES: &[&str] = &[
+    "str", "string", "int", "integer", "bool", "boolean", "bytes", "number", "float", "double",
+    "char", "any", "object", "unknown",
+];
+
+/// Whether `secret`, after `name:`, annotates the name's type rather than
+/// holding its value (`str`, `Token`, `str = None`, `string | null`,
+/// `Optional[str]`): one type or several joined by `|`, each a built-in
+/// scalar type's name ([`SCALAR_TYPE_NAMES`]), a capitalized name whose words
+/// name a credential (`Token`, `SecretStr`, [`names_a_credential`]), a
+/// generic ([`is_type_expression`]) or a name with its parameter in brackets
+/// (`Optional[str]`), a union holding the type of no value besides
+/// (`string | null`), and after `=` at most a default that holds no value
+/// (`None`, `null`, `undefined`, an empty literal).
+fn is_type_annotation(secret: &str) -> bool {
+    let body = secret.trim().trim_end_matches([',', ';']).trim_end();
+    let (types, default) = match body.split_once('=') {
+        Some((types, default)) => (types.trim(), Some(default.trim())),
+        None => (body, None),
+    };
+    let empty_default = |default: &str| {
+        is_non_string_scalar(default)
+            || ["None", "nil", "undefined", "\"\"", "''"].contains(&default)
+    };
+    let types = || types.split('|').map(str::trim);
+    default.is_none_or(empty_default)
+        && types().any(is_annotated_type)
+        && types().all(|one| is_annotated_type(one) || empty_default(one))
+}
+
+/// One type of [`is_type_annotation`].
+fn is_annotated_type(one: &str) -> bool {
+    let capitalized = |name: &str| {
+        name.starts_with(|c: char| c.is_ascii_uppercase())
+            && name.bytes().all(|byte| byte.is_ascii_alphabetic())
+    };
+    let one = one.trim_end_matches('?').trim_end_matches("[]");
+    if let Some((outer, inner)) = one.strip_suffix(']').and_then(|head| head.split_once('[')) {
+        return capitalized(outer) && inner.split(',').all(|part| is_annotated_type(part.trim()));
+    }
+    let capitalized = capitalized(one);
+    SCALAR_TYPE_NAMES
+        .iter()
+        .any(|name| one.eq_ignore_ascii_case(name))
+        || (capitalized && (names_a_credential(one) || is_identifier_name(one)))
+        || is_type_expression(one)
+}
+
 /// Whether `secret` is a keyword YAML reads as a boolean or null, not a
 /// string: `true`, `false`, `null` or `~`, in any of YAML's spellings.
 fn is_non_string_scalar(secret: &str) -> bool {
@@ -349,7 +410,16 @@ pub(super) static VALUE_TESTS: LazyLock<Vec<ValueTest>> = LazyLock::new(|| {
             CREDENTIAL_ASSIGNMENT_PATTERNS
                 .iter()
                 .find(|(name, _)| *name == p.name)
-                .map_or(ValueTest::Every, |&(_, test)| test)
+                .map_or_else(
+                    || {
+                        if p.regex.contains("(?P<secret") {
+                            ValueTest::Placed
+                        } else {
+                            ValueTest::Every
+                        }
+                    },
+                    |&(_, test)| test,
+                )
         })
         .collect()
 });
@@ -378,6 +448,7 @@ fn assigns_a_credential(key: &impl KeyFacts, secret: &str) -> bool {
         && !is_plain_phrase(key, secret)
         && !(is_constant_name(secret) && !key.names_a_chosen_credential())
         && !is_armor_line(secret)
+        && !(key.names_a_user_agent_field() && is_nonce_shape(secret.trim_matches(QUOTES)))
         && !is_timestamp(secret)
         && !(is_label(secret, false) && !key.names_a_chosen_credential())
         && !(is_command(secret) && !key.names_a_chosen_credential())
@@ -720,6 +791,24 @@ fn before_ending_control_escape(text: &str) -> Option<&str> {
     })
 }
 
+/// Where the first control-character escape in `text` starts
+/// ([`control_escape_len`]: `\n`, `\r`, `\t`, `\u000a`, …): in a string
+/// literal the program holds a line break or a field's separator there, which
+/// no credential's bytes hold, so a value ends at it when what precedes it is
+/// still a credential. A backslash another escapes (`\\n`) starts none.
+pub(super) fn escaped_control(text: &str) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut at = 0;
+    while let Some(found) = bytes.get(at..).and_then(|rest| memchr::memchr(b'\\', rest)) {
+        let slash = at + found;
+        if text.get(slash..).and_then(control_escape_len).is_some() {
+            return Some(slash);
+        }
+        at = slash + 2;
+    }
+    None
+}
+
 /// The length of the control-character escape `text` starts with: `\0`,
 /// `\n`, `\r`, `\t`, `\xHH` or `\u00HH` below 0x20.
 fn control_escape_len(text: &str) -> Option<usize> {
@@ -1056,20 +1145,36 @@ fn file_class_value_is_readable(key: &str, secret: &str) -> bool {
 }
 
 /// Whether `value` is a redaction marker, bare or inside the quotes a
-/// quote-aware rule left around it (`"[REDACTED-SPRINGBOOTSECRETS]"`): text
-/// this tool wrote is no credential, whichever rule reads the line next.
-fn is_redaction_marker(value: &str) -> bool {
-    // The wrappers a literal's own syntax puts around it: a call's `(` and the
-    // quotes, whose partner may be on a later line (a literal split over lines).
-    let value = value.trim_start_matches('(');
+/// quote-aware rule left around it (`"[REDACTED-SPRINGBOOTSECRETS]";`), the
+/// control characters that frame it aside (`"[REDACTED-ENVVARSECRETS]\r\n"`,
+/// [`without_control_frame`]) and the next field after it
+/// ([`super::named_values::field_end_after`]): text this tool wrote is no
+/// credential, whichever rule reads the line next.
+pub(super) fn is_redaction_marker(value: &str) -> bool {
+    // The wrappers a literal's own syntax puts around it: a call's `(` and
+    // `)`, a statement's `;` or an item's `,` after it, and the quotes, whose
+    // partner may be on a later line (a literal split over lines).
+    let value = value
+        .trim_start_matches('(')
+        .trim_end()
+        .trim_end_matches([';', ',', ')']);
     let inner = QUOTES
         .into_iter()
         .find_map(|quote| value.strip_prefix(quote)?.strip_suffix(quote))
         .or_else(|| value.strip_prefix(QUOTES))
         .unwrap_or(value);
-    crate::security::placeholder_regex()
-        .find(inner)
-        .is_some_and(|marker| marker.range() == (0..inner.len()))
+    let whole = |text: &str| {
+        crate::security::placeholder_regex()
+            .find(text)
+            .is_some_and(|marker| marker.range() == (0..text.len()))
+    };
+    let inner = without_control_frame(inner);
+    // A marker the next field follows in its literal (`"[REDACTED-…]\r\nHost:
+    // example.com"`) ends that literal's value as the value it replaced did.
+    let inner = super::named_values::field_end_after(inner, whole)
+        .and_then(|at| inner.get(..at))
+        .unwrap_or(inner);
+    whole(inner)
 }
 
 /// Whether `name` is what a reference to another variable or key holds, and
@@ -1275,6 +1380,70 @@ fn joined_pieces(secret: &str) -> String {
     value
 }
 
+/// The parts of a quoted rule's value `secret` (the text between a literal's
+/// first opening quote and its last closing one, `key` the text before it)
+/// that the source spells, by byte range in `secret`: each piece of a
+/// literal written in pieces (`Fake0" + 'Moo9Zed`, read as
+/// [`joined_pieces`] reads them), and in each the text outside the holes an
+/// interpolation writes ([`outside_holes`]: `${…}`, a format literal's
+/// `{…}`). A value with no seam and no hole is one part, itself.
+#[cfg_attr(
+    octocode_clippy_ratchet,
+    expect(
+        clippy::string_slice,
+        reason = "offsets are `find` results of an ASCII quote, one byte wide"
+    )
+)]
+pub(super) fn literal_parts(key: &str, secret: &str) -> Vec<std::ops::Range<usize>> {
+    let mut pieces = Vec::new();
+    let mut start = 0;
+    let mut from = 0;
+    while let Some(at) = secret[from..].find(QUOTES).map(|at| from + at) {
+        let after = &secret[at + 1..];
+        let seam = after_code_gap(after);
+        let next = seam.strip_prefix('+').map_or(seam, after_code_gap);
+        match next.strip_prefix(QUOTES) {
+            Some(piece) => {
+                pieces.push(start..at);
+                start = secret.len() - piece.len();
+                from = start;
+            }
+            None => from = at + 1,
+        }
+    }
+    pieces.push(start..secret.len());
+    let facts = SpanKeys::new(key);
+    let facts = facts.key(0);
+    let mut parts = Vec::new();
+    for piece in pieces {
+        let text = &secret[piece.clone()];
+        if !holds_interpolation(&facts, text) {
+            parts.push(piece);
+            continue;
+        }
+        let base = secret.as_ptr() as usize;
+        parts.extend(
+            outside_holes(&facts, text)
+                .into_iter()
+                .filter(|part| !part.is_empty())
+                .map(|part| {
+                    let at = part.as_ptr() as usize - base;
+                    at..at + part.len()
+                }),
+        );
+    }
+    parts
+}
+
+/// Whether `part`, a part of a quoted value ([`literal_parts`]), is a value
+/// of its own: a credential under `key` alone ([`ValueTest::Quoted`]) at a
+/// literal's full length ([`OPAQUE_LITERAL_CHARS`]). The text joined to it
+/// (`"<key>" + "-suffix"`, `` `<key>${id}` ``) is then the program's own,
+/// judged apart; pieces no one of which is a value alone are one value.
+pub(super) fn is_value_of_its_own(key: &str, part: &str) -> bool {
+    literal_chars(part) >= OPAQUE_LITERAL_CHARS && ValueTest::Quoted.redacts(key, part)
+}
+
 /// `text` after the blanks, line breaks and comments it starts with (`/* …
 /// */`, and `// …` or `# …` to the end of its line): what source code may
 /// write between the pieces of one literal.
@@ -1323,6 +1492,24 @@ fn is_written_secret(secret: &str) -> bool {
         && value
             .chars()
             .any(|c| c.is_ascii_digit() || !(c.is_alphanumeric() || matches!(c, '_' | '.' | '-')))
+}
+
+/// Whether `secret`, written where a credential stands (a URL's password,
+/// the token after an auth scheme), is a placeholder a document writes in
+/// its place: a template ([`is_template`]: `<token>`, `${TOKEN}`), a value to
+/// fill in ([`is_fill_in`]: `YOUR_ACCESS_TOKEN_HERE`), or the credential's
+/// word itself (`password`, `pass`, `token`, any case). A generated or
+/// chosen value spells something else.
+pub(super) fn is_written_placeholder(secret: &str) -> bool {
+    let value = secret
+        .trim_matches(QUOTES)
+        .trim_end_matches(['.', ',', ';', ')', '?']);
+    let lower = value.to_ascii_lowercase();
+    let singular = lower.strip_suffix('s').unwrap_or(&lower);
+    let names_itself = CREDENTIAL_WORDS
+        .split('|')
+        .any(|word| word == lower || word == singular);
+    is_template(value) || is_fill_in(&SpanKeys::new("").key(0), value) || names_itself
 }
 
 /// Whether `secret` is a placeholder to fill in: `<…>`, `${…}`, `{{…}}`, `{%…%}` or a

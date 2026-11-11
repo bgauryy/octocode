@@ -234,3 +234,29 @@ fn a_line_that_only_holds_a_key_run_keeps_its_label() {
     let long_label = "x ".repeat(KEY_LINE_HEAD_BYTES / 2);
     assert_eq!(hide_key_line(&format!("{long_label}: {RUN}")), placeholder);
 }
+
+/// D3: a key block written inside one member of a minified document starts
+/// at its own `-----BEGIN`, wherever on the line that stands: the members
+/// before it (a run of their own among them) and the text after its END
+/// stay.
+#[test]
+fn a_key_block_in_a_minified_document_starts_at_its_own_begin() {
+    let before = format!(
+        "{{\"password\":\"Tr0ub4dor&3xK9!zQ\",\"apiKey\":\"{}\",\"name\":\"visible-name\",\"privateKey\":\"",
+        "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+    );
+    let block = "-----BEGIN PRIVATE KEY-----\\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7VJTUt9Us8cKj\\nMzEfYyjiWA4R4/M2bS1GB4t7NXp98C3SC6dVMvDuictGeurT8jNbvJZHtCSuYEvu\\n-----END PRIVATE KEY-----";
+    let after = "\"}";
+    for lead in ["", &"{\"pad\":\"x\",".repeat(30)] {
+        let line = format!("{lead}{before}{block}{after}");
+        let source = format!("{line}\n");
+        let (hidden, changed) = redact_private_key_blocks(&source);
+        assert!(changed, "{line}");
+        assert_eq!(
+            hidden,
+            format!("{lead}{before}{}{after}\n", key_fragment_placeholder()),
+            "{} bytes before the block",
+            lead.len() + before.len()
+        );
+    }
+}

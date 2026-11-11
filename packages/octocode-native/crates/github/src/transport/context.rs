@@ -52,11 +52,15 @@ impl RequestContext {
         }
     }
 
-    /// The client-side waits this request spent before its sends, summed by
-    /// kind (rate-limit blocks, quota pacing, spacing, retry delays): latency
-    /// the provider did not cause. Empty when it never waited.
+    /// The client-side waits a limit made this request spend before its
+    /// sends, summed by kind (a spent quota's reset, a secondary-limit
+    /// cooldown, a `retry-after`): latency the provider did not cause. Routine
+    /// spacing between starts is how every request is sent, not news to the
+    /// caller: it is left out. Empty when no limit held it.
     pub fn client_waits(&self) -> Vec<octocode_contract_types::ClientWait> {
-        self.waits.summed()
+        let mut waits = self.waits.summed();
+        waits.retain(|wait| wait.kind != octocode_contract_types::ClientWaitKind::Spacing);
+        waits
     }
 
     #[must_use]

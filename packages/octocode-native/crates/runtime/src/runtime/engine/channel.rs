@@ -189,6 +189,10 @@ impl ChannelRun {
         scope: &continuations::Scope<'_>,
         context: &ExecutionContext,
     ) -> Result<Rows, ExecutionError> {
+        // What the rows say for the result (a cache write refused) is this
+        // call's: stated in its `warnings`, never on stderr.
+        let said = octocode_io::notice::ResultNotes::default();
+        let noting = said.enter();
         let ShapedRows {
             mut structured,
             response_query,
@@ -214,11 +218,13 @@ impl ChannelRun {
         {
             return Ok(Rows::Answered(Err(error)));
         }
-        let call_notes =
+        let mut call_notes =
             match stage::settle(self.id, &mut structured, &response_query, &mut failure) {
                 Ok(notes) => notes,
                 Err(error) => return Ok(Rows::Answered(Err(error))),
             };
+        drop(noting);
+        call_notes.extend(said.take());
         structured.edit(|output| crate::runtime::row_indices::inherit(output, &self.origin));
         if let Err(error) = self.hoist_walks(&mut structured, &mut pending, continues_page) {
             return Ok(Rows::Answered(Err(error)));

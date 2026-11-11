@@ -27,7 +27,9 @@ const TEST_NAME_MARKERS: &[&str] = &[".test.", ".spec.", ".e2e.", ".test-d."];
 
 /// Stem suffixes of snake-case test files in any language: Go `x_test.go`,
 /// Rust `x_test.rs`, Python `x_test.py`, Ruby `x_spec.rb`, Elixir
-/// `x_test.exs`, Dart `x_test.dart`, C++ `x_unittest.cc`. Compared lowercase.
+/// `x_test.exs`, Dart `x_test.dart`, C++ `x_unittest.cc`; and of the
+/// directories that hold such a module's children (Rust `x_tests/`).
+/// Compared lowercase.
 const TEST_STEM_SUFFIXES: &[&str] = &["_test", "_tests", "_spec", "_unittest"];
 
 /// Stem prefixes of test files, per extension: pytest/unittest `test_x.py`
@@ -77,10 +79,21 @@ pub fn is_test_path(path: &str) -> bool {
         TEST_DIRECTORIES
             .iter()
             .any(|test| dir.eq_ignore_ascii_case(test))
+            || has_test_stem_suffix(dir)
     }) {
         return true;
     }
     is_test_file_name(name)
+}
+
+/// Whether a name (a file stem, or a directory: a Rust module `x_tests.rs`
+/// and its child directory `x_tests/` are one module) ends in a
+/// [`TEST_STEM_SUFFIXES`] suffix after a non-empty stem.
+fn has_test_stem_suffix(stem: &str) -> bool {
+    let lower = stem.to_ascii_lowercase();
+    TEST_STEM_SUFFIXES
+        .iter()
+        .any(|suffix| lower.len() > suffix.len() && lower.ends_with(suffix))
 }
 
 fn is_test_file_name(name: &str) -> bool {
@@ -95,13 +108,10 @@ fn is_test_file_name(name: &str) -> bool {
     let Some((stem, extension)) = name.rsplit_once('.') else {
         return false;
     };
-    let lower_stem = stem.to_ascii_lowercase();
-    if TEST_STEM_SUFFIXES
-        .iter()
-        .any(|suffix| lower_stem.len() > suffix.len() && lower_stem.ends_with(suffix))
-    {
+    if has_test_stem_suffix(stem) {
         return true;
     }
+    let lower_stem = stem.to_ascii_lowercase();
     let extension = extension.to_ascii_lowercase();
     if TEST_STEM_PREFIXES.iter().any(|(extensions, prefix)| {
         extensions.contains(&extension.as_str())
@@ -169,6 +179,9 @@ mod tests {
             "test.mjs",
             "index.test-d.ts",
             "types/api.test-d.tsx",
+            "src/tools/process_tests/importers.rs",
+            "src/search/match_tests/source_limit.rs",
+            "pkg/widget_test/helpers.go",
         ] {
             assert!(is_test_path(path), "{path}");
         }

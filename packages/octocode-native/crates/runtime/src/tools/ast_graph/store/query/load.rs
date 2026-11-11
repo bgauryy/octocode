@@ -248,11 +248,11 @@ pub(super) fn load_with(
     })
 }
 
-/// The refusal of a snapshot another analysis version built: nothing of
-/// `graph.bin` is opened, and `related` is the build that replaces it, with
-/// the snapshot's own scan options.
+/// The refusal of a snapshot another analysis version built: it exists, but
+/// nothing of `graph.bin` is opened (`snapshotIncompatible`), and `related`
+/// is the build that replaces it, with the snapshot's own scan options.
 fn foreign_analysis_refusal(message: String, manifest: &Value) -> Failure {
-    let mut out = GraphOutput::error(ErrorCode::NotFound, message);
+    let mut out = GraphOutput::error(ErrorCode::SnapshotIncompatible, message);
     if let Some(build) = reingest_call(manifest) {
         out.value["related"] = json!([build]);
     }

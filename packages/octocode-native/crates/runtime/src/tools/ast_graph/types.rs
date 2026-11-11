@@ -77,6 +77,8 @@ pub(crate) struct Reexport {
     pub local_name: String,
     pub imported_name: String,
     pub target: Option<String>,
+    /// The export statement's line.
+    pub line: u32,
 }
 #[derive(Clone, Debug)]
 pub(crate) struct Call {

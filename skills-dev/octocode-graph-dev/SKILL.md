@@ -1,6 +1,6 @@
 ---
 name: octocode-graph-dev
-description: "Develop the native code graph engine: extraction, per-language call and import linking, snapshot format, queries and detectors. Measures each change with the pinned-repository language battery and keeps link precision from regressing."
+description: "Use when implementing, debugging or benchmarking Octocode’s native graph engine: syntax extraction, language-specific call/import linking, snapshots, queries and detectors. Verify link precision with the pinned-repository language battery; octocode-graph-view owns using the graph viewer."
 compatibility: "Node 20+, ripgrep, the pinned clones in packages/octocode-benchmark/local/repos, and a built octocode launcher or native binary."
 ---
 

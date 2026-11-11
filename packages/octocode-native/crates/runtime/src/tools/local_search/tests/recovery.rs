@@ -1,5 +1,6 @@
 //! An empty or partial page's next step: a plain miss under a narrow path
-//! leads to the same search at the workspace root (LS-5); an unreadable file
+//! leads to the narrowest folder above it where the same search matches
+//! (LS-5); an unreadable file
 //! names its reason in `partialReasons` (LS-7); a skipped target names a
 //! reader only where that reader serves it.
 use super::*;
@@ -49,21 +50,86 @@ fn an_empty_row_states_coverage_and_no_zero_counter() {
     assert!(hit.get("bytesSearched").is_none(), "{hit}");
 }
 
+/// A plain miss leads straight to the narrowest folder above it where the
+/// same search matches, never wider, and says how many files match there:
+/// one call, where one folder up at a time took one empty call per level.
 #[test]
-fn a_plain_miss_under_a_narrow_path_leads_to_the_workspace_root() {
+fn a_plain_miss_leads_to_the_narrowest_folder_above_it_with_a_match() {
     let root = workspace();
-    let narrow = root.path().join("narrow").to_string_lossy().into_owned();
-    for path in [narrow.clone(), format!("{narrow}/a.txt")] {
+    fs::create_dir_all(root.path().join("deep/a/b/c")).expect("dir");
+    fs::create_dir_all(root.path().join("deep/other")).expect("dir");
+    fs::write(root.path().join("deep/a/b/c/x.txt"), "nothing\n").expect("fixture");
+    fs::write(root.path().join("deep/other/hit.txt"), "needle\n").expect("fixture");
+    let lead_path = |row: &serde_json::Value| {
+        let lead = crate::tools::test_support::checks::related_call(row, "localSearch", |_| true);
+        let query = &lead["input"]["queries"][0];
+        assert_eq!(query["matchString"], serde_json::json!(["needle"]), "{row}");
+        query["path"].clone()
+    };
+    let deep = root
+        .path()
+        .join("deep/a/b/c")
+        .to_string_lossy()
+        .into_owned();
+    for path in [deep.clone(), format!("{deep}/x.txt")] {
         let row = search(root.path(), &path, serde_json::json!({}));
         assert_eq!(row["files"], serde_json::json!([]), "{row}");
-        let lead = crate::tools::test_support::checks::related_call(&row, "localSearch", |_| true);
-        let query = &lead["input"]["queries"][0];
-        assert_eq!(query["path"], ".", "{row}");
-        assert_eq!(query["matchString"], serde_json::json!(["needle"]), "{row}");
-        // The lead runs, and finds what the narrow scope could not.
-        let wider = search(root.path(), ".", serde_json::json!({}));
-        assert_eq!(wider["matchCount"], 1, "{wider}");
+        assert_eq!(lead_path(&row), "deep", "{row}");
+        assert!(
+            row["hints"]
+                .to_string()
+                .contains("1 file(s) under deep match"),
+            "{row}"
+        );
     }
+    let narrow = root.path().join("narrow").to_string_lossy().into_owned();
+    let row = search(root.path(), &narrow, serde_json::json!({}));
+    assert_eq!(lead_path(&row), ".", "{row}");
+    // The lead runs, and finds what the narrow scope could not.
+    let wider = search(root.path(), "deep", serde_json::json!({}));
+    assert_eq!(wider["matchCount"], 1, "{wider}");
+}
+
+/// When the probe is cut before any folder answers, the lead is the same
+/// search one folder up, said as such.
+#[test]
+fn a_plain_miss_the_probe_cannot_place_leads_one_folder_up() {
+    let root = workspace();
+    let narrow = root.path().join("narrow").to_string_lossy().into_owned();
+    for (path, parent) in [(narrow.clone(), "."), (format!("{narrow}/a.txt"), "narrow")] {
+        let row = crate::tools::empty_walk::with_probe_limits(
+            crate::tools::empty_walk::CUT_AT_ONCE,
+            || search(root.path(), &path, serde_json::json!({})),
+        );
+        let lead = crate::tools::test_support::checks::related_call(&row, "localSearch", |_| true);
+        assert_eq!(lead["input"]["queries"][0]["path"], parent, "{row}");
+        assert!(row["hints"].to_string().contains("one folder up"), "{row}");
+    }
+}
+
+/// A miss the probe finds nowhere in the workspace offers no wider search:
+/// every one would be empty.
+#[test]
+fn a_plain_miss_nowhere_in_the_workspace_offers_no_wider_search() {
+    let root = workspace();
+    let narrow = root.path().join("narrow").to_string_lossy().into_owned();
+    let row = search(
+        root.path(),
+        &narrow,
+        serde_json::json!({"matchString": ["absent-everywhere"]}),
+    );
+    assert_eq!(row["files"], serde_json::json!([]), "{row}");
+    assert!(
+        crate::tools::test_support::checks::find_related_call(&row, "localSearch", |_| true)
+            .is_none(),
+        "{row}"
+    );
+    assert!(
+        row["hints"]
+            .to_string()
+            .contains("nor anywhere else in the workspace"),
+        "{row}"
+    );
 }
 
 #[test]

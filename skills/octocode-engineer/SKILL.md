@@ -1,6 +1,6 @@
 ---
 name: octocode-engineer
-description: "Engineering and architecture cheat sheet and review method: choose or review data structures, storage, caches, concurrency, memory, performance, reliability, APIs, security, testing, module boundaries, coupling, layering and refactors. Gives trade-offs, failure modes, proof and the check that settles a choice."
+description: "Use when choosing or reviewing a concrete software design, architecture or refactor: algorithms, data structures, storage, caching, concurrency, APIs, reliability, security, testing and module boundaries. Compare workload-specific trade-offs, invariants and failure modes, then define the deciding check."
 ---
 
 # Octocode Engineer

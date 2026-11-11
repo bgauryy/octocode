@@ -9,12 +9,25 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-/// A section's target text in the default window.
+/// A `sections` plan's target text in the default window.
 const SECTION_CHARS: usize = 8_000;
-/// A section's target text with `longContext:true`, and of a source judged
-/// whole in sections ([`super::whole`]): the fewest requests whose pages
-/// still sit well inside the default window.
-pub(super) const LONG_CONTEXT_SECTION_CHARS: usize = 64_000;
+/// A `sections` plan's target text with `longContext:true`.
+const LONG_CONTEXT_SECTION_CHARS: usize = 64_000;
+
+/// How large a plan's sections are.
+#[derive(Clone)]
+pub(super) enum Grain {
+    /// A `sections` plan, read a section at a time: each section with its
+    /// supporting context, in pages an answer can point into.
+    Plan,
+    /// A source judged whole ([`super::whole`]): each section alone, with
+    /// every question, fills one request of `bytes`; the plan covers the
+    /// selected source bytes within `span`.
+    Request {
+        bytes: usize,
+        span: std::ops::Range<usize>,
+    },
+}
 
 #[derive(Default)]
 pub(super) struct Pool {
@@ -62,7 +75,7 @@ pub(super) fn create(
     context: &ExecutionContext,
     max_bytes: usize,
     pool: &Pool,
-    grain: Option<usize>,
+    grain: Grain,
 ) -> Result<(Session, Vec<String>, Vec<Value>), ClassificationError> {
     let mut resources = Vec::new();
     let mut retained = 0usize;
@@ -92,7 +105,7 @@ pub(super) fn create(
                                     dispatcher,
                                     context,
                                     max_bytes.saturating_sub(retained),
-                                    grain,
+                                    grain.clone(),
                                 )
                             });
                     (source, acquired)
@@ -173,29 +186,44 @@ fn prepare(
     dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
     remaining_bytes: usize,
-    grain: Option<usize>,
+    grain: Grain,
 ) -> Result<(Value, Vec<Unit>, Option<Value>), ClassificationError> {
-    let selected = resource::selected_ranges(&captured.text, &source["query"])?;
+    let mut selected = resource::selected_ranges(&captured.text, &source["query"])?;
     let mut metadata = resource::selection_metadata(captured, source);
     // How much text a section holds: its grain, not a limit. Every original
-    // byte remains in a target even when it needs a fragment, and one section
-    // well inside the provider's 32k-token (262k long-context) window leaves
-    // room for its context and questions.
-    let target_chars = grain.unwrap_or(
-        if LongContext::from_field(row.long_context) == LongContext::Always {
-            LONG_CONTEXT_SECTION_CHARS
-        } else {
-            SECTION_CHARS
-        },
-    );
-    // A source judged whole in sections (`grain` given) sends each section
-    // alone: every section is judged, so the page before it is some other
-    // request's target, and repeating it as context doubled the input for
-    // the same answers (measured 2026-11-11 on a 294,466-char source, three
+    // byte remains in a target even when it needs a fragment. A plan's
+    // section sits well inside the provider's 32k-token (262k long-context)
+    // window, leaving room for its context and questions; a source judged
+    // whole fills each request.
+    let (target_chars, pages) = match grain {
+        Grain::Plan => (
+            if LongContext::from_field(row.long_context) == LongContext::Always {
+                LONG_CONTEXT_SECTION_CHARS
+            } else {
+                SECTION_CHARS
+            },
+            source_sections::Pages::Share,
+        ),
+        Grain::Request { bytes, ref span } => {
+            selected = selected
+                .into_iter()
+                .map(|range| range.start.max(span.start)..range.end.min(span.end))
+                .filter(|range| !range.is_empty())
+                .collect();
+            (
+                request_chars(&captured.text, &selected, row, dispatcher, bytes)?,
+                source_sections::Pages::Grain,
+            )
+        }
+    };
+    // A source judged whole in sections sends each section alone: every
+    // section is judged, so the page before it is some other request's
+    // target, and repeating it as context doubled the input for the same
+    // answers (measured 2026-11-11 on a 294,466-char source, three
     // planted-fact questions, 19 sections: 184,677 input tokens with it,
     // 97,679 without, the same answers and deciding lines). A `sections`
     // plan keeps it: its sections are read one at a time.
-    let with_context = grain.is_none();
+    let with_context = matches!(grain, Grain::Plan);
     let safe = SafeSource::new(&captured.text, &captured.path, dispatcher)?;
     let mut units = Vec::new();
     let mut retained_bytes = octocode_engine::json_size::bytes(&metadata).unwrap_or(usize::MAX);
@@ -209,17 +237,15 @@ fn prepare(
         &captured.path,
         &selected,
         target_chars,
+        pages,
         |section| -> Result<bool, ClassificationError> {
             let ordinal = units.len();
             context.check().map_err(|_| {
                 super::unavailable("The call stopped while planning sections; no inference ran.")
             })?;
             let target = location(&section.target);
-            let supporting: &[std::ops::Range<usize>] = if with_context {
-                &section.context
-            } else {
-                &[]
-            };
+            let supporting: &[std::ops::Range<usize>] =
+                if with_context { &section.context } else { &[] };
             let context_ranges = supporting.iter().map(&location).collect::<Vec<_>>();
             let context_text = supporting
                 .iter()
@@ -278,6 +304,53 @@ fn prepare(
         check["query"]["path"] = source["query"]["path"].clone();
     }
     Ok((metadata, units, local_check))
+}
+
+/// The target characters one request of `bytes` holds beside every
+/// question of `row`: the bytes the request with an empty target leaves, at
+/// the selected text's own JSON-escaped bytes per character.
+fn request_chars(
+    text: &str,
+    selected: &[std::ops::Range<usize>],
+    row: &Row,
+    dispatcher: &dyn SourceReader,
+    bytes: usize,
+) -> Result<usize, ClassificationError> {
+    let evaluator = dispatcher.evaluator();
+    let model = row.model.as_deref().unwrap_or(&evaluator.model);
+    // The widest location any section of this source states.
+    let (end, lines) = (text.len(), octocode_engine::text::line_starts(text).len());
+    let empty = json!({"target":{"range":{"bytes":[end,end],"lines":{"startLine":lines,"endLine":lines}},"text":""},"context":[]});
+    let state = super::assess::scoped(super::super::rows::contextual_state(
+        &empty,
+        row.context.as_deref(),
+    ));
+    let questions: Vec<&Value> = row.questions.iter().collect();
+    let overhead = serde_json::to_vec(&evaluator.provider.build(&state, &questions, model, None))
+        .map_or(usize::MAX, |body| body.len());
+    let room = bytes.saturating_sub(overhead);
+    if room == 0 {
+        return Err(ClassificationError::new(
+            ErrorCode::ClassificationStateTooLarge,
+            "The questions alone fill the provider's window: no section of the source fits beside them.",
+            "Ask fewer or shorter questions in one row.",
+        ));
+    }
+    // Selected ranges start and end at line or section boundaries, which are
+    // character boundaries; `get` keeps a misplaced one from panicking.
+    let (chars, escaped) = selected
+        .iter()
+        .filter_map(|range| text.get(range.clone()))
+        .fold((0usize, 0usize), |(chars, escaped), part| {
+            let quoted = serde_json::to_string(part).map_or(part.len(), |quoted| quoted.len() - 2);
+            (chars + part.chars().count(), escaped + quoted)
+        });
+    if escaped == 0 {
+        return Ok(room);
+    }
+    let per_char = |count: usize| u128::try_from(count).unwrap_or(u128::MAX);
+    let fitted = per_char(room) * per_char(chars) / per_char(escaped);
+    Ok(usize::try_from(fitted).unwrap_or(room).max(1))
 }
 
 fn unit_weight(unit: &Unit) -> usize {

@@ -280,3 +280,48 @@ fn past_the_bound_only_a_named_source_s_values_are_out_of_a_row_s_reach() {
     let plain = JudgedText::judge(&pad.repeat(lines), Path::new("dump.json"), &security);
     assert!(!plain.is_redacted());
 }
+
+/// The text a provider reads of a source a reader showed is the text the
+/// reader showed: the provider's pass over it hides nothing further, so each
+/// value keeps the one placeholder it has in every view, and what follows a
+/// value (a literal's escape, the next header) stays in both.
+#[test]
+fn the_provider_reads_a_shown_source_as_it_was_shown() {
+    let value = "Zq8Wv3Xr7Tn2Lp5Ab1Cd9Ef4Gh6Jk8Lm0Np2Qr4St";
+    let source = format!(
+        "const apiKey = \"{value}\\r\\n\";\napiKey = \"{value}\\r\\nHost: example.com\";\nconst h = \"Authorization: Bearer {value}\";\n"
+    );
+    let policy = ContentSecurity::new();
+    // A properties file reads the rest of a line as one value, quotes and
+    // escapes included: its view hides that whole value, and the provider's
+    // view is that view all the same.
+    for (path, literal) in [
+        ("src/req.js", true),
+        ("docs/req.md", true),
+        ("conf/app.properties", false),
+    ] {
+        let shown = policy
+            .sanitize_text(&source, Some(Path::new(path)))
+            .content
+            .into_owned();
+        assert!(!shown.contains(value), "{path}: {shown}");
+        assert!(shown.contains("Authorization: Bearer [REDACTED-"), "{path}: {shown}");
+        if literal {
+            assert!(shown.contains("\\r\\n\";"), "{path}: {shown}");
+            assert!(shown.contains("Host: example.com"), "{path}: {shown}");
+        }
+        let mut state = serde_json::json!({"content": shown.clone()});
+        policy.sanitize_data(&mut state);
+        assert_eq!(state["content"], shown.as_str(), "{path}: the provider's view");
+        let row = serde_json::json!({"content": shown.clone(), "questions": {"q": {"type": "bool", "instructions": "is it set"}}});
+        let checked = policy
+            .check_input(
+                row,
+                crate::security::InputPolicy::ClasifyEvidence {
+                    content_limit: crate::id::clasify_policy::REQUEST_BYTES,
+                },
+            )
+            .expect("admitted");
+        assert_eq!(checked["content"], shown.as_str(), "{path}: the gate's view");
+    }
+}

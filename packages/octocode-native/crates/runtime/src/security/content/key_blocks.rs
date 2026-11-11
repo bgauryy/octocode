@@ -308,7 +308,10 @@ pub(crate) const KEY_LINE_HEAD_BYTES: usize = 256;
 
 /// The bytes of a line of a key block that are its key: what comes before a
 /// BEGIN or after an END is not the key, a body line keeps its indentation,
-/// and a line that only holds a key's run keeps what precedes the run.
+/// and a line that only holds a key's run keeps what precedes the run. A
+/// line that holds a BEGIN keys from it wherever it stands: the values
+/// before it on the line (a minified document's other members, a run of
+/// their own among them) are no part of its block.
 pub(crate) fn key_line_bytes(line: &str) -> std::ops::Range<usize> {
     let begin = line.find("-----BEGIN");
     let end = line
@@ -325,7 +328,8 @@ pub(crate) fn key_line_bytes(line: &str) -> std::ops::Range<usize> {
     let mut shape = LineShapeScan::default();
     shape.feed(bytes);
     let head = bytes.get(..KEY_LINE_HEAD_BYTES).unwrap_or(bytes);
-    key_line_lead(head, &shape).len()..close.unwrap_or(line.len())
+    let lead = begin.unwrap_or_else(|| key_line_lead(head, &shape).len());
+    lead..close.unwrap_or(line.len())
 }
 
 /// The bytes of a line of a key block before its key: all that precede a

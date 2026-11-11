@@ -16,12 +16,14 @@ Saved skill output lives under the project's `.octocode/` folder: reports and au
 | Skill | Use when |
 |---|---|
 | [Get started](octocode-get-started/) | Understand Octocode, install CLI/MCP and skills, configure scope and credentials, and verify a first task. |
-| [Research](octocode-research/SKILL.md) | A code, repository, or change-impact claim needs evidence. |
+| [Research](octocode-research/SKILL.md) | A factual code, repository, dependency or change-impact question needs source evidence. |
+| [Debugging](octocode-debugging/SKILL.md) | Reproduce and fix an observed failure, hang, slow workload or memory problem with runtime evidence. |
 | [PR Review](octocode-pr-review/SKILL.md) | A pull request, branch, or local diff needs a merge verdict with proven findings. |
-| [Workflows](octocode-workflows/) | An orchestrator must select actors, sequence a multi-actor workflow, merge evidence, or resume it. |
+| [Messages proxy](octocode-messages-proxy/SKILL.md) | Use Claude and Codex native messaging, coordinate mixed-vendor peers through Octocode, or relay to A2A agents with a small model. |
+| [Workflows](octocode-workflows/) | Select, design or resume an explicit workflow across agents, tools, services or artifacts; define handoffs and acceptance. |
 | [Scraping](octocode-scraping/) | Public pages need fetching or a reusable source corpus. |
 | [Chrome DevTools](octocode-chrome-devtools/) | A live browser is needed for rendering, interaction, or diagnostics. |
-| [Brainstorming](octocode-brainstorming/) | An open idea or claim needs independent research directions and current, checked evidence. |
+| [Brainstorming](octocode-brainstorming/) | An open problem, idea or comparison needs checked sources and an evidence-based recommendation. |
 | [Graph View](octocode-graph-view/) | Map repository structure, retain graph evidence, and optionally render an interactive viewer. |
 | [Engineer](octocode-engineer/) | A technical choice or architecture needs trade-offs, failure modes and a check: data structures, storage, concurrency, memory, performance, reliability, APIs, security, testing, boundaries or refactors. |
 | [RFC Generator](octocode-rfc-generator/SKILL.md) | A consequential technical choice needs its decision, design, and plan in one RFC. |

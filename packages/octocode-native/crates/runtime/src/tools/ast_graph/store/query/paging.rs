@@ -47,8 +47,12 @@ pub(super) fn run_page(
         .skip(offset.saturating_sub(page.start))
         .take(limit)
         .collect::<Vec<_>>();
+    // One ready call shows the form: every other symbol row rebuilds it
+    // from its own file, name and line.
     for row in &mut rows {
-        verify_symbol(graph, row);
+        if verify_symbol(graph, row) {
+            break;
+        }
     }
     let shown = rows.len();
     let mut out = Map::new();
@@ -69,20 +73,22 @@ pub(super) fn run_page(
 /// A listed symbol row's `verify`: the lspSearch call that confirms it at
 /// its declaration, since graph rows are syntax candidates. A row that
 /// already states its verify steps (an issue, or an edge row's
-/// [`Graph::edge_lead`]) keeps them.
-fn verify_symbol(graph: &Graph, row: &mut Value) {
+/// [`Graph::edge_lead`]) keeps them. Whether the row got one.
+fn verify_symbol(graph: &Graph, row: &mut Value) -> bool {
     if row["kind"] != "symbol" || row.get("verify").is_some() {
-        return;
+        return false;
     }
     // A provenance row names its file only in its key.
     let file = row["id"].as_str().and_then(|key| graph.file_key(key));
     let (Some(file), Some(name), Some(line)) = (file, row["name"].as_str(), row["line"].as_u64())
     else {
-        return;
+        return false;
     };
-    if let Some(lead) = graph.lsp_lead(file, name, line) {
-        row["verify"] = json!([lead]);
-    }
+    let Some(lead) = graph.lsp_lead(file, name, line) else {
+        return false;
+    };
+    row["verify"] = json!([lead]);
+    true
 }
 
 /// States the page of a list answer's `rows`: its `pagination`, and the

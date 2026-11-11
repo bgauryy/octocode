@@ -160,7 +160,12 @@ impl GitHubServices {
         ))?;
         if let Ok(request) = &request_context {
             access.collect(request);
-            if let Some(observed) = request.reused_since() {
+            // Only an observation older than this call is news: an answer
+            // another row of the call just observed is fresh.
+            if let Some(observed) = request
+                .reused_since()
+                .filter(|&observed| access.predates(observed))
+            {
                 crate::providers::saved_answers::disclose_reuse(&mut result.data, observed);
             }
             // The row's own waits before its sends, by kind: latency the

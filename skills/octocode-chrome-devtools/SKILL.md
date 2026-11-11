@@ -1,6 +1,6 @@
 ---
 name: octocode-chrome-devtools
-description: "Operate a live browser for login, clicks, forms, screenshots, rendered pages, console, network and HAR evidence. Act on authenticated or JavaScript-driven pages and capture live session evidence."
+description: "Use when interacting with or inspecting a live browser: authenticated or rendered pages, clicks, forms, screenshots, DOM, console, network, HAR and Performance traces. Covers browser actions and live session evidence; octocode-scraping owns public-page extraction and saved corpora."
 ---
 
 # Chrome DevTools

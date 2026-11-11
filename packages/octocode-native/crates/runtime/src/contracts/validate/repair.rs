@@ -196,6 +196,11 @@ fn folded(name: &str) -> String {
         .collect()
 }
 
+/// Whether two names differ only in case or separator style.
+pub(super) fn same_name(left: &str, right: &str) -> bool {
+    folded(left) == folded(right)
+}
+
 /// The one candidate `sent` most likely means: the same name in another
 /// case or separator style, else the single nearest within two edits. A tie
 /// or nothing near is no guess.

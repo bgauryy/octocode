@@ -35,7 +35,7 @@ fn relevance_ranks_a_declaration_hit_above_a_comment_or_string_hit_at_equal_coun
 }
 
 #[test]
-fn relevance_ranks_a_source_file_above_test_and_generated_files_at_equal_count() {
+fn relevance_ranks_a_source_file_above_test_and_generated_files_at_any_count() {
     let hit = "let cfg = parse_config(path);\n";
     let files = [
         ("a/tests/config.rs", hit),
@@ -59,15 +59,31 @@ fn relevance_ranks_a_source_file_above_test_and_generated_files_at_equal_count()
             "d/generated/config.rs",
         ]
     );
-    // Match count still dominates: two test hits beat one source hit.
-    let ranked = ranked_paths(
-        &[
-            ("a/tests/config.rs", "parse_config();\nparse_config();\n"),
-            ("z/src/config.rs", hit),
-        ],
-        serde_json::json!({"matchString": ["parse_config"]}),
+    // Source comes before tests whatever the counts: three test hits, in a
+    // `tests/` directory, a `*_tests.rs` file or a `*_tests/` module
+    // directory, follow one source hit; a count view ranks by hits alone.
+    let many = "parse_config();\nparse_config();\nparse_config();\n";
+    let files = [
+        ("a/tests/config.rs", many),
+        ("b/config_tests.rs", many),
+        ("c/match_tests/config.rs", many),
+        ("z/src/config.rs", hit),
+    ];
+    let ranked = ranked_paths(&files, serde_json::json!({"matchString": ["parse_config"]}));
+    assert_eq!(
+        ranked,
+        [
+            "z/src/config.rs",
+            "a/tests/config.rs",
+            "b/config_tests.rs",
+            "c/match_tests/config.rs"
+        ]
     );
-    assert_eq!(ranked, ["a/tests/config.rs", "z/src/config.rs"]);
+    let counted = ranked_paths(
+        &files,
+        serde_json::json!({"matchString": ["parse_config"], "view": "countMatches"}),
+    );
+    assert_eq!(counted.last().map(String::as_str), Some("z/src/config.rs"));
 }
 
 #[test]

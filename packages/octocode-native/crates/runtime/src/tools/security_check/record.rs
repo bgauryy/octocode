@@ -159,6 +159,137 @@ pub(super) fn group_summary(group: &[&SecurityAdvisory]) -> Value {
     row
 }
 
+/// The `details` rows of one advisory that OSV and GitHub both keep under
+/// one id: the first states every field, and each later row of that id only
+/// the fields its source states otherwise (its own link, ranges, scores),
+/// so text both carry alike (summary, details, aliases) is read once. A
+/// difference of notation is none: an `affected` entry of the same range
+/// ([`same_range`]) and a reference to a URL already stated are left out. The
+/// ids so stated, each once.
+pub(super) fn state_twin_differences(rows: &mut [Value]) -> Vec<String> {
+    let mut twins: Vec<String> = Vec::new();
+    for at in 1..rows.len() {
+        let (before, rest) = rows.split_at_mut(at);
+        let Some(row) = rest.first_mut() else {
+            continue;
+        };
+        let Some(id) = row["id"].as_str().map(str::to_owned) else {
+            continue;
+        };
+        let Some(first) = before.iter().find(|earlier| earlier["id"] == id.as_str()) else {
+            continue;
+        };
+        if let Some(fields) = row.as_object_mut() {
+            fields.retain(|key, value| key == "id" || first.get(key) != Some(&*value));
+            let ranges = list(first.get("affected"));
+            keep_new(fields, "affected", |entry| {
+                !ranges
+                    .iter()
+                    .any(|stated| same_range(entry, stated) || same_range(stated, entry))
+            });
+            let mut urls = list(first.get("references"))
+                .iter()
+                .filter_map(|reference| reference.get("url"))
+                .chain(first.get("link"))
+                .chain(fields.get("link"))
+                .cloned()
+                .collect::<Vec<_>>();
+            urls.extend(first.get("source").cloned());
+            keep_new(fields, "references", |reference| {
+                reference.get("url").is_none_or(|url| !urls.contains(url))
+            });
+        }
+        if !twins.contains(&id) {
+            twins.push(id);
+        }
+    }
+    twins
+}
+
+/// Keeps the items of the array `key` that `new` accepts; the key goes when
+/// none is left.
+fn keep_new(fields: &mut Map<String, Value>, key: &str, new: impl Fn(&Value) -> bool) {
+    let Some(Value::Array(items)) = fields.get_mut(key) else {
+        return;
+    };
+    items.retain(|item| new(item));
+    if items.is_empty() {
+        fields.shift_remove(key);
+    }
+}
+
+/// Whether GitHub's `entry` (its range as text under `ecosystemSpecific`)
+/// states the range OSV's `stated` does in events: the same package, the same
+/// inclusive lower bound (none: OSV's `introduced 0`) and the one same fix.
+/// Anything more GitHub states (another field, a second fix, an exclusive
+/// bound) is a difference and stays.
+fn same_range(entry: &Value, stated: &Value) -> bool {
+    let Some(fields) = entry.as_object() else {
+        return false;
+    };
+    if fields.get("packageName") != stated.get("packageName")
+        || fields
+            .keys()
+            .any(|key| !matches!(key.as_str(), "packageName" | "ecosystemSpecific"))
+    {
+        return false;
+    }
+    let Some(specific) = fields.get("ecosystemSpecific").and_then(Value::as_object) else {
+        return false;
+    };
+    if specific.keys().any(|key| {
+        !matches!(
+            key.as_str(),
+            "vulnerable_version_range" | "patched_versions" | "first_patched_version"
+        )
+    }) {
+        return false;
+    }
+    let Some(range) = specific
+        .get("vulnerable_version_range")
+        .and_then(Value::as_str)
+    else {
+        return false;
+    };
+    let lowers = super::advisories::comparators(range)
+        .into_iter()
+        .filter(|(operator, _)| operator.starts_with('>'))
+        .collect::<Vec<_>>();
+    let lower = match lowers.as_slice() {
+        [] => "0",
+        [(">=", version)] => version,
+        _ => return false,
+    };
+    let mut fixes = specific
+        .get("first_patched_version")
+        .and_then(Value::as_str)
+        .into_iter()
+        .chain(
+            specific
+                .get("patched_versions")
+                .and_then(Value::as_str)
+                .into_iter()
+                .flat_map(super::advisories::fixes),
+        )
+        .collect::<Vec<_>>();
+    fixes.dedup();
+    let [fix] = fixes.as_slice() else {
+        return false;
+    };
+    let events = match list(stated.get("ranges")) {
+        [range]
+            if matches!(
+                range.get("type").and_then(Value::as_str),
+                Some("SEMVER" | "ECOSYSTEM")
+            ) =>
+        {
+            list(range.get("events"))
+        }
+        _ => return false,
+    };
+    events == [json!({"introduced": lower}), json!({"fixed": fix})]
+}
+
 /// The records of `rows` that name one advisory, grouped
 /// ([`crate::providers::artifact::alias_groups`]): a GHSA record and its
 /// PYSEC or GO twin are one advisory, not two.
@@ -573,7 +704,50 @@ fn affected_row(entry: &Value) -> Value {
             row.insert(to.to_owned(), value);
         }
     }
+    // GitHub's range text that restates the entry's events is stated once,
+    // by the events.
+    if let Some(Value::Object(database)) = row.get_mut("databaseSpecific") {
+        if database
+            .get("last_known_affected_version_range")
+            .and_then(Value::as_str)
+            .is_some_and(|text| super::osv::restates_range(text, entry))
+        {
+            database.shift_remove("last_known_affected_version_range");
+        }
+        if database.is_empty() {
+            row.shift_remove("databaseSpecific");
+        }
+    }
     Value::Object(row)
+}
+
+/// Drops each `details` row's `fixedIn` when every version in it is a `fixed`
+/// event of a record of its id: the ranges in `affected` and the row's
+/// `answer` state those fixes already.
+pub(super) fn drop_restated_fixes(rows: &mut [Value]) {
+    let fixed_events = |id: &Value| {
+        rows.iter()
+            .filter(|row| row["id"] == *id)
+            .flat_map(|row| list(row.get("affected")))
+            .flat_map(|entry| list(entry.get("ranges")))
+            .flat_map(|range| list(range.get("events")))
+            .filter_map(|event| event.get("fixed").cloned())
+            .collect::<Vec<_>>()
+    };
+    let restated = rows
+        .iter()
+        .map(|row| {
+            let events = fixed_events(&row["id"]);
+            row.get("fixedIn")
+                .and_then(Value::as_array)
+                .is_some_and(|fixes| fixes.iter().all(|fix| events.contains(fix)))
+        })
+        .collect::<Vec<_>>();
+    for (row, restated) in rows.iter_mut().zip(restated) {
+        if let (true, Some(fields)) = (restated, row.as_object_mut()) {
+            fields.shift_remove("fixedIn");
+        }
+    }
 }
 
 /// The rows of `records`, failing whole on one malformed record.

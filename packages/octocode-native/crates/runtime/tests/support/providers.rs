@@ -48,6 +48,12 @@ pub fn github_api(server: &MockServer) -> [(&'static str, String); 1] {
     [("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]
 }
 
+/// The classification provider's stated default window, in tokens: a mock
+/// window reports a taken request's tokens at this many per its byte limit.
+pub const WINDOW_TOKENS: usize = 32_000;
+/// The stated long-context window, in tokens.
+pub const LONG_WINDOW_TOKENS: usize = 262_000;
+
 /// [`FIXTURE_LIMITS`] at the production network timeout, for HTTP-backed
 /// provider fixtures.
 pub const PROVIDER_LIMITS: RuntimeLimits = RuntimeLimits {

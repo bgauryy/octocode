@@ -224,6 +224,7 @@ mod sampling;
 mod scope;
 mod source_names;
 mod span_keys;
+mod value_bounds;
 
 /// Two found ranges that overlap join into one that ends where the later
 /// one does: no tail of either stays readable (B165 round 10, R6 F5).

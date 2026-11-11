@@ -11,7 +11,7 @@
 //! as its path. `path:N` is always a line. A file's other fields (counts, its
 //! page) follow its path in `[ … ]`. A listing prints each `dir/` once with
 //! its entries indented under it. Every other result prints as indented
-//! `key: value` text ([`outline`]).
+//! `key: value` text ([`outline`]), a list of flat rows as a [`table`].
 //!
 //! The trailer follows the content, one `# ` line each, the same for every
 //! tool: a `status` that is not ok, each page state (an object holding
@@ -30,6 +30,7 @@ mod follow;
 mod hits;
 mod listing;
 mod outline;
+mod table;
 use follow::{field_notes, split_stated, stated_notes};
 use hits::{annotation, hits, value_lines};
 use listing::{is_working_directory, listing, locations, outline_rows, words};
@@ -207,7 +208,8 @@ fn render_data(tool: ToolId, row: &Map<String, Value>, query: &Value) -> Option<
     if tool == ToolId::LspSearch
         && let Some(matches) = location_rows(data)
     {
-        locations(&matches, &mut body, &mut marks)?;
+        let symbol = query["queries"][0]["symbolName"].as_str();
+        locations(&matches, symbol, &mut body, &mut marks)?;
         rest.shift_remove("matches");
         rest.shift_remove("files");
         return Some(tail(query, row, rest, marks, body));

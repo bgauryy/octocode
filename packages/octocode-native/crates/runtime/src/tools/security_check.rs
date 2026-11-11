@@ -353,6 +353,18 @@ async fn advisory(
             query.insert("repo".into(), json!(repo));
         }
         data = summary::advisory(data, query);
+    } else if let Some(rows) = data.get_mut("advisories").and_then(Value::as_array_mut) {
+        let twins = record::state_twin_differences(rows);
+        record::drop_restated_fixes(rows);
+        if !twins.is_empty() {
+            paging::push_warnings(
+                &mut data,
+                [format!(
+                    "{}: OSV and GitHub keep a record of the same id; the later one states only the fields where it differs from the first.",
+                    twins.join(", ")
+                )],
+            );
+        }
     }
     Ok(data)
 }

@@ -16,6 +16,10 @@ pub(crate) struct ClientWaits {
     /// Waits of a shared request this row waited on (the batch warm-up),
     /// by kind: the latest view, never added twice.
     adopted: Mutex<Vec<ClientWait>>,
+    /// The waits (by address) that adopted these first: a shared request's
+    /// waits are stated once, on that row, not again on every row of the
+    /// batch that read its answer.
+    adopter: Mutex<Option<usize>>,
 }
 
 /// `ms` added to `kind` in `waits`, or `kind` entered with it.
@@ -44,6 +48,9 @@ impl ClientWaits {
     /// far. Its waits only grow, so the larger view per kind replaces the
     /// smaller: reading `shared` twice counts its waits once.
     ///
+    /// Only the first row to adopt `shared` takes its waits in: the rows of
+    /// one batch waited on the same warm-up, and saying so once is enough.
+    ///
     /// Single source: a row adopts from one shared request only, its batch's
     /// warm-up, which it reads more than once (each ref, each path). The
     /// per-kind maximum is right for that one source re-read; two different
@@ -51,6 +58,15 @@ impl ClientWaits {
     /// own adopted set, summed beside this one.
     pub(crate) fn adopt(&self, shared: &Self) {
         if std::ptr::eq(self, shared) {
+            return;
+        }
+        let me = std::ptr::from_ref(self) as usize;
+        let first = *shared
+            .adopter
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get_or_insert(me);
+        if first != me {
             return;
         }
         let seen = shared.summed();
@@ -106,16 +122,6 @@ pub(super) fn block_kind(block: &Block) -> ClientWaitKind {
         ClientWaitKind::QuotaPacing
     } else {
         ClientWaitKind::SecondaryLimit
-    }
-}
-
-/// What a wait for `group`'s start slot or lane is: pacing to the quota
-/// GitHub reports when the group is quota-paced, else its fixed spacing.
-pub(super) fn slot_kind(config: &super::ExecutorConfig, group: Group) -> ClientWaitKind {
-    if config.quota_pacing && group.quota_paced() {
-        ClientWaitKind::QuotaPacing
-    } else {
-        ClientWaitKind::Spacing
     }
 }
 

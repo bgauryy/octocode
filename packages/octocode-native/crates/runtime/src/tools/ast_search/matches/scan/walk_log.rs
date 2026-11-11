@@ -5,6 +5,7 @@ use super::super::types::{Scope, Unparsed};
 use crate::policy::discovery::WalkAdmission;
 use crate::policy::path::PathPolicy;
 use crate::tools::ast_rule::has_extension_in;
+use crate::tools::leads::unparsed::Passed;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::FileType;
 use std::path::{Path, PathBuf};
@@ -96,16 +97,18 @@ impl<'a> WalkLog<'a> {
         // grammar under `parser` is that grammar's, never this scope's.
         if unparsed_file && !has_extension_in(path, &self.grammars) {
             // Named as a row path reads after the response stage: from
-            // the workspace root, else absolute.
-            self.unparsed
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .record(
-                    path,
-                    self.paths
-                        .workspace_relative(path)
-                        .unwrap_or_else(|| path.to_string_lossy().into_owned()),
-                );
+            // the workspace root, else absolute. Judged (its head read)
+            // before the lock, so walker threads do not queue on the read.
+            let shown = self
+                .paths
+                .workspace_relative(path)
+                .unwrap_or_else(|| path.to_string_lossy().into_owned());
+            if let Some(passed) = Passed::of(path, shown) {
+                self.unparsed
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .add(passed);
+            }
         }
         let admitted = !unparsed_file;
         if admitted && met {

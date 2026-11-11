@@ -357,7 +357,7 @@ fn an_unexpanded_glob_offers_no_read_of_its_pattern() {
 /// tool's usage does.
 #[test]
 fn evaluate_usage_spells_tokens_like_selection_usage() {
-    let evaluate = super::reply::evaluation_usage(1, 1, 1);
+    let evaluate = super::reply::evaluation_usage(1, 1, 1, 0);
     let sections = serde_json::to_value(
         crate::tools::judgment::stats::ClassificationUsage::default().output(),
     )

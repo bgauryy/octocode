@@ -521,10 +521,38 @@ impl ContentSecurity {
     /// Text data at an external provider boundary has no trusted source path.
     /// Structured member context and every file-context pattern apply. Image
     /// assets and authentication headers are handled separately by their owner.
+    ///
+    /// A captured source's state (`{"source": {"path": …}, "text": …}`) is
+    /// the exception: its `text` is the view the source's reader showed of
+    /// that file, so it is judged by the rules of that file's path
+    /// ([`Self::sanitize_text`]), the rules the reader applied. The text then
+    /// reaches the provider as the reader showed it: the placeholders the
+    /// reader wrote stay, and no rule of another file's class re-reads it
+    /// (a `.properties` rule over a `.txt` line).
     pub(crate) fn sanitize_data(&self, value: &mut serde_json::Value) {
-        let _ = super::sanitize_json(value, &mut |text: &str, _: Option<&str>| {
+        let stored = &mut |text: &str, _: Option<&str>| {
             Ok::<_, std::convert::Infallible>(self.sanitize_stored_leaf(text, None))
-        });
+        };
+        let source_path = value
+            .pointer("/source/path")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
+        if let (Some(path), Some(fields)) = (source_path, value.as_object_mut())
+            && let Some(serde_json::Value::String(text)) = fields.get_mut("text")
+        {
+            if let std::borrow::Cow::Owned(clean) =
+                self.sanitize_text(text, Some(Path::new(&path))).content
+            {
+                *text = clean;
+            }
+            for (name, field) in fields.iter_mut() {
+                if name != "text" {
+                    let _ = super::sanitize_json(field, stored);
+                }
+            }
+            return;
+        }
+        let _ = super::sanitize_json(value, stored);
     }
 
     /// `native`, the scan of a text of `len` bytes, with the split-key guard

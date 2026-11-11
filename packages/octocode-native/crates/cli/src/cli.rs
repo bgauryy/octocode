@@ -71,7 +71,8 @@ After each row's content, as # lines on stdout: its status unless ok (empty,
 error, outOfRange), each page state (hasMore), its warnings and hints, then the
 commands to run next. So stdout alone tells no hits, a failure and a first page
 apart, and says how to read the answer.
-Every stderr line is a # note: counters, related leads, progress and notices.
+Every stderr line is a # note: counters, related leads and notices, and progress
+when stderr is a terminal.
 Errors: a failed row as above. A call rejected before it runs (invalid input,
 timeout) prints the same way: errorCode and error, then # status: error; with
 --json, the JSON envelope. Both are on stdout.

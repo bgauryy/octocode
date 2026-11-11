@@ -4,7 +4,8 @@ use crate::tools::local_search::local_search_query::View;
 
 use super::super::coverage::Coverage;
 use super::super::layout::Layout;
-use super::super::leads::{Found, restart_lead, scope_listing, workspace_root_lead};
+use super::super::leads::{Found, parent_folder_lead, restart_lead, scope_listing};
+use super::super::probes::{Ancestor, matching_ancestor};
 use super::super::types::{
     FileErrors, FilePagination, LocalSearchResult, SearchStats, SearchStatus,
 };
@@ -144,13 +145,39 @@ pub(super) fn settle_row(
         (coverage.scope_miss || (empty && coverage.binary_cut)).then_some(!coverage.scope_miss);
     route_beyond_pages(query, lists_scope, &mut next);
     // A plain miss (nothing skipped, filtered or cut explains it) under a
-    // narrower path: the same search from the workspace root is the step.
-    if status == SearchStatus::Empty
-        && next.is_none()
-        && coverage.plain_miss()
-        && let Some(lead) = workspace_root_lead(query, paths, page.root)?
-    {
-        next = Some(json!({ "broadenSearch": lead }));
+    // narrower path: one probe finds the narrowest folder above it where the
+    // same search matches, and the lead goes there; when the probe cannot
+    // tell, the same search one folder up is the step, said as such.
+    if status == SearchStatus::Empty && next.is_none() && coverage.plain_miss() {
+        match matching_ancestor(page.search_options, query, paths, page.root, cancel) {
+            Ancestor::Found { dir, files, floor } => {
+                let lead = restart_lead(query, json!({ "path": dir }))?;
+                next = Some(json!({ "broadenSearch": lead }));
+                let floor = if floor { "at least " } else { "" };
+                let what = if local_search_query::view(query) == View::FilesWithout {
+                    "lack a match"
+                } else {
+                    "match"
+                };
+                hints.push(format!(
+                    "No match in this path; {floor}{files} file(s) under {dir} {what}: related[] searches there."
+                ));
+            }
+            Ancestor::Nowhere => {
+                hints.push(
+                    "No match in this path, nor anywhere else in the workspace under the same filters."
+                        .to_owned(),
+                );
+            }
+            Ancestor::Unknown => {
+                if let Some(lead) = parent_folder_lead(query, paths, page.root)? {
+                    next = Some(json!({ "broadenSearch": lead }));
+                    hints.push(
+                        "No match in this path; related[] searches one folder up.".to_owned(),
+                    );
+                }
+            }
+        }
     }
     let is_partial = coverage.gap() || capped;
     // A partial scan's file count is not final.

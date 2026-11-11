@@ -8,7 +8,7 @@
   "version": "1.0.0",
   "view": "details"
  },
- "recordedAt": "2026-11-08",
+ "recordedAt": "2026-11-11",
  "unread": [
   "crate.created_at",
   "crate.default_version",
@@ -51,7 +51,7 @@
      "application/json"
     ]
    ],
-   "digest": "sha256:5d65ac12f90bdd439d5e9977f54a9c81dc5b244c9a7216673442dd2c79f242ae",
+   "digest": "sha256:b45bf34f9ff307d8dca1f9c7b3b5f3e20d86794977b4ff9b4e4ab6d4453562f1",
    "body": {
     "crate": {
      "id": "cfg-if",
@@ -62,7 +62,7 @@
      "categories": null,
      "badges": [],
      "created_at": "2015-07-08T01:11:24.485040Z",
-     "downloads": 1721952599,
+     "downloads": 1744772625,
      "recent_downloads": null,
      "default_version": "1.0.5",
      "num_versions": 17,
@@ -103,7 +103,7 @@
      "application/json"
     ]
    ],
-   "digest": "sha256:4e5b34b2a174bd30405b7066ed1fe95c4eb0643e8a57fc828201a08587b9f996",
+   "digest": "sha256:97ede6e83a9b5412f866094eb9a95c545ad97a279b401c6cbba282d8819e0d5d",
    "body": {
     "version": {
      "id": 290855,
@@ -113,7 +113,7 @@
      "readme_path": "/api/v1/crates/cfg-if/1.0.0/readme",
      "updated_at": "2020-10-06T18:44:12.678620Z",
      "created_at": "2020-10-06T18:44:12.678620Z",
-     "downloads": 667277727,
+     "downloads": 669069345,
      "features": {
       "rustc-dep-of-std": [
        "core",
@@ -243,6 +243,73 @@
       "downloads": 0
      }
     ]
+   }
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.github.com/repos/rust-lang/cfg-if/git/ref/tags/v1.0.0",
+    "accept": "application/vnd.github+json"
+   },
+   "status": 404,
+   "headers": [
+    [
+     "content-type",
+     "application/json; charset=utf-8"
+    ]
+   ],
+   "digest": "sha256:e2e3c64edab172132f77ce89a0e8c190db1cd30936a096344f45893bd5b75f8a",
+   "body": {
+    "message": "Not Found",
+    "documentation_url": "https://docs.github.com/rest/git/refs#get-a-reference",
+    "status": "404"
+   }
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.github.com/repos/rust-lang/cfg-if/git/ref/tags/1.0.0",
+    "accept": "application/vnd.github+json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "cache-control",
+     "private, max-age=60, s-maxage=60"
+    ],
+    [
+     "content-type",
+     "application/json; charset=utf-8"
+    ],
+    [
+     "etag",
+     "\"d8c6302869baabbc44dcc61619ca1944b42565196193b6876caa851a3a35f98f\""
+    ]
+   ],
+   "digest": "sha256:75d71a72ada3209cd9261a5502bbc931aa10563939bee7f7292e543bae03b87f",
+   "unread": [
+    "ref",
+    "node_id",
+    "url",
+    "object.type",
+    "object.url"
+   ],
+   "unreadReasons": {
+    "ref": "Name of the tag that checked the registry's commit; the result states that commit as ref, with verification \"tag\".",
+    "node_id": "GitHub database identity of the verification object is not selected artifact metadata.",
+    "url": "GitHub API routing URL for verification; the source repository is carried separately.",
+    "object.type": "Git verification plumbing; the public result exposes the verified release tag.",
+    "object.url": "GitHub API routing URL for tag resolution, not the source repository URL."
+   },
+   "body": {
+    "ref": "refs/tags/1.0.0",
+    "node_id": "MDM6UmVmMzg3MjM2NjA6cmVmcy90YWdzLzEuMC4w",
+    "url": "https://api.github.com/repos/rust-lang/cfg-if/git/refs/tags/1.0.0",
+    "object": {
+     "sha": "e60fa1efeab0ec6e90c50d93ec526e1410459c23",
+     "type": "commit",
+     "url": "https://api.github.com/repos/rust-lang/cfg-if/git/commits/e60fa1efeab0ec6e90c50d93ec526e1410459c23"
+    }
    }
   }
  ]

@@ -86,3 +86,56 @@ fn out_for(query: &HistoryItemRequest, prs: &[ClosingPr]) -> Value {
     attach_fix_pr(&mut out, query, Some(prs), true);
     out
 }
+
+/// A pull request closed without merging only declared a fix: it is no
+/// closer, nor is an open one once the issue was closed some other way. A
+/// closed issue that no listed pull request closed leads to the search.
+#[test]
+fn only_a_merged_pull_request_closed_the_issue() {
+    let query = HistoryItemRequest::from_row(json!({
+        "operation":"issue","owner":"o","repo":"r","number":1
+    }))
+    .expect("issue query");
+    let linked = || {
+        let nodes = [
+            json!({"number":21,"state":"CLOSED","mergedAt":null}),
+            json!({"number":22,"state":"OPEN","mergedAt":null}),
+        ];
+        ClosingReferences {
+            listed: nodes.len(),
+            prs: map_closing_pull_requests(&nodes),
+            bounded_total: None,
+            unsettled: false,
+        }
+    };
+    let numbers = |references: &ClosingReferences| {
+        references
+            .prs
+            .iter()
+            .map(|pr| pr.row["number"].clone())
+            .collect::<Vec<_>>()
+    };
+    let closed = linked().closers(true);
+    assert!(numbers(&closed).is_empty());
+    assert_eq!((closed.listed, closed.settled().is_none()), (0, true));
+    let mut lead = json!({});
+    attach_fix_pr(&mut lead, &query, closed.settled(), true);
+    assert!(lead["calls"]["readPullRequest"].is_null(), "{lead}");
+    assert_eq!(lead["calls"]["findPullRequest"]["tool"], "ghSearchHistory");
+    assert_eq!(numbers(&linked().closers(false)), [json!(22)]);
+    let merged = ClosingReferences {
+        listed: 2,
+        prs: map_closing_pull_requests(&[
+            json!({"number":21,"state":"CLOSED","mergedAt":null}),
+            json!({"number":23,"state":"MERGED","mergedAt":"2026-09-11T15:55:40Z"}),
+        ]),
+        bounded_total: None,
+        unsettled: false,
+    }
+    .closers(true);
+    assert_eq!(numbers(&merged), [json!(23)]);
+    assert_eq!(
+        out_for(&query, &merged.prs)["calls"]["readPullRequest"]["input"]["queries"][0]["number"],
+        23
+    );
+}

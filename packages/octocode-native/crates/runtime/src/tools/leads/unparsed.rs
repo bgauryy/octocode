@@ -69,16 +69,61 @@ pub(crate) struct Unparsed {
     pub(crate) typed: std::collections::BTreeMap<String, usize>,
 }
 
+/// One file a walk passed over, judged before it is recorded
+/// ([`Unparsed::add`]): `None` for binary content, which is no source of any
+/// language, so it leaves no absence unproven and is never named.
+pub(crate) struct Passed {
+    shown: String,
+    known: Option<&'static str>,
+}
+
+impl Passed {
+    /// `path` (its row spelling `shown`), by the type its name is of
+    /// ([`known_type`]), if any; `None` when its leading bytes are binary
+    /// ([`octocode_engine::text::sniff`]). A file that cannot be read stays,
+    /// since nothing shows it is not source.
+    pub(crate) fn of(path: &Path, shown: String) -> Option<Self> {
+        if is_binary(path) {
+            return None;
+        }
+        Some(Self {
+            shown,
+            known: known_type(path),
+        })
+    }
+}
+
+/// Whether the leading bytes of the regular file at `path` are binary.
+fn is_binary(path: &Path) -> bool {
+    use std::io::Read;
+    let Ok((file, _)) = octocode_engine::text::open_regular(path) else {
+        return false;
+    };
+    let mut head = Vec::new();
+    file.take(octocode_engine::text::SNIFF_BYTES as u64)
+        .read_to_end(&mut head)
+        .is_ok_and(|_| {
+            octocode_engine::text::sniff(&head) == octocode_engine::text::BinaryVerdict::Binary
+        })
+}
+
 impl Unparsed {
-    /// Record `path` (its row spelling `shown`), by the type its name is of
-    /// ([`known_type`]), if any.
+    /// Record `path` (its row spelling `shown`) unless its content is binary
+    /// ([`Passed::of`]).
     pub(crate) fn record(&mut self, path: &Path, shown: String) {
-        if let Some(known) = known_type(path) {
+        if let Some(passed) = Passed::of(path, shown) {
+            self.add(passed);
+        }
+    }
+
+    /// Record a file judged by [`Passed::of`], by its known type, if any.
+    pub(crate) fn add(&mut self, passed: Passed) {
+        if let Some(known) = passed.known {
             *self.typed.entry(known.to_owned()).or_default() += 1;
         } else {
-            self.untyped.record(shown.clone());
+            self.untyped.record(passed.shown.clone());
         }
-        self.files.record(shown);
+        self.files.record(passed.shown);
     }
 
     /// What a page discloses: under one rule language (`parser`, or the

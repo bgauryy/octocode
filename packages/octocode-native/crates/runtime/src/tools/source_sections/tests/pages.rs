@@ -7,10 +7,17 @@ fn grouped(
     target_chars: usize,
 ) -> Vec<Section> {
     let mut sections = Vec::new();
-    let complete = visit_grouped(source, path, selected, target_chars, |section| {
-        sections.push(section);
-        Ok::<_, ()>(true)
-    });
+    let complete = visit_grouped(
+        source,
+        path,
+        selected,
+        target_chars,
+        Pages::Share,
+        |section| {
+            sections.push(section);
+            Ok::<_, ()>(true)
+        },
+    );
     assert_eq!(complete, Ok(true));
     sections
 }
@@ -120,6 +127,7 @@ fn grouped_traversal_stops_when_the_consumer_stops() {
         Path::new("items.rs"),
         std::slice::from_ref(&selected),
         200,
+        Pages::Share,
         |_| {
             seen += 1;
             Ok::<_, ()>(seen < 2)

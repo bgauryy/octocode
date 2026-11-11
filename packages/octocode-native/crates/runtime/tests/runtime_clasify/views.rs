@@ -4,6 +4,7 @@
 //! is in the details row of the same request.
 
 use super::{Typed, clasify};
+use crate::support::Run as _;
 use crate::support::{Workspace, clasify_runtime};
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
@@ -61,7 +62,10 @@ async fn a_text_answer_is_its_values_and_tokens_by_default() {
     };
     let summary = clasify(&runtime, vec![row("summary")]).await;
     let details = clasify(&runtime, vec![row("details")]).await;
-    let (short, whole) = (&summary["results"][0]["data"], &details["results"][0]["data"]);
+    let (short, whole) = (
+        &summary["results"][0]["data"],
+        &details["results"][0]["data"],
+    );
     assert_eq!(
         short,
         &json!({
@@ -70,7 +74,11 @@ async fn a_text_answer_is_its_values_and_tokens_by_default() {
         }),
         "{summary}"
     );
-    assert!(summary.to_string().len() <= 250, "{}", summary.to_string().len());
+    assert!(
+        summary.to_string().len() <= 250,
+        "{}",
+        summary.to_string().len()
+    );
     assert!(within(short, whole), "{summary}\n{details}");
     // The whole row: what a row returned before the views existed.
     assert_eq!(whole["model"], "jev-1.13.0", "{details}");
@@ -104,7 +112,10 @@ async fn a_source_summary_keeps_its_read_and_drops_a_lead_longer_than_the_source
     };
     let summary = clasify(&runtime, vec![row("summary")]).await;
     let details = clasify(&runtime, vec![row("details")]).await;
-    let (short, whole) = (&summary["results"][0]["data"], &details["results"][0]["data"]);
+    let (short, whole) = (
+        &summary["results"][0]["data"],
+        &details["results"][0]["data"],
+    );
     assert_eq!(short["answers"], json!({"p":{"noul":0.9}}), "{summary}");
     assert_eq!(short["readChars"], whole["readChars"], "{summary}");
     assert!(short["next"]["read"].is_object(), "{summary}");
@@ -125,17 +136,19 @@ async fn a_section_summary_is_its_lines_and_answers() {
     let server = provider().await;
     let workspace = Workspace::new();
     let source: String = (1..=300)
-        .map(|at| format!("pub fn f_{at}(x: u32) -> u32 {{\n    let y = x + {at};\n    y * 2\n}}\n\n"))
+        .map(|at| {
+            format!("pub fn f_{at}(x: u32) -> u32 {{\n    let y = x + {at};\n    y * 2\n}}\n\n")
+        })
         .collect();
     workspace.write("mid.rs", &source);
     let runtime = clasify_runtime(&workspace, &server, &[]);
     let row = |view: &str| {
         json!({"operation":"sections","view":view,
-            "resources":{"mid":{"tool":"localFetch","query":{"path":"mid.rs"}}},
-            "questions":{
-                "p":{"type":"noul","instructions":"Is it planted?"},
-                "kind":{"type":"choice","criteria":{"ops":"operations text","code":"source code"}},
-            }})
+        "resources":{"mid":{"tool":"localFetch","query":{"path":"mid.rs"}}},
+        "questions":{
+            "p":{"type":"noul","instructions":"Is it planted?"},
+            "kind":{"type":"choice","criteria":{"ops":"operations text","code":"source code"}},
+        }})
     };
     let summary = clasify(&runtime, vec![row("summary")]).await;
     let details = clasify(&runtime, vec![row("details")]).await;
@@ -155,9 +168,17 @@ async fn a_section_summary_is_its_lines_and_answers() {
             ["target", "answers"],
             "{summary}"
         );
-        assert_eq!(section["target"], json!({"lines":full["target"]["lines"]}), "{summary}");
+        assert_eq!(
+            section["target"],
+            json!({"lines":full["target"]["lines"]}),
+            "{summary}"
+        );
         assert_eq!(section["answers"]["p"], json!({"noul":0.9}), "{summary}");
-        assert_eq!(section["answers"]["kind"], json!({"choice":"ops"}), "{summary}");
+        assert_eq!(
+            section["answers"]["kind"],
+            json!({"choice":"ops"}),
+            "{summary}"
+        );
         assert!(within(section, full), "{section}\n{full}");
         let (small, large) = (section.to_string().len(), full.to_string().len());
         assert!(small * 100 <= large * 40, "{small} of {large}");
@@ -170,6 +191,133 @@ async fn a_section_summary_is_its_lines_and_answers() {
         ["calls", "inputTokens", "outputTokens"],
         "{summary}"
     );
-    assert!(summary["results"][0]["data"].get("model").is_none(), "{summary}");
+    assert!(
+        summary["results"][0]["data"].get("model").is_none(),
+        "{summary}"
+    );
+    runtime.close().await;
+}
+
+/// A kept sections page leads to its own details: `next.details` replays the
+/// page in view details without a provider request, and the details row
+/// offers no such call again.
+#[tokio::test]
+async fn a_section_summary_replays_its_details_unbilled() {
+    let server = provider().await;
+    let workspace = Workspace::new();
+    let source: String = (1..=120)
+        .map(|at| format!("pub fn f_{at}(x: u32) -> u32 {{\n    x + {at}\n}}\n\n"))
+        .collect();
+    workspace.write("mid.rs", &source);
+    let runtime = clasify_runtime(&workspace, &server, &[]);
+    let summary = clasify(
+        &runtime,
+        vec![json!({"operation":"sections","view":"summary",
+            "resources":{"mid":{"tool":"localFetch","query":{"path":"mid.rs"}}},
+            "questions":{"kind":{"type":"choice","criteria":{"ops":"operations text","code":"source code"}}}})],
+    )
+    .await;
+    let data = &summary["results"][0]["data"];
+    let call = &data["next"]["details"];
+    assert_eq!(call["tool"], "clasify", "{summary}");
+    let sent = server.received_requests().await.unwrap().len();
+    let details = runtime
+        .run(
+            "clasify-test".into(),
+            "clasify".into(),
+            call["input"].clone(),
+        )
+        .await
+        .expect("clasify result")
+        .structured_content
+        .into_value();
+    let replay = &details["results"][0]["data"];
+    assert_eq!(
+        server.received_requests().await.unwrap().len(),
+        sent,
+        "no provider request"
+    );
+    assert_eq!(replay["replayed"], true, "{details}");
+    let sections = replay["resources"]["mid"]["sections"]
+        .as_array()
+        .expect("sections");
+    assert!(
+        sections.iter().all(|section| section.get("id").is_some()),
+        "{details}"
+    );
+    assert!(
+        sections
+            .iter()
+            .all(|section| section["answers"]["kind"]["answer"]["probabilities"].is_object()),
+        "{details}"
+    );
+    assert!(replay["next"].get("details").is_none(), "{details}");
+    runtime.close().await;
+}
+
+/// An absent `view` is a summary on CLI and MCP: a sections row sent without
+/// it returns the summary shape and offers `next.details`, exactly as
+/// `view:"summary"` does, and an evaluate row drops the distribution. Runs
+/// the engine directly: the suite's `Run` asks for `details` when a row
+/// states no view.
+#[tokio::test]
+async fn an_absent_view_is_a_summary_on_cli_and_mcp() {
+    use octocode_native::runtime::Channel;
+    let server = provider().await;
+    let workspace = Workspace::new();
+    let source: String = (1..=120)
+        .map(|at| format!("pub fn f_{at}(x: u32) -> u32 {{\n    x + {at}\n}}\n\n"))
+        .collect();
+    workspace.write("mid.rs", &source);
+    let runtime = clasify_runtime(&workspace, &server, &[]);
+    let sections = json!({"operation":"sections",
+        "resources":{"mid":{"tool":"localFetch","query":{"path":"mid.rs"}}},
+        "questions":{"kind":{"type":"choice","criteria":{"ops":"operations text","code":"source code"}}}});
+    let evaluate =
+        json!({"operation":"evaluate","content":"Rotate and restart.","questions":questions()});
+    for channel in [Channel::Cli, Channel::Mcp] {
+        let run = |row: Value| {
+            let runtime = &runtime;
+            async move {
+                let admission = runtime.admit("absent-view".into()).expect("admitted");
+                runtime
+                    .execute(
+                        admission,
+                        "clasify".into(),
+                        json!({"queries":[row]}),
+                        channel,
+                    )
+                    .await
+                    .expect("clasify result")
+                    .structured_content
+                    .into_value()
+            }
+        };
+        let absent = run(sections.clone()).await;
+        let data = &absent["results"][0]["data"];
+        assert_eq!(data["next"]["details"]["tool"], "clasify", "{absent}");
+        let shown = data["resources"]["mid"]["sections"]
+            .as_array()
+            .expect("sections");
+        assert!(
+            shown.iter().all(|section| section.get("id").is_none()
+                && section["answers"]["kind"].get("status").is_none()),
+            "{absent}"
+        );
+        let mut summary = sections.clone();
+        summary["view"] = json!("summary");
+        let explicit = run(summary).await;
+        assert_eq!(
+            explicit["results"][0]["data"]["resources"], data["resources"],
+            "{explicit}"
+        );
+        let answered = run(evaluate.clone()).await;
+        assert!(
+            answered["results"][0]["data"]["answers"]["kind"]
+                .get("probabilities")
+                .is_none(),
+            "{answered}"
+        );
+    }
     runtime.close().await;
 }

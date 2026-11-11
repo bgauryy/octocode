@@ -194,16 +194,42 @@ impl Query<'_> {
             self.window(),
             self.cancel,
         )?;
-        let mut extra = edges_extra(&filter);
-        extra.insert(
-            "rankBy".into(),
-            json!(if rank_by == Direction::Out {
-                "out"
-            } else {
-                "in"
-            }),
-        );
+        // What the ranking counts is one static fact of the walk: stated once,
+        // in `rankBy`, with the first page (a fresh request's `edges` and
+        // defaulted `confidence` are dropped as echoes of its query), never
+        // repeated by the pages after it.
+        let mut extra = Map::new();
+        if first_page(self.options) {
+            extra.insert("rankBy".into(), json!(ranking(&filter, rank_by)));
+            if !filter.tests {
+                extra.insert("testEdges".into(), json!("excluded"));
+            }
+        }
         Ok(run_page(self.options, self.g, extra, page))
+    }
+}
+
+/// What a `hubs` page ranks by: the row count it sorts on, the edge kinds
+/// counted and, when calls are among them, the weakest call confidence.
+fn ranking(filter: &EdgeFilter, rank_by: Direction) -> String {
+    let count = if rank_by == Direction::Out {
+        "fanOut"
+    } else {
+        "fanIn"
+    };
+    let kinds = filter
+        .kinds
+        .iter()
+        .map(|kind| kind.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    if filter.kinds.contains(&EdgeKind::Calls) {
+        format!(
+            "{count} of {kinds} (confidence {})",
+            filter.weakest.as_str()
+        )
+    } else {
+        format!("{count} of {kinds}")
     }
 }
 

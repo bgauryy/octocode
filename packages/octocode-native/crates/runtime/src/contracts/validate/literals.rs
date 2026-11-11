@@ -3,7 +3,11 @@ use serde_json::{Number, Value};
 /// A value outside its allowed literals: the message names the value sent,
 /// the literal a near miss means and every allowed value, so a wrong
 /// view/role/entryType is self-correcting. The issue's path names the field.
-pub(super) fn enum_message(received: Option<&Value>, literals: &[Value]) -> String {
+pub(super) fn enum_message(
+    received: Option<&Value>,
+    literals: &[Value],
+    replaced: Option<&Value>,
+) -> String {
     let allowed = literals
         .iter()
         .map(|literal| {
@@ -15,7 +19,7 @@ pub(super) fn enum_message(received: Option<&Value>, literals: &[Value]) -> Stri
         .join(", ");
     let meant = received
         .and_then(Value::as_str)
-        .map(|sent| meant(sent, literals))
+        .map(|sent| meant(sent, literals, replaced))
         .filter(|meant| !meant.is_empty())
         .map(|meant| format!("use {}; ", quoted_choice(&meant)))
         .unwrap_or_default();
@@ -36,12 +40,24 @@ fn quoted_choice(names: &[String]) -> String {
     }
 }
 
-/// The literals `sent` means. For the ecosystem enum, first the contract's purl
-/// type of that name (`cargo`, `golang`, `deb`, `rpm`): its ecosystems, all of
-/// them when the type spans several distributions. Else the nearest spelling,
-/// else the one literal it is the start of (`crates` for `crates.io`).
-fn meant(sent: &str, literals: &[Value]) -> Vec<String> {
+/// The literals `sent` means. First the value the contract says a former
+/// one is now (`x-replacedValues`, in any case or separator style). For the
+/// ecosystem enum, the contract's purl type of that name (`cargo`, `golang`,
+/// `deb`, `rpm`): its ecosystems, all of them when the type spans several
+/// distributions. Else the nearest spelling, else the one literal it is the
+/// start of (`crates` for `crates.io`).
+fn meant(sent: &str, literals: &[Value], replaced: Option<&Value>) -> Vec<String> {
     let names = || literals.iter().filter_map(Value::as_str);
+    if let Some(now) = replaced
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .find(|(former, _)| super::repair::same_name(former, sent))
+        .and_then(|(_, now)| now.as_str())
+        .filter(|now| names().any(|name| name == *now))
+    {
+        return vec![now.to_owned()];
+    }
     if let Some(named) = purl_ecosystems(sent, literals) {
         return named;
     }

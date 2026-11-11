@@ -214,6 +214,42 @@ async fn an_advisory_row_answers_with_its_ranges_and_fixes() {
     assert_eq!(data["advisories"][0]["id"], id, "the record stays whole");
 }
 
+/// The details of an advisory state each range once: the events, never
+/// GitHub's range text that restates them nor a `fixedIn` the events and
+/// `answer` give; a range text that says more than the events stays.
+#[tokio::test]
+async fn advisory_details_state_each_range_once() {
+    let id = "GHSA-aaaa-bbbb-cccc";
+    let http = RouteHttp::new().json(
+        &format!("/v1/vulns/{id}"),
+        json!({"id": id, "summary": "s",
+            "affected": [
+                {"package": {"ecosystem": "npm", "name": "a"},
+                    "ranges": [{"type": "SEMVER", "events": [
+                        {"introduced": "0"}, {"fixed": "2.14.2"}]}],
+                    "database_specific": {"last_known_affected_version_range": "<= 2.14.1"}},
+                {"package": {"ecosystem": "npm", "name": "b"},
+                    "ranges": [{"type": "SEMVER", "events": [
+                        {"introduced": "8.3.0"}, {"fixed": "8.3.3"}]}],
+                    "database_specific": {"last_known_affected_version_range": "<= 9.0.0"}}]}),
+    );
+    let data = answer(&http, json!({"operation": "advisory", "id": id}))
+        .await
+        .expect("row");
+    let record = &data["advisories"][0];
+    assert!(record.get("fixedIn").is_none(), "{data}");
+    assert!(
+        record["affected"][0].get("databaseSpecific").is_none(),
+        "the text restates the events: {data}"
+    );
+    assert_eq!(
+        record["affected"][1]["databaseSpecific"]["last_known_affected_version_range"], "<= 9.0.0",
+        "a text past the fix says more than the events: {data}"
+    );
+    let sentence = data["answer"].as_str().expect("answer");
+    assert!(sentence.contains("(fixed 2.14.2)"), "{sentence}");
+}
+
 /// OSV only recommends sorted events, and its evaluation sorts them by the
 /// range's version order: shuffled events pair the same as sorted ones.
 #[test]
@@ -321,6 +357,37 @@ fn one_advisory_claimed_alike_by_two_sources_is_stated_once() {
         sentence.contains(">=3.0.0 <4.17.21 as GitHub writes it"),
         "{sentence}"
     );
+}
+
+/// GitHub writes a fixed range by its last affected version (`<= 2.14.1`),
+/// OSV by its fix (`<2.14.2`): with the same fix and lower bound they are one
+/// claim, stated once.
+#[test]
+fn a_range_written_to_its_last_affected_version_is_the_same_claim() {
+    let osv = json!({"id": "GHSA-same", "affected": [
+        {"packageName": "launch-editor", "ranges": [{"type": "SEMVER",
+            "events": [{"introduced": "0"}, {"fixed": "2.14.2"}]}]},
+        {"packageName": "vite", "ranges": [{"type": "SEMVER",
+            "events": [{"introduced": "8.3.0"}, {"fixed": "8.3.3"}]}]}]});
+    let github = json!({"id": "GHSA-same", "affected": [
+        {"packageName": "launch-editor", "ecosystemSpecific": {
+            "vulnerable_version_range": "<= 2.14.1", "first_patched_version": "2.14.2"}},
+        {"packageName": "vite", "ecosystemSpecific": {
+            "vulnerable_version_range": ">= 8.3.0, <= 8.3.2", "first_patched_version": "8.3.3"}}]});
+    let lead = super::answer::advisory_lead(&json!({"advisories": [osv, github]}));
+    let sentence = lead["answer"].as_str().expect("answer");
+    assert_eq!(sentence.matches("GHSA-same").count(), 1, "{sentence}");
+    assert_eq!(sentence.matches("(fixed 8.3.3)").count(), 1, "{sentence}");
+    assert!(!sentence.contains("as GitHub writes it"), "{sentence}");
+
+    // A last affected version with no fix named is no fix: both are stated.
+    let osv = json!({"id": "GHSA-open", "affected": [{"packageName": "p",
+        "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "2.0.0"}]}]}]});
+    let github = json!({"id": "GHSA-open", "affected": [{"packageName": "p",
+        "ecosystemSpecific": {"vulnerable_version_range": "<= 1.9.9"}}]});
+    let lead = super::answer::advisory_lead(&json!({"advisories": [osv, github]}));
+    let sentence = lead["answer"].as_str().expect("answer");
+    assert!(sentence.contains("p <=1.9.9 as GitHub writes it (no fix named)"), "{sentence}");
 }
 
 /// OSV lets `versions` add to ranges: an entry holding both states both.
@@ -1068,7 +1135,7 @@ fn github_advisory(id: &str, extra: Value) -> octocode_github::RepositoryAdvisor
 
 /// A repository's own advisory that OSV and GitHub's database lack is read
 /// whole from the repository when the row names it: its description, publisher,
-/// credits, score and API address reach the row, attributed to GitHub.
+/// credits and score reach the row, attributed to GitHub.
 #[tokio::test]
 async fn an_advisory_osv_lacks_is_read_whole_from_its_repository() {
     use crate::tools::security_check::GhsaRead;
@@ -1109,10 +1176,12 @@ async fn an_advisory_osv_lacks_is_read_whole_from_its_repository() {
         json!([{"login": "finder", "type": "finder"}])
     );
     assert_eq!(record["cvss"][0]["score"], 5.4);
+    // The API address is the link's: the link states it.
     assert!(
-        record["references"]
+        !record["references"]
             .to_string()
-            .contains("api.github.com/repos/o/r")
+            .contains("api.github.com/repos/o/r"),
+        "{data}"
     );
     assert_eq!(
         data["sources"],

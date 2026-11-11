@@ -83,7 +83,11 @@ async fn the_upgrade_moves_past_advisories_found_at_the_candidate() {
     ]);
     let data = answer(&http, Some("4.17.20"), None).await.expect("row");
     assert_eq!(data["upgradeTo"], "4.18.1");
-    assert!(data.get("upgradeNote").is_none(), "{data}");
+    // The skipped candidate is said apart; GHSA-2 does not affect 4.17.20.
+    assert_eq!(
+        data["upgradeNote"], "Skipped 4.18.0 (OSV lists GHSA-2 at it).",
+        "{data}"
+    );
     let asked = http
         .osv_queries()
         .iter()

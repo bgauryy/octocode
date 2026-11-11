@@ -1,7 +1,7 @@
 //! How the parts of one search page are stated and sized: search
 //! `pagination` counts search pages, the rest of a page is the response's
-//! continuation, a part reads at most twice the rows it shows, `contentReads`
-//! counts the reads that reached GitHub, a page's shift is stated once, a
+//! continuation, a part reads at most twice the rows it shows, each file is
+//! read from GitHub once, a page's shift is stated once, a
 //! page that fits the window is shown whole, and a cursor page states the
 //! repository its rows share once, on its `data`.
 use super::{Call, Index, files, hit, read_path, requests, walk, walk_with};
@@ -178,10 +178,11 @@ async fn a_part_reads_at_most_three_times_the_rows_it_shows() {
     runtime.close().await;
 }
 
-/// `contentReads` counts the files a call read from GitHub: a file an
-/// earlier part read is answered from the walk's evidence and not counted.
+/// A walk reads each file from GitHub once: a file an earlier part read is
+/// answered from the walk's evidence. No row states a read count: what the
+/// page cost is no evidence for the agent.
 #[tokio::test]
-async fn content_reads_count_only_reads_sent_to_github() {
+async fn a_walk_reads_each_file_once_and_states_no_read_count() {
     let server = MockServer::builder().start().await;
     let names = files(130, |n| format!("src/f{n:03}.rs"));
     mount_mixed(&server, &names).await;
@@ -189,15 +190,8 @@ async fn content_reads_count_only_reads_sent_to_github() {
     let runtime = workspace.runtime(&support::github_api(&server));
     let calls = walk(&server, &runtime, start(None, 5000)).await;
     for (at, call) in calls.iter().enumerate() {
-        let counted = call.output["results"][0]["data"]["contentReads"]
-            .as_u64()
-            .unwrap_or(0);
-        assert_eq!(
-            usize::try_from(counted).expect("count"),
-            call.reads.len(),
-            "call {at}: contentReads against the reads sent: {:?}",
-            call.reads
-        );
+        let data = &call.output["results"][0]["data"];
+        assert!(data.get("contentReads").is_none(), "call {at}: {data}");
     }
     let (_, reads) = requests(&server).await;
     assert_eq!(reads.len(), names.len(), "each file is read once");

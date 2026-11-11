@@ -1,6 +1,6 @@
 ---
 name: octocode-brainstorming
-description: "Think through problems, validate ideas, compare options, research best practices or competitors, and recommend from checked sources. Supports distinct research directions, critique and debate when the decision needs them."
+description: "Use when exploring an open problem, generating ideas, challenging assumptions, validating a proposal or comparing alternatives and competitors using checked sources. The option space or recommendation is unsettled; octocode-engineer owns concrete software design trade-offs."
 ---
 
 # Octocode Brainstorming

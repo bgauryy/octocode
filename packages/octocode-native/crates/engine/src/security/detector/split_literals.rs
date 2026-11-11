@@ -190,7 +190,7 @@ fn lists(
             .checked_sub(1)
             .filter(|open| *open >= done)
             .filter(|open| matches!(bytes.get(*open), Some(b'"' | b'\'' | b'`')));
-        let shape_only = VALUE_TESTS[index] == ValueTest::Every
+        let shape_only = matches!(VALUE_TESTS[index], ValueTest::Every | ValueTest::Placed)
             && PATTERNS[index].file_context.is_none()
             && document::Form::of(index).is_none();
         let (Some(open), true) = (opens, shape_only) else {
@@ -211,6 +211,12 @@ fn lists(
         let Some((raw, true)) = anchored_match(regex, &secret_groups(regex), joined) else {
             continue;
         };
+        if !joined
+            .get(raw.secret.clone())
+            .is_some_and(|secret| VALUE_TESTS[index].redacts("", secret))
+        {
+            continue;
+        }
         // The items the secret covers: all of each, two or more.
         let mut end = 0;
         let covered = items

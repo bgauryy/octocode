@@ -55,13 +55,13 @@ fn numbering_follows_the_query_and_matched_lines() {
             .out,
         "a\n1-x\n2:foo\n3:foo"
     );
-    // A clipped snippet that is not numbered prints as `key: value` text.
+    // A clipped snippet that is not numbered prints in the generic layout.
     let clipped = json!({"results":[{"index":0,"data":{"files":[{"path":"a","matches":[
             {"line":6,"value":"xxx…","clipped":true}]}]}}]});
     let lines = render(ToolId::LocalSearch, &clipped, &context(), None).expect("text");
     assert_eq!(
         lines.out,
-        "files:\n  - path: a\n    matches:\n      - line 6 value xxx… clipped"
+        "files:\n  - path: a\n    matches[]: line value clipped\n      6 xxx… true"
     );
 }
 
@@ -123,6 +123,58 @@ fn grouped_location_rows_print_as_hits() {
     let lines = render(ToolId::LspSearch, &result, &json!({}), None).expect("lines");
     assert!(lines.out.starts_with("a.rs\n2:needle();"), "{}", lines.out);
     assert!(lines.out.contains("\n6:needle();"), "{}", lines.out);
+}
+
+/// A text field every hit of a file holds states once per run of equal
+/// values; a column the line spells the symbol at, and nowhere else, is left
+/// to the text; hits on one line print it once with each column.
+#[test]
+fn location_labels_state_once_per_run_and_columns_only_where_needed() {
+    let hit = |line: u64, text: &str, column: u64, role: &str| {
+        json!({"displayRange":{"startLine":line,"endLine":line,"startCharacter":column},
+            "content":format!("{line}\t{text}\n"),"role":role})
+    };
+    let result = json!({"results":[{"index":0,"data":{"operation":"references","files":[{
+        "path":"a.ts",
+        "matches":[
+            hit(1, "import { needle } from './b';", 10, "import"),
+            hit(4, "needle(needle);", 1, "call"),
+            hit(4, "needle(needle);", 8, "call"),
+            hit(6, "  needle();", 3, "call"),
+            hit(8, "  /* needle */ needle();", 16, "call"),
+            hit(9, "export { needle };", 10, "reference")
+        ]
+    }]}}]});
+    let asked = json!({"queries":[{"operation":"references","path":"b.ts","symbolName":"needle","line":1}]});
+    let lines = render(ToolId::LspSearch, &result, &asked, None).expect("lines");
+    assert_eq!(
+        lines.out,
+        [
+            "a.ts",
+            "1:import { needle } from './b';  [role import]",
+            "4:needle(needle);  [column 1,8 role call]",
+            "6:  needle();",
+            "8:  /* needle */ needle();  [column 16]",
+            "9:export { needle };  [role reference]",
+        ]
+        .join("\n")
+    );
+    // A field only some hits hold prints on each of them.
+    let mut sourced = result.clone();
+    sourced["results"][0]["data"]["files"][0]["matches"][0]["source"] = "recovered".into();
+    sourced["results"][0]["data"]["files"][0]["matches"][3]["source"] = "recovered".into();
+    let out = render(ToolId::LspSearch, &sourced, &asked, None)
+        .expect("lines")
+        .out;
+    assert!(out.contains("[role import source recovered]"), "{out}");
+    assert!(out.contains("6:  needle();  [source recovered]"), "{out}");
+    // Without the symbol's name nothing says where it is: every column stays.
+    let lines = render(ToolId::LspSearch, &result, &json!({}), None).expect("lines");
+    assert!(
+        lines.out.contains("6:  needle();  [column 3]"),
+        "{}",
+        lines.out
+    );
 }
 
 /// `contextLines: N` is shorthand the runtime repairs to `{before:N,after:N}`

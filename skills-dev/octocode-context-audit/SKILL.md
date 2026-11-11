@@ -1,6 +1,6 @@
 ---
 name: octocode-context-audit
-description: "Audit bloated, slow or confusing agent context, or measure context cost before adding instructions, skills or MCP servers. Inventory configured inputs, probe availability when appropriate, and compare observed Claude transcript usage."
+description: "Use when inventorying or measuring configured agent context: instructions, skills and MCP descriptions/schemas, plus observed Claude transcript usage. Covers context bloat, duplicate installations, availability checks and before/after context-cost audits; octocode-agentic owns behavioral diagnosis."
 ---
 
 # Context audit

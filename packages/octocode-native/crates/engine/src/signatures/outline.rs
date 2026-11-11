@@ -110,6 +110,10 @@ fn outline_rows(
     let mut openers: Vec<Option<bool>> = vec![None; n];
     let mut members = vec![0i64; n + 1];
     let mut covered = vec![0i64; n + 1];
+    // Rows of a type declaration outside its braced body: the arms of a
+    // union, the parameters of a function type. They continue one type
+    // expression, they list no member.
+    let mut fragments = vec![false; n];
     for declaration in &document.declarations {
         let name = row_of(declaration.selection_range.start.line);
         let end = row_of(declaration.range.end.line).max(name);
@@ -124,6 +128,11 @@ fn outline_rows(
                 members[name + 1] += 1;
                 members[end + 1] -= 1;
             }
+            if declaration.kind == "type" {
+                outside_body(lines, start, end, comments, &mut fragments);
+            } else {
+                header_rows(lines, name, end, comments, &mut fragments);
+            }
         } else if !holds_statements(&declaration.kind) {
             covered[start] += 1;
             covered[end + 1] -= 1;
@@ -136,7 +145,10 @@ fn outline_rows(
         in_covered += covered[row];
         shown[row] = !heads[row].is_empty()
             || openers[row].is_some()
-            || (in_members > 0 && in_covered == 0 && member_row(lines[row], comments));
+            || (in_members > 0
+                && in_covered == 0
+                && !fragments[row]
+                && member_row(lines[row], comments));
     }
     let imports = import_rows(document, n);
     let mut rows = Vec::new();
@@ -207,6 +219,167 @@ fn import_rows(document: &GraphFactsDocument, n: usize) -> Vec<bool> {
 /// body's own rows (fields, variants, attributes) are part of an outline.
 fn lists_members(kind: &str) -> bool {
     super::TYPE_DECLARATION_KINDS.contains(&kind) || kind == "impl"
+}
+
+/// Mark the rows of the type declaration over rows `start..=end` that do not
+/// open inside its braced body (`struct {`, `= {`): a union's arms, a
+/// function type's parameters and an intersection after the body (`} & B`)
+/// continue its type expression, and a row inside parentheses within the
+/// body (a member's parameters) is no member either. Brackets inside quotes
+/// and whole-line comments are not counted.
+fn outside_body(
+    lines: &[&str],
+    start: usize,
+    end: usize,
+    comments: languages::CommentStyle,
+    fragments: &mut [bool],
+) {
+    let (mut braces, mut parens) = (0i64, 0i64);
+    for row in start..=end.min(lines.len().saturating_sub(1)) {
+        let line = lines[row];
+        // A row that first closes the body continues the expression after it.
+        let closing = line
+            .trim_start()
+            .chars()
+            .take_while(|ch| *ch == '}')
+            .count();
+        let closing = i64::try_from(closing).unwrap_or(i64::MAX);
+        if row > start && (braces.saturating_sub(closing) < 1 || parens > 0) {
+            fragments[row] = true;
+        }
+        if super::renderer::is_pure_comment(line.trim(), comments) {
+            continue;
+        }
+        for (_, ch) in unquoted(line, QUOTES).0 {
+            match ch {
+                '{' => braces += 1,
+                '}' => braces -= 1,
+                '(' | '[' => parens += 1,
+                ')' | ']' => parens -= 1,
+                _ => {}
+            }
+        }
+    }
+}
+
+/// Mark the header rows of the member-listing declaration named on row
+/// `name` and ending on row `end`: the rows after the name row up to the one
+/// that opens its braced body (`extends Omit<…> {`, a `where` clause). They
+/// continue the declaration's head; its members lie inside the body. A row
+/// inside parentheses (a primary constructor's properties) stays a member.
+/// Nothing is marked unless the body opens with `{` outside brackets and
+/// closes on the last row: a body opened by `:` (Python) is no braced body.
+fn header_rows(
+    lines: &[&str],
+    name: usize,
+    end: usize,
+    comments: languages::CommentStyle,
+    fragments: &mut [bool],
+) {
+    let end = end.min(lines.len().saturating_sub(1));
+    // A one-row declaration has no header row (a minified line is read once
+    // per declaration it holds, so it is not scanned here).
+    if end <= name {
+        return;
+    }
+    // Brackets open in the head ((), [], <>, nested {}), and () alone.
+    let (mut depth, mut parens) = (0i64, 0i64);
+    let mut in_parens = Vec::new();
+    let mut body = None;
+    'rows: for (row, line) in lines.iter().enumerate().take(end + 1).skip(name) {
+        in_parens.push(parens > 0);
+        if super::renderer::is_pure_comment(line.trim(), comments) {
+            continue;
+        }
+        for (at, (before, ch)) in head_chars(line).into_iter().enumerate() {
+            match ch {
+                '{' if depth == 0 => {
+                    body = Some((row, at));
+                    break 'rows;
+                }
+                '(' => (depth, parens) = (depth + 1, parens + 1),
+                ')' => (depth, parens) = (depth - 1, parens - 1),
+                '[' | '<' | '{' => depth += 1,
+                // `=>` and `->` close no bracket.
+                '>' if matches!(before, '=' | '-') => {}
+                ']' | '>' | '}' => depth -= 1,
+                _ => {}
+            }
+            depth = depth.max(0);
+            parens = parens.max(0);
+        }
+        if depth == 0 && line.trim_end().ends_with(':') {
+            return;
+        }
+    }
+    // A body that opens on the name row leaves no header row.
+    let Some((open, at)) = body.filter(|(open, _)| *open > name) else {
+        return;
+    };
+    // The body closes on the last row, and only there.
+    let mut braces = 0i64;
+    for (row, line) in lines.iter().enumerate().take(end + 1).skip(open) {
+        if super::renderer::is_pure_comment(line.trim(), comments) {
+            continue;
+        }
+        let chars = head_chars(line);
+        let skip = if row == open { at } else { 0 };
+        for (_, ch) in chars.into_iter().skip(skip) {
+            match ch {
+                '{' => braces += 1,
+                '}' => braces -= 1,
+                _ => {}
+            }
+            if braces == 0 && row < end {
+                return;
+            }
+        }
+    }
+    if braces != 0 {
+        return;
+    }
+    for row in name + 1..=open {
+        if row == open || !in_parens[row - name] {
+            fragments[row] = true;
+        }
+    }
+}
+
+/// The characters of a declaration-head row outside quotes, each with the
+/// one before it. A `'` the row never closes is no quote (a Rust lifetime).
+fn head_chars(line: &str) -> Vec<(char, char)> {
+    match unquoted(line, QUOTES) {
+        (chars, false) => chars,
+        (_, true) => unquoted(line, &['"', '`']).0,
+    }
+}
+
+const QUOTES: &[char] = &['\'', '"', '`'];
+
+/// The characters of `line` outside the `quotes`, each with the one before
+/// it, and whether the line ends inside a quote.
+fn unquoted(line: &str, quotes: &[char]) -> (Vec<(char, char)>, bool) {
+    let mut out = Vec::new();
+    let mut quote = None;
+    let mut escaped = false;
+    let mut previous = ' ';
+    for ch in line.chars() {
+        let before = std::mem::replace(&mut previous, ch);
+        match quote {
+            Some(open) => {
+                if escaped {
+                    escaped = false;
+                } else if ch == '\\' {
+                    escaped = true;
+                } else if ch == open {
+                    quote = None;
+                }
+            }
+            None if quotes.contains(&ch) => quote = Some(ch),
+            None => out.push((before, ch)),
+        }
+    }
+    (out, quote.is_some())
 }
 
 /// Whether `kind` declares a body of statements, as a file is: a module or

@@ -63,6 +63,7 @@ impl Limits {
 /// and hit lines, and whether windows remain past them.
 #[derive(Default)]
 pub(super) struct Scan {
+    /// Matches found, however many share a line.
     pub(super) count: usize,
     pub(super) windows: Vec<(usize, usize)>,
     pub(super) hits: Vec<usize>,
@@ -94,10 +95,9 @@ pub(super) struct Scan {
 }
 
 impl Scan {
-    /// Count hit `line` and keep its context `window` when the window reaches
+    /// Record hit `line` and keep its context `window` when the window reaches
     /// past `resume`, the last line earlier pages served.
     pub(super) fn hit(&mut self, line: usize, window: (usize, usize), resume: usize) {
-        self.count += 1;
         #[cfg(test)]
         self.lines.push(line);
         if window.1 <= resume {
@@ -330,6 +330,11 @@ impl<C: CancellationCheck> Scanner<'_, C> {
             } else {
                 first
             };
+            // Every match counts, however many share a line, as the
+            // whole-file read counts them: within the read's ranges.
+            if self.shape.window(first).is_some() && self.shape.window(end_line).is_some() {
+                self.found.count += 1;
+            }
             for line in first.max(self.counted + 1)..=end_line {
                 self.record(line);
                 hit = line;

@@ -1,6 +1,6 @@
 ---
 name: octocode-get-started
-description: "Explain Octocode, MCP, CLI, SKILL.md files, public tools and skills, installation, configuration, and home/workspace folders. Use for new-user onboarding and basic setup questions."
+description: "Use when learning Octocode or installing and configuring its CLI, MCP connection, tools and skills. Covers product onboarding, credentials, settings, home/workspace folders and verifying a first tool call."
 metadata:
   excluded-hosts: "octocode-code"
 ---

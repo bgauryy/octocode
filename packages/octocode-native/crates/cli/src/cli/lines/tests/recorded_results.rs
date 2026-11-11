@@ -93,11 +93,7 @@ fn assert_aligned(rule: &str, (new, fixed): (Vec<String>, Vec<String>)) {
 /// list. The roast (F8) also named the history commit, the pull request and
 /// issue comments: the recorded commit and pull request now fit, and no
 /// recording holds issue comments.
-const LARGER_THAN_JSON: &[&str] = &[
-    "clasify sections hit",
-    "securityCheck advisory hit",
-    "securityCheck advisory paged",
-];
+const LARGER_THAN_JSON: &[&str] = &["clasify sections hit", "securityCheck advisory hit"];
 
 /// C1: text stdout is no larger than the JSON of the same result.
 #[test]

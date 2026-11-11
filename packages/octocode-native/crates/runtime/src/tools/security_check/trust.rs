@@ -88,8 +88,10 @@ struct Listing {
     compared: bool,
     /// OSV did not answer, so there was nothing to compare them with.
     osv_unanswered: bool,
-    /// Ids of those OSV does not list at this version: the repository's, not
-    /// known to affect it.
+    /// The version the row asks about; absent: the package alone.
+    version: Option<String>,
+    /// Ids of those OSV does not list at this version whose own range does
+    /// not leave the version out: the repository's word, not counted.
     others: Vec<String>,
 }
 
@@ -138,6 +140,7 @@ async fn listing(owner: &str, name: &str, confirmed: &Confirmed, net: &Net<'_>) 
         end,
         compared: false,
         osv_unanswered: false,
+        version: confirmed.version.clone(),
         others: Vec::new(),
     }
 }
@@ -366,11 +369,19 @@ impl Trust {
             .flat_map(|result| &result.advisories)
             .collect::<Vec<_>>();
         let twins = advisories::twins(&known, listing.rows.clone());
+        // An advisory whose own range leaves the version out is about other
+        // versions: the repository operation lists it, the row does not.
+        let elsewhere = |row: &SecurityAdvisory| {
+            listing
+                .version
+                .as_deref()
+                .is_some_and(|version| super::osv::written_ranges_clear(&row.affected, version))
+        };
         listing.others = listing
             .rows
             .iter()
+            .filter(|row| !twins.iter().any(|twin| twin.id == row.id) && !elsewhere(row))
             .map(|row| row.id.clone())
-            .filter(|id| !twins.iter().any(|twin| &twin.id == id))
             .collect();
         listing.compared = true;
         if !twins.is_empty() {

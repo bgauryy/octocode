@@ -16,8 +16,8 @@ fn streamed(q: &LocalFetchQuery, text: &str, limits: Limits) -> Scan {
     .expect("scan")
 }
 
-/// The scan counts exactly the hit lines the whole-file matcher selects, and
-/// the source's lines, with a window within its bound.
+/// The scan counts exactly the hit lines and matches the whole-file matcher
+/// selects, and the source's lines, with a window within its bound.
 fn assert_whole_file_answer(q: &LocalFetchQuery, text: &str, limits: Limits) {
     let found = streamed(q, text, limits);
     let (want, _) = crate::tools::source_view::extraction::match_lines(q, text).expect("whole");
@@ -32,7 +32,11 @@ fn assert_whole_file_answer(q: &LocalFetchQuery, text: &str, limits: Limits) {
         limits.overlap,
         limits.read
     );
-    assert_eq!(found.count, want.len());
+    let matches = crate::tools::source_view::extraction::match_spans(q, text)
+        .expect("whole")
+        .spans
+        .len();
+    assert_eq!(found.count, matches);
     assert_eq!(found.total_lines, text.split_inclusive('\n').count());
     assert!(found.peak <= limits.text_bound(), "{}", found.peak);
 }
@@ -245,13 +249,17 @@ fn a_page_walk_across_the_scan_chunk_edge_reconstructs_every_hit_line_once() {
     let (want, _) =
         crate::tools::source_view::extraction::match_lines(&q, &text).expect("whole-file hits");
     assert!(want.contains(&edge_line) && want.contains(&(edge_line + 1)));
+    let matches = crate::tools::source_view::extraction::match_spans(&q, &text)
+        .expect("whole-file matches")
+        .spans
+        .len();
     let mut pending = std::collections::VecDeque::from([q]);
     let (mut seen, mut pages) = (Vec::new(), 0);
     while let Some(call) = pending.pop_front() {
         let page = fetch(&file, &call, Some(64 * 1024));
         assert_eq!(page.error_code, None, "{page:?}");
         if let Some(count) = page.selected_match_count {
-            assert_eq!(count, want.len());
+            assert_eq!(count, matches, "every match, each over two lines");
         }
         for range in &page.source_line_ranges {
             seen.extend(range.start..=range.end);

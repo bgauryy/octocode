@@ -24,7 +24,7 @@ use super::super::classify::{
 use super::format::{
     EdgeKind, FLAG_EXPORTED, FLAG_LOCAL_USE, FLAG_TEST, GraphTables, NONE, NodeKind,
 };
-use super::tables::MODULE_DETAIL;
+use super::tables::{MODULE_DETAIL, REEXPORTED_NAME};
 use crate::id::ToolId;
 use crate::tools::ast_graph::algorithms::{CycleLoad, Cycles};
 use crate::tools::ast_graph::edges::{Load, RUST_MODULE, load};

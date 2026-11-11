@@ -156,7 +156,11 @@ impl<'a> Reads<'a> {
         {
             return Vec::new();
         }
-        let end = self.judge.value_end(window, from, &raw.secret);
+        let end = self.judge.value_end(window, from, &raw.secret, |part| {
+            window
+                .get(part.clone())
+                .is_some_and(|value| self.judge.value_test.redacts_in_comment(key, value))
+        });
         let shift = |at: usize| at + from;
         vec![(
             shift(raw.whole.start)..shift(raw.whole.end.max(end)),
@@ -198,7 +202,9 @@ impl<'a> Reads<'a> {
                     diff_start,
                     first: key.start,
                     whole_end: key.start + raw.whole.end,
-                    end: key.start + self.judge.value_end(window, key.start, &raw.secret),
+                    // One read shared by the span's keys: no one key judges
+                    // a part of it.
+                    end: key.start + self.judge.value_end(window, key.start, &raw.secret, |_| false),
                     kept,
                     keys: SpanKeys::new(&text[key.start..secret.start]),
                     secret,

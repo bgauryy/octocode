@@ -160,6 +160,44 @@ impl<'a> Projector<'a> {
                     );
                 }
             }
+            self.reexported_name_edges(resolver, src, facts);
+        }
+    }
+
+    /// One [`REEXPORTED_NAME`] edge per declaration a named re-export of
+    /// `facts` resolves to, so what a file makes public is known per name.
+    fn reexported_name_edges(&mut self, resolver: &ExportResolver, src: u32, facts: &FileFacts) {
+        for reexport in &facts.reexports {
+            let Some(target) = &reexport.target else {
+                continue;
+            };
+            let (found, _) = resolver.exported(target, &reexport.imported_name);
+            if found.is_empty() {
+                // A namespace (`export * as ns`) or a name no scanned
+                // declaration holds: the whole file stays public.
+                if let Some(&dst) = self.file_nodes.get(target.as_str()) {
+                    self.push(
+                        src,
+                        dst,
+                        EdgeKind::Uses,
+                        Confidence::High,
+                        REEXPORTED_NAME,
+                        reexport.line,
+                    );
+                }
+                continue;
+            }
+            let confidence = confidence_for(&found, Confidence::High);
+            for dst in found {
+                self.push(
+                    src,
+                    dst,
+                    EdgeKind::Uses,
+                    confidence,
+                    REEXPORTED_NAME,
+                    reexport.line,
+                );
+            }
         }
     }
 

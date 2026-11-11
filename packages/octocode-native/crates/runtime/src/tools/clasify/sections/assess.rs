@@ -11,7 +11,7 @@ use crate::tools::source_capture::SourceReader;
 use futures_util::{StreamExt as _, stream};
 use octocode_contract_types::{
     ClasifyChannel, ClasifyQuery, ClasifyQuerySectionsAssessment,
-    ClasifyQuerySectionsAssessmentOperation, ErrorCode,
+    ClasifyQuerySectionsAssessmentOperation, ClasifyView, ErrorCode,
 };
 use serde_json::json;
 
@@ -93,7 +93,29 @@ pub(super) fn assess_and_save(
     }
     let mut output = emit(session, &usage, None);
     let held = if runtime.can_resume {
-        attach_continuations(&mut output, session, remaining == 0)
+        let held = attach_continuations(&mut output, session, remaining == 0);
+        // The kept page in view details, replayed without inference.
+        let Ok(assessment) = token(&session.id, ordinal).try_into() else {
+            unreachable!("a batch token is a valid assessment token");
+        };
+        let details = ClasifyQuery {
+            subtype_0: None,
+            subtype_1: None,
+            subtype_2: None,
+            subtype_3: Some(ClasifyQuerySectionsAssessment {
+                assessment,
+                main_goal: None,
+                operation: ClasifyQuerySectionsAssessmentOperation::Sections,
+                reasoning: None,
+                view: Some(ClasifyView::Details),
+            }),
+        };
+        insert_next(
+            &mut output["next"],
+            ClasifyChannel::Details,
+            Continuation::continued_query(details),
+        );
+        held
     } else {
         Held::default()
     };

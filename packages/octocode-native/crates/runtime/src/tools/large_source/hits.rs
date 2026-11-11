@@ -82,6 +82,8 @@ impl Runs {
 /// What a page needs of a finished scan.
 pub(super) struct KeptHits {
     runs: Vec<(usize, usize)>,
+    /// The scan's match count ([`Scan::count`]).
+    count: usize,
     total_lines: usize,
     limited: Option<usize>,
     line_edges: usize,
@@ -95,6 +97,7 @@ impl KeptHits {
         let runs = std::mem::take(&mut found.runs);
         (!runs.given_up).then_some(Self {
             runs: runs.runs,
+            count: found.count,
             total_lines: found.total_lines,
             limited: found.limited,
             line_edges: found.line_edges,
@@ -112,6 +115,7 @@ impl KeptHits {
     pub(super) fn replay(&self, q: &LocalFetchQuery, resume: usize) -> Scan {
         let shape = Shape::of(q);
         let mut found = Scan {
+            count: self.count,
             limited: self.limited,
             line_edges: self.line_edges,
             mid_edges: self.mid_edges,

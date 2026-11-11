@@ -161,6 +161,7 @@ clasify	tools/clasify/recovery.rs	This source is larger than one response, so it
 clasify	tools/clasify/recovery.rs	source takes text; a PNG or JPEG image is judged under assets, as the clasify call in related[] does.
 clasify	tools/clasify/sections.rs	Copy nextPage unchanged, or start a fresh sections request.
 clasify	tools/clasify/sections.rs	Section plans across CLI calls need storage.mode persistent, or one running MCP server; start a fresh sections request explicitly if the saved plan expired.
+clasify	tools/clasify/sections/capture.rs	Ask fewer or shorter questions in one row.
 clasify	tools/clasify/sections/capture.rs	Use its pinned raw reader or assess a narrower resource set.
 clasify	tools/clasify/sections/capture.rs	Use raw readers or a smaller resource set.
 clasify	tools/clasify/sections/capture.rs	Use the pinned raw reader or a smaller resource selection.
@@ -248,6 +249,9 @@ localSearch	tools/local_search/executor/scanned.rs	Nothing was shown: {leads}nar
 localSearch	tools/local_search/executor/scanned.rs	run the related[] localSearch call for per-file counts or the structureSearch listing to split the scope, or 
 localSearch	tools/local_search/executor/scanned.rs	run the related[] localSearch call for per-file counts, or 
 localSearch	tools/local_search/executor/scanned.rs	run the related[] structureSearch listing to split the scope, or 
+localSearch	tools/local_search/executor/settle.rs	No match in this path, nor anywhere else in the workspace under the same filters.
+localSearch	tools/local_search/executor/settle.rs	No match in this path; related[] searches one folder up.
+localSearch	tools/local_search/executor/settle.rs	No match in this path; {floor}{files} file(s) under {dir} {what}: related[] searches there.
 localSearch	tools/local_search/output.rs	Check read access to the path; a broader search reads the same files.
 localSearch	tools/local_search/output.rs	Correct the regex named in the error. If the intended match is literal text, set regexEngine to literal and keep matchString unchanged.
 localSearch	tools/local_search/probes.rs	Skipped paths ({counts}) hold no {what} either; the check searched them.
@@ -308,6 +312,7 @@ lspSearch	tools/lsp_search/walk/outcome.rs	{out_of_policy} hierarchy items the p
 securityCheck	tools/security_check/advisories.rs	GitHub has not reviewed {id}: its database marks it unreviewed.
 securityCheck	tools/security_check/advisories.rs	GitHub's database classes {id} as {other}.
 securityCheck	tools/security_check/advisories.rs	GitHub's database classes {id} in a class that is not a plain word.
+securityCheck	tools/security_check/package.rs	Skipped {}.
 shared	tools/selection.rs	 (none on this page)
 shared	tools/selection.rs	 ({shown} on this page)
 shared	tools/selection.rs	 An empty classified result is not absence: next.unfiltered lists them all.

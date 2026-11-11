@@ -31,7 +31,12 @@ pub(super) fn answered(
     let mut out = json!({
         "model": judged.model,
         "answers": answers,
-        "usage": evaluation_usage(judged.input_tokens, judged.output_tokens, judged.provider_calls),
+        "usage": evaluation_usage(
+            judged.input_tokens,
+            judged.output_tokens,
+            judged.provider_calls,
+            0,
+        ),
     });
     if let Some(notice) = usage.long_context_notice() {
         crate::response::result::add_hints(&mut out, [notice]);
@@ -70,6 +75,7 @@ pub(super) fn failed(
             usage.input_tokens,
             usage.output_tokens,
             error.provider_calls,
+            0,
         );
     }
     crate::response::result::attach_calls(
@@ -83,12 +89,20 @@ pub(super) fn failed(
 /// One evaluation's provider spend as the contract types it
 /// (`ClasifyEvaluationUsage`): the field names are the generated type's, never
 /// spelled here, so a contract rename reaches every evaluate row.
-pub(super) fn evaluation_usage(input_tokens: u64, output_tokens: u64, calls: u64) -> Value {
+/// `refused`: of `calls`, the whole-source requests the window refused
+/// before the source was judged in sections.
+pub(super) fn evaluation_usage(
+    input_tokens: u64,
+    output_tokens: u64,
+    calls: u64,
+    refused: u64,
+) -> Value {
     let count = |value| saturating_i64(value);
     serde_json::to_value(octocode_contract_types::ClasifyEvaluationUsage {
         input_tokens: count(input_tokens),
         output_tokens: count(output_tokens),
         calls: Some(count(calls)),
+        refused: std::num::NonZeroU64::new(refused),
     })
     .unwrap_or(Value::Null)
 }

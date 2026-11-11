@@ -159,7 +159,9 @@ fn a_guessed_field_with_several_readings_names_the_field_to_use() {
         if sent_field == meant {
             continue;
         }
-        let shown = crate::contracts::format_input_error(tool, &error, &[]).to_string();
+        let shown =
+            crate::contracts::format_input_error(tool, &error, &[], &serde_json::Value::Null)
+                .to_string();
         assert!(
             shown.contains(&format!(
                 "Unknown field '{sent_field}' in queries[0]; use '{meant}'"
@@ -190,7 +192,12 @@ fn a_pattern_that_reads_as_a_regex_is_refused_naming_both_fields() {
             Err(error) => error,
             Ok(mut rows) => rows.remove(0).expect_err("rejected"),
         };
-        let shown = crate::contracts::format_input_error("localSearch", &error, &[])["error"]
+        let shown = crate::contracts::format_input_error(
+            "localSearch",
+            &error,
+            &[],
+            &serde_json::Value::Null,
+        )["error"]
             .as_str()
             .unwrap_or_default()
             .to_owned();

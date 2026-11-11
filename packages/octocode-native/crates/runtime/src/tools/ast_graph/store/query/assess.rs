@@ -180,10 +180,14 @@ impl Query<'_> {
         let shared = shared_controls(&findings);
         if let Some(notes) = summary["notes"].as_array_mut() {
             notes.extend(
-                shared
-                    .iter()
-                    .map(|(detector, controls)| json!({"detector": detector, "controls": controls})),
+                shared.iter().map(
+                    |(detector, controls)| json!({"detector": detector, "controls": controls}),
+                ),
             );
+        }
+        let leads = reexport_leads(&mut summary, options, &g.id);
+        if !leads.is_empty() {
+            extra.insert("related".into(), Value::Array(leads));
         }
         extra.insert("summary".into(), summary);
         let mut status = BTreeMap::<String, &str>::new();
@@ -426,3 +430,33 @@ fn verify_call(step: &VerifyStep, options: &QueryOptions, id: &str) -> Value {
 
 #[cfg(test)]
 mod tests;
+
+/// The entries whose re-exports made files public API, named by an
+/// `evaluated` note of the export detectors, as one `deps` call each: the
+/// files those entries re-export, whose exports were not judged.
+fn reexport_leads(summary: &mut Value, options: &QueryOptions, graph: &str) -> Vec<Value> {
+    let mut leads = Vec::new();
+    for note in summary["notes"].as_array_mut().into_iter().flatten() {
+        let Some(entries) = note
+            .get_mut("evaluated")
+            .and_then(Value::as_object_mut)
+            .and_then(|evaluated| evaluated.remove("reexportingEntries"))
+        else {
+            continue;
+        };
+        for entry in entries.as_array().into_iter().flatten() {
+            let mut row = Map::new();
+            row.insert("operation".into(), json!("deps"));
+            super::paging::pin(&mut row, options, graph);
+            row.insert("target".into(), entry.clone());
+            leads.push(
+                crate::response::result::Continuation::related(
+                    crate::id::ToolId::GraphQuery,
+                    Value::Object(row),
+                )
+                .build(),
+            );
+        }
+    }
+    leads
+}

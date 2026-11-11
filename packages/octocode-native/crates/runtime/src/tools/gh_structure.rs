@@ -259,11 +259,13 @@ impl Scope {
         let path = crate::tools::gh_shared::listing_path(
             query.path.as_deref().map_or("", String::as_str),
         )?;
-        // A name search and a materialize take every level unless the caller
-        // bounds them: both select files, and a folder is not one.
+        // A name search, a materialize and a size rank take every level unless
+        // the caller bounds them: each selects files, and a folder is not one.
         let depth = match query.max_depth {
             Some(depth) => octocode_engine::num::saturating_usize(depth.get()),
-            None if filter.is_some() || query.materialize == Some(true) => max_listing_depth(),
+            None if filter.is_some() || query.materialize == Some(true) || ranks_by_size(query) => {
+                max_listing_depth()
+            }
             None => 1,
         };
         Ok(Self {

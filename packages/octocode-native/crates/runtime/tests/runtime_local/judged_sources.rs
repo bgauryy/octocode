@@ -869,7 +869,7 @@ async fn stale_graph_snapshot_of_another_analysis_version_serves_no_fact() {
                 "graphQuery {query} shows a fact of the old snapshot: {output}"
             );
             assert_eq!(
-                data["errorCode"], "notFound",
+                data["errorCode"], "snapshotIncompatible",
                 "graphQuery {query}: {output}"
             );
             assert_eq!(

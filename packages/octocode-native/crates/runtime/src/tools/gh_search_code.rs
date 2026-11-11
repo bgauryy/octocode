@@ -211,26 +211,20 @@ async fn execute_within(
     .await?;
     // The page reads the files of the rows its window holds; the rest is the
     // next part of the same page.
-    let (resolution, content_reads, unshown) = match plan {
+    let (resolution, unshown) = match plan {
         Some(mut plan) => {
             let endpoint = provider.transport.endpoint();
             let room = part::budget(query, window, |continues| {
-                skeleton(
-                    query,
-                    &data,
-                    (current, past_end, continues),
-                    items.len(),
-                    endpoint,
-                )
+                skeleton(query, &data, (current, past_end, continues), endpoint)
             });
             let shown = part::read(
                 &mut plan, &items, query, withholds, room, provider, context, security,
             )
             .await?;
             let unshown = items.split_off(shown);
-            (Some(plan.resolution(0..shown)), plan.reads(), unshown)
+            (Some(plan.resolution(0..shown)), unshown)
         }
-        None => (None, 0, Vec::new()),
+        None => (None, Vec::new()),
     };
     let within = (!unshown.is_empty()).then(|| {
         data.listed.state_within(items.iter().filter_map(|row| {
@@ -249,16 +243,11 @@ async fn execute_within(
     let resolved_sha = resolution
         .as_ref()
         .and_then(|resolution| resolution.sha.clone());
-    // `content_reads`: the core-quota cost of acquiring this page's source
-    // line numbers, the files read through the contents API.
     if resolution.is_none() {
         code_output::index_commits(&mut items, &data.items, query);
     }
     let reads = code_output::shape_files(&mut items, query, withholds, resolution);
     disclose_reads(&mut value, &reads, context);
-    if content_reads > 0 {
-        value["contentReads"] = json!(content_reads);
-    }
     code_output::merge_identical(&mut items);
     value["files"] = json!(items);
     // The shared sanitizer and selector need the captured hit evidence.

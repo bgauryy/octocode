@@ -32,7 +32,10 @@ async fn crates_exact_versions_carry_the_packaging_commit_or_release_tag() {
             ("serde-1.0.100/.cargo_vcs_info.json", info, b'0'),
         ]),
     );
-    let tags = KnownTags::new(vec!["serde-rs/serde@v1.0.228"]);
+    let tags = KnownTags::new(vec![
+        "serde-rs/serde@v1.0.228",
+        "serde-rs/serde@v1.0.100=b6a77c4413f902523646be0d7f5520631df53ff6",
+    ]);
     let b = test_budget();
     let client = RegistryClient {
         tags: Some(&tags),
@@ -60,8 +63,32 @@ async fn crates_exact_versions_carry_the_packaging_commit_or_release_tag() {
         .remove(0);
     assert_eq!(latest.source_ref.as_deref(), Some("v1.0.228"));
     assert!(latest.source_tag, "an upstream tag is checked to exist");
-    assert!(!pinned.source_tag, "cargo VCS info is not a tag");
+    assert!(
+        pinned.source_tag,
+        "the release tag names the packaging commit: it is checked"
+    );
     assert_eq!(latest.repository_directory, None);
+    // A release tag naming another commit leaves cargo's commit the
+    // registry's claim, and the row says which commit the tag names.
+    let elsewhere = KnownTags::new(vec!["serde-rs/serde@v1.0.100=0000000000000000000000000000000000000001"]);
+    let client = RegistryClient {
+        tags: Some(&elsewhere),
+        ..RegistryClient::new(&http, &b)
+    };
+    let claimed = crates(
+        &versioned(ArtifactType::Crates, "serde", "1.0.100"),
+        &state,
+        &client,
+    )
+    .await
+    .expect("pinned")
+    .artifacts
+    .remove(0);
+    assert!(!claimed.source_tag);
+    assert_eq!(
+        claimed.tag_differs.as_ref().map(|tag| tag.tag.as_str()),
+        Some("v1.0.100")
+    );
 }
 
 /// A crate row lists its runtime dependencies like the other

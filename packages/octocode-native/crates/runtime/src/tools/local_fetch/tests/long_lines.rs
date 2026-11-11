@@ -109,8 +109,10 @@ fn a_match_deep_in_a_long_line_is_on_page_one_and_the_line_is_walked_once() {
 }
 
 /// D3: every match in a long line has its window before the rest of the
-/// line, in source order; windows that touch are one page; a window next to
-/// a redaction never cuts its marker; the walk is the line exactly once.
+/// line, in source order, on as few pages as hold them (one here: windows
+/// that touch are one run, far ones follow behind a gap marker); a window
+/// next to a redaction never cuts its marker; the walk is the line exactly
+/// once.
 #[test]
 fn every_match_window_of_a_long_line_comes_before_the_rest() {
     let fixture = Fixture::new();
@@ -133,12 +135,14 @@ fn every_match_window_of_a_long_line_comes_before_the_rest() {
     let query = qj(&path, serde_json::json!({"matchString":["NEEDLE"]}));
     for window in [None, Some(1_000)] {
         let pages = walk_exactly_once(&query, &paths, window, &view);
-        // First the windows: the line's first bytes, the pair, the hit
-        // after it, the line's last bytes.
-        let windows: Vec<&(usize, String)> = pages
-            .iter()
-            .take_while(|(_, text)| text.contains("NEEDLE"))
-            .collect();
+        // First the windows, on one page: the line's first bytes, the pair,
+        // the hit after it, the line's last bytes.
+        assert!(pages[0].1.contains("NEEDLE"), "{window:?}: {:?}", pages[0]);
+        let windows: Vec<(usize, String)> =
+            crate::tools::source_view::pagination::placed_pieces(pages[0].0, &pages[0].1)
+                .into_iter()
+                .map(|(at, piece)| (at, piece.to_owned()))
+                .collect();
         assert_eq!(
             windows.len(),
             4,
@@ -168,9 +172,7 @@ fn every_match_window_of_a_long_line_comes_before_the_rest() {
         }
         assert_eq!(windows[0].0, 0, "{window:?}: a hit at the line start");
         assert!(
-            pages[windows.len()..]
-                .iter()
-                .all(|(_, text)| !text.contains("NEEDLE")),
+            pages[1..].iter().all(|(_, text)| !text.contains("NEEDLE")),
             "{window:?}: the rest holds no match"
         );
     }

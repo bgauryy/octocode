@@ -157,7 +157,7 @@ Octocode was more correct on 8 questions and the shell on none (p = 0.01). Every
 
 **What it saves is the main agent's context, not total tokens.** Count the provider's tokens too and one fact costs about the same, while every multi-file task costs more in total.
 
-**When it does not pay:** the answer has a fixed spelling, the source is small, or you need counts or proof of absence. A "no" clears nothing: it caught only 16 of 30 contradictions between documents and 5 of 18 log-order facts, with no false positives. In 70 agent runs where it was only offered, agents never called it and saved nothing (1.01× and 1.04× the characters of runs without it), so ask for it directly. [Full tables](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLASIFY.md#benchmarks-main-agent-tokens-with-and-without-jev).
+**When it does not pay:** the answer has a fixed spelling, the source is small, or you need counts or proof of absence. A "no" clears nothing: it caught only 16 of 30 contradictions between documents and 5 of 18 log-order facts, with no false positives. In 70 agent runs where it was only offered, agents never called it and saved nothing (1.01× and 1.04× the characters of runs without it), so ask for it directly. [Full tables](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLASIFY.md#main-agent-tokens-with-and-without-jev).
 
 ### Packages: `artifactSearch` vs registry clients
 

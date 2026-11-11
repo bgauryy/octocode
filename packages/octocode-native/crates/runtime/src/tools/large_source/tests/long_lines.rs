@@ -192,7 +192,7 @@ fn a_secret_longer_than_a_window_never_shows_across_its_pages() {
     }
     let raw = String::from_utf8(text).expect("ASCII");
     let sealed = raw.replace(
-        &format!("Authorization: Bearer {token}"),
+        &token,
         &octocode_engine::security::redaction_placeholder("bearerAuthHeader"),
     );
     assert!(pages > 2, "{pages} pages");

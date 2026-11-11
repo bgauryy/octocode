@@ -75,23 +75,6 @@ impl GitHubProvider {
         })
     }
 
-    /// Whether reading `request` sends a contents request to GitHub: neither
-    /// a resumed continuation's journal nor a saved answer holds the read
-    /// (neither costs a provider call). A reference that is not a full
-    /// commit SHA is resolved first, so its read counts as sent.
-    pub fn file_read_unanswered(&self, request: &ContentRequest, context: &RequestContext) -> bool {
-        let Some(sha) = request
-            .reference
-            .as_deref()
-            .filter(|reference| is_full_sha(reference))
-        else {
-            return true;
-        };
-        !self
-            .contents_spec(request, &sha.to_ascii_lowercase())
-            .is_ok_and(|spec| self.transport.answers_unasked(&spec, context))
-    }
-
     /// The contents request for `request` at `resolved_ref`, in the raw
     /// media type: a file (up to 100 MB) comes back as its own bytes, with
     /// no base64 body and no second blob read; a directory, symlink entry,

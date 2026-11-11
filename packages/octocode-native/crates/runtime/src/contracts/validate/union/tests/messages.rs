@@ -82,7 +82,9 @@ fn an_explicit_selector_keeps_its_branch_over_a_closer_sibling_shape() {
         assert_eq!(error.issues.len(), 1, "{error:?}");
         assert_eq!(error.issues[0].path, ["depth"]);
         assert_eq!(error.issues[0].rule_id, "schema.unknown-field");
-        let message = crate::contracts::format_input_error("example", &error, &[]).to_string();
+        let message =
+            crate::contracts::format_input_error("example", &error, &[], &serde_json::Value::Null)
+                .to_string();
         assert!(message.contains("walk"), "{message}");
         value["format"] = json!("walk");
         validate_schema(&schema, &schema, &mut value, &mut vec![])
@@ -150,7 +152,8 @@ fn reversed_source_ranges_keep_the_range_diagnostic_in_every_read_form() {
                 ["queries", "0", "ranges", "0", "endLine"]
             );
             assert_eq!(error.issues[0].rule_id, "schema.order");
-            let rendered = crate::contracts::format_input_error(tool, &error, &[]);
+            let rendered =
+                crate::contracts::format_input_error(tool, &error, &[], &serde_json::Value::Null);
             let message = rendered["error"].as_str().unwrap();
             assert!(
                 message.contains("startLine") && message.contains("endLine"),
@@ -227,7 +230,9 @@ fn reader_matching_forms_report_the_invalid_field_types() {
                     "{tool}: {field}: {error:?}"
                 );
             }
-            let rendered = crate::contracts::format_input_error(tool, &error, &[]).to_string();
+            let rendered =
+                crate::contracts::format_input_error(tool, &error, &[], &serde_json::Value::Null)
+                    .to_string();
             assert!(!rendered.contains("Unknown field"), "{tool}: {rendered}");
             query["matchString"] = json!(["needle"]);
             query["contextLines"] = json!({"before":8,"after":8});
@@ -243,7 +248,7 @@ fn a_request_field_inside_a_query_names_where_it_goes_and_nothing_else() {
         (
             json!({"queries":[{"cursor":"cursor2.abc"}]}),
             "cursor",
-            "alone, as next.input gives it, without queries",
+            "alone, as next.nextPage or responsePagination.next gives it, without queries",
         ),
         (
             json!({"queries":[{"path":"src","matchString":["x"],"responseChars":900}]}),
@@ -252,8 +257,12 @@ fn a_request_field_inside_a_query_names_where_it_goes_and_nothing_else() {
         ),
     ] {
         let error = prepare_many_and_validate("localSearch", input).expect_err(field);
-        let shown =
-            crate::contracts::validate::messages::format_input_error("localSearch", &error, &[]);
+        let shown = crate::contracts::validate::messages::format_input_error(
+            "localSearch",
+            &error,
+            &[],
+            &serde_json::Value::Null,
+        );
         let text = shown["error"].as_str().unwrap_or_default();
         assert!(text.contains(field) && text.contains(repair), "{shown}");
         // The row's missing fields follow from the misplacement: not shown.
@@ -271,7 +280,12 @@ fn a_missing_selector_names_the_value_the_sent_fields_require() {
         json!({"queries":[{"path":"src","nameRegex":"zzqq"}]}),
     )
     .expect_err("missing operation");
-    let message = crate::contracts::validate::format_input_error("structureSearch", &error, &[]);
+    let message = crate::contracts::validate::format_input_error(
+        "structureSearch",
+        &error,
+        &[],
+        &serde_json::Value::Null,
+    );
     assert!(
         message["error"]
             .as_str()
@@ -289,7 +303,8 @@ fn an_unknown_field_in_a_row_without_its_selector_names_every_form() {
     let details = |tool: &str, row: serde_json::Value| {
         let error = prepare_many_and_validate(tool, json!({"queries":[row]}))
             .expect_err("missing operation");
-        crate::contracts::validate::format_input_error(tool, &error, &[]).to_string()
+        crate::contracts::validate::format_input_error(tool, &error, &[], &serde_json::Value::Null)
+            .to_string()
     };
     let nested = details("astSearch", json!({"path":"src","pattern":"fn $F()"}));
     assert!(nested.contains("'pattern' is a field of rule"), "{nested}");
@@ -308,7 +323,8 @@ fn a_wrong_value_leads_over_a_missing_operation() {
         json!({"queries":[{"path":".","rule":{"kind":"x","nthChild":"y"}}]}),
     )
     .expect_err("no operation, bad nthChild");
-    let rendered = crate::contracts::format_input_error("astSearch", &error, &[]);
+    let rendered =
+        crate::contracts::format_input_error("astSearch", &error, &[], &serde_json::Value::Null);
     assert_eq!(
         rendered["error"],
         r#"queries.0.rule.nthChild: "y" is not a valid value for nthChild: invalid nthChild position: expected an integer or An+B formula"#,
@@ -335,7 +351,8 @@ fn a_missing_operation_leads_when_no_value_is_wrong() {
         json!({"queries":[{"path":".","rule":{"kind":"x"}}]}),
     )
     .expect_err("no operation");
-    let rendered = crate::contracts::format_input_error("astSearch", &error, &[]);
+    let rendered =
+        crate::contracts::format_input_error("astSearch", &error, &[], &serde_json::Value::Null);
     assert!(
         rendered["error"]
             .as_str()

@@ -17,8 +17,9 @@ fn rejected_row(
     index: usize,
     error: &contracts::ContractValidationError,
     unpublished: &[String],
+    sent: &Value,
 ) -> (usize, Value) {
-    let formatted = contracts::format_input_error(tool.as_str(), error, unpublished);
+    let formatted = contracts::format_input_error(tool.as_str(), error, unpublished, sent);
     let mut data = json!({"error": formatted["error"], "errorCode": ErrorCode::InvalidInput});
     if let Some(details) = formatted
         .get("details")
@@ -37,12 +38,13 @@ fn rejected_row(
     (index, rows::result_row(index, data, Some("error")))
 }
 
-pub(super) fn invalid_input_error(
+fn invalid_input_error(
     tool: &str,
     error: contracts::ContractValidationError,
     unpublished: &[String],
+    sent: &Value,
 ) -> RuntimeError {
-    let mut payload = contracts::format_input_error(tool, &error, unpublished);
+    let mut payload = contracts::format_input_error(tool, &error, unpublished, sent);
     payload["errorCode"] = json!(ErrorCode::InvalidInput);
     RuntimeError {
         code: ErrorCode::InvalidInput,
@@ -141,6 +143,16 @@ impl ToolRuntime {
     /// Validated, security-checked rows to run, and the rows rejected by
     /// index. Every tool isolates invalid rows; a call with no valid row
     /// fails as a whole.
+    /// [`invalid_input_error`] for `tool` as this runtime publishes it.
+    pub(super) fn invalid_input(
+        &self,
+        tool: &str,
+        error: contracts::ContractValidationError,
+        sent: &Value,
+    ) -> RuntimeError {
+        invalid_input_error(tool, error, &self.unpublished_fields(tool), sent)
+    }
+
     pub(super) fn admit_queries(
         &self,
         id: ToolId,
@@ -219,16 +231,16 @@ impl ToolRuntime {
                 .into_iter()
                 .flat_map(|(_, error)| error.issues)
                 .collect();
-            return Err(invalid_input_error(
+            return Err(self.invalid_input(
                 tool,
                 contracts::ContractValidationError { issues },
-                &self.unpublished_fields(tool),
+                input,
             ));
         }
         let unpublished = self.unpublished_fields(tool);
         let rejected = invalid
             .iter()
-            .map(|(index, error)| rejected_row(id, *index, error, &unpublished))
+            .map(|(index, error)| rejected_row(id, *index, error, &unpublished, input))
             .collect();
         Ok(AdmittedRows { queries, rejected })
     }
@@ -261,7 +273,7 @@ fn prepare_queries(
     } else {
         contracts::prepare_rows(tool, input.clone())
     }
-    .map_err(|error| invalid_input_error(tool, error, unpublished))?;
+    .map_err(|error| invalid_input_error(tool, error, unpublished, input))?;
     let mut prepared = PreparedRows {
         valid: Vec::with_capacity(rows.len()),
         invalid: Vec::new(),

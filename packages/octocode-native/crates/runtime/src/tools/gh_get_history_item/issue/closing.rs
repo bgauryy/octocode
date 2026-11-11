@@ -29,12 +29,41 @@ pub(super) struct ClosingPr {
 pub(super) struct ClosingReferences {
     pub(super) prs: Vec<ClosingPr>,
     pub(super) listed: usize,
+    /// GitHub linked pull requests, and none of them closed the issue: the
+    /// fix is not known from the links.
+    pub(super) unsettled: bool,
     pub(super) bounded_total: Option<u64>,
 }
 
-/// The pull requests whose merge closes (or closed) the issue, merged first:
-/// `{number, state, mergedAt?}`. `None` when GraphQL is unavailable or
-/// failed (the caller falls back to search); empty when none are linked.
+impl ClosingReferences {
+    /// Only the pull requests whose merge closed the issue, or (while it is
+    /// open) would close it: merged ones, and an open issue's open ones.
+    /// GitHub lists every pull request that declares a fix, so one closed
+    /// without merging, or one still open on an issue closed another way,
+    /// is a link, not a closer.
+    pub(super) fn closers(mut self, issue_closed: bool) -> Self {
+        let linked = !self.prs.is_empty();
+        self.prs.retain(|pr| match pr.row["state"].as_str() {
+            Some("merged") => true,
+            Some("open") => !issue_closed,
+            _ => pr.row.get("mergedAt").is_some(),
+        });
+        self.listed = self.prs.len();
+        self.unsettled = linked && self.prs.is_empty();
+        self
+    }
+
+    /// The closing pull requests a fix lead may follow: `None` when the
+    /// links settle nothing ([`Self::unsettled`]).
+    pub(super) fn settled(&self) -> Option<&[ClosingPr]> {
+        (!self.unsettled).then_some(self.prs.as_slice())
+    }
+}
+
+/// The pull requests GitHub links as closing the issue, merged first:
+/// `{number, state, mergedAt?}`; [`ClosingReferences::closers`] keeps the
+/// ones that closed it. `None` when GraphQL is unavailable or failed (the
+/// caller falls back to search); empty when none are linked.
 pub(super) async fn closing_pull_requests(
     transport: &GitHubTransport,
     query: &HistoryItemRequest,
@@ -56,6 +85,7 @@ pub(super) async fn closing_pull_requests(
         }),
         listed: prs.len(),
         prs,
+        unsettled: false,
     })
 }
 
@@ -144,8 +174,9 @@ fn map_closing_pull_requests(nodes: &[Value]) -> Vec<ClosingPr> {
     prs
 }
 
-/// A related read opens the first linked (merged-first) pull request;
-/// with no link information a closed issue offers the keyword search hop.
+/// A related read opens the first closing (merged-first) pull request;
+/// with no closing information (`None`: GraphQL unavailable, or links that
+/// closed nothing) a closed issue offers the keyword search hop.
 pub(super) fn attach_fix_pr(
     out: &mut Value,
     query: &HistoryItemRequest,

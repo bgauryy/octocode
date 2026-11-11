@@ -111,8 +111,8 @@ pub(crate) fn search_options(
         ),
         max_depth: local_search_query::max_depth(query),
         // The engine owns the relevance order (for a bare-identifier search,
-        // source files declaring the name first; then count, then source
-        // before test/generated paths, then declaration > code >
+        // source files declaring the name first; then source before
+        // test/generated paths, then count, then declaration > code >
         // comment/string hits, then path) so its top-k and cap keep the same
         // survivors.
         sort: if local_search_query::sort(query) == SearchSort::MatchCount && path_list {

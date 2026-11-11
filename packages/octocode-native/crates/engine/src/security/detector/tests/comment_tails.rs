@@ -337,7 +337,7 @@ fn every_word_tail(judge: &Judge<'_>, name: &str, text: &str, comment_at: usize)
                         .value_test
                         .redacts_in_comment(key, &text[at..end][secret.clone()])
                 },
-                |secret| judge.value_end(&text[at..end], at, secret),
+                |secret, credential| judge.value_end(&text[at..end], at, secret, credential),
                 |whole, secret| {
                     let shift = |range: Range<usize>| range.start + at..range.end + at;
                     found.push((shift(whole), shift(secret)));

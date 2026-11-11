@@ -164,7 +164,12 @@ fn a_value_outside_its_format_names_the_format_not_its_pattern() {
     let error =
         crate::contracts::prepare_many_and_validate("ghSearchHistory", json!({"queries": [row]}))
             .expect_err("not a date-time");
-    let shown = crate::contracts::validate::format_input_error("ghSearchHistory", &error, &[]);
+    let shown = crate::contracts::validate::format_input_error(
+        "ghSearchHistory",
+        &error,
+        &[],
+        &serde_json::Value::Null,
+    );
     assert_eq!(
         shown["error"],
         r#"queries.0.filters.createdAt.from: "not-a-date" is not a valid value for from: it must be a date-time (RFC 3339), e.g. 2026-10-01T00:00:00Z"#,
@@ -191,7 +196,7 @@ fn validate_input_schema_for_test(
 fn first_error(tool: &str, row: Value) -> String {
     let error = crate::contracts::prepare_many_and_validate(tool, json!({"queries": [row]}))
         .expect_err("invalid row");
-    crate::contracts::validate::format_input_error(tool, &error, &[])["error"]
+    crate::contracts::validate::format_input_error(tool, &error, &[], &serde_json::Value::Null)["error"]
         .as_str()
         .expect("message")
         .to_owned()
@@ -324,4 +329,54 @@ fn a_pattern_states_the_message_core_authored_for_it() {
                 .all(|message| !message.contains("Not this one.")),
         "{messages:?}"
     );
+}
+
+/// Each malformed clasify row is refused at admission, before any read or
+/// provider call, with one message that names the rule and its fix.
+#[test]
+fn a_malformed_clasify_row_names_its_rule_and_fix() {
+    let questions = json!({"q":{"type":"noul","instructions":"Is it planted?"}});
+    let rows = json!({"tool":"localSearch","query":{"path":"src","matchString":["retry"]}});
+    let image = json!({"shot":{"source":{"tool":"localFetch","query":{"path":"shot.png"}}}});
+    for (row, expected) in [
+        (
+            json!({"operation":"evaluate","content":"text","perItem":true,"questions":questions}),
+            "perItem:true judges each item of a content array",
+        ),
+        (
+            json!({"operation":"evaluate","source":rows,"perItem":true,"questions":questions}),
+            "perItem:true judges each item of a content array",
+        ),
+        (
+            json!({"operation":"evaluate","assets":image,"questions":questions}),
+            "assets need content",
+        ),
+        (
+            json!({"operation":"evaluate","content":"text","questions":{"where":{"type":"box"}}}),
+            "A box question needs an image",
+        ),
+        (
+            json!({"operation":"evaluate","source":{"tool":"localSearch","query":{"path":"src","matchString":["retry"],"owner":"o"}},"questions":questions}),
+            "query is the row a direct localSearch call takes",
+        ),
+        (
+            json!({"operation":"evaluate","questions":questions}),
+            "send source or resources",
+        ),
+        (
+            json!({"operation":"evaluate","content":"text","source":rows,"questions":questions}),
+            "mutually exclusive",
+        ),
+        (
+            json!({"operation":"sections","questions":questions}),
+            "resources",
+        ),
+        (
+            json!({"operation":"models","questions":questions}),
+            "is not allowed",
+        ),
+    ] {
+        let shown = first_error("clasify", row.clone());
+        assert!(shown.contains(expected), "{row}: {shown}");
+    }
 }

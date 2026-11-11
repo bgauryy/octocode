@@ -330,13 +330,19 @@ pub(super) fn advisory_lead(row: &Value) -> Value {
                             // the count, never that they are extra.
                             let listed = listed_versions(versions)
                                 .map_or_else(String::new, |listed| format!(" ({listed})"));
-                            let claim = claim_of(&ranges.join(", "));
+                            let claim = claim_of(
+                                &ranges
+                                    .iter()
+                                    .map(|range| claimed(range))
+                                    .collect::<Vec<_>>()
+                                    .join(", "),
+                            );
                             return (format!("{name} {}{listed}", ranges.join(", ")), claim);
                         }
                         if let Some(written) = written_range(entry) {
                             return (
                                 format!("{name} {}", written.stated()),
-                                claim_of(&written.claim()),
+                                claim_of(&claimed(&written.claim())),
                             );
                         }
                         let unranged = format!("{name} ({})", unranged(entry));
@@ -380,6 +386,24 @@ pub(super) fn advisory_lead(row: &Value) -> Value {
         return json!({});
     }
     json!({ "answer": sentences.join(" ") })
+}
+
+/// A range's claim as both sources make it alike: with a fix named, the
+/// versions from its lower bound up to that fix, however its upper bound is
+/// written (OSV's `<2.14.2`, GitHub's `<= 2.14.1`, both `fixed 2.14.2`);
+/// without one, the range as written.
+fn claimed(range: &str) -> String {
+    match range.rsplit_once(" (") {
+        Some((bounds, fix)) if fix.starts_with("fixed ") => {
+            let lower = bounds
+                .split(' ')
+                .filter(|part| !part.starts_with('<'))
+                .collect::<Vec<_>>()
+                .join(" ");
+            format!("{lower} ({fix}")
+        }
+        _ => range.to_owned(),
+    }
 }
 
 /// What an entry with no version range holds, as the answer names it.

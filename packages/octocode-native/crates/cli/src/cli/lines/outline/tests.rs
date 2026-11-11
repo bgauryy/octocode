@@ -48,10 +48,8 @@ fn a_tool_without_a_line_format_prints_every_field_as_text() {
             "totalLines: 120",
             "matchedLines: 1, 3",
             "empty: \"\"",
-            "symbols:",
-            "  - name: Title",
-            "    line: 1",
-            "    doc: two words",
+            "symbols[]: name line doc",
+            "  Title 1 two words",
             "# pagination: unit lines offset 0 length 3 hasMore",
             "# hints: Read on with next.nextPage.",
             "# next.nextPage: octocode localFetch '{\"cursor\":\"issued-page\"}'",
@@ -124,33 +122,52 @@ fn a_batch_prints_each_row_under_its_heading_in_its_line_format() {
     );
 }
 
-/// One layout per array: a row of single words reads as a block when a
-/// sibling row needs one, so rows never alternate between layouts.
+/// A list of flat rows with at most one free-text field is a table: the
+/// columns named once, identity first and the free text last, a field no
+/// row lacks with one word on every row stated once, `-` where a row lacks
+/// a field. Every row of the list uses the one layout.
 #[test]
-fn every_row_of_an_array_uses_one_layout() {
+fn flat_rows_print_as_one_table() {
     let fetched = json!({"results":[{"index":0,"data":{"commits":[
-        {"sha":"abc","date":"2026-01-01","author":"ada"},
-        {"sha":"def","date":"2026-01-02","messageHeadline":"fix: two words"},
-        {"sha":"fed","date":"2026-01-03","author":"bob"}]}}]});
+        {"sha":"abc","date":"2026-01-01","author":"ada","state":"open"},
+        {"sha":"def","messageHeadline":"fix: two words","date":"2026-01-02","state":"open"},
+        {"sha":"fed","date":"2026-01-03","author":"bob","state":"open"}]}}]});
     let lines = render(ToolId::LocalFetch, &fetched, &json!({}), None).expect("text");
-    let heads: Vec<&str> = lines
-        .out
-        .lines()
-        .filter(|line| line.trim_start().starts_with("- "))
-        .collect();
-    assert_eq!(heads.len(), 3, "{}", lines.out);
-    assert!(
-        heads
-            .iter()
-            .all(|head| head.split_whitespace().count() == 3),
-        "an inline row among block rows: {}",
-        lines.out
+    assert_eq!(
+        lines.out,
+        [
+            "commits[]: sha date author messageHeadline  [state open]",
+            "  abc 2026-01-01 ada -",
+            "  def 2026-01-02 - fix: two words",
+            "  fed 2026-01-03 bob -",
+        ]
+        .join("\n")
     );
-    // Rows of single words alone keep the compact inline layout.
-    let words = json!({"results":[{"index":0,"data":{"commits":[
-        {"sha":"abc","author":"ada"},{"sha":"def","author":"bob"}]}}]});
+    // Rows of single words alone are a table too; one row states nothing
+    // once.
+    let words = json!({"results":[{"index":0,"data":{"rows":[{"id":"a.rs","fanIn":2}]}}]});
     let lines = render(ToolId::LocalFetch, &words, &json!({}), None).expect("text");
-    assert!(lines.out.contains("- sha abc author ada"), "{}", lines.out);
+    assert_eq!(lines.out, "rows[]: id fanIn\n  a.rs 2");
+}
+
+/// Two free-text fields, a nested value, a multi-line value or a value that
+/// reads as the absent mark keep the `key: value` layout, for every row.
+#[test]
+fn rows_a_table_cannot_hold_keep_their_fields() {
+    for row in [
+        json!({"number":1,"title":"two words","author":"Ada Lovelace"}),
+        json!({"number":1,"labels":["bug"]}),
+        json!({"number":1,"body":"line\nnext"}),
+        json!({"number":1,"state":"-"}),
+    ] {
+        let fetched =
+            json!({"results":[{"index":0,"data":{"items":[{"number":2,"state":"open"},row]}}]});
+        let out = render(ToolId::LocalFetch, &fetched, &json!({}), None)
+            .expect("text")
+            .out;
+        assert!(out.starts_with("items:\n  - "), "{out}");
+        assert!(!out.contains("[]:"), "{out}");
+    }
 }
 
 /// A count that is only the rows loaded so far prints as a floor; an exact

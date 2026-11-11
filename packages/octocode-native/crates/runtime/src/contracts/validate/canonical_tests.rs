@@ -108,7 +108,8 @@ fn batch_errors_keep_valid_rows_and_original_indexes() {
             .iter()
             .all(|issue| issue.path.starts_with(&["queries".into(), "1".into()]))
     );
-    let message = format_input_error("localFetch", error, &[]).to_string();
+    let message =
+        format_input_error("localFetch", error, &[], &serde_json::Value::Null).to_string();
     assert!(message.contains("mystery") && message.contains("Allowed fields"));
 }
 

@@ -34,17 +34,18 @@ impl<'a> LongLines<'a> {
 
 /// The byte walk of one line too long for one byte page that holds matches:
 /// each match's window first, in source order, then every other byte of the
-/// line, in source order. A page is one contiguous run of the line and states
-/// its offset, so the pages are the line exactly once and the reader places
+/// line, in source order. A page states its offset: a page of the rest is one
+/// contiguous run of the line, and a page of windows is a run that may go on
+/// with the next windows whole, each behind a [`gap_marker`] naming the bytes
+/// it skips, so the pages are the line exactly once and the reader places
 /// each. Where a page starts decides what it is, so any byte of the line
 /// continues the same walk.
 ///
 /// Windows closer than the row around a page
 /// ([`crate::response::page_windows::ROW_SKELETON_CHARS`]) are one run: the
-/// bytes between them cost less shown with them than paged apart, which
-/// would add a page for the second window and one for those bytes. A line
-/// dense with matches is therefore walked in full pages from its first
-/// match, and a line with a few in one small page each.
+/// bytes between them cost less shown with them than marked and paged apart.
+/// A line dense with matches is therefore walked in full pages from its
+/// first match, and a line with a few shows them on one page.
 pub(super) struct MatchFirst {
     /// The line's bytes in the view, its line break included.
     line: std::ops::Range<usize>,
@@ -129,11 +130,41 @@ impl MatchFirst {
     }
 
     /// The byte page at `at`: to the end of its run, or as far as `room`
-    /// holds. After the line's last byte, line paging resumes.
+    /// holds. A page that ends a match window goes on with the windows after
+    /// it that `room` still holds whole, each behind a [`gap_marker`] naming
+    /// the bytes it skips (they come with the rest of the line), so one page
+    /// shows as many hits as fit. After the line's last byte, line paging
+    /// resumes.
     pub(super) fn page(&self, content: &str, at: usize, room: usize) -> Page {
         let (run_end, after) = self.run(at);
         let end = crate::response::cut::window_end(content, at, room).min(run_end);
-        let next = if end < run_end { Some(end) } else { after };
+        // `at` and `end` are character boundaries (`window_end` walks chars).
+        let mut text = content.get(at..end).unwrap_or_default().to_owned();
+        let mut next = if end < run_end { Some(end) } else { after };
+        let mut last = end;
+        let held = self.windows.partition_point(|window| window.1 <= at);
+        if end == run_end && self.windows.get(held).is_some_and(|window| window.0 <= at) {
+            let mut left = room.saturating_sub(crate::response::cut::escaped_len(&text));
+            let mut taken = held + 1;
+            for &(from, to) in self.windows.get(taken..).unwrap_or_default() {
+                let marker = gap_marker(last, from);
+                let window = content.get(from..to).unwrap_or_default();
+                let cost = crate::response::cut::escaped_len(&marker)
+                    + crate::response::cut::escaped_len(window);
+                if cost > left {
+                    break;
+                }
+                left -= cost;
+                text.push_str(&marker);
+                text.push_str(window);
+                (last, taken) = (to, taken + 1);
+            }
+            next = self
+                .windows
+                .get(taken)
+                .map(|window| window.0)
+                .or_else(|| self.rest_from(self.line.start));
+        }
         let line = octocode_engine::text::line_containing(content, at);
         let (next_offset, resume_line) = match next {
             Some(byte) => (Some(byte), None),
@@ -141,12 +172,11 @@ impl MatchFirst {
             None => (None, None),
         };
         Page {
-            // `at` and `end` are character boundaries (`window_end` walks chars).
-            text: content.get(at..end).unwrap_or_default().to_owned(),
+            text,
             pagination: Pagination {
                 unit: ReadProgressUnit::Bytes,
                 offset: at,
-                length: end - at,
+                length: last - at,
                 window: room,
                 total_lines: line_count(content),
                 total_bytes: content.len(),
@@ -158,6 +188,34 @@ impl MatchFirst {
             out_of_range: false,
         }
     }
+}
+
+/// The marker between two match windows a byte page shows together: the
+/// view bytes `start..end` between them, which the line's later pages show.
+/// It sits on a line of its own, so the windows around it stay verbatim.
+pub(super) fn gap_marker(start: usize, end: usize) -> String {
+    format!("\n... [bytes {start}-{end} on later pages] ...\n")
+}
+
+/// A byte page at view byte `at` as the view bytes it shows: its text split
+/// at each [`gap_marker`], each piece at the view byte it starts at.
+#[cfg(test)]
+pub(crate) fn placed_pieces(at: usize, text: &str) -> Vec<(usize, &str)> {
+    const OPEN: &str = "\n... [bytes ";
+    const CLOSE: &str = " on later pages] ...\n";
+    let (mut pieces, mut place, mut rest) = (Vec::new(), at, text);
+    while let Some(open) = rest.find(OPEN) {
+        let after = &rest[open + OPEN.len()..];
+        let close = after.find(CLOSE).expect("a whole marker");
+        let (from, to) = after[..close].split_once('-').expect("a byte span");
+        let from: usize = from.parse().expect("a byte");
+        assert_eq!(place + open, from, "the marker starts where its piece ends");
+        pieces.push((place, &rest[..open]));
+        place = to.parse().expect("a byte");
+        rest = &after[close + CLOSE.len()..];
+    }
+    pieces.push((place, rest));
+    pieces
 }
 
 /// A line page that stopped at a line too long for it (`long`, the byte that

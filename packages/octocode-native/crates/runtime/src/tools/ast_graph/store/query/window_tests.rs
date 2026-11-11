@@ -207,12 +207,36 @@ fn stats_leads_to_hubs_instead_of_ranking() {
     ] {
         assert!(stats.get(ranking).is_none(), "{ranking}: {stats}");
     }
-    let lead = &stats["related"][0];
-    assert_eq!(lead["tool"], "graphQuery", "{stats}");
-    let row = &lead["input"]["queries"][0];
-    assert_eq!(row["operation"], "hubs", "{stats}");
-    assert_eq!(row["path"], "src", "{stats}");
-    assert_eq!(row["graph"], g.id.as_str(), "{stats}");
+    // Both rankings stay one ready call away: the most imported files and
+    // packages (`hubs`, imports by default) and the most called symbols.
+    let hubs = stats["related"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .inspect(|lead| assert_eq!(lead["tool"], "graphQuery", "{stats}"))
+        .flat_map(|lead| {
+            lead["input"]["queries"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+        })
+        .filter(|row| row["operation"] == "hubs")
+        .collect::<Vec<_>>();
+    assert_eq!(
+        stats["related"][0]["input"]["queries"]
+            .as_array()
+            .map(Vec::len),
+        Some(2),
+        "one call: {stats}"
+    );
+    assert_eq!(
+        hubs,
+        vec![
+            json!({"operation": "hubs", "path": "src", "graph": g.id}),
+            json!({"operation": "hubs", "path": "src", "graph": g.id, "edges": ["calls"]}),
+        ],
+        "{stats}"
+    );
 }
 
 /// A manifest with every section `stats` reads.
@@ -238,6 +262,9 @@ fn measured(mut g: Graph) -> Graph {
     g
 }
 
+/// What the rankings behind the `hubs` leads read: stated by details only.
+const STATS_RANKING_FACTS: [(&str, &str); 2] =
+    [("/callConfidence", "high"), ("/testEdges", "excluded")];
 const STATS_DETAILS_ONLY: [&str; 7] = [
     "/octocodeVersion",
     "/argumentCoverage",
@@ -278,7 +305,10 @@ fn stats_summary_leads_once_to_the_details_it_leaves_out() {
     for pointer in STATS_SUMMARY {
         assert!(summary.pointer(pointer).is_some(), "{pointer}: {summary}");
     }
-    for pointer in STATS_DETAILS_ONLY {
+    for pointer in STATS_DETAILS_ONLY
+        .into_iter()
+        .chain(STATS_RANKING_FACTS.map(|(pointer, _)| pointer))
+    {
         assert!(summary.pointer(pointer).is_none(), "{pointer}: {summary}");
     }
     let leads = summary["related"].as_array().unwrap();
@@ -295,11 +325,22 @@ fn stats_summary_leads_once_to_the_details_it_leaves_out() {
 
     let details = ask(Some("details"));
     for pointer in STATS_SUMMARY {
-        assert_eq!(details.pointer(pointer), summary.pointer(pointer), "{pointer}");
+        assert_eq!(
+            details.pointer(pointer),
+            summary.pointer(pointer),
+            "{pointer}"
+        );
     }
     for pointer in STATS_DETAILS_ONLY {
         assert!(details.pointer(pointer).is_some(), "{pointer}: {details}");
-        assert_eq!(details.pointer(pointer), g.manifest.pointer(pointer), "{pointer}");
+        assert_eq!(
+            details.pointer(pointer),
+            g.manifest.pointer(pointer),
+            "{pointer}"
+        );
+    }
+    for (pointer, value) in STATS_RANKING_FACTS {
+        assert_eq!(details.pointer(pointer), Some(&json!(value)), "{details}");
     }
     // The details row is the whole answer: it offers no further stats call.
     assert!(

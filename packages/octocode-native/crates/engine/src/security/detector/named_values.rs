@@ -16,7 +16,7 @@ use std::ops::Range;
 
 use regex::Regex;
 
-use super::credential_values::{OPAQUE_LITERAL_CHARS, QUOTES};
+use super::credential_values::{OPAQUE_LITERAL_CHARS, QUOTES, ValueTest};
 
 mod names;
 mod opaque;
@@ -26,20 +26,85 @@ mod walk;
 use names::calls_with_credentials;
 use names::follows_a_public_word;
 use names::names_several;
+use text::ends_a_line;
+use names::holds_more_than_a_nonce;
 pub(super) use names::{
-    describes_a_credential, names_a_credential, names_a_published_value, spells_a_credential_word,
+    describes_a_credential, is_nonce_shape, is_user_agent_nonce, names_a_credential,
+    names_a_published_value, names_a_user_agent_field, spells_a_credential_word,
 };
 pub(super) use opaque::is_opaque;
+pub(super) use text::{field_end, field_end_after};
 use walk::Walk;
 
 /// The pattern this module judges.
 pub(super) const PATTERN: &str = "credentialNamedValue";
+
+/// The words that state a name's value in a sentence, in place of an
+/// operator (`the password is …`, `my password was …`), a colon after them
+/// or not (`the password is: …`).
+pub(super) const STATES_A_VALUE: [&str; 2] = ["is", "was"];
+
+/// Whether `word`, the word after a credential's name in a sentence, states
+/// the name's value ([`STATES_A_VALUE`], in any case, a colon after it or not).
+pub(super) fn states_a_value(word: &str) -> bool {
+    let word = word.strip_suffix(':').unwrap_or(word);
+    STATES_A_VALUE
+        .iter()
+        .any(|states| word.eq_ignore_ascii_case(states))
+}
+
+/// What ends a sentence or a clause after a value: no part of the value.
+const SENTENCE_CLOSERS: [char; 5] = ['.', ',', ';', ')', '?'];
+
+/// Whether `word` is opaque by its shape alone, whatever its length
+/// ([`is_opaque`]'s evidence decides): what a generator makes or a person
+/// chose to be no word. A config line's rules hide a value under a
+/// credential's name at any length (`password: Hunter2Xq9vB7mK`); a value in
+/// a sentence or a request is one when it is no word, name or type
+/// (`password: str`, `token: Token`, `the password is required`), which no
+/// opaque word is. The length a quoted literal or a loose layout asks
+/// ([`OPAQUE_LITERAL_CHARS`]) tells a name from a value where a run of
+/// token characters is all a rule reads.
+pub(super) fn is_opaque_word(word: &str) -> bool {
+    is_opaque(word, 0)
+}
+
+/// The part of `word`, the first word after a credential's name `name` and
+/// its operator or [`STATES_A_VALUE`], that is a credential, by byte position
+/// in `word`: the word without the quotes around it and the marks that close
+/// a sentence after it, up to a field's escape ([`field_end`]), when it is
+/// opaque ([`is_opaque_word`]), a value the key-name rules keep as a
+/// credential ([`ValueTest::KeyName`]), and no nonce a user agent fills
+/// ([`is_user_agent_nonce`]). This is [`ValueTest::Named`] without the length
+/// a loose layout's run asks: a request and a sentence of a file judge a
+/// named value by it alike.
+pub(super) fn named_word(name: &str, word: &str) -> Option<Range<usize>> {
+    let opened = word.trim_start_matches(QUOTES);
+    let own = opened
+        .trim_end_matches(QUOTES)
+        .trim_end_matches(SENTENCE_CLOSERS)
+        .trim_end_matches(QUOTES);
+    let own = own.get(..field_end(own).unwrap_or(own.len()))?;
+    let at = word.len() - opened.len();
+    (is_opaque_word(own)
+        && !super::is_placeholder(own)
+        && ValueTest::KeyName.redacts(name, own)
+        && !is_user_agent_nonce(name, own))
+    .then_some(at..at + own.len())
+}
 
 /// The capture groups the pattern names.
 struct Groups {
     name: usize,
     tag: usize,
     open: usize,
+    /// The word a sentence states after the name ([`STATES_A_VALUE`]).
+    stated: usize,
+    /// The text after an assignment that opens an expression of literals.
+    expr: usize,
+    /// The run right after an assignment (no gap's): its statement may
+    /// hold more literals when the run is none.
+    assigned: usize,
     secrets: Vec<usize>,
 }
 
@@ -50,6 +115,9 @@ impl Groups {
             name: index("name")?,
             tag: index("tag")?,
             open: index("open")?,
+            stated: index("stated")?,
+            expr: index("expr")?,
+            assigned: index("secret")?,
             secrets: super::secret_groups(regex),
         })
     }
@@ -77,24 +145,65 @@ pub(super) fn secrets(
             break;
         };
         from = name.end();
+        // A line-ending escape before the name (`…\r\nX-Api-Key`) ends the
+        // line before it: its letter is no part of the name.
+        let spelled = name
+            .as_str()
+            .get(1..)
+            .filter(|_| ends_a_line(text.as_bytes(), name.start()))
+            .unwrap_or(name.as_str());
         // A token that happens to spell a credential word is no name. A
         // sign-in verb names none either: it takes credentials only as the
         // callee of a call, its arguments right after it.
         let called = text.as_bytes().get(name.end()) == Some(&b'(');
-        let named =
-            names_a_credential(name.as_str()) || (called && calls_with_credentials(name.as_str()));
-        if !named || is_opaque(name.as_str(), OPAQUE_LITERAL_CHARS) {
+        let secret = groups.secrets.iter().find_map(|&group| captures.get(group));
+        let named = names_a_credential(spelled)
+            || (called && calls_with_credentials(spelled))
+            || secret.is_some_and(|secret| holds_more_than_a_nonce(spelled, secret.as_str()));
+        if !named || is_opaque(spelled, OPAQUE_LITERAL_CHARS) {
             continue;
         }
         let line_start = walk.line_start_of(name.start());
         if follows_a_public_word(text.get(line_start..name.start()).unwrap_or_default()) {
             continue;
         }
-        let secret = groups.secrets.iter().find_map(|&group| captures.get(group));
+        if let Some(stated) = captures.get(groups.stated) {
+            if let Some(own) = named_word(spelled, stated.as_str()) {
+                let span = stated.start() + own.start..stated.start() + own.end;
+                from = span.end;
+                found(name.start()..span.end, span);
+            }
+            continue;
+        }
         if let Some(secret) = secret {
             if let Some(span) = walk.scalar(name.start(), secret.range()) {
                 from = span.end;
                 found(name.start()..span.end, span);
+                continue;
+            }
+            // A run after an assignment that is no value may be an operand
+            // of an expression whose other literals are (`isProd ? "…"`).
+            if captures.get(groups.assigned).is_none() {
+                continue;
+            }
+        }
+        let expression = captures
+            .get(groups.expr)
+            .map(|expr| expr.start())
+            .or_else(|| secret.and_then(|_| assignment_end(text, name.end())));
+        if let Some(start) = expression {
+            let key = walk
+                .path_start(name.start())
+                .and_then(|path| text.get(path..start))
+                .unwrap_or_default();
+            let named = Named {
+                at: name.start(),
+                indent: 0,
+                several: false,
+            };
+            let opener = Opener::Expression { from: start, key };
+            if let Some(end) = walk.values(&opener, &named, &mut found) {
+                from = from.max(end);
             }
             continue;
         }
@@ -120,6 +229,16 @@ pub(super) fn secrets(
             from = from.max(end);
         }
     }
+}
+
+/// Where the assignment operator after the name ending at `name_end` ends:
+/// past its first `=` or `:` and the `=`, `>` or `!` it is spelled with.
+fn assignment_end(text: &str, name_end: usize) -> Option<usize> {
+    let rest = text.get(name_end..)?;
+    let at = rest.find(['=', ':'])?;
+    let after = rest.get(at..)?;
+    let operator = after.len() - after.trim_start_matches(['=', ':', '>', '!']).len();
+    Some(name_end + at + operator)
 }
 
 /// The name whose values a walk reads.
@@ -151,6 +270,9 @@ enum Opener<'t> {
     },
     /// A string continued over the lines from `from` to its closing quote.
     Continued { from: usize },
+    /// The expression assigned to the name, from `from` to the end of its
+    /// statement; `key` is the name and its operator.
+    Expression { from: usize, key: &'t str },
 }
 
 impl<'t> Opener<'t> {

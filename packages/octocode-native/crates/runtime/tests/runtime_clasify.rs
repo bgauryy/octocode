@@ -30,6 +30,13 @@ struct Typed;
 
 impl Respond for Typed {
     fn respond(&self, request: &Request) -> ResponseTemplate {
+        ResponseTemplate::new(200).set_body_json(Self::reply(request))
+    }
+}
+
+impl Typed {
+    /// The provider's answer body for `request`.
+    fn reply(request: &Request) -> Value {
         let body: Value = serde_json::from_slice(&request.body).expect("provider body");
         let answers = body["questions"]
             .as_object()
@@ -76,11 +83,11 @@ impl Respond for Typed {
                 (id.clone(), answer)
             })
             .collect::<serde_json::Map<_, _>>();
-        ResponseTemplate::new(200).set_body_json(json!({
+        json!({
             "model":"jev-1.13.0",
             "answers":answers,
             "usage":{"input_tokens":40,"output_tokens":7}
-        }))
+        })
     }
 }
 

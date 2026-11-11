@@ -25,7 +25,7 @@ fn a_windowed_long_line_row_ranks_and_offsets_as_its_whole_line() {
 }
 
 #[test]
-fn relevance_orders_by_count_then_source_path_then_line_weight_then_path() {
+fn relevance_orders_by_source_path_then_count_then_line_weight_then_path() {
     let t = TmpDir::new();
     t.write("a_comment.rs", "// needle here\n");
     t.write("b_decl.rs", "fn needle() {}\n");
@@ -59,7 +59,7 @@ fn relevance_orders_by_count_then_source_path_then_line_weight_then_path() {
 }
 
 /// A generated file (by its header or path) ranks after every hand-written
-/// file, however many hits it holds; tests keep their place after the count.
+/// file, and a test file after every source file, however many hits it holds.
 #[test]
 fn relevance_ranks_generated_files_after_hand_written_ones() {
     let t = TmpDir::new();
@@ -80,7 +80,7 @@ fn relevance_ranks_generated_files_after_hand_written_ones() {
         .collect::<Vec<_>>();
     assert_eq!(
         names,
-        ["two_test.c", "one.c", "commands.def", "api.generated.ts"]
+        ["one.c", "two_test.c", "commands.def", "api.generated.ts"]
     );
     // Every hit is still returned; only the order changes.
     let total: usize = r.files.iter().map(|f| f.matches.len()).sum();
@@ -132,10 +132,11 @@ fn identifier_search_ranks_the_declaring_source_file_first() {
             "fixed {fixed}"
         );
     }
-    // Any regex beyond a bare identifier keeps count-first order.
+    // Any regex beyond a bare identifier ranks source files by count, then
+    // tests.
     assert_eq!(
         names("newElementWith\\b", false),
-        ["a_calls.ts", "x.test.ts", "MoreObjects.java", "mutate.ts"]
+        ["a_calls.ts", "MoreObjects.java", "mutate.ts", "x.test.ts"]
     );
 }
 

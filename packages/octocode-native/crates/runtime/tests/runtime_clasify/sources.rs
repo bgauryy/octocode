@@ -6,7 +6,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use serde_json::json;
 use wiremock::matchers::{method, path, query_param};
-use wiremock::{Mock, MockServer, Respond, ResponseTemplate};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[tokio::test]
 async fn a_local_source_judges_exactly_its_ranges_and_leads_to_the_same_read() {
@@ -185,7 +185,9 @@ async fn an_identical_row_rejudges_a_local_source_after_an_edit() {
 }
 
 /// A provider that refuses any state over `limit` body bytes in its default
-/// window, and any at all over `long_limit`, as `max_tokens_exceeded`.
+/// window, and any at all over `long_limit`, as `max_tokens_exceeded`. Its
+/// windows are the stated token windows, so a taken request reports the
+/// tokens its bytes cost at that rate.
 pub(super) async fn window_provider(limit: usize, long_limit: usize) -> MockServer {
     let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
@@ -195,11 +197,18 @@ pub(super) async fn window_provider(limit: usize, long_limit: usize) -> MockServ
                 .headers
                 .get("typesafe-danger-zone-long-context")
                 .is_some();
-            if request.body.len() > if long { long_limit } else { limit } {
+            let (bytes, tokens) = if long {
+                (long_limit, crate::support::LONG_WINDOW_TOKENS)
+            } else {
+                (limit, crate::support::WINDOW_TOKENS)
+            };
+            if request.body.len() > bytes {
                 return ResponseTemplate::new(400)
                     .set_body_json(json!({"detail":{"error_type":"max_tokens_exceeded"}}));
             }
-            Typed.respond(request)
+            let mut reply = Typed::reply(request);
+            reply["usage"]["input_tokens"] = json!((request.body.len() * tokens).div_ceil(bytes));
+            ResponseTemplate::new(200).set_body_json(reply)
         })
         .mount(&server)
         .await;
@@ -381,12 +390,13 @@ async fn an_omitted_long_context_asks_for_the_long_window_only_after_a_refusal()
         (3, 1),
         "refused, then the long window"
     );
-    // false never asks for the long window. The source is tried in sections,
-    // in the default window, which refuses its one section too: the refusal
-    // stays the row's error and counts every request sent.
+    // false never asks for the long window. The source is judged in
+    // sections the default window takes: one it refuses is split smaller,
+    // and every request sent, refused ones too, is counted.
     let out = clasify(&runtime, vec![row("mid.txt", Some(false))]).await;
     let data = &out["results"][0]["data"];
-    assert_eq!(data["errorCode"], "classificationStateTooLarge", "{out}");
+    assert!(data.get("errorCode").is_none(), "{out}");
+    assert_eq!(data["answers"]["q"]["noul"], 0.9, "{out}");
     let (sent, long) = posts(&server).await;
     assert_eq!(long, 1, "false never asks for it");
     assert_eq!(data["usage"]["calls"], json!(sent - 3), "{out}");

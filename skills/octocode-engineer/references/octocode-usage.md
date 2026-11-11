@@ -64,7 +64,7 @@ Use literal emitted keys. Finish every continuation needed for the claim or name
 
 Absence needs unfiltered pages: `includeHidden:true`, `includeIgnored:true`, `defaultExcludes:false` and no `classification`. `status:"empty"` with skipped paths or `unknownItems>0` is not absence.
 
-Classification receipts describe candidate decisions, not corpus completeness. Selected, related, excluded and unknown evidence have different meanings. `next.nextCandidatePage` completes a selected list; `next.unfiltered` or `next.unfilteredUnknown` is needed before an absence or count claim, including after an empty classified result; `next.read` is the read needed to cite clasify lines.
+Classification receipts describe candidate decisions, not corpus completeness. Selected, related, excluded and unknown evidence have different meanings. `next.nextCandidatePage` completes a selected list; use `next.unfilteredUnknown` to inspect unresolved candidates and `next.unfiltered` before an absence or count claim, including after an empty classified result; `next.read` is the read needed to cite clasify lines.
 
 Cursor handles are bound to tool, access context and saved state. Memory-mode handles die with the runtime; persistent state may resume across processes. Expired or foreign handles fail without contacting the provider. Restart explicitly from the original request when required.
 

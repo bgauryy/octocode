@@ -22,7 +22,10 @@ pub mod recorded;
 mod workspace;
 
 pub use cursor::assert_cursor_only;
-pub use providers::{PROVIDER_LIMITS, capture_allowed, clasify_runtime, github_api, provider_env};
+pub use providers::{
+    LONG_WINDOW_TOKENS, PROVIDER_LIMITS, WINDOW_TOKENS, capture_allowed, clasify_runtime,
+    github_api, provider_env,
+};
 pub use workspace::Workspace;
 
 /// The internal limits fixtures run under: no retries, a 5 s network

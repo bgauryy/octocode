@@ -46,6 +46,7 @@ impl FileLink<'_, '_> {
             local_name: x.name.clone(),
             imported_name: x.local_name.unwrap_or(x.name),
             target,
+            line: x.line,
         });
     }
 
@@ -68,6 +69,7 @@ impl FileLink<'_, '_> {
                 local_name: x.name.clone(),
                 imported_name: import.imported_name.clone(),
                 target: import.target.clone(),
+                line: x.line,
             })
             .collect::<Vec<_>>();
         self.facts.reexports.extend(forwarded);

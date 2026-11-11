@@ -155,8 +155,9 @@ pub(super) fn match_extract(
         start: ranges.first().map(|r| r.start),
         end: ranges.last().map(|r| r.end),
         match_ranges: ranges,
-        matched_lines: hits.clone(),
-        count: Some(hits.len()),
+        // Every match, however many share a line (a minified line holds many).
+        count: Some(spans.len()),
+        matched_lines: hits,
         warnings,
         next,
         blocks,

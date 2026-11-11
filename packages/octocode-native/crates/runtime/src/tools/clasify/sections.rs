@@ -230,7 +230,7 @@ pub(super) fn run(
             context,
             octocode_engine::memory::MEMORY.limit(),
             &shared.captures,
-            None,
+            capture::Grain::Plan,
         )?
     };
     session.github_identity = dispatcher.retained_github_identity(context)?;
@@ -334,10 +334,15 @@ pub(super) struct Whole {
     pub model: Option<String>,
 }
 
-/// Judge one `source` whole in sections: the plan a `sections` row makes for
-/// it at the long grain, every section judged with every question
-/// concurrently under the call's gate and deadline. Nothing is kept: the
-/// caller combines the sections into one answer per question.
+/// Judge one `source` whole in sections: each section alone, with every
+/// question, fills one request of the provider's window
+/// ([`crate::tools::judgment::Evaluator::request_fit`]), and every section is
+/// judged concurrently under the call's gate and deadline. While no answer
+/// here has reported what a token costs, the first section is judged alone
+/// at one byte per token and the rest are planned at what it taught. A
+/// section the window still refuses is planned again at most half its size,
+/// until the window takes it or the questions alone would fill it. Nothing
+/// is kept: the caller combines the sections into one answer per question.
 pub(super) fn whole(
     row: &Row,
     source: &Value,
@@ -351,20 +356,142 @@ pub(super) fn whole(
         .zip(row.questions.iter().cloned())
         .collect::<serde_json::Map<_, _>>();
     let input = json!({"resources":{"source":source},"questions":questions});
-    let (mut session, _, _) = capture::create(
-        row,
-        &input,
-        dispatcher,
-        context,
-        octocode_engine::memory::MEMORY.limit(),
-        &capture::Pool::default(),
-        Some(capture::LONG_CONTEXT_SECTION_CHARS),
-    )?;
+    let long = LongContext::from_field(row.long_context) == LongContext::Always;
+    let fit = || {
+        dispatcher
+            .evaluator()
+            .request_fit(row.model.as_deref(), long)
+    };
+    let pool = capture::Pool::default();
+    let plan = |bytes, span| {
+        capture::create(
+            row,
+            &input,
+            dispatcher,
+            context,
+            octocode_engine::memory::MEMORY.limit(),
+            &pool,
+            capture::Grain::Request { bytes, span },
+        )
+        .map(|(session, _, _)| session)
+    };
+    let first = fit();
+    let mut session = plan(first.bytes, 0..usize::MAX)?;
+    let Some(metadata) = session
+        .resources
+        .first()
+        .map(|resource| resource.metadata.clone())
+    else {
+        return Err(unavailable("The source named no resource to judge."));
+    };
+    let mut usage = ClassificationUsage::default();
+    let mut judged = Vec::new();
+    let mut planned_at = first.bytes;
+    if !first.learned && session.resources[0].units.len() > 1 {
+        judge_pending(&mut session, 1, dispatcher, context, &mut usage);
+        let next = fit();
+        if next.bytes > first.bytes {
+            let probe = session.resources[0].units.remove(0);
+            let rest = target_bytes(&probe).end..usize::MAX;
+            judged.push(probe);
+            let resolved = session.resolved_model.take();
+            session = plan(next.bytes, rest)?;
+            session.resolved_model = resolved;
+            planned_at = next.bytes;
+        }
+    }
+    loop {
+        judge_pending(&mut session, usize::MAX, dispatcher, context, &mut usage);
+        let units = session
+            .resources
+            .first_mut()
+            .map(|resource| std::mem::take(&mut resource.units))
+            .unwrap_or_default();
+        let (refused, kept): (Vec<Unit>, Vec<Unit>) = units.into_iter().partition(refused);
+        judged.extend(kept);
+        // A refused section was denser than what the fit learned: it is
+        // split at most half the size it was sent at, so the refusals end.
+        let next = fit().bytes.min(planned_at / 2);
+        if refused.is_empty() {
+            break;
+        }
+        let mut again = Vec::new();
+        for unit in refused {
+            match plan(next, target_bytes(&unit)) {
+                Ok(replanned) => again.extend(
+                    replanned
+                        .resources
+                        .into_iter()
+                        .flat_map(|resource| resource.units),
+                ),
+                // Too small to hold the questions: the refusal stands.
+                Err(_) => judged.push(unit),
+            }
+        }
+        if again.is_empty() {
+            break;
+        }
+        if let Some(resource) = session.resources.first_mut() {
+            resource.units = again;
+        }
+        planned_at = next;
+    }
+    judged.sort_by_key(|unit| target_bytes(unit).start);
+    Ok(Whole {
+        metadata,
+        sections: judged
+            .into_iter()
+            .map(|unit| JudgedSection {
+                lines: unit.metadata["target"]["lines"].clone(),
+                cells: unit.cells,
+            })
+            .collect(),
+        usage,
+        model: session.resolved_model,
+    })
+}
+
+/// The source bytes a unit's target covers.
+fn target_bytes(unit: &Unit) -> std::ops::Range<usize> {
+    let at = |index: usize| {
+        unit.metadata["target"]["bytes"][index]
+            .as_u64()
+            .and_then(|byte| usize::try_from(byte).ok())
+            .unwrap_or_default()
+    };
+    at(0)..at(1)
+}
+
+/// Whether the provider's window refused a question of this unit.
+fn refused(unit: &Unit) -> bool {
+    unit.cells
+        .iter()
+        .flatten()
+        .any(|cell| cell["error"]["errorCode"] == json!(ErrorCode::ClassificationStateTooLarge))
+}
+
+/// Judge up to `take` of the plan's units with a question still pending,
+/// in plan order, concurrently.
+fn judge_pending(
+    session: &mut Session,
+    take: usize,
+    dispatcher: &dyn SourceReader,
+    context: &ExecutionContext,
+    usage: &mut ClassificationUsage,
+) {
     let admitted: Vec<[usize; 2]> = session
         .resources
         .iter()
         .enumerate()
-        .flat_map(|(resource, planned)| (0..planned.units.len()).map(move |unit| [resource, unit]))
+        .flat_map(|(resource, planned)| {
+            planned
+                .units
+                .iter()
+                .enumerate()
+                .filter(|(_, unit)| unit.cells.iter().any(Option::is_none))
+                .map(move |(unit, _)| [resource, unit])
+        })
+        .take(take)
         .collect();
     let pending: Vec<Vec<usize>> = admitted
         .iter()
@@ -377,32 +504,8 @@ pub(super) fn whole(
                 .collect()
         })
         .collect();
-    let results = assess::judge_units(&session, &admitted, &pending, dispatcher, context);
-    let mut usage = ClassificationUsage::default();
-    assess::apply_results(
-        &mut session,
-        &admitted,
-        pending,
-        results.into_iter(),
-        &mut usage,
-    );
-    let model = session.resolved_model.take();
-    let Some(resource) = session.resources.into_iter().next() else {
-        return Err(unavailable("The source named no resource to judge."));
-    };
-    Ok(Whole {
-        metadata: resource.metadata,
-        sections: resource
-            .units
-            .into_iter()
-            .map(|unit| JudgedSection {
-                lines: unit.metadata["target"]["lines"].clone(),
-                cells: unit.cells,
-            })
-            .collect(),
-        usage,
-        model,
-    })
+    let results = assess::judge_units(session, &admitted, &pending, dispatcher, context);
+    assess::apply_results(session, &admitted, pending, results.into_iter(), usage);
 }
 
 fn new_id(input: &Value) -> String {

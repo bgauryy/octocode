@@ -362,7 +362,7 @@ fn context_ranges(
 }
 
 mod grouped;
-pub(crate) use grouped::visit_grouped;
+pub(crate) use grouped::{Pages, visit_grouped};
 
 #[cfg(test)]
 mod tests;

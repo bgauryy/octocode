@@ -387,7 +387,7 @@ fn a_snapshot_of_another_analysis_version_leads_to_its_rebuild() {
         json!({"operation":"callers","path":"app","graph":id,"target":"a.ts#first"}),
     );
     assert_eq!(by_path, by_id);
-    assert_eq!(by_path["errorCode"], "notFound", "{by_path}");
+    assert_eq!(by_path["errorCode"], "snapshotIncompatible", "{by_path}");
     assert!(by_path.get("rows").is_none(), "{by_path}");
     assert!(by_path.get("graph").is_none(), "{by_path}");
     let lead = &by_path["related"][0];

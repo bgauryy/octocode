@@ -15,6 +15,7 @@ const PADDED: &str = "eW9VdHFGdGRvTGgyWUtFTE9jM1k=";
 const HEX: &str = "e80c9be5a2330c9377a7994dce1129fd237695238e9998b9";
 const PLACEHOLDER: &str = "[REDACTED-CREDENTIALNAMEDVALUE]";
 
+mod fields;
 mod layouts;
 
 /// That every layout loses its secrets and nothing else, in its file and in
@@ -377,3 +378,84 @@ fn no_tail_of_a_value_stays_readable() {
         ),
     ]);
 }
+
+/// A line-ending escape (`\r`, `\n`) ends the line a value lies on, as a
+/// line break does: the value goes, and the escape, the literal's close and
+/// the next header stay, in one literal or across the pieces of one. A
+/// backslash another escapes (`\\n`) ends nothing, and a value that is no
+/// credential up to the escape goes whole: the backslash may be its own.
+#[test]
+fn a_line_ending_escape_ends_the_value() {
+    let long = format!("{TOKEN}{}", &OTHER[..16]);
+    let api_key = format!(
+        "const req = \"GET / HTTP/1.1\\r\\nX-Api-Key: {long}\\r\\nHost: example.com\\r\\n\";\n"
+    );
+    let pieces = format!(
+        "const req = \"GET / HTTP/1.1\\r\\n\" +\n  \"X-Api-Key: {long}\\r\\n\" +\n  \"Host: example.com\\r\\n\";\n"
+    );
+    let lf = format!("headers = 'X-Auth-Token: {TOKEN}\\nAccept: */*'\n");
+    let quoted = format!("const apiKey = \"{TOKEN}\\r\\n\";\n");
+    let assigned = format!("api_key = \"{TOKEN}\"\n");
+    let escaped_slash = format!("x = \"X-Api-Key: {TOKEN}\\\\nZq7xK2m\";\n");
+    let worded = format!("correct-horse-battery\\n{TOKEN}");
+    let bare = format!("adminPass={worded}\n");
+    hides_only(&[
+        (&api_key, "src/req.js", &[&long]),
+        (&pieces, "src/req.js", &[&long]),
+        (&lf, "src/req.py", &[TOKEN]),
+        (&assigned, "src/req.py", &[TOKEN]),
+        (&escaped_slash, "src/req.js", &[&format!("{TOKEN}\\\\nZq7xK2m")]),
+        (&bare, "conf/app.txt", &[&worded]),
+    ]);
+    // A literal that holds only the value and its line break: where the
+    // file's syntax reads the escape, the break stays.
+    assert_redacts_only(&quoted, Some("src/req.js"), TOKEN);
+    // The auth-header rules hide the token alone: the header's name, its
+    // scheme and what follows the value stay.
+    let bearer = format!("send(\"Authorization: Bearer {TOKEN}\\r\\nAccept: */*\\r\\n\");\n");
+    hides_keeping_what_follows(&bearer, "src/req.js", TOKEN);
+}
+
+/// That `content` at `path` loses `secret` and keeps, as written, all the
+/// text after it.
+fn hides_keeping_what_follows(content: &str, path: &str, secret: &str) {
+    let after = content.split_once(secret).map_or("", |(_, after)| after);
+    for path in [Some(path), None] {
+        let result = detect(content, path);
+        assert!(!result.sanitized.contains(secret), "{path:?}: {:?}", result.sanitized);
+        assert!(result.sanitized.ends_with(after), "{path:?}: {:?}", result.sanitized);
+    }
+}
+
+/// A header of the HTTP `Sec-` namespace (`Sec-<feature>-<field>`) is a field
+/// the user agent fills per request (Fetch's forbidden request-header names),
+/// which no application holds: its `Key` names no credential, so the
+/// WebSocket handshake's nonce stays. A `Sec` that only abbreviates a name's
+/// word (`SEC_KEY`, `Sec-Key`) and every credential header still hide theirs.
+#[test]
+fn a_sec_namespace_header_names_no_credential() {
+    let handshake = "const req = \"GET /chat HTTP/1.1\\r\\nUpgrade: websocket\\r\\n\" +\n  \"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\\r\\n\" +\n  \"Sec-WebSocket-Version: 13\\r\\n\\r\\n\";\n";
+    let response = "HTTP/1.1 101 Switching Protocols\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\nsec-websocket-key: dGhlIHNhbXBsZSBub25jZQ==\n";
+    stays(&[
+        (handshake, "src/ws.js"),
+        (handshake, "docs/issue.md"),
+        (response, "docs/issue.md"),
+    ]);
+    assert!(!names_a_credential("Sec-WebSocket-Key"));
+    assert!(!names_a_credential("sec-websocket-key"));
+    for name in ["SEC_KEY", "Sec-Key", "sec_token", "secKey", "X-Sec-Token", "Proxy-Authorization"] {
+        assert!(names_a_credential(name), "{name}");
+    }
+    let long = format!("{TOKEN}{}", &OTHER[..16]);
+    let headers = format!("X-Api-Key: {long}\nX-Auth-Token: {OTHER}\nSec-Key: {PADDED}\n");
+    hides_only(&[(&headers, "docs/issue.md", &[&long, OTHER, PADDED])]);
+    let bearer = format!("Authorization: Bearer {TOKEN}\nHost: example.com\n");
+    let proxy = format!("Proxy-Authorization: Basic {ENCODED}\nHost: example.com\n");
+    hides_keeping_what_follows(&bearer, "docs/issue.md", TOKEN);
+    hides_keeping_what_follows(&proxy, "docs/issue.md", ENCODED);
+    stays(&[
+        ("def login(password: str, token: Token) -> None:\n", "src/auth.py"),
+        ("let dispatchToken: string;\n", "src/store.ts"),
+    ]);
+}
+

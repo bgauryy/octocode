@@ -98,8 +98,9 @@ pub(super) fn q(path: &Path) -> LocalFetchQuery {
 
 /// Walk `next.nextPage` from `query` to its end under the response `window`,
 /// placing every page in `view` (the read's whole selected text): a byte page
-/// at the offset it states, a line page at its first line. Each page is
-/// `view`'s bytes at its place and starts on a clean cut, and the pages are
+/// at the offset it states, each match window it shows after a gap marker at
+/// the byte the marker names, a line page at its first line. Each piece is
+/// `view`'s bytes at its place and starts on a clean cut, and the pieces are
 /// `view` exactly once, in whatever order the walk shows them. Returns each
 /// page's place and text in walk order.
 pub(super) fn walk_exactly_once(
@@ -112,7 +113,7 @@ pub(super) fn walk_exactly_once(
         .chain(view.match_indices('\n').map(|(at, _)| at + 1))
         .collect();
     let mut query = query.clone();
-    let mut pages = Vec::new();
+    let (mut pages, mut placed) = (Vec::new(), Vec::new());
     loop {
         let read = execute_local_fetch(&query, paths, &Safe, &NeverCancel, window, None);
         assert_eq!(read.status, ReadStatus::Success, "{read:?}");
@@ -123,17 +124,20 @@ pub(super) fn walk_exactly_once(
         };
         let text = read.content.clone().expect("content");
         assert!(!text.is_empty(), "every page makes progress: {page:?}");
-        assert_eq!(
-            view.get(at..at + text.len()),
-            Some(text.as_str()),
-            "the page is the view's bytes at {at}"
-        );
-        assert!(
-            crate::response::cut::is_clean_cut(view, at)
-                && crate::response::cut::is_clean_cut(view, at + text.len()),
-            "page edges at {at}+{} are clean cuts",
-            text.len()
-        );
+        for (at, piece) in crate::tools::source_view::pagination::placed_pieces(at, &text) {
+            assert_eq!(
+                view.get(at..at + piece.len()),
+                Some(piece),
+                "the piece is the view's bytes at {at}"
+            );
+            assert!(
+                crate::response::cut::is_clean_cut(view, at)
+                    && crate::response::cut::is_clean_cut(view, at + piece.len()),
+                "piece edges at {at}+{} are clean cuts",
+                piece.len()
+            );
+            placed.push((at, piece.len()));
+        }
         let next = read.next.and_then(|next| next.continue_window);
         assert_eq!(page.has_more, next.is_some(), "hasMore has its call");
         pages.push((at, text));
@@ -141,8 +145,6 @@ pub(super) fn walk_exactly_once(
         let Some(next) = next else { break };
         query = next.query;
     }
-    let mut placed: Vec<(usize, usize)> =
-        pages.iter().map(|(at, text)| (*at, text.len())).collect();
     placed.sort_unstable();
     let mut end = 0;
     for (at, len) in placed {

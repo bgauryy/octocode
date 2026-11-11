@@ -2956,7 +2956,7 @@
           "questions",
           "first"
         ],
-        "message": "box questions need an image in assets."
+        "message": "A box question needs an image: add assets {<key>: {source}} and content that names each key."
       },
       {
         "path": [
@@ -2965,7 +2965,7 @@
           "questions",
           "last"
         ],
-        "message": "box questions need an image in assets."
+        "message": "A box question needs an image: add assets {<key>: {source}} and content that names each key."
       }
     ]
   },
@@ -6340,12 +6340,242 @@
     }
   },
   {
+    "id": "clasify.unit-source",
+    "tool": "clasify",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "source": {
+            "tool": "localSearch",
+            "query": {
+              "path": "src",
+              "matchString": [
+                "retry"
+              ]
+            }
+          },
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          },
+          "operation": "evaluate",
+          "source": {
+            "tool": "localSearch",
+            "query": {
+              "path": "src",
+              "matchString": [
+                "retry"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.unit-source-foreign-field",
+    "tool": "clasify",
+    "accepted": false,
+    "messages": [
+      "query is the row a direct localSearch call takes."
+    ],
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "source": {
+            "tool": "localSearch",
+            "query": {
+              "path": "src",
+              "matchString": [
+                "retry"
+              ],
+              "owner": "o"
+            }
+          },
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.unit-source-missing-field",
+    "tool": "clasify",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "source": {
+            "tool": "ghGetHistoryItem",
+            "query": {}
+          },
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.per-item-string",
+    "diagnostics": true,
+    "tool": "clasify",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "content": "Restart after rotating the credential.",
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          },
+          "perItem": true
+        }
+      ]
+    },
+    "issues": [
+      {
+        "path": [
+          "queries",
+          0,
+          "perItem"
+        ],
+        "message": "perItem:true judges each item of a content array: send content as an array, or drop perItem. A tool source already judges each row; resources judge each file."
+      }
+    ]
+  },
+  {
+    "id": "clasify.per-item-array",
+    "tool": "clasify",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "content": [
+            "first",
+            "second"
+          ],
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          },
+          "perItem": true
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          },
+          "operation": "evaluate",
+          "content": [
+            "first",
+            "second"
+          ],
+          "perItem": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.per-item-with-source",
+    "tool": "clasify",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "source": {
+            "tool": "localSearch",
+            "query": {
+              "path": "src",
+              "matchString": [
+                "retry"
+              ]
+            }
+          },
+          "perItem": true,
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.assets-without-content",
+    "tool": "clasify",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "assets": {
+            "shot": {
+              "source": {
+                "tool": "localFetch",
+                "query": {
+                  "path": "shot.png"
+                }
+              }
+            }
+          },
+          "questions": {
+            "error": {
+              "type": "noul",
+              "instructions": "Does shot show an error?"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
     "id": "clasify.box-without-image",
     "diagnostics": true,
     "tool": "clasify",
     "accepted": false,
     "messages": [
-      "box questions need an image in assets."
+      "A box question needs an image: add assets {<key>: {source}} and content that names each key."
     ],
     "input": {
       "queries": [
@@ -6369,7 +6599,7 @@
           "questions",
           "where"
         ],
-        "message": "box questions need an image in assets."
+        "message": "A box question needs an image: add assets {<key>: {source}} and content that names each key."
       }
     ]
   },

@@ -61,7 +61,6 @@ const TASKS = {
   'check-outputs': ['Build outputs and host native version/contract match (--all checks every staged platform)', [health('check-outputs')]],
   clean: ['Remove every workspace build output (dist/, out/, native target/ + staged binaries)', [yarn('workspaces', 'foreach', '-A', 'run', 'clean')]],
   'clean:cache': ['Drop stale native build copies; compiled dependencies stay warm', [yarn('workspace', '@octocodeai/octocode-native', 'clean:cache')]],
-  'clean:leftovers': ['What agent runs leave behind: private targets, old pinned binaries, their daemons, snapshots of removed scopes, clean worktrees (dry; --apply removes, --days N)', [script('clean-leftovers.mjs')]],
   'docs:verify': ['Docs links, catalog, config keys, publishing contracts', [script('docs-verify.mjs')]],
   'deps:dedupe': ['One version range per external dependency (--fix rewrites)', [script('dedupe-deps.mjs')]],
   'contracts:regen': ['Build sibling core, refresh its copy (yarn install), then regenerate the tool contract', [script('core-build.mjs'), yarn('install'), yarn('workspace', '@octocodeai/config', 'generate:tool-contract')]],

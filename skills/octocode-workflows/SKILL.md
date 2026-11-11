@@ -1,6 +1,6 @@
 ---
 name: octocode-workflows
-description: "Choose, design, compose, coordinate, resume or verify a workflow: practical paths for agents, tools, services and other interacting objects, including audits, runtime changes and independent acceptance. Ordinary domain tasks use their owner skill directly."
+description: "Use when selecting, designing, composing, coordinating or resuming an explicit workflow across agents, tools, services, processes or artifacts. Define dependencies, ownership, handoffs, recovery and acceptance. Use domain skills for ordinary tasks and octocode-agentic for agent behavior or coordination setup."
 ---
 
 # Octocode Workflows

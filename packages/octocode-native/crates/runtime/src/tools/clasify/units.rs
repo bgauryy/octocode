@@ -486,7 +486,7 @@ fn shape(
     let mut output = json!({
         "units": shown.into_iter().collect::<Map<_, _>>(),
         "coverage": coverage,
-        "usage": reply::evaluation_usage(input_tokens, output_tokens, calls),
+        "usage": reply::evaluation_usage(input_tokens, output_tokens, calls, 0),
     });
     if let Some(model) = model {
         output["model"] = json!(model);

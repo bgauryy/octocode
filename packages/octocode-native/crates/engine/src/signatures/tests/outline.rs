@@ -66,6 +66,127 @@ fn only_a_type_body_lists_its_member_rows() {
     }
 }
 
+/// A type declaration lists the member rows of its braced body (a struct's
+/// fields, an object type's properties), never the rows that continue its
+/// type expression: a union's arms, a function type's parameters.
+#[test]
+fn a_type_lists_its_braced_members_not_its_expression_rows() {
+    let cases: [(&str, &str, &[&str], &[&str]); 2] = [
+        (
+            "a.ts",
+            "type Lang =\n  | 'css'\n  | 'less'\n\ntype Resolver = (\n  url: string,\n  importer?: string,\n) => string | undefined\n\nexport type Shape = {\n  width: number\n  height: number\n}\n\nexport type Merged = Omit<Shape, 'width'> & {\n  extra: boolean\n}\n",
+            &[
+                "\ttype Lang =",
+                "\ttype Resolver = (",
+                "\t  width: number",
+                "\t  height: number",
+                "\t  extra: boolean",
+            ],
+            &["| 'css'", "| 'less'", "url: string", "importer?: string"],
+        ),
+        (
+            "a.go",
+            "package main\n\ntype Config struct {\n\tName string\n\tPort int\n}\n\ntype Handler func(\n\tname string,\n\tport int,\n) error\n",
+            &[
+                "\ttype Config struct {",
+                "\t\tName string",
+                "\t\tPort int",
+                "\ttype Handler func(",
+            ],
+            &["name string", "port int,"],
+        ),
+    ];
+    for (path, source, shown, left_out) in cases {
+        let outline = extract_signatures_inner(source, path).expect("outline");
+        for row in shown {
+            assert!(outline.contains(row), "{path}: {row:?} in {outline}");
+        }
+        for text in left_out {
+            assert!(!outline.contains(text), "{path}: {text:?} in {outline}");
+        }
+    }
+}
+
+/// A declaration's members are the rows inside its braced body: the rows of
+/// a multi-line heritage clause (`extends Omit<…> {`), of an intersection
+/// after an object type's body (`} & Base`) and of a `where` clause are no
+/// member rows; the members, a primary constructor's properties and a
+/// brace-less (`:`) body keep theirs.
+#[test]
+fn a_declaration_lists_its_body_members_not_its_heritage_rows() {
+    let cases: [(&str, &str, &[&str], &[&str]); 4] = [
+        (
+            "a.ts",
+            "export interface Resolved extends Omit<\n  Required<\n    Options,\n    | 'host'\n    | 'https'\n  >,\n  'fs' | 'mode'\n> {\n  fs: Required<Fs>\n  mode: string\n  ignore: Exclude<\n    Options['ignore'],\n    false\n  >\n}\n\nexport type SassOptions = {\n  api: 'modern'\n  url?: string\n} & SassBaseOptions\n\nexport class Server\n  implements Disposable<\n    Handle\n  > {\n  port = 1\n  close(): void {}\n}\n",
+            &[
+                "\texport interface Resolved extends Omit<",
+                "\t  fs: Required<Fs>",
+                "\t  mode: string",
+                "\t  ignore: Exclude<",
+                "\t  api: 'modern'",
+                "\t  url?: string",
+                "\texport class Server",
+                "\t  port = 1",
+                "\t  close(): void {}",
+            ],
+            &[
+                "Required<\n",
+                "Options,",
+                "| 'host'",
+                "| 'https'",
+                "'fs' | 'mode'",
+                "> {",
+                "& SassBaseOptions",
+                "implements Disposable<",
+                "Handle",
+            ],
+        ),
+        (
+            "a.rs",
+            "pub struct Holder<'a, T>\nwhere\n    T: Clone,\n{\n    pub name: &'a str,\n    pub value: T,\n}\n",
+            &[
+                "\tpub struct Holder<'a, T>",
+                "\t    pub name: &'a str,",
+                "\t    pub value: T,",
+            ],
+            &["where", "T: Clone,"],
+        ),
+        (
+            "A.java",
+            "public class Store<\n    K extends Comparable<K>\n> extends Base {\n    private int size;\n    public int size() { return size; }\n}\n",
+            &["\tpublic class Store<", "\t    private int size;"],
+            &["K extends Comparable<K>", "> extends Base {"],
+        ),
+        (
+            "a.py",
+            "class Config(Base):\n    name: str = 'a'\n    port: int = 1\n    extra = {\n        'k': 1,\n    }\n",
+            &[
+                "\tclass Config(Base):",
+                "\t    name: str = 'a'",
+                "\t    port: int = 1",
+            ],
+            &[],
+        ),
+    ];
+    // A primary constructor's parameters are its class's properties.
+    let scala: (&str, &str, &[&str], &[&str]) = (
+        "a.scala",
+        "case class Point(\n    x: Int,\n    y: Int,\n) extends Shape {\n  def norm: Int = x * x + y * y\n}\n",
+        &["\tcase class Point(", "\t    x: Int,", "\t    y: Int,"],
+        &[") extends Shape {"],
+    );
+    let scala = languages::find_entry("scala").is_some().then_some(scala);
+    for (path, source, shown, left_out) in cases.into_iter().chain(scala) {
+        let outline = extract_signatures_inner(source, path).expect("outline");
+        for row in shown {
+            assert!(outline.contains(row), "{path}: {row:?} in {outline}");
+        }
+        for text in left_out {
+            assert!(!outline.contains(text), "{path}: {text:?} in {outline}");
+        }
+    }
+}
+
 /// Comment lines follow the file's own grammar: `#` comments Python,
 /// not Rust; `--` comments neither.
 #[test]

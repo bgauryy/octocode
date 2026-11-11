@@ -1,6 +1,6 @@
 ---
 name: octocode-graph-view
-description: "Map repository files, imports and calls in a live or headless graph. Use for an interactive architecture view, ranked hubs or cycles, and a source-backed brief with retained graph data."
+description: "Use when building, inspecting or reopening a repository graph of files, imports and calls, with retained evidence and source-backed briefs. Covers graph artifacts, architecture maps, ranked hubs/cycles and the interactive viewer; octocode-research owns individual code questions."
 ---
 
 # Octocode Graph View

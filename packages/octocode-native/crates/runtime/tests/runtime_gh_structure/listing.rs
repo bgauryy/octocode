@@ -254,3 +254,57 @@ async fn a_renamed_repository_without_a_ref_costs_no_extra_metadata_read() {
     );
     runtime.close().await;
 }
+
+/// A cache store busy when the call saves what it found is said once, in the
+/// response's `warnings`, by the store's folder name: never a line outside the
+/// envelope, never the home's absolute path. The answer itself is whole.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_busy_answer_cache_is_said_in_the_responses_warnings() {
+    let server = tree_server(0).await;
+    let workspace = Workspace::new();
+    let store = workspace.home.join("cache/provider-answers-v2");
+    std::fs::create_dir_all(&store).expect("store");
+    let lock = octocode_io::lock::open_lock_file(&store.join(".capacity.lock")).expect("lock");
+    let _held = octocode_io::lock::lock_within(
+        lock,
+        std::time::Duration::from_secs(5),
+        octocode_io::lock::LOCK_POLL,
+    )
+    .expect("held");
+    let runtime = github(&workspace, &server);
+    let outcome = call(
+        &runtime,
+        "ghStructure",
+        json!({"queries":[{"operation":"tree","owner":"a","repo":"b"}]}),
+    )
+    .await
+    .expect("listing");
+    let envelope = &outcome.structured_content;
+    let busy = envelope["warnings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .filter(|warning| warning.contains("was busy"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        busy,
+        [
+            "The cache store provider-answers-v2 was busy or could not be locked, so something this call found was not saved; a later call reads it again."
+        ],
+        "{envelope}"
+    );
+    assert!(
+        !envelope
+            .to_string()
+            .contains(&workspace.home.display().to_string()),
+        "{envelope}"
+    );
+    assert_eq!(
+        row_data(&outcome)["files"][0]["files"]
+            .as_array()
+            .map(Vec::len),
+        Some(2)
+    );
+    runtime.close().await;
+}

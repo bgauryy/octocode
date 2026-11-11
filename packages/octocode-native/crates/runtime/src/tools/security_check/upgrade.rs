@@ -145,6 +145,8 @@ fn outside_major<'a>(
             .filter(|(numbers, _)| numbers.first() == Some(&major) && compare(numbers, &at).is_gt())
             .min_by(|(left, _), (right, _)| compare(left, right));
         match lowest {
+            // A twin record of the same id is the same advisory: named once.
+            None if unfixed.contains(&advisory.id.as_str()) => {}
             None => unfixed.push(advisory.id.as_str()),
             Some(lowest) => {
                 if within

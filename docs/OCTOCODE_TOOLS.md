@@ -86,7 +86,7 @@ Hits always come from the default-branch index: `ref` re-reads them at that revi
 
 `operation: "refs"` lists tags grouped by tag prefix (`termcolor-1.4.1` stays apart from plain `13.0.0`). Within a group the newest version leads. The repository's own releases (tags that are only a version, such as `v8.3.8`) are the first group; the other groups go by their newest version, so the order follows version number, not release date. Tags without a version come last. `limit` sets how many tags and branches a page holds (`limit: 10` reads the ten newest release tags).
 
-`operation: "tree"` lists in path order; `sort:{"by":"sizeBytes","order":"desc"}` ranks every listed file before the page is cut, folders last, so `limit: 1` answers the largest file. A walk that could not read a folder ranks what it read and says so in `warnings`.
+`operation: "tree"` lists in path order; `sort:{"by":"sizeBytes","order":"desc"}` ranks every listed file before the page is cut, folders last, so `limit: 1` answers the largest file. Without `maxDepth` a size sort opens every level ("the largest files under a folder"), and the page's read lead is its top file. A walk that could not read a folder ranks what it read and says so in `warnings`.
 
 ```json
 {"queries":[{"maxDepth":2,"operation":"tree","owner":"bgauryy","path":"packages","repo":"octocode"}]}
@@ -110,7 +110,7 @@ Search rows are an index, not a complete discussion or patch; read a selected it
 
 ### `ghGetHistoryItem`
 
-Files, comments, reviews, commits and patches can have independent continuations; complete each requested collection. A read without `sections` is the summary: a pull request's whole header, a commit's message, author, committer, parents and line counts, a comparison's identity and changed files (its commits, counted by `aheadBy`, are `sections: ["commits"]` or the `contentPagination.commits` continuation). A read that names `sections` answers with them under a slim header: a pull request's `number`, `state` and `headSha`; a commit's `commitSha`, `messageHeadline` and `author` (login or name, and date).
+Files, comments, reviews, commits and patches can have independent continuations; complete each requested collection. A read without `sections` is the summary: a pull request's whole header, a commit's message, author, committer, parents and line counts, a comparison's identity and changed files (its commits, counted by `aheadBy`, are `sections: ["commits"]` or the continuation under `contentPagination`, keyed `commits`). A read that names `sections` answers with them under a slim header: a pull request's `number`, `state` and `headSha`; a commit's `commitSha`, `messageHeadline` and `author` (login or name, and date).
 
 ```json
 {"queries":[{"number":1,"operation":"pullRequest","owner":"bgauryy","repo":"octocode"}]}

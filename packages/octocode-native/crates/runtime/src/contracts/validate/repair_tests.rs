@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 fn first_line(tool: &str, input: Value) -> String {
     let rows = match prepare_rows(tool, input) {
         Err(error) => {
-            return format_input_error(tool, &error, &[])["error"]
+            return format_input_error(tool, &error, &[], &serde_json::Value::Null)["error"]
                 .as_str()
                 .unwrap()
                 .into();
@@ -20,7 +20,7 @@ fn first_line(tool: &str, input: Value) -> String {
         .into_iter()
         .find_map(Result::err)
         .expect("the input is rejected");
-    format_input_error(tool, &error, &[])["error"]
+    format_input_error(tool, &error, &[], &serde_json::Value::Null)["error"]
         .as_str()
         .unwrap()
         .to_owned()
@@ -97,7 +97,7 @@ fn every_misuse_shape_gets_a_one_line_repair() {
         (
             "localSearch",
             json!({"queries":[{"cursor":"issued"}]}),
-            r#"'cursor' is a whole request, not a query field: send {"cursor":"…"} alone, as next.input gives it, without queries."#,
+            r#"'cursor' is a whole request, not a query field: send {"cursor":"…"} alone, as next.nextPage or responsePagination.next gives it, without queries."#,
         ),
         (
             "localFetch",
@@ -129,13 +129,30 @@ fn every_misuse_shape_gets_a_one_line_repair() {
         (
             "localFetch",
             json!({"cursor":"issued","queries":[{"path":"a.ts"}]}),
-            "`queries` and `cursor` belong to different forms and cannot be combined; send one form",
+            r#"A cursor call takes the cursor alone: send {"cursor":"…"} as next.nextPage or responsePagination.next gives it, without 'queries'; a new request sends 'queries' without cursor."#,
+        ),
+        (
+            // A row that is wrong beside the cursor: the cursor rule leads.
+            "ghSearchRepo",
+            json!({"cursor":"issued","queries":[{"sort":{"by":"stars","order":"desc"}}]}),
+            r#"A cursor call takes the cursor alone: send {"cursor":"…"} as next.nextPage or responsePagination.next gives it, without 'queries'; a new request sends 'queries' without cursor."#,
+        ),
+        (
+            // A former sort value names the value it is now, in any spelling.
+            "ghSearchRepo",
+            json!({"queries":[{"operation":"search","keywords":["x"],"sort":{"by":"best-match","order":"desc"}}]}),
+            r#"queries.0.sort.by: Value "best-match" is outside the allowed enum; use "relevance"; allowed: relevance, stars, forks, helpWantedIssueCount, updatedAt"#,
+        ),
+        (
+            "ghSearchRepo",
+            json!({"queries":[{"operation":"search","keywords":["x"],"sort":{"by":"forkCount","order":"desc"}}]}),
+            r#"queries.0.sort.by: Value "forkCount" is outside the allowed enum; use "forks"; allowed: relevance, stars, forks, helpWantedIssueCount, updatedAt"#,
         ),
         (
             // A cursor keeps the page size it was issued with.
             "localSearch",
             json!({"cursor":"issued","responseChars":900}),
-            r#"'responseChars' is not allowed beside cursor: send {"cursor":"…"} alone, as next.input gives it; 'responseChars' requires queries, in a new request."#,
+            r#"'responseChars' is not allowed beside cursor: send {"cursor":"…"} alone, as next.nextPage or responsePagination.next gives it; 'responseChars' requires queries, in a new request."#,
         ),
         (
             "localFetch",
@@ -283,7 +300,7 @@ fn a_rejected_call_names_an_accepted_example_and_the_schema_command() {
                     .unwrap_or_else(|| panic!("{tool} rejects an unknown field"))
             })
             .unwrap_or_else(|error| error);
-        let envelope = format_input_error(tool, &error, &[]);
+        let envelope = format_input_error(tool, &error, &[], &serde_json::Value::Null);
         let details = envelope["details"].as_array().expect("details");
         let lines = details.iter().filter_map(Value::as_str).collect::<Vec<_>>();
         let examples = lines
@@ -302,7 +319,10 @@ fn a_rejected_call_names_an_accepted_example_and_the_schema_command() {
             "{tool}: {lines:?}"
         );
         assert!(
-            !envelope["error"].as_str().expect("cause").starts_with("Example"),
+            !envelope["error"]
+                .as_str()
+                .expect("cause")
+                .starts_with("Example"),
             "{tool}: the cause leads: {envelope}"
         );
         assert!(
@@ -311,8 +331,41 @@ fn a_rejected_call_names_an_accepted_example_and_the_schema_command() {
         );
     }
     // A name that is no tool has no example to offer.
-    let unknown = format_input_error("noSuchTool", &ContractValidationError { issues: vec![] }, &[]);
+    let unknown = format_input_error(
+        "noSuchTool",
+        &ContractValidationError { issues: vec![] },
+        &[],
+        &serde_json::Value::Null,
+    );
     assert!(unknown.get("details").is_none(), "{unknown}");
+}
+
+/// The example beside a rejected row is of the operation that row sent, not
+/// of the tool's first form: a `compare` row with a wrong section is shown a
+/// `compare` call.
+#[test]
+fn the_example_is_of_the_operation_the_row_sent() {
+    let sent = json!({"queries": [{"operation": "compare", "owner": "o", "repo": "r",
+        "baseRef": "v1", "headRef": "v2", "sections": ["bogus"]}]});
+    let error = prepare_rows("ghGetHistoryItem", sent.clone())
+        .map(|rows| rows.into_iter().find_map(Result::err).expect("rejected"))
+        .unwrap_or_else(|error| error);
+    let example = |sent: &Value| {
+        format_input_error("ghGetHistoryItem", &error, &[], sent)["details"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .find_map(|line| line.strip_prefix("Example: "))
+            .map(|example| serde_json::from_str::<Value>(example).expect("request"))
+            .expect("an example")
+    };
+    assert_eq!(example(&sent)["queries"][0]["operation"], "compare");
+    // Nothing sent to read: the first form's.
+    assert_eq!(
+        example(&Value::Null)["queries"][0]["operation"],
+        "pullRequest"
+    );
 }
 
 /// A value the input guard refused sits in a well-formed call: the cause
@@ -325,7 +378,7 @@ fn a_refused_value_is_its_own_repair_without_an_example() {
         vec!["queries".into(), "0".into(), "matchString[]".into()],
         "Value looks like a credential and was not run",
     );
-    let envelope = format_input_error("localSearch", &refused, &[]);
+    let envelope = format_input_error("localSearch", &refused, &[], &serde_json::Value::Null);
     assert!(envelope.get("details").is_none(), "{envelope}");
 
     let mut mixed = refused;
@@ -338,7 +391,7 @@ fn a_refused_value_is_its_own_repair_without_an_example() {
         .issues
         .remove(0),
     );
-    let envelope = format_input_error("localSearch", &mixed, &[]);
+    let envelope = format_input_error("localSearch", &mixed, &[], &serde_json::Value::Null);
     assert!(
         envelope["details"]
             .as_array()

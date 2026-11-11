@@ -16,6 +16,7 @@
 //! - quiet units, which stay counted in `coverage.quiet`;
 //! - a `sections` lead that is longer than the source it would split.
 use crate::id::ToolId;
+use octocode_contract_types::ClasifyChannel;
 use serde_json::{Map, Value, json};
 
 /// The fields of an answer that say how its value was reached.
@@ -28,6 +29,15 @@ const BOX_FRAME: [&str; 4] = ["width", "height", "sourceWidth", "sourceHeight"];
 /// A continuation of a `details` row stays in `details`: the next page of a
 /// plan, or of a tool's rows, reads as the page before it did.
 pub(super) fn carry_details(row: &mut Value) {
+    // The row is the details already: no call repeats it.
+    if let Some(next) = row.get_mut("next").and_then(Value::as_object_mut) {
+        next.shift_remove(ClasifyChannel::Details.key());
+        if next.is_empty()
+            && let Some(fields) = row.as_object_mut()
+        {
+            fields.shift_remove("next");
+        }
+    }
     let Some(next) = row.get_mut("next").and_then(Value::as_object_mut) else {
         return;
     };
@@ -380,7 +390,10 @@ mod tests {
             summary["usage"],
             json!({"calls":1,"inputTokens":5,"outputTokens":3})
         );
-        assert_eq!(summary["resources"]["mid"]["coverage"], details["resources"]["mid"]["coverage"]);
+        assert_eq!(
+            summary["resources"]["mid"]["coverage"],
+            details["resources"]["mid"]["coverage"]
+        );
     }
 
     /// Usage that says more than its spend (unreported requests, an estimate
@@ -399,9 +412,7 @@ mod tests {
         let lead = json!({"kind":"related","tool":"clasify","input":{"queries":[{
             "operation":"sections","questions":{"p":{"type":"noul","instructions":"Is it planted?"}},
             "resources":{"source":{"tool":"localFetch","query":{"path":"tiny.rs"}}}}]}});
-        let row = |read_chars: u64| {
-            json!({"answers":{"p":{"noul":0.9}},"readChars":read_chars,"related":[lead]})
-        };
+        let row = |read_chars: u64| json!({"answers":{"p":{"noul":0.9}},"readChars":read_chars,"related":[lead]});
         assert!(summary_of(&row(43)).get("related").is_none());
         assert_eq!(summary_of(&row(77_296))["related"], json!([lead]));
     }
@@ -445,7 +456,14 @@ mod tests {
             "read":{"kind":"continue","tool":"localFetch","input":{"queries":[{"path":"a"}]}},
         }});
         carry_details(&mut row);
-        assert_eq!(row["next"]["nextPage"]["input"]["queries"][0]["view"], "details");
-        assert!(row["next"]["read"]["input"]["queries"][0].get("view").is_none());
+        assert_eq!(
+            row["next"]["nextPage"]["input"]["queries"][0]["view"],
+            "details"
+        );
+        assert!(
+            row["next"]["read"]["input"]["queries"][0]
+                .get("view")
+                .is_none()
+        );
     }
 }

@@ -82,16 +82,19 @@ impl Disk {
         }
     }
 
-    /// The store's lock for a write, or the notice that the write was not kept
-    /// (none for a cancelled request, whose answer nobody reads).
+    /// The store's lock for a write, or the note in the call's `warnings` that
+    /// the write was not kept (none for a cancelled request, whose answer
+    /// nobody reads). The store is named by its folder: where the home is says
+    /// nothing the agent acts on.
     fn lock_to_write(&self, deadline: Instant) -> Option<LockedFile> {
         let lock = self.lock(deadline);
         if matches!(lock, Err(NotLocked::Unavailable)) {
-            octocode_io::notice::raise(
+            let store = self.dir.file_name().unwrap_or(self.dir.as_os_str());
+            octocode_io::notice::raise_in_result(
                 STORE_BUSY,
                 format!(
                     "The cache store {} was busy or could not be locked, so something this call found was not saved; a later call reads it again.",
-                    self.dir.display()
+                    store.to_string_lossy()
                 ),
             );
         }

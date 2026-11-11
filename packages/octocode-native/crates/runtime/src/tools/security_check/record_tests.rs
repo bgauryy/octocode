@@ -54,12 +54,12 @@ fn a_github_record_keeps_its_source_severity_and_ranges() {
         item.cvss,
         [json!({"type": "CVSS_V3", "vector": "CVSS:3.1/AV:N"})]
     );
+    // GitHub's `<= 4.17.20` restates the events: stated once, by them.
     assert_eq!(
         item.affected,
         [json!({
             "packageName": "lodash",
             "ranges": [{"type": "SEMVER", "events": [{"introduced": "4.0.0"}, {"fixed": "4.17.21"}]}],
-            "databaseSpecific": {"last_known_affected_version_range": "<= 4.17.20"}
         })]
     );
     let printed = serde_json::to_string(&item).expect("row");
@@ -445,4 +445,74 @@ fn brief_rows_list_the_most_severe_first() {
         .map(|row| row["id"].as_str())
         .collect::<Vec<_>>();
     assert_eq!(ids, ["d", "f", "c", "e", "a", "b"].map(Some));
+}
+
+/// The details rows of one id: the later record keeps its id and only the
+/// fields its source states otherwise; a record of another id is untouched.
+#[test]
+fn a_twin_record_states_only_its_differences() {
+    let mut rows = vec![
+        json!({"id": "GHSA-a", "summary": "s", "details": "long text", "link": "https://osv.dev/a",
+            "cwes": ["CWE-77"], "modified": "2026-10-20T20:00:04Z"}),
+        json!({"id": "GHSA-a", "summary": "s", "details": "long text", "link": "https://github.com/advisories/a",
+            "cwes": ["CWE-77"], "modified": "2026-10-20T19:48:26Z", "epss": {"percentage": 0.01}}),
+        json!({"id": "GHSA-b", "summary": "s", "details": "long text"}),
+    ];
+    let twins = state_twin_differences(&mut rows);
+    assert_eq!(twins, ["GHSA-a"]);
+    assert_eq!(
+        rows[1],
+        json!({"id": "GHSA-a", "link": "https://github.com/advisories/a",
+            "modified": "2026-10-20T19:48:26Z", "epss": {"percentage": 0.01}})
+    );
+    assert_eq!(rows[0]["details"], "long text");
+    assert_eq!(rows[2]["details"], "long text");
+}
+
+/// A difference of notation is none: GitHub's text range with the same lower
+/// bound and fix as OSV's events, and a reference to a URL already stated,
+/// are left out; a range that differs, and a new URL, stay.
+#[test]
+fn a_twin_restates_no_range_or_reference_in_another_notation() {
+    let osv_range = |name: &str, introduced: &str, fixed: &str| {
+        json!({"packageName": name, "ranges": [{"type": "SEMVER", "events": [
+            {"introduced": introduced}, {"fixed": fixed}]}],
+            "databaseSpecific": {"last_known_affected_version_range": "<= x"}})
+    };
+    let github_range = |name: &str, range: &str, first: &str| {
+        json!({"packageName": name, "ecosystemSpecific": {"vulnerable_version_range": range,
+            "patched_versions": null, "first_patched_version": first}})
+    };
+    let mut rows = vec![
+        json!({"id": "GHSA-a", "link": "https://osv.dev/a",
+            "affected": [osv_range("vite", "8.3.0", "8.3.3"), osv_range("vite", "0", "6.4.4")],
+            "references": [{"type": "WEB", "url": "https://example.test/fix"},
+                {"type": "ADVISORY", "url": "https://nvd.test/CVE-1"}]}),
+        json!({"id": "GHSA-a", "link": "https://github.com/advisories/a",
+            "affected": [github_range("vite", ">= 8.3.0, <= 8.3.2", "8.3.3"),
+                github_range("vite", "<= 6.4.3", "6.4.4"),
+                // An exclusive lower bound and another fix are differences.
+                github_range("vite", "> 8.2.0, <= 8.2.3", "8.2.4"),
+                github_range("vite", ">=7.0.0, <7.3.7", "7.3.8")],
+            "references": [{"type": "WEB", "url": "https://nvd.test/CVE-1"},
+                {"type": "WEB", "url": "https://github.com/advisories/a"},
+                {"type": "WEB", "url": "https://example.test/new"}]}),
+    ];
+    state_twin_differences(&mut rows);
+    assert_eq!(
+        rows[1],
+        json!({"id": "GHSA-a", "link": "https://github.com/advisories/a",
+            "affected": [github_range("vite", "> 8.2.0, <= 8.2.3", "8.2.4"),
+                github_range("vite", ">=7.0.0, <7.3.7", "7.3.8")],
+            "references": [{"type": "WEB", "url": "https://example.test/new"}]})
+    );
+    // Every range and reference the same: neither key is stated again.
+    let mut rows = vec![
+        json!({"id": "GHSA-a", "affected": [osv_range("vite", "0", "6.4.4")],
+            "references": [{"type": "WEB", "url": "https://example.test/fix"}]}),
+        json!({"id": "GHSA-a", "affected": [github_range("vite", "< 6.4.4", "6.4.4")],
+            "references": [{"type": "ADVISORY", "url": "https://example.test/fix"}]}),
+    ];
+    state_twin_differences(&mut rows);
+    assert_eq!(rows[1], json!({"id": "GHSA-a"}));
 }

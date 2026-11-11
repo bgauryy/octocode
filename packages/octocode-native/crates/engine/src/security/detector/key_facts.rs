@@ -21,7 +21,9 @@ use super::credential_values::{
     key_name, opens_interpolation,
 };
 use super::is_source_code_path;
-use super::named_values::{describes_a_credential, names_a_published_value};
+use super::named_values::{
+    describes_a_credential, names_a_published_value, names_a_user_agent_field,
+};
 use crate::security::patterns::CREDENTIAL_WORDS;
 
 /// The facts of a key a value test reads.
@@ -51,6 +53,9 @@ pub(super) trait KeyFacts {
     /// The value opens a literal whose prefix interpolates its `{…}` holes
     /// (`f'`, `$"`: [`opens_interpolation`]).
     fn opens_interpolation(&self) -> bool;
+    /// Its name is a field of the `Sec-` namespace a user agent fills
+    /// ([`names_a_user_agent_field`]: `Sec-WebSocket-Key`).
+    fn names_a_user_agent_field(&self) -> bool;
 }
 
 /// The keys that start in one text before one value, as the text of the
@@ -172,6 +177,7 @@ impl SpanKey<'_, '_> {
             quote: self.ends_with_quote(),
             colon: self.ends_with_colon(),
             interpolates: self.opens_interpolation(),
+            user_agent: self.names_a_user_agent_field(),
         }
     }
 }
@@ -232,6 +238,10 @@ impl KeyFacts for SpanKey<'_, '_> {
     fn opens_interpolation(&self) -> bool {
         opens_interpolation(self.span.text)
     }
+
+    fn names_a_user_agent_field(&self) -> bool {
+        std::str::from_utf8(self.name_from().1).is_ok_and(names_a_user_agent_field)
+    }
 }
 
 /// The word right before the value in a key's `text`: what is left of its
@@ -265,6 +275,7 @@ pub(super) struct KeyBits {
     quote: bool,
     colon: bool,
     interpolates: bool,
+    user_agent: bool,
 }
 
 impl KeyFacts for KeyBits {
@@ -302,5 +313,9 @@ impl KeyFacts for KeyBits {
 
     fn opens_interpolation(&self) -> bool {
         self.interpolates
+    }
+
+    fn names_a_user_agent_field(&self) -> bool {
+        self.user_agent
     }
 }

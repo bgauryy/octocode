@@ -170,11 +170,10 @@ pub(super) fn skeleton(
     query: &GhSearchCodeQuery,
     data: &SearchPage,
     (current, past_end, continues): (usize, bool, bool),
-    rows: usize,
     endpoint: &octocode_github::GitHubEndpoint,
 ) -> usize {
     let more = current < data.pages || continues;
-    let mut value = json!({"contentReads": rows, "files": []});
+    let mut value = json!({"files": []});
     if let Some(pagination) = pagination(query, data, current, past_end) {
         value["pagination"] = pagination;
     }

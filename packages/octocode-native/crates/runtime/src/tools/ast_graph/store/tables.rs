@@ -35,6 +35,11 @@ use stats::*;
 
 /// Detail of a file → file `contains` edge: a Rust `mod` declaration.
 pub(super) const MODULE_DETAIL: &str = "module";
+/// Detail of a `uses` edge from a file to a declaration it re-exports by
+/// name (`export { a } from './x'`), or to a whole file when the name
+/// resolves to no declaration (`export * as ns from './x'`). It records
+/// what the file makes public; it is no use of the declaration.
+pub(super) const REEXPORTED_NAME: &str = "reexported-name";
 /// Interned strings, each stored once: a lookup walks the ids that share the
 /// string's hash, newest first, and compares the stored text.
 #[derive(Default)]

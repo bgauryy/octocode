@@ -1,6 +1,6 @@
 ---
 name: octocode-rfc-generator
-description: "Write or review RFCs, design documents and migration proposals before implementation. Connect one decision to alternatives, validation, rollout, risks and rollback in a single document."
+description: "Use when writing, revising or reviewing an RFC, design document, migration proposal or implementation plan. Capture a proposed decision, alternatives, validation, dependencies, rollout, risks and rollback in one document; octocode-documentation owns explanations of settled decisions."
 ---
 
 # Octocode RFC Generator

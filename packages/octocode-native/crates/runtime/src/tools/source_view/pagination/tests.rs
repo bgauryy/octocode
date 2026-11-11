@@ -239,8 +239,9 @@ fn a_transformed_view_walks_through_an_oversized_line_without_repeating() {
 }
 
 /// The byte walk of a line with match windows: after the line page before
-/// it, each window is a page in source order (near windows joined into one
-/// run), then the bytes between them in order, then line paging resumes.
+/// it, one page shows every window that fits it in source order (near
+/// windows joined into one run, far ones behind a marker naming the bytes
+/// between), then the bytes between them in order, then line paging resumes.
 /// Every byte of the view is on exactly one page, and a page never crosses a
 /// window's edge.
 #[test]
@@ -264,7 +265,7 @@ fn a_match_first_walk_shows_windows_then_the_rest_exactly_once() {
     let budget = LineBudget::bytes(LINE_PAGE_BYTES);
     let mut query: LocalFetchQuery =
         serde_json::from_value(serde_json::json!({"path":"bundle.min.js"})).expect("query");
-    let mut pages = Vec::new();
+    let (mut pages, mut shown) = (Vec::new(), Vec::new());
     loop {
         let page = page_within(&content, &query, budget, None, long_lines);
         let at = match page.pagination.unit {
@@ -275,8 +276,12 @@ fn a_match_first_walk_shows_windows_then_the_rest_exactly_once() {
                 .map(str::len)
                 .sum(),
         };
-        assert_eq!(&content[at..at + page.text.len()], page.text);
-        pages.push((at, at + page.text.len()));
+        let pieces = placed_pieces(at, &page.text);
+        for &(at, piece) in &pieces {
+            assert_eq!(&content[at..at + piece.len()], piece);
+        }
+        shown.push(pieces.len());
+        pages.extend(pieces.iter().map(|&(at, piece)| (at, at + piece.len())));
         assert!(pages.len() < 50, "the walk ends");
         let Some(next) = continuation(&query, &page.pagination) else {
             assert!(!page.pagination.has_more);
@@ -285,11 +290,8 @@ fn a_match_first_walk_shows_windows_then_the_rest_exactly_once() {
         query = next.continue_window.expect("window").query;
     }
     assert_eq!(pages[0], (0, start), "the short line before, by lines");
-    assert_eq!(
-        &pages[1..4],
-        &runs,
-        "each run of windows is a page, in order"
-    );
+    assert_eq!(&shown[..2], &[1, 3], "every run of windows on one page");
+    assert_eq!(&pages[1..4], &runs, "in order");
     assert_eq!(
         pages[4].0,
         start + 100,

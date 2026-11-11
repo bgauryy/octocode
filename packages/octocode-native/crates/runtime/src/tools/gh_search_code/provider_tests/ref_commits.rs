@@ -51,8 +51,8 @@ async fn the_ref_commit_resolves_while_the_search_runs() {
     .await
     .expect("search");
     assert_eq!(out.data["files"][0]["commitSha"], SHA, "{}", out.data);
-    // The page's core-quota cost: one contents read (an `extras:["stats"]` field).
-    assert_eq!(out.data["contentReads"], 1, "{}", out.data);
+    // What the page cost is no evidence: no read count is stated.
+    assert!(out.data.get("contentReads").is_none(), "{}", out.data);
     assert_eq!(
         out.data["files"][0]["lines"],
         json!(["1\tfn wrap_app() {}"])
@@ -128,7 +128,8 @@ async fn default_branch_lines_are_read_at_the_indexed_commit() {
     for file in data["files"].as_array().expect("files") {
         assert_eq!(file["commitSha"], SHA, "{file}");
     }
-    assert_eq!(data["contentReads"], 2, "{data}");
+    // Each read is the mocks' `expect`; none is stated on the row.
+    assert!(data.get("contentReads").is_none(), "{data}");
     let listed = data["files"]
         .as_array()
         .expect("files")

@@ -259,13 +259,21 @@ async fn only_read_only_row_tools_are_sources_and_their_contract_checks_the_quer
         };
         assert!(refused, "{tool} must be refused as a source");
     }
-    let out = clasify(
+    // The query is the tool's own row: admission refuses a field that tool
+    // would refuse, naming it under source.query, before any read or request.
+    let refused = crate::support::Run::run(
         &runtime,
-        vec![rows_row("localSearch", json!({"path":".","noSuchField":1}), "summary")],
+        "refused-field".into(),
+        "clasify".into(),
+        json!({"queries":[rows_row("localSearch", json!({"path":".","noSuchField":1}), "summary")]}),
     )
-    .await;
-    let data = &out["results"][0]["data"];
-    assert_eq!(data["errorCode"], "invalidClassificationContext", "{out}");
+    .await
+    .expect_err("admission refuses the query");
+    let shown = format!("{refused:?}");
+    assert!(
+        shown.contains("noSuchField") && shown.contains("the row a direct localSearch call takes"),
+        "{shown}"
+    );
     assert!(sent(&server).await.is_empty());
     runtime.close().await;
 }

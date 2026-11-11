@@ -149,8 +149,22 @@ fn visit(root: &Value, schema: &Value) -> Result<(), ContractValidationError> {
                     }
                 }
             }
+            "x-toolQuery" => require(
+                ["id", "tool", "query"]
+                    .iter()
+                    .all(|field| value[*field].is_string()),
+                "x-toolQuery requires id, tool and query",
+            )?,
             "x-patternMessage" => {
                 require(value.is_string(), "x-patternMessage must be a string")?;
+            }
+            "x-replacedValues" => {
+                require(
+                    value
+                        .as_object()
+                        .is_some_and(|replaced| replaced.values().all(Value::is_string)),
+                    "x-replacedValues must map former values to current ones",
+                )?;
             }
             "const" | "default" | "x-versionSupport" | "x-requiredMessage" | "x-listing"
             | "x-cursor" => {}

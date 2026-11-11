@@ -1,6 +1,6 @@
 ---
 name: octocode-agentic
-description: "Design, debug or measure AI agents: prompts and instructions; context, memory, caching and compaction; tools/MCP; model routing, delegation and loop control; grounding and security; evals, judges and skill activation; conversation audits; A2A/ACP and local coordination setup (identity, peers, path leases, messages, hooks). Use octocode-skills for packaging and octocode-workflows for execution."
+description: "Use when designing, diagnosing or evaluating AI agent behavior: prompts, context, memory, tool/MCP contracts, model routing, loop control, grounding, security and evals. Also covers agent protocols and local coordination setup. Use octocode-skills for SKILL.md authoring and octocode-workflows for task orchestration."
 ---
 
 # Octocode Agentic

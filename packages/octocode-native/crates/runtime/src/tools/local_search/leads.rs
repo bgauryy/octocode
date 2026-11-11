@@ -187,16 +187,23 @@ impl Found<'_> {
     }
 }
 
-/// The same search from the workspace root, from page 1, when `root` (the
-/// searched file or directory) lies inside the workspace below its root;
+/// The same search one folder up from `root` (the searched file or
+/// directory), from page 1, when `root` lies inside the workspace below its
+/// root: the scope widens by one level, never to the whole workspace at once.
 /// `None` at the root itself or outside the workspace.
-pub(super) fn workspace_root_lead(
+pub(super) fn parent_folder_lead(
     query: &LocalSearchQuery,
     paths: &PathPolicy,
     root: &std::path::Path,
 ) -> Result<Option<Value>, ToolError> {
     match paths.workspace_relative(root) {
-        Some(relative) if relative != "." => restart_lead(query, json!({"path": "."})).map(Some),
+        Some(relative) if relative != "." => {
+            let parent = relative
+                .rsplit_once('/')
+                .map_or(".", |(parent, _)| parent)
+                .to_owned();
+            restart_lead(query, json!({"path": parent})).map(Some)
+        }
         _ => Ok(None),
     }
 }

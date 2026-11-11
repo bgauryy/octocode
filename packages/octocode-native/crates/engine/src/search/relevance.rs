@@ -1,13 +1,13 @@
 //! Cheap per-file signals behind `sort: "relevance"` (see
 //! `text_search::result::compare_recs`). For a bare-identifier search, a source
-//! file with a [`DECLARATION_WEIGHT`] hit ranks before the match count; the
-//! rest order files after the count and before the path:
+//! file with a [`DECLARATION_WEIGHT`] hit ranks first; then:
 //!
 //! 1. [`is_demoted_path`] — test, fixture, generated, bundled, and vendored
-//!    paths rank after source paths.
-//! 2. [`line_weight`] summed over a file's matched lines — a hit on the name a
-//!    declaration introduces outranks the same token in ordinary code, which
-//!    outranks it in a comment or a string literal.
+//!    paths rank after source paths, before the match count: a test file with
+//!    more hits still follows every source file.
+//! 2. [`line_weight`] summed over a file's matched lines, after the count — a
+//!    hit on the name a declaration introduces outranks the same token in
+//!    ordinary code, which outranks it in a comment or a string literal.
 //!
 //! Both are lexical: no parser, no index. The line weights allocate nothing;
 //! the path checks run once per file.

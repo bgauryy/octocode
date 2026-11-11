@@ -2,10 +2,9 @@ use serde_json::{Map, Value};
 
 /// Row `data` fields that differ on every execution of the same request:
 /// provider rate-limit state (`rateLimit`), the waits the client spent
-/// before its sends (`clientWaits`), when a reused saved answer was
-/// observed (`observedAt`), and the provider reads this run spent on the
-/// page (`contentReads`: none when the reads were reused).
-const VOLATILE_DATA_FIELDS: &[&str] = &["rateLimit", "clientWaits", "observedAt", "contentReads"];
+/// before its sends (`clientWaits`), and when a reused saved answer was
+/// observed (`observedAt`).
+const VOLATILE_DATA_FIELDS: &[&str] = &["rateLimit", "clientWaits", "observedAt"];
 
 fn rows_mut(structured: &mut Map<String, Value>) -> impl Iterator<Item = &mut Map<String, Value>> {
     structured

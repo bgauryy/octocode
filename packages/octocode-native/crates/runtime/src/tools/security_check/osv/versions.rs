@@ -178,6 +178,112 @@ pub(super) fn narrow(records: Vec<Value>, selection: &Selection<'_>, tag: &str) 
     narrowed
 }
 
+/// Whether the ranges GitHub writes as text for a repository advisory's own
+/// package (`>= 6.0.0, <= 6.4.4` under `ecosystemSpecific`) leave `tag` out:
+/// every entry's range read as semver comparators and none includes it. An
+/// entry with no range, or a range or version not read, clears nothing.
+pub(in super::super) fn written_ranges_clear(entries: &[Value], tag: &str) -> bool {
+    let Some(version) = asked(tag) else {
+        return false;
+    };
+    !entries.is_empty()
+        && entries
+            .iter()
+            .all(|entry| written_range_includes(entry, &version) == Some(false))
+}
+
+/// Whether one entry's written range includes `version`: every comparator
+/// holds. `None` when the range is absent or a part of it is not read.
+fn written_range_includes(entry: &Value, version: &Version) -> Option<bool> {
+    let range = entry
+        .get("ecosystemSpecific")?
+        .get("vulnerable_version_range")?
+        .as_str()?;
+    let comparators = super::super::advisories::comparators(range);
+    if comparators.is_empty() {
+        return None;
+    }
+    let mut includes = true;
+    for (operator, text) in comparators {
+        let at = parse(text)?;
+        includes &= match operator {
+            "" | "=" => *version == at,
+            "<" => *version < at,
+            "<=" => *version <= at,
+            ">" => *version > at,
+            ">=" => *version >= at,
+            _ => return None,
+        };
+    }
+    Some(includes)
+}
+
+/// Whether a database's range text for an `affected` entry (GitHub's
+/// `last_known_affected_version_range`, `<= 2.14.1`) states no bound the
+/// entry's one version range does not: `>=` its `introduced`, `<` its `fixed`,
+/// `<=` its `last_affected` or a version inside the range (the last release
+/// before its `fixed`). A text or version not read as semver, or an entry of
+/// more than one range, restates nothing.
+pub(in super::super) fn restates_range(text: &str, entry: &Value) -> bool {
+    let [range] = entry
+        .get("ranges")
+        .and_then(Value::as_array)
+        .map_or(&[][..], Vec::as_slice)
+    else {
+        return false;
+    };
+    if !matches!(
+        range.get("type").and_then(Value::as_str),
+        Some("SEMVER" | "ECOSYSTEM")
+    ) {
+        return false;
+    }
+    let (mut introduced, mut fixed, mut last) = (None, None, None);
+    for event in range
+        .get("events")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        for (kind, slot) in [
+            ("introduced", &mut introduced),
+            ("fixed", &mut fixed),
+            ("last_affected", &mut last),
+        ] {
+            let Some(at) = event.get(kind).and_then(Value::as_str) else {
+                continue;
+            };
+            let at = if kind == "introduced" && at == "0" {
+                Version::parse("0.0.0-0").ok()
+            } else {
+                parse(at)
+            };
+            // A second event of a kind is a second interval: not one range.
+            if at.is_none() || slot.is_some() {
+                return false;
+            }
+            *slot = at;
+        }
+    }
+    let comparators = super::super::advisories::comparators(text);
+    !comparators.is_empty()
+        && comparators.into_iter().all(|(operator, at)| {
+            let Some(at) = parse(at) else {
+                return false;
+            };
+            match operator {
+                ">=" => introduced.as_ref() == Some(&at),
+                "<" => fixed.as_ref() == Some(&at),
+                "<=" => {
+                    last.as_ref() == Some(&at)
+                        || (introduced.as_ref().is_some_and(|from| *from <= at)
+                            && fixed.as_ref().is_some_and(|to| at < *to))
+                }
+                _ => false,
+            }
+        })
+}
+
 #[cfg(test)]
 #[path = "versions_tests.rs"]
 mod tests;

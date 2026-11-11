@@ -362,7 +362,7 @@ fn check_literals(
         return Err(schema_issue(
             "schema.enum",
             path.to_vec(),
-            super::literals::enum_message(Some(value), values),
+            super::literals::enum_message(Some(value), values, schema.get("x-replacedValues")),
             schema,
             value,
         ));

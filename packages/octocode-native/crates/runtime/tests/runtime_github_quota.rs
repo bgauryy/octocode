@@ -335,8 +335,8 @@ async fn a_continuation_page_carries_none_of_the_first_pages_waits() {
 }
 
 /// B91 r2: rows of a ghGetFileContent batch wait on the batch warm-up, which
-/// resolves their ref under a secondary-limit cooldown: each row discloses
-/// the warm-up's wait as its own `secondaryLimit`. (A spent core quota is
+/// resolves their ref under a secondary-limit cooldown: the batch discloses
+/// the warm-up's wait once, as `secondaryLimit` on one row, not on every row. (A spent core quota is
 /// not waited out at all: D1.)
 #[tokio::test]
 async fn file_rows_disclose_the_batch_warm_ups_cooldown_wait() {
@@ -408,18 +408,20 @@ async fn file_rows_disclose_the_batch_warm_ups_cooldown_wait() {
     )
     .await
     .expect("batch");
-    for index in 0..2 {
-        let data = &outcome.structured_content["results"][index]["data"];
-        assert!(
-            data["clientWaits"]
+    let disclosing = (0..2)
+        .filter(|&index| {
+            outcome.structured_content["results"][index]["data"]["clientWaits"]
                 .as_array()
                 .into_iter()
                 .flatten()
-                .any(|wait| wait["kind"] == "secondaryLimit" && wait["ms"].as_i64() > Some(0)),
-            "row {index} discloses the warm-up's wait: {}",
-            outcome.structured_content
-        );
-    }
+                .any(|wait| wait["kind"] == "secondaryLimit" && wait["ms"].as_i64() > Some(0))
+        })
+        .count();
+    assert_eq!(
+        disclosing, 1,
+        "one row discloses the warm-up's wait: {}",
+        outcome.structured_content
+    );
     runtime.close().await;
 }
 

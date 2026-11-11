@@ -52,13 +52,15 @@ async fn oauth_admission_holds_permits_and_honors_cancellation_and_shared_cooldo
 
 /// B91 r2: a clone's wait out a secondary cooldown is `secondaryLimit`, its
 /// queue behind the other clones' `git` permits is `spacing`, and a wait that
-/// ends in a refusal is disclosed too.
+/// ends in a refusal is recorded too. Only the cooldown is disclosed: a
+/// queue is routine spacing.
 #[test]
 fn git_admission_waits_land_on_the_row_by_cause() {
     use octocode_contract_types::ClientWaitKind;
     let ms = |context: &crate::RequestContext, kind: ClientWaitKind| {
         context
-            .client_waits()
+            .waits
+            .summed()
             .iter()
             .filter(|wait| wait.kind == kind)
             .map(|wait| wait.ms)
@@ -110,8 +112,9 @@ fn git_admission_waits_land_on_the_row_by_cause() {
     assert!(
         ms(&refused, ClientWaitKind::Spacing) >= 200,
         "{:?}",
-        refused.client_waits()
+        refused.waits.summed()
     );
+    assert_eq!(refused.client_waits(), Vec::new(), "spacing is not disclosed");
     drop(held);
 }
 

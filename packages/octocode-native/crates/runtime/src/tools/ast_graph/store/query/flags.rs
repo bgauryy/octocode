@@ -1,6 +1,9 @@
 //! Parsing and range-checking the query flags.
 use super::*;
 
+/// The call confidence floor a query without `confidence` admits.
+pub(super) const DEFAULT_CONFIDENCE: Confidence = Confidence::High;
+
 /// The parsed query flags.
 pub(super) struct Flags {
     pub(super) kind: Option<NodeKind>,
@@ -48,7 +51,8 @@ impl Flags {
         let weakest = match options.confidence.as_deref() {
             Some("low") => Confidence::Low,
             Some("medium") => Confidence::Medium,
-            None | Some("high") => Confidence::High,
+            None => DEFAULT_CONFIDENCE,
+            Some("high") => Confidence::High,
             Some(other) => {
                 return Err(invalid(format!(
                     "unknown confidence {other:?}; expected high, medium, or low"

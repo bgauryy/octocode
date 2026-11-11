@@ -1,6 +1,6 @@
 ---
 name: rust-best-practices
-description: "Write or review Rust when ownership, types, crates, workspace structure, builds, testing, performance, memory or safety need a decision; includes CLI/TUI, subprocess and parsing boundaries, and napi-rs (for napi-rs projects; not used in this repo)."
+description: "Use when writing or reviewing Rust ownership, types, error handling, crates, workspaces, testing, performance, memory or safety. Covers CLI/TUI, subprocess and parsing boundaries; napi-rs guidance applies only to projects using napi-rs."
 ---
 
 # Rust Best Practices

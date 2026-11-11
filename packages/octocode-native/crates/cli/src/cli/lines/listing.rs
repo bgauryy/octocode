@@ -169,9 +169,12 @@ pub(super) fn site(value: &Value) -> Option<String> {
 /// `path:N:text`, or `rg --heading` blocks when any spans lines (context or
 /// a declaration body). A body's omission marker is a mark for the trailer.
 /// A symbol without content (`workspaceSymbol`) prints as a declaration.
-/// Consecutive rows of one file share its heading.
+/// Consecutive rows of one file share its heading; hits on one line print
+/// it once with each `column` ([`one_line_each`]), and a lone hit's column
+/// is left to its text when the text spells `symbol` there and nowhere else.
 pub(super) fn locations(
     matches: &[Value],
+    symbol: Option<&str>,
     out: &mut Vec<String>,
     marks: &mut Vec<String>,
 ) -> Option<()> {
@@ -233,25 +236,75 @@ pub(super) fn locations(
                 .as_str()
                 .is_some_and(|value| value.contains('\n'))
         });
-    for (path, is_hit, mut group) in groups {
+    for (path, is_hit, group) in groups {
         if !is_hit {
             outline_rows(&path, &group, None, out)?;
             continue;
         }
-        if !numbered {
+        let mut group = one_line_each(group);
+        for hit in &mut group {
+            let line = hit["line"].as_u64()?;
+            let text = value_lines(hit["value"].as_str()?, line, true)?
+                .into_iter()
+                .find(|(n, _)| *n == line)?
+                .1
+                .to_owned();
+            if let (Some(column), Some(symbol)) =
+                (hit.get("column").and_then(Value::as_u64), symbol)
+                && spelled_only_at(&text, symbol, column)
+                && let Some(hit) = hit.as_object_mut()
+            {
+                hit.shift_remove("column");
+            }
             // One source line each: `N\ttext` becomes the hit's text.
-            for hit in &mut group {
-                let line = hit["line"].as_u64()?;
-                let text = value_lines(hit["value"].as_str()?, line, true)?
-                    .first()?
-                    .1
-                    .to_owned();
+            if !numbered {
                 hit["value"] = text.into();
             }
         }
         hits(&path, &group, numbered, None, out)?;
     }
     Some(())
+}
+
+/// Consecutive hits of one line that differ only in `column`, as one hit
+/// with every column: the line prints once, `[column 19,88]`.
+fn one_line_each(group: Vec<Value>) -> Vec<Value> {
+    let mut merged: Vec<Value> = Vec::new();
+    for hit in group {
+        let same = |last: &Value| {
+            let strip = |hit: &Value| {
+                let mut hit = hit.as_object().cloned().unwrap_or_default();
+                hit.shift_remove("column");
+                hit
+            };
+            strip(last) == strip(&hit)
+        };
+        match merged.last_mut() {
+            Some(last) if same(last) => {
+                let mut columns = match last["column"].take() {
+                    Value::Array(columns) => columns,
+                    Value::Null => Vec::new(),
+                    column => vec![column],
+                };
+                columns.extend(hit.get("column").cloned());
+                last["column"] = Value::Array(columns);
+            }
+            _ => merged.push(hit),
+        }
+    }
+    merged
+}
+
+/// Whether `text` spells `symbol` once, starting at the 1-based character
+/// `column`: the column then says nothing the line does not.
+fn spelled_only_at(text: &str, symbol: &str, column: u64) -> bool {
+    let mut found = text.match_indices(symbol);
+    match (found.next(), found.next()) {
+        (Some((at, _)), None) => {
+            text.char_indices().take_while(|(i, _)| *i < at).count() as u64 + 1 == column
+        }
+        _ => false,
+    }
 }
 
 /// Fields as words: `key` for true, `key value` for a scalar or a list of

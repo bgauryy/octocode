@@ -1,6 +1,6 @@
 ---
 name: octocode-pr-review
-description: "Review a pull request, branch, local diff or changed files and decide APPROVE, COMMENT or REQUEST_CHANGES. Trace changed contracts to callers and consumers, run applicable checks, and report ranked findings with exact evidence, impact and fixes."
+description: "Use when reviewing a pull request, branch, local diff or changed files for a merge decision: APPROVE, COMMENT or REQUEST_CHANGES. Trace changed contracts to consumers, verify actionable regressions and rank findings with source evidence. Owns merge verdicts even when a blunt tone is requested."
 ---
 
 # Octocode PR Review

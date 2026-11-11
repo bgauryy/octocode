@@ -198,7 +198,8 @@ fn osv_shape(advisory: &RepositoryAdvisory, contract: &SecurityContract) -> Valu
         .iter()
         .map(|url| json!({"type": "WEB", "url": url}))
         .collect::<Vec<_>>();
-    // The record's own API address: where GitHub serves it whole.
+    // The record's own API address: where GitHub serves it whole. [`row`]
+    // leaves it out when the row's link is its page.
     if let Some(url) = &advisory.url {
         references.push(json!({"type": "ADVISORY", "url": url}));
     }
@@ -272,13 +273,11 @@ fn github_facts(row: &mut SecurityAdvisory, advisory: &RepositoryAdvisory) {
         .collect();
 }
 
-/// The fixed versions one patched-versions text names. Maintainers write it
-/// free hand: a list (`2.0.0, 1.5.3`) or ranges (`>=6.2.6, >=6.1.5 <6.2.0`,
-/// with or without a space after the operator). A bare version, or one after
-/// `=` or `>=`, is a fix; an upper bound (`<6.2.0`) says where a fix's release
-/// line ends, and any other comparator names no version that is fixed. The
-/// text itself stays whole on the `advisory` row (`ecosystemSpecific`).
-fn fixes(text: &str) -> Vec<&str> {
+/// The comparators a GitHub version text names, in order, as `(operator,
+/// version)`; a bare version has no operator. Maintainers write it free hand:
+/// a list (`2.0.0, 1.5.3`) or ranges (`>=6.2.6, >=6.1.5 <6.2.0`, `>= 8.3.0, <=
+/// 8.3.2`, with or without a space after the operator).
+pub(super) fn comparators(text: &str) -> Vec<(&str, &str)> {
     let is_operator = |token: &str| token.chars().all(|c| matches!(c, '<' | '>' | '='));
     let mut found = Vec::new();
     let mut tokens = text
@@ -294,11 +293,23 @@ fn fixes(text: &str) -> Vec<&str> {
         {
             version = next;
         }
-        if matches!(operator, "" | "=" | ">=") && !version.is_empty() {
-            found.push(version);
+        if !version.is_empty() {
+            found.push((operator, version));
         }
     }
     found
+}
+
+/// The fixed versions one patched-versions text names: a bare version, or one
+/// after `=` or `>=`, is a fix; an upper bound (`<6.2.0`) says where a fix's
+/// release line ends, and any other comparator names no version that is fixed.
+/// The text itself stays whole on the `advisory` row (`ecosystemSpecific`).
+pub(super) fn fixes(text: &str) -> Vec<&str> {
+    comparators(text)
+        .into_iter()
+        .filter(|(operator, _)| matches!(*operator, "" | "=" | ">="))
+        .map(|(_, version)| version)
+        .collect()
 }
 
 /// The fixed versions GitHub states, each once and as a version: `6.2.6` for
@@ -340,6 +351,15 @@ pub(super) fn row(
         .html_url
         .clone()
         .unwrap_or_else(|| format!("https://github.com/advisories/{}", advisory.ghsa_id));
+    // GitHub's page is both the link and the database's file: stated once.
+    if row.source.as_deref() == Some(row.link.as_str()) {
+        row.source = None;
+    }
+    // The record's API address is its link's: the link states it.
+    if let Some(api) = api_address(&row.link) {
+        row.references
+            .retain(|reference| reference.get("url").and_then(Value::as_str) != Some(&api));
+    }
     let own = row
         .affected
         .iter()
@@ -348,6 +368,21 @@ pub(super) fn row(
     row.fixed_in = patched(advisory, |name| own.contains(name));
     github_facts(&mut row, advisory);
     Ok(row)
+}
+
+/// The API address GitHub serves the advisory of page `link` at: a global
+/// advisory (`github.com/advisories/GHSA-…`) or a repository's
+/// (`github.com/<owner>/<repo>/security/advisories/GHSA-…`).
+fn api_address(link: &str) -> Option<String> {
+    let path = link.strip_prefix("https://github.com/")?;
+    let parts = path.split('/').collect::<Vec<_>>();
+    match parts.as_slice() {
+        ["advisories", id] => Some(format!("https://api.github.com/advisories/{id}")),
+        [owner, repo, "security", "advisories", id] => Some(format!(
+            "https://api.github.com/repos/{owner}/{repo}/security-advisories/{id}"
+        )),
+        _ => None,
+    }
 }
 
 /// The rows of GitHub's advisories among `rows` that share an id or alias with

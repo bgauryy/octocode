@@ -21,7 +21,7 @@ mod comments;
 
 #[cfg(test)]
 pub(super) use closing::CLOSING_REFERENCES_DOCUMENT;
-use closing::{attach_fix_pr, closing_pull_requests};
+use closing::{ClosingReferences, attach_fix_pr, closing_pull_requests};
 use comments::{CommentRead, comment_batch, first_comment_batch, issue_comments};
 
 /// A pull-request read that 404ed: when the number is an issue, say so with
@@ -175,6 +175,7 @@ pub(super) async fn issue(
         row["contentPagination"] = Value::Object(pagination);
     }
     let closed = raw.get("state").and_then(Value::as_str) == Some("closed");
+    let closed_by = closed_by.map(|references| references.closers(closed));
     if let Some(references) = closed_by.as_ref().filter(|refs| !refs.prs.is_empty()) {
         row["closedBy"] = Value::Array(references.prs.iter().map(|pr| pr.row.clone()).collect());
     }
@@ -192,9 +193,7 @@ pub(super) async fn issue(
         mark_bounded_closing(&mut out, listed, total);
     }
     if first_window {
-        let prs = closed_by
-            .as_ref()
-            .map(|references| references.prs.as_slice());
+        let prs = closed_by.as_ref().and_then(ClosingReferences::settled);
         attach_fix_pr(&mut out, query, prs, closed);
     }
     Ok(ToolData::from(out))

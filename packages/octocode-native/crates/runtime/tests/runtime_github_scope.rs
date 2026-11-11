@@ -137,7 +137,7 @@ async fn issue_closing_references_past_the_read_limit_are_disclosed() {
         .mount(&server)
         .await;
     let nodes = (1..=25)
-        .map(|n| json!({"number": 100 + n, "state": "CLOSED", "mergedAt": null}))
+        .map(|n| json!({"number": 100 + n, "state": "MERGED", "mergedAt": "2026-09-24T00:00:00Z"}))
         .collect::<Vec<_>>();
     Mock::given(method("POST"))
         .and(path("/api/graphql"))

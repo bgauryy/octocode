@@ -430,11 +430,17 @@ mod tests {
                 "{own}"
             );
         }
-        // No request sent these: the gate judges them as any text.
+        // No request sent these: the gate judges them as any text. An armor
+        // line is hidden; a URL whose password is the word `password` holds a
+        // placeholder, which no view hides (D8), sent or not.
         for own in [ARMOR, PLACEHOLDER_URL] {
             let response = json!({"related": [{"input": {"matchString": own}}]});
             let sealed = seal_for(&[json!({"matchString": "other"})], response.clone(), &JudgedLeaves::default());
-            assert_ne!(sealed, response, "{own}");
+            if own == ARMOR {
+                assert_ne!(sealed, response, "{own}");
+            } else {
+                assert_eq!(sealed, response, "{own}");
+            }
             assert_eq!(sealed, seal(response, false), "{own}");
         }
     }

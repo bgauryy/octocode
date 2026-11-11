@@ -261,7 +261,7 @@ fn probe_walks() -> usize {
 /// each admitted file ([`ProbeWork`]), so the same tree is cut at the same
 /// entry on every run.
 fn probe_walked(
-    mut options: TextSearchOptions,
+    options: TextSearchOptions,
     paths: &PathPolicy,
     defaults: bool,
     searched: Option<&[std::path::PathBuf]>,
@@ -271,8 +271,6 @@ fn probe_walked(
     bool,
     crate::policy::discovery::Withheld,
 )> {
-    #[cfg(test)]
-    PROBE_WALKS.with(|walks| walks.set(walks.get() + 1));
     let walk = Arc::new(crate::policy::discovery::WalkAdmission::search(
         paths.clone(),
         std::path::PathBuf::from(&options.path),
@@ -287,9 +285,24 @@ fn probe_walked(
         None => walk.clone(),
     };
     let work = Arc::new(ProbeWork::new());
+    let found = charged_search(options, admitted, &work, cancel)?;
+    Some((found, work.cut(), walk.skipped().withheld))
+}
+
+/// `options`' search over what `admitted` admits, each admitted entry charged
+/// to `work`, in one walker's order: the same tree is cut at the same entry on
+/// every run. `None` when the search cannot run.
+fn charged_search(
+    mut options: TextSearchOptions,
+    admitted: Arc<dyn TextSearchPathFilter>,
+    work: &Arc<ProbeWork>,
+    cancel: &impl CancellationCheck,
+) -> Option<octocode_engine::types::TextSearchResult> {
+    #[cfg(test)]
+    PROBE_WALKS.with(|walks| walks.set(walks.get() + 1));
     let filter = Arc::new(Charged {
         admitted,
-        work: Arc::clone(&work),
+        work: Arc::clone(work),
     });
     // One walker: the parallel walk admits entries in no fixed order.
     options.sort = SearchSort::Traversal;
@@ -297,7 +310,116 @@ fn probe_walked(
     let mut found = found.ok()?;
     // Named by path, as a whole walk would list them.
     found.files.sort_by(|a, b| a.path.cmp(&b.path));
-    Some((found, work.cut(), walk.skipped().withheld))
+    Some(found)
+}
+
+/// Where the same search finds a match above an empty page's searched path.
+pub(super) enum Ancestor {
+    /// The narrowest folder above the searched path with a match, workspace
+    /// relative: how many files match there, a floor when the probe was cut
+    /// inside that folder.
+    Found {
+        dir: String,
+        files: usize,
+        floor: bool,
+    },
+    /// The search finds nothing anywhere in the workspace.
+    Nowhere,
+    /// The probe was cut, or could not run, before any folder answered.
+    Unknown,
+}
+
+/// The narrowest folder above `root` (the empty page's searched file or
+/// directory, inside the workspace) where the same search finds a match. One
+/// probe's work ([`ProbeWork`]) is shared by the walks of each folder up to the
+/// workspace root, each walking only what the folder below it did not, so
+/// every entry is read once; it stops at the first folder with a match.
+pub(super) fn matching_ancestor(
+    options: &TextSearchOptions,
+    query: &LocalSearchQuery,
+    paths: &PathPolicy,
+    root: &std::path::Path,
+    cancel: &impl CancellationCheck,
+) -> Ancestor {
+    let output = if options.output == SearchOutput::FilesWithoutMatch {
+        SearchOutput::FilesWithoutMatch
+    } else {
+        SearchOutput::FilesWithMatch
+    };
+    if paths
+        .workspace_relative(root)
+        .is_none_or(|relative| relative == ".")
+    {
+        return Ancestor::Unknown;
+    }
+    let defaults = query_walk(query).default_excludes;
+    let work = Arc::new(ProbeWork::new());
+    let mut searched = root.to_path_buf();
+    while let Some(dir) = searched.parent().map(std::path::Path::to_path_buf) {
+        let Some(relative) = paths.workspace_relative(&dir) else {
+            return Ancestor::Unknown;
+        };
+        let mut level = options.probe(output);
+        level.path = dir.to_string_lossy().into_owned();
+        let walk = Arc::new(crate::policy::discovery::WalkAdmission::search(
+            paths.clone(),
+            dir.clone(),
+            defaults,
+            level.include.as_deref().unwrap_or_default(),
+        ));
+        let admitted = Arc::new(Outside {
+            walk,
+            searched: searched.clone(),
+        });
+        let Some(found) = charged_search(level, admitted, &work, cancel) else {
+            return Ancestor::Unknown;
+        };
+        let cut = work.cut() || !found.stats.cap_reasons.is_empty();
+        if !found.files.is_empty() {
+            return Ancestor::Found {
+                dir: relative,
+                files: found.files.len(),
+                floor: cut,
+            };
+        }
+        if cut {
+            return Ancestor::Unknown;
+        }
+        if relative == "." {
+            return Ancestor::Nowhere;
+        }
+        searched = dir;
+    }
+    Ancestor::Unknown
+}
+
+/// A probe walk's path filter that leaves out the path the walk below it
+/// already searched: the walk does not enter it.
+struct Outside {
+    walk: Arc<crate::policy::discovery::WalkAdmission<'static>>,
+    searched: std::path::PathBuf,
+}
+
+impl TextSearchPathFilter for Outside {
+    fn allows(&self, path: &std::path::Path, is_dir: bool) -> bool {
+        path != self.searched && self.walk.allows(path, is_dir)
+    }
+
+    fn allows_entry(&self, path: &std::path::Path, file_type: Option<std::fs::FileType>) -> bool {
+        path != self.searched && self.walk.allows_entry(path, file_type)
+    }
+
+    fn skipped_hidden(&self, path: &std::path::Path, is_dir: bool) {
+        self.walk.skipped_hidden(path, is_dir);
+    }
+
+    fn skipped_ignored(&self, path: &std::path::Path, is_dir: bool) {
+        self.walk.skipped_ignored(path, is_dir);
+    }
+
+    fn skipped_symlink(&self, path: &std::path::Path) {
+        self.walk.skipped_symlink(path);
+    }
 }
 
 /// A probe walk's path filter that charges each entry it admits to the

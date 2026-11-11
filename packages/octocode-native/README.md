@@ -160,7 +160,8 @@ Field reference: [OCTOCODE_TOOLS.md](../../docs/OCTOCODE_TOOLS.md).
 Tool commands take one JSON envelope (positional, `--input <file>`, or `--input -`). They print text on a terminal or a pipe:
 rg-style lines for search hits, the rendered result otherwise, each row followed on
 stdout by its status, page state, warnings, hints and runnable continuation commands as `# ` lines;
-counters, `related[]` leads and progress are `# ` notes on stderr (`crates/cli/src/cli/lines.rs`). A call
+counters and `related[]` leads are `# ` notes on stderr (`crates/cli/src/cli/lines.rs`), and so is progress when
+stderr is a terminal. A call
 rejected before it runs prints on stdout as a failed row does. `--json`
 prints JSON, indented on a terminal. `octocode --help` and `schema` expose every tool in
 the build. Credentials and storage prerequisites are checked when a tool runs.

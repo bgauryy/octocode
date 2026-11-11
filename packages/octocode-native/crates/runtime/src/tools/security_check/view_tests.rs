@@ -143,8 +143,56 @@ async fn a_package_summary_is_the_verdict_the_counts_and_one_lead() {
     assert_row_contract(ToolId::SecurityCheck, &details);
 }
 
+/// An advisory OSV lists only at a skipped candidate does not affect the asked
+/// version: the major-line note and its count name only the version's own, and
+/// the skip is said apart (vite 5.4.0: 6.4.4 skipped for GHSA-8g5g).
+#[tokio::test]
+async fn the_major_note_names_only_the_asked_versions_advisories() {
+    let package = || {
+        RouteHttp::new()
+            .json(
+                "/lodash",
+                json!({"name": "lodash", "dist-tags": {"latest": "6.4.5"},
+                    "versions": {"5.4.0": {"name": "lodash", "version": "5.4.0"}}}),
+            )
+            .json(
+                "/lodash/5.4.0",
+                json!({"name": "lodash", "version": "5.4.0"}),
+            )
+            .osv_pages(vec![
+                (
+                    200,
+                    json!({"vulns": [fixed("GHSA-OWN", "HIGH", &["6.4.4"])]}),
+                ),
+                (
+                    200,
+                    json!({"vulns": [fixed("GHSA-AT-CANDIDATE", "LOW", &["6.4.5"])]}),
+                ),
+                (200, json!({})),
+            ])
+    };
+    let query = |view: &str| {
+        json!({"operation": "package", "ecosystem": "npm", "packageName": "lodash",
+            "version": "5.4.0", "view": view})
+    };
+    let details = answer(&package(), query("details")).await.expect("details");
+    assert_eq!(details["upgradeTo"], "6.4.5", "{details}");
+    let note = details["upgradeNote"].as_str().expect("note");
+    assert!(
+        note.starts_with("No 5.x release is listed as fixing GHSA-OWN;"),
+        "{note}"
+    );
+    assert!(
+        note.contains("Skipped 6.4.4 (OSV lists GHSA-AT-CANDIDATE at it)."),
+        "{note}"
+    );
+    assert_eq!(note.matches("GHSA-AT-CANDIDATE").count(), 1, "{note}");
+    let summary = answer(&package(), query("summary")).await.expect("summary");
+    assert_eq!(summary["unfixedInMajorCount"], 1, "{summary}");
+}
+
 /// A dispute changes neither the verdict, the count nor the upgrade, so the
-/// summary does not read each alias; `details` does, and names the dispute.
+/// summary does not read each alias;`details` does, and names the dispute.
 #[tokio::test]
 async fn a_summary_skips_the_alias_reads_that_only_details_states() {
     let aliased = || {

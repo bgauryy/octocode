@@ -30,11 +30,11 @@ pub(super) async fn run_tool(tool: commands::ToolCommand, mode: OutputMode) -> u
     {
         return code;
     }
-    // Progress (a build's stages, a rate-limit wait) goes to stderr as notes;
-    // stdout keeps only the result.
-    octocode_io::notice::report_progress_to(|line| {
-        eprintln!("{}", octocode_io::notice::as_note(line));
-    });
+    // Progress (a build's stages, a rate-limit wait) goes to a terminal's
+    // stderr as notes; stdout keeps only the result.
+    if let Some(print) = progress_printer(stderr_is_terminal()) {
+        octocode_io::notice::report_progress_to(print);
+    }
     let host = HostOptions {
         loaded,
         ..cli_host()
@@ -46,6 +46,22 @@ pub(super) async fn run_tool(tool: commands::ToolCommand, mode: OutputMode) -> u
     let code = execute(&runtime, tool.name, input, mode).await;
     runtime.close().await;
     code
+}
+
+/// Where a CLI call's progress lines (a build's stages, a rate-limit wait, a
+/// language server starting) go: to stderr as notes when it is a `terminal`,
+/// for a person watching the call; nowhere otherwise, since a program reading
+/// the streams gets them only when the call ends, beside the result that
+/// already says what it needs. MCP relays progress by its own token.
+pub(in crate::cli) fn progress_printer(
+    terminal: bool,
+) -> Option<impl Fn(&str) + Send + Sync + 'static> {
+    terminal.then_some(|line: &str| eprintln!("{}", octocode_io::notice::as_note(line)))
+}
+
+pub(in crate::cli) fn stderr_is_terminal() -> bool {
+    use std::io::IsTerminal;
+    std::io::stderr().is_terminal()
 }
 
 /// The JSON input of a tool command, supplied inline or through --input.

@@ -10,8 +10,13 @@ fn a_sibling_hint_skips_forms_whose_other_selectors_reject_the_row() {
         json!({"queries":[{"operation":"hubs","path":".","direction":"both"}]}),
     )
     .expect_err("hubs rejects both");
-    let message =
-        crate::contracts::validate::format_input_error("graphQuery", &error, &[]).to_string();
+    let message = crate::contracts::validate::format_input_error(
+        "graphQuery",
+        &error,
+        &[],
+        &serde_json::Value::Null,
+    )
+    .to_string();
     assert!(message.contains("direction"), "{message}");
     assert!(!message.contains("requires"), "{message}");
 }

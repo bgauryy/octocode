@@ -102,7 +102,12 @@ fn rejected_calls_print_the_runtime_projection() {
     let invalid = || RuntimeError {
         code: ErrorCode::InvalidInput,
         message: error.to_string(),
-        payload: Some(Box::new(contracts::format_input_error(tool, &error, &[]))),
+        payload: Some(Box::new(contracts::format_input_error(
+            tool,
+            &error,
+            &[],
+            &serde_json::Value::Null,
+        ))),
         validation_issues: None,
     };
     let json_out = Printed::finish(tool, Err(invalid()), true, &json!({}), None);

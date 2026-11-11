@@ -558,9 +558,10 @@ async fn an_osv_failure_for_one_advisory_keeps_github_rows_and_names_the_unread_
 
 /// What GitHub publishes beyond OSV's shape reaches the row: each CVSS vector
 /// with GitHub's numeric score under `score` (never the vector), EPSS, the
-/// publisher, the credits, and the record's API address as a reference.
+/// publisher and the credits; the record's API address is its link's and is
+/// not restated as a reference.
 #[test]
-fn a_github_advisory_row_keeps_its_scores_epss_publisher_credits_and_address() {
+fn a_github_advisory_row_keeps_its_scores_epss_publisher_and_credits() {
     let advisory: RepositoryAdvisory = serde_json::from_value(json!({
         "ghsa_id": "GHSA-aaaa-bbbb-cccc",
         "url": "https://api.github.com/repos/o/r/security-advisories/GHSA-aaaa-bbbb-cccc",
@@ -591,12 +592,12 @@ fn a_github_advisory_row_keeps_its_scores_epss_publisher_credits_and_address() {
     assert_eq!(row.details.as_deref(), Some("Whole text."));
     assert_eq!(row.cwes, ["CWE-79"]);
     assert_eq!(row.fixed_in, ["2.0.0"]);
-    assert!(
-        row.references.contains(&json!({"type": "ADVISORY",
-            "url": "https://api.github.com/repos/o/r/security-advisories/GHSA-aaaa-bbbb-cccc"})),
-        "{:?}",
-        row.references
+    // The record's API address is its link's: the link states it.
+    assert_eq!(
+        row.link,
+        "https://github.com/o/r/security/advisories/GHSA-aaaa-bbbb-cccc"
     );
+    assert!(row.references.is_empty(), "{:?}", row.references);
     // The list row leaves EPSS to the record's own row.
     assert!(row.brief().get("epss").is_none());
     assert_eq!(
@@ -771,4 +772,59 @@ fn patched_ranges_state_each_fix_once_as_a_version() {
     // record's own text on the `advisory` row.
     assert!(fixes("< 2.0.0", None).is_empty());
     assert_eq!(fixes(">1.9.9, 2.0.0", None), ["2.0.0"]);
+}
+
+/// A reference that is the API address of the row's own link (a global or a
+/// repository advisory) is left out; GitHub's API address of another record
+/// stays, as the link does not state it.
+#[test]
+fn a_reference_is_left_out_only_when_it_is_the_links_api_address() {
+    let shaped = |html: Option<&str>, url: &str| -> SecurityAdvisory {
+        let mut advisory = json!({
+            "ghsa_id": "GHSA-aaaa-bbbb-cccc",
+            "url": url,
+            "references": ["https://example.test/fix"],
+            "vulnerabilities": [{"package": {"ecosystem": "npm", "name": "x"},
+                "vulnerable_version_range": "< 2.0.0"}],
+        });
+        if let Some(html) = html {
+            advisory["html_url"] = json!(html);
+        }
+        row(
+            &serde_json::from_value::<RepositoryAdvisory>(advisory).expect("advisory"),
+            &Selection::All,
+        )
+        .expect("row")
+    };
+    let urls = |row: &SecurityAdvisory| {
+        row.references
+            .iter()
+            .filter_map(|reference| reference["url"].as_str().map(str::to_owned))
+            .collect::<Vec<_>>()
+    };
+    let global = shaped(
+        Some("https://github.com/advisories/GHSA-aaaa-bbbb-cccc"),
+        "https://api.github.com/advisories/GHSA-aaaa-bbbb-cccc",
+    );
+    assert_eq!(urls(&global), ["https://example.test/fix"]);
+    let unlinked = shaped(
+        None,
+        "https://api.github.com/advisories/GHSA-aaaa-bbbb-cccc",
+    );
+    assert_eq!(
+        unlinked.link,
+        "https://github.com/advisories/GHSA-aaaa-bbbb-cccc"
+    );
+    assert_eq!(urls(&unlinked), ["https://example.test/fix"]);
+    let elsewhere = shaped(
+        None,
+        "https://api.github.com/repos/o/r/security-advisories/GHSA-aaaa-bbbb-cccc",
+    );
+    assert_eq!(
+        urls(&elsewhere),
+        [
+            "https://example.test/fix",
+            "https://api.github.com/repos/o/r/security-advisories/GHSA-aaaa-bbbb-cccc"
+        ]
+    );
 }

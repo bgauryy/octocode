@@ -425,13 +425,14 @@ async fn no_other_github_tool_is_a_clasify_source() {
                 .run("source".into(), "clasify".into(), json!({"queries":[row]}))
                 .await;
             if at == 0 && rows_tool {
-                let out = refused.expect("a row").structured_content.into_value();
-                // Its own contract refuses the query, or its own search
-                // finds nothing: no row is judged either way.
-                assert!(
-                    out["results"][0]["data"]["errorCode"].is_string(),
-                    "{tool}: {out}"
-                );
+                // Its own contract refuses the query at admission, or its
+                // own search finds nothing: no row is judged either way.
+                let judged = refused.as_ref().ok().map(|outcome| {
+                    outcome.structured_content.clone().into_value()["results"][0]["data"]
+                        ["errorCode"]
+                        .is_null()
+                });
+                assert_ne!(judged, Some(true), "{tool}: {refused:?}");
             } else {
                 assert!(refused.is_err(), "{tool}: {refused:?}");
             }

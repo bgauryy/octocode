@@ -149,3 +149,117 @@ fn pipe_implied_json_errors_are_also_told_to_a_terminal_stderr() {
         assert!(shown.is_empty(), "{args:?} --json: {shown}");
     }
 }
+
+const BUILD_APP: &str = r#"{"queries":[{"path":"app"}]}"#;
+
+/// `graphBuild` reports each stage on a terminal stderr as it goes, a `# `
+/// note per line as every stderr line of a tool call is; stdout stays the one
+/// JSON result, so a pipe reads it unchanged. Progress is for a person
+/// watching: a piped stderr, which a program reads only when the call ends,
+/// gets none.
+#[test]
+fn graph_build_reports_progress_on_a_terminal_stderr_and_the_result_on_stdout() {
+    let workspace = Workspace::new();
+    workspace.write(".git/HEAD", "ref: refs/heads/main\n");
+    workspace.write(
+        "app/lib.ts",
+        "export function f() { return g(); }\nfunction g() {}\n",
+    );
+    workspace.write(
+        "app/main.ts",
+        "import { f } from './lib';\nexport const main = () => f();\n",
+    );
+    let build = |query: &str| {
+        let mut command = workspace.cli();
+        command.args(["graphBuild", "--json", query]);
+        let (output, shown) = tty(command, Tty::Stderr);
+        assert_eq!(output.status.code(), Some(0), "{shown}");
+        let lines = shown.lines().map(str::to_owned).collect::<Vec<_>>();
+        (compact_line(stdout(&output)), lines)
+    };
+    let piped = workspace
+        .cli()
+        .args(["graphBuild", "--json", BUILD_APP])
+        .output()
+        .expect("piped graphBuild");
+    assert_eq!(piped.status.code(), Some(0), "{}", stderr(&piped));
+    assert!(
+        !stderr(&piped).contains("# graphBuild: "),
+        "no progress on a pipe: {}",
+        stderr(&piped)
+    );
+    compact_line(stdout(&piped));
+    let (receipt, lines) = build(r#"{"queries":[{"path":"app","refresh":true}]}"#);
+    let id = receipt
+        .pointer("/results/0/data/id")
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| panic!("snapshot id: {receipt}"));
+    assert!(
+        lines.iter().all(|line| line.starts_with("# graphBuild: ")),
+        "{lines:?}"
+    );
+    // Progress names the scope like every output path: workspace-relative.
+    assert!(
+        lines.iter().any(|line| line == "# graphBuild: scanning app"),
+        "{lines:?}"
+    );
+    let mut after = 0;
+    for stage in [
+        "scanning ",
+        "parsing 2 files",
+        "parsed 2/2 files",
+        "linked 2 files",
+        "encoding snapshot",
+        "published ",
+    ] {
+        let at = lines[after..]
+            .iter()
+            .position(|line| line.contains(stage))
+            .unwrap_or_else(|| panic!("stage {stage:?} after line {after} in {lines:?}"));
+        after += at + 1;
+    }
+    assert!(
+        lines.last().is_some_and(|line| line.contains(id)),
+        "{lines:?}"
+    );
+    // An unchanged scope answers with its current snapshot: the same id,
+    // its progress naming the reuse, the result still on stdout.
+    let (again_result, again_lines) = build(BUILD_APP);
+    let again_id = again_result
+        .pointer("/results/0/data/id")
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| panic!("snapshot id: {again_result}"));
+    assert_eq!(again_id, id, "{again_result}");
+    assert!(
+        again_lines
+            .iter()
+            .all(|line| line.starts_with("# graphBuild: ") && !line.contains("parsed ")),
+        "{again_lines:?}"
+    );
+    assert!(
+        again_lines
+            .last()
+            .is_some_and(|line| line.contains("reused ") && line.contains(id)),
+        "{again_lines:?}"
+    );
+    // `refresh` builds again: a new snapshot, the full progress.
+    let (refreshed_result, refreshed_lines) =
+        build(r#"{"queries":[{"path":"app","refresh":true}]}"#);
+    let refreshed_id = refreshed_result
+        .pointer("/results/0/data/id")
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| panic!("snapshot id: {refreshed_result}"));
+    assert_ne!(refreshed_id, id, "{refreshed_result}");
+    assert!(
+        refreshed_lines
+            .iter()
+            .any(|line| line.contains("parsed 2/2 files")),
+        "{refreshed_lines:?}"
+    );
+    assert!(
+        refreshed_lines
+            .last()
+            .is_some_and(|line| line.contains("published ") && line.contains(refreshed_id)),
+        "{refreshed_lines:?}"
+    );
+}

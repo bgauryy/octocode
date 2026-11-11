@@ -100,7 +100,12 @@ pub(super) const PATTERNS: &[SecretPattern] = &[SecretPattern {
     // (`wrapped_run`). After an assignment the name may instead open a
     // collection or a block (`open`), and a heredoc's tag may be the name
     // (`tag`): the detector's `named_values` walks those, and judges every
-    // name and value.
+    // name and value. An assignment may instead hold an expression whose
+    // operands are literals (`cond ? "…" : "…"`, `env.X || "…"`): `expr`
+    // starts it, and the detector judges each literal of it as the named
+    // value. A sentence may state the value after `is` or `was`, a colon
+    // after them or not, or after a bare `:` or `=` (`stated`), a word of
+    // any characters.
     regex: concat!(
         r###"\b(?P<name>[A-Za-z0-9_.$-]*(?i-u:"###,
         name_words!(),
@@ -110,9 +115,14 @@ pub(super) const PATTERNS: &[SecretPattern] = &[SecretPattern {
         wrapped_run!("secret"),
         "|",
         value_opener!(),
+        r###"|(?P<expr>[^"'`;\r\n]*?)["'`]"###,
         ")|",
         name_gap!(),
         wrapped_run!("secret_after_gap"),
+        // A sentence that states the name's value (`the password is …`,
+        // `my password was: …`) with no run of those characters after it:
+        // the word itself, which the detector judges as a request judges it.
+        r###"|(?:[ \t]+(?i-u:is|was)[ \t]*:?[ \t]+|[ \t]*[:=][ \t]*)(?P<stated>\S+)"###,
         r###")|<<[-~]?["']?(?P<tag>[A-Za-z0-9_]*(?i-u:"###,
         name_words!(),
         r###")[A-Za-z0-9_]*)["']?[ \t]*\r?\n"###

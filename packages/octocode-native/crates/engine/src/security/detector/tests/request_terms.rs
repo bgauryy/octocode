@@ -302,3 +302,53 @@ fn a_secret_a_sentence_states_is_refused_and_prose_runs() {
         runs(term);
     }
 }
+
+/// A value a config line's rule hides under a credential's name, at any
+/// length, is refused in a request: the request and the file judge it
+/// alike. A request clears only what names a type or a field (`password:
+/// str`), a word of prose, or a placeholder.
+#[test]
+fn a_short_named_secret_is_refused_as_a_file_hides_it() {
+    let short = "Hunter2Xq9vB7mK";
+    let token = "Zq8Wv3Xr7Tn2Lp5";
+    for (term, value) in [
+        (format!("password: {short}"), short),
+        (format!("password = {short}"), short),
+        (format!("token: {token}"), token),
+        (format!("api_key: {token}Ab1Cd9"), "Zq8Wv3Xr7Tn2Lp5Ab1Cd9"),
+    ] {
+        refused(&term);
+        let file = detect(&term, None).sanitized;
+        assert!(!file.contains(value), "a file shows {term:?}: {file:?}");
+    }
+    for term in [
+        format!("the password is {short}"),
+        format!("locate token: {token} in the client"),
+        format!("Does the config hold password={short}?"),
+    ] {
+        refused(&term);
+    }
+    for term in [
+        "password: str",
+        "token: Token",
+        "api_key: str = None",
+        "dispatchToken: string",
+        "the password is required",
+        "the token is expired",
+        "postgres://user:password@localhost",
+        "password: hunter2",
+        "token: v1alpha1",
+        "key: utf8mb4",
+        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+    ] {
+        runs(term);
+    }
+}
+
+/// Under a `Sec-` field only the nonce the user agent fills runs, as a file
+/// shows only that one.
+#[test]
+fn a_sec_field_with_no_nonce_is_refused() {
+    refused("Sec-WebSocket-Key: Zq8Wv3Xr7Tn2Lp5Ab1Cd9Ef4Gh6Jk8Lm0Np2Qr4St9Uv");
+    runs("Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==");
+}

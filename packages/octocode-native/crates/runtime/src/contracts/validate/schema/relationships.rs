@@ -67,7 +67,60 @@ pub(super) fn validate(
     if let Some(tree) = schema.get("x-tree") {
         validate_tree(tree, value, path)?;
     }
+    if let Some(rule) = schema.get("x-toolQuery") {
+        validate_tool_query(rule, value, path)?;
+    }
     Ok(())
+}
+
+/// Another tool's query row, named by a sibling field (a clasify `source:
+/// {tool, query}`): checked against that tool's own contract, as the source
+/// reader checks it when it runs, so admission refuses what capture would.
+/// Each issue keeps the tool's own path and message, then names the fix.
+fn validate_tool_query(
+    rule: &Value,
+    value: &Value,
+    path: &[String],
+) -> Result<(), ContractValidationError> {
+    let field = |name: &str| {
+        rule[name]
+            .as_str()
+            .ok_or_else(|| internal(format!("x-toolQuery requires {name}")))
+    };
+    let (tool_field, query_field) = (field("tool")?, field("query")?);
+    let (Some(tool), Some(query)) = (
+        value.get(tool_field).and_then(Value::as_str),
+        value.get(query_field),
+    ) else {
+        return Ok(());
+    };
+    let Err(error) = super::super::validate_saved_query(tool, query.clone()) else {
+        return Ok(());
+    };
+    if error.is_contract_error() {
+        return Err(error);
+    }
+    let id = field("id")?;
+    Err(ContractValidationError {
+        issues: error
+            .issues
+            .into_iter()
+            .flat_map(|inner| {
+                let mut at = path.to_vec();
+                at.push(query_field.to_owned());
+                at.extend(inner.path);
+                issue(
+                    id,
+                    at,
+                    format!(
+                        "{}. query is the row a direct {tool} call takes.",
+                        inner.message.trim_end_matches('.')
+                    ),
+                )
+                .issues
+            })
+            .collect(),
+    })
 }
 
 fn validate_order(

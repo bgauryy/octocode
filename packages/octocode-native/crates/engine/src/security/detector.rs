@@ -9,7 +9,8 @@ mod key_facts;
 use code_syntax::{CodeSyntax, SyntaxGates};
 use credential_values::VALUE_TESTS;
 use credential_values::{
-    ValueTest, before_next_key, expanded_names, is_expanded_name, is_identifier_name, is_sentence,
+    ValueTest, before_next_key, expanded_names, is_expanded_name, is_identifier_name,
+    is_redaction_marker, is_sentence, is_value_of_its_own, literal_parts,
 };
 use key_facts::SpanKeys;
 
@@ -381,13 +382,74 @@ impl<'a> Judge<'a> {
     /// it ends inside ([`continued_end`]), and no further than the close of
     /// the string literal it starts in. A config line in a literal ends with
     /// the literal (`r"…Password=x\"`, `` `…Pwd=x` ``), so a rule reading to the
-    /// line's end never takes the closing quote or the code after it.
+    /// line's end never takes the closing quote or the code after it. A
+    /// control-character escape inside it (`"<value>\r\nHost: …"`, `\t`,
+    /// `\u000a`) ends it when what precedes the escape is still a credential
+    /// (`credential`, given that part's range): the text after is the next
+    /// field's ([`Judge::before_inner_escape`]). Otherwise a line-ending escape
+    /// it ends with is no part of it ([`Judge::before_escaped_line_end`]).
     pub(super) fn value_end(
         &self,
         text: &str,
         base: usize,
         secret: &std::ops::Range<usize>,
+        credential: impl Fn(&std::ops::Range<usize>) -> bool,
     ) -> usize {
+        let end = self.read_end(text, base, secret);
+        let end = self
+            .opaque_word_end(text, secret.start, end, &credential)
+            .unwrap_or(end);
+        self.before_inner_escape(text, base, secret.start, end)
+            .filter(|&at| credential(&(secret.start..at)))
+            .unwrap_or_else(|| self.before_escaped_line_end(text, base, secret.start, end))
+    }
+
+    /// Where a plain scalar ([`ValueTest::Scalar`], no quote opening it)
+    /// read from `start` to `end` ends when its first word, up to a blank or
+    /// a `;`, is one opaque word ([`named_values::is_opaque_word`]) and a
+    /// credential alone (`credential`): the value is that token, and what
+    /// follows it (`<token>  note`, `<token>; more`) is the line's own text.
+    /// A scalar of words (`correct horse 9`) is one value.
+    fn opaque_word_end(
+        &self,
+        text: &str,
+        start: usize,
+        end: usize,
+        credential: &impl Fn(&std::ops::Range<usize>) -> bool,
+    ) -> Option<usize> {
+        let quoted = start
+            .checked_sub(1)
+            .and_then(|before| text.as_bytes().get(before))
+            .is_some_and(|byte| matches!(byte, b'"' | b'\''));
+        if self.value_test != ValueTest::Scalar || quoted {
+            return None;
+        }
+        let value = text.get(start..end)?;
+        let cut = value.find(|c: char| c.is_whitespace() || c == ';')?;
+        let token = start..start + cut;
+        (cut > 0
+            && value.get(..cut).is_some_and(named_values::is_opaque_word)
+            && credential(&token))
+        .then_some(token.end)
+    }
+
+    /// Where the value read from `start` to `end` ends at a control-character
+    /// escape inside it, as the named-value rule ends one
+    /// ([`named_values::field_end`]): where a source's syntax is known, only
+    /// at a backslash it reads as an escape (in a raw string the backslash is
+    /// the value's own); in any other text at every one.
+    fn before_inner_escape(&self, text: &str, base: usize, start: usize, end: usize) -> Option<usize> {
+        let at = start + named_values::field_end(text.get(start..end)?)?;
+        (at > start
+            && self
+                .syntax
+                .as_ref()
+                .is_none_or(|syntax| syntax.escape_starts_at(base + at)))
+        .then_some(at)
+    }
+
+    /// Where [`Judge::value_end`] reads the value at `secret` to.
+    fn read_end(&self, text: &str, base: usize, secret: &std::ops::Range<usize>) -> usize {
         let own = self.own_value(text, secret);
         if own.end < secret.end {
             return own.end;
@@ -409,6 +471,30 @@ impl<'a> Judge<'a> {
             .and_then(|close| close.checked_sub(base))
             .filter(|&close| secret.start < close && close < end)
             .unwrap_or(end)
+    }
+
+    /// Where a value read from `start` to `end` ends without the line-ending
+    /// escapes (`\r\n`, `\n`) it ends with (`api_key = "<value>\r\n"`), each
+    /// one the source's syntax holds as an escape: the line break it writes
+    /// ends the value's line. What the value holds before them stays its
+    /// own, and a backslash the syntax does not read as an escape (a raw
+    /// string, no parse) stays in the value.
+    fn before_escaped_line_end(&self, text: &str, base: usize, start: usize, end: usize) -> usize {
+        let Some(syntax) = self.syntax.as_ref() else {
+            return end;
+        };
+        let bytes = text.as_bytes();
+        let mut end = end;
+        while let Some(at) = end.checked_sub(2).filter(|at| *at > start) {
+            let escape = bytes.get(at) == Some(&b'\\')
+                && matches!(bytes.get(at + 1), Some(b'n' | b'r'))
+                && syntax.escape_starts_at(base + at);
+            if !escape {
+                break;
+            }
+            end = at;
+        }
+        end
     }
 
     /// Where a field of a value's own grammar ([`ValueTest::Field`]: a
@@ -459,6 +545,84 @@ impl<'a> Judge<'a> {
         text: &str,
         mut found: impl FnMut(std::ops::Range<usize>, std::ops::Range<usize>),
     ) {
+        let found = |whole: std::ops::Range<usize>, secret: std::ops::Range<usize>| match self
+            .own_parts(text, &secret)
+        {
+            Some(parts) => {
+                for part in parts {
+                    found(whole.clone(), part);
+                }
+            }
+            None => found(whole, secret),
+        };
+        self.judged_secrets(regex, text, found);
+    }
+
+    /// The parts of the quoted value at `secret` in `text` that are values
+    /// of their own ([`is_value_of_its_own`]), each judged alone as the
+    /// rule judges a value: a literal's value ends at its closing quote, so
+    /// a piece joined after it (`"<key>" + "-suffix"`) or a hole it
+    /// interpolates (`` `<key>${id}` ``) is the program's text. `None` when
+    /// the value is one: no part of it is a value alone, and the pieces
+    /// joined are judged as one ([`ValueTest::Quoted`]). A part an earlier
+    /// pass replaced stays as it is.
+    #[cfg_attr(
+        octocode_clippy_ratchet,
+        expect(
+            clippy::string_slice,
+            reason = "`secret` is a found range and its parts lie on ASCII quotes and braces"
+        )
+    )]
+    fn own_parts(
+        &self,
+        text: &str,
+        secret: &std::ops::Range<usize>,
+    ) -> Option<Vec<std::ops::Range<usize>>> {
+        if self.value_test != ValueTest::Quoted {
+            return None;
+        }
+        let value = text.get(secret.clone())?;
+        let line = text[..secret.start]
+            .rfind(LINE_END_CHARS)
+            .map_or(0, |at| at + 1);
+        let key = &text[line..secret.start];
+        let parts = literal_parts(key, value);
+        if parts.len() == 1 && parts[0] == (0..value.len()) {
+            return None;
+        }
+        let shift =
+            |part: &std::ops::Range<usize>| secret.start + part.start..secret.start + part.end;
+        // A part an earlier pass replaced is a value it judged alone.
+        let alone = |part: &std::ops::Range<usize>| {
+            let at = shift(part);
+            text.get(at.clone()).is_some_and(|part| {
+                is_redaction_marker(part)
+                    || (is_value_of_its_own(key, part) && self.redacts(text, key, &at, &at))
+            })
+        };
+        if !parts.iter().any(alone) {
+            return None;
+        }
+        Some(
+            parts
+                .iter()
+                .map(shift)
+                .filter(|at| {
+                    text.get(at.clone())
+                        .is_some_and(|part| !is_redaction_marker(part))
+                        && self.redacts(text, key, at, at)
+                })
+                .collect(),
+        )
+    }
+
+    /// [`Judge::secrets`] before a quoted value is cut into its own parts.
+    fn judged_secrets(
+        &self,
+        regex: &regex::Regex,
+        text: &str,
+        mut found: impl FnMut(std::ops::Range<usize>, std::ops::Range<usize>),
+    ) {
         // A name's values are walked, not only matched: the walk judges them.
         if self.value_test == ValueTest::Named {
             named_values::secrets(regex, text, found);
@@ -470,7 +634,7 @@ impl<'a> Judge<'a> {
                 text,
                 line_start_of,
                 |k, s, at| self.redacts(text, k, s, at),
-                |secret| self.value_end(text, 0, secret),
+                |secret, credential| self.value_end(text, 0, secret, credential),
                 found,
             );
             return;
@@ -481,7 +645,7 @@ impl<'a> Judge<'a> {
             text,
             line_start_of,
             |k, s, at| self.redacts(text, k, s, at),
-            |secret| self.value_end(text, 0, secret),
+            |secret, credential| self.value_end(text, 0, secret, credential),
             |whole, secret| {
                 all.push((whole, secret));
             },
@@ -518,7 +682,7 @@ impl<'a> Judge<'a> {
                             && self.redacts(text, k, &shift(s), &shift(at))
                     })
                 },
-                |secret| self.value_end(window, base, secret),
+                |secret, credential| self.value_end(window, base, secret, credential),
                 |whole, secret| all.push((shift(&whole), shift(&secret))),
             );
         }
@@ -862,7 +1026,7 @@ fn accepted_secrets(
     text: &str,
     key_start: impl Fn(usize, usize) -> usize,
     redacts: impl Fn(&str, &std::ops::Range<usize>, &std::ops::Range<usize>) -> bool,
-    value_end: impl Fn(&std::ops::Range<usize>) -> usize,
+    value_end: impl Fn(&std::ops::Range<usize>, &dyn Fn(&std::ops::Range<usize>) -> bool) -> usize,
     mut found: impl FnMut(std::ops::Range<usize>, std::ops::Range<usize>),
 ) {
     let groups = secret_groups(regex);
@@ -909,17 +1073,15 @@ fn accepted_secrets(
         if secret.end <= covered_to {
             continue;
         }
+        let key = &text[key_start(raw.whole.start, line_start).min(secret.start)..secret.start];
         if raw.is_kept(
             &diff_lines,
             diff_lines.prefixed(&captures),
             text,
             line_start,
-        ) && redacts(
-            &text[key_start(raw.whole.start, line_start).min(secret.start)..secret.start],
-            secret,
-            &raw.whole,
-        ) {
-            let end = value_end(secret);
+        ) && redacts(key, secret, &raw.whole)
+        {
+            let end = value_end(secret, &|part| redacts(key, part, &raw.whole));
             if secret.start < end && end < secret.end {
                 from = end;
             }
@@ -966,7 +1128,9 @@ impl RawMatch {
     }
 
     /// Whether what the text says of the match leaves it a candidate: no
-    /// placeholder, and no diff line before any hunk. `line_start` is where
+    /// placeholder ([`is_redaction_marker`]: the tool's own text, its quotes,
+    /// a line's escape and the next field aside), and no diff line before any
+    /// hunk. `line_start` is where
     /// the match's line starts; `prefixed`, whether its diff group took part.
     #[cfg_attr(
         octocode_clippy_ratchet,
@@ -982,7 +1146,7 @@ impl RawMatch {
         text: &str,
         line_start: usize,
     ) -> bool {
-        !is_placeholder(&text[self.secret.clone()])
+        !is_redaction_marker(&text[self.secret.clone()])
             && !diff_lines.outside_hunk(prefixed, line_start)
     }
 }
@@ -1048,7 +1212,7 @@ fn replace_secrets(
             content,
             line_start_of,
             |key, secret, whole| redacts(key, &content[secret.clone()], whole),
-            |secret| continued_end(content, secret.end, |_| true),
+            |secret, _| continued_end(content, secret.end, |_| true),
             found,
         );
     })

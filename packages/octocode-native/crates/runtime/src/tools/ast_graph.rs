@@ -40,7 +40,9 @@ use crate::tools::import_resolution::{aliases, js_paths, paths};
 /// 30: a file's facts are stored as its source judged whole shows them: every
 /// value the whole-source secret pass replaces is replaced in the names and
 /// texts extracted from it.
-const ANALYSIS_VERSION: u32 = 30;
+/// 31: a named re-export links its file to each declaration it re-exports
+/// (`uses`, detail `reexported-name`), so the public API is known per name.
+const ANALYSIS_VERSION: u32 = 31;
 
 /// graphBuild's and graphQuery's recovery for the shared response stages.
 pub(crate) struct Output;

@@ -1,167 +1,70 @@
-Use the relevant section when choosing a tool or query shape, screening unread sources, moving evidence between surfaces, or estimating call cost. Live schemas own fields; [shared usage](octocode-usage.md) owns envelopes, paging and absence; [evidence](evidence.md) owns proof.
-
-Over MCP, call the same tools with the JSON shown; the `npx` lines are the CLI form.
+Load for tool selection, scouting or cross-source research. Live schemas own fields; [usage](octocode-usage.md) owns invocation and recovery; [evidence](evidence.md) owns proof.
 
 ## Route: where the evidence is
 
-```mermaid
-flowchart TD
-  Q{Evidence location}
-  Q -- this checkout --> LQ
-  Q -- a published package --> PQ
-  Q -- another repo --> GQ
+| Question | Tool → next step |
+|---|---|
+| Known local file or span | `localFetch`; skip discovery |
+| Layout, half-known path, largest/newest file | `structureSearch` → `localFetch` |
+| Spelling, counts, files containing a term | `localSearch` → deciding source span |
+| Declarations, imports, calls or nesting by shape | `astSearch` → source; LSP for identity |
+| Definition, references, callers or inferred type | `lspSearch` at an observed symbol and line → source |
+| Dependencies, cycles or impact | `graphBuild` → `graphQuery`, when listed → source and LSP |
+| Unknown repository | `ghSearchRepo` → tree or code search |
+| GitHub paths, refs or a past revision | `ghStructure` → `ghGetFileContent` at the resolved revision |
+| Text on GitHub's default branch | `ghSearchCode` → `ghGetFileContent` |
+| Why, when or who changed code | `ghSearchHistory` → `ghGetHistoryItem` |
+| Known PR, issue, commit or two refs | `ghGetHistoryItem`; page files, patches and discussion independently |
+| Package source or version | `artifactSearch` → verified repository/ref → source |
+| Known vulnerabilities | `securityCheck` at the version in use; an empty result is not proof of safety |
+| Many searches or AST analysis in another repo | `ghStructure` materialize → returned `localPath` → local tools |
+| Unread evidence requiring judgment by meaning | `classification` or `clasify` → exact read |
 
-  subgraph Local
-    LQ{Local need}
-    LQ -- path unknown --> SS[structureSearch]
-    LQ -- spelling, count, absence --> LS[localSearch]
-    LQ -- code shape --> AST[astSearch]
-    LQ -- identity, callers, type --> LSP[lspSearch]
-    LQ -- importers, cycles, dead code, impact --> GRAPH[graphBuild, then graphQuery, if listed]
-    LS -- hit line --> LSP
-    AST -- hit line --> LSP
-    GRAPH -- confirm edge --> LSP
-  end
-
-  subgraph Package
-    PQ{Package name}
-    PQ -- unknown --> PS[artifactSearch search]
-    PQ -- known --> PR[artifactSearch resolve]
-    PQ -- known, a vulnerability question --> PA[securityCheck, if listed]
-    PS --> PR
-  end
-
-  subgraph GitHub
-    GQ{GitHub need}
-    GQ -- owner or repo unknown --> GR[ghSearchRepo]
-    GR --> GQ
-    GQ -- tree, refs, path at a revision --> GS[ghStructure]
-    GQ -- text on the default branch --> GC[ghSearchCode]
-    GQ -- why, when, who --> GH[ghSearchHistory]
-    GQ -- known PR, commit, or two refs --> GI[ghGetHistoryItem]
-    GQ -- code shape, many searches --> GM[ghStructure materialize]
-    GH --> GI
-  end
-
-  LQ -- dependency version or source --> PQ
-  LQ -- why it changed --> GH
-  PR -- owner, repo, ref --> GQ
-  PR -- no GitHub lead --> GR
-  GM -- localPath --> LQ
-
-  SS & LS & AST & GS & GC --> MANY{Ambiguity that changes the next read}
-  MANY -- present --> SCOUT[Scout graph]
-  MANY -- none --> READ
-  SCOUT --> READ
-  LSP & GI --> READ[Read the deciding span: localFetch, ghGetFileContent]
-  READ --> DONE{Claim state}
-  DONE -- open --> Q
-  DONE -- settled, edit --> PATCH[Patch] --> VERIFY
-  DONE -- settled, answer --> VERIFY[Verify, cite path:line or commitSha]
-```
-
-Prefer a local checkout; after a 404, never substitute another ref for a claim about that ref (a default-branch lead fits only a guessed ref). Trace only `entry → transformations → state → output → consumers`, and switch tools only when the next claim needs different evidence.
+Prefer the local checkout for code and GitHub for discussion. Trace `entry → transformations → state → output → consumers`; change tools when the next claim needs different evidence. Batch independent queries, wait for dependent results, and reuse observed paths, lines and refs.
 
 ## Shape: the least that answers
 
-Before every call, name what the answer must contain.
-
-```mermaid
-flowchart TD
-  A{What the answer must contain}
-  A -- which files --> F["view:files; ghSearchCode fields:[path]"]
-  A -- how many --> N["view:countLines or countMatches"]
-  A -- distinct values --> V["view:matchOnly, unique:count"]
-  A -- layout --> L["structureSearch view:paths; ghStructure include"]
-  A -- a file's outline --> O{File kind}
-  O -- Markdown, small code or data --> OS["view:symbols, then ranges"]
-  O -- large code --> OK["astSearch symbols + symbolKinds"]
-  O -- large data --> OM[matchString on the key]
-  A -- one declaration --> D{What you know}
-  D -- a unique literal --> DB["matchString + block:true"]
-  D -- a name with many hits --> DS["astSearch symbolFilter, then ranges"]
-  D -- its lines --> DR[ranges]
-  A -- lines around a term --> M["matchString + contextLines; wholeWord for common words"]
-  A -- a term in minified code --> MIN["view:matchOnly, regex around the term"]
-  A -- one fact in a long unread source --> CL["clasify evaluate + source, when listed"]
-  A -- an inferred type --> H[lspSearch hover]
-  A -- who uses a symbol --> W["lspSearch references view:files; callers for calls only"]
-  A -- one change --> CH["sections + include, then matchString"]
-  A -- a whole file --> WH{Purpose}
-  WH -- quote or edit --> CT[view:content]
-  WH -- read only, comment-heavy --> CP[view:compact]
-```
-
-A smaller view answers only what it selects: `view:"files"` holds no lines, `symbols` no bodies, `matchOnly` no owner, `compact` no quotes. Widen when the claim needs more, and finish the pages that claim covers. Selectors choose evidence; they never replace it.
-
-- `block:true` wants a unique literal. It expands declaration heads; on a common term most hits keep their context windows. A declaration longer than a page continues with `next.nextPage`. Check the span closes the declaration, else use `astSearch` symbols `line`/`endLine`; never guess an end.
-- `compact` shrinks code by removing comments and spare whitespace: median 26% over 57 source files of this repository (range 0–55%), most on comment-heavy files; Markdown, JSON and minified files effectively not at all. Quote or edit only from `content`.
-- `symbols` scales with declarations: past a few thousand lines of code, or on large JSON, a filtered search costs less. `lspSearch documentSymbols` costs more still; use it when the server's view matters. A missing outline entry is not absence.
-- A file over the parser limit: `symbols` serves `compact` (check `viewFallback`) and `astSearch` answers `fileTooLarge`; use `matchString`.
-- Minified: a regex window such as `.{0,30}term.{0,30}` returns the term with its neighbors; `symbols` and `compact` do not help.
-- Only `hover` states an inferred type; `definition` locates and `localFetch` shows the literal line.
-- Reads are `<line>\t<text>`, and one `--` line separates windows. Several regions fit one call: `"ranges":[{"startLine":95,"endLine":105},{"startLine":255,"endLine":265}]`.
-- A Markdown section runs from its heading line through the line before the next heading of the same or higher level. Outlines recognize `#` headings only; underline-style headings need content reads. `block` expands code declarations, not sections.
-- `localSearch` content rows name their owner through `enclosing`, an index into the file's `declarations`. `lspSearch` location rows group under `files[].path`, as call rows do.
-
-| You have | Next read |
+| Needed evidence | Select |
 |---|---|
-| A path from `structureSearch` | `localFetch` `symbols`, then `ranges` |
-| Text from `localSearch` | `localFetch` `matchString` with the same options, or the returned declaration's lines |
-| A match from `astSearch` | `localFetch` `ranges` at its span; LSP when identity matters |
-| A location from `lspSearch` | `localFetch` `ranges` at its lines; `block:true` expands the declaration |
-| A node from `graphQuery` | Its file against the graph root, then its span, then LSP |
-| An answer from `clasify` | Its `next.read`, before any source claim |
+| File names | `localSearch view:files`; `ghSearchCode fields:[path]`; `structureSearch view:paths` |
+| Counts or distinct values | `countLines`, `countMatches`, or `matchOnly` + `unique:count` on `localSearch` |
+| Outline | `localFetch view:symbols`; large code: filtered `astSearch` symbols |
+| One declaration | Unique `matchString` + `block:true`, or AST span → `ranges` |
+| Neighboring lines | `matchString` + `contextLines`; reuse search case, whole-word and regex options |
+| Several known spans | One `ranges:[{startLine,endLine},…]` read |
+| Who uses a symbol | `lspSearch references view:files`; `callers` for calls only |
+| Inferred type | `lspSearch hover`; definition alone only locates source |
+| One change | History `sections` + `include`, then matching patch lines |
+| Read comment-heavy code | `view:compact`; quote or edit from `view:content` |
+| Minified text | `localSearch view:matchOnly` with a regex window around the term |
+
+Views select evidence: files have no bodies, symbols no implementations, compact no exact quotes. Widen only when the claim needs more; smaller pages never replace completing the selected evidence.
+
+- `block:true` expands declarations, not Markdown sections. Verify the declaration closes; follow its continuation or use the AST's `line`/`endLine`, never a guessed end.
+- Markdown sections end before the next heading of equal or higher level. Outlines recognize `#` headings; read underline-style headings as content.
+- On parser limits inspect `viewFallback` or `fileTooLarge`; use exact search rather than treating a missing outline as absence.
+- `localSearch` owners use `enclosing` indexes into `declarations`; LSP locations group under `files[].path`. Read the returned span before citing it.
+- `workspaceSymbol` takes `symbolQuery`, not `symbolName`; confirm fuzzy candidates at a source anchor.
 
 ## Scout: judge what you have not read
 
-```mermaid
-flowchart TD
-  S{Unread material}
-  S -- a fact with a fixed spelling --> X[Exact search or read: no model]
-  S -- counts, identity, absence --> X2[Exact tools: AST, LSP, unfiltered search]
-  S -- many hits or lines to judge by meaning --> I["classification on the search, read or listing call"]
-  S -- one large source, a named fact --> E["clasify evaluate + source"]
-  S -- which regions across sources --> SE["clasify sections + resources"]
-  S -- a screenshot, chart or image --> IM["clasify evaluate + assets"]
-  I --> K{selection.reason}
-  K -- candidateBudget: more to judge --> NC[next.nextCandidatePage] --> K
-  K -- classificationUnknown, or none --> U{Unknowns that could change the claim, or a claim about absence or a count}
-  U -- present --> UF[next.unfilteredUnknown; next.unfiltered only for counts or absence]
-  U -- none --> R
-  E & SE & IM --> LB{Labels as the answer}
-  LB -- whole answer --> END[Report the labels]
-  LB -- more needed --> R[next.read or target lines, then cite]
-```
+Use exact tools for literal facts, counts, identity and absence. Narrow by path, glob or term first; scout only when judgment by meaning can change the next read. Discover concrete files before treating a directory as a source.
 
-- The loop is find, judge, read, cite: find candidates with exact search, paths and globs; judge them with `classification` or `clasify`; read the judged lines; cite path and lines. An unknown or partial answer goes back to find; lines that do not confirm the answer go back to judge.
-- When `clasify` or `classification` is listed, screen before reading whole: it replaces reading, not searching. Main-agent tokens saved, in single benchmark runs: a named fact in a 33 KB doc 98%, `classification` over too many hits 41–85%, `sections` over 30–100 files 73–84%. `view:"files"` beats them all when file names answer.
-- Narrow by path, glob or term first; the model is for meaning, not spelling. A directory is not one source: discover concrete paths first.
-- Ask one observable fact per question, standing alone: the provider has no conversation history or sibling answers. Say what does not count ("assigns a timeout, not one it forwards"). Vague questions are the main cause of confident wrong answers. Give `choice` an `unknown` option and a near miss; treat answers between 0.3 and 0.7 as unsure.
-- `classification` judges captured hits plus `contextLines`, not hidden whole files, so give a condition spanning lines enough context. A file's hits share one model call, each with its own verdict; `responseChars` shapes output, not provider context. The receipt counts selected, related, excluded and unknown: unknown is never a no, and a partial list is not corpus absence.
-- `clasify` question types are `noul`, `choice`, `score` and `box`, keyed under `questions`, with exactly one of `content` (literal data; paths inside it are not fetched) or `source` (a reader query or HTTPS URL). Follow `sections` `next.nextPage` unchanged until no resource reports `remainingSections`; `unassessed` and `error` cells were not judged. `sections` hits are candidates: read their lines, then ask one atomic `evaluate` follow-up about just those lines if a fact stays open. Assets take PNG or JPEG; check flaws one image per query. `box` locates a region of the image and still returns a box for an absent target, so ask a `noul` about presence first.
-- Keep counts, totals, maxima, causes, symbol identity and pixel layout with exact tools. A score is a judgment: ground it with `localSearch` before reporting it. Provider confidence is not correctness.
-- Recover: check `errorCode`, `selection.status` and coverage before trusting an answer. A transient provider failure may disclose an unfiltered view; refused credentials stay a failure. `usage` and `replayed` tell new work from replayed pages: saved pages and continuations replay free, while a fresh request is judged and billed again, edited or not.
+| Unread material | Scout | Verify |
+|---|---|---|
+| Search hits, paths or captured read chunks | Inline `classification` when supported | Receipt coverage, then deciding source spans |
+| One large source, or rows from a discovery/history tool | `clasify evaluate` with a supported `source` | Emitted `next.read` or resource read |
+| Which files in a set | `clasify evaluate` + `resources` | One answer set per file, then source reads |
+| Relevant regions across files | `clasify sections` + `resources` | Page until no `remainingSections`; read selected spans |
+| Images | `clasify evaluate` + assets | Presence before `box`; inspect the image for layout claims |
 
-```bash
-npx -y octocode localSearch '{"queries":[{"path":"src/http","matchString":["body"],"contextLines":{"before":3,"after":3},"classification":{"predicates":["Does this reject request bodies above the configured size limit?"]}}]}'
-npx -y octocode clasify '{"queries":[{"operation":"evaluate","source":{"tool":"localFetch","query":{"path":"<discovered-upgrade-guide>"}},"questions":{"mixed_versions":{"type":"noul","instructions":"Does this guide specify when a rolling upgrade can mix server versions?"}}}]}'
-```
-
-## Call
-
-Each query takes `mainGoal` (the task) and `reasoning` (why this query). Use observed paths, lines and refs, never illustrative ones.
-
-```bash
-npx -y octocode localSearch '{"queries":[{"path":"src","matchString":["createCache","withCache"],"view":"files"}]}'
-npx -y octocode localFetch '{"queries":[{"path":"src/cache.ts","matchString":["createCache"],"block":true}]}'
-npx -y octocode astSearch '{"queries":[{"operation":"match","path":"src","parser":"typescript","rule":{"pattern":"eval($X)"}}]}'
-npx -y octocode lspSearch '{"queries":[{"operation":"references","path":"src/cache.ts","symbolName":"createCache","line":10,"view":"files"}]}'
-npx -y octocode artifactSearch '{"queries":[{"operation":"resolve","ecosystem":"npm","packageName":"zod","version":"3.23.8"}]}'
-npx -y octocode ghStructure '{"queries":[{"operation":"tree","owner":"colinhacks","repo":"zod","ref":"v3.23.8","include":["src/**"],"materialize":true}]}'
-```
-
-Reuse a search's `matchString`, `regexEngine`, `caseMode` and `wholeWord` when reading its hits. `workspaceSymbol` takes `symbolQuery`, not `symbolName`.
+- Ask one observable fact per question, with enough context and a clear exclusion for near misses. The provider has no conversation history or sibling answers. Include an unknown choice; confidence is not correctness.
+- Inline predicates judge captured evidence, not hidden whole files. Listing predicates can see paths only. Match context must include the condition being judged; `responseChars` changes output pages, not provider context.
+- `evaluate` uses typed `questions` (`noul`, `choice`, `score`, `box`); use the live schema for mutually exclusive source/content/assets shapes. A path inside literal `content` is not fetched. A box alone does not establish target presence.
+- Finish response pages first, then candidate/section pages needed for the claim. `classificationUnknown`, `unassessed`, `error` and excluded candidates are not negative proof. Use emitted `next.unfilteredUnknown` for unresolved candidates and `next.unfiltered` before counts or absence claims.
+- A source larger than one evaluation window is judged from one section; it cannot establish whole-file absence, ordering or completeness. Use `sections` and its coverage for broader claims.
+- Read the deciding original spans before citing a model answer. If they do not support it, revise the hypothesis. Scores and labels are judgments, not source facts or runtime observations.
+- Check `errorCode`, selection status, coverage and usage. Saved-page replay differs from fresh billed judgment; do not repeat a fresh call to obtain its next page. Missing credentials or capabilities are gaps, not authorization to change settings.
 
 ## Carry evidence across
 
@@ -230,41 +133,3 @@ Read every row's `errorCode`, message, `hints` and recovery calls, even in a suc
 | Authentication, permission or rate limit | Correct access or wait for the reported reset; repeats do not restore it |
 | Stale or expired continuation | Use its restart call or repeat the original request; never construct a cursor. `responseSnapshotExpired` covers unknown or expired saved work; a malformed cursor, or one sent to another tool, is `invalidInput`; the message names the cause |
 | Tool or contract failure | Keep the failing call and error code, use applicable recovery, report the gap |
-
-## Measured cost
-
-Measured 2026-11-02 on an optimized build over MCP, under other work on the machine; treat as ratios. Characters are the whole JSON across all pages. A small `responseChars` adds page overhead, so narrow the scope or pick a view first. Code rows use zod 3.23.8 `src/types.ts` (154 KB, about 5,000 lines).
-
-| Question | Use | Instead of |
-|---|---|---|
-| One method in a large file | `matchString` + `block:true`: 1,063 | whole file: 195,566 |
-| Markdown outline ([OCTOCODE_TOOLS.md](https://github.com/bgauryy/octocode/blob/01e85a06dab71769c8f04303c4142e266482f6c8/docs/OCTOCODE_TOOLS.md), re-measured 2026-11-08) | `symbols`: 1,396 | whole file: 37,504 |
-| Large code outline | `astSearch` symbols + kinds: 6,353 | `symbols`: 54,014; `documentSymbols`: 123,412 |
-| Find a declaration | `astSearch` `symbolFilter`: 375 | `workspaceSymbol`: 2,051 |
-| Which files use a term | `view:"files"`: 809 | content: 9,204 |
-| How many uses | `view:"countMatches"`: 886 | content: 9,204 |
-| Who uses a symbol | `references` `view:"files"`: 817 | `references` content: 6,785 |
-| Term in minified code | regex `matchOnly`: 282 | whole file: 77,738 |
-| Comment-heavy file (219 KB) | `compact`: 62,635 | content: 256,050 |
-| GitHub code paths | `fields:["path"]`: 403 | default: 2,945 |
-| One file in a repo tree | `include`: 494 | `maxDepth:2`: 3,233 |
-| One file's patch in a PR | `patches` + `include`: 2,076 | all `patches`: 4,390 |
-| A fact in an unread 33 KB doc (paid call, measured 2026-11-02, not repeated) | `clasify` source: 600, plus 8,116 provider tokens | whole doc: 33,621 |
-| Hits narrowed by meaning | `classification`: 1,970, one model call per unit | all hits: 18,643 |
-| A literal in one file | exact read: 354, no tokens | `clasify`: 284, plus 3,159 tokens |
-
-| Path | First call | Repeat | Memory |
-|---|---|---|---|
-| Local read, small search | 3–70 ms | 1–40 ms | 25–70 MB |
-| `localSearch`, 18,857-file tree | 0.7–1.2 s | 40–70 ms per page | 80–220 MB |
-| `astSearch` symbols, same tree | 0.6 s | 0.3 s | 165 MB |
-| `lspSearch`, TypeScript (`tsgo`) | 0.5–1.5 s | 20–220 ms | 210–240 MB |
-| `lspSearch`, Rust (`rust-analyzer`) | 7.5–8.4 s | 40–50 ms | 2.8–3.3 GB |
-| GitHub read at a pinned ref | 0.3–1.2 s | 1–2 ms | 40–50 MB |
-| GitHub history search or PR | 0.4–1.2 s | 0.3–0.7 s | 45 MB |
-| `ghStructure` materialize (88 files) | 3.4 s | 14 ms | 40 MB |
-| `ghCloneRepo` sparse | 1.6 s | 0.7 s when the same commit is reused (1.6 s fresh) | 40 MB |
-| `classification` or `clasify` | 0.3–2.1 s | under 40 ms replayed | 45–65 MB |
-| `graphBuild`, then `graphQuery` (when listed), small package | 120 ms, 11–14 ms | 35 ms, 11–14 ms | 75 MB |
-
-A language server starts when a result offers an `lspSearch` call, or at the first `lspSearch`; `lsp.prewarm` `all` starts it at MCP initialize, `off` never ahead of a call. So the first Rust call is the slow one: read and search first. The CLI's warm server answers in 8 ms against 34 ms in process, and the Node launcher adds about 50 ms and 48 MB per call.

@@ -142,11 +142,18 @@ Do not poll. An agent that finishes notifies; a status question to a busy agent 
 4. Keep retests short and breadth-first: one or two probes per claim, stop a line when it is decided.
 5. New defects enter the queue with an owner; the round repeats until the retest is clean.
 
+## 5a. Checks are calls, not scripts
+
+Verifiers and retesters check tools with direct calls judged by reading the output, as
+[tool checks](tool-checks.md) describes. Do not ask an agent to build a battery, a harness script or a
+comparison script, and do not keep one: hard-coded inputs break when a field or default changes and then
+report their own error as the tool's. An agent that wrote a one-off script deletes it before it reports.
+
 ## 6. Cleanup and disk
 
 Every agent removes its processes, scratch files, private targets and binaries before it reports.
-The orchestrator keeps the current and previous pinned binaries and deletes older ones, runs
-`$DEV clean:leftovers` after each round, and checks free disk before a build.
+The orchestrator keeps the current and previous pinned binaries and deletes older ones, removes
+what each round left behind (private targets, old pins, their daemons by PID), and checks free disk before a build.
 
 ## 7. Blockers outside the round
 

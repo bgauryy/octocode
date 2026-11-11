@@ -91,13 +91,70 @@ const DESCRIPTOR_ENDS: &[&str] = &[
 /// `_`, `.`, `-`, `$` and at each camelCase word, digits aside) is a
 /// credential word, alone, plural, or ending a part written with no
 /// separator (`apikey`). A name that says its value is public, or ends in a
-/// locator or a descriptor, names none.
+/// locator or a descriptor, names none, and so does a header the user agent
+/// fills ([`names_a_user_agent_field`]).
 pub(in crate::security::detector) fn names_a_credential(name: &str) -> bool {
-    if ends_in_locator(name.as_bytes()) {
+    if ends_in_locator(name.as_bytes()) || names_a_user_agent_field(name) {
         return false;
     }
     let parts = word_parts(name);
     !describes(&parts) && !publishes(&parts) && parts.iter().any(|part| is_holder_part(part))
+}
+
+/// Whether `name` is a header of the HTTP `Sec-` namespace: hyphen-joined
+/// words, the first `Sec`, then the feature and the field it names
+/// (`Sec-WebSocket-Key`, `sec-websocket-accept`). Fetch reserves these names
+/// for the user agent, which fills them per request (a handshake's nonce),
+/// so the name alone says no application holds a credential under one; a
+/// value of no nonce's shape says otherwise ([`holds_more_than_a_nonce`]).
+/// `Sec` before a lone word (`Sec-Key`, `SEC_KEY`) only abbreviates the
+/// name's own word.
+pub(in crate::security::detector) fn names_a_user_agent_field(name: &str) -> bool {
+    let mut words = name.split('-');
+    words
+        .next()
+        .is_some_and(|first| first.eq_ignore_ascii_case("sec"))
+        && words.clone().count() >= 2
+        && words.all(|word| !word.is_empty() && word.bytes().all(|b| b.is_ascii_alphanumeric()))
+}
+
+/// Whether `value` under `name` is the nonce a user agent fills a field of
+/// the `Sec-` namespace with ([`names_a_user_agent_field`]; the name may
+/// keep its operator, `Sec-WebSocket-Key: `): base64 of 16 random bytes, 22
+/// characters of the base64 alphabet and `==` (RFC 6455's handshake key).
+/// Only that shape is the user agent's: any other value under such a name
+/// (`Sec-WebSocket-Key: <a token>`) is held as under any credential's name
+/// ([`holds_more_than_a_nonce`]).
+pub(in crate::security::detector) fn is_user_agent_nonce(name: &str, value: &str) -> bool {
+    let name = name.trim_end_matches(|c: char| c.is_whitespace() || matches!(c, ':' | '=' | '"' | '\''));
+    names_a_user_agent_field(name) && is_nonce_shape(value)
+}
+
+/// Whether `value` has the shape of the nonce a user agent fills a `Sec-`
+/// field with: base64 of 16 random bytes, 22 characters of the base64
+/// alphabet and `==` ([`is_user_agent_nonce`]).
+pub(in crate::security::detector) fn is_nonce_shape(value: &str) -> bool {
+    value.strip_suffix("==").is_some_and(|body| {
+        body.len() == NONCE_BASE64_CHARS
+            && body
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/'))
+    })
+}
+
+/// Base64 characters of a 16-byte nonce before its `==` padding.
+const NONCE_BASE64_CHARS: usize = 22;
+
+/// Whether `value` under `name`, a field of the `Sec-` namespace whose own
+/// words name a credential (`Sec-WebSocket-Key`), is no nonce the user agent
+/// fills ([`is_user_agent_nonce`]): the name holds it as a credential's name
+/// does, which [`names_a_credential`] cannot say from the name alone.
+pub(in crate::security::detector) fn holds_more_than_a_nonce(name: &str, value: &str) -> bool {
+    names_a_user_agent_field(name)
+        && name
+            .split_once('-')
+            .is_some_and(|(_, field)| names_a_credential(field))
+        && !is_user_agent_nonce(name, value)
 }
 
 /// Whether `name` describes or identifies a credential instead of holding

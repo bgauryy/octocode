@@ -193,3 +193,44 @@ fn a_placeholder_url_runs_and_a_url_password_is_refused() {
         assert!(refused_everywhere(term), "{term:?} was run");
     }
 }
+
+/// A value a config line's rule hides under a credential's name, at any
+/// length, is refused in every screened field, a clasify question among
+/// them: nothing leaves the machine with it. Declarations, prose and
+/// placeholders under the same names run.
+#[test]
+fn a_short_named_secret_is_refused_as_a_file_hides_it() {
+    for term in [
+        "password: Hunter2Xq9vB7mK",
+        "password = Hunter2Xq9vB7mK",
+        "token: Zq8Wv3Xr7Tn2Lp5",
+        "the password is Hunter2Xq9vB7mK",
+        "api_key: Zq8Wv3Xr7Tn2Lp5Ab1Cd9",
+        "Sec-WebSocket-Key: Zq8Wv3Xr7Tn2Lp5Ab1Cd9Ef4Gh6Jk8Lm0Np2Qr4St9Uv",
+    ] {
+        assert!(refused_everywhere(term), "{term:?} was run");
+        let question = serde_json::json!({
+            "content": "evidence",
+            "questions": {"q": {"type": "bool", "instructions": term}},
+        });
+        let checked = ContentSecurity::new().check_input(
+            question,
+            crate::security::InputPolicy::ClasifyEvidence {
+                content_limit: crate::id::clasify_policy::REQUEST_BYTES,
+            },
+        );
+        assert!(checked.is_err(), "a question with {term:?} was admitted");
+    }
+    for term in [
+        "password: str",
+        "token: Token",
+        "api_key: str = None",
+        "dispatchToken: string",
+        "the password is required",
+        "the token is expired",
+        "postgres://user:password@localhost",
+        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+    ] {
+        assert!(!refused_everywhere(term), "{term:?} was refused");
+    }
+}

@@ -1,13 +1,16 @@
 # Research with Jev: classification in Octocode
 
-Jev is the decision model behind Octocode's classification. It reads text your agent has not
-read and returns typed answers: a yes/no probability, a choice, a score or an image box. The
-agent gets the answers and the exact lines worth reading, not the source bodies, so Jev spends
-its tokens on reading and the main agent spends fewer of its own.
+Jev is TypeSafe's decision model behind Octocode's classification. Octocode uses it to scout
+unread evidence: ask focused questions, identify candidates, then read the original source to
+verify them. Answers are typed: a yes/no probability, a choice, a score or an image box.
+`clasify` returns answers and read routes; inline `classification` returns selected source rows.
+Jev spends provider tokens reading the evidence; the main agent can receive less text.
 
-Measured on 2026-11-03: one fact from an unread 33 KB doc cost the main agent 98% fewer tokens
-than reading it, and mapping three questions across 30–100 files cost 73–84% fewer than reading
-every file ([benchmarks](#benchmarks-main-agent-tokens-with-and-without-jev)).
+Runs on 2026-11-03 reported 98% less main-agent context for one fact in a 33 KB doc, and 73–84%
+less when mapping questions across 30–100 files versus reading every file. These are
+character-based token estimates, not measured total cost or end-to-end task savings. Recall
+varied by route; every measurement, with its dataset, date, correctness, latency and provider
+tokens, is under [Benchmarks](#benchmarks).
 
 > [!TIP]
 > Search for spelling, ask Jev for meaning, and read the lines before you cite them.
@@ -35,23 +38,61 @@ The MCP server takes the same requests as the CLI.
 
 ## The research loop
 
-Jev does not replace search. It judges what search found, so the agent reads only what matters.
+Search first when spelling, paths or code shape can narrow the evidence. Scout by meaning when
+that leaves substantial unread material. A positive answer identifies a candidate; a negative
+answer does not clear the source.
 
 ```mermaid
 flowchart TD
     accTitle: The research loop with Jev
-    accDescr: Find candidates with exact search, judge them with Jev, read the judged lines, and cite them. Unknown or partial results go back to search; lines that do not confirm the answer go back to judging.
-    Q["Research question"] --> F["Find candidates<br/>exact search, paths, globs"]
-    F --> J["Judge with Jev<br/>classification or clasify"]
-    J --> R["Read the judged lines<br/>target.lines, ranges"]
-    R --> C["Cite path and lines"]
-    J -- "unknown or partial" --> F
-    R -- "lines do not confirm" --> J
+    accDescr: Narrow with exact tools. Read directly when evidence is small; otherwise scout by meaning. Finish pending pages and inspect uncertainty, then read candidates and confirm the claim. Failed verification returns to narrowing.
+    F["Narrow with exact tools"] --> G{"Still needs semantic scouting?"}
+    G -- "no" --> R["Read original evidence"]
+    G -- "yes" --> J["Scout with typed questions"]
+    J --> P["Finish pages and inspect unknowns"]
+    P --> R
+    R --> V{"Claim confirmed?"}
+    V -- "yes" --> C["Cite source and disclose coverage"]
+    V -- "no" --> F
 ```
 
 - **Find:** narrow by path, glob or term first. The model is for meaning, not spelling.
 - **Judge:** ask one exact fact per question. An unknown answer is not a "no".
 - **Read:** a Jev answer is a candidate. Read its lines before you rely on it or quote it.
+
+### Scouting: choose what the agent will read
+
+| What you hold | Scout | Verify / recover |
+|---|---|---|
+| Many search hits; the distinction is semantic | Add `classification.predicates` to the search or read | Read kept hits; finish `next.nextCandidatePage`, then inspect `next.unfilteredUnknown` if present |
+| Paths, commits, comments or packages to triage | `clasify evaluate` with `source: {tool, query}` | Read identified rows through returned calls; `next.nextPage` covers more source rows |
+| One large unread file, web page or saved command log | `clasify evaluate` with a source locator and atomic questions | Use `next.read`; use the offered `sections` call when a narrower read is needed |
+| Candidate files, but the relevant region is unknown | `clasify sections` with named resources | Finish `next.nextPage`; read `target.lines`; inspect `next.quiet` when low answers could change the claim |
+| A screenshot | `evaluate` with `assets` and `content` naming each asset | Ask presence before `box`; inspect the original image; use DOM measurements for exact geometry |
+
+`structureSearch` classification judges paths, not file contents. Likewise, a commit title,
+search snippet or comment cannot establish behavior outside the text actually judged. Scout
+those rows to locate files or patches, then read them before making a behavioral claim.
+
+```mermaid
+flowchart TD
+    accTitle: Finish a classified search without rereading every hit
+    accDescr: Inspect the receipt. Judge pending candidates with the next candidate call, inspect undecided evidence separately, and verify selected hits. Exact counts or absence require the unfiltered view.
+    S["Inspect selection receipt"] --> P{"Pending candidates?"}
+    P -- "next.nextCandidatePage" --> J["Judge next candidates; billed"]
+    J --> S
+    P -- "none" --> U{"Undecided evidence matters?"}
+    U -- "yes" --> N["Read next.unfilteredUnknown"]
+    U -- "no" --> R["Verify kept hits"]
+    N --> R
+    S -- "exact count or absence" --> A["Walk next.unfiltered and verify scope"]
+```
+
+Finish `responsePagination.next` before tool-level continuations. Copy emitted calls unchanged;
+coverage counts are cumulative, so retain the latest receipt rather than summing receipts.
+Completing assessment accounts for all candidates; it does not guarantee classification recall.
+Cross-file relations, control-flow paths and whole-source claims need the relevant regions read
+together: see [what an answer from sections cannot show](#what-an-answer-from-sections-cannot-show).
 
 ## Choose a route
 
@@ -83,7 +124,9 @@ Counts and sizes for each route are under [Limits](#limits).
 
 ### What every call does
 
-The agent sends questions and where to read. It never sends or receives the source body.
+For source-backed `evaluate`, the agent sends questions and a locator; Octocode captures the
+source and sends it to the provider. The answer omits the body, which a subsequent read can
+retrieve. Literal `content` is supplied by the agent; inline classification returns kept text.
 
 ```mermaid
 sequenceDiagram
@@ -115,7 +158,8 @@ sequenceDiagram
   of them never outvote the one that holds it; `unknown` only when every section chose it, with no
   lines to read). Each label's share of the sections is its probability. `coverage` counts the sections,
   `next.read` reads the deciding lines, and the `sections` call in `related[]` lists every
-  section's own answer. Literal `content` and image rows are not cut: they keep the refusal.
+  section's own answer. Literal `content` and image rows are not cut: they keep the refusal. What
+  such an answer cannot show is [below](#what-an-answer-from-sections-cannot-show).
 - **Jev sees only** the captured text, your questions and `context`. It has no conversation
   history and no sibling answers, so each question must stand alone.
 - **No answer cache across requests.** Each fresh request is judged and billed again, so an
@@ -128,6 +172,52 @@ sequenceDiagram
 - **Questions over one source share one provider request when they fit it;** otherwise each
   question is its own request carrying the whole source, and each is billed.
 - **Provider failures keep the evidence.** When capture succeeded, the read handle still works.
+
+### Reading versus judging
+
+Reading a source and judging it are separate steps with separate costs. GitHub cache reuse,
+pinned refs and local snapshots apply to reading: they decide what is fetched and which bytes
+were judged. They never answer a question. Every fresh judgment is a provider request, billed
+even when the read came from a cache.
+
+```mermaid
+flowchart LR
+    accTitle: Reading versus judging
+    accDescr: A source is acquired through its reader. Reader caches, pinned refs and snapshots decide what is fetched and pin the captured text. The captured text is judged by a provider request, which is billed every time. Typed answers come back with read handles, and the agent verifies by reading the deciding lines. A saved page replays its answers with no provider request.
+    A["Acquire<br/>localFetch, ghGetFileContent,<br/>URL or a tool's rows"] --> C["Cache, pinned ref, snapshot<br/>what is fetched, what was judged"]
+    C --> J["Judge<br/>provider request, billed"]
+    J --> N["Typed answers<br/>+ read handles"]
+    N --> V["Verify<br/>read the deciding lines"]
+    P["Saved page<br/>sections batch, quiet, details"] -. "replay, no request" .-> N
+```
+
+| What repeats | Reading | Judging |
+|---|---|---|
+| A fresh `evaluate`, same source | The reader's own cache rules apply ([cache storage](STORAGE_AND_LIMITS.md#cache-storage-and-lifecycle)); a commit-pinned GitHub read sends nothing | Billed again: there is no answer cache, so an edited file never gets an old answer |
+| The first `sections` batch, `next.nextPage` | Captured once into the frozen plan | Billed for the sections of that batch |
+| A saved `sections` page, `next.quiet`, `next.details` | None | Free: replayed from the saved page |
+| A repeated `next.nextCandidatePage` cursor | None | Free while the runtime that judged it lives; a new process bills it again |
+| `next.read`, `resources.<key>.read` | A pinned read of the judged snapshot or commit | None |
+
+### What an answer from sections cannot show
+
+A source over one window, and a `sections` row, are judged one section at a time. A section sees
+its own lines (and, for `sections`, the context before it), never the rest of the source. So:
+
+- `noul` and `score` report the highest section; `choice` reports the most confident label
+  besides `unknown`. The answer says that one section looks like a match. It is not a statement
+  about the whole source.
+- It cannot establish **absence**: a low answer in every section is not proof that the fact is
+  missing, and `unknown` is not "no".
+- It cannot establish a **contradiction** between two passages, or the **order** of events, when
+  the passages fall in different sections: no section sees both.
+- It cannot give a **whole-file guarantee** ("every path releases the lock", "no handler logs
+  the token").
+
+For those claims, examine the relevant sections together: run the `sections` call in
+`related[]` (or `operation: "sections"`) to list every section's answer, then read the deciding
+lines of each candidate section, or ask one atomic `evaluate` question over a `ranges` read that
+holds all of them.
 
 ### Questions
 
@@ -145,7 +235,8 @@ Questions are keyed under `questions`. Every question is asked of every unit Jev
 ### Write atomic questions
 
 An atomic question names one observable fact that a line of source can confirm. Vague questions
-are the main cause of confident wrong answers.
+can produce confident wrong answers; low probabilities also missed real relational defects in
+the [measured runs](#accuracy-against-known-answers).
 
 | Instead of | Ask |
 |---|---|
@@ -208,12 +299,15 @@ keeps the verdicts it got and `next.nextCandidatePage` judges the failed hits ag
 
 ### clasify evaluate: one source, many questions
 
-`evaluate` takes exactly one of `source` or `content`:
+`evaluate` takes exactly one of `source`, `content` or `resources`:
 
 - `source` names a reader query (`localFetch`, `ghGetFileContent`) or an HTTPS `url`; Octocode
-  reads it for you. Use it for anything you have not read.
+  reads it for you. Use it for anything you have not read. It can also name a search, listing or
+  history tool, whose rows are judged one by one (below).
 - `content` is literal text or JSON you supply. Paths or URLs inside it are data and are not
   fetched.
+- `resources` names several text sources (a `localFetch` path may be a glob); each file gets its
+  own answer set.
 
 Jev judges the captured text against every question. The result holds `answers.<key>`, `usage`,
 `next.read` and `readChars`. `next.read` is not a span: it re-reads the whole judged selection at its
@@ -243,7 +337,8 @@ without the long window.
 **A tool's rows as the source.** `source: {tool, query}` over `localSearch`, `structureSearch`,
 `astSearch`, `lspSearch`, `ghSearchCode`, `ghSearchRepo`, `ghSearchHistory`, `ghGetHistoryItem` or
 `artifactSearch` runs that tool's query for you and judges each row of its page as one unit: a hit, a
-listed path, a commit, a pull request, a comment, a changed file, a package. `units` holds the
+listed path, a commit, a pull request, a comment, a changed file, a package. `query` is that tool's
+own query row: a row that tool would refuse is refused at admission with its message. `units` holds the
 answers keyed by the unit's identity (`path:line`, number, id, name), never the rows' text; a summary
 holds back units whose every `noul` answer is under 0.3 and counts them in `coverage.quiet`.
 `coverage.totalUnits` is one page of the tool; `next.nextPage` judges the tool's next page. Each unit
@@ -491,7 +586,24 @@ fractions of the original `sourceWidth` x `sourceHeight`, clamped to 0–1. The 
 only asset, else the one asset key the question cites; a question citing none or several gets no
 `sourceBox`.
 
-## Benchmarks: main-agent tokens with and without Jev
+## Benchmarks
+
+Every measurement names its dataset and date, and reports correctness (planted or known facts
+found), recall where it was measured, latency and total cost. Total cost is provider tokens in
+and out, as each result reports them in `usage`: Octocode prints no price. Single runs show a
+direction, not a verdict. Runs of other tools (the
+[research benchmark](../packages/octocode-benchmark/README.md)) use other datasets and metrics,
+so they stay there and are not compared here.
+
+| Section | Dataset | Date |
+|---|---|---|
+| [Main-agent tokens with and without Jev](#main-agent-tokens-with-and-without-jev) | Local docs, Java files, Vite server files | 2026-11-03 |
+| [One source, images and edges](#one-source-images-and-edges) | This repository's files, synthetic logs and images | 2026-11-11 |
+| [Oversized sources, views and units](#oversized-sources-views-and-units) | A 294 KB synthetic Rust file with planted facts; this repository's source | 2026-11-11 |
+| [Accuracy against known answers](#accuracy-against-known-answers) | Image, text, sections, large-source and relation sets | Not recorded; relations 2026-11-05 |
+| [Checked and not checked](#checked-and-not-checked) | All of the above | 2026-11-11 |
+
+### Main-agent tokens with and without Jev
 
 Each benchmark asks the same questions with and without Jev and counts the exact characters the
 main agent receives. Tokens are characters ÷ 4. Jev tokens are the provider tokens each result
@@ -500,9 +612,9 @@ reports in `usage`.
 > [!NOTE]
 > Single runs on 2026-11-03. Local corpora: 28 Markdown docs (198 KB) and 100 Elasticsearch
 > `*Processor.java` files (497 KB). GitHub corpus: 30 files under
-> `vitejs/vite@b3cb057/packages/vite/src/node/server` (316 KB).
+> `vitejs/vite@b3cb057/packages/vite/src/node/server` (316 KB). Latency was not recorded.
 
-### Tokens per task
+#### Tokens per task
 
 | Task | Without Jev | With Jev | Main agent saves | Jev tokens |
 |---|---|---|---|---|
@@ -515,7 +627,7 @@ reports in `usage`.
 | Map 3 questions across 100 Java files | Read every file: 137.8k | `clasify sections`: 36.8k | **101k (73%)** | 156k |
 | A literal in one small file | Exact read: 0.09k | `clasify`: 0.07k | about 0 | 3.2k |
 
-### Every route on the same three corpora
+#### Every route on the same three corpora
 
 Main-agent tokens; the smallest per corpus is in bold.
 
@@ -525,7 +637,7 @@ Main-agent tokens; the smallest per corpus is in bold.
 | 30 GitHub files | 98.6k | 4.7k | **2.4k** | 15.6k |
 | 100 Java files | 137.8k | 26.8k (files view: **2.2k**) | 4.1k | 36.8k |
 
-### What you get for the Jev tokens
+#### What you get for the Jev tokens
 
 | Route | Jev tokens per main-agent token saved | Found |
 |---|---|---|
@@ -533,7 +645,7 @@ Main-agent tokens; the smallest per corpus is in bold.
 | `clasify sections` instead of reading every file | 1.5–3 | 25 of 26 matching Java files (2 extra); every host-check and file-deny file in Vite |
 | `classification` instead of exact-search hits | 5–8 | 14 of 26 matching Java files, because it judges each hit and its context lines; missed 2 of 4 file-deny files in Vite |
 
-### When Jev does not pay
+#### When Jev does not pay
 
 - **The answer has a fixed spelling.** Exact search finds it with no model. On the Java corpus
   the `view:"files"` listing beat every Jev route on both tokens and accuracy.
@@ -557,6 +669,129 @@ In agent research runs (5 tasks, 4 runs), agents found every answer with exact s
 Jev once. Extra classifier guidance raised their context by 40% with no gain in accuracy, so
 reach for Jev when exact search cannot split the evidence, not by default.
 
+### One source, images and edges
+
+> [!NOTE]
+> Single runs on 2026-11-11 against the live provider (`jev-1.14.0`) from a debug build. Sources:
+> this repository's files, a synthetic 300-line log with seven planted authentication failures,
+> a 16-comment public issue, a screenshot and three small images. The study made 116 provider
+> requests: about 363,700 input and 7,600 output tokens in all.
+
+| Case | Source chars | Correct | Latency | Requests | Tokens in / out | Output chars |
+|---|---|---|---|---|---|---|
+| Small text, 1 / 3 / 8 questions | 600 | every answer | 0.77 / 0.27 / 0.28 s | 1 each | 442 / 572 / 711 in | 95 / 387 / 569 |
+| A 2,074-line Rust file, 3 questions | 77,296 | 3 of 3 | 0.62 s | 1 | 18,254 / 83 | 827 |
+| The 300-line log as `content`, 2 questions | 17,951 | 2 of 2; an exact search for "auth" found none of the seven planted lines ("token signature rejected") | 0.43 s | 1 | 9,619 / 65 | 255 |
+| A 16-comment issue, inline `classification` | 13,071 | 4 kept, 2 unknown; recall not counted | 1.1 s | 16 | 10,028 / 272 | 3,930 |
+| A screenshot: `noul`, `choice` and `box` | image | 3 of 3; `box` within about 0.01 | 0.38 s | 1 | 5,595 / 84 | 793 |
+| 3 images, one question each | images | 3 of 3 | 0.29 s | 1 | 1,266 / 96 | 1,653 |
+| Questions the source cannot answer | 600 | `unknown`, `noul` 0.19 | 0.27 s | 1 | 511 / 59 | 243 |
+| 120 questions in one request | 600 | not scored | 0.35 s | 1 | 2,232 / 2,294 | 2,537 |
+| First 1 MB of a 2.7 MB file, `sections`, page 1 of 18 | 1,005,773 | 4 of 4 | 9.5 s | 4 | 34,236 / 332 | 2,686 |
+| A 12-file folder, `sections`, 2 questions, 2 pages | 105,291 | the matching files ranked first; recall not counted | 1.4 + 1.1 s | 36 + 28 | 83,493 / 2,560 | 11,100 + 7,573 |
+| `next.quiet`, a page replay, `next.read` | — | — | about 0.13 s each | 0 | 0 | — |
+
+| Edge | Result |
+|---|---|
+| Empty file or `content` | `classificationContextEmpty`, no request |
+| Binary file as `source` | `binaryFileUnsupported` with a ready `assets` call |
+| Latin-1 text | Judged, correct |
+| A file with 12 planted secrets, captured on a loopback provider | 0 of 12 in the request body; 23 redaction marks |
+| Provider error (400) | `classificationProviderError`; the pinned read is still offered |
+| A 9,000 px image; a non-image asset | Refused locally; "not a PNG or JPEG" |
+
+### Oversized sources, views and units
+
+> [!NOTE]
+> 2026-11-11, debug build. "Live" is the provider; "loopback" is a local stand-in provider that
+> bills nothing. `big300.rs` is a synthetic Rust file (294,466 chars, 8,512 lines) with three
+> planted facts: a function that retries a ledger upload exactly seven times (line 1208), a
+> telemetry WebSocket (lines 4305–4307), and `ArchiveStore` persisting rows in RocksDB (line 7011).
+
+A source over every window used to be an error with a ready `sections` call. It is now answered in
+the same row from its sections:
+
+| Case | Correct | Latency | Requests | Tokens in / out | Output chars |
+|---|---|---|---|---|---|
+| Live: lines 6000–14500 of `tool_types.rs` (294,799 chars), 3 questions | The planted struct located (0.98 at lines 10171–10653; the struct is at 10538); the other two answers not scored | 9.5 s | 20 (1 refused whole, 19 sections) | 184,897 / 1,577 | 1,334 |
+| Loopback: a whole 2.7 MB file with one planted line | 1 of 1, in section 39747–40211 | 14.4 s | 183 | not billed | 1,123 for 2.75 M chars |
+| Live: `big300.rs`, 3 questions, sections with supporting context | 2 of 3: retry (0.97, lines 924–1394) and WebSocket (0.84, lines 4164–4631); `ArchiveStore` answered `unknown` | not recorded | 20 | 184,677 / 1,465 | — |
+| Live: the same, sections without supporting context | The same answers and deciding lines: 2 of 3 | not recorded | 20 | 97,679 / 1,464 (**−47%** input) | — |
+
+Dropping the supporting context of each section in a sectioned `evaluate` halved the input on this
+source with the same answers, so a sectioned `evaluate` sends each section alone. A `sections` plan
+keeps the context, because its sections are read one at a time. One source is a direction, not a
+verdict.
+
+`choice` over sections now takes the most confident label besides `unknown`, so sections that lack
+the evidence abstain instead of outvoting the one that holds it. The two runs above answered
+`unknown` for `ArchiveStore`. Rerun with the current rule (live, `view: "details"`, later the same
+day, on a tree whose section grain was being changed: 17 sections), `big300.rs` answered **3 of 3**:
+retry 0.97 (lines 1040–1571), WebSocket 0.76 (lines 4189–4710) and `rocksdb` (lines 6597–7127, which
+hold line 7011), in 1.6 s with 18 requests and 96,647 / 1,310 tokens. One section of 17 chose
+`rocksdb` (share 0.06, confidence 0.98) and 16 chose `unknown`: a majority would have answered
+`unknown`. Whether the earlier runs predate the rule was not recorded.
+
+`view: "summary"` against the whole row (now `view: "details"`), loopback provider, the same rows:
+
+| Row | Whole row chars | Summary chars |
+|---|---|---|
+| One text, 3 questions | 367 | 162 |
+| One 3-line file, 1 question | 566 | 256 |
+| One image, 3 questions | 743 | 250 |
+| `sections`, one section | 671 | 463 |
+| `sections`, one page of a 7,491-line file | 12,437 | 3,931 (32%) |
+
+Units, live, not scored for correctness (no known answers):
+
+| Case | Units | Requests | Tokens in / out | Output chars |
+|---|---|---|---|---|
+| `source: {tool: "localSearch", query}` over this repository's clasify engine | 11 (7 shown, 4 quiet) | 11 | 4,417 / 220 | 857 |
+| A `content` array of 8 items with `perItem: true` | 8 (3 shown, 5 quiet) | 8 | 2,273 / 160 | 244 |
+
+### Accuracy against known answers
+
+Evaluation runs against known answers; the dates of the first five rows were not recorded. Judge
+quality by agreement with source evidence, complete coverage accounting and working read handles;
+shorter output alone is not better.
+
+| Area | Result | Notes |
+|---|---|---|
+| Images | 73 of 77 correct | Every miss came with confidence 0.51 or less |
+| Text | 83 of 90 correct | The few confident wrong answers came from vague or broad questions |
+| `sections` across files | 100 of 100 per-file answers (25 files × 4 questions) | A single section next to a real hit can be a false hit |
+| Scouting | `sections` found 25 of 26 matching Java files (2 extra); `classification` kept 14 of 26 and missed 2 of 4 file-deny files in Vite | [Tokens](#what-you-get-for-the-jev-tokens) |
+| Large sources | 5 of 5 on a 200,000-character log, in about 1 KB of answers | |
+| Named relations (2026-11-05) | 26 of 26 named events and conflicting values; 49 of 52 overall | A generic "do any two passages contradict?" missed 2 of 8; harder fixtures: 16 of 30 document contradictions, 5 of 18 log-order facts |
+| Freshness | Every file edit was judged again | Whole-file, ranged, sections, and a same-size edit with its modification time restored |
+
+**Best at:** specific questions about large unread sources; narrowing searches to the hits that
+matter; screenshots, charts and error popups; obvious design flaws; triaging incidents from logs.
+
+**Weak at:** counting, totals and maxima (use a script); pixel-level layout (use DOM
+measurements); broad questions like "any bug?" (ask one exact, named fact per question);
+relations you cannot name; a control-flow path asked plainly; `box` on an absent target (it
+still returns a box: ask a `noul` about presence first); facts that need more than one section
+([what an answer from sections cannot show](#what-an-answer-from-sections-cannot-show)).
+
+### Checked and not checked
+
+| Claim | Status | Evidence |
+|---|---|---|
+| Typed answers on small text, files and images | Checked, live | [One source, images and edges](#one-source-images-and-edges) |
+| An oversized text source answered from its sections in one call | Checked, live and loopback | [Oversized sources](#oversized-sources-views-and-units) |
+| Sections without supporting context: half the input, the same answers | Checked on one source, two runs | `big300.rs` |
+| The `choice` rule recovers a label one section chose | Checked once, live: 1 of 17 sections held it | `big300.rs` rerun |
+| Summary output sizes | Checked, loopback | View table |
+| Units over a tool's rows and `perItem` | Shape and tokens checked live; correctness not scored | Units table |
+| Request shapes refused before any read or provider call | Checked on CLI and MCP | [Recovery](#recovery) |
+| Recall of sectioned answers over many sources | Not checked | — |
+| Whether the provider bills a request it refuses as too large | Not checked; the provider does not document it | — |
+| Redaction on the sectioned path for a large secret-bearing file | Not checked | — |
+| A sectioned `evaluate` that hits its deadline (`coverage.unassessed`) | Not checked live | — |
+| Price per call | Not available: Octocode prints tokens, no price | — |
+| Small-model routing with the current description | Checked, no tools run | [Appendix](#appendix-small-model-routing-check) |
+
 ## Recovery
 
 A question must use its declared type and shape; input errors name the rejected field. Output
@@ -573,6 +808,24 @@ errors and partial receipts tell source, admission, provider and assessment fail
 | `unassessed` cells or `terminalReason` | That work was not judged: it is not a "no" |
 | A transient provider failure | Unfiltered evidence may come back with a disclosure; refused credentials and invalid provider answers stay typed failures |
 | An answer between 0.3 and 0.7 | Unsure: read the lines before relying on it |
+
+A row whose fields do not fit its operation is refused with `invalidInput` before any source is
+read or the provider is called, on the CLI and MCP alike. The whole row contract is
+`octocode schema clasify`; the rules agents most often break:
+
+| Row | Refused because |
+|---|---|
+| `evaluate` with none, or more than one, of `content`, `source`, `resources` | It judges exactly one of them |
+| `evaluate` or `sections` without `questions` | Every judgment needs a question |
+| `sections` without `resources`, or with `content`, `source`, `perItem` or `assets` | It maps questions over named text resources only |
+| `models` with any other field | It lists models and takes nothing else |
+| `perItem: true` with text `content`, or beside `source` or `resources` | It judges each item of a `content` array; a tool `source` already judges each row, `resources` each file |
+| `assets` without `content` | An image row names each asset key in a line of `content` ("Screenshot shot.") |
+| A `box` question without `assets` | A box locates something in an image |
+| `source: {tool, query}` whose `query` that tool would refuse | `query` is that tool's own query row, checked against its schema; the message is the tool's own |
+
+An asset key that no `content` line or question names is refused when the images are captured,
+before the provider is called.
 
 A Jev answer is a judgment, not proof. It does not establish symbol identity, and an uncertain
 answer does not show that a source lacks something.
@@ -606,27 +859,29 @@ Questions, resources, predicates and images have no count of their own: the prov
 local memory decide. See [fixed internal limits](STORAGE_AND_LIMITS.md#fixed-internal-limits) and the
 [data contract](TOOL_DATA_CONTRACT.md#evidence-boundaries).
 
-## Accuracy scorecard
+## Appendix: small-model routing check
 
-Scores are out of 10, from evaluation runs against known answers. Judge quality by agreement with
-source evidence, complete coverage accounting and working read handles; shorter output alone is
-not better.
+2026-11-11, after the description was cut to its routes and its answer rules. Haiku subagents with
+fresh context and no tools got the served instructions, a one-line tool list and the served
+`clasify` row schema, then wrote the first call for 8 tasks that fit `clasify` and 4 that do not
+(the second pass's tasks: a 300-line log, a 3 MB generated file, a screenshot, 60 worker files, a
+200-comment pull request, a 600 KB test log, 200 search hits, a 150-comment pull request; and a
+count, callers, a 40-line function, a proof). Four runs per wording; the two wordings differ only
+in the description and its one-line summary. A call counts when it is `clasify` with a row the
+schema admits; the other tools' schemas were withheld, so the `query` of a tool `source` is scored
+apart.
 
-| Area | Score | Evidence |
-|---|---|---|
-| Image classification | 9 | 73/77 correct. Every miss came with low confidence (0.51 or less) |
-| Text classification | 8.5 | 83/90 correct. Its few confident wrong answers came from vague or broad questions |
-| Scanning many files (sections) | 8 | 100/100 correct per file (25 files × 4 questions). Single sections next to a real hit can be false hits |
-| Scouting (cutting what the agent reads) | 7 | 84–86% less output; `sections` found 25 of 26 matching Java files, but `classification` kept only 14 of 26 and missed 2 of 4 file-deny files in Vite ([evidence](#what-you-get-for-the-jev-tokens)) |
-| Large sources | 9.5 | A 200k-character log came back as about 1 KB of answers, 5/5 correct |
-| Confidence you can trust | 8 | Reliable for images; for text, only when the question names a specific thing |
-| Freshness | not scored | Every file edit was judged again (whole-file, ranged, sections, and a same-size edit with its modification time restored). There is no answer cache, so a repeated request is judged and billed again |
-| Ease of use | 7 | Strict limits and confusing errors when you pass unexpected arguments |
+| Wording | `clasify` first on fitting tasks | Admitted `clasify` row | Avoided on non-fitting tasks | Tool `source` query the named tool admits |
+|---|---|---|---|---|
+| Before (2,681 bytes, with size routes and a measured example) | 32 of 32 | 32 of 32 | 16 of 16 | 0 of 12 |
+| After (1,688 bytes) | 32 of 32 | 32 of 32 | 16 of 16 | 0 of 12 |
 
-**Best at:** specific questions about large unread sources; narrowing searches to the hits that
-matter; screenshots, charts and error popups; obvious design flaws; triaging incidents from logs.
-
-**Weak at:** counting, totals and maxima (use a script); pixel-level layout (use DOM
-measurements); broad questions like "any bug?" (ask one exact, named fact per question);
-relations you cannot name; a control-flow path asked plainly; `box` on an absent target (it
-still returns a box: ask a `noul` about presence first).
+- No run sent `assets` without `content`, in either wording.
+- The 300-line log: the earlier wording sent `sections` in 2 of 4 runs and gave "over 2,000
+  chars" as the reason; the later wording sent `evaluate` with `source` in 4 of 4 and named no
+  size.
+- Every tool `source` guessed the named tool's fields (`pattern` for `localSearch`'s
+  `matchString`; no `operation` for `ghGetHistoryItem`). Admission now refuses each with that
+  tool's own message ("Missing required field: operation. query is the row a direct
+  ghGetHistoryItem call takes."), before any read or provider call.
+- Four runs per wording show a direction, not a verdict.

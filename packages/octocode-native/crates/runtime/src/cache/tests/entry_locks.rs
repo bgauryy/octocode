@@ -21,14 +21,16 @@ fn locks(dir: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-/// The notices of `call` about the store at `dir`. A notice raised outside any
-/// scope reaches every live one, so another test's refusal can sit in a call's
-/// notices; only this store's are this test's evidence.
-fn store_notices(call: &octocode_io::notice::Scope, dir: &Path) -> Vec<String> {
-    let dir = dir.display().to_string();
-    call.notices()
-        .into_iter()
-        .filter(|notice| notice.contains(&dir))
+/// What `call` says in its result about the store at `dir`, named by its
+/// folder alone: no absolute path reaches the result.
+fn store_notices(call: &octocode_io::notice::ResultNotes, dir: &Path) -> Vec<String> {
+    let folder = dir.file_name().unwrap().to_string_lossy().into_owned();
+    let said = call.take();
+    for note in &said {
+        assert!(!note.contains(&dir.display().to_string()), "{note}");
+    }
+    said.into_iter()
+        .filter(|notice| notice.contains(&format!("store {folder} ")))
         .collect()
 }
 
@@ -139,7 +141,7 @@ fn a_write_refused_at_its_deadline_reports_it_and_is_said() {
     let dir = tempfile::tempdir().unwrap();
     let store = store(dir.path());
     let _scan = hold_the_store(dir.path());
-    let call = octocode_io::notice::Scope::default();
+    let call = octocode_io::notice::ResultNotes::default();
     let _in_call = call.enter();
     let (_, kept) = store.put_until(
         std::time::Instant::now() + Duration::from_millis(50),
@@ -167,7 +169,7 @@ fn a_cancel_ends_a_write_waiting_on_a_held_store() {
     let (done, ended) = std::sync::mpsc::channel();
     std::thread::scope(|scope| {
         scope.spawn(|| {
-            let call = octocode_io::notice::Scope::default();
+            let call = octocode_io::notice::ResultNotes::default();
             let in_call = call.enter();
             let kept = octocode_engine::deep_stack::while_stoppable(&stopped, || {
                 let deadline = std::time::Instant::now() + crate::execution::MAX_TIMEOUT;
@@ -204,7 +206,7 @@ fn a_reuse_write_refused_for_a_busy_store_is_said() {
     let dir = tempfile::tempdir().unwrap();
     let store = store(dir.path());
     let _scan = hold_the_store(dir.path());
-    let call = octocode_io::notice::Scope::default();
+    let call = octocode_io::notice::ResultNotes::default();
     let _in_call = call.enter();
     assert!(
         !store

@@ -5,7 +5,7 @@ use std::ops::Range;
 
 use super::names::{names_a_credential, names_no_value};
 use super::opaque::{is_opaque, is_run};
-use super::text::{is_public_armor, line_end, string_end};
+use super::text::{field_end, is_public_armor, line_end, string_end};
 use super::{Named, Opener};
 use crate::security::detector::credential_values::{OPAQUE_LITERAL_CHARS, QUOTES, ValueTest};
 use crate::security::detector::{LINE_END_CHARS, is_placeholder, jwk};
@@ -70,10 +70,15 @@ impl<'t> Walk<'t> {
     /// credential: all of it, so no tail of it stays readable. A value a
     /// quote opens runs to the quote that closes it on its line; a bare one
     /// to the first blank or [`BARE_ENDS`] character, less the marks a
-    /// sentence closes with. The whole value is then one opaque string, no
-    /// placeholder and no value the key-name rules keep under the key the
-    /// text spells from the name and the path it ends ([`ValueTest::KeyName`]),
-    /// or it is no value of this rule's.
+    /// sentence closes with. A control-character escape in it ends the value's
+    /// field as a line break or a tab does ([`field_end`]: `"X-Api-Key:
+    /// <value>\r\nHost: …"`), so the value ends there when it is a credential
+    /// up to there;
+    /// otherwise the backslash may be its own character, and the value is
+    /// read whole. A value is one opaque string, no placeholder and no value
+    /// the key-name rules keep under the key the text spells from the name
+    /// and the path it ends ([`ValueTest::KeyName`]), or it is no value of
+    /// this rule's.
     pub(super) fn scalar(&self, name: usize, run: Range<usize>) -> Option<Range<usize>> {
         let bytes = self.text.as_bytes();
         let quote = run
@@ -82,20 +87,49 @@ impl<'t> Walk<'t> {
             .and_then(|before| bytes.get(before))
             .filter(|byte| matches!(byte, b'"' | b'\'' | b'`'));
         let rest = self.text.get(run.end..)?;
-        let more = match quote {
-            Some(&quote) => rest
-                .find([char::from(quote), '\n', '\r'])
-                .filter(|close| rest.as_bytes().get(*close) == Some(&quote))?,
+        // Where the value read to `to` bytes past the run ends at a field's
+        // escape, counted from the run's end as `to` is.
+        let field_end_after = |to: usize| {
+            field_end(self.text.get(run.start..run.end + to)?)?.checked_sub(run.len())
+        };
+        let (whole, line) = match quote {
+            Some(&quote) => {
+                let close = rest
+                    .find([char::from(quote), '\n', '\r'])
+                    .filter(|close| rest.as_bytes().get(*close) == Some(&quote))?;
+                (close, field_end_after(close))
+            }
             None => {
                 let end = rest
                     .find(|c: char| !c.is_ascii_graphic() || BARE_ENDS.contains(&c))
                     .unwrap_or(rest.len());
-                rest.get(..end)?.trim_end_matches(['.', ':', '?']).len()
+                let bare = |end: usize| {
+                    rest.get(..end)
+                        .map_or(0, |value| value.trim_end_matches(['.', ':', '?']).len())
+                };
+                let line = field_end_after(end).map(bare);
+                (bare(end), line)
             }
         };
-        let span = run.start..run.end + more;
-        // The key from where its path starts: a name is the last part of one
-        // (`config/credentials.yaml: "<digest>"`), and a path says more.
+        let key = self.text.get(self.path_start(name)?..run.start)?;
+        let credential = |more: usize| {
+            let span = run.start..run.end + more;
+            self.text
+                .get(span.clone())
+                .filter(|value| {
+                    is_opaque(value, OPAQUE_LITERAL_CHARS)
+                        && !is_placeholder(value)
+                        && ValueTest::KeyName.redacts(key, value)
+                })
+                .map(|_| span)
+        };
+        line.and_then(credential).or_else(|| credential(whole))
+    }
+
+    /// Where the key of the name at `name` starts: where its path starts,
+    /// since a name is the last part of one (`config/credentials.yaml:
+    /// "<digest>"`), and a path says more.
+    pub(super) fn path_start(&self, name: usize) -> Option<usize> {
         let path = self
             .text
             .get(..name)?
@@ -103,13 +137,7 @@ impl<'t> Walk<'t> {
                 !(c.is_alphanumeric() || matches!(c, '/' | '\\' | '_' | '.' | '-' | '$'))
             })
             .map_or(0, |at| at + 1);
-        let path = (path..=name).find(|at| self.text.is_char_boundary(*at))?;
-        let key = self.text.get(path..span.start)?;
-        let value = self.text.get(span.clone())?;
-        (is_opaque(value, OPAQUE_LITERAL_CHARS)
-            && !is_placeholder(value)
-            && ValueTest::KeyName.redacts(key, value))
-        .then_some(span)
+        (path..=name).find(|at| self.text.is_char_boundary(*at))
     }
 
     /// Calls `found` for each value `opener` holds under `name`, and returns
@@ -151,12 +179,82 @@ impl<'t> Walk<'t> {
                 self.words(from..end, &mut emit);
                 (from, end)
             }
+            Opener::Expression { from, key } => (from, self.expression(from, key, &mut emit)),
         };
         if any {
             return Some(end);
         }
         self.spent += end.saturating_sub(start);
         (self.spent > self.text.len().saturating_mul(REWALKS)).then_some(end)
+    }
+
+    /// The literals of the expression from `from` to the end of its
+    /// statement (a `;` or `,`, a line break or a closing bracket outside
+    /// every bracket it opens, or a comment), each judged as the value the
+    /// name `key` holds ([`ValueTest::Named`]): a ternary's arms, a
+    /// fallback's operand, a concatenation's pieces. A literal that
+    /// interpolates is judged by its text outside the holes
+    /// ([`Walk::literal_text`]). Returns where the statement ends.
+    fn expression(&self, from: usize, key: &str, emit: &mut impl FnMut(Range<usize>)) -> usize {
+        let bytes = self.text.as_bytes();
+        let mut depth = 0usize;
+        let mut at = from;
+        while let Some(&byte) = bytes.get(at) {
+            match byte {
+                b'(' | b'[' | b'{' => depth += 1,
+                b')' | b']' | b'}' => match depth.checked_sub(1) {
+                    Some(outer) => depth = outer,
+                    None => return at,
+                },
+                b';' | b',' | b'\n' | b'\r' if depth == 0 => return at,
+                b'/' if bytes.get(at + 1) == Some(&b'/') => return line_end(bytes, at),
+                b'#' if at == 0 || bytes[at - 1].is_ascii_whitespace() => {
+                    return line_end(bytes, at);
+                }
+                b'"' | b'\'' | b'`' => {
+                    let close = string_end(bytes, at);
+                    for piece in self.literal_text(at + 1..close) {
+                        // One run, `=` only as its padding: a literal that
+                        // holds `name=value` is the name's own to judge.
+                        let judged = self.text.get(piece.clone()).is_some_and(|value| {
+                            is_run(value)
+                                && !value.trim_end_matches('=').contains('=')
+                                && !is_placeholder(value)
+                                && ValueTest::Named.redacts(key, value)
+                        });
+                        if judged {
+                            emit(piece);
+                        }
+                    }
+                    at = close;
+                }
+                _ => {}
+            }
+            at += 1;
+        }
+        bytes.len()
+    }
+
+    /// The text of the literal whose body lies at `body`, outside the
+    /// holes an interpolation writes in it (`${…}`): what the source spells,
+    /// each piece of it apart.
+    fn literal_text(&self, body: Range<usize>) -> Vec<Range<usize>> {
+        let Some(text) = self.text.get(body.clone()) else {
+            return Vec::new();
+        };
+        let mut pieces = Vec::new();
+        let mut start = 0;
+        while let Some(open) = text.get(start..).and_then(|rest| rest.find("${")) {
+            let open = start + open;
+            let Some(close) = text.get(open..).and_then(|rest| rest.find('}')) else {
+                break;
+            };
+            pieces.push(body.start + start..body.start + open);
+            start = open + close + 1;
+        }
+        pieces.push(body.start + start..body.end);
+        pieces.retain(|piece| !piece.is_empty());
+        pieces
     }
 
     /// Where the text from `from` ends: where `close` finds its end, or

@@ -97,7 +97,16 @@ pub(in crate::cli) async fn call(
         first,
         tokio::signal::ctrl_c(),
         interrupted,
-        |line| eprintln!("{}", octocode_io::notice::as_note(line)),
+        {
+            let print = crate::cli::tool_call::progress_printer(
+                crate::cli::tool_call::stderr_is_terminal(),
+            );
+            move |line: &str| {
+                if let Some(print) = &print {
+                    print(line);
+                }
+            }
+        },
     )
     .await;
     let (printed, notices) = match exchanged {

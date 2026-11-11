@@ -35,10 +35,12 @@ fn rank_weight(opts: &TextSearchOptions, mode: Mode, rec: &FileRec) -> u32 {
 /// * `modified` / `accessed` / `created`: ascending timestamp.
 /// * `matchCount`: descending [`rank_weight`] (the most-matched files first).
 /// * `relevance`: an [`identifier_search`](super::mode::identifier_search) first ranks source files whose hit
-///   declares the name (the definition answers "where is X"), then descending
-///   [`rank_weight`], then source paths before test, generated, and vendored
-///   paths, then descending summed line weight (declaration > code >
-///   comment/string), see [`relevance`](crate::search::relevance). Path-list views have no per-file
+///   declares the name (the definition answers "where is X"), then hand-written
+///   source paths before test, bundled and vendored paths, which come before
+///   generated ones, whatever their hit counts; within each class, more
+///   alternation words covered, then descending [`rank_weight`], then descending
+///   summed line weight (declaration > code > comment/string), see
+///   [`relevance`](crate::search::relevance). Path-list views have no per-file
 ///   density: source paths first, then path.
 /// * default and `path`: lexicographic by full path.
 pub(super) fn compare_recs(
@@ -58,9 +60,9 @@ pub(super) fn compare_recs(
         SearchSort::Relevance if lists_match_density(mode) => (b.declares && !b.demoted)
             .cmp(&(a.declares && !a.demoted))
             .then_with(|| a.generated.cmp(&b.generated))
+            .then_with(|| a.demoted.cmp(&b.demoted))
             .then_with(|| b.covered.cmp(&a.covered))
             .then_with(|| rank_weight(opts, mode, b).cmp(&rank_weight(opts, mode, a)))
-            .then_with(|| a.demoted.cmp(&b.demoted))
             .then_with(|| b.line_weight.cmp(&a.line_weight))
             .then_with(|| a.path.cmp(&b.path)),
         SearchSort::Relevance => a

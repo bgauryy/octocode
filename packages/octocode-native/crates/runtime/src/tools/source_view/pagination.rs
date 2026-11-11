@@ -5,6 +5,8 @@ use octocode_contract_types::{LocalFetchQuery, ReadProgressUnit};
 mod long_lines;
 mod source_lines;
 pub(super) use long_lines::LongLines;
+#[cfg(test)]
+pub(crate) use long_lines::placed_pieces;
 use long_lines::{MatchFirst, filled_page, oversized_line_end};
 pub(super) use source_lines::SourceLines;
 

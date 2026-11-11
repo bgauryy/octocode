@@ -60,6 +60,7 @@ pub(super) fn judge(
             whole.usage.input_tokens,
             whole.usage.output_tokens,
             whole.usage.calls.saturating_add(refused),
+            refused,
         ),
     });
     if let Some(model) = whole.model {
