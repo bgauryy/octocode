@@ -383,8 +383,9 @@ async fn lsp_references_walk_exactly_once_on_both_transports() {
 
 /// SHR-1: an answer that fits one page at a tiny budget is complete, so it
 /// states no `responsePagination` block (formerly `hasMore:false` with
-/// `oversized:true`, a page 1 of 1 that read as the end of a walk). Its size
-/// is stated once, by the envelope's top-level `oversized` (D7).
+/// `oversized:true`, a page 1 of 1 that read as the end of a walk). Its
+/// text is free text a page can window, so it is over the budget by its
+/// fixed parts only and states no `oversized` either.
 #[tokio::test]
 async fn a_complete_answer_wider_than_a_tiny_budget_states_no_page_block() {
     let workspace = Workspace::new();
@@ -411,7 +412,7 @@ async fn a_complete_answer_wider_than_a_tiny_budget_states_no_page_block() {
             output.get("responsePagination").is_none(),
             "{on:?}: {output}"
         );
-        assert_eq!(output["oversized"], true, "{on:?}: {output}");
+        assert!(output.get("oversized").is_none(), "{on:?}: {output}");
         assert_eq!(read_text(&[output]), "one line\n");
     }
     runtime.close().await;

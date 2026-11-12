@@ -43,6 +43,13 @@ pub(super) fn detect_dependencies(c: &mut Ctx) {
             })
             .collect::<Vec<_>>()
     };
+    // The subject is a package of a component: its importers are its files.
+    let impact = |files: &[(u32, u32)]| {
+        files
+            .iter()
+            .map(|(file, _)| v.impact(*file))
+            .fold(0.0, f64::max)
+    };
     let mut pending = Vec::new();
     for ((component, package), files) in &undeclared {
         let name = t.str(t.nodes[*package as usize].name).to_owned();
@@ -52,6 +59,7 @@ pub(super) fn detect_dependencies(c: &mut Ctx) {
             format!("`{name}` is imported but not declared in the {component} manifest"),
             0.8,
             0.75,
+            impact(files),
             json!({"package": name, "component": component, "importers": files.len(), "sites": sites(files)}),
             vec!["builtins, workspace siblings and ancestor manifests checked"],
         ));
@@ -64,6 +72,7 @@ pub(super) fn detect_dependencies(c: &mut Ctx) {
             format!("Phantom dependency: `{name}` resolves only because another workspace package declares it"),
             0.6,
             0.55,
+            impact(files),
             json!({"package": name, "component": component, "declaredBySibling": true, "importers": files.len(), "sites": sites(files)}),
             vec!["hoisted by the package manager; breaks when published or installed alone"],
         ));
@@ -191,7 +200,7 @@ pub(super) fn detect_unresolved(c: &mut Ctx) {
                     0.5 * magnitude(sites.len())
                 },
                 confidence,
-                impact: 0.5,
+                impact: t.by_key(&file).map_or(0.5, |id| c.v.impact(id)),
                 evidence: json!({"count": sites.len(), "sites": grouped_sites(&sites), "outsideRoot": outside}),
                 controls,
             },

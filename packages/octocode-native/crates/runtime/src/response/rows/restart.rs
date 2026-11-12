@@ -12,6 +12,11 @@ pub(crate) fn require_restart(tool: ToolId, data: &mut Value, query: &Value) {
     if crate::id::error_code_of(data) != Some(ErrorCode::StaleSnapshot) || !query.is_object() {
         return;
     }
+    // A row whose query is a saved plan's cursor holds no request to
+    // restart: the tool names the one the plan was made from.
+    if data.pointer("/next/restart/kind") == Some(&Value::from("continue")) {
+        return;
+    }
     let restart = Continuation::continued(tool, fresh_query_row(tool, query)).build();
     if let Some(related) = data.get_mut("related").and_then(Value::as_array_mut) {
         related.retain(|call| call["tool"] != restart["tool"] || call["input"] != restart["input"]);

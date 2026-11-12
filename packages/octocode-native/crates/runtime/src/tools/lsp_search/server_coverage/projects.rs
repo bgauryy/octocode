@@ -116,8 +116,8 @@ pub(super) fn annotate_unanswered(
         let mut note = String::new();
         if !files.is_empty() {
             note = format!(
-                "The server lists no use of this name, but {} other file(s) spell it in code: its project may not cover them.",
-                files.len()
+                "The server lists no use of this name, but {} outside its answer spell it in code: its project may not cover them.",
+                octocode_engine::text::counted(files.len(), "file", "files")
             );
         }
         flag_with_ignored(row, query, scope, note, ignored.as_ref());

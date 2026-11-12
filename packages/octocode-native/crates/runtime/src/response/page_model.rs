@@ -56,6 +56,9 @@ pub(crate) struct ResponsePagination {
     #[cfg(test)]
     pub(crate) total_pages: usize,
     pub(crate) has_more: bool,
+    /// The page's chars as measured against the budget (the plan tests
+    /// check page widths by it).
+    #[cfg(test)]
     pub(crate) returned_chars: usize,
     pub(crate) snapshot: String,
     pub(crate) next_offset: Option<usize>,

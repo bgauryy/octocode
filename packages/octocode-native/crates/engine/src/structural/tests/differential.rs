@@ -419,6 +419,7 @@ fn options(
         max_files: Some(u32::MAX),
         skip_files: None,
         max_file_bytes: None,
+        judge: None,
     }
 }
 
@@ -608,7 +609,11 @@ fn macro_body_matches_over_the_native_crates() {
         let mut options = options(&crates, None, Some(rule.clone()));
         options.include = Some(vec!["**/*.rs".to_owned()]);
         let scan = search_files_detailed(options).expect("scan the crates");
-        let bodies: usize = scan.files.iter().map(|file| file.recovered_bodies.len()).sum();
+        let bodies: usize = scan
+            .files
+            .iter()
+            .map(|file| file.recovered_bodies.len())
+            .sum();
         eprintln!(
             "crates {rule}: {} matches, {bodies} recovered bodies named",
             scan.total_matches

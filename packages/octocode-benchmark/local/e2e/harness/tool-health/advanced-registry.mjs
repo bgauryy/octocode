@@ -18,8 +18,9 @@ const sorted = value => JSON.stringify(Object.fromEntries(Object.entries(value ?
 // The default view is the summary; what the package declares and depends on is `view: "details"`.
 // Resolve-row fields only details states (the contract's view description; artifact_search/summary.rs):
 // a registry page the request did not name is one of them.
-const RESOLVE_DETAILS = ['license', 'homepage', 'dependencies', 'optionalDependencies', 'peerDependencies', 'engines',
-  'requiresPython', 'rustVersion', 'downloadsMonthly', 'description'];
+// The advisories a registry lists (PyPI, NuGet) are securityCheck's question: only details lists them.
+const RESOLVE_DETAILS = ['advisories', 'license', 'homepage', 'dependencies', 'optionalDependencies', 'peerDependencies',
+  'engines', 'requiresPython', 'rustVersion', 'downloadsMonthly', 'description'];
 
 /**
  * Why the summary resolve `result` of `query` is not its details `whole` narrowed exactly: each summary field

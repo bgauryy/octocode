@@ -47,13 +47,7 @@ pub(super) fn collect(
             })
         })
         .collect::<HashMap<_, _>>();
-    let dynamic_scope = semantic.nodes().iter().any(|node| {
-        matches!(node.kind(), AstKind::WithStatement(_))
-            || semantic
-                .scoping()
-                .scope_flags(node.scope_id())
-                .contains_direct_eval()
-    });
+    let dynamic_scope = dynamic_scope(semantic);
     let owners = call_owners(semantic, declarations);
     let mut sites = Vec::new();
     for node in semantic.nodes().iter() {
@@ -390,6 +384,18 @@ fn observation(
         }
     };
     GraphArgumentObservation::NonReference { value_kind }
+}
+
+/// Whether a `with` statement or a direct `eval` lets code bind names the
+/// semantic scopes do not show: then no lexical binding settles a name.
+pub(super) fn dynamic_scope(semantic: &Semantic<'_>) -> bool {
+    semantic.nodes().iter().any(|node| {
+        matches!(node.kind(), AstKind::WithStatement(_))
+            || semantic
+                .scoping()
+                .scope_flags(node.scope_id())
+                .contains_direct_eval()
+    })
 }
 
 fn bytes(span: Span) -> crate::text::analysis::ObservedSpan {

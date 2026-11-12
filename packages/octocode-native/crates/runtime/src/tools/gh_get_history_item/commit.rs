@@ -161,10 +161,11 @@ fn commit_header(commit: &CommitFacts<'_>, reference: &str, summary: bool, liste
         "parentCommitShas":summary.then_some(parents),
         // Top-level counts always describe the whole commit; a path scope's
         // own count is `sectionPagination.files.total`, and the file
-        // page's `countScope` says when this count is a floor.
+        // page's `countScope` says when this count is a floor. The counts
+        // keep one order on every read, as a pull request's do.
+        "changedFileCount":listed,
         "additions":raw.pointer("/stats/additions").filter(|_| summary),
         "deletions":raw.pointer("/stats/deletions").filter(|_| summary),
-        "changedFileCount":listed,
     });
     // A caller-supplied SHA is not restated as the ref it already names.
     if reference.eq_ignore_ascii_case(&commit.sha)
@@ -290,6 +291,53 @@ const WEB_FLOW_LOGIN: &str = "web-flow";
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every commit read states its keys in one order, whatever it shows:
+    /// identity, message, people, parents, then the counts (as a pull
+    /// request states them).
+    #[test]
+    fn a_commit_header_keeps_one_key_order() {
+        let raw = json!({"sha":"a".repeat(40),"parents":[{"sha":"b".repeat(40)}],
+            "stats":{"additions":0,"deletions":3},
+            "commit":{"message":"fix: x\n\nbody",
+                "author":{"name":"Ada","email":"ada@x.dev","date":"2024-01-01T00:00:00Z"},
+                "committer":{"name":"Ada","email":"ada@x.dev","date":"2024-01-01T00:00:00Z"}},
+            "author":{"login":"ada"},"committer":{"login":"ada"}});
+        let facts = CommitFacts::of(&raw);
+        let keys = |header: Value| {
+            let mut header = header;
+            remove_nulls(&mut header);
+            header
+                .as_object()
+                .expect("row")
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            keys(commit_header(&facts, "main", true, 2)),
+            [
+                "ref",
+                "commitSha",
+                "message",
+                "author",
+                "parentCommitShas",
+                "changedFileCount",
+                "additions",
+                "deletions"
+            ]
+        );
+        assert_eq!(
+            keys(commit_header(&facts, "main", false, 2)),
+            [
+                "ref",
+                "commitSha",
+                "messageHeadline",
+                "author",
+                "changedFileCount"
+            ]
+        );
+    }
 
     /// A committer that repeats the author whole is not restated; one that
     /// differs in any field (a rebased date, another email) is evidence.

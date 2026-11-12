@@ -184,3 +184,59 @@ fn a_cargo_build_script_keeps_the_modules_it_mounts_live() {
         assert!(!listed("unreachable-file"), "{manifest}: {}", issues.value);
     }
 }
+
+/// `test-only` names who reaches the file: `src/legacy/old.ts`, which only
+/// the build script `scripts/build.js` (a config file) requires, is reached
+/// by config, not tests; `src/tested.ts`, which only a test imports, is
+/// reached by tests. The title names the same classes.
+#[test]
+fn test_only_names_the_class_that_reaches_the_file() {
+    let dir = git_app(&[
+        (
+            "package.json",
+            r#"{"name":"app","main":"src/main.ts","scripts":{"build":"node scripts/build.js"}}"#,
+        ),
+        ("src/main.ts", "export const main = 1;\n"),
+        (
+            "scripts/build.js",
+            "const { oldThing } = require('../src/legacy/old');\noldThing();\n",
+        ),
+        ("src/legacy/old.ts", "export const oldThing = () => 1;\n"),
+        ("src/tested.ts", "export const helper = () => 2;\n"),
+        (
+            "src/tested.test.ts",
+            "import { helper } from './tested';\nhelper();\n",
+        ),
+    ]);
+    let root = dir.0.as_path();
+    assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
+    let issues = ask(root, "issues", None, |o| {
+        o.detectors = vec!["test-only".to_owned()];
+        o.min_tier = Some(0);
+    });
+    let row = |subject: &str| {
+        issues.value["rows"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|row| row["subject"] == format!("app/{subject}"))
+            .cloned()
+            .unwrap_or_else(|| panic!("{subject}: {}", issues.value))
+    };
+    let old = row("src/legacy/old.ts");
+    assert_eq!(old["evidence"]["reachedBy"], json!(["config"]), "{old}");
+    assert!(
+        old["title"]
+            .as_str()
+            .is_some_and(|title| !title.contains("test")),
+        "{old}"
+    );
+    let tested = row("src/tested.ts");
+    assert_eq!(tested["evidence"]["reachedBy"], json!(["test"]), "{tested}");
+    assert!(
+        tested["title"]
+            .as_str()
+            .is_some_and(|title| title.contains("test")),
+        "{tested}"
+    );
+}

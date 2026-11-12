@@ -52,7 +52,7 @@ impl ClientWaits {
     /// one batch waited on the same warm-up, and saying so once is enough.
     ///
     /// Single source: a row adopts from one shared request only, its batch's
-    /// warm-up, which it reads more than once (each ref, each path). The
+    /// warm-up, which it may read more than once (each ref it resolves). The
     /// per-kind maximum is right for that one source re-read; two different
     /// sources adopted here would undercount, so a second source needs its
     /// own adopted set, summed beside this one.

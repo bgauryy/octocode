@@ -15,13 +15,16 @@ mod tests;
 
 /// One page of the closing-reference lookup: `first` is GitHub's page
 /// maximum, `after` the previous page's end cursor (null on the first).
-pub(in crate::tools::gh_get_history_item) const CLOSING_REFERENCES_DOCUMENT: &str = "query($owner:String!,$repo:String!,$number:Int!,$first:Int!,$after:String){ repository(owner:$owner,name:$repo){ issue(number:$number){ closedByPullRequestsReferences(first:$first,after:$after,includeClosedPrs:true){ totalCount pageInfo{ hasNextPage endCursor } nodes{ number state mergedAt additions deletions changedFiles } } } } }";
+pub(in crate::tools::gh_get_history_item) const CLOSING_REFERENCES_DOCUMENT: &str = "query($owner:String!,$repo:String!,$number:Int!,$first:Int!,$after:String){ repository(owner:$owner,name:$repo){ issue(number:$number){ closedByPullRequestsReferences(first:$first,after:$after,includeClosedPrs:true){ totalCount pageInfo{ hasNextPage endCursor } nodes{ number state mergedAt additions deletions changedFiles repository{ nameWithOwner } } } } } }";
 
 /// One linked pull request: its public `closedBy` row and whether its whole
 /// diff fits one patch read.
 pub(super) struct ClosingPr {
     pub(super) row: Value,
     small: bool,
+    /// The repository GitHub names the pull request in (`owner/repo`); a
+    /// fix in another repository is named there on its row and its read.
+    repository: Option<(String, String)>,
 }
 
 /// The linked pull requests one read returned, merged first, how many the
@@ -74,7 +77,12 @@ pub(super) async fn closing_pull_requests(
         .pointer("/pageInfo/hasNextPage")
         .and_then(Value::as_bool)
         == Some(true);
-    let prs = map_closing_pull_requests(references.get("nodes")?.as_array()?);
+    let mut prs = map_closing_pull_requests(references.get("nodes")?.as_array()?);
+    name_other_repositories(
+        &mut prs,
+        gh_get_history_item_query::owner(query),
+        gh_get_history_item_query::repo(query),
+    );
     let listed = u64::try_from(prs.len()).unwrap_or(u64::MAX);
     Some(ClosingReferences {
         bounded_total: more.then(|| {
@@ -166,12 +174,42 @@ fn map_closing_pull_requests(nodes: &[Value]) -> Vec<ClosingPr> {
                 count("deletions"),
                 count("changedFiles"),
             );
-            Some(ClosingPr { row, small })
+            let repository = str_at(node, "/repository/nameWithOwner")
+                .and_then(|name| name.split_once('/'))
+                .map(|(owner, repo)| (owner.to_owned(), repo.to_owned()));
+            Some(ClosingPr {
+                row,
+                small,
+                repository,
+            })
         })
         .collect::<Vec<_>>();
     // Stable: merged first, otherwise GitHub's order.
     prs.sort_by_key(|pr| pr.row.get("mergedAt").is_none());
     prs
+}
+
+/// A closing pull request in another repository than the issue's is named
+/// by its `owner`/`repo` on its row: a bare number would read as the
+/// issue's repository. One in the issue's repository (any case) keeps the
+/// row's number alone, and its read the issue's repository.
+fn name_other_repositories(prs: &mut [ClosingPr], owner: &str, repo: &str) {
+    for pr in prs {
+        let same = pr
+            .repository
+            .as_ref()
+            .is_none_or(|(other_owner, other_repo)| {
+                other_owner.eq_ignore_ascii_case(owner) && other_repo.eq_ignore_ascii_case(repo)
+            });
+        if same {
+            pr.repository = None;
+        } else if let Some((other_owner, other_repo)) = &pr.repository
+            && let Some(row) = pr.row.as_object_mut()
+        {
+            row.insert("owner".into(), json!(other_owner));
+            row.insert("repo".into(), json!(other_repo));
+        }
+    }
 }
 
 /// A related read opens the first closing (merged-first) pull request;
@@ -190,8 +228,17 @@ pub(super) fn attach_fix_pr(
         // Files the caller's goal names: their patches are the evidence, and
         // the filter rides the copied query, so the narrowing is visible.
         Some(pr) => {
+            let (owner, repo) = pr.repository.as_ref().map_or_else(
+                || {
+                    (
+                        gh_get_history_item_query::owner(query),
+                        gh_get_history_item_query::repo(query),
+                    )
+                },
+                |(owner, repo)| (owner.as_str(), repo.as_str()),
+            );
             let Some(read) = wire_query::<GhGetHistoryItemQuery>(json!({
-                "operation":"pullRequest","owner":gh_get_history_item_query::owner(query),"repo":gh_get_history_item_query::repo(query),
+                "operation":"pullRequest","owner":owner,"repo":repo,
                 "number":pr.row["number"],
                 "sections": if pr.small { json!(["patches"]) } else { json!(["body", "files"]) }}))
             else {

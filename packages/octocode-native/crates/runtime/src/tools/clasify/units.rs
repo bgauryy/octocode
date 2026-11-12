@@ -396,6 +396,7 @@ fn judge(
                     questions: &row.questions,
                     assets: None,
                     long_context: LongContext::from_field(row.long_context),
+                    companions: 0,
                 };
                 let (judged, _) = evaluator
                     .evaluate_once(evaluations, input, row.model.as_deref(), budget, gate)

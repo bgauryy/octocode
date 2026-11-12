@@ -50,9 +50,10 @@ const REFERENCE_FIELDS: [&str; 13] = [
 ];
 
 /// Answer fields whose values are `path:line` mentions (a list, or lists
-/// keyed by export name): each path is a file's, restated from the
-/// workspace whether or not the snapshot holds it (a README, a script).
-const MENTION_FIELDS: [&str; 2] = ["mentionedIn", "textMentions"];
+/// keyed by export name) or text file paths the mention scan could not read
+/// (`unread`): each path is a file's, restated from the workspace whether or
+/// not the snapshot holds it (a README, a script).
+const MENTION_FIELDS: [&str; 3] = ["mentionedIn", "textMentions", "unread"];
 
 /// Each `path:line` mention under `value` with its path restated from the
 /// workspace.
@@ -164,7 +165,7 @@ impl Graph {
             NodeKind::Symbol => {
                 // A point answer's keys come from lookup entries: the file's
                 // is checked against its node record before it is rendered.
-                self.node_record(node.file, cancel)?;
+                let file_record = self.node_record(node.file, cancel)?;
                 if let Some(decl) = self.declaration(id, cancel)? {
                     let file = self.key(node.file);
                     let digest = self.t.str(decl.source_digest);
@@ -174,9 +175,14 @@ impl Graph {
                     {
                         out.insert("testIdentity".into(), identity);
                     }
-                    out.insert("occurrenceId".into(), json!(self.t.str(decl.occurrence)));
-                    out.insert("sourceDigest".into(), json!(self.t.str(decl.source_digest)));
-                    if decl.source_start != NONE {
+                    // A file a read hides any of states no byte provenance
+                    // ([`Graph::shows_provenance`]): its line places the row.
+                    let shown = Self::shows_provenance(&file_record);
+                    if shown {
+                        out.insert("occurrenceId".into(), json!(self.t.str(decl.occurrence)));
+                        out.insert("sourceDigest".into(), json!(digest));
+                    }
+                    if shown && decl.source_start != NONE {
                         out.insert(
                             "sourceRange".into(),
                             sources::range(octocode_engine::text::analysis::ByteRange::new(
@@ -190,7 +196,7 @@ impl Graph {
                                 .value,
                         );
                     }
-                    if decl.selection_start != NONE {
+                    if shown && decl.selection_start != NONE {
                         out.insert(
                             "selectionByteRange".into(),
                             sources::range(octocode_engine::text::analysis::ByteRange::new(
@@ -267,7 +273,8 @@ impl Graph {
     /// ([`REFERENCE_FIELDS`]) that names a snapshot file or directory, is
     /// restated; node ids that are ids (a symbol's `file#name`, a package's
     /// `pkg:` key) and finding ids stay as they are. Calls (`next`,
-    /// `related`) carry request paths, which already name the workspace.
+    /// `related`, `reingest`) carry request paths, which already name the
+    /// workspace.
     pub(super) fn rebase_paths(&self, value: &mut Value) {
         let root = self.shown_root();
         if root != "." {
@@ -282,7 +289,7 @@ impl Graph {
                 for (key, item) in object.iter_mut() {
                     match (key.as_str(), item) {
                         ("path", Value::String(path)) => *path = join(root, path),
-                        ("next" | "related" | "graph", _) => {}
+                        ("next" | "related" | "reingest" | "graph", _) => {}
                         (key, item) if REFERENCE_FIELDS.contains(&key) => {
                             self.rebase_reference(item, root);
                         }

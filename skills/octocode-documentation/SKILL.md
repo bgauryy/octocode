@@ -5,7 +5,17 @@ description: "Use when writing, shortening, correcting or reviewing technical do
 
 # Octocode Documentation
 
-Read the requested page and nearby conventions to identify the reader, their next action and the destination. A named document authorizes editing there. For a review, return findings. Ask only if missing information changes the content or destination.
+**Start:** read this lobby, map the task to the references it names, and read each one the task needs before acting. Read the requested page and nearby conventions to identify the reader, their next action and the destination. A named document authorizes editing there. For a review, return findings. Ask only if missing information changes the content or destination.
+
+```mermaid
+flowchart LR
+  R["Read the page and conventions: reader, next action, destination"] --> M{Request}
+  M -- review --> F[Findings with stable anchors]
+  M -- write or edit --> C[Check each changed claim against its source]
+  C --> D["Draft: answer first, one owner per rule"] --> V{Docs check, examples and links pass?}
+  V -- no --> D
+  V -- yes --> O[Deliver with unverified items]
+```
 
 ## Writing rules
 
@@ -21,6 +31,12 @@ Follow user instructions, project style, local convention, then this skill. Pres
 | Comparison or branching relationship | Use the [format chooser](references/report-output.md#choose-the-format). | Show evidenced relationships and their significance. |
 | Before delivery | Check changed facts, examples, commands and links; run the documentation check and fix failures. | Distinguish examples run from inspected; use stable doc paths and line anchors for findings. |
 
+| Intent | Thinking mode | Action / check |
+|---|---|---|
+| Shorten or deduplicate | Via Negativa | Remove text only when the reader's next action and every rule keep one reachable owner. |
+| Judge an improvement | Goodhart | Fewer lines or nicer formatting is no gain unless the reader can still act and recognize success. |
+| Verify a claim | Inversion | Ask what breaks when a reader follows the line literally, then check the owning source. |
+
 Deliver the document or [review](output.md), including unverified items. Use [render-report.mjs](scripts/render-report.mjs) for saved reports.
 
-Use the [MCP/CLI guide](references/octocode-usage.md) and `octocode-research` for unresolved code claims, `octocode-rfc-generator` for open design decisions, `octocode-agentic` for behavioral wording and `octocode-skills` for packaging. For multiple actors, use [workflow composition](../octocode-workflows/references/composition.md).
+Use the [MCP/CLI guide](references/octocode-usage.md) and `octocode-research` for unresolved code claims, `octocode-rfc-generator` for open design decisions, `octocode-agentic` for behavioral wording and `octocode-skills` for packaging. For multiple actors, use `octocode-workflows`.

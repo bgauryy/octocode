@@ -234,6 +234,18 @@ pub(super) fn link_calls(
     }
 }
 
+/// The reason a call the extractor left unassessed stays unlinked.
+fn boundary_reason(binding: &GraphCallBinding) -> Option<&'static str> {
+    match binding {
+        GraphCallBinding::Unassessed { reason } => Some(match reason {
+            GraphCallBoundary::TargetTypeUnavailable => "constructor-target-unavailable",
+            GraphCallBoundary::ConstructorDelegation => "constructor-binding-not-assessed",
+            GraphCallBoundary::UnsupportedConstructorForm => "unsupported-constructor-form",
+        }),
+        _ => None,
+    }
+}
+
 /// One call site's caller and its link, or the reason it stays unlinked;
 /// `receiver_type` is the written or derived type of its receiver.
 fn resolve_call(
@@ -325,23 +337,29 @@ fn resolve_call(
             call.parse_assessment,
             octocode_engine::graph::GraphParseAssessment::Recovered { .. }
         );
-        let boundary = match call.binding {
-            GraphCallBinding::Unassessed { reason } => Some(match reason {
-                GraphCallBoundary::TargetTypeUnavailable => "constructor-target-unavailable",
-                GraphCallBoundary::ConstructorDelegation => "constructor-binding-not-assessed",
-                GraphCallBoundary::UnsupportedConstructorForm => "unsupported-constructor-form",
-            }),
-            _ => None,
-        };
+        let boundary = boundary_reason(&call.binding);
         // A bare std macro name the repo also declares as a `macro_rules!`
         // may expand that macro instead: its arguments are no proven calls.
         let shadowed = call
             .macros
             .iter()
             .any(|path| !path.contains("::") && linker.rust_macros.contains(path.as_str()));
-        let resolved = (!recovered && !shadowed && boundary.is_none())
+        // A bare call of a parameter, local or closure calls that value: no
+        // declaration of its name is the target.
+        let local_binding = call.term_binding && qualifier.is_empty();
+        // The declaration the lane's semantics bind a bare callee to: that
+        // one, never another declaration of its name.
+        let bound = call
+            .bound_declaration
+            .as_deref()
+            .filter(|_| qualifier.is_empty() && receiver_type.is_none())
+            .and_then(|id| unit.index.decl_nodes.get(id).copied())
+            .filter(|id| accept(*id));
+        let resolved = (!recovered && !shadowed && !local_binding && boundary.is_none())
             .then(|| {
-                if unit.language == "scala" {
+                if let Some(target) = bound {
+                    Some((vec![target], "local", Confidence::High))
+                } else if unit.language == "scala" {
                     linker.scala_call(&site)
                 } else if let Some(lang) = classes::ClassLang::of(unit.language) {
                     let constructed = call.binding == GraphCallBinding::ConstructedType;
@@ -373,6 +391,8 @@ fn resolve_call(
                 "recovered-declaration"
             } else if let Some(reason) = boundary {
                 reason
+            } else if local_binding {
+                "local-binding"
             } else if shadowed {
                 "ambiguous"
             } else if call.binding == GraphCallBinding::ConstructedType

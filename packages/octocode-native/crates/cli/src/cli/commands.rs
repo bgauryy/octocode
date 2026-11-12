@@ -13,10 +13,34 @@ pub(super) struct ToolArgs {
     /// Read the JSON query from a file, or from stdin with `-`.
     #[arg(long, value_name = "FILE|-")]
     pub input: Option<std::path::PathBuf>,
+    /// `clasify --content -`: stdin is the one query row's `content`
+    /// ([`content_from_stdin`]); only that command defines the flag.
+    #[arg(skip)]
+    pub content_stdin: bool,
 }
 
-/// Largest JSON query read from `--input` (a file or stdin).
-const MAX_QUERY_BYTES: u64 = 8 * 1024 * 1024;
+/// Largest JSON query read from `--input` (a file or stdin), and largest query
+/// once `--content -` puts stdin into it.
+pub(super) const MAX_QUERY_BYTES: u64 = 8 * 1024 * 1024;
+
+/// The flag that fills a clasify row's `content` from stdin. It takes only
+/// `-`: it is where the field's value comes from, not a second name for it,
+/// so the row's other fields stay in the JSON.
+const CONTENT_FLAG: &str = "content";
+
+/// `--content -` on the one tool whose row takes literal text: clasify.
+fn content_from_stdin(tool: &str, command: clap::Command) -> clap::Command {
+    if tool != ToolId::Clasify.as_str() {
+        return command;
+    }
+    command.arg(
+        clap::Arg::new(CONTENT_FLAG)
+            .long(CONTENT_FLAG)
+            .value_name("-")
+            .value_parser(["-"])
+            .help("Read the one query row's `content` from stdin as UTF-8 text; the JSON comes from the argument or --input FILE"),
+    )
+}
 
 impl ToolArgs {
     /// Resolve the JSON query text from `--input FILE|-` or the positional
@@ -101,7 +125,12 @@ impl FromArgMatches for ToolCommand {
                 format!("unrecognized subcommand '{name}'"),
             ));
         };
-        let args = ToolArgs::from_arg_matches(&sub_matches)?;
+        let mut args = ToolArgs::from_arg_matches(&sub_matches)?;
+        args.content_stdin = sub_matches
+            .try_get_one::<String>(CONTENT_FLAG)
+            .ok()
+            .flatten()
+            .is_some();
         Ok(Self { name, args })
     }
 
@@ -114,15 +143,19 @@ impl FromArgMatches for ToolCommand {
 impl Subcommand for ToolCommand {
     fn augment_subcommands(command: clap::Command) -> clap::Command {
         contract_tools().fold(command, |command, (name, about)| {
-            command.subcommand(ToolArgs::augment_args(clap::Command::new(name)).about(about))
+            command.subcommand(content_from_stdin(
+                name,
+                ToolArgs::augment_args(clap::Command::new(name)).about(about),
+            ))
         })
     }
 
     fn augment_subcommands_for_update(command: clap::Command) -> clap::Command {
         contract_tools().fold(command, |command, (name, about)| {
-            command.subcommand(
+            command.subcommand(content_from_stdin(
+                name,
                 ToolArgs::augment_args_for_update(clap::Command::new(name)).about(about),
-            )
+            ))
         })
     }
 
@@ -362,6 +395,7 @@ mod tests {
         let args = ToolArgs {
             args: Vec::new(),
             input: Some(file),
+            content_stdin: false,
         };
         assert_eq!(
             args.query_text().expect("readable"),

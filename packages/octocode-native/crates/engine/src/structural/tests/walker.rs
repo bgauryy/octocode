@@ -25,6 +25,7 @@ fn search_files_supports_recursive_glob_includes() {
         max_files: Some(50),
         skip_files: None,
         max_file_bytes: None,
+        judge: None,
     })
     .expect("glob search");
 
@@ -60,6 +61,7 @@ fn search_files_honors_dot_ignore_files() {
         max_files: Some(50),
         skip_files: None,
         max_file_bytes: None,
+        judge: None,
     })
     .expect("ignore search");
 
@@ -89,6 +91,7 @@ fn search_files_prefilters_rule_by_inner_pattern() {
         max_files: Some(50),
         skip_files: None,
         max_file_bytes: None,
+        judge: None,
     })
     .expect("rule search");
 
@@ -116,6 +119,7 @@ fn search_files_operator_only_pattern_parses_every_candidate() {
         max_files: Some(50),
         skip_files: None,
         max_file_bytes: None,
+        judge: None,
     })
     .expect("operator anchor search");
 
@@ -143,6 +147,7 @@ fn operator_spacing_does_not_split_directory_and_file_results() {
             max_files: Some(50),
             skip_files: None,
             max_file_bytes: None,
+            judge: None,
         })
         .expect("directory search");
         assert_eq!(result.skipped_by_pre_filter, 0, "{pattern}");
@@ -237,6 +242,7 @@ fn structural_files_honor_scope_options() {
             max_files: Some(50),
             skip_files: None,
             max_file_bytes: None,
+            judge: None,
         };
         scope(&mut options);
         let paths = scope_result_paths(options);
@@ -275,6 +281,7 @@ fn structural_anchor_prefilter_prunes_beyond_max_depth_before_search() {
         max_files: Some(10),
         skip_files: None,
         max_file_bytes: None,
+        judge: None,
     })
     .expect("structural search");
 
@@ -325,6 +332,7 @@ fn admit_sees_listing_types_and_a_candidate_swapped_for_a_link_is_not_read() {
             max_files: Some(10),
             skip_files: None,
             max_file_bytes: None,
+            judge: None,
         },
         StructuralDemand::Matches,
         &|path, kind| {

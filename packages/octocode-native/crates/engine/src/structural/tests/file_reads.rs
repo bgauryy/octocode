@@ -15,6 +15,7 @@ fn files_options(root: &TmpDir) -> StructuralSearchFilesOptions {
         max_files: Some(10),
         skip_files: None,
         max_file_bytes: None,
+        judge: None,
     }
 }
 
@@ -65,7 +66,7 @@ fn search_files_admits_sources_by_the_one_text_rule() {
         Some("target($X)"),
         None,
         wide.source_sha256.as_deref().expect("digest"),
-        1 << 20,
+        (1 << 20, None),
         &|| false,
     )
     .expect("rebuilt");
@@ -178,6 +179,7 @@ fn search_files_prefilter_read_feeds_the_parse_and_keeps_skip_reasons() {
         max_files: Some(10),
         skip_files: None,
         max_file_bytes,
+        judge: None,
     };
     let result = search_files_detailed(options(Some(1_000))).expect("search files");
     assert_eq!(result.total_matches, 1);
@@ -254,6 +256,7 @@ fn search_files_separates_unsupported_from_prefilter_skips() {
         max_files: Some(10),
         skip_files: None,
         max_file_bytes: None,
+        judge: None,
     })
     .expect("search files");
 
@@ -342,7 +345,7 @@ fn a_rebuild_refuses_an_entry_swapped_for_a_link() {
         Some("target($X)"),
         None,
         &crate::digest::sha256(source),
-        1 << 20,
+        (1 << 20, None),
         &|| false,
     )
     .expect("rebuilt");

@@ -244,7 +244,7 @@ fn provider_hint(code: ErrorCode) -> Option<&'static str> {
             "Configure a language server for this file, or use related source/text reads and report the semantic coverage gap."
         }
         ErrorCode::Policy => {
-            "Inspect the policy refusal and use an authorized source; do not work around denied access."
+            "The refusal follows the user's configuration: use an authorized source, and leave any opt-in it names to the user."
         }
         ErrorCode::NoMatches => {
             "Inspect the requested scope, filters and coverage; no matches in this scope do not establish repository-wide absence."

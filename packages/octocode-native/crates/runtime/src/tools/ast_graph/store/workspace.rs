@@ -13,9 +13,13 @@ use std::path::Path;
 
 mod entries;
 mod manifests;
-pub(super) use entries::declared_target;
 use crate::tools::ast_graph::paths::parent;
+pub(super) use entries::declared_target;
 use manifests::*;
+
+/// Directories a build writes its output to, mirroring the sources it
+/// compiles (`dist/index.js` from `src/index.ts` or `index.ts`).
+pub(super) const BUILD_OUTPUT_DIRS: &[&str] = &["dist", "build", "out", "lib", "esm", "cjs"];
 
 /// One build unit: an npm package, Cargo crate, Go module, or Python project.
 #[derive(Clone, Debug, Default)]

@@ -35,7 +35,7 @@ pub(super) use request::{HierarchyRequest, hierarchy, scope_callers};
 #[cfg(test)]
 pub(super) use {
     bfs::walk_hierarchy,
-    caller_names::{ClassFacts, split_module_callers},
+    caller_names::{ClassFacts, name_callers, split_module_callers},
     compact::compact_calls,
     nodes::{builtin_name, is_builtin_lib_declaration},
     outcome::expansion_outcome,

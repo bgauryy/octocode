@@ -42,11 +42,16 @@ impl CallStats {
     }
 }
 
+/// The call sites of one population, partitioned: `eligible` (the ratio's
+/// denominator) is `linked` plus the unlinked sites whose name still has a
+/// declaration in this repository ([`INTERNAL_REASONS`]); `excluded` is the
+/// unlinked rest (external packages, names declared nowhere in it), outside
+/// the ratio. Every call site is in exactly one of `eligible`, `excluded`.
 fn linkage(linked: u64, missed: u64, excluded: u64) -> serde_json::Value {
     let eligible = linked + missed;
     let ratio = (eligible != 0).then(|| linked as f64 / eligible as f64);
     serde_json::json!({"linked":linked, "eligible":eligible, "excluded":excluded,
-        "ratio":ratio, "population":"syntax-call-sites"})
+        "sites":eligible + excluded, "ratio":ratio, "population":"syntax-call-sites"})
 }
 
 /// Classifies an unlinked call site for `CallStats::unresolved_by_reason`;

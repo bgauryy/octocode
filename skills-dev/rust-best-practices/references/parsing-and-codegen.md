@@ -1,38 +1,33 @@
-Load when generating tool contracts, parsing source (tree-sitter, oxc, syn), running structural queries, or rewriting code by byte range. Why: duplicated schemas and incorrect byte offsets break consumers silently.
+# Parsing, generated contracts and source edits
 
-# Parsing & code transformation — tree-sitter, offsets, safe rewrites
+Load for source parsers, structural queries, generated types or edits by source position. Inspect the selected parser/protocol version and the component that owns its limits.
 
-## Tool contract generation: Octocode
-- Author schemas, descriptions, instructions, and limits in `@octocodeai/octocode-core`; `@octocodeai/config` owns generation.
-- Build core, then run `node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen` from the repo root. Immediately rebuild native, then affected interfaces with `octocode-dev`.
-- Use generated Rust query/result types. Add accessor `impl` blocks when needed; do not mirror the wire format in serde or interface types.
-- Native `build.rs` embeds the generated contract in place and checks fingerprints. Regenerate and rebuild on drift; do not bypass the guard.
-- Implement each new field/discriminator and declare its native effect in `field-effect-coverage.json`. A declaration alone does not prove behavior.
-- Keep open payloads open. Strict input validation follows the authored schema; do not reject extension fields merely for uniformity.
-- Verify parity, field effects, and the actual CLI/fresh-MCP path. Generated files are outputs, not manual edit targets.
+## Contract ownership
 
-## Parser lifecycle
-- **Consider parser reuse** per worker on a measured hot path. Reset state and change language when the next file requires it; compare against constructing a parser per file before adding thread-local state (see `references/performance-and-memory.md`).
-- **Compile queries once** and share (`OnceLock`/`LazyLock` → `Arc<Query>`); allocate the `QueryCursor` per call (cheap) or thread-local it.
-- **Full re-parse is fine for file-at-a-time / batch** analysis; incremental (`Tree::edit`) only pays off for interactive editing of the same buffer. Don't add incremental complexity for batch tools.
-- Run third-party parsers (oxc, C grammars) on a deep-stack runner for deeply-nested input.
+- Identify the schema/type/codegen owner. Change the source declaration, regenerate with the established command and update its consumers; do not create handwritten copies of generated wire types.
+- Verify that the built consumer actually embeds/loads the new contract. Stale generated output and a stale running server are different failure modes.
+- Preserve documented extension fields and discriminators. Strict rejection follows a closed authored contract, not a preference for uniformity.
+- Check field behavior, error representation and each affected interface, not just that regeneration succeeded. For Octocode's exact pipeline, use [repository guidance](octocode.md).
 
-## Query & predicate safety
-- Validate query shape up front. Reject unknown fields only in a closed query contract (`#[serde(deny_unknown_fields)]`); validate node kinds against the grammar's symbol table.
-- **Reject predicates you don't evaluate.** If a query carries a custom/general predicate your engine can't run, fail the query — never silently ignore it, or you'll drop/keep the wrong nodes.
-- Bound the work: recursion depth cap, match-count limit, backtracking budget, and a wall-clock deadline (tree-sitter progress callback) so a pathological pattern/file can't hang a worker.
+## Parser and query lifecycle
 
-## Offset handling (the silent corrupter)
-- Centralize byte↔line/column conversion in one `LineIndex`; don't hand-roll per call site.
-- Decide the **column unit deliberately**: JavaScript string offsets use UTF-16 code units. LSP 3.17+ can negotiate another encoding through `general.positionEncodings` / `capabilities.positionEncoding`; UTF-16 is the default. Convert using the connection's selected encoding, not an assumed byte or character unit. [LSP Position definition](https://github.com/microsoft/vscode-languageserver-node/blob/main/types/src/main.ts#L88).
-- **Validate edit boundaries**: reject out-of-range or mid-character edit offsets; silently rounding changes the requested edit. Display-only position conversion may floor to a character boundary if that contract is explicit. Use `str::get(range)` over `&source[a..b]` to check UTF-8 boundaries; byte slices check bounds but do not validate character boundaries. Test emoji, surrogate pairs, CRLF and trailing newline.
+- Use full parsing for independent batch inputs unless incremental state has a demonstrated benefit. Incremental parsing needs a correctly edited tree and the same source identity.
+- Reuse parsers/compiled queries only when their mutation, reset and thread-safety contracts permit it and measurement justifies retained state. Do not assume an FFI-backed type is shareable.
+- Reject unsupported predicates or invalid query forms explicitly; silently ignoring them changes the selected evidence.
+- Follow the engine's work/cancellation/resource policy. A guessed match cap must not make remaining matches unreachable. Report a terminal engine limit or provide a reachable continuation.
+- Account for deeply nested inputs in parsing, traversal and destruction. Choose supported iterative or isolated execution strategies; a larger thread stack alone is not proof that arbitrary input is safe.
 
-## Rewriting code safely
-- **Apply non-overlapping edits back-to-front** (descending start byte) so earlier offsets stay valid as you splice; **reject overlapping edits** outright.
-- **Verify before you write**: at apply time assert `source[start..end] == expected_old_text` (catches a stale match against changed source); require the output be valid UTF-8; cap patch/file size.
-- **Re-parse the result to validate syntax.** Byte-splicing cleanly does *not* mean the output parses — re-parse the staged text and reject if it introduces new parse/ERROR nodes vs the original. A "matches-remaining == 0" postcondition is not a validity check.
-- Make apply transactional: content-hash the source+query snapshot, re-check file hashes against disk before commit, journal for rollback. A partial multi-file rewrite must be recoverable.
+## Coordinates and rewrites
 
-Next: for parser reuse/allocation cost, load `references/performance-and-memory.md`; for untrusted-input bounds and the FFI panic boundary (`catch_unwind` around parser calls), `references/safety-and-ffi.md`.
+| Risk | Required check |
+|---|---|
+| Mixed units | State whether an offset is bytes, Unicode scalar values, UTF-16 units or display columns. Centralize conversion and use the connection's negotiated encoding. LSP defaults to UTF-16 when another encoding is not negotiated. |
+| Invalid UTF-8 boundary | Validate ranges; `str::get` checks bounds and character boundaries. A byte slice checks bounds only. Reject invalid edit coordinates rather than rounding to a different edit. |
+| Stale source | Bind edits to the exact source snapshot and recheck expected text/hash before writing. |
+| Overlap and offset shifts | Reject overlapping edits; apply disjoint edits in descending start order, with a defined policy for insertions at the same offset. |
+| Invalid output | Reparse staged output and compare relevant syntax diagnostics; clean splicing alone does not imply valid source. |
+| Partial multi-file update | Use the established transaction/staging/rollback policy so a failed write does not leave an unexplained partial result. |
 
-For handles, walking, queries, octo/oxc/ast-grep specifics and the engine defect list, use the `ast-best-practices` skill.
+Test Unicode, non-BMP characters, combining characters, CRLF, trailing newlines, empty input, invalid bytes where accepted, stale snapshots and malformed/deep inputs. An absence or completeness claim requires every selected match/page to be reachable exactly once.
+
+Sources: [LSP position encoding](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#position), [std str](https://doc.rust-lang.org/std/primitive.str.html), [tree-sitter basic parsing](https://tree-sitter.github.io/tree-sitter/using-parsers/2-basic-parsing.html).

@@ -159,6 +159,7 @@ fn structural_review_rule_prefilter_preserves_directory_recall() {
             max_files: None,
             skip_files: None,
             max_file_bytes: None,
+            judge: None,
         })
         .expect("directory search");
         assert!(!direct.is_empty(), "fixture must match {rule}");

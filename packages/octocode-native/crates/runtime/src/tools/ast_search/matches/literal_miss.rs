@@ -119,7 +119,7 @@ fn spelled_in_sources(
         if held.is_empty() {
             continue;
         }
-        let Ok(source) = super::super::source::parse_text(&path, &bytes) else {
+        let Ok(source) = super::super::source::matched_text(&path, &bytes) else {
             continue;
         };
         let rule = json!({"any": held

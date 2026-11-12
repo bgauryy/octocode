@@ -131,7 +131,20 @@ pub(super) fn read_witnesses(
     strings: u32,
     checks: Checks,
 ) -> Result<(), String> {
+    let witnesses = witness_records(r, t, strings, checks)?;
+    t.witnesses.extend(witnesses);
+    Ok(())
+}
+
+/// The witness records of `r`, each checked against the nodes of `t`.
+pub(super) fn witness_records(
+    r: &mut Reader<'_>,
+    t: &GraphTables,
+    strings: u32,
+    checks: Checks,
+) -> Result<Vec<WitnessRec>, String> {
     let count = r.count()?;
+    let mut witnesses = Vec::new();
     for _ in 0..count {
         let src = r.var_u32()?;
         let dst = r.var_u32()?;
@@ -171,7 +184,7 @@ pub(super) fn read_witnesses(
         {
             return Err("graph witness argument reference is invalid".into());
         }
-        t.witnesses.push(WitnessRec {
+        witnesses.push(WitnessRec {
             argument,
             provenance,
             occurrence,
@@ -186,7 +199,7 @@ pub(super) fn read_witnesses(
             },
         });
     }
-    Ok(())
+    Ok(witnesses)
 }
 
 pub(super) fn read_unresolved(

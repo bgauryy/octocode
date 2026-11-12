@@ -223,6 +223,96 @@ async fn inventory_cursor_replay_returns_the_same_pinned_file_page() {
     runtime.close().await;
 }
 
+/// Mount `count` REST reviews, 100 a page; every page but the last links `next`.
+async fn mount_reviews(server: &MockServer, count: usize) {
+    let pages = count.div_ceil(100);
+    for page in 1..=pages {
+        let reviews = ((page - 1) * 100..count.min(page * 100))
+            .map(|id| {
+                json!({"id": id + 1, "user": {"login": "ann"}, "state": "COMMENTED",
+                       "body": format!("review {}", id + 1),
+                       "submitted_at": "2024-01-02T00:00:00Z", "commit_id": SHA})
+            })
+            .collect::<Vec<_>>();
+        let mut response = ResponseTemplate::new(200).set_body_json(reviews);
+        if page < pages {
+            response = response.insert_header(
+                "link",
+                format!(
+                    "<{}/api/v3/repos/a/b/pulls/9/reviews?per_page=100&page={}>; rel=\"next\"",
+                    server.uri(),
+                    page + 1
+                )
+                .as_str(),
+            );
+        }
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/a/b/pulls/9/reviews"))
+            .and(wiremock::matchers::query_param("page", page.to_string()))
+            .respond_with(response)
+            .mount(server)
+            .await;
+    }
+}
+
+/// Files and reviews read together: one section's rows filling the response
+/// page never cut the other short. Walking every page lead (response parts,
+/// `next.files`, `next.reviews`) delivers each changed file and each review
+/// exactly once, at the default budget and a tight one, for a PR whose file
+/// list spans provider batches.
+#[tokio::test]
+async fn files_and_reviews_together_walk_every_file_and_review_once() {
+    for (files, reviews) in [(165, 100), (165, 150), (1250, 150)] {
+        let server = MockServer::builder().start().await;
+        mount_pr(&server, files).await;
+        mount_file_batches(
+            &server,
+            (1..=files.div_ceil(100))
+                .map(|n| numbered(n, (files - (n - 1) * 100).min(100)))
+                .collect(),
+            Duration::ZERO,
+        )
+        .await;
+        mount_reviews(&server, reviews).await;
+        let workspace = Workspace::new();
+        let runtime = workspace.runtime(&support::github_api(&server));
+        let query = json!({"operation":"pullRequest","owner":"a","repo":"b","number":9,"sections":["files","reviews"]});
+        for start in [
+            json!({"queries": [query]}),
+            json!({"queries": [query], "responseChars": 3000}),
+        ] {
+            let walked = support::walk(&runtime, "ghGetHistoryItem", start.clone(), |output| {
+                output["results"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .flat_map(|row| {
+                        assert!(row["status"] != "error", "{output}");
+                        let pr = &row["data"]["pullRequests"][0];
+                        let mut ids = inventory_paths(&pr["files"])
+                            .into_iter()
+                            .map(|path| format!("file:{path}"))
+                            .collect::<Vec<_>>();
+                        ids.extend(
+                            pr["reviews"]
+                                .as_array()
+                                .into_iter()
+                                .flatten()
+                                .map(|review| format!("review:{}", review["id"])),
+                        );
+                        ids
+                    })
+                    .collect()
+            })
+            .await;
+            let count = |kind: &str| walked.rows.iter().filter(|id| id.starts_with(kind)).count();
+            assert_eq!(count("file:"), files, "{start}: {:?}", walked.queries);
+            assert_eq!(count("review:"), reviews, "{start}: {:?}", walked.queries);
+        }
+        runtime.close().await;
+    }
+}
+
 /// The changed-file paths a compact inventory page lists, in order:
 /// `M +1 -1 path` rows and `{"dir/": [rows]}` groups.
 fn inventory_paths(files: &Value) -> Vec<String> {

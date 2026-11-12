@@ -9,6 +9,7 @@ impl FragmentArena {
         note_materialized();
         let later = self.later_pointers(&fragment.kind);
         let mut value = self.build(&fragment.kind);
+        super::super::put_walks(&mut value, &fragment.walks);
         // Pruned once the fragment is whole: a list the skeleton emptied
         // may be the slot a joined split fills.
         for (pointer, source) in later {

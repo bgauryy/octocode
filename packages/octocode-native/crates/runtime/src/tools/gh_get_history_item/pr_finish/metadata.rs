@@ -17,12 +17,13 @@ const SECTION_HEADER: &[&str] = &[
     "mergeCommitSha",
 ];
 
-/// Characters a PR summary's `bodyPreview` shows.
+/// Characters a summary's `bodyPreview` shows.
 const BODY_PREVIEW_CHARS: usize = 300;
 
-/// The opening of a PR body, whitespace runs collapsed; a cut preview ends
-/// with `…` (`readBody` reads it whole). `None` for an empty body.
-fn body_preview(body: &str) -> Option<String> {
+/// The opening of a pull request's or an issue's body, whitespace runs
+/// collapsed; a cut preview ends with `…` (`readBody` reads it whole).
+/// `None` for an empty body.
+pub(in crate::tools::gh_get_history_item) fn body_preview(body: &str) -> Option<String> {
     let flat = body.split_whitespace().collect::<Vec<_>>().join(" ");
     if flat.is_empty() {
         return None;

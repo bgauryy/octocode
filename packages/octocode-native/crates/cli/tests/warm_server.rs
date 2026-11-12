@@ -114,3 +114,118 @@ fn a_persistent_fixture_stops_its_server_when_an_assertion_unwinds() {
         "the owned server survived unwinding: {listed:?}"
     );
 }
+
+/// CLI calls that find no server and start one at once share one server:
+/// every starter but the owner finds it answering, and each call answers
+/// once, as in process.
+#[test]
+fn calls_starting_a_server_at_once_share_one() {
+    let workspace = Workspace::new();
+    workspace.write("lib.rs", "fn alpha() {}\nfn beta() { alpha(); }\n");
+    let persistent = workspace.persistent_cli();
+    let query = r#"{"queries":[{"matchString": ["alpha"],"path":"."}]}"#;
+    let in_process = workspace
+        .cli()
+        .env("TMPDIR", persistent.sockets())
+        .args(["localSearch", query, "--json"])
+        .output()
+        .expect("in process");
+    assert_eq!(in_process.status.code(), Some(0), "{in_process:?}");
+    let calls: Vec<_> = (0..6)
+        .map(|_| {
+            persistent
+                .cli()
+                .args(["localSearch", query, "--json"])
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .expect("starter")
+        })
+        .collect();
+    for call in calls {
+        let served = call.wait_with_output().expect("starter output");
+        assert_eq!(served.status.code(), Some(0), "{served:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&served.stdout),
+            String::from_utf8_lossy(&in_process.stdout)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&served.stderr),
+            String::from_utf8_lossy(&in_process.stderr)
+        );
+    }
+    assert_eq!(persistent.server_pids().len(), 1, "one server for all");
+    assert!(persistent.stop(), "the test's server is stopped");
+}
+
+/// A server that cannot bind its socket says why at once; the CLI names
+/// that cause on stderr and runs the call in process.
+#[test]
+fn a_server_that_cannot_start_is_named_and_the_call_runs_in_process() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let workspace = Workspace::new();
+    workspace.write("lib.rs", "fn alpha() {}\n");
+    let persistent = workspace.persistent_cli();
+    let uid = std::fs::metadata(persistent.sockets()).expect("meta").uid();
+    // Private, as the CLI requires, but not writable: no socket binds.
+    let dir = persistent.sockets().join(format!("octocode-{uid}"));
+    std::fs::create_dir(&dir).expect("socket dir");
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o500)).expect("chmod");
+    let query = r#"{"queries":[{"matchString": ["alpha"],"path":"."}]}"#;
+    let in_process = workspace
+        .cli()
+        .args(["localSearch", query, "--json"])
+        .output()
+        .expect("in process");
+    let fallback = persistent
+        .cli()
+        .args(["localSearch", query, "--json"])
+        .output()
+        .expect("fallback");
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).expect("chmod");
+    assert_eq!(
+        fallback.status.code(),
+        in_process.status.code(),
+        "{fallback:?}"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&fallback.stdout),
+        String::from_utf8_lossy(&in_process.stdout)
+    );
+    let stderr = String::from_utf8_lossy(&fallback.stderr);
+    let note = stderr.lines().next().unwrap_or_default();
+    assert!(
+        note.starts_with("# octocode: warm server did not start (cannot bind ")
+            && note.ends_with("; running localSearch in process."),
+        "{stderr}"
+    );
+    assert_eq!(
+        stderr.matches("did not start").count(),
+        1,
+        "named once: {stderr}"
+    );
+    assert!(persistent.server_pids().is_empty(), "no server");
+}
+
+/// A server that cannot announce it is ready (its client is gone) leaves
+/// before it serves, and takes its socket with it.
+#[test]
+fn a_server_whose_client_is_gone_does_not_serve() {
+    let workspace = Workspace::new();
+    let persistent = workspace.persistent_cli();
+    let socket = persistent.sockets().join("serve-gone.sock");
+    let (reader, writer) = std::io::pipe().expect("channel");
+    drop(reader);
+    let status = persistent
+        .cli()
+        .args(["serve", "--socket"])
+        .arg(&socket)
+        .stdin(std::process::Stdio::null())
+        .stdout(writer)
+        .stderr(std::process::Stdio::null())
+        .status()
+        .expect("serve");
+    assert_eq!(status.code(), Some(1), "{status:?}");
+    assert!(!socket.exists(), "its socket is gone");
+    assert!(persistent.server_pids().is_empty(), "no server");
+}

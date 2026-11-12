@@ -215,55 +215,8 @@ impl Operation<'_, '_> {
         }
         .map(str::to_owned);
         let mut row = items_payload(query, "symbols", json!(symbols), self.budget);
-        if self.root_only && row.pointer("/status").and_then(Value::as_str) == Some("empty") {
-            // A source directory (`src`) has no markers: name the languages
-            // of the project root it was searched from.
-            let mut languages = workspace_root_languages(self.path);
-            if languages.is_empty()
-                && let Some(root) = lsp_search_query::workspace_root(self.query)
-            {
-                languages = workspace_root_languages(root);
-            }
-            let searched = languages
-                .first()
-                .map_or("unknown", |ext| language_name(ext));
-            row["lsp"]["language"] = json!(searched);
-            // The server answered from one representative file's project;
-            // other project markers in this root name languages it never
-            // searched: route to each with a real source file as uri.
-            let mut others = Vec::new();
-            for extension in languages.iter().skip(1) {
-                let Some(file) = representative_source_for(self.path, extension) else {
-                    continue;
-                };
-                let language = language_name(extension);
-                others.push(language);
-                if let Some(lead) = lsp_search_query::workspace_symbol_lead(&name, &file, None) {
-                    crate::response::result::attach_related(
-                        &mut row,
-                        crate::response::result::Continuation::related_query(lead).build(),
-                    );
-                }
-            }
-            let hint = if others.is_empty() {
-                match super::super::session::root_representative(self.path, &self.scope.root) {
-                    Some(file) => format!(
-                        "workspaceRoot-only search: the {searched} server searched the project of {}; for another project, pass path there.",
-                        std::path::Path::new(&file)
-                            .strip_prefix(&self.scope.root)
-                            .map_or(file.as_str().into(), std::path::Path::to_string_lossy)
-                    ),
-                    None => format!(
-                        "workspaceRoot-only search found no {searched} source file to load a project; pass path for a file in the symbol's project."
-                    ),
-                }
-            } else {
-                format!(
-                    "workspaceRoot-only search used the {searched} server; this root also holds {} unsearched projects.",
-                    others.join(", ")
-                )
-            };
-            crate::response::result::add_hints(&mut row, [hint]);
+        if self.root_only {
+            self.state_directory_route(&mut row, &name);
         }
         super::super::server_coverage::workspace_symbols(
             &mut row,
@@ -274,6 +227,55 @@ impl Operation<'_, '_> {
             capped_at,
         );
         Ok(row)
+    }
+
+    /// What a directory-path search searched: the language its files (or
+    /// markers) route it by, and each other language the directory holds,
+    /// which this search did not reach, with a ready call for each. An empty
+    /// row also names the language and the file whose project was searched.
+    fn state_directory_route(&self, row: &mut Value, name: &str) {
+        let languages = directory_languages(self.path, &self.scope.root);
+        let searched = languages
+            .first()
+            .map_or("unknown", |extension| language_name(extension));
+        let mut others = Vec::new();
+        for extension in languages.iter().skip(1) {
+            let Some(file) = representative_source_for(self.path, extension) else {
+                continue;
+            };
+            others.push(language_name(extension));
+            if let Some(lead) = lsp_search_query::workspace_symbol_lead(name, &file, None) {
+                crate::response::result::attach_related(
+                    row,
+                    crate::response::result::Continuation::related_query(lead).build(),
+                );
+            }
+        }
+        if !others.is_empty() {
+            crate::response::result::add_hints(
+                row,
+                [format!(
+                    "This directory search used the {searched} server; its {} sources were not searched (related).",
+                    others.join(", ")
+                )],
+            );
+        }
+        if row.pointer("/status").and_then(Value::as_str) != Some("empty") {
+            return;
+        }
+        row["lsp"]["language"] = json!(searched);
+        let hint = match directory_representative(self.path, &self.scope.root) {
+            Some(file) => format!(
+                "Directory search: the {searched} server searched the project of {}; for another project, pass path there.",
+                std::path::Path::new(&file)
+                    .strip_prefix(&self.scope.root)
+                    .map_or(file.as_str().into(), std::path::Path::to_string_lossy)
+            ),
+            None => format!(
+                "Directory search found no {searched} source file to load a project; pass path for a file in the symbol's project."
+            ),
+        };
+        crate::response::result::add_hints(row, [hint]);
     }
 
     pub(super) async fn diagnostic(self) -> Result<Value, LspFailure> {

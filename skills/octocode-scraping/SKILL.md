@@ -5,7 +5,19 @@ description: "Use when extracting text, tables and links from public web pages o
 
 # Octocode Scraping
 
-Use a saved session if it can answer the question. Otherwise start with one public URL, direct HTTP and `--mode html`. Establish which facts or rows to extract, the permitted scope and the requested output. Stop when each fact has a verified source span or a reported gap.
+**Start:** read this lobby, map the task to the references it names, and read each one the task needs before acting. Use a saved session if it can answer the question. Otherwise start with one public URL, direct HTTP and `--mode html`. Establish which facts or rows to extract, the permitted scope and the requested output. Stop when each fact has a verified source span or a reported gap.
+
+```mermaid
+flowchart LR
+  S{Saved session answers it?} -- yes --> F[Search and read the corpus]
+  S -- no --> A["Confirm authority: scope, spend, export"] --> H["fetch.mjs one public URL, --mode html"]
+  H --> T{Text present?}
+  T -- no --> B["Browser handoff, har-ingest"] --> F
+  T -- yes --> F
+  F --> V{Each fact has a verified span?}
+  V -- no, more pages --> H
+  V -- yes, or a reported gap --> C[Cite artifact path and URL]
+```
 
 ## Fetch or resume
 
@@ -29,6 +41,10 @@ Inspect the session with [corpus-inspect.mjs](scripts/corpus-inspect.mjs) `--ses
 | Find a DOM element, asset or graph route | [dom-find.mjs](scripts/dom-find.mjs), [resource-list.mjs](scripts/resource-list.mjs), [graph-navigate.mjs](scripts/graph-navigate.mjs) |
 | Interpret session files, extract rows or triage unread text | [Corpus and extraction](references/corpus.md), [classifiers or clasify](references/corpus.md#find-evidence-in-unread-text-classifiers-clasify), [Octocode MCP/CLI guide](references/octocode-usage.md) |
 
-Verify each claim in the saved source and cite its artifact path and URL. Follow [output.md](output.md) for coverage, gaps and saved reports. [render-report.mjs](scripts/render-report.mjs) renders or lists reports. The shared [network guard](scripts/lib/net-guard.mjs) checks outbound requests and [JSON error helper](scripts/lib/fail.mjs) reports failures.
+| Intent | Thinking mode | Action / check |
+|---|---|---|
+| Choose a fetch route | Via Negativa / Lindy | Saved session, then direct HTTP; add a browser or hosted provider only when text is missing. |
+| Spend or widen scope | Optionality | A small authorized crawl buys evidence before a broad or paid one; sessions extend with `--append`. |
+| Judge coverage | Goodhart | Pages fetched are not facts found: each fact needs a verified source span or a reported gap. |
 
-Use `octocode-chrome-devtools` for live rendering or actions, `octocode-research` for code or package claims, and [workflow composition](../octocode-workflows/references/composition.md) for multi-actor work.
+Verify each claim in the saved source and cite its artifact path and URL. Follow [output.md](output.md) for coverage, gaps and saved reports. [render-report.mjs](scripts/render-report.mjs) renders or lists reports. The shared [network guard](scripts/lib/net-guard.mjs) checks outbound requests and [JSON error helper](scripts/lib/fail.mjs) reports failures. Use `octocode-chrome-devtools` for live rendering or actions, `octocode-research` for code or package claims and `octocode-workflows` for multi-actor work.

@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 mod answers;
 mod assess;
 mod budget;
+mod cochange;
 mod coverage;
 mod evidence;
 mod find;
@@ -33,6 +34,8 @@ mod options;
 mod paging;
 mod references;
 mod saved;
+mod sites;
+mod shown;
 mod sources;
 mod traverse;
 mod walks;
@@ -107,6 +110,7 @@ operations! {
     Walk => "walk",
     Cycles => "cycles",
     Hubs => "hubs",
+    Cochange => "cochange",
     Diagnostics => "diagnostics",
     Witnesses => "witnesses",
     Unresolved => "unresolved",
@@ -131,6 +135,8 @@ struct Graph {
     #[cfg(test)]
     validation: Option<Value>,
     source_budget: std::cell::RefCell<crate::response::source_evidence::ProjectionBudget>,
+    /// Each edge's source occurrences, counted on first use ([`Graph::sites`]).
+    sites: std::cell::OnceCell<sites::Sites>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -250,6 +256,7 @@ fn run_with(
             Ok(run_page(options, g, extra, page))
         }
         Op::Hubs => query.hubs(),
+        Op::Cochange => query.cochange(),
         Op::Diagnostics => Ok(run_page(
             options,
             g,
@@ -349,3 +356,5 @@ mod selective_evidence_tests;
 mod selective_tests;
 #[cfg(test)]
 mod selective_topology_tests;
+#[cfg(test)]
+mod shown_tests;

@@ -13,7 +13,7 @@ export const KINDS = {
   'octocode-research': 'Research', 'octocode-pr-review': 'PR review', 'octocode-rfc-generator': 'RFC', 'octocode-brainstorming': 'Brainstorm',
   'octocode-engineer': 'Engineering', 'octocode-roast': 'Roast', 'octocode-clean-agentic-code': 'Cleanup',
   'octocode-debugging': 'Debugging', 'octocode-documentation': 'Documentation', 'octocode-skills': 'Skill review', 'octocode-scraping': 'Scrape',
-  'octocode-chrome-devtools': 'Browser session', 'octocode-workflows': 'Workflow', 'octocode-agentic': 'Agentic',
+  'octocode-chrome-devtools': 'Browser session', 'octocode-workflows': 'Workflow', 'octocode-agentic': 'Agentic', 'octocode-test-plan': 'Test plan',
 };
 
 export const toPosix = (p) => p.split(path.sep).join('/');

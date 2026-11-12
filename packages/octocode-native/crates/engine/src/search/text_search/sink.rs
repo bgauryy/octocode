@@ -21,6 +21,14 @@ mod long_line;
 mod row_window;
 use columns::{SpanColumns, block_text, span_value};
 
+/// Whether `found`, a match in a matched block's `bytes`, is an empty match
+/// past the block's last line break: the start of a line the block does not
+/// hold, so no match of the block (rg's rule: a line's matches end with the
+/// line, an empty one at its end included).
+fn past_block_end(bytes: &[u8], found: grep_matcher::Match) -> bool {
+    found.is_empty() && bytes.ends_with(b"\n") && found.start() >= bytes.len()
+}
+
 /// `grep_searcher::Sink` that accumulates matches/contexts for one file and,
 /// using the matcher, derives the 0-based UTF-16 column of the first submatch.
 pub(super) struct CollectSink<'a, M: Matcher> {
@@ -124,6 +132,9 @@ impl<M: Matcher> CollectSink<'_, M> {
         let mut columns = SpanColumns::new(bytes, &line_text);
         matcher
             .find_iter(bytes, |m| {
+                if past_block_end(bytes, m) {
+                    return true;
+                }
                 count = count.saturating_add(1);
                 first_start.get_or_insert(m.start());
                 let (start, end) = (columns.lossy(m.start()), columns.lossy(m.end()));
@@ -289,6 +300,9 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
             let counts_terms = !self.terms.is_empty();
             self.matcher
                 .find_iter(bytes, |matched| {
+                    if past_block_end(bytes, matched) {
+                        return true;
+                    }
                     count = count.saturating_add(1);
                     first_start.get_or_insert(matched.start());
                     if counts_terms {

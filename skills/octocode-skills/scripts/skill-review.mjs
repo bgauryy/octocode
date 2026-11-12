@@ -3,6 +3,7 @@
 import { existsSync, realpathSync, statSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
+import { frontmatter, jsonDescriptionProblem } from './lib/frontmatter.mjs';
 
 function filesUnder(root) {
   const files = [];
@@ -16,63 +17,6 @@ function filesUnder(root) {
   }
   visit(root);
   return files;
-}
-
-// A folded or literal block scalar: the indented lines after `key:`.
-function blockScalar(lines, key) {
-  const start = lines.findIndex((item) => item.startsWith(`${key}:`));
-  const parts = [];
-  for (const item of lines.slice(start + 1)) {
-    if (item && !/^\s+/.test(item)) break;
-    parts.push(item.trim());
-  }
-  return parts.join(' ').trim();
-}
-
-// A plain scalar may continue on indented lines; YAML folds them with single spaces.
-function plainScalar(lines, key, line) {
-  const parts = [line];
-  for (const item of lines.slice(lines.findIndex((l) => l.startsWith(`${key}:`)) + 1)) {
-    if (!/^\s+\S/.test(item)) break;
-    parts.push(item.trim());
-  }
-  return parts.join(' ').replace(/\s+#.*$/, '').trim();
-}
-
-// A double- or single-quoted scalar's value (null when malformed); undefined when the line is not quoted.
-function quotedScalar(line) {
-  if (line.startsWith('"')) {
-    const quoted = line.match(/^"(?:\\.|[^"\\])*"/);
-    try { return JSON.parse(quoted?.[0] || ''); } catch { return null; }
-  }
-  if (line.startsWith("'")) return line.match(/^'((?:''|[^'])*)'/)?.[1]?.replace(/''/g, "'") ?? null;
-  return undefined;
-}
-
-function yamlField(block, key) {
-  const line = block.match(new RegExp(`^${key}:[ \\t]*(.*)$`, 'm'))?.[1]?.trim();
-  if (!line) return '';
-  const lines = block.split('\n');
-  if (/^[>|][+-]?(?:\s+#.*)?$/.test(line)) return blockScalar(lines, key);
-  const quoted = quotedScalar(line);
-  if (quoted !== undefined) return quoted;
-  if (/^[[\]{&*!]/.test(line)) return null; // Advanced YAML needs a YAML-aware validator.
-  return plainScalar(lines, key, line);
-}
-
-function frontmatter(source) {
-  source = source.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
-  const match = source.match(/^---\s*\n([\s\S]*?)\n---(?:\n|$)/);
-  if (!match) return null;
-  return { name: yamlField(match[1], 'name'), description: yamlField(match[1], 'description') };
-}
-
-// Public skills are embedded in the native binary: `build` decodes `description` from one line.
-function jsonDescriptionProblem(source) {
-  const lines = source.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').match(/^---\s*\n([\s\S]*?)\n---(?:\n|$)/)?.[1].split('\n').filter((line) => line.startsWith('description:')) ?? [];
-  let value;
-  try { value = JSON.parse(lines[0]?.slice('description:'.length).trim()); } catch { /* reported below */ }
-  return lines.length === 1 && typeof value === 'string' ? null : 'Public skills need one `description: "<JSON string>"` line; the native build embeds it.';
 }
 
 function localPaths(text) {
@@ -141,12 +85,12 @@ function checkFrontmatter({ dir, name, skill, add }) {
     const problem = jsonDescriptionProblem(skill);
     if (problem) add('ERROR', 'description-json', problem);
   }
-  if (fm.description?.length > 1024) add('ERROR', 'description-length', 'Description exceeds the Agent Skills limit of 1024 characters.');
+  if (fm.description && [...fm.description].length > 1024) add('ERROR', 'description-length', 'Description exceeds the Agent Skills limit of 1024 characters (code points).');
 }
 
 function checkLayout({ dir, name, files, texts, skill, add }) {
-  // A single-file skill (SKILL.md only, the Agent Skills minimum) owns its output inline.
-  if (files.length !== 1) {
+  // One instruction document can own its output inline, even with executable helpers.
+  if ([...texts.keys()].some(path => path !== 'SKILL.md')) {
     if (!files.includes('output.md')) add('ERROR', 'output-missing', 'output.md is missing.');
     if (![...localPaths(skill)].some((path) => resolve(dir, path) === join(dir, 'output.md'))) add('WARN', 'output-route-missing', 'Link the output format from SKILL.md using any descriptive label.');
   }
@@ -301,6 +245,7 @@ function selfTestContent(skill, source) {
   if (review(skill).findings.length) throw new Error('block scalar failed');
   writeFileSync(join(skill, 'SKILL.md'), source.replace('description: |-\n  Review an example.', `description: Use when an example\n  ${'needs a long review. '.repeat(60)}`));
   if (!review(skill).findings.some((item) => item.code === 'description-length')) throw new Error('a multi-line plain description escaped the length check');
+  for (const count of [1024, 1025]) { writeFileSync(join(skill, 'SKILL.md'), source.replace('description: |-\n  Review an example.', `description: "${'\u{1F600}'.repeat(count)}"`)); if (review(skill).findings.some((item) => item.code === 'description-length') !== count > 1024) throw new Error(`a ${count}-code-point description (twice as many UTF-16 units) was measured wrong`); }
   writeFileSync(join(skill, 'README.md'), '# Example\n\n```md\n[link](not-here.md) [anchor](#nowhere)\n```\n\n```bash\nnode scripts/example-tool.mjs\n```\n');
   const fenced = review(skill).findings.filter((item) => item.code !== 'description-length');
   if (fenced.some((item) => item.level === 'ERROR') || !fenced.some((item) => item.code === 'missing-support-file-in-code')) throw new Error(`fenced code was linted as links, or a missing command went unreported: ${JSON.stringify(fenced)}`);
@@ -335,16 +280,32 @@ function selfTestCollections(dir, skill) {
   if (skillDirs(empty, true).length) throw new Error('explicit empty collection must have no skills');
   if (skillDirs(collection, true).length !== 2) throw new Error('explicit collection skipped an incomplete skill or included private assets');
   if (skillDirs(join(dir, 'absent'), true)[0] !== join(dir, 'absent')) throw new Error('missing collection root was silently skipped');
+  selfTestBrokenPackage(collection);
   const single = join(dir, 'single-skill');
   mkdirSync(single);
   writeFileSync(join(single, 'SKILL.md'), '---\nname: single-skill\ndescription: "Use when one file is enough."\n---\n\n# Single\n\nAnswer inline.\n');
   if (review(single).findings.length) throw new Error(`a single-file skill was rejected: ${JSON.stringify(review(single).findings)}`);
+  mkdirSync(join(single, 'scripts'));
+  writeFileSync(join(single, 'scripts', 'run.py'), 'print("done")\n');
+  writeFileSync(join(single, 'SKILL.md'), `${readFileSync(join(single, 'SKILL.md'), 'utf8')}\nRun [the helper](scripts/run.py); its result format is inline above.\n`);
+  if (review(single).findings.length) throw new Error(`a single instruction file with an executable helper was rejected: ${JSON.stringify(review(single).findings)}`);
   writeFileSync(join(single, 'notes.md'), '# Notes\n');
   if (skillDirs(join(single, 'notes.md'), true)[0] !== join(single, 'notes.md')) throw new Error('non-directory collection root was silently skipped');
   if (!review(single).findings.some((item) => item.code === 'output-missing')) throw new Error('a multi-file skill without output.md passed');
   writeFileSync(join(single, 'output.md'), '# Output\n\nSave under .octocode/single-skill/.\n');
   writeFileSync(join(single, 'SKILL.md'), `${readFileSync(join(single, 'SKILL.md'), 'utf8')}\nSee [output](output.md).\n`);
   if (review(single).findings.length) throw new Error(`a multi-file skill with a linked output guide needs no README: ${JSON.stringify(review(single).findings)}`);
+}
+
+// An unreadable package.json is discovered and reviewed as a failing skill, not skipped.
+function selfTestBrokenPackage(collection) {
+  const broken = join(collection, 'broken-package');
+  mkdirSync(broken);
+  writeFileSync(join(broken, 'package.json'), '{');
+  const discovered = skillDirs(collection, true);
+  if (discovered.length !== 3 || !discovered.includes(broken)) throw new Error('a folder with an unreadable package.json was skipped or crashed the run instead of being reported');
+  const findings = review(broken).findings;
+  if (!findings.some((item) => item.level === 'ERROR' && item.code === 'skill-missing')) throw new Error(`the discovered broken package was not reported as skill-missing: ${JSON.stringify(findings)}`);
 }
 
 function selfTest() {
@@ -371,14 +332,14 @@ if (unknown) { console.error(`Unknown option: ${unknown}`); process.exit(1); }
 const json = args.includes('--json');
 const targets = args.filter((arg) => !arg.startsWith('--')).map((arg) => resolve(arg));
 if (!targets.length) targets.push(resolve('skills'));
+function isPrivatePackage(dir) { try { return JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).private === true; } catch { return false; } }
 function skillDirs(target, collection = false) {
   if (existsSync(join(target, 'SKILL.md'))) return [target];
   if (!existsSync(target) || !statSync(target).isDirectory()) return [target];
   const children = readdirSync(target, { withFileTypes: true })
     .filter((entry) => !entry.name.startsWith('.') && entry.name !== 'node_modules' && (entry.isDirectory() || entry.isSymbolicLink()))
     .map((entry) => join(target, entry.name))
-    .filter(dir => existsSync(join(dir, 'SKILL.md')) || !existsSync(join(dir, 'package.json')) ||
-      JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).private !== true);
+    .filter(dir => existsSync(join(dir, 'SKILL.md')) || !isPrivatePackage(dir)); // asset folders; an unreadable package.json is reported, not skipped
   return collection || children.length ? children : [target];
 }
 const dirs = [...new Set(targets.flatMap(target => skillDirs(target, args.includes('--collections'))))];

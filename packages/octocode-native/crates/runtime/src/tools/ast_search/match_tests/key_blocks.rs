@@ -28,10 +28,11 @@ fn no_row_or_capture_shows_a_line_of_a_key_block() {
     for row in rows {
         let out = run(&root.0, row.clone()).expect("match");
         let shown = out.to_string();
+        // The block's lines are what a read withholds: no match is made of
+        // them, and nothing of them is shown.
         for line in &body {
             assert!(!shown.contains(line.as_str()), "{row}: {shown}");
         }
-        assert!(shown.contains("REDACTED"), "{row}: {shown}");
     }
     let out = run(
         &root.0,

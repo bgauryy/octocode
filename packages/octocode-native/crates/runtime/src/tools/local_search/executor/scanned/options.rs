@@ -142,27 +142,51 @@ pub(crate) fn search_options(
         }),
         // Each file is matched as a read of it serves it: bytes a read
         // withholds make no hit, count or listing (see `judge`).
-        judge: Some(judge()),
+        judge: Some(judge(crate::security::SourceLimits::REAL)),
     }
 }
 
-/// The judge of every file a local search reads: a file judged whole is
+/// The judge of every file a local search reads, at the sizes a read of it
+/// is judged at (`limits`): a file judged whole is
 /// searched as the text its pass serves
-/// ([`crate::security::searched_text`]). A file past the whole-source size
-/// a read judges whole is searched as its bytes: its read streams it, and a
-/// read's own match scan of it matches the source text too.
-fn judge() -> octocode_engine::types::SourceJudge {
-    octocode_engine::types::SourceJudge(std::sync::Arc::new(|path, file| {
+/// ([`crate::security::searched_text`]); a file past the whole-source size
+/// a read judges whole is searched with each line its streamed read serves
+/// differently replaced by that line ([`crate::tools::large_source::changed_lines`]).
+pub(crate) fn judge(limits: crate::security::SourceLimits) -> octocode_engine::types::SourceJudge {
+    octocode_engine::types::SourceJudge(std::sync::Arc::new(move |path, file| {
         use std::io::{Read, Seek, SeekFrom};
-        let security = crate::security::ContentSecurity::new();
+        let security = crate::security::ContentSecurity::with_limits(limits);
         let limit = security.limits().whole_source_bytes();
-        if file.metadata()?.len() > limit {
-            return Ok(None);
-        }
+        let meta = file.metadata()?;
         let mut handle = file;
+        if meta.len() > limit {
+            // The walk stops between files: one file's judgment runs whole.
+            struct Whole;
+            impl crate::execution::cancel::CancellationCheck for Whole {
+                fn check(&self) -> Result<(), String> {
+                    Ok(())
+                }
+            }
+            let cancel = Whole;
+            let changed =
+                crate::tools::large_source::changed_lines(path, file, &meta, &security, &cancel)
+                    .map_err(std::io::Error::other)?;
+            let Some((changed, _)) = changed.filter(|(changed, _)| !changed.is_empty()) else {
+                return Ok(None);
+            };
+            handle.seek(SeekFrom::Start(0))?;
+            let mut text = Vec::new();
+            crate::tools::large_source::Patched::new(std::io::BufReader::new(handle), &changed)
+                .read_to_end(&mut text)?;
+            return Ok(Some(text));
+        }
         handle.seek(SeekFrom::Start(0))?;
         let mut bytes = Vec::new();
         handle.take(limit).read_to_end(&mut bytes)?;
-        Ok(crate::security::searched_text(&bytes, path, &security))
+        // Judged by the pass kept of this text, which a row's whole-source
+        // check of the same file takes again rather than scanning twice.
+        Ok(crate::security::searched_text(&bytes, |text| {
+            crate::tools::judged_rows::judged_text(text, path, &security)
+        }))
     }))
 }

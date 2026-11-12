@@ -112,50 +112,6 @@ async fn a_binary_answer_is_not_kept() {
     assert_eq!(memory.len(), 0);
 }
 
-/// A query bound to a commit answers again unasked; one with errors never
-/// stands, and an unbound query is never kept.
-#[tokio::test]
-async fn only_a_clean_commit_bound_graphql_answer_is_kept() {
-    let server = MockServer::start().await;
-    let (transport, _, memory) = keeping(&server);
-    let sha = "1".repeat(40);
-    let dates = serde_json::json!({"data":{"repository":{"object":{
-        "history":{"nodes":[{"committedDate":"2026-01-01T00:00:00Z","author":{"name":"n"}}]}
-    }}}});
-    Mock::given(path("/api/graphql"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "data":null,"errors":[{"message":"nope"}]
-        })))
-        .up_to_n_times(1)
-        .mount(&server)
-        .await;
-    Mock::given(path("/api/graphql"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(dates))
-        .mount(&server)
-        .await;
-    let failed = transport
-        .path_last_commit("a", "b", &sha, "p", &request("t"))
-        .await;
-    assert!(failed.is_err());
-    assert_eq!(memory.len(), 0, "an answer with errors is not kept");
-    let first = transport
-        .path_last_commit("a", "b", &sha, "p", &request("t"))
-        .await
-        .expect("answered");
-    assert_eq!(memory.len(), 1);
-    let again = transport
-        .path_last_commit("a", "b", &sha, "p", &request("t"))
-        .await
-        .expect("answered");
-    assert_eq!(again, first);
-    assert_eq!(requests(&server).await.len(), 2, "the repeat sent nothing");
-    transport
-        .execute_graphql("query{viewer{login}}", serde_json::json!({}), &request("t"))
-        .await
-        .unwrap();
-    assert_eq!(memory.len(), 1, "a mutable query is never kept");
-}
-
 /// The classification of a REST read as immutable, on github.com and GHES.
 #[test]
 fn only_a_read_named_by_a_full_sha_is_pinned() {
@@ -197,39 +153,4 @@ fn only_a_read_named_by_a_full_sha_is_pinned() {
             }
         }
     }
-}
-
-/// A read that never follows its `Link` keeps an answer with no next page;
-/// an identical read that does follow it must not be answered by that one.
-#[tokio::test]
-async fn a_first_page_only_answer_never_stands_in_for_a_page_following_read() {
-    let server = MockServer::start().await;
-    let next = format!("{}/api/v3/items?page=2", server.uri());
-    Mock::given(path("/api/v3/items"))
-        .respond_with(move |request: &Request| {
-            let answer = if request.headers.contains_key("if-none-match") {
-                ResponseTemplate::new(304)
-            } else {
-                ResponseTemplate::new(200).set_body_string("[1]")
-            };
-            answer
-                .insert_header("etag", "\"i1\"")
-                .insert_header("link", format!("<{next}>; rel=\"next\""))
-        })
-        .mount(&server)
-        .await;
-    let (transport, endpoint, _) = keeping(&server);
-    let spec = || RequestSpec::get(endpoint.rest(&["items"]).unwrap());
-    let first = transport
-        .execute(spec().reading_first_page_only(), &request("t"))
-        .await
-        .unwrap();
-    assert!(first.next.is_none(), "the link was not read");
-    let following = transport.execute(spec(), &request("t")).await.unwrap();
-    assert!(
-        following.next.is_some(),
-        "a page-following read sees the next page"
-    );
-    let repeat = transport.execute(spec(), &request("t")).await.unwrap();
-    assert!(repeat.next.is_some(), "and so does its own repeat");
 }

@@ -2,7 +2,7 @@ use super::arena::Window;
 use super::evidence::DependencyError;
 use super::{
     FragmentArena, PartShare, Placed, delivered_collections, drop_delivered_elsewhere,
-    keep_row_next, row_next_chars, row_part_chars,
+    drop_filled_elsewhere, filled_collections, keep_row_next, row_next_chars, row_part_chars,
 };
 use octocode_io::cancellation::Cancellation;
 use serde_json::{Map, Value, json};
@@ -24,6 +24,9 @@ pub(super) struct RowPlan {
     /// Each row's fixed collections that held items: a part carrying one
     /// empty had it delivered on another part.
     delivered: Vec<Vec<String>>,
+    /// Each row's declared collections that held items, at their pointers:
+    /// a part holding one empty had its items delivered on another part.
+    filled: Vec<std::collections::BTreeSet<String>>,
     placed: Vec<Placed>,
     pub(super) total_pages: usize,
 }
@@ -147,6 +150,7 @@ impl PreparedRows {
         let mut pages = Pages::new(row_budget);
         let mut guidance = Vec::with_capacity(rows.len());
         let mut delivered = Vec::with_capacity(rows.len());
+        let mut filled = Vec::with_capacity(rows.len());
         for (position, mut row) in rows.into_iter().enumerate() {
             // Each part carries only its share of the row's guidance
             // ([`PartShare`]): parts are packed without it, then sized with
@@ -156,6 +160,7 @@ impl PreparedRows {
             guidance.push(take_guidance(&mut row));
             let catalog = arena.take_catalog(&mut row, cancelled)?;
             delivered.push(delivered_collections(&row, &page_context.fixed_paths));
+            filled.push(filled_collections(&row, &page_context.collection_routes));
             let extra = arena.dependencies(
                 catalog,
                 &Value::Object(first_fields[position].clone()),
@@ -201,6 +206,7 @@ impl PreparedRows {
             first_fields,
             guidance,
             delivered,
+            filled,
             placed,
             total_pages,
         })
@@ -231,6 +237,15 @@ impl RowPlan {
                     &self.delivered[p.row],
                     &self.arena.page_context.optional_paths,
                 );
+                if p.of > 1 {
+                    let context = self.arena.page_context;
+                    drop_filled_elsewhere(
+                        &mut value,
+                        &self.filled[p.row],
+                        &context.collection_routes,
+                        &|pointer| context.requires(pointer),
+                    );
+                }
                 if let Some(row) = value.as_object_mut() {
                     restore_fields(row, self.guidance[p.row].clone());
                 }

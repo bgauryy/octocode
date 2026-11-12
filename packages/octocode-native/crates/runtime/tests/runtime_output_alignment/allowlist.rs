@@ -40,7 +40,7 @@ const WAVE_4: &[&str] = &[
 
 /// Rule H candidates the RFC's hoisting table does not rank: uniform on these
 /// fixture pages (every fixture symbol is an exported function; every recorded
-/// pull request is open). The wave that extends `STATED_ONCE_GROUPS` decides
+/// pull request is open; every fixture edge has one source occurrence). The wave that extends `STATED_ONCE_GROUPS` decides
 /// each.
 const UNRANKED: &[&str] = &[
     "B5 stated once | astSearch | files[].symbols[].exported",
@@ -49,6 +49,7 @@ const UNRANKED: &[&str] = &[
     "B5 stated once | graphQuery | rows[].exported",
     "B5 stated once | graphQuery | rows[].fanIn",
     "B5 stated once | graphQuery | rows[].match",
+    "B5 stated once | graphQuery | rows[].sites",
 ];
 
 /// Equal to a request value by design or by the fixture, and kept: a listing

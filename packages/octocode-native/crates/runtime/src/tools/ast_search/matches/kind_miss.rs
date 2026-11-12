@@ -50,7 +50,7 @@ fn kinds_in(
     }
     let path = row_file(scope, &json!({"path": file.path}))?;
     let bytes = super::super::source::read_parse_source(&path).ok()??;
-    let source = super::super::source::parse_text(&path, &bytes).ok()?;
+    let source = super::super::source::matched_text(&path, &bytes).ok()?;
     let parser = Some(file.parser.as_str()).filter(|parser| !parser.is_empty());
     let found = octocode_engine::structural::search_detailed(
         &source,

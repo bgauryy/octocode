@@ -337,7 +337,8 @@
           "includeProvenance": false,
           "confidence": "high",
           "limit": 50,
-          "direction": "out"
+          "direction": "out",
+          "rankBy": "degree"
         }
       ]
     }

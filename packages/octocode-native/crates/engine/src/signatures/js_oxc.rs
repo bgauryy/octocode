@@ -22,7 +22,7 @@ use crate::deep_stack::{job_cancelled, with_thread_allocator};
 use super::{
     js_oxc_calls::collect_program_calls,
     js_oxc_commonjs,
-    js_oxc_references::{CountTarget, value_reference_counts},
+    js_oxc_references::{CountTarget, mark_type_use_only, value_reference_counts},
     js_oxc_shared::SpanPositions,
 };
 use crate::graph::{GraphFactEdge, GraphFactExport, GraphFactsDocument, GraphRange};
@@ -148,7 +148,7 @@ fn graph_facts_of(
             &line_index,
             &mut symbols,
         ));
-        let (mut declarations, mut edges, imports, mut exports) = module_outline(
+        let (mut declarations, mut edges, mut imports, mut exports) = module_outline(
             &parser_ret.program,
             &line_index,
             file_path,
@@ -156,6 +156,7 @@ fn graph_facts_of(
             &symbols,
             common_js_names,
         );
+        mark_type_use_only(&semantic, &line_index, &mut imports);
         mark_member_exports(&mut declarations, &common_js_exports.members);
         if job_cancelled() {
             return None;
@@ -200,6 +201,7 @@ fn graph_facts_of(
                 source: load.specifier.clone(),
             });
         }
+        super::js_oxc_calls::mark_local_calls(&semantic, &declarations, &common_js, &mut calls);
         link_calls(file_path, &declarations, &mut calls, &mut edges);
         push_heritage_edges(&declarations, heritage, &mut edges);
         let base = super::native_graph_facts(ext, file_path, content);

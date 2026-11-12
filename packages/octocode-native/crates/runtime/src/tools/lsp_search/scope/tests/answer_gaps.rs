@@ -104,7 +104,7 @@ fn a_site_that_names_the_anchor_flags_the_row_and_leads_to_its_file() {
     assert_eq!(row["partialReasons"], json!(["serverUnanswered"]), "{row}");
     assert!(
         row.to_string().contains(
-            "leaves out 1 code call(s) of `replaceAllElements` in files it answers: a.ts:6"
+            "leaves out 1 line where `replaceAllElements` names the anchor as a call, in files it answers: a.ts:6"
         ),
         "{row}"
     );

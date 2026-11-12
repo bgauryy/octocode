@@ -132,6 +132,7 @@ pub(super) fn collect_node_facts(
             resolution_hint: None,
             module_scope: None,
             scope_id: active_decl.filter(|_| scala).map(str::to_owned),
+            type_use_only: false,
         });
     }
 
@@ -262,13 +263,24 @@ fn push_call(
     let target = callee
         .rsplit(['.', ':'])
         .find(|segment| !segment.is_empty());
-    if let Some(token) = target.and_then(|name| {
+    let name_token = target.and_then(|name| {
         observation
             .name_token
             .and_then(|token| last_name_leaf(token, content, name))
-    }) {
+    });
+    if let Some(token) = name_token {
         acc.non_reference_tokens.insert(token.start_byte());
     }
+    // A bare `f()` whose `f` is a parameter or local in scope calls that
+    // value, never a declaration named `f`.
+    let term_binding = observation.binding == crate::graph::GraphCallBinding::SyntaxLookup
+        && target == Some(callee.as_str())
+        && acc
+            .argument_adapter
+            .is_some_and(crate::signatures::arguments::ArgumentAdapter::calls_read_variables)
+        && name_token
+            .zip(acc.argument_bindings.as_ref())
+            .is_some_and(|(token, bindings)| bindings.calls_local(&callee, token.start_byte()));
     let range = line_index.range(node);
     let line = range.start.line + 1;
     // Module-level code (a Python decorator or `main()` guard, a Go
@@ -293,7 +305,8 @@ fn push_call(
         kind: observation.kind.to_owned(),
         binding: observation.binding,
         receiver_type: None,
-        term_binding: false,
+        term_binding,
+        bound_declaration: None,
         self_template: None,
         macros: acc.macro_chain.clone().unwrap_or_default(),
         receiver_call: None,

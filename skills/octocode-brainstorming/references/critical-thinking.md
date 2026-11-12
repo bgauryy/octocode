@@ -16,7 +16,7 @@ How-to for [Think together](../SKILL.md#modes-and-directions):
 
 - Split into sub-questions that together decide it, each answerable alone and naming its settling evidence; mark each known, assumed, or to research.
 - Decompose only the parts that matter.
-- Right sub-answers can compose wrongly: [recompose](../SKILL.md#4-decide).
+- Right sub-answers can compose wrongly: [recompose](phases.md#4-decide).
 
 ## Hypotheses before search
 

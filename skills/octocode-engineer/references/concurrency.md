@@ -18,18 +18,24 @@ Load when choosing a concurrency model or primitive, reviewing shared-state code
 
 | Concept | Purpose | Important detail |
 |---|---|---|
-| Thread pool | Reuse worker threads | Avoids creation overhead; size it for CPU-bound or I/O-bound work separately |
+| Thread pool | Reuse worker threads for many short tasks | Avoids creation overhead; size it for CPU-bound or I/O-bound work separately |
+| Worker pool, work queue | Fixed workers drain a queue of buffered tasks | Bounded parallelism; bound the queue too |
+| Process pool | Distribute work across processes | CPU-heavy work and isolation; IPC and serialization cost |
 | Work stealing | Dynamic load balancing | Idle workers steal queued tasks from busy ones |
 | Fork-join | Parallel recursive computation | Split, compute, merge |
+| MapReduce | Parallel transformation, then aggregation | Large-scale batch processing; the shuffle between phases dominates |
 | Producer–consumer | Decouple processing stages | Bounded queues give backpressure |
 | Reader–writer lock | Concurrent readers, exclusive writer | Writer or reader starvation depends on the fairness policy |
-| Mutex | Exclusive access | Blocks competing threads |
+| Mutex | Exclusive access; the owner that locks releases | Blocks competing threads |
 | Spinlock | Busy-wait synchronization | Only for very short waits on dedicated cores |
 | Semaphore | Limit concurrent access | Counting permits |
 | Condition variable | Wait for a shared-state change | Wait in a loop that rechecks the predicate: wakeups can be spurious |
 | Barrier | Synchronize execution phases | All participants reach the checkpoint; reusable per phase |
 | Latch | One-shot synchronization | Wait for an event or a count of completions |
 | Futures / promises | Represent pending results | Propagate results and failures |
+| Reactive streams | Asynchronous data streams | Backpressure is part of the protocol |
+| Cancellation token | Cooperative cancellation of long-running work | Every blocking point must check it; release resources on cancel |
+| Thread-local storage | Per-thread state, such as a request context | Leaks across tasks when pooled threads are reused; lost across async hops |
 | Actor model | Isolate mutable state | Communicate through messages; one mailbox per actor |
 | CSP / channels | Coordinate concurrent tasks | Communicate instead of sharing memory |
 | Structured concurrency | Manage task lifetimes | Child tasks finish, fail or cancel within their parent's scope |
@@ -49,7 +55,7 @@ Load when choosing a concurrency model or primitive, reviewing shared-state code
 | Acquire / release | Publish and consume state | A missing happens-before edge |
 | Sequential consistency | One global order of atomic operations | Can cost extra fences |
 | Double-checked locking | Lazy initialization | Needs correct publication (Java `volatile`, C++ atomics); prefer a once primitive |
-| Optimistic locking | Update only if the version is unchanged | Retry storms under contention |
+| Optimistic locking | Update only if the version is unchanged; fits low-contention updates | Retry storms under contention |
 | Pessimistic locking | Prevent competing updates | Blocking and deadlocks |
 | Fine-grained locking | Smaller critical sections | Complexity and lock-ordering rules |
 | Hazard pointers | Protect objects referenced by lock-free readers | Per-access bookkeeping |
@@ -78,7 +84,8 @@ A deadlock needs all four Coffman conditions: mutual exclusion, hold and wait, n
 |---|---|---|
 | OS threads | CPU parallelism, blocking tasks | Per-thread memory and scheduling overhead |
 | Async / await | High-concurrency I/O | CPU-heavy work blocks the event loop unless offloaded |
-| Event loop | Network and UI workloads | Handlers must not block |
+| Event loop | Network and UI workloads (Node.js, GUI frameworks) | Handlers must not block |
+| Reactor / proactor | Event-driven I/O servers | Reactor dispatches on readiness, proactor on completion of an asynchronous operation |
 | Actor model | Isolated stateful components | Message-passing overhead |
 | Thread pool | Bounded worker execution | Pool sizing and queueing |
 | Work-stealing pool | Irregular CPU-bound tasks | Scheduling and locality overhead |

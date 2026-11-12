@@ -81,6 +81,7 @@ mod index_limit;
 mod oversized;
 mod owner_wide;
 mod pages;
+mod path_scope;
 mod ref_commits;
 mod repeat_reads;
 mod requests;

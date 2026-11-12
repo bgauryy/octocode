@@ -2,6 +2,12 @@ Load when assigning workflow roles or Octocode tools, sequencing work, running p
 
 # Composition
 
+## Execute an orchestrated workflow
+
+1. Follow the user's actor assignments and sequence. Before assigning roles, use [composition](#orchestrator-and-actor-contract). One accountable orchestrator owns scope, the sole ledger, verification and the final result. At least one responsible actor executes a bounded Task contract and returns raw observations keyed to its row.
+2. Add a [role pattern](role-patterns.md) or evidence technique only for a distinct check or required capability within the user's authority. Keep requested work sequential. Only the orchestrator reassigns roles within that authority. Actors never spawn actors. Report a missing required capability and the affected check.
+3. The orchestrator rechecks deciding anchors, merges observations and accepts or reassigns the row. Follow [verification](verification.md) for the five ledger states, invalidating dependent evidence and reconciling uncertain mutations before retry. Runtime claims require proof of the loaded artifact's identity. Apply the domain's stricter browser or sealed-evaluation safeguards. On [resume](#compose-and-resume), reconcile the existing ledger and assign the next outstanding row.
+
 ## Orchestrator and actor contract
 
 RACI for every workflow execution, which has one orchestrator and at least one actor. Honor user-directed actor assignments and sequence before considering optional splits. The workflow assigns the required actor; an optional actor still needs a distinct check or required capability and must stay within the user's authority.
@@ -30,7 +36,7 @@ When several actors change one repository at once, partition the writing before 
 | Concern | Rule |
 |---|---|
 | Ownership | Each Task contract names the paths the actor owns and the owner of each neighboring path. A fix needed outside the actor's paths goes back as a request in its return, never as an edit. Where two lanes must share a file, each makes small exact edits and re-reads the file on conflict. |
-| Shared mutable resources | Generated artifacts get one locked regenerate command. The orchestrator owns the build and the lockfile. Lanes share one build cache, never a private target or cache directory each. |
+| Shared mutable resources | Generated artifacts get one locked regenerate command. The orchestrator owns the build and the lockfile. Lanes share one build cache, never a private target or cache directory each. The [machine budget](machine-budget.md) decides when a heavy job may start. |
 | Contract-breaking change | The orchestrator lands the upstream contract change and regenerates before lanes adapt to it. Otherwise one lane owns the change and every consumer it breaks. |
 | Half-finished neighbors | A compile or test failure in another lane's files is re-run before it is blamed. If it persists, report it with the file and line. |
 | Redirect | When evidence contradicts a lane's direction, send it the measured evidence, the new target, and what to remove. Stopping early costs less than merging the wrong design. |

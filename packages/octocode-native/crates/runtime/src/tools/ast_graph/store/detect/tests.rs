@@ -61,7 +61,7 @@ fn script_bearing_markup_names_are_references() {
         .map(|name| format!("{name}:2"))
         .collect::<Vec<_>>();
     expected.sort();
-    assert_eq!(hits.references.get("run"), Some(&expected));
+    assert_eq!(hits.bare.get("run"), Some(&expected));
     assert_eq!(hits.words.get("run"), Some(&vec!["README.md:1".to_owned()]));
 }
 
@@ -126,7 +126,7 @@ fn the_mention_scan_skips_vendored_dirs_and_reads_what_the_graph_builds_from() {
     )
     .expect("scan");
     assert_eq!(
-        hits.references.get("run"),
+        hits.bare.get("run"),
         Some(&vec!["obj/app.ts:1".to_owned(), "src/app.ts:1".to_owned()])
     );
 }

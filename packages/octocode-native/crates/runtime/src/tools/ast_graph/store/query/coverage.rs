@@ -3,7 +3,7 @@ use super::*;
 use std::collections::BTreeSet;
 
 fn empty_linkage() -> Value {
-    json!({"linked":0,"eligible":0,"excluded":0,"ratio":null,"population":"syntax-call-sites"})
+    json!({"linked":0,"eligible":0,"excluded":0,"sites":0,"ratio":null,"population":"syntax-call-sites"})
 }
 
 fn with_scope(mut coverage: Value, scope: &str) -> Value {

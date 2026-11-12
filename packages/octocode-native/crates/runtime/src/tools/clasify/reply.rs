@@ -28,6 +28,10 @@ pub(super) fn answered(
             answer
         }))
         .collect();
+    // A twin row that carries no requests carries none of their refusals.
+    let refused = judged
+        .long_context_retry
+        .map_or(0, |retry| retry.refused_calls.min(judged.provider_calls));
     let mut out = json!({
         "model": judged.model,
         "answers": answers,
@@ -35,7 +39,7 @@ pub(super) fn answered(
             judged.input_tokens,
             judged.output_tokens,
             judged.provider_calls,
-            0,
+            refused,
         ),
     });
     if let Some(notice) = usage.long_context_notice() {
@@ -89,8 +93,8 @@ pub(super) fn failed(
 /// One evaluation's provider spend as the contract types it
 /// (`ClasifyEvaluationUsage`): the field names are the generated type's, never
 /// spelled here, so a contract rename reaches every evaluate row.
-/// `refused`: of `calls`, the whole-source requests the window refused
-/// before the source was judged in sections.
+/// `refused`: of `calls`, the requests the window refused as too large
+/// before the long window or the sections answered.
 pub(super) fn evaluation_usage(
     input_tokens: u64,
     output_tokens: u64,

@@ -220,7 +220,7 @@ impl Job<'_> {
                 drop(state);
                 let storage = Storage::Disk(self.target(view.relative_path));
                 return Ok((
-                    self.retain(view, source, size, storage),
+                    self.retain(view, source, size, storage, holds_secret),
                     saturating_usize(size),
                 ));
             }
@@ -230,7 +230,7 @@ impl Job<'_> {
         // resumption is lost, never the build.
         let Some(bytes) = encode(&self.manifest.namespace, view, self.limits.artifact_bytes) else {
             let fact_bytes = octocode_engine::json_size::bytes_or(view.facts, usize::MAX);
-            return Ok((decoded(view, source), fact_bytes));
+            return Ok((decoded(view, source, holds_secret), fact_bytes));
         };
         let size = bytes.len() as u64;
         let storage = if holds_secret {
@@ -241,7 +241,7 @@ impl Job<'_> {
                     // from its decoded facts like an uncheckpointed build's:
                     // nothing is refused, only this file's resumption.
                     drop(state);
-                    return Ok((decoded(view, source), bytes.len()));
+                    return Ok((decoded(view, source, holds_secret), bytes.len()));
                 }
                 state.memory_bytes += size;
                 state.memory_files += 1;
@@ -272,7 +272,7 @@ impl Job<'_> {
                     // Past the disk budget the file is linked from its
                     // decoded facts, as past the memory-only budget.
                     drop(state);
-                    return Ok((decoded(view, source), bytes.len()));
+                    return Ok((decoded(view, source, holds_secret), bytes.len()));
                 }
                 state.bytes = next_bytes;
                 state.artifacts.insert(view.relative_path.into(), size);
@@ -297,19 +297,21 @@ impl Job<'_> {
             Storage::Disk(target)
         };
         Ok((
-            self.retain(view, source, size, storage),
+            self.retain(view, source, size, storage, holds_secret),
             saturating_usize(size),
         ))
     }
 
     /// The file's facts kept decoded when `size` more encoded bytes fit the
     /// retention budget, else `storage` to decode at [`Job::restore`].
+    /// `hidden`: a read hides a value of the file ([`super::super::classify::ROLE_HIDDEN_VALUE`]).
     fn retain(
         &self,
         view: &GraphFactsView<'_>,
         source: capture::CapturedSource,
         size: u64,
         storage: Storage,
+        hidden: bool,
     ) -> super::scan::Kept {
         let fits = {
             let mut state = self.state();
@@ -320,7 +322,8 @@ impl Job<'_> {
             }
             fits
         };
-        let marks = super::super::classify::SourceMarks::of(view.relative_path, view.content);
+        let marks = super::super::classify::SourceMarks::of(view.relative_path, view.content)
+            .hiding(hidden);
         if fits {
             return super::scan::Kept::Memory(Box::new((view.to_entry(), marks, source)));
         }
@@ -420,9 +423,15 @@ pub(in crate::tools::ast_graph) fn complete(
     Ok(())
 }
 
-/// The file's facts kept decoded, as an uncheckpointed build keeps them.
-fn decoded(view: &GraphFactsView<'_>, source: capture::CapturedSource) -> super::scan::Kept {
-    let marks = super::super::classify::SourceMarks::of(view.relative_path, view.content);
+/// The file's facts kept decoded, as an uncheckpointed build keeps them;
+/// `hidden` as [`Job::retain`]'s.
+fn decoded(
+    view: &GraphFactsView<'_>,
+    source: capture::CapturedSource,
+    hidden: bool,
+) -> super::scan::Kept {
+    let marks =
+        super::super::classify::SourceMarks::of(view.relative_path, view.content).hiding(hidden);
     super::scan::Kept::Memory(Box::new((view.to_entry(), marks, source)))
 }
 

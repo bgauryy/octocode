@@ -2,29 +2,11 @@ Load when planning an authorized package benchmark run.
 
 # Run a benchmark (orchestrated checklist)
 
-One **orchestrator** drives a **pairwise matchup** — Octocode (anchor) vs one baseline CLI —
-over the questions, repeated per baseline and ≥ 3 passes. Design: [BENCHMARK.md](BENCHMARK.md).
-Concrete recipe: [run-with-agents.md](run-with-agents.md) →
-[run-preflight.md](run-preflight.md) + [run-phases.md](run-phases.md).
+Follow the [matchup procedure](../SKILL.md#run-a-matchup). Read [preflight and instrumentation](run-preflight.md) for setup and [runner, judge and aggregation phases](run-phases.md) for execution. Methodology: [design](BENCHMARK.md).
 
 ## Checklist
 
-1. **Phase 0 — preflight.** Run `bash skills/octocode-benchmark/scripts/check-prereqs.sh
-   [published-spec]` (verifies every arm + question set + primers; non-zero exit = fix
-   before proceeding). Then set up the run dir + measurement wrappers. Detail:
-   [run-preflight.md](run-preflight.md).
-2. **Phase 1 — answer.** Per pass, spawn the anchor + baseline as two isolated agents (no
-   shared transcript, no answer key). Each appends its `## Q<n>` section to
-   `answers/<arm>-p<pass>.md`, chars via its `compare/bin/` wrapper + `compare/bin/record_answer.py`. Detail:
-   [run-phases.md](run-phases.md).
-3. **Phase 2 — judge.** After both sections exist, build the blind packet
-   (`compare/bin/build_blind_packet.py`, X/Y randomized per question) and run one blind judge per
-   question per [JUDGING.md](JUDGING.md) — reason first, score, rank correctness-first,
-   confirm decisive wins, mark unresolved.
-4. **Phase 3 — summarize.** Validate logs (`compare/bin/validate_campaign.py`), recompute paired
-   stats per [aggregation-and-stats.md](aggregation-and-stats.md), write the report
-   ([REPORT_TEMPLATE.md](REPORT_TEMPLATE.md)), exclude + count unresolved questions, and
-   save per [output.md](../output.md); update published `results/` only when requested.
+Complete the entry’s preflight → answer → judge → summarize gates, then apply the fairness rules below. Preserve the complete campaign per [output.md](../output.md); update published results only when requested.
 
 ## Rules that keep it fair
 

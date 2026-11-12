@@ -52,18 +52,36 @@ pub(crate) struct Impact {
 }
 
 /// `seeds` are resolved nodes; `global` are `(directory, changed file)`
-/// pairs for config changes (`""` is the scan root).
+/// pairs for config changes (`""` is the scan root). `max_depth` bounds the
+/// listed rows; the tests to run are every test the change reaches at any
+/// depth, so a bound never drops one.
 pub(crate) fn run(
     t: &GraphTables,
     seeds: &[u32],
     global: &[(String, String)],
     max_depth: u32,
 ) -> Impact {
-    let mut walk = Propagation::new(t);
-    let symbol_mode = walk.seed_changes(seeds, global);
-    walk.symbol_precision = symbol_mode && global.is_empty();
-    let depth_limited = walk.propagate(max_depth);
-    report(t, &walk.reach, seeds, global, symbol_mode, depth_limited)
+    let walk = |max_depth: u32| {
+        let mut walk = Propagation::new(t);
+        let symbol_mode = walk.seed_changes(seeds, global);
+        walk.symbol_precision = symbol_mode && global.is_empty();
+        let depth_limited = walk.propagate(max_depth);
+        (walk.reach, symbol_mode, depth_limited)
+    };
+    let (reach, symbol_mode, depth_limited) = walk(max_depth);
+    let unbounded = depth_limited.then(|| walk(u32::MAX).0);
+    let reach = Reached {
+        listed: &reach,
+        tests: unbounded.as_deref().unwrap_or(&reach),
+    };
+    report(t, &reach, seeds, global, symbol_mode, depth_limited)
+}
+
+/// What a change reaches: within the depth bound (the listed rows), and
+/// at any depth (the tests to run).
+struct Reached<'r> {
+    listed: &'r [Option<Reach>],
+    tests: &'r [Option<Reach>],
 }
 
 /// Breadth-first spread of a change from its seeds to everything that

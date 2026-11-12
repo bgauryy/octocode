@@ -203,3 +203,37 @@ fn tools_list_serves_the_core_published_definitions_byte_for_byte() {
         }
     }
 }
+
+/// Instructions are stated once per connection: `initialize` carries them and
+/// no `tools/list` entry repeats one of their statements, in either variant.
+/// A host that copies server instructions into each tool's text (Codex code
+/// mode does, per `ALL_TOOLS` entry) repeats them itself; this server must not.
+#[test]
+fn no_listed_tool_repeats_the_instructions() {
+    use super::super::super::schema::{instruction_sentences, strings_of};
+    let names = presentation_tools();
+    let names = names.iter().map(String::as_str).collect::<Vec<_>>();
+    for selection in [false, true] {
+        let catalog = catalog(&names, json!({"selection": selection}), json!([]));
+        let listing = build(presentation(), &catalog).expect("listing");
+        let sentences = instruction_sentences(&listing.instructions);
+        assert!(sentences.len() > 20, "{sentences:?}");
+        for sentence in &sentences {
+            assert_eq!(
+                listing.instructions.matches(sentence).count(),
+                1,
+                "stated twice: {sentence}"
+            );
+        }
+        for tool in &listing.tools {
+            let text = strings_of(tool);
+            for sentence in &sentences {
+                assert!(
+                    !text.contains(sentence),
+                    "{} selection={selection} repeats: {sentence}",
+                    tool["name"]
+                );
+            }
+        }
+    }
+}

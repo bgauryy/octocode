@@ -194,21 +194,28 @@ pub(super) fn scope_files(
             .flatten()
         })
         .collect::<Vec<_>>();
-    let skipped = octocode_engine::search::glob::set(
-        root,
-        scope.exclude.iter().map(String::as_str),
-        "exclude",
-    )
-    .ok()
-    .flatten();
+    // The caller's exclusions as the build's walk reads them: a matching
+    // directory is never entered, and `!x` excludes like `x`. A snapshot's
+    // globs already compiled at build time, so `ok()` drops none.
+    let excluded = octocode_engine::search::glob::compile(root, &[], &scope.exclude).ok();
     let admission = build_admission(paths, root);
     // The walk is depth first: a withheld directory's entries follow it.
     let mut withheld: Option<PathBuf> = None;
     let mut current = BTreeSet::new();
-    for entry in
-        crate::tools::pruned_walk_under(root, scope.walk.default_excludes, [], scope.walk.ignore)
-            .build()
-            .flatten()
+    for entry in crate::tools::pruned_walk_keeping(
+        root,
+        scope.walk.default_excludes,
+        [],
+        scope.walk.ignore,
+        move |entry| {
+            let is_dir = entry.file_type().is_some_and(|kind| kind.is_dir());
+            !excluded
+                .as_ref()
+                .is_some_and(|globs| globs.excludes(entry.path(), is_dir))
+        },
+    )
+    .build()
+    .flatten()
     {
         let path = entry.path();
         if withheld.as_ref().is_some_and(|held| path.starts_with(held)) {
@@ -225,12 +232,6 @@ pub(super) fn scope_files(
             dir(path);
         }
         if !entry.file_type().is_some_and(|kind| kind.is_file()) {
-            continue;
-        }
-        if skipped
-            .as_ref()
-            .is_some_and(|matcher| octocode_engine::search::glob::matches(matcher, path, false))
-        {
             continue;
         }
         let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase());

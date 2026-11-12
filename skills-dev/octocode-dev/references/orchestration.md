@@ -60,7 +60,45 @@ Rules for the graph:
    costs no lock and removes design time from the critical path.
 6. **Say what is cut.** A list of deferred items with one reason each is part of the plan.
 
-Three or four fixers on the native tree is the practical limit: they share one cargo lock and one `target/`.
+Two or three fixers on the native tree is the limit, on separate crates: they share one cargo lock and one `target/`.
+
+## 1a. Resource budget
+
+The owner's Mac also runs other Claude and Codex sessions, Ollama and vitest pools. The harness limit counts agents (Claude Code refuses a new subagent at 20 running); memory and the cargo lock run out long before. Measured 2026-11-12, six lanes plus three or four other sessions on 12 cores and 32 GB: load 14–27, swap 4.9 of 6 GB, about 7 GB of compressor, one `clippy-driver` at 2.7 GB, three cargo jobs of one session queued on one `target/` of 347 GB.
+
+**Read before spawning lanes and before each heavy job.** Every command only reads:
+
+```bash
+sysctl -n hw.ncpu; uptime                                    # load against cores
+sysctl -n kern.memorystatus_vm_pressure_level kern.memorystatus_level vm.swapusage  # 1 normal, 2 warn, 4 critical; % available
+top -l 2 -o mem -n 15 -stats pid,ppid,command,mem,cmprs,cpu  # footprint with compressed pages; read the second sample
+ps -axo pid=,ppid=,pgid=,etime=,%cpu=,comm= | awk '$6 ~ /(^|\/)(cargo|cargo-clippy|rustc|clippy-driver)$/'   # heavy jobs now, by executable
+ps eww -o command= -p "$pid" | tr ' ' '\n' | grep -E '^(CLAUDE_CODE_SESSION_ID|CLAUDE_PID|OCTOCODE_LANE)='   # whose job
+df -h .
+```
+
+**Derive the lanes from the readings,** never from a fixed count:
+
+| Work | Rule |
+|---|---|
+| Heavy: any cargo build, check, clippy or test; `$DEV` gates; the e2e harness; benchmarks | One at a time on the shared `target/`, granted by the build owner. Cargo locks the whole build directory, so a second job only waits, and a different `-p` or feature selection compiles another copy of our crates (a lane's bare `cargo test -p octocode-native --test integration` did that on 2026-11-12; `cargo dev-test -- <filter>` reuses the `test:rust` selection). Grant the next job when the running one's PID has exited, the pressure level is 1 and load is below the core count. At level 2, or with swapouts rising between two `vm_stat` reads, run it with `CARGO_BUILD_JOBS` = available memory ÷ the largest `rustc`/`clippy-driver` footprint of the last run. |
+| Light: research, docs and skill edits, Octocode tool calls, a pinned binary's checks | Parallel, while the pressure level is below 4. |
+| Other sessions' load (Ollama, vitest, their builds) | Counts against the budget; report it, never stop it, never start Ollama. |
+
+**Mark every lane.** Each brief requires the prefix `OCTOCODE_LANE=<lane>` on every command that starts a long-running or background process, e.g. `OCTOCODE_LANE=lsp-fix cargo dev-test -- lsp::`. Claude Code already puts `CLAUDE_CODE_SESSION_ID` and `CLAUDE_PID` in every child's environment; the lane marker separates subagents of one session. Both survive reparenting: an orphaned `octocode serve` under PID 1 still carried its session's ID.
+
+**Wait on a PID** (`while kill -0 "$pid" 2>/dev/null; do sleep 30; done`) or the task notification, never on `pgrep -f "<command>"`: the pattern is in the waiting shell's own command line, so it matches itself. On 2026-11-12 six such loops of one session were alive 13 hours to a day after their jobs ended.
+
+**Lane-end leak check,** by the lane before it reports and by the orchestrator after:
+
+```bash
+ps axeww -o pid=,command= | grep -E 'OCTOCODE_LANE=<lane>( |$)' | cut -c1-160   # empty once the lane stopped its own
+ps -axo pid,ppid,etime,command | awk '$2 == 1' | grep -E 'octocode|node|tmux|cargo'   # reparented to launchd
+```
+
+Also check the children of the lane's shells by PPID (macOS shows no environment for `/bin/zsh` or `sleep`) and processes whose `CLAUDE_PID` names an exited session. The lane stops what it started, by PID; everything else goes to the orchestrator as a leak candidate with PID, owner and evidence. Full attribution recipe: [who is using the machine](../../../skills/octocode-debugging/references/host-usage.md).
+
+**Target growth.** Before a gate run, compare `df -h .` with `du -sh packages/octocode-native/target/*/` (about a minute at 350 GB: run it once, in the background). When disk is short, report the sizes to the owner with the options in [Cargo builds](../docs/DEVELOPMENT.md#cargo-builds): `$DEV clean:cache` while no cargo job runs, `cargo sweep --toolchains` after a toolchain bump, `cargo sweep --dry-run --time <days>` to preview. Agents run none of them, and never `cargo clean`, without the owner's approval.
 
 ## 2. Brief a subagent
 
@@ -73,8 +111,9 @@ A brief is the agent's whole context. Include in this order:
 | Ordered work | Repro command, measured before and target for each item |
 | Method | Required approach, such as tracing fields with Octocode |
 | Constraints | Owner rules; fixed names, cursors and redaction; core-schema requests give tool, field, values, default |
-| Build | Focused tests only; shared `target/`; lock retries 3 minutes apart; report after 20 |
-| Cleanup / sign-off | Stop by PID, remove scratch; no self-sign-off |
+| Build | Focused tests only; shared `target/`; heavy jobs when the build owner grants them ([§1a](#1a-resource-budget)); lock retries 3 minutes apart; report after 20 |
+| Processes | `OCTOCODE_LANE=<lane>` prefix on every long-running or background command; wait on a PID, never a pattern |
+| Cleanup / sign-off | Stop by PID, remove scratch, run the lane-end leak check; no self-sign-off |
 | Return | Root cause `file:line`, change, before/after table, tests/counts, leftovers and reasons |
 
 Give evidence, not a conclusion to confirm. A retester gets the claims and the binary, not the fixer's
@@ -91,7 +130,7 @@ States are `queued`, `running`, `reported`, `verified`, `failed`, `cut`. A fix i
 independent check on a pinned binary passes; only then `verified`.
 
 **Standup** (when the schedule tightens, or about once an hour on a long round): message every running agent
-the same six questions and ask for at most eight lines, sent to the orchestrator, without stopping work:
+the same seven questions and ask for at most eight lines, sent to the orchestrator, without stopping work:
 
 1. Done and tested so far.
 2. Doing now.
@@ -99,6 +138,11 @@ the same six questions and ask for at most eight lines, sent to the orchestrator
 4. Blocked on, or needed from the orchestrator (schema changes: tool, field, values, default).
 5. Files touched or needed outside the group.
 6. What could be cut or deferred to finish sooner.
+7. Processes you started that still run: PID and purpose.
+
+Meanwhile take the machine reading of [§1a](#1a-resource-budget) and add one resource row per lane: processes,
+footprint (`top` `MEM`; `ps` RSS omits compressed pages, and an `octocode mcp` at 5 MB RSS held 604 MB), CPU from
+the second `top` sample, oldest age, and leak candidates with PID, owner and evidence. Compare the PIDs with answer 7.
 
 Then **correlate** the answers before replying:
 
@@ -153,7 +197,8 @@ report their own error as the tool's. An agent that wrote a one-off script delet
 
 Every agent removes its processes, scratch files, private targets and binaries before it reports.
 The orchestrator keeps the current and previous pinned binaries and deletes older ones, removes
-what each round left behind (private targets, old pins, their daemons by PID), and checks free disk before a build.
+what each round left behind (private targets, old pins, their daemons by PID), and checks free disk and `target/` growth
+before a build ([§1a](#1a-resource-budget)).
 
 ## 7. Blockers outside the round
 
@@ -164,10 +209,11 @@ each invent one.
 ## Checklist
 
 - [ ] Task list with dependencies; graph drawn; cuts listed.
-- [ ] Lanes are disjoint directories; three or four fixers at most on native.
+- [ ] Lanes are disjoint directories; two or three fixers at most on native.
+- [ ] Machine read before each heavy job; one heavy cargo job at a time; lanes marked `OCTOCODE_LANE`.
 - [ ] Each brief has targets, repro commands, constraints, build rules, report shape.
 - [ ] One status table; `reported` is not `verified`.
 - [ ] Standup answers correlated; cross-lane conflicts and requests resolved in one reply each.
 - [ ] One build, pinned with its hash; gates run by the orchestrator.
 - [ ] Fresh retester on the pin; defects queued with owners.
-- [ ] Agents cleaned up; leftovers script run.
+- [ ] Agents cleaned up; lane-end leak check run by each lane and by the orchestrator.

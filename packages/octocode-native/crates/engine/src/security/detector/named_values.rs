@@ -86,61 +86,6 @@ pub(super) fn named_word(name: &str, word: &str, prose: bool) -> Option<Range<us
     .then_some(at..at + own.len())
 }
 
-/// Whether `word`, after a value's word and one blank, is more of that
-/// value: a run of an opaque value's characters ([`is_run`]) that mixes
-/// letters and digits, as the word before it does (`x-9f8.6d0.818
-/// 84c.7d6.59a`). A word of letters alone is the sentence's (`<token> is the
-/// key`, `<token> tailJ`), and an option or a setting of its own
-/// (`--db-pass=…`, `name=…`) is the line's next field.
-fn continues_a_value(word: &str) -> bool {
-    is_run(word)
-        && !word.starts_with('-')
-        && !word.trim_end_matches('=').contains('=')
-        && word.bytes().any(|byte| byte.is_ascii_digit())
-        && word.bytes().any(|byte| byte.is_ascii_alphabetic())
-        && !super::is_placeholder(word)
-}
-
-/// Where a bare value whose first word ends at `end` in `text` ends: past
-/// each next word on its line, one blank before it, that continues it
-/// ([`continues_a_value`]), so a value of several words goes whole and no
-/// word of it stays readable. A closer after a word (`;`, `,`, `.`), two
-/// blanks, a comment or the line's end ends the value.
-pub(super) fn value_words_end(text: &str, end: usize) -> usize {
-    let mut end = end;
-    while let Some(after) = text
-        .get(end..)
-        .and_then(|rest| rest.strip_prefix([' ', '\t']))
-    {
-        let word = after
-            .get(..after.find(char::is_whitespace).unwrap_or(after.len()))
-            .unwrap_or_default();
-        let own = word.trim_end_matches(SENTENCE_CLOSERS);
-        if own.is_empty() || !continues_a_value(own) {
-            break;
-        }
-        end += 1 + own.len();
-        if own.len() < word.len() {
-            break;
-        }
-    }
-    end
-}
-
-/// `span`, a value found in `text`, with the words that continue it when it
-/// is bare ([`value_words_end`]): a quoted value ends at its quote.
-fn with_value_words(text: &str, span: Range<usize>) -> Range<usize> {
-    let quoted = span
-        .start
-        .checked_sub(1)
-        .and_then(|before| text.as_bytes().get(before))
-        .is_some_and(|byte| matches!(byte, b'"' | b'\'' | b'`'));
-    if quoted {
-        return span;
-    }
-    span.start..value_words_end(text, span.end)
-}
-
 /// The operators a shell parameter expansion writes between its name and
 /// its word (`${NAME:-default}`, `${NAME:=default}`, `${NAME:?message}`,
 /// `${NAME:+alternative}`): syntax, no part of the value.
@@ -265,8 +210,9 @@ pub(super) fn secrets(
         let secret =
             secret.map(|secret| without_expansion_operator(text, name.range(), secret.range()));
         if let Some(secret) = secret.clone() {
+            // An unquoted value ends at its first blank: the words after it
+            // are the line's own (`<token> build42 then`).
             if let Some(span) = walk.scalar(name.start(), secret.clone()) {
-                let span = with_value_words(text, span);
                 from = span.end;
                 found(name.start()..span.end, span);
                 continue;
@@ -407,8 +353,8 @@ fn operator_value(text: &str, start: usize) -> Option<Range<usize>> {
 
 /// Calls `found` for the value the word at `word` in `text` states for the
 /// name `name` that starts at `name_start` ([`named_word`]; `prose`: stated
-/// by a word, not an operator), with the words that continue it
-/// ([`with_value_words`]); returns where it ends, `None` when it is none.
+/// by a word, not an operator): that one word, the words after it the
+/// line's own; returns where it ends, `None` when it is none.
 fn stated_value(
     text: &str,
     name: &str,
@@ -418,7 +364,7 @@ fn stated_value(
     found: &mut impl FnMut(Range<usize>, Range<usize>),
 ) -> Option<usize> {
     let own = named_word(name, text.get(word.clone())?, prose)?;
-    let span = with_value_words(text, word.start + own.start..word.start + own.end);
+    let span = word.start + own.start..word.start + own.end;
     let end = span.end;
     found(name_start..end, span);
     Some(end)

@@ -117,9 +117,9 @@ fn keyword_terms(query: &GhSearchCodeQuery) -> Option<Terms> {
     })
 }
 
-/// The read of a file a `path` scope names: the index matches `path` as a
-/// directory prefix, so an empty search under a file's path reads that file
-/// for the keywords instead (its text when the search matched file contents).
+/// The read of a file a `path` scope names: an empty search of that file
+/// reads it for the keywords instead, since the index may not hold it (its
+/// text when the search matched file contents).
 pub(super) fn file_scope_read(query: &GhSearchCodeQuery, file: &str) -> Option<Value> {
     let target = Target {
         owner: query.owner.as_str(),

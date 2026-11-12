@@ -279,7 +279,6 @@ impl MacroBodies {
         starts.dedup();
         Some(starts)
     }
-
 }
 
 /// Where the macro path ending `tokens` starts: an identifier, preceded by
@@ -289,9 +288,7 @@ fn path_start(tokens: &[Node<'_>]) -> Option<usize> {
     if tokens[start].kind() != "identifier" {
         return None;
     }
-    while start >= 2
-        && tokens[start - 1].kind() == "::"
-        && tokens[start - 2].kind() == "identifier"
+    while start >= 2 && tokens[start - 1].kind() == "::" && tokens[start - 2].kind() == "identifier"
     {
         start -= 2;
     }

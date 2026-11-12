@@ -75,7 +75,11 @@ impl Fallback {
         self.routed
             .get_or_init(|| {
                 if self.root_only {
-                    typescript_server_fallback_for_workspace_root(&self.workspace, &self.discovery)
+                    typescript_server_fallback_for_directory(
+                        &self.path,
+                        &self.workspace,
+                        &self.discovery,
+                    )
                 } else {
                     typescript_server_fallback(&self.path, &self.workspace, &self.discovery)
                 }
@@ -123,6 +127,7 @@ pub(super) async fn execute_page(
             failure::stamp_coverage(&mut row);
             level::stamp(&mut row);
             level::omit_healthy_receipt(&mut row);
+            inferred_project::compile_database::redact_sources(&mut row, paths);
             Ok(row)
         }
         Err(Exit::Failed(failure)) if failure.lexical_fallback => {
@@ -254,7 +259,7 @@ pub(super) async fn run_target(
         }
         .run()
         .await
-        .map_err(|failure| crashed(query, &target.uri, &session.config, failure))?;
+        .map_err(|failure| session_failed(query, target, &session, failure))?;
         if lsp_search_query::snapshot(query).is_some() || !claims_absence(&row) {
             break row;
         }

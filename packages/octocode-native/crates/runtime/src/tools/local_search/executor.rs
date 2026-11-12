@@ -48,7 +48,13 @@ pub fn execute_local_search(
     check_each_term(query)?;
     let terms = local_search_query::term_patterns(query);
     let joined = &*local_search_query::normalized(query)?;
-    let mut scan = scan_resumed(joined, paths, cancel, (response_window, terms), resumed)?;
+    let mut scan = scan_resumed(
+        joined,
+        (paths, security.limits()),
+        cancel,
+        (response_window, terms),
+        resumed,
+    )?;
     if let Some(pause) = scan.paused.take() {
         return super::window::paused_row(query, pause, (&scan.query_key, &scan.policy_key));
     }

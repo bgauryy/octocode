@@ -166,6 +166,41 @@ fn environment_readiness_uses_native_config_without_disclosing_values() {
 }
 
 #[test]
+fn test_plan_is_ready_without_github_and_guides_pull_request_input() {
+    let workspace = Workspace::new();
+    let env = |token: Option<&str>| {
+        let mut command = workspace.cli();
+        command
+            .env("PATH", workspace.home.join("empty"))
+            .env("USERPROFILE", &workspace.home);
+        if let Some(token) = token {
+            command.env("GH_TOKEN", token);
+        }
+        let output = command
+            .args(["skill", "check", "octocode-test-plan", "--json"])
+            .output()
+            .unwrap();
+        report(&output, 0)["skills"][0]["env"].clone()
+    };
+    let without = env(None);
+    assert_eq!(without["readiness"], "ready");
+    assert!(
+        without["hint"]
+            .as_str()
+            .is_some_and(|hint| hint.contains("Pull-request") && hint.contains("auth login")),
+        "{without}"
+    );
+    let rows = without["params"].as_array().unwrap();
+    assert!(!rows.is_empty());
+    assert!(rows.iter().all(|row| row["group"] == "github-token"
+        && row["required"] == "optional"
+        && row["groupSatisfied"] == false));
+    let with = env(Some("skill-test-secret"));
+    assert_eq!(with["readiness"], "ready");
+    assert_eq!(with["hint"], "");
+}
+
+#[test]
 fn remove_dry_run_keeps_installed_files_and_platform_removal_keeps_the_store() {
     let workspace = Workspace::new();
     report(

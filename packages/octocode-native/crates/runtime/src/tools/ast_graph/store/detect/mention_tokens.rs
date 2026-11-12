@@ -60,16 +60,32 @@ pub(super) fn is_token_byte(byte: u8) -> bool {
     byte >= 0x80 || TOKEN_BYTES[usize::from(byte)]
 }
 
-/// One file's hits: per kind (stems, references, words), per key, its first
-/// line in the file. A token is a run of name and path characters; the scan
-/// walks bytes, since all but a little text is ASCII.
-pub(super) fn scan_text<'k>(
-    text: &str,
-    code: bool,
-    keys: &Keys<'k>,
-) -> [BTreeMap<&'k str, usize>; 3] {
+/// What a hit is, the index of its map in [`Found`].
+pub(super) const STEMS: usize = 0;
+/// A name qualified by a module path or object (`mod.run`, `checks/run`), in
+/// any text.
+pub(super) const QUALIFIED: usize = 1;
+/// A bare name in source code.
+pub(super) const BARE_CODE: usize = 2;
+/// A bare word of non-code text (prose, a list).
+pub(super) const WORDS: usize = 3;
+
+/// One file's hits: per kind ([`STEMS`], [`QUALIFIED`], [`BARE_CODE`],
+/// [`WORDS`]), per key, its first line in the file.
+pub(super) type Found<'k> = [BTreeMap<&'k str, usize>; 4];
+
+/// One file's hits ([`Found`]). A token is a run of name and path
+/// characters; the scan walks bytes, since all but a little text is ASCII.
+#[cfg_attr(
+    octocode_clippy_ratchet,
+    expect(
+        clippy::string_slice,
+        reason = "`at` is a char boundary: it steps over a whole non-ASCII char"
+    )
+)]
+pub(super) fn scan_text<'k>(text: &str, code: bool, keys: &Keys<'k>) -> Found<'k> {
     let bytes = text.as_bytes();
-    let mut local: [BTreeMap<&'k str, usize>; 3] = Default::default();
+    let mut local: Found<'k> = Default::default();
     let mut line = 1;
     let mut at = 0;
     while at < bytes.len() {
@@ -107,6 +123,13 @@ pub(super) fn scan_text<'k>(
 }
 
 /// The hits of the token `text[start..end]` on `line`.
+#[cfg_attr(
+    octocode_clippy_ratchet,
+    expect(
+        clippy::string_slice,
+        reason = "a token's bounds and its parts' starts lie on ASCII delimiters"
+    )
+)]
 fn scan_token<'k>(
     text: &str,
     start: usize,
@@ -114,21 +137,19 @@ fn scan_token<'k>(
     code: bool,
     keys: &Keys<'k>,
     line: usize,
-    local: &mut [BTreeMap<&'k str, usize>; 3],
+    local: &mut Found<'k>,
 ) {
     let token = &text[start..end];
     if memchr::memchr2(b'/', b'.', token.as_bytes()).is_some() {
-        let last = token.rsplit('/').next().unwrap_or(token);
-        let stem = last.split('.').next().unwrap_or(last);
-        if let Some(stem) = keys.of(stem, STEM) {
-            local[0].entry(stem).or_insert(line);
+        if let Some(stem) = keys.of(path_key(token), STEM) {
+            local[STEMS].entry(stem).or_insert(line);
         }
     } else if let Some(stem) = keys.of(token, STEM)
         && quoted(text.as_bytes(), start, end)
     {
         // A bare name as a whole string literal (`'worker'`) is a file a
         // loader may build a path from.
-        local[0].entry(stem).or_insert(line);
+        local[STEMS].entry(stem).or_insert(line);
     }
     let mut from = 0;
     for part in token.split(['.', '/', '-', '@']) {
@@ -140,9 +161,50 @@ fn scan_token<'k>(
         let qualified = token[..part_start]
             .strip_suffix(['.', '/'])
             .is_some_and(|head| head.ends_with(|c: char| c.is_alphanumeric() || "_$".contains(c)));
-        let kind = if code || qualified { 1 } else { 2 };
+        let kind = if qualified {
+            QUALIFIED
+        } else if code {
+            BARE_CODE
+        } else {
+            WORDS
+        };
         local[kind].entry(name).or_insert(line);
     }
+}
+
+/// The stem key a path-like token names ([`path_stem_key`]): `dir/stem`
+/// when the token names the directory its file is in, else the bare stem.
+/// A build-output directory (`dist/cli.js`) stands for the sources it is
+/// built from, and `.`/`..` name no directory, so both fall back to the
+/// stem.
+#[cfg_attr(
+    octocode_clippy_ratchet,
+    expect(
+        clippy::string_slice,
+        reason = "the cuts lie on ASCII `/` and `.` delimiters"
+    )
+)]
+pub(super) fn path_key(token: &str) -> &str {
+    let last = token.rsplit('/').next().unwrap_or(token);
+    let stem = last.split('.').next().unwrap_or(last);
+    let head = &token[..token.len() - last.len()];
+    let Some(dir) = head
+        .strip_suffix('/')
+        .map(|head| head.rsplit('/').next().unwrap_or(head))
+        .filter(|dir| !matches!(*dir, "" | "." | ".."))
+        .filter(|dir| !super::super::workspace::BUILD_OUTPUT_DIRS.contains(dir))
+    else {
+        return stem;
+    };
+    let from = head.len() - 1 - dir.len();
+    &token[from..head.len() + stem.len()]
+}
+
+/// The key of a file named `stem` in the directory named `dir` (the root's
+/// own name for a file at the root): `dir/stem`, the key a path naming
+/// that directory looks up ([`path_key`]).
+pub(super) fn path_stem_key(dir: &str, stem: &str) -> String {
+    format!("{dir}/{stem}")
 }
 
 /// Whether the token at `start..end` is a whole string literal: the same

@@ -31,7 +31,8 @@ pub(super) fn read_parse_source(path: &std::path::Path) -> Result<Option<Vec<u8>
 /// the engine's one source admission as its directory scan applies it
 /// (`Decoding::Unicode`: binary refused, UTF-8 or BOM-marked UTF-16, never
 /// a guessed legacy encoding), so a file parses the same named alone or in
-/// a directory. Keep the bytes for digests: coordinates count this text.
+/// a directory. Coordinates count the text a read shows of it
+/// ([`admitted_for_match`]).
 pub(super) fn parse_text<'b>(
     path: &std::path::Path,
     bytes: &'b [u8],
@@ -40,6 +41,50 @@ pub(super) fn parse_text<'b>(
     admit(bytes, Decoding::Unicode)
         .map(|decoded| decoded.text)
         .map_err(|refusal| refusal_error(path, refusal))
+}
+
+/// [`parse_text`] as a match reads it ([`judge`]): the text a read shows,
+/// each placeholder written over in place, so a match, or a line a hint
+/// names for one, never depends on a hidden byte.
+pub(super) fn matched_text<'b>(
+    path: &std::path::Path,
+    bytes: &'b [u8],
+) -> Result<std::borrow::Cow<'b, str>, ToolError> {
+    let text = parse_text(path, bytes)?;
+    let hidden = hidden(path, &text);
+    if hidden.is_empty() {
+        return Ok(text);
+    }
+    let (matched, _) =
+        octocode_engine::text::analysis::AdmittedSource::from_text(&text).judged(&hidden);
+    Ok(std::borrow::Cow::Owned(matched.text().to_owned()))
+}
+
+/// The spans of `text`, the admitted text of the source at `path`, a read
+/// of it withholds, each with the placeholder the read shows there: the
+/// source's whole-file judgment, by the pass kept of that text (which the
+/// rows' own judging of the same text takes again).
+fn hidden(path: &std::path::Path, text: &str) -> Vec<(std::ops::Range<usize>, String)> {
+    let security = crate::security::ContentSecurity::new();
+    let judged = crate::tools::judged_rows::judged_text(text, path, &security);
+    judged
+        .redaction()
+        .map(|(clean, edits)| {
+            edits
+                .runs(clean)
+                .map(|(range, shown)| (range, shown.to_owned()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// What astSearch parses of every source: the text a read shows, each
+/// placeholder written over in place ([`octocode_engine::structural::JudgeText`]),
+/// so a match, a count, a `regex` or `range` constraint, a
+/// `follows`/`precedes` rule, a position or a digest never depends on a
+/// hidden byte or its length: every position counts the text a read shows.
+pub(super) fn judge() -> octocode_engine::structural::TextJudge {
+    octocode_engine::structural::TextJudge(std::sync::Arc::new(hidden))
 }
 
 /// The one error of a source refused as text, whichever reader refused it:
@@ -85,6 +130,31 @@ pub(super) fn admitted<'a>(
             error => ToolError::source(error),
         },
     )
+}
+
+/// [`admitted`] as a match reads it ([`judge`]): the text a read shows, with
+/// that shown text when a span was hidden, what the match's texts are
+/// restated from ([`octocode_engine::structural::restore_texts`]). Symbols
+/// and syntax trees read it too, so every operation's positions, ranges and
+/// digests count the shown text.
+pub(super) fn admitted_for_match<'a>(
+    path: &std::path::Path,
+    bytes: &'a [u8],
+    budget: &mut octocode_engine::text::analysis::MapBudget<'_>,
+) -> Result<
+    (
+        octocode_engine::text::analysis::AdmittedSource<'a>,
+        Option<String>,
+    ),
+    ToolError,
+> {
+    let admitted = admitted(path, bytes, budget)?;
+    let hidden = hidden(path, admitted.text());
+    if hidden.is_empty() {
+        return Ok((admitted, None));
+    }
+    let (matched, shown) = admitted.judged(&hidden);
+    Ok((matched, Some(shown)))
 }
 
 const TOO_LARGE: &str = "Source exceeds the byte limit of a whole read.";

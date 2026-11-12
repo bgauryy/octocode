@@ -1,7 +1,7 @@
 use super::evidence::{Catalog, DependencyError, DependencySet};
 use super::{
     Open, Slicer, collection_pointer, continues_chars, empty_declared_siblings, enclosing_element,
-    lean_declared_skeleton, lean_later_context,
+    lean_declared_skeleton, lean_later_context, put_walks, take_enclosing_walks,
 };
 use octocode_io::cancellation::Cancellation;
 use serde_json::Value;
@@ -18,6 +18,11 @@ pub(super) use window::Window;
 pub(super) struct Fragment {
     pub(super) kind: FragmentKind,
     pub(super) evidence: Evidence,
+    /// The walks (`next`) of elements this fragment's split runs through,
+    /// at their pointers in the fragment's value: an enclosing element
+    /// repeats on every part of the split, and its walk rides the last one
+    /// ([`take_enclosing_walks`]).
+    pub(super) walks: Vec<(String, Value)>,
 }
 
 /// A lazy fragment shape. Source descriptors belong to the complete fragment,
@@ -62,6 +67,17 @@ pub(super) struct Selection {
 }
 pub(super) type Evidence = Option<Selection>;
 pub(super) type Planned = (Fragment, usize);
+
+/// Whether `row` is a page a reader cut in bytes (`data.pagination.unit`
+/// `bytes`): a window of a long line, which a reader sizes from the
+/// response window and never under the documented byte-window floor
+/// (`docs/TOOL_DATA_CONTRACT.md`, Paging). Its own page already is the
+/// smallest useful one, so the response pager serves it whole: cut again
+/// to a narrow budget, one long line would take a call per sliver.
+fn is_byte_window(row: &Value) -> bool {
+    row.pointer("/data/pagination/unit")
+        .is_some_and(|unit| unit == "bytes")
+}
 
 impl FragmentKind {
     /// The continuation marker this fragment carries, if any.
@@ -240,15 +256,24 @@ impl FragmentArena {
         } = window;
         let evidence = self.dependencies(catalog, &row, cancelled)?;
         let row_chars = size(&row)? + self.evidence_chars(&evidence)?;
-        // A row left whole is also its last part: it keeps the tail room.
-        let declared = (row_chars + window.tail > head)
+        // A row left whole is also its last part: it keeps the tail room. A
+        // reader's byte window ([`is_byte_window`]) is served whole.
+        let outgrows = row_chars + window.tail > head && !is_byte_window(&row);
+        let declared = outgrows
             .then(|| collection_pointer(&row, self.collection_routes))
             .flatten();
+        // The walks of the elements the split runs through ride its last part.
+        let walks = declared
+            .as_deref()
+            .map(|pointer| take_enclosing_walks(&mut row, pointer))
+            .unwrap_or_default();
         if let Some(pointer) = &declared
             && let Some(records) = row.pointer_mut(pointer).and_then(Value::as_object_mut)
         {
             let records = std::mem::take(records);
-            return self.plan_records(row, pointer.clone(), records, catalog, window, out);
+            self.plan_records(row, pointer.clone(), records, catalog, window, out)?;
+            attach_walks(out, walks);
+            return Ok(());
         }
         let taken = declared.and_then(|pointer| {
             row.pointer_mut(&pointer)
@@ -257,9 +282,10 @@ impl FragmentArena {
                 .map(|items| (pointer, items))
         });
         let Some((pointer, items)) = taken else {
+            put_walks(&mut row, &walks);
             // No collection left to split: a row still larger than its
             // window is cut inside its strings.
-            let row = if row_chars + window.tail > head {
+            let row = if outgrows {
                 match self.plan_text(row, catalog, window, row_chars, out)? {
                     Some(row) => row,
                     None => return Ok(()),
@@ -271,6 +297,7 @@ impl FragmentArena {
                 Fragment {
                     kind: FragmentKind::Whole(self.wholes.len()),
                     evidence,
+                    walks: Vec::new(),
                 },
                 row_chars,
             ));
@@ -354,6 +381,7 @@ impl FragmentArena {
             slicer.push(self, index, chars + 1, out)?;
         }
         slicer.close(self, item_chars.len(), out);
+        attach_walks(out, walks);
         Ok(())
     }
 
@@ -451,6 +479,13 @@ impl FragmentArena {
             }
         }
         Ok(None)
+    }
+}
+
+/// Give `walks` to the last fragment planned: the split's last part.
+fn attach_walks(out: &mut [Planned], walks: Vec<(String, Value)>) {
+    if let Some((fragment, _)) = out.last_mut() {
+        fragment.walks.extend(walks);
     }
 }
 

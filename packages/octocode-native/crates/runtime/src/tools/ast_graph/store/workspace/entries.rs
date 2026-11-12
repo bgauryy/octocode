@@ -126,8 +126,8 @@ impl Workspace {
         // Build output → source (`dist/index.js` → `src/index.ts`).
         let (stem, _) = file.rsplit_once('.').unwrap_or((&file, ""));
         let mut stems = vec![stem.to_owned()];
-        for out in ["dist/", "build/", "out/", "lib/", "esm/", "cjs/"] {
-            if let Some(pos) = stem.find(out)
+        for out in BUILD_OUTPUT_DIRS.iter().map(|dir| format!("{dir}/")) {
+            if let Some(pos) = stem.find(&out)
                 && (pos == 0 || stem.as_bytes()[pos - 1] == b'/')
             {
                 stems.push(format!("{}src/{}", &stem[..pos], &stem[pos + out.len()..]));

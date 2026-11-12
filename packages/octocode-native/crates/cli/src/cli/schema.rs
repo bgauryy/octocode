@@ -58,6 +58,43 @@ pub(super) fn instructions(presentation: &Value, available: impl Fn(&str) -> boo
     octocode_native::contracts::compose_instructions(presentation, available)
 }
 
+/// The statements of composed instructions that no tool text may repeat:
+/// each line split at a sentence or clause end (`. `, `; `), list and heading
+/// markers dropped, four words or more (shorter pieces are headings such as
+/// `## 2. Loop`). Core's `instructionsOnce.test.ts` splits the same way.
+#[cfg(test)]
+pub(super) fn instruction_sentences(text: &str) -> Vec<&str> {
+    text.lines()
+        .flat_map(|line| line.split_inclusive(". "))
+        .flat_map(|piece| piece.split_inclusive("; "))
+        .map(|piece| {
+            piece
+                .trim_start_matches(|c: char| c.is_whitespace() || "#-.".contains(c) || c.is_ascii_digit())
+                .trim()
+        })
+        .filter(|piece| piece.split_whitespace().count() >= 4)
+        .collect()
+}
+
+/// Every string in `value`, one per line: titles, descriptions, notes, examples.
+#[cfg(test)]
+pub(super) fn strings_of(value: &Value) -> String {
+    fn walk(value: &Value, out: &mut String) {
+        match value {
+            Value::String(text) => {
+                out.push_str(text);
+                out.push('\n');
+            }
+            Value::Array(items) => items.iter().for_each(|item| walk(item, out)),
+            Value::Object(map) => map.values().for_each(|item| walk(item, out)),
+            _ => {}
+        }
+    }
+    let mut out = String::new();
+    walk(value, &mut out);
+    out
+}
+
 /// Select a core-generated presentation using the runtime's resolved switch.
 pub(super) fn configured_tool<'a>(tool: &'a Value, machine: &Value) -> &'a Value {
     if machine["presentation"]["selection"] == true {

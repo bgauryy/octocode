@@ -201,7 +201,7 @@ impl JsonRpcConnection {
     /// Starvation policy (see `patience`): past the budget's base timeout
     /// the wait is extended in steps of a quarter of
     /// it, but only while the server shows progress (its process tree's CPU
-    /// time grew, or a `$/progress` token is open), and never past the
+    /// time grew, it sent a work-done notice or any other message), and never past the
     /// budget's ceiling (the caller's deadline under
     /// [`super::with_caller_deadline`], else twice the base; retries that
     /// pass one [`WaitBudget`] share it). A server with no progress times
@@ -247,8 +247,18 @@ impl JsonRpcConnection {
         match self.shared.activity.wait(response, started, budget).await {
             Ok(Ok(result)) => result,
             Ok(Err(_)) => Err(closed_error()),
-            Err(waited) => {
-                let reason = format!("LSP request timed out after {}ms", waited.as_millis());
+            Err(unanswered) => {
+                let cause = match unanswered.idle {
+                    Some(idle) => format!(
+                        "the server is running but showed no activity (CPU, progress or messages) in its last {}ms",
+                        idle.as_millis()
+                    ),
+                    None => "the server was still working when the wait ended".to_owned(),
+                };
+                let reason = format!(
+                    "LSP request {method} timed out after {}ms: {cause}",
+                    unanswered.waited.as_millis()
+                );
                 // `true` when the cancel could not be written in time: the
                 // writer queue is full or the pipe does not drain, so the
                 // server stopped reading stdin.

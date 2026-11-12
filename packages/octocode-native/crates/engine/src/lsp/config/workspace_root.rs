@@ -1,9 +1,35 @@
-use super::catalog::{default_server_for_file, typescript_server_fallback};
-use super::types::LspDiscoveryOptions;
-use crate::lsp::types::LspLanguageServerConfig;
 use crate::text::{JS_TS_EXTENSIONS, extension_of};
 use serde_json::Value;
 use std::path::Path;
+
+/// Each language a directory can route by: its representative-source
+/// extension (as [`WORKSPACE_ROOT_MARKERS`] names it) and the file
+/// extensions of its sources, in server-selection order.
+pub(super) const SOURCE_FAMILIES: &[(&str, &[&str])] = &[
+    (".ts", JS_TS_EXTENSIONS),
+    (".rs", &["rs"]),
+    (".go", &["go"]),
+    (".py", &["py"]),
+    (
+        ".cpp",
+        &[
+            "cpp", "cc", "cxx", "c", "hpp", "hh", "hxx", "h", "cu", "cuh",
+        ],
+    ),
+    (".java", &["java"]),
+    (".scala", &["scala", "sc"]),
+    (".cs", &["cs"]),
+];
+
+/// Directories a representative or language walk does not enter.
+/// Deliberately not the runtime prune policy (`policy::prune`): these walks
+/// only pick a first-party file to choose and root a language server and
+/// hide nothing from results. `vendor/` is skipped because a vendored
+/// dependency tree is the wrong file to root a server on, while search and
+/// syntax walks keep `vendor/` because it is routinely real, reviewable
+/// source.
+pub(super) const SKIPPED_DIRS: &[&str] =
+    &["node_modules", "target", "dist", "build", "out", "vendor"];
 
 /// Project markers checked (in priority order) to pick a language server for a
 /// workspace root that has no file of its own. `tsconfig.json` is the strongest
@@ -44,40 +70,6 @@ const WORKSPACE_ROOT_MARKERS: &[(&str, &str)] = &[
 /// in priority order (each once).
 pub fn workspace_root_marker_names() -> impl Iterator<Item = &'static str> {
     WORKSPACE_ROOT_MARKERS.iter().map(|(marker, _)| *marker)
-}
-
-/// Resolve the language server for a workspace root directory (the
-/// `workspaceRoot`-only query shape), inferring the language from project
-/// markers since a directory has no file extension. Returns `None` when no
-/// marker is present.
-pub fn default_server_for_workspace_root(
-    workspace_root: &str,
-    options: &LspDiscoveryOptions,
-) -> Option<LspLanguageServerConfig> {
-    let representative = workspace_root_probe_path(workspace_root)?;
-    default_server_for_file(&representative, workspace_root, options)
-}
-
-/// [`typescript_server_fallback`] for a `workspaceRoot`-only query.
-pub fn typescript_server_fallback_for_workspace_root(
-    workspace_root: &str,
-    options: &LspDiscoveryOptions,
-) -> Option<LspLanguageServerConfig> {
-    let representative = workspace_root_probe_path(workspace_root)?;
-    typescript_server_fallback(&representative, workspace_root, options)
-}
-
-/// A synthetic file path in the language the root's project markers imply:
-/// discovery keys only on its extension, and the file is never opened or
-/// synced.
-fn workspace_root_probe_path(workspace_root: &str) -> Option<String> {
-    let root = Path::new(workspace_root);
-    let extension = root_markers(root).into_iter().next()?;
-    Some(
-        root.join(format!("workspace{extension}"))
-            .to_string_lossy()
-            .into_owned(),
-    )
 }
 
 /// A source file inside `workspace_root` (in the language its project markers
@@ -129,7 +121,7 @@ fn root_markers(root: &Path) -> Vec<&'static str> {
     found
 }
 
-fn js_family(extension: &'static str) -> &'static str {
+fn js_family(extension: &str) -> &str {
     if extension == ".js" { ".ts" } else { extension }
 }
 
@@ -154,19 +146,11 @@ fn declares_language_workspace(root: &Path, family: &str) -> bool {
 #[must_use]
 pub fn representative_source_for(workspace_root: &str, extension: &str) -> Option<String> {
     let root = Path::new(workspace_root);
-    let family: &[&str] = match extension {
-        ".ts" | ".js" => JS_TS_EXTENSIONS,
-        ".rs" => &["rs"],
-        ".go" => &["go"],
-        ".py" => &["py"],
-        ".cpp" => &[
-            "cpp", "cc", "cxx", "c", "hpp", "hh", "hxx", "h", "cu", "cuh",
-        ],
-        ".java" => &["java"],
-        ".scala" => &["scala", "sc"],
-        _ => return None,
-    };
-    let project = if matches!(extension, ".ts" | ".js") {
+    let extension = js_family(extension);
+    let (_, family) = SOURCE_FAMILIES
+        .iter()
+        .find(|(probe, _)| *probe == extension)?;
+    let project = if extension == ".ts" {
         ProjectFiles::read(root)
     } else {
         ProjectFiles::default()
@@ -181,16 +165,29 @@ pub fn representative_source_for(workspace_root: &str, extension: &str) -> Optio
     // A file the project config compiles first: a literal include root such
     // as `packages` (of `packages/*/src/**/*`) also holds files outside it
     // (`packages/a/vitest.config.ts`). Any source only when none matches.
+    // A translation unit before a header: a header opened alone is no
+    // compiled file (clangd parses it without its includer's context).
     let compiled = |path: &Path| project.compiles(root, path);
-    preferred
+    let units = family
         .iter()
-        .find_map(|candidate| first_source_under(candidate, family, &compiled))
-        .or_else(|| {
-            preferred
-                .iter()
-                .find_map(|candidate| first_source_under(candidate, family, &|_| true))
-        })
+        .copied()
+        .filter(|extension| !HEADER_EXTENSIONS.contains(extension))
+        .collect::<Vec<_>>();
+    [units.as_slice(), family].iter().find_map(|family| {
+        preferred
+            .iter()
+            .find_map(|candidate| first_source_under(candidate, family, &compiled))
+            .or_else(|| {
+                preferred
+                    .iter()
+                    .find_map(|candidate| first_source_under(candidate, family, &|_| true))
+            })
+    })
 }
+
+/// C-family header extensions: included by a translation unit, not compiled
+/// on their own.
+const HEADER_EXTENSIONS: &[&str] = &["h", "hpp", "hh", "hxx", "cuh"];
 
 /// The file patterns of a root tsconfig/jsconfig: the literal leading
 /// directories of its `files`/`include` entries (`"src/**/*.ts"` -> `src`),
@@ -294,13 +291,6 @@ fn first_source_under(
 ) -> Option<String> {
     const MAX_ENTRIES: usize = 2_000;
     const MAX_DEPTH: usize = 6;
-    // Deliberately not the runtime prune policy (`policy::prune`). This walk
-    // only picks one representative first-party file to choose and root a
-    // language server; it hides nothing from results. `vendor/` is skipped
-    // here because a vendored dependency tree is the wrong file to root a
-    // server on, while search and syntax walks keep `vendor/` because it is
-    // routinely real, reviewable source.
-    const SKIPPED_DIRS: &[&str] = &["node_modules", "target", "dist", "build", "out", "vendor"];
     let is_source = |name: &str| {
         !name.ends_with(".d.ts") && family.contains(&extension_of(name, true, "").as_str())
     };

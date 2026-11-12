@@ -204,7 +204,11 @@ impl LocalFetchResult {
 
 /// Wire view of [`Pagination`]: the view total in `unit`. A line view's
 /// total is stated only when it differs from the top-level `totalLines`; a
-/// byte view always states its total in bytes.
+/// byte view always states its total in bytes (a selection's byte page
+/// placed in its source states the file's, as its offset names the file's
+/// bytes). `hasMore` is the reader's walk, never `offset + length < total`:
+/// a selection ends before the file does, and a match-first long line is
+/// not read in offset order.
 struct PaginationWire<'a> {
     page: &'a Pagination,
     source_lines: Option<usize>,
@@ -221,9 +225,9 @@ impl Serialize for PaginationWire<'_> {
             (ReadProgressUnit::Bytes, Some((offset, total))) => ("bytes", offset, total),
             (ReadProgressUnit::Bytes, None) => ("bytes", page.offset, page.total_bytes),
         };
-        let mut facts =
-            crate::response::pages::SpanFacts::window(unit, offset, page.length, total)
-                .out_of_range(self.out_of_range);
+        let mut facts = crate::response::pages::SpanFacts::window(unit, offset, page.length, total)
+            .out_of_range(self.out_of_range)
+            .walked(page.has_more);
         if page.unit == ReadProgressUnit::Lines && self.source_lines == Some(total) {
             facts = facts.without_total();
         }

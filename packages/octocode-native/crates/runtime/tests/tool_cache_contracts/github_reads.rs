@@ -5,8 +5,7 @@
 use super::*;
 
 /// A commit-pinned body is read once and answers identical evidence without
-/// public cache telemetry. The contract's first-page last-change request has
-/// no answer here, so nothing vouches for it and each page asks again.
+/// public cache telemetry.
 #[tokio::test]
 async fn pinned_ghgetfilecontent_reads_its_body_once_without_public_telemetry() {
     let server = MockServer::builder().start().await;
@@ -38,13 +37,15 @@ async fn pinned_ghgetfilecontent_reads_its_body_once_without_public_telemetry() 
     assert_eq!(row_data(&first), row_data(&second));
     server.verify().await;
     assert_eq!(row_data(&second)["content"], "1\thello cache\n");
-    // One contract-mandated last-change request per first page.
+    // A read at a full SHA resolves nothing and asks no last-change date
+    // (a `related[]` ghSearchHistory lead replaces it): the one body read is
+    // every request both calls made.
     let requests = server.received_requests().await.unwrap_or_default();
-    let dates = requests
+    let paths = requests
         .iter()
-        .filter(|request| request.url.path() == "/api/graphql")
-        .count();
-    assert_eq!(dates, 2);
+        .map(|request| request.url.path())
+        .collect::<Vec<_>>();
+    assert_eq!(paths, ["/api/v3/repos/o/r/contents/file.rs"], "{paths:?}");
     runtime.close().await;
 }
 

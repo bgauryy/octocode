@@ -251,3 +251,55 @@ pub(super) fn lean_declared_skeleton(
 #[cfg(test)]
 #[path = "tests/recursive_routes.rs"]
 mod tests;
+
+/// Every declared collection `row` holds with at least one item, at its
+/// pointer in the row: a part that holds one of them empty had its items
+/// delivered on another part ([`drop_filled_elsewhere`]).
+pub(super) fn filled_collections(row: &Value, routes: &CollectionRoutes) -> BTreeSet<String> {
+    collections(row, routes, false)
+        .into_iter()
+        .filter(|(_, value)| !emptied(Some(value)))
+        .map(|(path, _)| path)
+        .collect()
+}
+
+/// Omit from `part`, a part of a split row, each declared collection it
+/// holds empty while its row holds it with items (`filled`, in the joined
+/// row's indexes: a part that continues element `index` of `array` holds it
+/// at index 0), wherever the schema lets a part omit it (`requires`): an
+/// empty list beside items delivered on another part would read as an empty
+/// section. A collection the row held empty stays `[]`.
+pub(super) fn drop_filled_elsewhere(
+    part: &mut Value,
+    filled: &BTreeSet<String>,
+    routes: &CollectionRoutes,
+    requires: &dyn Fn(&str) -> bool,
+) {
+    let continued = part.pointer("/rowPart/continues").and_then(|marker| {
+        Some((
+            marker.get("array")?.as_str()?.to_owned(),
+            marker.get("index")?.as_u64()?,
+        ))
+    });
+    let joined = |path: &str| {
+        continued
+            .as_ref()
+            .and_then(|(array, index)| {
+                path.strip_prefix(array.as_str())
+                    .and_then(|rest| rest.strip_prefix("/0"))
+                    .filter(|rest| rest.is_empty() || rest.starts_with('/'))
+                    .map(|rest| format!("{array}/{index}{rest}"))
+            })
+            .unwrap_or_else(|| path.to_owned())
+    };
+    let elsewhere = collections(part, routes, false)
+        .into_iter()
+        .filter(|(path, value)| {
+            emptied(Some(value)) && !requires(path) && filled.contains(&joined(path))
+        })
+        .map(|(path, _)| path)
+        .collect::<Vec<_>>();
+    for path in elsewhere {
+        remove_slot(part, &path);
+    }
+}

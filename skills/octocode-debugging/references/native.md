@@ -11,15 +11,15 @@ gdb -batch -ex "break parse.c:42" -ex run -ex "info locals" -ex bt -ex continue 
 
 `-o` (lldb) and `-ex` (gdb) run in order, then the debugger quits; the program's own output is interleaved. Useful commands:
 
-| Need                         | lldb                                           | gdb                           |
-| ---------------------------- | ---------------------------------------------- | ----------------------------- |
+| Need | lldb | gdb |
+|---|---|---|
 | Break when a condition holds | `breakpoint set -f parse.c -l 42 -c 'n > 100'` | `break parse.c:42 if n > 100` |
-| Break on a function          | `b parse_header`                               | `break parse_header`          |
-| Locals, one variable         | `frame variable`, `p items[1]`                 | `info locals`, `p items[1]`   |
-| Stack, then a caller frame   | `bt 10`, `frame select 2`                      | `bt 10`, `frame 2`            |
-| Every thread                 | `thread backtrace all`                         | `thread apply all bt`         |
-| Next line, into a call       | `next`, `step`                                 | `next`, `step`                |
-| Stop when memory changes     | `watchpoint set variable total`                | `watch total`                 |
+| Break on a function | `b parse_header` | `break parse_header` |
+| Locals, one variable | `frame variable`, `p items[1]` | `info locals`, `p items[1]` |
+| Stack, then a caller frame | `bt 10`, `frame select 2` | `bt 10`, `frame 2` |
+| Every thread | `thread backtrace all` | `thread apply all bt` |
+| Next line, into a call | `next`, `step` | `next`, `step` |
+| Stop when memory changes | `watchpoint set variable total` | `watch total` |
 
 To see a value change across iterations, repeat `-o c -o "p total"` pairs; each `c` stops at the next hit. The short `b` takes no options: use `breakpoint set` for a condition.
 

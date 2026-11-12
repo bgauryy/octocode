@@ -6,7 +6,11 @@ fn streamed(q: &LocalFetchQuery, text: &str, limits: Limits) -> Scan {
     let file = temp(text.as_bytes());
     scan_with(
         q,
-        &opened(file.path()),
+        super::super::scan::Judged {
+            file: &opened(file.path()),
+            changed: None,
+            kept: None,
+        },
         file.path(),
         0,
         limits,
@@ -93,7 +97,11 @@ fn a_giant_line_is_scanned_within_the_window_bound() {
     assert!(bound < line / 2, "the bound is far below the line");
     let found = scan(
         &q,
-        &opened(file.path()),
+        super::super::scan::Judged {
+            file: &opened(file.path()),
+            changed: None,
+            kept: None,
+        },
         file.path(),
         0,
         &crate::security::ContentSecurity::new(),
@@ -180,10 +188,12 @@ fn random_sources_match_the_whole_file_matcher() {
     }
 }
 
-/// A match page reads its source once: the scan proves the digest, counts
-/// every hit and finds the page's windows, which are then read from the
-/// scan's nearest line checkpoint rather than by a second pass from the
-/// file's start. Hits sit at both ends, so the windows span the file.
+/// A match page reads its source twice: its streamed judgment, which says
+/// what the scan matches in place of the lines a read withholds, and the
+/// scan, which proves the digest, counts every hit and finds the page's
+/// windows; they are then read from the scan's nearest line checkpoint
+/// rather than by another pass from the file's start. Hits sit at both ends,
+/// so the windows span the file.
 #[test]
 fn a_match_page_reads_its_source_once() {
     let lines = 80_000;
@@ -214,7 +224,7 @@ fn a_match_page_reads_its_source_once() {
     assert!(content.contains("NEEDLE"), "{content}");
     let read = super::super::source_bytes_read() - before;
     assert!(
-        read <= text.len() + 2 * Limits::of(&q).chunk,
+        read <= 2 * text.len() + 2 * Limits::of(&q).chunk,
         "read {read} bytes for a {}-byte source",
         text.len()
     );
@@ -279,10 +289,10 @@ fn a_page_walk_across_the_scan_chunk_edge_reconstructs_every_hit_line_once() {
     assert_eq!(seen, want, "every hit line served once over {pages} pages");
 }
 
-/// A streamed search answers on raw text as the search does: a hit inside a key
-/// block counts on its line, and the page shows the line redacted.
+/// A streamed match scan answers on the text a read serves: a key block's
+/// body is no hit, and nothing of it is shown.
 #[test]
-fn a_hit_inside_a_key_block_counts_and_its_line_stays_hidden() {
+fn a_hit_inside_a_key_block_is_no_hit_and_its_line_stays_hidden() {
     let body = "MIIEpQIBAAKCAQEAstreamedBodyLineQWERTYabcdefghijklmnopqrstuvwxyz";
     let mut text =
         format!("-----BEGIN RSA PRIVATE KEY-----\n{body}\n-----END RSA PRIVATE KEY-----\n");
@@ -293,7 +303,7 @@ fn a_hit_inside_a_key_block_counts_and_its_line_stays_hidden() {
         &query(serde_json::json!({"path":"f","matchString":["streamedBodyLine"]})),
         Some(20_000),
     );
-    assert_eq!(found.selected_match_count, Some(1));
-    assert_eq!(found.matched_lines, vec![2]);
+    assert_eq!(found.selected_match_count, Some(0), "{found:?}");
+    assert!(found.matched_lines.is_empty(), "{found:?}");
     assert!(!found.content.as_deref().unwrap_or_default().contains(body));
 }

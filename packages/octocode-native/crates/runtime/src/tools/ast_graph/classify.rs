@@ -31,6 +31,12 @@ pub(crate) const ROLE_ENTRY: Roles = 1 << 7;
 /// ([`octocode_engine::text::support_paths::is_support_path`]).
 pub(crate) const ROLE_SUPPORT: Roles = 1 << 8;
 
+/// A read of the file hides a value of it (a secret): the snapshot's
+/// digests, spans and origins of the file count text that holds it, so its
+/// rows state none of them ([`super::store`] query `shows_provenance`). A
+/// flag of the file, not a role: no name lists it and no filter takes it.
+pub(crate) const ROLE_HIDDEN_VALUE: Roles = 1 << 9;
+
 /// Roles of authored files that are not production code: detectors judge
 /// production only.
 pub(crate) const ROLE_NOT_PRODUCTION: Roles = ROLE_TEST | ROLE_SUPPORT | ROLE_CONFIG;
@@ -256,6 +262,15 @@ impl SourceMarks {
             shebang: bytes.starts_with(b"#!"),
             main_marker,
         }
+    }
+
+    /// These marks of a source a read hides a value of when `hidden`
+    /// ([`ROLE_HIDDEN_VALUE`]).
+    pub(crate) fn hiding(mut self, hidden: bool) -> Self {
+        if hidden {
+            self.roles |= ROLE_HIDDEN_VALUE;
+        }
+        self
     }
 }
 

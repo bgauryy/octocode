@@ -231,7 +231,7 @@ async fn sections_runtime_refuses_changed_sources_and_a_one_shot_memory_run_befo
     contracts::validate("clasify", next.clone()).expect("public cursor");
     std::fs::write(home.path().join("second.txt"), "Changed source.").expect("change");
     let changed = section_call(&runtime, next, Channel::Mcp, "caller").await;
-    assert!(changed.to_string().contains("sourceMismatch"), "{changed}");
+    assert!(changed.to_string().contains("staleSnapshot"), "{changed}");
     assert_eq!(
         server.received_requests().await.unwrap().len(),
         one_shot_calls + 1

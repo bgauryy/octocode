@@ -18,7 +18,7 @@
 //!
 //! Generated, bundled, vendored, and declaration files are never subjects.
 use super::super::classify::{
-    ROLE_DECLARATION, ROLE_NOT_AUTHORED, ROLE_NOT_PRODUCTION, ROLE_SUPPORT, ROLE_TEST,
+    ROLE_CONFIG, ROLE_DECLARATION, ROLE_NOT_AUTHORED, ROLE_NOT_PRODUCTION, ROLE_SUPPORT, ROLE_TEST,
     ROLE_UNPARSED, Roles, role_names,
 };
 use super::format::{
@@ -96,7 +96,6 @@ fn exports_judged(file: &str, kind: &str) -> bool {
 
 const PACKAGE_SCOPED: &[&str] = &["go", "java", "scala", "csharp"];
 
-
 #[derive(Clone, Debug)]
 pub(crate) struct Finding {
     pub detector: &'static str,
@@ -111,11 +110,13 @@ pub(crate) struct Finding {
     pub evidence: Value,
     pub controls: Vec<&'static str>,
     pub corroborated_by: Vec<&'static str>,
-    /// vulture-style certainty: 100 nothing references it anywhere, 90 no
-    /// graph or code reference (bare prose words go to
-    /// `evidence.textMentions`), 60 the file path or every unused export is
-    /// referenced in code or qualified text (`evidence.mentionedIn`), or no
-    /// mention scan ran. The default view shows 90+.
+    /// vulture-style certainty: 100 nothing references it anywhere (every
+    /// text file was read), 90 no graph or code reference (bare prose words
+    /// go to `evidence.textMentions`), 60 the file path or every listed
+    /// unused export is referenced in code or qualified text
+    /// (`evidence.mentionedIn`), or no mention scan ran. An export group
+    /// only partly referenced splits into one finding per tier. The default
+    /// view shows 90+.
     pub tier: u8,
 }
 
@@ -265,7 +266,7 @@ pub(crate) fn run(
         .retain(|f| wants(f.detector) || (spread && f.detector == "unreachable-file"));
     let mut proof = Some(octocode_engine::stamp::Proof::default());
     if let Some(root) = root {
-        proof = tier_dead_code(&c.v, &mut c.findings, root, stopped);
+        proof = tier_dead_code(&c.v, &mut c.findings, &mut c.notes, root, stopped);
         spread_mentioned_liveness(&c.v, &mut c.findings);
         c.findings.retain(|f| wants(f.detector));
     } else if c

@@ -7,51 +7,121 @@ pub(super) fn file_stem(path: &str) -> String {
     name.split('.').next().unwrap_or(name).to_owned()
 }
 
+/// The stem keys a text mention of file `subject` may hit: its bare stem (a
+/// path naming no directory, a whole string literal) and `dir/stem` (a path
+/// naming the directory it is in; `root` names a file at the root).
+fn subject_keys(subject: &str, root: &str) -> [String; 2] {
+    let stem = file_stem(subject);
+    let dir = subject
+        .rsplit_once('/')
+        .map_or(root, |(head, _)| head.rsplit('/').next().unwrap_or(head));
+    [path_stem_key(dir, &stem), stem]
+}
+
+/// The file of a `file:line` mention.
+fn mention_file(mention: &str) -> &str {
+    mention.rsplit_once(':').map_or(mention, |(file, _)| file)
+}
+
 /// Whether the graph explains a `file:line` mention of `subject`: the
-/// mentioning file is a test or imports `subject`, so it names it to load it.
-fn explained(v: &View, subject: &str, mention: &str) -> bool {
-    let file = mention.rsplit_once(':').map_or(mention, |(file, _)| file);
-    let (Some(from), Some(to)) = (v.t.by_key(file), v.t.by_key(subject)) else {
+/// mentioning file imports `subject` (the mention is the import the graph
+/// already followed), or, for `test-only`, it is a test or support file,
+/// which is how such a file is reached.
+fn explained(v: &View, subject: &str, mention: &str, test_only: bool) -> bool {
+    let (Some(from), Some(to)) = (v.t.by_key(mention_file(mention)), v.t.by_key(subject)) else {
         return false;
     };
-    v.flags(from) & (ROLE_TEST | ROLE_SUPPORT) != 0
-        || v.inc[to as usize].binary_search(&from).is_ok()
+    (test_only && v.flags(from) & (ROLE_TEST | ROLE_SUPPORT) != 0)
+        || v.t
+            .out(from)
+            .iter()
+            .any(|edge| edge.kind == EdgeKind::Imports && edge.dst == to)
+}
+
+/// `file:line` mentions merged from several key lists: per file its first
+/// line, files in path order.
+fn merged(lists: impl IntoIterator<Item = Vec<String>>) -> Vec<String> {
+    let mut first = BTreeMap::<String, (usize, String)>::new();
+    for mention in lists.into_iter().flatten() {
+        let line = mention
+            .rsplit_once(':')
+            .and_then(|(_, line)| line.parse().ok())
+            .unwrap_or(usize::MAX);
+        let file = mention_file(&mention).to_owned();
+        match first.get(&file) {
+            Some((seen, _)) if *seen <= line => {}
+            _ => {
+                first.insert(file, (line, mention));
+            }
+        }
+    }
+    first.into_values().map(|(_, mention)| mention).collect()
 }
 
 /// Re-tiers a file finding by the text that names it: a mentioned file is
-/// likely loaded by name (tier 60, `mentionedIn`); a `test-only` file counts
-/// only mentions the graph does not explain. An unmentioned orphan is 100.
-fn tier_mentioned_file(v: &View, stems: &Mentions, finding: &mut Finding) {
+/// likely loaded by name (tier 60, `mentionedIn`). Mentions the graph
+/// explains ([`explained`]) are no such evidence. An unmentioned orphan is
+/// 100 when every text file was read.
+fn tier_mentioned_file(v: &View, hits: &MentionHits, root: &str, finding: &mut Finding) {
     let test_only = finding.detector == "test-only";
-    let mentions = mentions_outside(stems, &file_stem(&finding.subject), &finding.subject)
-        .into_iter()
-        .filter(|mention| !(test_only && explained(v, &finding.subject, mention)))
-        .collect::<Vec<_>>();
+    let mentions = merged(
+        subject_keys(&finding.subject, root)
+            .iter()
+            .map(|key| mentions_outside(&hits.stems, key, &finding.subject)),
+    )
+    .into_iter()
+    .filter(|mention| !explained(v, &finding.subject, mention, test_only))
+    .collect::<Vec<_>>();
     if !mentions.is_empty() {
         finding.tier = 60;
         finding.evidence["mentionedIn"] = json!(mentions);
         finding.controls.push(
             "its path is mentioned in text (string, config, or script): likely loaded dynamically",
         );
-    } else if finding.evidence["orphan"] == true {
+    } else if finding.evidence["orphan"] == true && hits.unread.is_empty() {
         finding.tier = 100;
     }
 }
 
+/// Per export name, the files that declare a symbol of that name: a bare
+/// name there is that file's own binding.
+fn declaring_files<'a>(
+    v: &View<'a>,
+    names: &BTreeSet<String>,
+) -> BTreeMap<&'a str, BTreeSet<&'a str>> {
+    let mut declared = BTreeMap::<&str, BTreeSet<&str>>::new();
+    for node in &v.t.nodes {
+        if node.kind != NodeKind::Symbol || node.file == NONE {
+            continue;
+        }
+        let name = v.t.str(node.name);
+        if names.contains(name) {
+            declared.entry(name).or_default().insert(v.key(node.file));
+        }
+    }
+    declared
+}
+
 /// Re-tiers dead-code findings with the mention scan; what proves that scan
-/// current, `None` when no proof could be taken.
+/// current, `None` when no proof could be taken. Files the scan could not
+/// read are named in a note: what they mention is unknown.
 pub(super) fn tier_dead_code(
     v: &View,
-    findings: &mut [Finding],
+    findings: &mut Vec<Finding>,
+    notes: &mut Vec<Value>,
     root: &std::path::Path,
     stopped: &(dyn Fn() -> bool + Sync),
 ) -> Option<octocode_engine::stamp::Proof> {
+    let root_name = root
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let mut stems = BTreeSet::new();
     let mut names = BTreeSet::new();
     for finding in findings.iter() {
         match finding.detector {
             "unreachable-file" | "test-only" => {
-                stems.insert(file_stem(&finding.subject));
+                stems.extend(subject_keys(&finding.subject, &root_name));
             }
             "unused-export" => {
                 // Every name, short ones too: tier 90 claims no code or
@@ -70,41 +140,109 @@ pub(super) fn tier_dead_code(
     }
     // A stopped scan decides nothing: the request ends with it.
     let hits = memoized_mentions(root, &stems, &names, stopped)?;
+    if !hits.unread.is_empty() {
+        notes.push(json!({
+            "detectors": ["unreachable-file", "test-only", "unused-export"],
+            "skipped": format!(
+                "{} text file(s) could not be read: what they mention is unknown, so no file is tier 100",
+                hits.unread.len()
+            ),
+            "unread": hits.unread,
+        }));
+    }
+    let declared = declaring_files(v, &names);
+    let mut split = Vec::new();
     for finding in findings.iter_mut() {
         match finding.detector {
-            "unreachable-file" | "test-only" => tier_mentioned_file(v, &hits.stems, finding),
+            "unreachable-file" | "test-only" => {
+                tier_mentioned_file(v, &hits, &root_name, finding);
+            }
             "unused-export" => {
+                let references = |name: &str| {
+                    let own = declared.get(name);
+                    let bare = mentions_outside(&hits.bare, name, &finding.subject)
+                        .into_iter()
+                        .filter(|mention| {
+                            own.is_none_or(|files| !files.contains(mention_file(mention)))
+                        })
+                        .collect();
+                    merged([
+                        mentions_outside(&hits.qualified, name, &finding.subject),
+                        bare,
+                    ])
+                };
                 let exports = finding.evidence["exports"]
                     .as_array()
-                    .cloned()
-                    .unwrap_or_default();
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>();
                 let mut referenced = BTreeMap::new();
                 let mut words = BTreeMap::new();
-                for name in exports.iter().filter_map(Value::as_str) {
-                    for (hits, kept) in [
-                        (&hits.references, &mut referenced),
-                        (&hits.words, &mut words),
+                for name in &exports {
+                    for (mentions, kept) in [
+                        (references(name), &mut referenced),
+                        (
+                            mentions_outside(&hits.words, name, &finding.subject),
+                            &mut words,
+                        ),
                     ] {
-                        let mentions = mentions_outside(hits, name, &finding.subject);
                         if !mentions.is_empty() {
-                            kept.insert(name.to_owned(), mentions);
+                            kept.insert(name.clone(), mentions);
                         }
                     }
                 }
-                if !words.is_empty() {
-                    finding.evidence["textMentions"] = json!(words);
-                }
-                if !referenced.is_empty() {
-                    if referenced.len() == exports.len() {
+                if referenced.is_empty() || referenced.len() == exports.len() || finding.tier <= 60
+                {
+                    if !referenced.is_empty() && referenced.len() == exports.len() {
                         finding.tier = 60;
                     }
-                    finding.evidence["mentionedIn"] = json!(referenced);
+                    mention_evidence(finding, referenced, words);
+                } else {
+                    // Tier 90 claims no code reference for every name it
+                    // lists: the referenced names are a finding of their own.
+                    let (named, unnamed): (Vec<_>, Vec<_>) = exports
+                        .iter()
+                        .partition(|name| referenced.contains_key(*name));
+                    let (mut words_named, words_unnamed): (BTreeMap<_, _>, BTreeMap<_, _>) = words
+                        .into_iter()
+                        .partition(|(name, _)| referenced.contains_key(name));
+                    if let Some(mut referenced_part) = regroup_unused_export(v, finding, &named) {
+                        referenced_part.tier = 60;
+                        mention_evidence(
+                            &mut referenced_part,
+                            referenced,
+                            std::mem::take(&mut words_named),
+                        );
+                        if let Some(rest) = regroup_unused_export(v, finding, &unnamed) {
+                            *finding = rest;
+                            mention_evidence(finding, BTreeMap::new(), words_unnamed);
+                        }
+                        split.push(referenced_part);
+                    }
                 }
             }
             _ => {}
         }
     }
+    findings.extend(split);
     hits.proof.clone()
+}
+
+/// Writes an `unused-export` finding's mentions: code references
+/// (`mentionedIn`) and prose words (`textMentions`).
+fn mention_evidence(
+    finding: &mut Finding,
+    referenced: BTreeMap<String, Vec<String>>,
+    words: BTreeMap<String, Vec<String>>,
+) {
+    if !words.is_empty() {
+        finding.evidence["textMentions"] = json!(words);
+    }
+    if !referenced.is_empty() {
+        finding.evidence["mentionedIn"] = json!(referenced);
+    }
 }
 
 /// A mentioned unreachable or test-only file (a bundler entry or a loader

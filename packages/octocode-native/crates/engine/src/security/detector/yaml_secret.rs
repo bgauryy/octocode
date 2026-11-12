@@ -54,9 +54,10 @@ pub(super) fn secret_values(text: &str) -> Vec<Range<usize>> {
 /// without the name before it, the quotes around it and the comment after
 /// it: a member's value, and each line of a value that runs over several (a
 /// block scalar's, where a line that reads as a member keeps its name too).
-/// The names, the indentation, a comment, a template directive and a
-/// placeholder stay. A block that starts within its line is a flow value:
-/// all of it is one.
+/// The names, the indentation, a comment, a template directive, a
+/// placeholder and a key's armor line (`-----BEGIN PRIVATE KEY-----`, which
+/// names its block and holds none of it) stay. A block that starts within
+/// its line is a flow value: all of it is one.
 pub(super) fn block_values(text: &str, block: Range<usize>, values: &mut Vec<Range<usize>>) {
     let bytes = text.as_bytes();
     if block.start > 0 && bytes.get(block.start - 1) != Some(&b'\n') {
@@ -84,9 +85,11 @@ pub(super) fn block_values(text: &str, block: Range<usize>, values: &mut Vec<Ran
             Some((_, value_at)) => before_comment(trim_start(&member[value_at..])),
             None => member,
         };
+        let armor = std::str::from_utf8(value).is_ok_and(super::credential_values::is_armor_line);
         if !(value.is_empty()
             || member.starts_with(b"#")
             || member.starts_with(b"{{")
+            || armor
             || opens_a_block_scalar(value))
         {
             // `value` is a slice of the line: where it lies in the text.

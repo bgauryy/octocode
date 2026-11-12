@@ -296,3 +296,129 @@ async fn a_split_batch_is_first_delivered_unreplayed_and_a_repeat_is_replayed() 
     );
     runtime.close().await;
 }
+
+/// Answers Noul 0.9 for the section that holds `restart 0`, else 0.1: the
+/// others are quiet.
+async fn quiet_provider() -> wiremock::MockServer {
+    use wiremock::matchers::{method, path};
+    let server = wiremock::MockServer::builder().start().await;
+    wiremock::Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(|request: &wiremock::Request| {
+            let body: Value = serde_json::from_slice(&request.body).expect("provider body");
+            let hit = body["state"]["target"]["text"]
+                .as_str()
+                .is_some_and(|text| text.contains("restart 0"));
+            let answers = body["questions"]
+                .as_object()
+                .expect("questions")
+                .keys()
+                .map(|id| {
+                    (
+                        id.clone(),
+                        json!({"type":"noul","noul":if hit { 0.9 } else { 0.1 }}),
+                    )
+                })
+                .collect::<serde_json::Map<_, _>>();
+            wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "model":"jev-1.13.0","answers":answers,
+                "usage":{"input_tokens":10,"output_tokens":2}
+            }))
+        })
+        .mount(&server)
+        .await;
+    server
+}
+
+/// A replay never answers from text that changed: once the source is
+/// edited, `next.details` and `next.quiet` each return `staleSnapshot` with
+/// the plan's own request as `next.restart`, bill nothing, and serve no
+/// saved answer; the restart judges the new text.
+#[tokio::test]
+async fn a_replay_over_a_changed_source_is_stale_and_restarts_the_plan() {
+    let provider = quiet_provider().await;
+    let workspace = Workspace::new();
+    workspace.write("small.rs", super::separate_functions(2));
+    let runtime = clasify_runtime(&workspace, &provider, &[]);
+    // The summary view, which offers `next.details`.
+    let row = json!({"operation":"sections","view":"summary",
+        "resources":{"file":{"tool":"localFetch","query":{"path":"small.rs"}}},
+        "questions":{"q":{"type":"noul","instructions":"Does this section say to restart?"}}});
+    let first = runtime
+        .run("first".into(), "clasify".into(), json!({"queries":[row]}))
+        .await
+        .expect("first batch")
+        .structured_content
+        .into_value();
+    let first = first["results"][0]["data"].clone();
+    let replays = ["details", "quiet"].map(|channel| {
+        let call = &first["next"][channel];
+        assert_eq!(call["tool"], "clasify", "next.{channel}: {first:#}");
+        (channel, call["input"].clone())
+    });
+    // Unchanged: each replays its saved answers.
+    for (channel, input) in &replays {
+        let replay = runtime
+            .run(format!("{channel}-same"), "clasify".into(), input.clone())
+            .await
+            .expect("replay")
+            .structured_content
+            .into_value();
+        assert_eq!(replay["results"][0]["data"]["replayed"], true, "{replay:#}");
+    }
+    workspace.write("small.rs", super::separate_functions(1));
+    let calls = provider_calls(&provider).await;
+    let mut restart = None;
+    for (channel, input) in replays {
+        let stale = runtime
+            .run(format!("{channel}-changed"), "clasify".into(), input)
+            .await
+            .expect("typed row")
+            .structured_content
+            .into_value();
+        let data = &stale["results"][0]["data"];
+        assert_eq!(
+            data["errorCode"], "staleSnapshot",
+            "next.{channel}: {stale:#}"
+        );
+        assert!(
+            data.get("resources").is_none(),
+            "no saved answer: {stale:#}"
+        );
+        assert!(data.get("replayed").is_none(), "{stale:#}");
+        assert!(
+            data.get("hints").is_none(),
+            "the restart is the recovery: {stale:#}"
+        );
+        let call = &data["next"]["restart"];
+        assert_eq!(call["tool"], "clasify", "{stale:#}");
+        assert_eq!(call["kind"], "continue", "{stale:#}");
+        restart = Some(call["input"].clone());
+    }
+    assert_eq!(
+        provider_calls(&provider).await,
+        calls,
+        "a stale replay bills nothing"
+    );
+    let restarted = runtime
+        .run(
+            "restart".into(),
+            "clasify".into(),
+            restart.expect("restart"),
+        )
+        .await
+        .expect("restart")
+        .structured_content
+        .into_value();
+    let file = &restarted["results"][0]["data"]["resources"]["file"];
+    assert_eq!(file["status"], "ready", "{restarted:#}");
+    assert_eq!(
+        file["coverage"]["totalSections"], 1,
+        "the new text: {restarted:#}"
+    );
+    assert!(
+        provider_calls(&provider).await > calls,
+        "a restart judges again"
+    );
+    runtime.close().await;
+}

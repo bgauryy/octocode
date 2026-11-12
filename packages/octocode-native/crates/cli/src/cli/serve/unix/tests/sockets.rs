@@ -54,7 +54,7 @@ async fn a_warm_server_survives_new_servers_starting() {
         .run_until(async {
             let mut servers = Vec::new();
             for socket in &sockets {
-                servers.push(tokio::task::spawn_local(serve(socket.clone())));
+                servers.push(tokio::task::spawn_local(serve(socket.clone(), |_| true)));
                 until("the server bound its socket", || socket.exists()).await;
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }

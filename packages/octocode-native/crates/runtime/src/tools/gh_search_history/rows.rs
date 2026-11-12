@@ -97,6 +97,32 @@ pub(super) fn drop_implied(
     }
 }
 
+/// Leaves out of each row's `labels` the ones the `labels` filter requires:
+/// every row carries them, and the request already states them. A row with
+/// no other label states none. Run after the `fields` pick, which judges
+/// what the rows carry before the request's labels leave them.
+pub(super) fn drop_filtered_labels(value: &mut Value, rows: &str, filtered: &[String]) {
+    if filtered.is_empty() {
+        return;
+    }
+    let required = |label: &str| filtered.iter().any(|name| name.eq_ignore_ascii_case(label));
+    for row in value
+        .get_mut(rows)
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_object_mut)
+    {
+        let Some(Value::Array(labels)) = row.get_mut("labels") else {
+            continue;
+        };
+        labels.retain(|label| !label.as_str().is_some_and(required));
+        if labels.is_empty() {
+            row.shift_remove("labels");
+        }
+    }
+}
+
 /// States `updatedAt` on a pull-request row: the value its page is sorted by.
 pub(super) fn state_updated(row: &mut Value, item: &Value) {
     let updated = utc_value(item.get("updated_at"));

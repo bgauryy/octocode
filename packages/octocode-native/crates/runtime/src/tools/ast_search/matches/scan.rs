@@ -43,10 +43,11 @@ pub(super) fn scan_file(
         ));
     };
     // Parse the file as the directory scan does: admitted by the one text
-    // rule, raw. Output strings are redacted by the response stage.
+    // rule, as a read shows it ([`super::super::source::admitted_for_match`]).
     let stop = || cancel.check().is_err();
     let mut maps = super::super::source::mapping_budget(cancel, &stop);
-    let admitted = super::super::source::admitted(canonical, &bytes, &mut maps)?;
+    let (admitted, shown) =
+        super::super::source::admitted_for_match(canonical, &bytes, &mut maps)?;
     let source = admitted.text();
     let source_path = canonical.to_string_lossy();
     let mut r = octocode_engine::structural::search_detailed(
@@ -81,6 +82,9 @@ pub(super) fn scan_file(
             }
             error => ToolError::source(error),
         })?;
+    }
+    if let Some(shown) = &shown {
+        octocode_engine::structural::restore_texts(&mut r.matches, source, shown);
     }
     // A test-code scope keeps one side of a single file's matches too.
     let mut test_code_excluded = octocode_engine::types::TestCodeExcluded::default();
@@ -207,6 +211,7 @@ pub(super) fn scan_directory(
             max_files: through.or_else(|| window_files(q.scan_offset())),
             skip_files: Some(through.map_or(q.scan_offset(), |_| 0)),
             max_file_bytes: u32::try_from(crate::security::SourceLimits::REAL.whole_source).ok(),
+            judge: Some(super::super::source::judge()),
         },
         demand(q, &price),
         &|path, file_type| {

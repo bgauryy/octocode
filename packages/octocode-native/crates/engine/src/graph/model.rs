@@ -88,6 +88,14 @@ pub struct GraphFactImport {
     /// at file level and for other languages.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope_id: Option<String>,
+    /// A TypeScript value import whose binding the file reads only in type
+    /// positions (annotations, `implements`, `typeof` queries) or not at
+    /// all. TypeScript's emit elides such a binding unless the project keeps
+    /// value imports (`verbatimModuleSyntax`, decorator metadata), so the
+    /// import alone establishes no module load. A JSX tag, an export clause
+    /// and any expression read are value uses.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub type_use_only: bool,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
@@ -167,13 +175,22 @@ pub struct GraphFactCall {
     /// parser cannot read it from a declaration, constructor or field.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub receiver_type: Option<String>,
-    /// The callee's head (`f` in `f(x)`, `x` in `x.m()`) names a term the
-    /// parser saw bound in scope (a parameter, a lambda or pattern variable,
-    /// an untyped or abstract `val`) that is not a graph declaration and has
-    /// no usable type: it never names a type, an object or a declaration
-    /// elsewhere. Scala only.
+    /// The callee's head names a term the parser saw bound in scope, not a
+    /// graph declaration: a bare call `f()` of a parameter, a local variable
+    /// or a closure calls that value, never a declaration named `f`
+    /// elsewhere. Scala (from its own scope reading) also sets it for the
+    /// head of `x.m()` (a lambda or pattern variable, an untyped or abstract
+    /// `val`) when `x` has no usable type. JS/TS reads it from oxc semantic
+    /// bindings, Python, Go, Rust, C/C++/CUDA and C# from the argument
+    /// adapter's lexical bindings; Java never sets it (a bare call names a
+    /// method only), nor does a scope a lane cannot settle.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub term_binding: bool,
+    /// The id of the declaration a bare callee's name binds, where the lane's
+    /// semantics settle it, as an argument's `Declaration` binding does: oxc
+    /// for JS/TS (a nested `const f = () => ..` shadows a top-level `f`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bound_declaration: Option<String>,
     /// The receiver is a self alias (`self =>`): the name of the enclosing
     /// template that declares it (for an anonymous class, the declaration
     /// it is the value of). Scala only.

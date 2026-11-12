@@ -118,6 +118,76 @@ impl<'a> AdmittedSource<'a> {
     pub fn text(&self) -> &str {
         &self.text
     }
+    /// This source as a read shows it ([`crate::structural::JudgeText`]):
+    /// each of `hidden` (ascending, disjoint byte ranges of its text, each
+    /// with the text a read shows in its place: a placeholder and the line
+    /// breaks it keeps) replaced by that text, and the source admitted as the
+    /// result, the shown text. Every byte offset, column and line counts the
+    /// shown text, as a read serves it, and the snapshot (digest, length,
+    /// identity) is the shown text's: nothing it states is computed over a
+    /// hidden byte, so no digest or length tests a guess of one. The text
+    /// matched is the shown text with each placeholder written over in
+    /// place, its letters and digits first, then `x`, line breaks kept, so
+    /// what a hidden value sits in (a string, a name) parses as it did.
+    /// Returns the shown text too: what a match's texts are restated from
+    /// ([`crate::structural::restore_texts`]).
+    #[must_use]
+    pub fn judged(self, hidden: &[(std::ops::Range<usize>, String)]) -> (Self, String) {
+        let mut shown = String::with_capacity(self.text.len());
+        let mut masked = String::with_capacity(self.text.len());
+        let mut from = 0;
+        for (range, placeholder) in hidden {
+            let (Some(before), true) = (
+                self.text.get(from..range.start),
+                from <= range.start && range.end <= self.text.len(),
+            ) else {
+                continue;
+            };
+            shown.push_str(before);
+            masked.push_str(before);
+            shown.push_str(placeholder);
+            let mut letters = placeholder.chars().filter(char::is_ascii_alphanumeric);
+            masked.extend(placeholder.chars().map(|c| match c {
+                '\n' | '\r' => c,
+                _ if c.is_ascii() => letters.next().unwrap_or('x'),
+                _ => match c.len_utf8() {
+                    2 => '\u{e9}',
+                    3 => '\u{30a2}',
+                    _ => '\u{1d465}',
+                },
+            }));
+            from = range.end;
+        }
+        shown.push_str(self.text.get(from..).unwrap_or_default());
+        masked.push_str(self.text.get(from..).unwrap_or_default());
+        let snapshot = self.snapshot.as_ref().map(|snapshot| {
+            let digest = crate::digest::sha256(shown.as_bytes());
+            let byte_length = crate::num::saturating_u32(shown.len());
+            SourceSnapshot {
+                id: super::model::identity(&(
+                    "raw-source:1",
+                    &snapshot.path,
+                    &digest,
+                    byte_length,
+                    Encoding::Utf8,
+                    0_u32,
+                ))
+                .unwrap_or_else(|_| digest.clone()),
+                path: snapshot.path.clone(),
+                digest,
+                byte_length,
+                encoding: Encoding::Utf8,
+                bom_bytes: 0,
+            }
+        });
+        let source = Self {
+            text: Cow::Owned(masked),
+            snapshot,
+            boundaries: Vec::new(),
+            text_digest: std::sync::OnceLock::new(),
+        };
+        (source, shown)
+    }
     /// SHA-256 of [`Self::text`]: the source bytes' digest when the text is
     /// those bytes, else hashed once on first use.
     pub fn text_digest(&self) -> &str {

@@ -1,12 +1,12 @@
 //! Row shape: receipts, block reads and zero-byte files.
 use super::*;
 
-/// Freshness is a receipt: a read's first page (offset 0) states when the
-/// file last changed and by whom, for one request sent beside the body
-/// (so a read that then fails on the fetched body spent it); a later page
-/// sends none.
+/// A read asks GitHub for the file alone: when it last changed is one call
+/// away, the first page's `lastChange` lead (the file's history at the read
+/// commit, one commit, its date and author). A later page and a read that
+/// failed on the fetched body offer none.
 #[tokio::test]
-async fn a_first_page_states_the_last_change_for_one_concurrent_request() {
+async fn a_first_page_leads_to_the_last_change_and_asks_only_the_file() {
     let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     let body: String = (1..=40).map(|i| format!("line {i}\n")).collect();
@@ -17,115 +17,40 @@ async fn a_first_page_states_the_last_change_for_one_concurrent_request() {
         serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode(&body)}),
     )
     .await;
-    mount_json(
-        &server,
-        "/api/v3/repos/a/b/contents/missing.txt",
-        404,
-        serde_json::json!({"message":"Not Found"}),
-    )
-    .await;
-    Mock::given(method("POST"))
-        .and(path("/api/graphql"))
-        .and(wiremock::matchers::body_string_contains("a.txt"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!(
-            {"data":{"repository":{"object":{
-                "history":{"nodes":[{"committedDate":"2026-01-02T00:00:00Z",
-                    "author":{"name":"Ada","user":{"login":"ada-l"}}}]}}}}}
-        )))
-        // The stamped first page and the first page whose body then fails;
-        // the later page sends none.
-        .expect(2)
-        .mount(&server)
-        .await;
     let provider = mock_provider(&server, RetryPolicy::default());
     let base = json!({"owner":"a","repo":"b","path":"a.txt","ref":sha});
-    let stamped = read(&provider, base.clone()).await;
+    let lead = |row: &GhGetFileContentResult| {
+        row.file
+            .calls
+            .as_ref()
+            .and_then(|calls| calls.get("lastChange"))
+            .cloned()
+    };
+    let first = read(&provider, base.clone()).await;
     assert_eq!(
-        stamped.file.modified_at.as_deref(),
-        Some("2026-01-02T00:00:00Z")
+        lead(&first),
+        Some(
+            json!({"kind":"related","tool":"ghSearchHistory","input":{"queries":[
+            {"operation":"commit","owner":"a","repo":"b","path":"a.txt","ref":sha,
+             "limit":1,"fields":["committedAt","author"]}]}})
+        ),
+        "{:?}",
+        first.file.calls
     );
-    assert_eq!(stamped.file.last_modified_by.as_deref(), Some("ada-l"));
-    // A read that fails on the fetched body (a range past its end) states
-    // no stamp, though its request travelled with the body.
     let mut failed = base.clone();
     failed["ranges"] = json!([{"startLine":100,"endLine":120}]);
     let failed = read(&provider, failed).await;
-    assert_eq!(
-        failed.file.content.status,
-        ReadStatus::Error,
-        "{:?}",
-        failed.file.content
-    );
-    assert_eq!(failed.file.modified_at, None);
+    assert_eq!(failed.file.content.status, ReadStatus::Error);
+    assert_eq!(lead(&failed), None);
     let mut later = base;
     later["readProgress"] = json!({"unit":"lines","offset":20});
-    let later = read(&provider, later).await;
-    assert_eq!(later.file.modified_at, None);
-    assert_eq!(later.file.last_modified_by, None);
-    let missing = serde_json::json!({"owner":"a","repo":"b","path":"missing.txt","ref":sha});
-    let missing: GhGetFileContentQuery = serde_json::from_value(missing).expect("query");
-    assert!(
-        execute_default_regex(&provider, &missing, &default_context(), None,)
-            .await
-            .is_err()
-    );
+    assert_eq!(lead(&read(&provider, later).await), None);
     let requests = server.received_requests().await.unwrap_or_default();
     assert!(
-        !requests.iter().any(|request| {
-            request.url.path() == "/api/v3/repos/a/b/commits"
-                && request
-                    .url
-                    .query()
-                    .is_some_and(|q| q.contains("missing.txt"))
-        }),
-        "a failed read asked for its timestamp: {requests:?}"
-    );
-}
-
-/// The timestamp request is independent of the body (both need only the
-/// resolved SHA): a first page costs the slower of the two, not their sum.
-#[tokio::test]
-async fn the_timestamp_request_runs_beside_the_contents_read() {
-    let server = MockServer::builder().start().await;
-    let sha = "0123456789abcdef0123456789abcdef01234567";
-    let delay = Duration::from_millis(400);
-    Mock::given(method("GET"))
-        .and(path("/api/v3/repos/a/b/contents/a.txt"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(
-                    json!({"type":"file","encoding":"base64","content":STANDARD.encode("hi\n")}),
-                )
-                .set_delay(delay),
-        )
-        .mount(&server)
-        .await;
-    Mock::given(method("POST"))
-        .and(path("/api/graphql"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({"data":{"repository":{"object":{
-                    "history":{"nodes":[{"committedDate":"2026-01-02T00:00:00Z",
-                        "author":{"name":"Ada","user":{"login":"ada-l"}}}]}}}}}))
-                .set_delay(delay),
-        )
-        .mount(&server)
-        .await;
-    let provider = mock_provider(&server, RetryPolicy::default());
-    let started = std::time::Instant::now();
-    let stamped = read(
-        &provider,
-        json!({"owner":"a","repo":"b","path":"a.txt","ref":sha}),
-    )
-    .await;
-    let elapsed = started.elapsed();
-    assert_eq!(
-        stamped.file.modified_at.as_deref(),
-        Some("2026-01-02T00:00:00Z")
-    );
-    assert!(
-        elapsed < delay * 2,
-        "the two reads ran one after the other: {elapsed:?}"
+        requests
+            .iter()
+            .all(|request| request.url.path() == "/api/v3/repos/a/b/contents/a.txt"),
+        "a read asked more than its file: {requests:?}"
     );
 }
 
@@ -202,90 +127,4 @@ async fn a_zero_byte_file_is_a_successful_read() {
     .unwrap_or_else(|failure| panic!("{}", failure.message));
     assert_eq!(read.status, None, "{}", read.data);
     assert_eq!(read.data["content"], "", "{}", read.data);
-}
-
-/// B97: an anonymous call cannot send GraphQL, so the receipt comes from the
-/// REST commit list under the configured API origin, whatever its host.
-#[tokio::test]
-async fn an_anonymous_first_page_states_the_last_change_from_the_commit_list() {
-    let server = MockServer::builder().start().await;
-    let sha = "0123456789abcdef0123456789abcdef01234567";
-    mount_json(
-        &server,
-        "/api/v3/repos/a/b/contents/a.txt",
-        200,
-        serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode("hi\n")}),
-    )
-    .await;
-    Mock::given(method("GET"))
-        .and(path("/api/v3/repos/a/b/commits"))
-        .and(query_param("path", "a.txt"))
-        .and(query_param("sha", sha))
-        .respond_with(ResponseTemplate::new(200)
-            .insert_header("link", "<https://api.github.com/repositories/1/commits?page=2>; rel=\"next\"")
-            .insert_header("etag", "W/\"x\"")
-            .insert_header("cache-control", "private, max-age=60, s-maxage=60")
-            .set_body_json(json!([{
-            "sha": sha,
-            "author": {"login": "ada-l"},
-            "commit": {"committer": {"date": "2026-01-02T00:00:00Z"}, "author": {"name": "Ada"}}
-        }])))
-        .expect(1)
-        .mount(&server)
-        .await;
-    let provider = mock_provider(&server, RetryPolicy::default());
-    let query: GhGetFileContentQuery =
-        serde_json::from_value(json!({"owner":"a","repo":"b","path":"a.txt","ref":sha}))
-            .expect("query");
-    let anonymous = RequestContext::with_timeout(Duration::from_secs(5), 1 << 20);
-    let stamped = execute_default_regex(&provider, &query, &anonymous, Some(50_000))
-        .await
-        .expect("result");
-    assert_eq!(
-        stamped.file.modified_at.as_deref(),
-        Some("2026-01-02T00:00:00Z")
-    );
-    assert_eq!(stamped.file.last_modified_by.as_deref(), Some("ada-l"));
-}
-
-/// A failed last-change read is no reason to lose the body, nor to lose the
-/// reason: the row says why `modifiedAt` is absent, by error code.
-#[tokio::test]
-async fn a_failed_last_change_read_is_named_on_the_row() {
-    let server = MockServer::builder().start().await;
-    let sha = "0123456789abcdef0123456789abcdef01234567";
-    mount_json(
-        &server,
-        "/api/v3/repos/a/b/contents/a.txt",
-        200,
-        serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode("hi\n")}),
-    )
-    .await;
-    mount_json(
-        &server,
-        "/api/v3/repos/a/b/commits",
-        403,
-        serde_json::json!({"message":"Resource not accessible"}),
-    )
-    .await;
-    let provider = mock_provider(&server, RetryPolicy::default());
-    let query: GhGetFileContentQuery =
-        serde_json::from_value(json!({"owner":"a","repo":"b","path":"a.txt","ref":sha}))
-            .expect("query");
-    let anonymous = RequestContext::with_timeout(Duration::from_secs(5), 1 << 20);
-    let row = execute_default_regex(&provider, &query, &anonymous, Some(50_000))
-        .await
-        .expect("the body is still read");
-    assert_eq!(row.file.modified_at, None);
-    let warning = row
-        .file
-        .content
-        .warnings
-        .iter()
-        .find(|warning| warning.contains("modifiedAt"))
-        .unwrap_or_else(|| panic!("no note: {:?}", row.file.content.warnings));
-    assert!(
-        warning.contains(&ErrorCode::PermissionDenied.to_string()),
-        "{warning}"
-    );
 }

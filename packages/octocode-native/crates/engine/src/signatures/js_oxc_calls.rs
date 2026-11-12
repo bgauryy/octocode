@@ -42,8 +42,11 @@ use oxc_ast_visit::{VisitJs, walk_js};
 use oxc_semantic::ScopeFlags;
 use oxc_span::{GetSpan, Span};
 
+mod local_calls;
 mod names;
 mod visitor;
+
+pub(super) use local_calls::mark_local_calls;
 
 use names::push_call;
 pub(super) use names::{dotted_expression_name, receiver_label, ts_type_name, unwrap_expr};

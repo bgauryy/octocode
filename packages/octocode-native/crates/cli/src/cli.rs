@@ -54,7 +54,8 @@ Which tool, how little to ask for: schema --view flow.
 
 Tools: one JSON envelope ({"queries":[…]} or {"cursor":"…"} alone); a query takes
 mainGoal (the task) and reasoning (why this query). --input FILE|- reads the same
-JSON from a file or stdin. Examples: <tool> --help.
+JSON from a file or stdin; clasify --content - reads one row's text from stdin.
+Examples: <tool> --help.
 Discovery, smallest first: schema <tool> --view variants (operations, required
 fields, an example); schema <tool> (every field); schema --view full (all tools).
 All tools run here, including the MCP opt-ins graphBuild, graphQuery, ghCloneRepo:

@@ -8,7 +8,8 @@ use super::opaque::{is_opaque, is_run};
 use super::text::{field_end, hole_end, is_public_armor, line_end, literal_line_end, string_end};
 use super::{Named, Opener};
 use crate::security::detector::credential_values::{
-    OPAQUE_LITERAL_CHARS, QUOTES, ValueTest, expanded_names, is_chosen_literal, is_expanded_name,
+    OPAQUE_LITERAL_CHARS, QUOTES, ValueTest, expanded_names, is_armor_line, is_chosen_literal,
+    is_expanded_name,
 };
 use crate::security::detector::{LINE_END_CHARS, is_placeholder, jwk};
 
@@ -554,6 +555,9 @@ impl<'t> Walk<'t> {
         else {
             return false;
         };
+        // A key's armor names its block and holds none of it, and a line a
+        // key pass already hid is no value: both read as they stand, as a
+        // read of the key shows them anywhere else.
         let mut lines = Vec::new();
         let mut line = body.start;
         while line < body.end {
@@ -561,7 +565,8 @@ impl<'t> Walk<'t> {
             let text = self.text.get(line..next).unwrap_or_default();
             let start = line + (text.len() - text.trim_start().len());
             let end = start + text.trim().len();
-            if end > start {
+            let own = text.trim();
+            if end > start && !is_armor_line(own) && !is_placeholder(own) {
                 lines.push(start..end);
             }
             line = next;

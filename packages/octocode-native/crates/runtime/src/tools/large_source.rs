@@ -29,6 +29,7 @@ mod proven;
 mod ranges;
 mod scan;
 mod sealed;
+mod searched;
 mod stream;
 mod unjudged;
 mod window;
@@ -42,6 +43,7 @@ use std::path::Path;
 use window::{Opened, stream_window};
 
 pub(crate) use crate::tools::source_view::prepare::MAX_STREAM_SOURCE_BYTES;
+pub(crate) use searched::{ChangedLines, Patched, changed_lines};
 /// Lines held by one streamed window; response pages are sized separately.
 const WINDOW_LINES: usize = 5_000;
 #[cfg(test)]

@@ -105,6 +105,9 @@ impl<M: Matcher> CollectSink<'_, M> {
         let (om, charge, stop) = (&mut self.om_matches, &mut self.charge, self.stop);
         self.matcher
             .find_iter(bytes, |found| {
+                if super::past_block_end(bytes, found) {
+                    return true;
+                }
                 count = count.saturating_add(1);
                 first_start.get_or_insert(found.start());
                 let start = columns.lossy(found.start()).min(text.len());

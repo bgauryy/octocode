@@ -6,8 +6,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const USAGE = `Usage: node profile-top.mjs <file.cpuprofile | file.heapprofile | directory> [options]
-  A directory means its newest .cpuprofile or .heapprofile.
-  --top <n>               Rows to print (default 20).
+  A directory means its newest .cpuprofile or .heapprofile; the header names how many it holds.
+  --top <n>               Rows to print (default 20); the header states how many functions matched.
   --sort <self|total>     self: cost inside the function; total: including what it calls (default self).
   --filter <text>         Only functions whose name or location contains the text.
 CPU rows are milliseconds; heap rows are bytes still allocated when the profile was written.
@@ -24,7 +24,10 @@ function parseArgs(argv) {
 	const options = { target: undefined, top: 20, sort: "self", filter: "" };
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i];
-		if (arg === "--help") fail(USAGE);
+		if (arg === "--help") {
+			console.log(USAGE);
+			process.exit(0);
+		}
 		if (!arg.startsWith("--")) {
 			options.target = arg;
 			continue;
@@ -41,14 +44,21 @@ function parseArgs(argv) {
 	return options;
 }
 
+/** The profile to read, and how many profiles the directory held (1 for a named file). */
 function resolveFile(target) {
-	if (!statSync(target).isDirectory()) return target;
-	const newest = readdirSync(target)
+	let stats;
+	try {
+		stats = statSync(target);
+	} catch (error) {
+		fail(`${target}: ${error.code ?? error.message}`);
+	}
+	if (!stats.isDirectory()) return { file: target, candidates: 1 };
+	const profiles = readdirSync(target)
 		.filter((name) => name.endsWith(".cpuprofile") || name.endsWith(".heapprofile"))
 		.map((name) => path.join(target, name))
-		.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
-	if (!newest) fail(`no .cpuprofile or .heapprofile in ${target}`);
-	return newest;
+		.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
+	if (!profiles.length) fail(`no .cpuprofile or .heapprofile in ${target}`);
+	return { file: profiles[0], candidates: profiles.length };
 }
 
 function location({ url, lineNumber }) {
@@ -118,17 +128,23 @@ function heap(profile) {
 }
 
 const options = parseArgs(process.argv.slice(2));
-const file = resolveFile(options.target);
-const profile = JSON.parse(readFileSync(file, "utf8"));
-const summary = profile.head ? heap(profile) : profile.nodes ? cpu(profile) : fail(`${file}: not a V8 profile`);
+const { file, candidates } = resolveFile(options.target);
+let profile;
+try {
+	profile = JSON.parse(readFileSync(file, "utf8"));
+} catch (error) {
+	fail(`${file}: ${error.message}`);
+}
+const summary = profile?.head ? heap(profile) : profile?.nodes ? cpu(profile) : fail(`${file}: not a V8 profile`);
 const number = (value) => (summary.unit === "ms" ? value.toFixed(1) : String(Math.round(value)));
 const percent = (value) => `${summary.all > 0 ? ((100 * value) / summary.all).toFixed(1) : "0.0"}%`;
-const rows = summary.rows
+const matched = summary.rows
 	.filter((row) => !options.filter || `${row.name} ${row.where}`.toLowerCase().includes(options.filter))
-	.sort((a, b) => b[options.sort] - a[options.sort])
-	.slice(0, options.top);
+	.sort((a, b) => b[options.sort] - a[options.sort]);
+const rows = matched.slice(0, options.top);
 
-console.log(`${file}\n${summary.header}; sorted by ${options.sort}`);
+const newest = candidates > 1 ? ` (newest of ${candidates} profiles; pass a file for another isolate)` : "";
+console.log(`${file}${newest}\n${summary.header}; sorted by ${options.sort}; ${rows.length} of ${matched.length} functions`);
 const table = [[`self ${summary.unit}`, "self%", `total ${summary.unit}`, "total%", "function", "location"]].concat(
 	rows.map((row) => [number(row.self), percent(row.self), number(row.total), percent(row.total), row.name, row.where]),
 );

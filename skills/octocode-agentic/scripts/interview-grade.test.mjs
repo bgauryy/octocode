@@ -41,6 +41,28 @@ test('grader reports valid calls and fails malformed or non-gradable input', () 
   }
 });
 
+test('grader keeps code-like input, hyphenated groups and full failure output', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'interview-grade-'));
+  try {
+    const long = 'x'.repeat(1000);
+    const runner = join(dir, 'runner.mjs');
+    writeFileSync(runner, `const [tool] = process.argv.slice(2); if (tool === 'fail') { console.log(${JSON.stringify(long)}); process.exit(3); }\n`);
+    writeFileSync(join(dir, 'local-text-calls.jsonl'), [
+      { scenario: 'S1', step: 1, tool: 'search', input: { queries: [{ matchString: ['Vec<u8>', '<div>x</div>'] }] } },
+      { scenario: 'S2', step: 1, tool: 'fail', input: { queries: [{ path: 'a.ts' }] } },
+      { scenario: 'S3', step: 2, tool: 'search', input: { cursor: '<cursor from step 1>' } },
+    ].map((row) => JSON.stringify(row)).join('\n'));
+    const result = run(dir, '--cmd', `${process.execPath} ${runner} {tool} {input}`, '--json');
+    assert.equal(result.status, 0);
+    const summary = JSON.parse(result.stdout);
+    assert.deepEqual(summary.groups['local-text'], { calls: 3, ok: 1, error: 1, placeholder: 1 });
+    const graded = JSON.parse(readFileSync(join(dir, 'graded.json'), 'utf8'));
+    assert.equal(graded.find((row) => row.scenario === 'S2').detail, long);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('runner receives quoted arguments and literal placeholders without shell effects', () => {
   const dir = mkdtempSync(join(tmpdir(), 'interview-grade-'));
   try {

@@ -184,11 +184,12 @@ pub(super) fn flag_server_health(
     flag_partial(row, query, HEALTH_REASON, Some(&note), scope);
 }
 
-/// Partial for a scope nothing bounds: no answer can speak for a module beside
-/// the server's root. The one statement of the advice is [`unbounded_note`]: the
-/// projects beside the root, named, and the widening that reaches them; the
-/// text lead ([`flag_partial`]) searches those projects, since the root itself
-/// was searched.
+/// Partial for a scope nothing bounds, when a module beside the server's root
+/// may hold uses its answer cannot speak for (one was found, or the search did
+/// not finish; one that found none leaves no gap). The one statement of the
+/// advice is [`unbounded_note`]: the projects beside the root, named, and the
+/// widening that reaches them; the text lead ([`flag_partial`]) searches those
+/// projects, since the root itself was searched.
 fn flag_unbounded(
     row: &mut Value,
     query: &LspSearchQuery,
@@ -196,6 +197,9 @@ fn flag_unbounded(
     stopped: &dyn Fn() -> bool,
 ) {
     scope.resolve_siblings(stopped);
+    if scope.siblings_searched() && scope.siblings().is_empty() {
+        return;
+    }
     flag_partial(
         row,
         query,
@@ -207,9 +211,9 @@ fn flag_unbounded(
 
 /// Why no answer can speak for files beyond the server's root: a list of uses
 /// stops at the project the server loaded just as an empty one does. Names the
-/// projects beside the root, and says to widen `workspaceRoot` to their parent
-/// (the call's narrowing advice elsewhere does not apply: this scope is already
-/// the server's root).
+/// projects beside the root (or that the search for them did not finish), and
+/// says to widen `workspaceRoot` to their parent (the call's narrowing advice
+/// elsewhere does not apply: this scope is already the server's root).
 fn unbounded_note(scope: &Scope) -> String {
     let base = "No .git or workspace file says where this project ends, so only the server's root was searched";
     let Some(parent) = Path::new(&scope.root).parent() else {
@@ -218,11 +222,6 @@ fn unbounded_note(scope: &Scope) -> String {
     if !scope.siblings_searched() {
         return format!(
             "{base}; the projects beside it were not looked for, as the request stopped first. Widen workspaceRoot to the folder that holds the repository to include them."
-        );
-    }
-    if scope.siblings().is_empty() {
-        return format!(
-            "{base}; no project beside it was found. If the repository holds more, widen workspaceRoot to the folder that holds it."
         );
     }
     let names = scope

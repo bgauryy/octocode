@@ -4,13 +4,42 @@ use super::*;
 
 impl Query<'_> {
     pub(super) fn target(&self, required: &str) -> Result<u32, GraphOutput> {
+        self.target_of_kind(required, self.flags.kind)
+    }
+
+    /// The node `target` names, preferring nodes of `kind`
+    /// ([`Query::resolve_preferring`]).
+    pub(super) fn target_of_kind(
+        &self,
+        required: &str,
+        kind: Option<NodeKind>,
+    ) -> Result<u32, GraphOutput> {
         let reference = self.options.target.as_deref().ok_or_else(|| {
             GraphOutput::error(
                 ErrorCode::InvalidInput,
                 format!("`{}` needs {required}", self.options.op),
             )
         })?;
-        self.resolve(reference, self.flags.kind)
+        self.resolve_preferring(reference, kind)
+    }
+
+    /// The node `reference` names. `kind` chooses among the nodes it names;
+    /// a reference that names no node of that kind resolves without it, so a
+    /// `kind` that filters an answer's rows never hides the node it starts
+    /// from.
+    fn resolve_preferring(
+        &self,
+        reference: &str,
+        kind: Option<NodeKind>,
+    ) -> Result<u32, GraphOutput> {
+        match self.resolve(reference, kind) {
+            Err(missing)
+                if kind.is_some() && missing.value["errorCode"] == json!(ErrorCode::NotFound) =>
+            {
+                self.resolve(reference, None)
+            }
+            resolved => resolved,
+        }
     }
 
     /// The roots of `symbols`: each source reference, else every file in
@@ -104,25 +133,26 @@ impl Query<'_> {
         } else {
             offset..offset.saturating_add(limit)
         };
-        let page = walk(
-            g,
-            &seeds,
-            &Walk {
-                direction: self.flags.direction.unwrap_or(default_direction),
-                filter: &filter,
-                depth: self.flags.depth.unwrap_or(default_depth),
-                kind: self.flags.kind,
-                include_seeds: matches!(op, "callers" | "callees"),
-                reexports,
-                lists: match view {
-                    Some("files") => WalkRows::Files,
-                    Some("modules") => WalkRows::Modules,
-                    _ => WalkRows::Nodes,
-                },
-                window,
+        let how = Walk {
+            direction: self.flags.direction.unwrap_or(default_direction),
+            filter: &filter,
+            depth: self.flags.depth.unwrap_or(default_depth),
+            kind: self.flags.kind,
+            include_seeds: matches!(op, "callers" | "callees"),
+            reexports,
+            lists: match view {
+                Some("files") => WalkRows::Files,
+                Some("modules") => WalkRows::Modules,
+                _ => WalkRows::Nodes,
             },
-            self.cancel,
-        )?;
+            window,
+        };
+        let page = walk(g, &seeds, &how, self.cancel)?;
+        let (hints, related) = if page.total == 0 {
+            self.empty_walk_leads(&seeds, &how)?
+        } else {
+            (Vec::new(), Vec::new())
+        };
         let page = match view {
             Some("files") => per_file(page),
             Some("modules") => per_module(page),
@@ -152,7 +182,74 @@ impl Query<'_> {
             };
             extra.insert("coverage".into(), coverage);
         }
-        Ok(run_page(self.options, g, extra, page))
+        if !related.is_empty() {
+            extra.insert("related".into(), Value::Array(related));
+        }
+        let mut out = run_page(self.options, g, extra, page);
+        crate::response::result::add_hints(&mut out.value, hints);
+        Ok(out)
+    }
+
+    /// Why a walk listed nothing when the same walk lists rows without its
+    /// `kind`, or at a weaker call confidence: a hint for each, and the call
+    /// that lists the weaker confidence's rows. Counting walks run only for
+    /// an empty answer and materialize no row.
+    fn empty_walk_leads(
+        &self,
+        seeds: &[u32],
+        how: &Walk,
+    ) -> Result<(Vec<String>, Vec<Value>), GraphOutput> {
+        let count = |filter: &EdgeFilter, kind: Option<NodeKind>| {
+            let counting = Walk {
+                filter,
+                kind,
+                lists: WalkRows::Nodes,
+                window: 0..0,
+                ..*how
+            };
+            walk(self.g, seeds, &counting, self.cancel).map(|page| page.total)
+        };
+        let (mut hints, mut related) = (Vec::new(), Vec::new());
+        if let Some(kind) = how.kind {
+            let reached = count(how.filter, None)?;
+            if reached > 0 {
+                hints.push(format!(
+                    "kind {} excludes all {reached} nodes this walk reaches; omit kind to list them",
+                    kind.as_str()
+                ));
+            }
+        }
+        if how.filter.kinds.contains(&EdgeKind::Calls) {
+            for weaker in [Confidence::Medium, Confidence::Low] {
+                if weaker <= how.filter.weakest {
+                    continue;
+                }
+                let filter = EdgeFilter {
+                    kinds: how.filter.kinds.clone(),
+                    weakest: weaker,
+                    tests: how.filter.tests,
+                };
+                let listed = count(&filter, how.kind)?;
+                if listed == 0 {
+                    continue;
+                }
+                hints.push(format!(
+                    "confidence {} lists {listed} candidate nodes; confirm them with lspSearch",
+                    weaker.as_str()
+                ));
+                let mut row = query_row(self.options, &self.g.id);
+                row.insert("confidence".into(), json!(weaker.as_str()));
+                related.push(
+                    crate::response::result::Continuation::related(
+                        crate::id::ToolId::GraphQuery,
+                        Value::Object(row),
+                    )
+                    .build(),
+                );
+                break;
+            }
+        }
+        Ok((hints, related))
     }
 
     pub(super) fn path(&self) -> Result<GraphOutput, GraphOutput> {
@@ -164,7 +261,7 @@ impl Query<'_> {
                 "`path` needs a target: path <from> <to>",
             )
         })?;
-        let to = self.resolve(reference, self.flags.kind)?;
+        let to = self.resolve_preferring(reference, self.flags.kind)?;
         let both_symbols = g.t.nodes[from as usize].kind == NodeKind::Symbol
             && g.t.nodes[to as usize].kind == NodeKind::Symbol;
         let default = if both_symbols {
@@ -184,13 +281,21 @@ impl Query<'_> {
     }
 
     pub(super) fn hubs(&self) -> Result<GraphOutput, GraphOutput> {
-        let filter = self.filter(&[EdgeKind::Imports]).production();
-        let rank_by = self.flags.direction.unwrap_or(Direction::In);
+        // Symbols import nothing: a symbol ranking defaults to its calls, as
+        // a symbol's deps and dependents do.
+        let natural = if self.flags.kind == Some(NodeKind::Symbol) {
+            EdgeKind::Calls
+        } else {
+            EdgeKind::Imports
+        };
+        let filter = self.filter(&[natural]).production();
+        let direction = self.flags.direction.unwrap_or(Direction::In);
         let page = hubs(
             self.g,
             &filter,
             self.flags.kind,
-            rank_by,
+            direction,
+            self.flags.rank_by,
             self.window(),
             self.cancel,
         )?;
@@ -200,7 +305,10 @@ impl Query<'_> {
         // repeated by the pages after it.
         let mut extra = Map::new();
         if first_page(self.options) {
-            extra.insert("rankBy".into(), json!(ranking(&filter, rank_by)));
+            extra.insert(
+                "rankBy".into(),
+                json!(ranking(&filter, direction, self.flags.rank_by)),
+            );
             if !filter.tests {
                 extra.insert("testEdges".into(), json!("excluded"));
             }
@@ -209,27 +317,28 @@ impl Query<'_> {
     }
 }
 
-/// What a `hubs` page ranks by: the row count it sorts on, the edge kinds
-/// counted and, when calls are among them, the weakest call confidence.
-fn ranking(filter: &EdgeFilter, rank_by: Direction) -> String {
-    let count = if rank_by == Direction::Out {
-        "fanOut"
-    } else {
-        "fanIn"
-    };
+/// What a `hubs` page ranks by: the row value it sorts on, the edge kinds
+/// counted (reversed for a PageRank over outgoing edges), what weights them
+/// and, when calls are among them, the weakest call confidence.
+fn ranking(filter: &EdgeFilter, direction: Direction, rank_by: RankBy) -> String {
     let kinds = filter
         .kinds
         .iter()
         .map(|kind| kind.as_str())
         .collect::<Vec<_>>()
         .join(", ");
+    let ranked = match (rank_by, direction) {
+        (RankBy::Degree, Direction::Out) => format!("fanOut of {kinds}"),
+        (RankBy::Degree, _) => format!("fanIn of {kinds}"),
+        (RankBy::PageRank, Direction::Out) => {
+            format!("pageRank of reversed {kinds} weighted by sites")
+        }
+        (RankBy::PageRank, _) => format!("pageRank of {kinds} weighted by sites"),
+    };
     if filter.kinds.contains(&EdgeKind::Calls) {
-        format!(
-            "{count} of {kinds} (confidence {})",
-            filter.weakest.as_str()
-        )
+        format!("{ranked} (confidence {})", filter.weakest.as_str())
     } else {
-        format!("{count} of {kinds}")
+        ranked
     }
 }
 

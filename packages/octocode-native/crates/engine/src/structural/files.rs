@@ -139,6 +139,7 @@ pub(crate) fn search_files_with_budget(
         max_files,
         skip_files,
         max_file_bytes,
+        judge,
     } = options;
     let pattern_ref = pattern.as_deref();
     let rule_ref = rule.as_ref();
@@ -217,6 +218,7 @@ pub(crate) fn search_files_with_budget(
         max_file_bytes,
         demand,
         keep_line,
+        judge: judge.as_ref(),
     };
     let pacer = crate::scan_budget::ScanPacer::new(budget.filter(|_| timed));
     let (outcomes, mut scan_resume) = scan_in_chunks(&scan, &candidate_files, skip, pacer)?;

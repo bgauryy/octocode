@@ -24,6 +24,7 @@ import { LIVE } from './mcp-client.mjs';
 import { RESULTS, TESTING } from './paths.mjs';
 import { hermeticEnv } from '../../../../../test-utils/hermetic-env.ts';
 import { snapshotBuild } from './build-snapshot.mjs';
+import { ownTestBrokers } from './tool-health/mock-lsp-config.mjs';
 
 const script = name => [path.join(TESTING, 'harness', `${name}.mjs`)];
 const HERMETIC = {
@@ -67,7 +68,14 @@ const wallStart = Date.now();
 for (const suite of selected) {
   const kind = HERMETIC[suite] ? 'hermetic' : 'live';
   const started = Date.now();
-  const run = spawnSync(process.execPath, ALL[suite], { cwd: TESTING, env: kind === 'hermetic' ? hermeticEnv(process.env, suite) : process.env, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, timeout: suiteTimeout, killSignal: 'SIGTERM' });
+  // A private temp directory per suite: the warm servers its CLI calls start keep their sockets
+  // there, so the suite's end (or this run's early exit) stops every one of them.
+  const tmp = fs.mkdtempSync(path.join(process.platform === 'darwin' ? '/tmp' : os.tmpdir(), 'octocode-suite-'));
+  const releaseBrokers = ownTestBrokers(tmp);
+  const env = { ...(kind === 'hermetic' ? hermeticEnv(process.env, suite) : process.env), TMPDIR: tmp, TMP: tmp, TEMP: tmp };
+  const run = spawnSync(process.execPath, ALL[suite], { cwd: TESTING, env, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, timeout: suiteTimeout, killSignal: 'SIGTERM' });
+  await releaseBrokers();
+  fs.rmSync(tmp, { recursive: true, force: true });
   fs.writeFileSync(path.join(RESULTS, `${suite}.log`), `${run.stdout ?? ''}\n${run.stderr ?? ''}`);
   const { passed, failed, skipped } = counts(run.stdout ?? '');
   const seconds = Math.round((Date.now() - started) / 1000);

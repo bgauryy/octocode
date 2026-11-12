@@ -1,4 +1,4 @@
-"""One addressed Claude peer message through the host's native SendMessage tool."""
+"""Use when sending one exact message to a known Claude peer through native SendMessage."""
 import json
 from pathlib import Path
 import shlex

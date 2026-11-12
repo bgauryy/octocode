@@ -1,24 +1,25 @@
 //! Centrality detectors: critical files and single points of failure.
 use super::*;
 
+/// Fewest transitive runtime dependents that make a file critical.
+const CRITICAL_DEPENDENTS: usize = 5;
+
+/// Every production file with at least [`CRITICAL_DEPENDENTS`] transitive
+/// runtime dependents is a finding: none is sampled away, so equal hubs are
+/// reported alike and paging reaches all of them. Severity grows with the
+/// dependent count; the score's impact term is the file's PageRank
+/// percentile.
 pub(super) fn detect_critical(c: &mut Ctx) {
     let v = &c.v;
-    let mut ranked = v
+    let candidates = v
         .files
         .iter()
         .copied()
         .filter(|f| v.file_level(*f) && !v.inc[*f as usize].is_empty())
         .collect::<Vec<_>>();
-    ranked.sort_by(|a, b| {
-        v.rank[*b as usize]
-            .total_cmp(&v.rank[*a as usize])
-            .then(a.cmp(b))
-    });
-    let take = (v.files.len() / 50).clamp(1, 10);
-    let pending = ranked.into_iter().take(take).collect::<Vec<_>>();
-    for file in pending {
+    for file in candidates {
         let (dependents, farthest) = c.v.dependents(file);
-        if dependents < 5 {
+        if dependents < CRITICAL_DEPENDENTS {
             continue;
         }
         push(
@@ -28,13 +29,13 @@ pub(super) fn detect_critical(c: &mut Ctx) {
                 subject: c.v.key(file).to_owned(),
                 id_parts: &[],
                 title: format!("High blast radius: {dependents} files depend on it transitively"),
-                severity: 0.3,
+                severity: 0.3 * magnitude(dependents),
                 confidence: 0.9,
                 impact: c.v.impact(file),
                 evidence: json!({"pageRank": c.v.rank[file as usize], "transitiveDependents": dependents, "directImporters": c.v.inc[file as usize].len(), "farthestDepth": farthest.max(1)}),
                 controls: vec![
                     "informational: changes here need wide test coverage",
-                    "only the top 2% of imported files by PageRank (1 to 10) are checked",
+                    "every production file with 5 or more transitive dependents is listed; severity grows with the count",
                     "transitiveDependents counts production runtime importers at every depth (test, type-only and deferred imports, support code and imports within one Rust module tree left out); farthestDepth is how many hops the farthest of them lies away",
                 ],
             },

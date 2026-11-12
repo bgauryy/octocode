@@ -32,7 +32,7 @@ pub(super) const DISCUSSION: Connection = Connection {
     section: "comments",
     field: "commentsConn: comments",
     variable: "discussion",
-    nodes: "databaseId author{ login __typename } body createdAt url",
+    nodes: "databaseId author{ login __typename } body createdAt updatedAt url",
     total: Some("/comments/totalCount"),
 };
 pub(super) const REVIEWS: Connection = Connection {

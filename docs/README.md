@@ -10,6 +10,7 @@ Run Octocode from a terminal or connect it to your coding agent over the Model C
 | Change a default, set a key, or enable an optional tool | [Configuration and defaults](CONFIGURATION.md) |
 | Choose among local, GitHub, package and classification tools | [Tool reference](OCTOCODE_TOOLS.md) |
 | See how an agent goes from a question to source evidence | [Research workflows](OCTOCODE_PROTOCOL.md) |
+| Build a code graph and read importers, hubs, impact, issues or co-change | [Code graph](OCTOCODE_GRAPH.md) |
 | Select relevant results or ask questions about unread files | [Classification with `clasify`](OCTOCODE_CLASIFY.md) |
 | Follow a cursor, interpret a partial answer, or join result pages | [Tool data and continuations](TOOL_DATA_CONTRACT.md) |
 | Find cached data, change storage mode, or clear saved results | [Storage and limits](STORAGE_AND_LIMITS.md) |

@@ -39,7 +39,7 @@ Load live tool schemas through `octocode-research` before calling a tool. Import
 - Name a layer for a group of files with `layers[].match`; confirm borderline files with an `assign` entry (`{"id": "<file>", "layer": "<layer>"}`), which wins over globs.
 - Add actors, stores and externals as `nodes` with `actor:`, `store:` and `ext:` ids, then link them with `edges` of a runtime `kind`. The brief lists them with the model; the live viewer draws the graph's own nodes only.
 - Record a runtime edge the imports cannot show: `{source, target, kind, action, evidence: {path, line}}`.
-- When the Hypothesis test in `SKILL.md` dismisses an upward import as legitimate (callback, plugin registration, codegen input), add it to `allowed` with a `reason`.
+- Before allowing an upward import, test its strongest rival against exact source and the declared boundary rule using the [evidence rules](evidence.md). For a legitimate callback, plugin registration or codegen input, add it to `allowed` with the verified `reason`.
 
 ## Flows
 
@@ -47,4 +47,4 @@ Pick the scenarios needed to explain the requested scope: the main request path,
 
 ## Summary and findings
 
-Use `meta.summary` to explain: what the system does, the main runtime path, how the layers split responsibilities, where state lives, and the top risks. Findings use `confidence`: `confirmed` (exact code read, `evidence` required), `likely` (strong structural signal) or `candidate` (heuristic until a Hypothesis test confirms it). Only `confirmed` findings should drive action.
+Use `meta.summary` to explain: what the system does, the main runtime path, how the layers split responsibilities, where state lives, and the top risks. Findings use `confidence`: `confirmed` (exact code read, `evidence` required), `likely` (strong structural signal) or `candidate` (heuristic until a distinguishing source or runtime check confirms it). Only `confirmed` findings should drive action.

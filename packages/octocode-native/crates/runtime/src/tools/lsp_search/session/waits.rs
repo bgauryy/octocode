@@ -2,6 +2,7 @@
 //! seconds, and the answer should say so rather than leave the delay
 //! unexplained.
 
+use super::{Exit, LspFailure, LspSearchQuery, Session, Target, crashed};
 use octocode_engine::lsp::client::ServerWaits;
 use octocode_engine::lsp::types::LspLanguageServerConfig;
 use std::time::Duration;
@@ -73,6 +74,18 @@ pub(in crate::tools::lsp_search) fn disclose_exit(
         }
         other => other,
     }
+}
+
+/// [`crashed`] for a failure of an operation `session` served: a timeout
+/// names what the server last said is wrong with it.
+pub(in crate::tools::lsp_search) fn session_failed(
+    query: &LspSearchQuery,
+    target: &Target,
+    session: &Session,
+    failure: LspFailure,
+) -> Exit {
+    let failure = failure.with_server_health(session.client.health());
+    crashed(query, &target.uri, &session.config, failure)
 }
 
 #[cfg(test)]

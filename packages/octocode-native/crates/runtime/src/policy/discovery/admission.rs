@@ -165,17 +165,18 @@ impl<'a> WalkAdmission<'a> {
     /// Count one entry the path policy withheld, or a link the walk did
     /// not follow ([`Withheld::record`]).
     pub(crate) fn withhold(&self, path: &Path) {
-        // The `.git` file a linked worktree (every ghCloneRepo checkout) or a
-        // submodule keeps is git metadata like the `.git` directory, which
-        // the walk prunes: left out, not news in every search of the checkout.
-        let metadata = path != self.root
-            && path.file_name().is_some_and(|name| name == ".git")
-            && path.is_file()
+        // An entry the default prune leaves out anyway costs the walk nothing
+        // the policy took: the repository's own `.git` directory, or the
+        // `.git` file a linked worktree (every ghCloneRepo checkout) or a
+        // submodule keeps. Counting it as withheld would mark every scan of a
+        // checkout root as unproven. With `defaultExcludes:false` the prune is
+        // off, so the policy is then the cause and it is counted.
+        let pruned_anyway = path != self.root
             && self
                 .prune
                 .as_ref()
-                .is_some_and(|prune| prune.prunes(path, false));
-        if !metadata {
+                .is_some_and(|prune| prune.prunes(path, path.is_dir()));
+        if !pruned_anyway {
             self.note(|skips| skips.withheld.record(path));
         }
     }

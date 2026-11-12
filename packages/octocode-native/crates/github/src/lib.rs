@@ -15,7 +15,6 @@
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 
 mod budget;
-mod commit_dates;
 mod content;
 mod credentials;
 mod endpoint;
@@ -24,6 +23,7 @@ mod history;
 mod history_item;
 mod partition;
 mod query_syntax;
+mod ref_memo;
 mod refs;
 mod search;
 mod security;
@@ -35,7 +35,6 @@ mod tree;
 pub const MAX_PER_PAGE: usize = 100;
 
 pub use budget::{AuthAdmission, GitHubBudget, GitHubPacing, GitLimiter, LimiterKey};
-pub use commit_dates::{LastCommitMemo, LastCommitWant, SettleOnDrop};
 pub use content::{
     ContentRequest, ContentResponse, GitHubProvider, Submodule, decode_content, is_full_sha,
 };
@@ -50,6 +49,7 @@ pub use query_syntax::{
     qualifier_value, quote_search_keyword, search_phrase, validate_person_name,
     validate_qualifier_value,
 };
+pub use ref_memo::{RefMemo, SettleOnDrop};
 pub use refs::{NamedRef, RefKind, RefMatch, RefPage, TagRef};
 pub use search::{
     CodeSearchItem, CodeSearchPage, CodeSearchRequest, RepositoryMetadata, RepositorySearchItem,

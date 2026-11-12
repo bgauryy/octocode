@@ -425,13 +425,12 @@ fn an_unbounded_scope_keeps_every_answer_partial() {
     assert!(bounded.get("isPartial").is_none(), "{bounded}");
 }
 
-/// The unbounded note says no project lies beside the root only after a walk
-/// that finished; a walk the request stopped is no evidence of absence.
+/// A stopped walk proves no absence: the row says the projects beside the root
+/// were not looked for. One that found none leaves no gap: the answer stands.
 #[test]
 fn an_unfinished_sibling_walk_claims_no_absence() {
     let q = query(json!({"path":"/w/a/a.go","operation":"references","symbolName":"F","line":1}));
-    let note = |scope: &Scope| {
-        let mut row = json!({"status":"empty"});
+    let annotated = |scope: &Scope, mut row: Value| {
         annotate(
             &mut row,
             &q,
@@ -442,21 +441,19 @@ fn an_unfinished_sibling_walk_claims_no_absence() {
             },
             scope,
         );
-        row["warnings"].to_string()
+        row
     };
     let mut unwalked = Scope::new("/w/a".into(), vec!["*.go".into()]);
     unwalked.unbounded = true;
-    let unknown = note(&unwalked);
-    assert!(
-        !unknown.contains("no project beside it was found") && unknown.contains("not looked for"),
-        "{unknown}"
-    );
+    let unknown = annotated(&unwalked, json!({"status":"empty"}))["warnings"].to_string();
+    assert!(unknown.contains("not looked for"), "{unknown}");
     let mut walked = Scope::new("/w/a".into(), vec!["*.go".into()]);
     walked.unbounded = true;
     let _ = walked.siblings.set(Vec::new());
+    let used = annotated(&walked, json!({"files":[{"matches":[{"role":"call"}]}]}));
     assert!(
-        note(&walked).contains("no project beside it was found"),
-        "a finished walk that found none says so"
+        used.get("isPartial").is_none() && used.get("warnings").is_none(),
+        "{used}"
     );
 }
 

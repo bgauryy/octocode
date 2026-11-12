@@ -127,6 +127,7 @@ mod language_facts;
 mod references;
 mod rust_macro_calls;
 mod rust_modules;
+mod term_bindings;
 
 mod test_discovery;
 mod validity;

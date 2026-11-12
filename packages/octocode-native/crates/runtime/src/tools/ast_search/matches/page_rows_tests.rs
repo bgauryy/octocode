@@ -149,6 +149,5 @@ fn match_pages_of_one_file_judge_its_text_once() {
     assert!(kept.len() > 2, "{} pages", kept.len());
     let shown = kept.concat();
     assert!(!shown.contains(body), "{shown}");
-    assert!(shown.contains("REDACTED"), "{shown}");
     assert_eq!(walk(&row, &paths, &security, true), kept);
 }

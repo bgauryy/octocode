@@ -81,6 +81,7 @@ fn detailed_file_search_explains_prefilter_and_unsupported_files() {
         max_files: Some(10),
         skip_files: None,
         max_file_bytes: None,
+        judge: None,
     })
     .expect("detailed file search");
 
@@ -260,7 +261,7 @@ fn every_demand_counts_the_same_matches_and_a_priced_file_rebuilds_them() {
             Some("$A"),
             None,
             digest,
-            crate::security::MAX_CONTENT_SIZE as u64,
+            (crate::security::MAX_CONTENT_SIZE as u64, None),
             &|| false,
         )
         .expect("rebuild");
@@ -293,7 +294,7 @@ fn every_demand_counts_the_same_matches_and_a_priced_file_rebuilds_them() {
                 Some("$A"),
                 None,
                 changed.source_sha256.as_deref().expect("digest"),
-                crate::security::MAX_CONTENT_SIZE as u64,
+                (crate::security::MAX_CONTENT_SIZE as u64, None),
                 &|| false,
             )
             .expect("rebuild"),

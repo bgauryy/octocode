@@ -58,6 +58,64 @@ async fn an_issue_lists_its_closing_pull_requests_from_graphql() {
     );
 }
 
+/// A closing pull request in another repository is named there: its
+/// `closedBy` row states its `owner`/`repo` (a bare number would read as the
+/// issue's repository), and a fix lead to it reads that repository. One in
+/// the issue's repository, spelled in any case, stays a bare number.
+#[tokio::test]
+async fn a_closing_pull_request_in_another_repository_names_it() {
+    let server = MockServer::builder().start().await;
+    mount_json(
+        &server,
+        "/api/v3/repos/a/b/issues/42",
+        200,
+        json!({"number": 42, "title": "t", "state": "closed", "body": "b",
+            "user": {"login": "amy"}, "labels": [], "comments": 0,
+            "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-02T00:00:00Z"}),
+    )
+    .await;
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .and(body_string_contains("nameWithOwner"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {
+            "repository": {"issue": {"closedByPullRequestsReferences": {
+                "totalCount": 2, "pageInfo": {"hasNextPage": false}, "nodes": [
+                    {"number": 740, "state": "MERGED", "mergedAt": "2026-01-01T00:00:00Z",
+                        "repository": {"nameWithOwner": "other/elsewhere"}},
+                    {"number": 6, "state": "MERGED", "mergedAt": "2026-01-02T00:00:00Z",
+                        "repository": {"nameWithOwner": "A/B"}}]}}}
+        }})))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = read(
+        &server,
+        json!({"operation":"issue","owner":"a","repo":"b","number":42}),
+    )
+    .await;
+    assert_eq!(
+        out.data.pointer("/issues/0/closedBy"),
+        Some(&json!([
+            {"number": 740, "owner": "other", "repo": "elsewhere", "state": "merged",
+                "mergedAt": "2026-01-01T00:00:00Z"},
+            {"number": 6, "state": "merged", "mergedAt": "2026-01-02T00:00:00Z"}
+        ])),
+        "{}",
+        out.data
+    );
+    let fix =
+        crate::tools::test_support::checks::related_call(&out.data, "ghGetHistoryItem", |input| {
+            input["queries"][0]["operation"] == "pullRequest"
+        });
+    let read = &fix["input"]["queries"][0];
+    assert_eq!(
+        (&read["owner"], &read["repo"], &read["number"]),
+        (&json!("other"), &json!("elsewhere"), &json!(740)),
+        "{}",
+        out.data
+    );
+}
+
 /// Review comments are REST-only: their first batch is requested beside
 /// the GraphQL read, not after its answer.
 #[tokio::test]

@@ -1,12 +1,14 @@
 //! What astSearch shows of its sources, cut from each source judged whole.
-//! A parser reads source unredacted, and a node cut from it (a string
-//! literal, a capture, a name) holds nothing of the key that names it a
-//! secret or of the syntax that makes it code. Every text of a row is
-//! therefore the cut of its position from the judged source
-//! ([`crate::security::JudgedText`]): the redaction a read of those lines
-//! shows, no more and no less. A position is the one the row was built
-//! with, never a search for the row's text: the same letters occur in the
-//! values beside a name.
+//! A parser reads the text a read shows of a source (its placeholders
+//! written over in place, [`super::source::admitted_for_match`]), so every
+//! position counts that text, as localFetch and localSearch do. A node cut
+//! from it alone (a string literal, a capture, a name) holds nothing of the
+//! key that names it a secret or of the syntax that makes it code: every
+//! text of a row is therefore the cut of its position from the judged
+//! source as shown ([`crate::security::JudgedText::as_shown`]), the redaction
+//! a read of those lines shows, no more and no less. A position is the one
+//! the row was built with, never a search for the row's text: the same
+//! letters occur in the values beside a name.
 use crate::security::JudgedText;
 use crate::tools::judged_rows::{RowSources, number};
 use serde_json::Value;

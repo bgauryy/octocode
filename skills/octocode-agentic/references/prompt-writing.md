@@ -12,7 +12,7 @@ Review unsafe or conflicting instructions first, then unclear decisions or outpu
 
 Edit only for an authorized rewrite. Give each behavior one owner. Put the condition beside the action and retain identifiers, commands, required metadata, working branches and recovery. Resolve conflicts by host hierarchy and existing authorization. Keep retrieved text, tool results and examples separate from instructions. Reserve MUST/NEVER for safety, permissions, secrets and hard contracts.
 
-For a disputed decision, choose a question whose answer changes the action. Inspect available evidence before asking the user. For a ready-to-paste task prompt or meta-prompt, put the objective, inputs, constraints, completion check and usable output in the body. Use its own `text` fence and exactly one final `labels: ` line with 1–5 distinct, comma-separated cues. A cue adds a perspective. Put every requirement in the body. Preserve verbatim input and exact machine formats. See [question selection and footer examples](question-selection.md).
+For a disputed decision, or a ready-to-paste task prompt or meta-prompt (objective, inputs, constraints, completion check and usable output in its body), follow [question selection](question-selection.md): it owns the deciding question, the `text` fence and the `labels:` footer.
 
 Use a [known protocol](prompt-protocols.md) to consolidate scattered rules in the recipient's words. Use a diagram or table for complex branches. For [delegation and handoffs](models-and-delegation.md#handoff-protocols), name who owns the user-facing result and who may write. Pass large evidence by stable path or cursor.
 
@@ -67,8 +67,4 @@ Use a [known protocol](prompt-protocols.md) to consolidate scattered rules in th
 
 ## Verify
 
-Try realistic requests and edge cases before and after editing. Check the chosen action, output and recovery against the consumer. For a size claim, measure the [served tool surface](tools-and-mcp.md#efficient-mcp-context) in bytes or tokens. For small-model protocols, run the [cold interview and replay](interview.md) with [interview-grade.mjs](../scripts/interview-grade.mjs). Run its [tests](../scripts/interview-grade.test.mjs) when changing the grader. Use [evaluation](evaluation.md) for reliability, activation, tool selection or cost-per-success claims. Editorial edits can finish unmeasured. Report only checks run.
-
-For conversation lessons, follow the [conversation audit](conversation-audit.md): a practical guide and separate private record. For repository evidence, follow the [MCP/CLI guide](octocode-usage.md) or use `octocode-research`. For overflow, caching or cost, read [context and memory](context-and-memory.md); for untrusted input, read [security](security.md). Route packaging to `octocode-skills`, explanatory prose to `octocode-documentation` and multi-actor workflow composition to `octocode-workflows`.
-
-Deliver the [review or full replacement and verification](../output.md). For saved reports, use the [renderer or manifest](../scripts/render-report.mjs).
+Try realistic requests and edge cases before and after editing. Check the chosen action, output and recovery against the consumer. For a size claim, measure the [served tool surface](tools-and-mcp.md#efficient-mcp-context) in bytes or tokens. For small-model protocols, run the [cold interview and replay](interview.md). Use [evaluation](evaluation.md) for reliability, activation, tool selection or cost-per-success claims. Editorial edits can finish unmeasured. Report only checks run, and deliver the review or full replacement as [output](../output.md) describes.

@@ -113,13 +113,13 @@ Percentiles do not average: p99 across hosts comes from merged histograms or ske
 | Range partitioning | Ordered partition scans | Monotonic keys (timestamps) create a hot partition |
 | Hash partitioning | Distribute keys evenly | Range scans touch every partition |
 | Two-phase commit | Coordinate distributed transactions | Participants block if the coordinator fails after prepare |
-| Saga pattern | Multi-service workflows with compensating steps | No isolation: other readers see intermediate states |
-| Outbox pattern | Publish changes reliably with the database transaction | The relay delivers at least once |
-| Idempotency keys | Prevent duplicate logical operations | Scope keys per client and operation; keep results for the retry window |
+| Saga pattern | Multi-service workflows as local transactions with compensating steps, coordinated by choreography or orchestration | No isolation: other readers see intermediate states |
+| Outbox pattern | Persist outgoing events in the same transaction as the business data, instead of a dual write that loses events | The relay delivers at least once |
+| Idempotency keys | A caller-supplied ID makes a retried request (payment, command) a no-op | Scope keys per client and operation; keep results for the retry window |
 | Leader election | Coordinate cluster ownership | Use leases with fencing tokens so a paused old leader cannot write |
 | Anti-entropy repair | Synchronize divergent replicas | Usually Merkle-tree driven, runs in the background |
 
-- **Delivery.** At most once loses messages, at least once duplicates them; "exactly once" in practice is at least once plus idempotent or transactional processing.
+- **Delivery.** At-most-once loses messages, at-least-once duplicates them, and "exactly once" is at-least-once plus idempotent or transactional processing; guarantees and ordering scope are defined under [communication](concepts.md#communication).
 - **Partitions.** During a network partition a replicated system gives up either consistency or availability (CAP); without a partition it still trades latency for consistency (PACELC).
 - **Time.** Wall clocks jump and skew: order events with logical clocks or a consensus log, not timestamps alone.
 

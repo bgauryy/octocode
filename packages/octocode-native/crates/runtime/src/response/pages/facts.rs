@@ -120,6 +120,10 @@ pub(crate) struct SpanFacts {
     states_total: bool,
     states_next: bool,
     out_of_range: bool,
+    /// Whether units are left, as the walk that cut the window knows it
+    /// ([`Self::walked`]); `None`: the window is one run of a view read
+    /// from 0 to `total` in offset order, so the units after it are left.
+    walk_has_more: Option<bool>,
 }
 
 impl SpanFacts {
@@ -135,7 +139,19 @@ impl SpanFacts {
             states_total: true,
             states_next: true,
             out_of_range: false,
+            walk_has_more: None,
         }
+    }
+
+    /// The same window of a walk that does not read its view from 0 to
+    /// `total` in offset order (a selection's byte page placed in its
+    /// source; a long line whose matches are shown before its other bytes):
+    /// the walk states whether more is left, and its cursor, never an offset
+    /// after the window, says where it goes on (no `nextOffset`).
+    pub(crate) fn walked(mut self, has_more: bool) -> Self {
+        self.walk_has_more = Some(has_more);
+        self.states_next = false;
+        self
     }
 
     /// The window of one part of a stream (a file inside a patch page):
@@ -163,12 +179,14 @@ impl SpanFacts {
 
     /// Whether units are left after the window.
     pub(crate) fn has_more(self) -> bool {
-        self.offset + self.length < self.total
+        self.walk_has_more
+            .unwrap_or(self.offset + self.length < self.total)
     }
 
-    /// Where the next window starts, while units are left.
+    /// Where the next window starts, while units are left; `None` for a
+    /// [`Self::walked`] window, whose cursor names where it goes on.
     pub(crate) fn next_offset(self) -> Option<usize> {
-        self.has_more().then_some(self.offset + self.length)
+        (self.walk_has_more.is_none() && self.has_more()).then_some(self.offset + self.length)
     }
 
     /// The window block.
@@ -238,6 +256,27 @@ mod tests {
         assert_eq!(
             SpanFacts::window("bytes", 900, 50, 100).to_value(),
             json!({"unit":"bytes","offset":100,"length":0,"total":100,"hasMore":false})
+        );
+    }
+
+    #[test]
+    fn a_walked_window_states_the_walk_not_its_offsets() {
+        // A last page that ends before the view's total: nothing is left.
+        let last = SpanFacts::window("bytes", 36_864, 3_137, 40_023).walked(false);
+        assert!(!last.has_more());
+        assert_eq!(last.next_offset(), None);
+        assert_eq!(last.to_value()["hasMore"], false);
+        // A page at the view's end with more of the walk behind it (a
+        // match shown before the bytes ahead of it).
+        let early = SpanFacts::window("bytes", 90, 10, 100).walked(true);
+        assert_eq!(
+            early.to_value(),
+            json!({"unit":"bytes","offset":90,"length":10,"total":100,"hasMore":true})
+        );
+        assert_eq!(
+            early.next_offset(),
+            None,
+            "the cursor names where it goes on"
         );
     }
 }

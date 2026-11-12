@@ -98,15 +98,20 @@ fn find_single_word_keeps_its_population_and_ranks_exact_names_by_callers() {
     let dir = words_fixture();
     let out = find(&dir, "read");
     let rows = out.value["rows"].as_array().expect("rows");
-    let expected = ["exact", "exact", "words", "words"];
-    assert_eq!(
-        rows.iter()
-            .map(|row| row["match"].as_str().unwrap())
-            .collect::<Vec<_>>()[..4],
-        expected,
-        "{}",
-        out.value
-    );
+    // Rows come in tier order, exact names first; a word match states
+    // `prefix` when its name starts with the text.
+    let tiers: [&[&str]; 4] = [&["exact"], &["prefix", "words"], &["contains"], &["path"]];
+    let ranks = rows
+        .iter()
+        .map(|row| {
+            tiers
+                .iter()
+                .position(|tier| tier.iter().any(|label| row["match"] == *label))
+                .expect("a known tier")
+        })
+        .collect::<Vec<_>>();
+    assert!(ranks.is_sorted(), "{}", out.value);
+    assert_eq!(ranks[..2], [0, 0], "{}", out.value);
     // `SnapshotReader.read` has a caller; `OriginPool.read` has none.
     assert_eq!(
         ids(&out)[..2],
@@ -197,4 +202,55 @@ fn find_ranks_underscore_names_below_equally_matched_public_names() {
         "{}",
         out.value
     );
+}
+
+/// `fixture()` plus `src/util/parse.ts` declaring `parse` and `helper`.
+fn parse_fixture() -> Fixture {
+    let dir = fixture();
+    write_under(
+        &dir,
+        "app/src/util",
+        &[(
+            "parse.ts",
+            "export function helper(x: string) { return x; }\nexport function parse(t: string) { return helper(t); }\n",
+        )],
+    );
+    assert_eq!(
+        ingest_fixture(dir.0.as_path(), None).class,
+        ExitClass::Success
+    );
+    dir
+}
+
+/// A query word a node's name matches keeps that node even when another
+/// node matches more words only through its file path; the path match
+/// still ranks first, and the partial row names the words it matched.
+#[test]
+fn find_keeps_name_matches_that_path_words_outnumber() {
+    let dir = parse_fixture();
+    let out = find(&dir, "parse helper");
+    let found = ids(&out);
+    let at = |id: &str| found.iter().position(|row| row == id);
+    let helper = at("src/util/parse.ts#helper").expect("helper");
+    let parse = at("src/util/parse.ts#parse").expect("parse matches a word by name");
+    assert!(helper < parse, "{}", out.value);
+    assert_eq!(
+        out.value["rows"][parse]["matchedWords"],
+        json!(["parse"]),
+        "{}",
+        out.value
+    );
+}
+
+/// A word match whose name starts with the whole query says `prefix`.
+#[test]
+fn find_labels_whole_name_prefixes() {
+    let dir = parse_fixture();
+    let out = find(&dir, "pars");
+    let rows = out.value["rows"].as_array().expect("rows");
+    let parse = rows
+        .iter()
+        .find(|row| row["id"] == "src/util/parse.ts#parse")
+        .expect("parse");
+    assert_eq!(parse["match"], "prefix", "{}", out.value);
 }

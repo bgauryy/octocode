@@ -210,9 +210,14 @@ async fn gh_full_content_pages_stay_under_the_configured_window_and_cover_the_fi
         let walk = support::walk(&runtime, "ghGetFileContent", start, |output| {
             // Per-call provider metadata rides outside the page measure.
             let chars = octocode_native::response::pager::budgeted_chars(output).expect("page");
-            assert!(
-                chars <= window || output["oversized"] == true,
-                "a page is {chars} chars without overflow disclosure"
+            assert_eq!(
+                output.get("oversized") == Some(&json!(true)),
+                octocode_native::response::pager::holds_value_over(
+                    output.as_object().expect("envelope"),
+                    octocode_native::id::ToolId::GhGetFileContent,
+                    window
+                ),
+                "a page is {chars} chars: overflow is disclosed by the value it holds"
             );
             // Numbered records `N\t<text>`: the walk fails on a record
             // delivered twice.

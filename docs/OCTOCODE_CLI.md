@@ -23,6 +23,7 @@ The examples below use `octocode`. Substitute `npx -y octocode` if you use the n
 | Inspect every query field or narrow to an operation | `octocode schema localFetch` or `octocode schema ghStructure --select operation=tree` |
 | Interpret output fields or partial results | `octocode schema localSearch --view output` |
 | Run a saved request or read one from stdin | `octocode localFetch --input request.json` or `octocode localFetch --input -` |
+| Judge piped command output with `clasify` | `<cmd> 2>&1 \| octocode clasify --content - '<json>'`: stdin becomes the one row's `content`. [Details](OCTOCODE_CLASIFY.md#from-a-pipe-cli) |
 | Start a stdio MCP server | `octocode mcp` |
 
 The CLI lists 16 tools by default, including graph, clone and advisory tools. A classification key adds `clasify`. Each tool takes a JSON envelope with `queries`, or an issued `cursor` alone. MCP uses the same envelope and applies its own catalog filters. [Tool reference](OCTOCODE_TOOLS.md) · [Availability and opt-ins](CONFIGURATION.md#tool-availability-cli-and-mcp)

@@ -36,9 +36,16 @@ async fn walk(
         let value = output(runtime, mcp, tool, input).await;
         // Per-call provider metadata rides outside the page measure.
         let chars = octocode_native::response::pager::budgeted_chars(&value).expect("page");
-        assert!(
-            chars <= budget || value["oversized"] == true,
-            "size must be bounded or explicitly terminal: {chars}/{budget}"
+        // A page over the budget is flagged exactly when it holds a value
+        // longer than the budget alone; any other is over by fixed parts.
+        assert_eq!(
+            value.get("oversized") == Some(&json!(true)),
+            octocode_native::response::pager::holds_value_over(
+                value.as_object().expect("envelope"),
+                tool.parse().expect("tool"),
+                budget
+            ),
+            "oversize is explicit: {chars}/{budget}"
         );
         walker.accept(support::checks::Page {
             rows: rows(&value),

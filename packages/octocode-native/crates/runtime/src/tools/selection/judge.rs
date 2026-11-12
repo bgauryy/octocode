@@ -281,6 +281,7 @@ impl SelectionJudge for Evaluator {
                                     questions: &request.questions,
                                     assets: None,
                                     long_context,
+                                    companions: 0,
                                 },
                                 None,
                                 &budget,

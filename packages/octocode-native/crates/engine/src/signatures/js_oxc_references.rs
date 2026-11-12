@@ -17,7 +17,7 @@ use oxc_ast::AstKind;
 use oxc_semantic::{AstNodes, NodeId, Semantic};
 use oxc_span::{GetSpan, Span};
 
-use crate::graph::GraphReferenceCount;
+use crate::graph::{GraphFactImport, GraphReferenceCount};
 
 use super::js_oxc_shared::SpanPositions;
 
@@ -65,6 +65,41 @@ pub(super) fn value_reference_counts(
             }
         })
         .collect()
+}
+
+/// Marks each value import binding of a TypeScript file that no reference
+/// reads or writes as a value ([`GraphFactImport::type_use_only`]). oxc
+/// resolves every reference of an import binding and leaves a type position
+/// (an annotation, `implements`, a `typeof` query) with the type flag only;
+/// an expression, a JSX tag and an export clause read the binding as a value.
+/// JavaScript emit keeps every import, so only TypeScript sources are marked.
+pub(super) fn mark_type_use_only(
+    semantic: &Semantic<'_>,
+    line_index: &SpanPositions<'_>,
+    imports: &mut [GraphFactImport],
+) {
+    if !semantic.source_type().is_typescript() {
+        return;
+    }
+    let scoping = semantic.scoping();
+    let mut symbols_by_start: Option<HashMap<u32, _>> = None;
+    for import in imports.iter_mut().filter(|import| import.import_kind == "value") {
+        let Some(range) = &import.local_range else {
+            continue;
+        };
+        let start = line_index.byte_offset(range.start.line, range.start.character);
+        let symbols = symbols_by_start.get_or_insert_with(|| {
+            scoping
+                .symbol_ids()
+                .map(|symbol| (scoping.symbol_span(symbol).start, symbol))
+                .collect()
+        });
+        if let Some(&symbol) = symbols.get(&start) {
+            import.type_use_only = !scoping
+                .get_resolved_references(symbol)
+                .any(|reference| reference.flags().is_value());
+        }
+    }
 }
 
 /// A resolved identifier reference that is neither an export clause nor a
@@ -220,6 +255,75 @@ mod tests {
         let source = "export interface Shape {}\nexport type Unused = number;\nexport function area(s: Shape) { return s }\n";
         assert_eq!(count(source, "Shape"), 1);
         assert_eq!(count(source, "Unused"), 0);
+    }
+
+    /// `typeUseOnly` of each import binding of `file`, by local name.
+    fn type_use_only(source: &str, file: &str) -> Vec<(String, bool)> {
+        super::super::js_oxc::extract_graph_facts_with_metadata(source, file)
+            .expect("graph facts")
+            .facts
+            .imports
+            .iter()
+            .map(|import| {
+                (
+                    import.local_name.clone().unwrap_or_default(),
+                    import.type_use_only,
+                )
+            })
+            .collect()
+    }
+
+    /// TypeScript elides an import binding no value position reads; a JSX
+    /// tag, an expression, an export clause and a decorator read it.
+    #[test]
+    fn an_import_read_only_in_type_positions_is_type_use_only() {
+        let source = "import { Shape } from './shape';\nimport { Kind } from './kind';\nimport * as ns from './ns';\nimport Unused from './unused';\nimport { Plain } from './plain';\nimport { Again } from './again';\nimport { Deco } from './deco';\nimport type { Erased } from './erased';\nexport function area(s: Shape, k: typeof Kind): ns.T { return s as unknown as ns.T; }\nclass C implements Shape {}\nconst p = Plain;\nexport { Again };\n@Deco class D {}\nlet e: Erased;\n";
+        assert_eq!(
+            type_use_only(source, "mod.ts"),
+            [
+                ("Shape".to_owned(), true),
+                ("Kind".to_owned(), true),
+                ("ns".to_owned(), true),
+                ("Unused".to_owned(), true),
+                ("Plain".to_owned(), false),
+                ("Again".to_owned(), false),
+                ("Deco".to_owned(), false),
+                ("Erased".to_owned(), false),
+            ]
+        );
+    }
+
+    /// A component rendered as a JSX tag is a value: the emitted call reads it.
+    #[test]
+    fn a_jsx_tag_reads_its_import_as_a_value() {
+        let source = "import { Button } from './button';\nimport { Props } from './props';\nimport { Icon } from './icon';\nexport function App(p: Props) { return <div><Button /><Icon.Small /></div>; }\n";
+        assert_eq!(
+            type_use_only(source, "app.tsx"),
+            [
+                ("Button".to_owned(), false),
+                ("Props".to_owned(), true),
+                ("Icon".to_owned(), false),
+            ]
+        );
+    }
+
+    /// Each specifier of one declaration is judged by its own binding.
+    #[test]
+    fn specifiers_of_one_declaration_are_judged_apart() {
+        let source = "import { B, make } from './b';\nexport function build(): B { return make(); }\n";
+        assert_eq!(
+            type_use_only(source, "a.ts"),
+            [("B".to_owned(), true), ("make".to_owned(), false)]
+        );
+    }
+
+    /// JavaScript emit keeps every import, read or not.
+    #[test]
+    fn a_javascript_import_is_never_type_use_only() {
+        assert_eq!(
+            type_use_only("import { unused } from './a';\n", "mod.js"),
+            [("unused".to_owned(), false)]
+        );
     }
 
     #[test]

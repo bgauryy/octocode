@@ -1,9 +1,9 @@
 //! Discovery finds no server for code Octocode fetched: a file or workspace
 //! root resolving inside `fetched_code_roots`, by whatever path it is named.
 use super::super::{
-    FETCHED_CODE_REFUSAL, LspDiscoveryOptions, default_server_for_file,
-    default_server_for_workspace_root, route_problems, typescript_server_fallback,
-    typescript_server_fallback_for_workspace_root,
+    FETCHED_CODE_REFUSAL, LspDiscoveryOptions, default_server_for_directory,
+    default_server_for_file, route_problems, typescript_server_fallback,
+    typescript_server_fallback_for_directory,
 };
 use crate::test_support::TmpDir;
 use std::os::unix::fs::symlink;
@@ -50,8 +50,8 @@ fn no_route_starts_a_server_inside_a_fetched_root() {
     let options = refusing(&at.fetched);
     assert!(default_server_for_file(&file, &root, &options).is_none());
     assert!(typescript_server_fallback(&file, &root, &options).is_none());
-    assert!(default_server_for_workspace_root(&root, &options).is_none());
-    assert!(typescript_server_fallback_for_workspace_root(&root, &options).is_none());
+    assert!(default_server_for_directory(&root, &root, &options).is_none());
+    assert!(typescript_server_fallback_for_directory(&root, &root, &options).is_none());
     assert_eq!(
         route_problems(&file, None, &root, &options),
         [FETCHED_CODE_REFUSAL]
@@ -59,7 +59,7 @@ fn no_route_starts_a_server_inside_a_fetched_root() {
     // The opt-in is an empty list: the same calls route again.
     let trusted = LspDiscoveryOptions::default();
     assert!(default_server_for_file(&file, &root, &trusted).is_some());
-    assert!(default_server_for_workspace_root(&root, &trusted).is_some());
+    assert!(default_server_for_directory(&root, &root, &trusted).is_some());
 }
 
 #[test]

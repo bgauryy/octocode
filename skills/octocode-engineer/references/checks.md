@@ -80,7 +80,7 @@ Flaws → strong evidence:
 
 ## Agent-authored work
 
-- A green functional suite does not rule out structural defects. Check dependency graphs, static analysis, contract diffs and clean-environment behavior as applicable. Removal bars: `octocode-clean-agentic-code` [code-smells](../../octocode-clean-agentic-code/references/code-smells.md).
+- A green functional suite does not rule out structural defects. Check dependency graphs, static analysis, contract diffs and clean-environment behavior as applicable. Use the local [removal proof](change-discipline.md#delete-junk-and-unify); `octocode-clean-agentic-code`, when installed, adds cleanup guidance.
 - State the intended boundary before a slice adds or moves dependencies; re-derive the graph after.
 
 Structure:

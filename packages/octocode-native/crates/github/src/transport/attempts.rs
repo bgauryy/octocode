@@ -111,11 +111,7 @@ impl<'a> Attempts<'a> {
                 continue;
             }
             if status.is_success() {
-                let next = if self.spec.is_first_page_only() {
-                    None
-                } else {
-                    parse_next(&headers)?
-                };
+                let next = parse_next(&headers)?;
                 let body = read_bounded(response, self.context).await?;
                 drop(admission);
                 self.state.record_success();

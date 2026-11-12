@@ -388,3 +388,62 @@ fn a_rust_module_change_reaches_its_crate_root_through_the_module_tree() {
         );
     }
 }
+
+/// `testsToRun` lists every test the change reaches, however far: the
+/// default depth bounds the listed rows, never the tests. A test five hops
+/// from the changed symbol is named, while its row stays past `maxDepth`.
+#[test]
+fn tests_to_run_reach_past_the_depth_bound() {
+    let dir = git_app(&[
+        ("package.json", r#"{"name":"app","main":"src/c3.ts"}"#),
+        (
+            "src/store.ts",
+            "export function S() { return 1; }\nexport function T() { return 2; }\n",
+        ),
+        (
+            "src/a.ts",
+            "import { S } from './store';\nexport function a() { return S(); }\n",
+        ),
+        (
+            "src/c.ts",
+            "import { a } from './a';\nexport function c() { return a(); }\n",
+        ),
+        (
+            "src/c2.ts",
+            "import { c } from './c';\nexport function c2() { return c(); }\n",
+        ),
+        (
+            "src/c3.ts",
+            "import { c2 } from './c2';\nexport function c3() { return c2(); }\n",
+        ),
+        (
+            "tests/deep.test.ts",
+            "import { c3 } from '../src/c3';\nc3();\n",
+        ),
+    ]);
+    let root = dir.0.as_path();
+    assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
+    let deep = ask(root, "impact", Some("src/store.ts#S"), |o| {
+        o.depth = Some(10);
+    });
+    assert_eq!(
+        deep.value["summary"]["testsToRun"],
+        json!(["app/tests/deep.test.ts"]),
+        "the deep walk reaches the test: {}",
+        deep.value
+    );
+    let bounded = ask(root, "impact", Some("src/store.ts#S"), |_| {});
+    let summary = &bounded.value["summary"];
+    assert_eq!(summary["depthLimited"], true, "{summary}");
+    assert!(
+        !impacted(&bounded)
+            .iter()
+            .any(|(file, _)| file == "app/tests/deep.test.ts"),
+        "the test's row lies past maxDepth: {}",
+        bounded.value
+    );
+    assert_eq!(
+        summary["testsToRun"], deep.value["summary"]["testsToRun"],
+        "{summary}"
+    );
+}

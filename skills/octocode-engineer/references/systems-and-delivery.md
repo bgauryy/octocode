@@ -183,4 +183,4 @@ Module boundaries, cycles and refactors: [concepts](concepts.md), [analysis](ana
 6. **Check assumptions** about versions, configuration, environment and which binary actually runs.
 7. **Fix the cause** with a regression test that failed first, then look for the same bug elsewhere.
 
-Tools and bug classes: [debugging and observability concepts](concepts.md#debugging-and-observability-concepts) and [bug categories](concepts.md#bug-categories).
+Tools and bug classes: [debugging and observability concepts](concepts.md#debugging-and-observability-concepts) and [bug categories](concepts.md#bug-categories). To run the investigation on a live program (debugger, profiler, trace, dump), use `octocode-debugging` when installed.

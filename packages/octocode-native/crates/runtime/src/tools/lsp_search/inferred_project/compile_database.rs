@@ -54,9 +54,37 @@ pub(in crate::tools::lsp_search) fn annotate_compile_database(
     if empty {
         crate::response::result::prepend_hints(row, [COMPILE_DATABASE_HINT]);
     }
-    if empty || is_incoming(lsp_search_query::operation(query)) {
+    if empty || crosses_units(lsp_search_query::operation(query)) {
         flag_partial(row, query, NO_COMPILE_DATABASE_REASON, None, scope);
     }
+}
+
+/// The compilation `sources` as the read policy spells a path: relative to
+/// the workspace, `~/…` under the home directory, else the file name; never
+/// an absolute home path.
+pub(in crate::tools::lsp_search) fn redact_sources(
+    row: &mut Value,
+    paths: &crate::policy::path::PathPolicy,
+) {
+    let Some(sources) = row
+        .pointer_mut("/lsp/analysisContext/compilation/sources")
+        .and_then(Value::as_array_mut)
+    else {
+        return;
+    };
+    for source in sources {
+        if let Some(path) = source.as_str() {
+            *source = json!(paths.redact(path));
+        }
+    }
+}
+
+/// Whether an answer of `operation` can lie in another translation unit,
+/// which only clangd's index reaches: every incoming operation, and a
+/// definition (without the index it is the declaration the anchor's unit
+/// includes, not the body another unit compiles).
+fn crosses_units(operation: &str) -> bool {
+    operation == "definition" || is_incoming(operation)
 }
 
 #[cfg(test)]
@@ -264,5 +292,66 @@ mod tests {
         let assessment = &row["lsp"]["analysisContext"]["compilation"];
         assert_eq!(assessment["configuration"], "notFound", "{row}");
         assert_eq!(assessment["sources"], json!([]), "{row}");
+    }
+
+    /// Without a compile database clangd has no index: a definition is the
+    /// declaration the anchor's unit includes, never the body another unit
+    /// compiles, so a definition row is partial for that reason, as an
+    /// incoming one is; an outline is the file's own and is not.
+    #[test]
+    fn a_definition_without_a_compile_database_is_partial() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let file = dir.path().join("pthread_unix.c");
+        std::fs::write(&file, "fatalf(\"x\");\n").expect("source");
+        if !nothing_above(dir.path()) {
+            return; // an ancestor of the temp dir has one
+        }
+        let scope = Scope::new(dir.path().to_string_lossy().into_owned(), Vec::new());
+        let path = file.to_string_lossy().into_owned();
+        let row_for = |operation: &str| {
+            let mut wire = json!({"operation": operation, "path": path});
+            if operation == "definition" {
+                wire["symbolName"] = json!("fatalf");
+                wire["line"] = json!(1);
+            }
+            let query: LspSearchQuery = serde_json::from_value(wire).expect("query");
+            let mut row = json!({"matches": [{"path": "libcgo.h", "line": 86}]});
+            annotate_compile_database(
+                &mut row,
+                &query,
+                &clangd("c", dir.path(), &[]),
+                &path,
+                &scope,
+            );
+            row
+        };
+        let definition = row_for("definition");
+        assert_eq!(
+            definition["partialReasons"],
+            json!([NO_COMPILE_DATABASE_REASON]),
+            "{definition}"
+        );
+        let outline = row_for("documentSymbols");
+        assert!(outline.get("isPartial").is_none(), "{outline}");
+    }
+
+    /// The compilation sources are spelled as the read policy spells a path:
+    /// relative inside the workspace, never an absolute home path.
+    #[test]
+    fn compilation_sources_are_spelled_by_the_read_policy() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path().canonicalize().expect("canonical");
+        let paths = crate::tools::test_support::workspace_policy(&root);
+        let database = root
+            .join("compile_commands.json")
+            .to_string_lossy()
+            .into_owned();
+        let mut row = json!({"lsp": {"analysisContext": {"compilation": {
+            "configuration": "found", "command": "unverified", "sources": [database]}}}});
+        redact_sources(&mut row, &paths);
+        assert_eq!(
+            row["lsp"]["analysisContext"]["compilation"]["sources"],
+            json!(["compile_commands.json"])
+        );
     }
 }

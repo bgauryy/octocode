@@ -100,3 +100,31 @@ fn a_healthy_server_receipt_is_omitted_and_a_deviation_is_kept() {
         assert_eq!(row["lsp"], lsp, "{name} keeps its receipt");
     }
 }
+
+/// clangd's compilation context explains a gap only: a complete answer with
+/// a compile database drops it (and with it the receipt it alone kept); a
+/// partial or empty row keeps it.
+#[test]
+fn a_compilation_context_shows_only_beside_a_gap() {
+    let lsp = json!({
+        "serverAvailable": true, "level": "server", "provider": "definitionProvider",
+        "analysisContext": {
+            "diagnostics": "noErrorsReported", "diagnosticsComplete": true,
+            "errorCount": 0, "anchorErrorCount": 0,
+            "compilation": {"configuration": "found", "command": "unverified",
+                "sources": ["compile_commands.json"]}
+        }
+    });
+    let mut complete = json!({"matches": [{"line": 2}], "lsp": lsp});
+    omit_healthy_receipt(&mut complete);
+    assert!(complete.get("lsp").is_none(), "{complete}");
+    for gap in [
+        json!({"isPartial": true, "partialReasons": ["noCompileDatabase"]}),
+        json!({"status": "empty"}),
+    ] {
+        let mut row = gap.clone();
+        row["lsp"] = lsp.clone();
+        omit_healthy_receipt(&mut row);
+        assert_eq!(row["lsp"], lsp, "{gap} keeps the context that explains it");
+    }
+}

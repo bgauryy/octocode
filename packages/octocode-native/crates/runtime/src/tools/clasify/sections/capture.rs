@@ -175,6 +175,7 @@ pub(super) fn create(
         github_identity: None,
         batches: Vec::new(),
         active: Vec::new(),
+        request: Value::Null,
     };
     Ok((session, notices, related))
 }
@@ -225,12 +226,20 @@ fn prepare(
     // plan keeps it: its sections are read one at a time.
     let with_context = matches!(grain, Grain::Plan);
     let safe = SafeSource::new(&captured.text, &captured.path, dispatcher)?;
+    // A local source is named by the text a read shows of it: a digest of
+    // its own bytes would test a guess of a value the read hides. The pin a
+    // later cursor checks the file against stays in `local_check`.
+    if captured.local_check.is_some() {
+        metadata["sourceDigest"] = json!(safe.digest());
+    }
     let mut units = Vec::new();
     let mut retained_bytes = octocode_engine::json_size::bytes(&metadata).unwrap_or(usize::MAX);
     let line_starts = octocode_engine::text::line_starts(&captured.text);
+    // Lines are the source's (redaction keeps them); bytes count the text a
+    // read shows, as every shown coordinate does.
     let location = |range: &std::ops::Range<usize>| {
         let line = |byte| octocode_engine::text::line_at(&line_starts, byte);
-        json!({"bytes":[range.start,range.end],"lines":{"startLine":line(range.start),"endLine":line(range.end.saturating_sub(1).max(range.start))}})
+        json!({"bytes":[safe.shown_start(range.start),safe.shown_end(range.end)],"lines":{"startLine":line(range.start),"endLine":line(range.end.saturating_sub(1).max(range.start))}})
     };
     let complete = source_sections::visit_grouped(
         &captured.text,
@@ -276,6 +285,7 @@ fn prepare(
             let state = state.unwrap_or(Value::Null);
             let unit = Unit {
                 metadata,
+                source_target: [section.target.start, section.target.end],
                 chars: crate::tools::selection::serialized_chars(&state),
                 state,
                 cells,
@@ -421,6 +431,50 @@ impl<'a> SafeSource<'a> {
         Ok(Self { raw, changed })
     }
 
+    /// SHA-256 of the whole text this source shows: each changed line as
+    /// it shows, every other byte as it is.
+    fn digest(&self) -> String {
+        let mut hash = octocode_engine::digest::HashWriter::default();
+        let mut offset = 0;
+        for (line, clean) in &self.changed {
+            hash.update(&self.raw.as_bytes()[offset..line.start]);
+            hash.update(clean);
+            offset = line.end;
+        }
+        hash.update(&self.raw.as_bytes()[offset..]);
+        hex::encode(hash.finalize())
+    }
+
+    /// Where source byte `at` falls in the shown text: shifted by what every
+    /// changed line before it grew or shrank. A byte inside a changed line
+    /// has no counterpart there; `inside` places it in that line as shown.
+    fn shown(&self, at: usize, inside: impl Fn(usize) -> usize) -> usize {
+        let before = self.changed.partition_point(|(line, _)| line.end <= at);
+        // The changed lines before `at` lie wholly below it.
+        let (source, shown) = self.changed[..before]
+            .iter()
+            .fold((0, 0), |(source, shown), (line, clean)| {
+                (source + line.len(), shown + clean.len())
+            });
+        let place = |at: usize| at - source + shown;
+        match self.changed.get(before) {
+            Some((line, clean)) if line.start < at => place(line.start) + inside(clean.len()),
+            _ => place(at),
+        }
+    }
+
+    /// [`Self::shown`] of a range's first byte: one inside a changed line
+    /// starts at that line.
+    fn shown_start(&self, at: usize) -> usize {
+        self.shown(at, |_| 0)
+    }
+
+    /// [`Self::shown`] of a range's end: one inside a changed line ends with
+    /// it, so the range covers what the line shows.
+    fn shown_end(&self, at: usize) -> usize {
+        self.shown(at, |shown| shown)
+    }
+
     fn slice(&self, range: &std::ops::Range<usize>) -> Result<String, ClassificationError> {
         let mut output = String::new();
         let first = self
@@ -485,6 +539,34 @@ mod tests {
             whole.starts_with("one\n") && whole.ends_with("last\n"),
             "{whole}"
         );
+    }
+
+    /// Every coordinate and the digest count the text a read shows: a
+    /// source byte past a changed line moves by what that line grew or
+    /// shrank, one inside it is placed at the line's shown bounds, and the
+    /// digest is the shown text's.
+    #[test]
+    fn shown_coordinates_and_digest_count_the_shown_text() {
+        let raw = "a\nsecret=original-value\nb\n";
+        let clean = "a\nsecret=[REDACTED]\nb\n";
+        let source = SafeSource::from_redacted(raw, clean).expect("stable line geometry");
+        let line = 2..raw.len() - 2;
+        assert_eq!(
+            source.digest(),
+            octocode_engine::digest::sha256(clean.as_bytes())
+        );
+        assert_eq!(source.shown_start(0), 0);
+        assert_eq!(source.shown_start(line.start), 2);
+        assert_eq!(source.shown_end(line.end), clean.len() - 2);
+        assert_eq!(source.shown_end(raw.len()), clean.len());
+        assert_eq!(source.shown_start(line.start + 3), 2);
+        assert_eq!(source.shown_end(line.start + 3), clean.len() - 2);
+        let unchanged = SafeSource::from_redacted(raw, raw).expect("unchanged");
+        assert_eq!(
+            unchanged.digest(),
+            octocode_engine::digest::sha256(raw.as_bytes())
+        );
+        assert_eq!(unchanged.shown_end(7), 7);
     }
 
     #[test]

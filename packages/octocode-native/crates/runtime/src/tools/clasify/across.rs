@@ -1,6 +1,6 @@
 //! Facts across the rows of one call: where the yes answers sit, offered
-//! once over every source that said yes; and a question whose every answer
-//! is unsure, said once.
+//! once over every source that said yes without naming its lines; and a
+//! question whose every answer is unsure, said once.
 use super::{Row, recovery};
 use serde_json::{Map, Value};
 
@@ -62,7 +62,9 @@ impl Across {
             let Some(noul) = answer["noul"].as_f64().filter(|_| answer["type"] == "noul") else {
                 continue;
             };
-            if noul >= 0.5 {
+            // A yes that names its lines is located already
+            // ([`super::locate`]); only one that does not needs sections.
+            if noul >= 0.5 && answer.get("lines").is_none() {
                 yes.insert(key.clone(), question.clone());
             }
             match self

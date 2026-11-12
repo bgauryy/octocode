@@ -75,8 +75,4 @@ Record verified success, false completions, calls, tokens, cost and latency per 
 
 Trace observability per call: task and step IDs, tool, reason, duration, tokens, result status and next decision ([reason-aware invocation](tools-and-mcp.md#reason-aware-invocation)). An LLM judge can grade, but cannot replace compilation, tests, runtime evidence or authoritative data.
 
-## Evidence and delivery
-
-Use `octocode-research` and the [MCP/CLI guide](octocode-usage.md) for repository evidence, [prompt writing](prompt-writing.md) for instruction failures, `octocode-skills` for skill structure or descriptions and `octocode-workflows` for a coordinated evaluation.
-
-Follow [output.md](../output.md) for responses and run folders. Save every measured run, including smoke tests. Use [render-report.mjs](../scripts/render-report.mjs) to render or list reports.
+Save every measured run, smoke tests included, in a [run folder](../output.md#saved-result).

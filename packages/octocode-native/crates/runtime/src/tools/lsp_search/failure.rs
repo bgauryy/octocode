@@ -16,8 +16,7 @@ pub(super) use anchors::{anchor_recovery, attach_recovery_next, path_failure};
 use leads::symbol_search_lead;
 pub(super) use leads::{
     FILE_LEVEL_REASONS, LISTED_TEXT_FILES, TEXT_CHECK, flag_answer_gaps, flag_partial,
-    flagged_with, record_text_only, shown_paths, term_search_lead,
-    text_search_lead,
+    flagged_with, record_text_only, shown_paths, term_search_lead, text_search_lead,
 };
 pub(super) use paging::{
     ALIAS_RECOVERY_FAILED, IMPORTER_REQUEST_FAILED, RequestFailures, offer_next_page, with_next,
@@ -78,6 +77,25 @@ impl LspFailure {
             retryable: true,
             lexical_fallback: false,
         }
+    }
+
+    /// A timeout that names what the server last said is wrong with it: a
+    /// running server idle on a request is often blocked on that (Metals on
+    /// the build import Octocode declined), which a retry does not change.
+    pub(super) fn with_server_health(
+        mut self,
+        health: Option<octocode_engine::lsp::client::ServerHealth>,
+    ) -> Self {
+        if self.code == ErrorCode::Timeout
+            && let Some(health) = health
+        {
+            let level = health.level.as_str();
+            self.message = match health.message {
+                Some(message) => format!("{}. The server reports {level}: {message}", self.message),
+                None => format!("{}. The server reports {level}.", self.message),
+            };
+        }
+        self
     }
 
     /// The caller cancelled or the deadline expired; the dispatcher reports

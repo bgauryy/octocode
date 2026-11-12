@@ -64,9 +64,6 @@ pub struct RequestSpec {
     pub url: Url,
     pub body: Option<Value>,
     pub headers: HeaderMap,
-    /// The caller knows the answer cannot change (a query bound to a commit).
-    /// A REST read is classified from its URL instead ([`names_commit`]).
-    pinned: bool,
     /// The repository file this request reads when its URL names none (a blob).
     /// Part of its identity ([`evidence::request_key`]), so what keeps the answer
     /// can tell what it holds ([`requested_file`]).
@@ -75,10 +72,6 @@ pub struct RequestSpec {
     /// answer stands for the lifetime GitHub states for that pull request's REST
     /// read ([`GitHubTransport::reuse_window`]).
     reads_pull_request: bool,
-    /// The caller reads this page only and never follows its `Link`: a
-    /// pagination link to another origin (a proxy forwarding GitHub's own)
-    /// is not an error for it.
-    first_page_only: bool,
     /// The caller stores the answer's body itself: no saved answer keeps it
     /// a second time ([`GitHubTransport::keep`]), and no continuation's
     /// evidence does either (`Journal::record_page`).
@@ -91,10 +84,8 @@ impl RequestSpec {
             url,
             body: None,
             headers: HeaderMap::new(),
-            pinned: false,
             file: None,
             reads_pull_request: false,
-            first_page_only: false,
             kept_by_caller: false,
         }
     }
@@ -104,10 +95,8 @@ impl RequestSpec {
             url,
             body: Some(body),
             headers: HeaderMap::new(),
-            pinned: false,
             file: None,
             reads_pull_request: false,
-            first_page_only: false,
             kept_by_caller: false,
         }
     }
@@ -118,39 +107,21 @@ impl RequestSpec {
         self
     }
 
-    /// This read uses the first page alone: its `Link` is neither parsed
-    /// nor followed.
-    pub(crate) fn reading_first_page_only(mut self) -> Self {
-        self.first_page_only = true;
-        self
-    }
-
     /// This query reads one pull request.
     pub(crate) fn reading_pull_request(mut self) -> Self {
         self.reads_pull_request = true;
         self
     }
 
-    /// Whether the caller reads this page alone, never its `Link`.
-    pub(crate) fn is_first_page_only(&self) -> bool {
-        self.first_page_only
-    }
-
     /// Whether a GraphQL answer to this request can be kept: something later
     /// says how long it stands.
     fn keeps_graphql_answer(&self) -> bool {
-        self.pinned || self.reads_pull_request
+        self.reads_pull_request
     }
 
     /// This request reads the repository file at `path`.
     pub(crate) fn reading_file(mut self, path: &str) -> Self {
         self.file = Some(path.to_owned());
-        self
-    }
-
-    /// This query is bound to a commit: its answer cannot change.
-    pub(crate) fn pinned_to_commit(mut self) -> Self {
-        self.pinned = true;
         self
     }
 
@@ -169,7 +140,7 @@ impl RequestSpec {
 
     /// Whether the answer to this request can never change.
     fn is_pinned(&self) -> bool {
-        self.pinned || (matches!(self.method, HttpMethod::Get) && names_commit(&self.url))
+        matches!(self.method, HttpMethod::Get) && names_commit(&self.url)
     }
 }
 

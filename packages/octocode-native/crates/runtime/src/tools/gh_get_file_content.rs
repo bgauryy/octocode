@@ -6,7 +6,6 @@ mod local_query;
 #[cfg(test)]
 pub(crate) use local_query::local_query;
 mod shape;
-mod timestamp;
 
 use octocode_contract_types::{ErrorCode, GhGetFileContentQuery};
 
@@ -18,25 +17,35 @@ use crate::security::scan::ContentScan;
 use crate::tools::gh_shared::{GhFailure, locate_path, missing_path};
 use octocode_github::{ContentRequest, GitHubProvider, ProviderError, RequestContext};
 use shape::{Fetched, shape};
-use timestamp::{Stamp, file_timestamp, unavailable_note};
 
-/// What a first-page read of one file will ask GitHub about: where the
-/// batch-wide last-commit warm-up starts.
+/// The ref a first-page read of one file resolves before it reads: where
+/// the batch-wide ref warm-up starts.
 pub(crate) struct WarmTarget {
     pub owner: String,
     pub repo: String,
-    /// The path as the repository names it, the one the read asks by.
-    pub path: String,
     pub reference: Option<String>,
 }
 
-/// The read `query` makes, when it makes the first-page last-commit request
-/// ([`execute`]): a valid first-page read of a path inside the repository.
-/// `None` for anything else (a path the policy withholds included), which the
-/// row handles itself.
+impl WarmTarget {
+    /// Whether `other` names the same repository ref (owner and repository
+    /// case-insensitively, the ref as spelled).
+    pub(crate) fn same_ref(&self, other: &Self) -> bool {
+        self.owner.eq_ignore_ascii_case(&other.owner)
+            && self.repo.eq_ignore_ascii_case(&other.repo)
+            && self.reference == other.reference
+    }
+}
+
+/// The ref `query` resolves ([`execute`]), when it resolves one: a valid
+/// first-page read of a path inside the repository at a branch, tag, short
+/// SHA or the default branch (a full SHA needs no request). `None` for
+/// anything else (a path the policy withholds included), which the row
+/// handles itself.
 pub(crate) fn warm_target(query: &Value, withholds: impl Fn(&str) -> bool) -> Option<WarmTarget> {
     let query: GhGetFileContentQuery = serde_json::from_value(query.clone()).ok()?;
-    if access::progress(&query).is_some_and(|progress| progress.offset != 0) {
+    if access::progress(&query).is_some_and(|progress| progress.offset != 0)
+        || access::reference(&query).is_some_and(octocode_github::is_full_sha)
+    {
         return None;
     }
     let path = crate::tools::gh_shared::listing_path(access::path(&query)).ok()?;
@@ -44,7 +53,6 @@ pub(crate) fn warm_target(query: &Value, withholds: impl Fn(&str) -> bool) -> Op
     (!path.is_empty() && !withholds(&path)).then(|| WarmTarget {
         owner: access::owner(&query).to_owned(),
         repo: access::repo(&query).to_owned(),
-        path,
         reference: access::reference(&query).map(str::to_owned),
     })
 }
@@ -72,10 +80,6 @@ pub struct GhGetFileContentFile {
     pub match_not_found: Option<bool>,
     #[serde(flatten, serialize_with = "crate::response::result::serialize_calls")]
     pub calls: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub modified_at: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_modified_by: Option<String>,
 }
 
 /// What shapes a fetched body, owned, so a ranked read shapes it on a
@@ -247,22 +251,10 @@ pub(crate) async fn execute<S: ContentScan + Clone + Send + Sync + 'static>(
         path: access::path(query).to_owned(),
         reference: Some(sha.clone()),
     };
-    // The contract has the first page state when the file last changed at
-    // the read commit, so that request is owed; it needs only the resolved
-    // SHA, so it travels beside the body instead of after it. A later page
-    // repeats nothing.
     let first_page = access::progress(query).is_none_or(|progress| progress.offset == 0);
-    let (acquired, stamp) = tokio::join!(
-        provider.get_file_bytes(&content_request, request_context),
-        async {
-            if first_page {
-                file_timestamp(provider, query, &sha, request_context).await
-            } else {
-                Ok((None, None))
-            }
-        }
-    );
-    let acquired = acquired?;
+    let acquired = provider
+        .get_file_bytes(&content_request, request_context)
+        .await?;
     // The one text rule localFetch reads by: binary is refused here, once.
     crate::tools::gh_shared::text::admit_read(&acquired)?;
     // A renamed repository: later requests and every lead use the canonical
@@ -311,26 +303,12 @@ pub(crate) async fn execute<S: ContentScan + Clone + Send + Sync + 'static>(
             )
         })?
     }?;
-    if first_page && result.file.content.error.is_none() {
-        // A renamed repository answered the read by redirect; the stamp of
-        // the old name is asked again under the canonical one.
-        let stamp: Stamp = match stamp {
-            Ok((None, None)) | Err(_) if canonical.is_some() => {
-                file_timestamp(provider, query, &sha, request_context).await
-            }
-            stamp => stamp,
-        };
-        match stamp {
-            Ok((modified_at, last_modified_by)) => {
-                result.file.modified_at = modified_at;
-                result.file.last_modified_by = last_modified_by;
-            }
-            Err(error) => result.file.content.warnings.push(unavailable_note(&error)),
-        }
-    }
     // What describes the file, not the page, is said once: a later page
-    // continues a read whose first page stated the file's kind and stamp.
-    if !first_page {
+    // continues a read whose first page stated the file's kind and its last
+    // change's lead (a missed match already leads to the file's history).
+    if first_page && result.file.content.error.is_none() && result.file.match_not_found.is_none() {
+        leads::attach_last_change(&mut result.file, query);
+    } else if !first_page {
         result.file.file_type = None;
     }
     Ok(result)

@@ -27,7 +27,7 @@ flowchart TD
   V -- yes --> S["Return artifacts and uncertainty; stop"]
 ```
 
-Default: one bounded agent loop. Add agents only when the work genuinely benefits from specialization, parallelism or isolated context, and confirm on the real workload that several agents beat one strong agent.
+Default: one bounded agent loop. Add agents only when the work genuinely benefits from specialization, parallelism or isolated context ([delegate only separable work](models-and-delegation.md#delegate-only-separable-work)).
 
 ## Core concepts
 
@@ -107,73 +107,18 @@ A production version also needs durable action IDs, protection against repeating
 
 ## Execution policy
 
-A policy that combines the pages of this skill; each flag names a behavior to implement and test, not a library setting.
+Implement and test the applicable behaviors below; these are policy decisions, not library settings.
 
-```yaml
-agent_policy:
-  objective: verified_success
-  attention:
-    prefer_relevant_context: true
-    load_full_resources_only_when_needed: true
-    preserve_source_references: true
-    deduplicate_context: true
-  execution:
-    prefer_existing_scripts: true
-    generate_scripts_when_justified: true
-    validate_generated_scripts: true
-    require_evidence_for_claims: true
-  tools:
-    discover_on_demand: true
-    require_operational_intent: true
-    prefer_structured_results: true
-    prefer_references_for_large_outputs: true
-    support_bounded_pagination: true
-    include_actionable_errors: true
-  loops:
-    track_progress: true
-    detect_repeated_actions: true
-    detect_cursor_cycles: true
-    use_bounded_retries: true
-    stop_on_verified_completion: true
-    stop_or_replan_on_stall: true
-  context:
-    compact_when_needed: true
-    preserve_decisions_and_evidence: true
-    preserve_unfinished_work: true
-    rehydrate_on_demand: true
-  output:
-    concise_by_default: true
-    distinguish_facts_from_inferences: true
-    report_verification_status: true
-    report_material_uncertainty: true
-    omit_unnecessary_process_narration: true
-```
+| Concern | Owner and required behavior |
+|---|---|
+| Working context | [Context and memory](context-and-memory.md): select relevant evidence, keep a stable cacheable prefix, load detail on demand and preserve constraints, provenance and unfinished work through compaction. |
+| Retrieval and calls | [Retrieval and grounding](retrieval-and-grounding.md): each significant call closes a named decision gap; stop when evidence suffices. |
+| Tools | [Tools and MCP](tools-and-mcp.md): validate contracts, provide actionable errors and retain complete evidence behind executable continuations or resolvable references. |
+| Execution | [Execution control](execution-control.md): prefer tested deterministic scripts, track progress, detect duplicates and cursor cycles, recover or replan on stalls, and stop at verified completion or an explicit boundary. |
+| Models and workers | [Models and delegation](models-and-delegation.md): route by capability, consequence and cost; add bounded independent workers only for a demonstrated need. |
+| Trust and effects | [Security](security.md): enforce validation, authorization, isolation and safe recovery at the executing boundary. |
+| Proof and result | [Evaluation](evaluation.md) and [output](../output.md): measure verified outcomes, retain correctness and safety separately, and report uncertainty, verification and unchecked scope without unnecessary narration. |
 
 ## Design principles
 
-| Principle | Engineering implication |
-|---|---|
-| Attention first | Optimize information relevance, not context utilization |
-| Reference first | Return summaries and resource handles before raw content |
-| Paginate by default | Bound responses; fetch further pages only as needed |
-| Actionable errors | Structured causes, retryability and recovery hints |
-| Progress-aware loops | Detect stalls, duplicates, cycles and exhaustion |
-| Reason-aware tool calls | Declare purpose, expected evidence and the decision supported |
-| Script first, agent second | Deterministic programs for reproducible work; agents for ambiguous decisions |
-| Evidence over confidence | Trust executable checks and authoritative sources over fluent answers |
-| Question-driven retrieval | Every significant read resolves an identifiable gap |
-| Result reuse | Do not recompute verified, unchanged state |
-| Content-addressed artifacts | Reuse results keyed by complete content identity |
-| Deterministic replay | Record enough execution context to reproduce behavior |
-| Reversible actions | Prefer changes that can be rolled back safely |
-| Idempotent execution | Retries must not duplicate effects |
-| Incremental computation | Recalculate only what changed |
-| Information gain | Prefer operations likely to change the next decision |
-| Evidence completeness | Distinguish partial coverage from exhaustive verification |
-| Separation of concerns | Keep planning, execution, verification and presentation distinct |
-| State externalization | Store durable state outside the active context |
-| Budget-aware routing | Choose models and tools by complexity and cost |
-| Outcome-based evaluation | Measure verified completion, not agent activity |
-| Tool-contract testing | Test pagination, errors, limits, revisions and permissions |
-
-A bounded, evidence-driven, context-efficient agent that discovers relevant capabilities, retrieves the minimum sufficient information, acts coherently, recovers its state, verifies the result and terminates reliably beats both an enormous prompt and an unconstrained loop of model and tool calls.
+Reuse verified results only while their complete input identity remains unchanged. Key reusable artifacts by content and recompute only changed inputs. Record enough execution context for deterministic replay. Prefer reversible, idempotent effects, with explicit recovery for effects that rollback cannot undo.

@@ -145,6 +145,7 @@ async fn dispatch(
     context: &ClientRequestContext,
     progress: &ProgressTracker,
 ) -> std::result::Result<(), String> {
+    progress.on_message();
     if let Some(Value::String(method)) = message.remove("method") {
         let params = message.remove("params");
         match (message.remove("id"), method.as_str()) {

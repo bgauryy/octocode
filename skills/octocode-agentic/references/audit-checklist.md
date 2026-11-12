@@ -1,6 +1,6 @@
 # Audit checklist
 
-Load when auditing a production agent, harness or agent feature. Mark each check **pass**, **fail** or **not assessed**, with the evidence (trace, config, code location, run). A fail becomes a finding with symptom, mechanism, consequence, fix and the check that proves the fix ([output](../output.md#audit-findings)). Configuration alone supports a candidate; a trace or run supports a proven finding.
+Load when auditing a production agent, harness or agent feature. Mark each check **pass**, **fail** or **not assessed**, with the evidence (trace, config, code location, run). Report each fail as an [audit finding](../output.md#audit-findings), which owns its fields and the proven-versus-candidate rule.
 
 ## Context and attention
 
@@ -61,3 +61,7 @@ Detail: [security](security.md), [evaluation](evaluation.md).
 28. Protects destructive actions with approval.
 29. Persists safe checkpoints and durable action IDs.
 30. Measures task success, latency, cost and regressions.
+
+## Uncertainty and long-running actions
+
+Use the [uncertainty, reversibility and survival checks](mental-models.md#uncertainty-reversibility-and-survival) to inspect invalidating observations, recovery limits and failure containment separately from success. For changing or resumed runs, inspect stale inputs, pending effects and accumulated exposure. Mark missing execution evidence **not assessed**; a plausible scenario is not a proven failure.

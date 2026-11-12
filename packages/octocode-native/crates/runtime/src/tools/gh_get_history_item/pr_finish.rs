@@ -23,7 +23,7 @@ mod metadata;
 #[cfg(test)]
 mod tests;
 
-pub(super) use metadata::pr_metadata;
+pub(super) use metadata::{body_preview, pr_metadata};
 
 /// A scope or literal that matched nothing: an empty row whose leads run the
 /// recovery ([`unmatched_leads`]), or, when other sections hold evidence, a
@@ -146,7 +146,7 @@ pub(super) fn finish_pr(
     // A miss already leads to its recovery reads; the menu would offer the
     // whole-PR patches the miss was narrowing away from.
     let menu = menu.filter(|_| out["status"] != "empty");
-    let coverage = menu.as_ref().and_then(|menu| selected_coverage(menu, &out));
+    let coverage = menu.as_ref().and_then(|menu| selected_coverage_hint(menu, &out));
     crate::response::result::add_hints(&mut out, coverage);
     attach_leads(&mut out, files.side_reads, menu, merge_read);
     lead_with_comment_reads(&mut out, comment_reads);
@@ -160,7 +160,7 @@ pub(super) fn finish_pr(
 /// How much of the diff the selected-patch lead reads, when it names some of
 /// the changed files and no lead reads them all: a lead names how to read
 /// more, and its count says what it leaves.
-fn selected_coverage(menu: &Value, out: &Value) -> Option<String> {
+fn selected_coverage_hint(menu: &Value, out: &Value) -> Option<String> {
     if menu.get("readPatches").is_some() {
         return None;
     }

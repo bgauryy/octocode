@@ -33,9 +33,22 @@ async fn walk(
             file.content.content.clone().unwrap_or_default(),
         ));
         assert!(pages.len() < 200, "runaway paging");
-        match file.calls.as_ref().map(|next| next["nextPage"].clone()) {
-            Some(next) if !next.is_null() => query = next["input"]["queries"][0].clone(),
-            _ => return pages,
+        let next = file
+            .calls
+            .as_ref()
+            .map(|next| next["nextPage"].clone())
+            .filter(|next| !next.is_null());
+        // The wire states the walk: `hasMore` exactly when a next call exists.
+        let wire = serde_json::to_value(&file.content).expect("row");
+        assert_eq!(
+            wire["pagination"]["hasMore"],
+            json!(next.is_some()),
+            "{}",
+            wire["pagination"]
+        );
+        match next {
+            Some(next) => query = next["input"]["queries"][0].clone(),
+            None => return pages,
         }
     }
 }
@@ -158,4 +171,24 @@ async fn a_plain_read_fills_its_page_into_the_long_line() {
     );
     let joined: String = pages.iter().map(|(_, _, text)| text.as_str()).collect();
     assert_eq!(joined, source, "in order, every byte once");
+}
+
+/// D1: a `ranges` read that ends on a long line which is not the file's
+/// last walks that line to its end and states `hasMore:false` there
+/// ([`walk`] checks every page's wire); the pages are the line exactly once.
+#[tokio::test]
+async fn a_range_ending_on_a_long_line_ends_its_walk() {
+    let server = MockServer::builder().start().await;
+    let line: String = (0..6_000).map(|at| format!("f{at:06};")).collect();
+    let source = format!("/*! banner */\n{line}\nshort two\nshort three\n");
+    serve(&server, "lib.min.js", &source).await;
+    let provider = mock_provider(&server, RetryPolicy::default());
+    let query = json!({
+        "owner":"a","repo":"b","path":"lib.min.js","ref":SHA,
+        "ranges":[{"startLine":2,"endLine":2}]
+    });
+    let pages = walk(&provider, query).await;
+    assert!(pages.len() > 1, "a byte walk");
+    let joined: String = pages.iter().map(|(_, _, text)| text.as_str()).collect();
+    assert_eq!(joined, format!("{line}\n"), "in order, every byte once");
 }

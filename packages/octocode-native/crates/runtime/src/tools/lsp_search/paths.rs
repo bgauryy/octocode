@@ -122,8 +122,21 @@ pub(super) fn directory_as_workspace_root(
         .into_owned();
     if lsp_search_query::workspace_root(query).is_none() {
         // A source directory (`src`) is searched from its project root,
-        // where the server finds tsconfig.json, Cargo.toml, and the like.
-        let project = octocode_engine::lsp::workspace::project_root_of_dir(Path::new(&directory));
+        // where the server finds tsconfig.json, Cargo.toml, and the like: the
+        // root a call on the file it routes by runs from, when its files and
+        // not its own markers choose the language (a folder of scripts in
+        // another language's project).
+        use octocode_engine::lsp::config::{directory_representative, workspace_root_languages};
+        let by_files = workspace_root_languages(&directory)
+            .is_empty()
+            .then(|| directory_representative(&directory, &directory))
+            .flatten();
+        let project = match by_files {
+            Some(file) => octocode_engine::lsp::workspace::resolve_workspace_root_for_file(file)
+                .ok()
+                .map(std::path::PathBuf::from),
+            None => octocode_engine::lsp::workspace::project_root_of_dir(Path::new(&directory)),
+        };
         let root = project
             .as_deref()
             .and_then(rust_workspace_of)

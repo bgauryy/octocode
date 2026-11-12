@@ -104,9 +104,8 @@ async fn an_empty_repo_search_also_lists_the_root_on_every_surface() {
     );
 }
 
-/// `path` is a directory prefix, so a file path matches nothing. The
-/// empty names the mistake, lists the file's parent directory, and reads the
-/// file itself for the keywords.
+/// An empty search of a file's path lists the file's parent directory and
+/// reads the file itself for the keywords: the index may not hold it.
 #[tokio::test]
 async fn a_file_path_scope_leads_to_filename_and_the_parent_listing() {
     let out = run_empty(json!({"owner":"a","repo":"b","keywords":["ppr"],"path":"packages/next/src/config-shared.ts"}))
@@ -141,32 +140,23 @@ async fn a_file_path_scope_leads_to_filename_and_the_parent_listing() {
     assert!(out.data["next"].get("read").is_none(), "{}", out.data);
 }
 
-/// A file `path` names its mistake whether or not a repository narrows the
-/// search, and a name no extension rule recognises (`LICENSE`) still learns
-/// that `path` is a directory prefix.
+/// `path` names a file or a folder, so an empty search of either has no
+/// repair hint, with or without a repository; the leads verify it.
 #[tokio::test]
-async fn a_file_path_scope_is_named_without_a_repo_and_for_extensionless_names() {
-    let owner_wide = run_empty(
+async fn an_empty_path_search_has_no_repair_hint() {
+    for row in [
         json!({"owner":"a","keywords":["ppr"],"path":"packages/next/src/config-shared.ts"}),
-    )
-    .await;
-    let hints = owner_wide.data["hints"].as_array().expect("hints");
-    assert!(
-        hints[0].as_str().is_some_and(|hint| hint.contains(
-            "search it by `nameContains:\"config-shared.ts\"` with `path:\"packages/next/src\"`"
-        )),
-        "{}",
-        owner_wide.data
-    );
-    let extensionless =
-        run_empty(json!({"owner":"a","repo":"b","keywords":["MIT"],"path":"LICENSE"})).await;
-    assert!(
-        extensionless.data["hints"][0]
-            .as_str()
-            .is_some_and(|hint| hint.contains("`nameContains`") && hint.contains("`path`")),
-        "{}",
-        extensionless.data
-    );
+        json!({"owner":"a","repo":"b","keywords":["MIT"],"path":"LICENSE"}),
+        json!({"owner":"a","repo":"b","keywords":["x"],"path":"packages/next/src"}),
+    ] {
+        let out = run_empty(row.clone()).await;
+        let hints = out.data["hints"].to_string();
+        assert!(
+            !hints.contains("nameContains") && !hints.contains("directory"),
+            "{row}: {}",
+            out.data
+        );
+    }
 }
 
 /// A path-scoped empty states why it proves nothing in the default

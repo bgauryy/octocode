@@ -1,66 +1,42 @@
-Load when working on a Rust command-line tool (args, output, exit codes, config, errors, progress, signals, tests), an interactive terminal UI, or code that spawns child processes (language servers, compilers, CLIs) and reads their output. Why: CLIs fail at the edges (exit codes, broken pipes, signals, orphaned children), not on the happy path. CLI canon: the Command Line Book (`references/sources-and-crates.md`) and clig.dev. TUI stack: `ratatui` (0.30 verified) + `crossterm`; use `tui-realm`/`cursive` only for a retained widget framework.
+# CLI, terminal UI and child processes
 
-# CLI, TUI, and subprocesses
+Load for arguments, output streams, exits, terminal state, signals or subprocess lifetimes. Reuse the project's parser/runtime/UI stack; no named crate below is a required dependency.
 
-## CLI: Shape
-- `fn main() -> ExitCode` (or `Result<(), E>` for simple tools); `octocode-native/crates/cli/src/main.rs` returns `std::process::ExitCode`. Avoid deep `std::process::exit`: it skips destructors (unflushed buffers, temp-file cleanup).
-- Exit codes are API: `0` ok, `1` failure, `2` usage error (clap default), documented extras for distinct outcomes ("found nothing" vs "error").
+## Command-line boundary
 
-## CLI: Arguments (`clap` derive)
-- `#[derive(Parser)]` struct + `#[derive(Subcommand)]` enum; doc comments become help. `ValueEnum` for closed choices, `value_parser` for typed validation, `env = "APP_TOKEN"` for env fallback.
-- Conventions: `-h/--help`, `-V/--version`, `-v`/`-q` (`clap-verbosity-flag`), `--` ends flags, `-` = stdin/stdout, `--json` machine output, `--dry-run` + `--yes` for destructive actions.
-- Test the definition once: `#[test] fn verify_cli() { Cli::command().debug_assert(); }`. Generate completions and man pages at build/release time: `clap_complete`, `clap_mangen`.
+| Concern | Action and check |
+|---|---|
+| Arguments | Preserve documented flags, paths and exits. Accept OS paths with `PathBuf`/`OsString`; use typed validation. For clap, `CommandFactory::command().debug_assert()` checks parser consistency. |
+| Streams | Keep results on stdout and diagnostics/progress on stderr. Machine output must not contain prompts, color or spinners. For stdio protocols, reserve stdout entirely for protocol messages. |
+| Output volume | Buffer writes when useful. Preserve complete requested records; paginate/stream or explicitly report a policy limit. Do not silently clip rows or replace evidence with ellipses. |
+| Broken pipe | Write through fallible I/O, handle `BrokenPipe` according to the CLI contract and avoid a print panic. Early consumer closure often means a successful pipeline, but preserve the documented policy. |
+| Color and prompts | Detect the relevant stream's terminal status and follow explicit flags/environment conventions. Prompt only in an interactive flow; provide documented noninteractive behavior. |
+| Config | Follow the established config owner and precedence. Do not independently load env/home/project config at each adapter. |
+| Shutdown | Prefer returning an exit status after cleanup; deep `process::exit` skips destructors. Signals request owned shutdown; an immediate second-signal exit is a product policy, not a universal requirement. |
+| Startup | Avoid unnecessary heavy initialization/network for help/version. Test the real binary's exit status and both streams. |
 
-## CLI: Output
-- **stdout = the result, stderr = everything else** (progress, logs, warnings, prompts); `app | jq` never gets a spinner.
-- Machine output is a contract: stable `--json` (serde), NDJSON for streams, no color.
-- In Octocode, shrink output by removing duplication, then paginate. Each page keeps all evidence and an executable `next.*`; disclose terminal limits. Do not clip rows, ranges, patches, or warnings.
-- Color only when stdout is a TTY (`std::io::IsTerminal`); honor `NO_COLOR`, `CLICOLOR_FORCE` and `--color auto|always|never`. `anstream`/`anstyle` (used by clap) strip ANSI off-terminal.
-- Hot output: `let mut out = BufWriter::new(io::stdout().lock()); writeln!(out, …)?;` (`println!` re-locks and line-flushes each call).
-- **Broken pipe:** Rust ignores SIGPIPE, so `println!` panics under `app | head`. Use `writeln!` and treat `ErrorKind::BrokenPipe` as success (exit 0), as `crates/cli/src/cli/output.rs` does.
-- Progress: `indicatif` on stderr (auto-hidden off-TTY); prompts (`dialoguer`/`inquire`) only when stdin is a TTY, with a skip flag for CI.
+Use argument APIs rather than a shell command string. If shell interpretation is explicitly required, treat untrusted arguments as data with a verified quoting mechanism. Configure child env/cwd directly instead of mutating process globals for tests.
 
-## CLI: Errors, logs, config, signals
-- Apps: `anyhow` + `.context("reading config {path}")`; print `error: …` plus the cause chain, not `Debug`. `color-eyre`/`miette` for rich diagnostics (miette for source spans).
-- User mistakes never panic; a panic is a bug (`human-panic` for friendly release reports). `tracing` + `tracing-subscriber` to stderr, level from `-v` or `RUST_LOG`.
-- Precedence: flags > env > project config > user config > defaults. Paths from `directories`/`etcetera`; never hard-code `~/.app`.
-- Follow the application's declared config owner and precedence. Octocode uses `@octocodeai/config`; tools and host adapters must not add independent home/env/dotenv resolution.
-- Accept `PathBuf`/`OsString`, not `String` (paths needn't be UTF-8); resolve relative paths against the cwd once.
-- Ctrl-C: `ctrlc` or `tokio::signal::ctrl_c()` → flag/cancel token, clean up, exit `130`; a second Ctrl-C exits at once.
-- Startup time is UX: lazy-init heavy state, no network on `--help`/`--version`, lean dependency tree.
-- Test exit code, stdout, and stderr with `NO_COLOR=1` and a temp `HOME`/cwd (tools: `references/testing-and-tooling.md`).
+## Terminal ownership
 
-## TUI: Restore the terminal, always
-- `ratatui::run(|terminal| app.run(terminal))` (0.30) or `let t = ratatui::init(); … ratatui::restore();`: both enter raw mode + alternate screen and install a **panic hook that restores the terminal**.
-- Install other hooks (`color-eyre::install()`) **before** `ratatui::init()` so the restore hook runs first.
-- Restore on every exit: quit, `?` errors (restore before printing), Ctrl-C, panics; test by forcing a panic.
-- Refuse to start when stdout isn't a TTY; offer the plain CLI mode instead.
+- Establish one terminal-state owner and restore raw mode, alternate screen, cursor and mouse capture on every supported exit path. Audit normal return, early errors, cancellation and panic hooks; `Drop` alone does not cover abort or forced termination.
+- Use the locked UI library's initialization/restoration contract; do not assume a newer helper exists. Install/chains hooks according to that version's requirements.
+- Keep input/action handling, application state and rendering separately testable. Move blocking/long-running work off the UI event loop and redraw for actual changes or an owner-defined refresh policy.
+- Handle resize, tiny/zero regions, key-event differences, display width and Unicode. Test state transitions and rendering with the library's test backend when available.
 
-## TUI: State, update, view
-- One `App` state struct; `view(&App, &mut Frame)` is pure (immediate mode: redraw the whole frame; ratatui diffs).
-- Input → `Action` enum → `update(&mut App, Action)` → redraw (Elm/TEA): keybindings, logic and rendering stay separately testable.
-- Modes as an enum (`Mode::Normal | Mode::Search { query } | Mode::Confirm(Op)`), not boolean flags. One struct per pane with `handle_event` + `render`; the top level routes focus; widgets own no business logic.
+## Child process lifecycle
 
-## TUI: Event loop and rendering
-- Never block the UI thread: run work in threads/tokio tasks, send results over a channel, `select!` input, results and a tick. Async input: crossterm `EventStream` (feature `event-stream`); sync: `event::poll(timeout)` then `event::read()`.
-- Redraw on change or at a capped ~30–60 fps, never a hot spin. Virtualize long lists (`List`/`Table` with `ListState` offset); never format 100k items per frame.
-- Handle `Event::Resize`, and only `KeyEventKind::Press` (Windows also reports releases).
-- `Layout` + `Constraint` (`Length`, `Min`, `Percentage`, `Fill`); test at 80×24 and tiny sizes, and show "terminal too small" instead of panicking on zero-area rects.
-- Support limited terminals; never encode meaning in color alone. Use width-aware `Line`/`Span`, not byte slicing.
-- Keys: `q`/`Esc` quits, `?` help, vim + arrows, a visible hint bar, confirmation for destructive actions. Mouse is opt-in (`EnableMouseCapture`) and disabled on exit.
-- Test: unit-test `update` with plain `Action`s; render into `Terminal::new(TestBackend::new(80, 24))` and `insta::assert_snapshot!(terminal.backend())`. Logs go to a file (`tracing-appender`) or a `tui-logger` pane, never stdout.
+1. Assign an explicit owner before spawning. Keep a handle and decide stdout/stderr draining, stdin closure, cancellation, signal handling and descendant ownership.
+2. Drain piped stdout and stderr concurrently where needed. Waiting for exit while a child blocks on a full pipe can deadlock. An accumulating `output()` call is appropriate only when its memory policy fits.
+3. On completion, inspect the status and reap the child. On error/cancellation, perform the protocol's graceful shutdown if available, then apply the owner's escalation policy and wait for termination.
+4. Distinguish APIs: std `Child::kill` sends termination and still needs `wait`; Tokio `Child::kill().await` also waits, while `start_kill` does not. Check the actual API before claiming reaping is complete.
+5. Treat kill-on-drop as a backstop. Dropping a handle is not a portable guarantee that work and descendants have stopped. Async shutdown must be explicit because `Drop` cannot await.
+6. If descendants are in scope, use an owned process group/job or an established process-tree abstraction. Preserve ownership while signaling; reaped/recycled process IDs must not become fresh kill targets. Never kill by process-name pattern.
 
-## Subprocess: Kill AND reap on every exit path
-- A killed child exists until **reaped** (`wait`/`try_wait`); otherwise a Unix zombie holds a PID slot. Track it (`Option<Child>`); on stop/error/timeout, try graceful shutdown, then `kill()` **and** `wait()`.
-- **Graceful-then-forceful**: protocol servers (LSP) get `shutdown`+`exit`, a bounded wait (~1–2s), then force-kill. Wire this into *automatic* teardown: the leak is on the path you forgot.
-- **`Drop` can't `await`**: async `Drop` can only `start_kill()` + `try_wait()`, leaving a running child to the runtime's orphan reaper. `Command::kill_on_drop(true)` is the backstop, not the primary: route teardown through an explicit async `stop()`.
-- **Group-kill** grandchildren: own process group (Unix `setsid`/`pre_exec`) or a Windows **Job Object**, then kill the group; `kill()` on the parent leaks grandchildren.
+## Resource policy and verification
 
-## Subprocess: Bound every resource
-- **OS memory cap on the child**: bound memory the child *uses*: sample the tree's resident memory (RSS watchdog over `/proc` or `libproc`, kill over the cap), or a Job Object limit (Windows). Your internal caps don't stop a runaway child from OOMing the *host*. `setrlimit(RLIMIT_AS)` limits *reserved* address space: JVMs (max heap), V8 (WebAssembly cages), Go and glibc arenas reserve far more than they touch and fail to start under it, and on macOS it cannot be lowered at all. Use it only where nothing better exists.
-- **Sweep a process group before reaping its leader**: `kill(-pid)` after `wait()` can hit a recycled pid. Wait without reaping (`waitid(P_PID, pid, WEXITED | WNOWAIT)`), sweep, then reap.
-- **Cap every read**: max frame/message and header size, bounded stdout accumulation, stderr ring buffer (last N lines). Check a declared length (`Content-Length`) **before** allocating.
-- **Pool bounds**: max live servers, LRU + idle-timeout eviction, deduped concurrent starts (N callers, one process).
-- **Timeouts** on every request/write; on timeout cancel and mark the connection dead so the pool evicts it.
-- Sandbox the env: `Command::env_clear()` + an allowlist; pipe stdio you control.
-- Verify: leak test (spawn→drop N children, assert no lingering PIDs); timeout test (a hung child is killed+reaped within budget). Untrusted output: `references/safety-and-ffi.md`.
+Use caller/protocol deadlines and resource limits from the owning layer, with explicit failure/unread scope. Do not introduce guessed frame caps, fixed shutdown sleeps or truncated stderr as complete evidence. Validate declared frame lengths before allocation. RSS observation, address-space limits and OS job/container limits enforce different things; choose according to the threat model and platform.
+
+Test failure to start, nonzero exit, full pipes, consumer closure, malformed frames, cancellation during work and shutdown while descendants exist. Verify the owned processes actually exited and were reaped, not only that the request returned. Use synchronization and injected policy deadlines rather than arbitrary sleeps.
+
+Sources: [Rust CLI Book](https://rust-cli.github.io/book/), [std Child](https://doc.rust-lang.org/std/process/struct.Child.html), [Tokio process caveats](https://docs.rs/tokio/latest/tokio/process/#caveats), [Tokio Child](https://docs.rs/tokio/latest/tokio/process/struct.Child.html).

@@ -280,6 +280,7 @@ impl Slicer<'_> {
             Fragment {
                 kind,
                 evidence: self.open_evidence.clone(),
+                walks: Vec::new(),
             },
             size,
         ));

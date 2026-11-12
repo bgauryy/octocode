@@ -5,6 +5,7 @@ use crate::tools::ast_graph::build_scope::BuildScope;
 
 mod changed;
 
+pub(super) use changed::git;
 use changed::git_changed;
 
 impl Query<'_> {
@@ -31,7 +32,16 @@ impl Query<'_> {
         let mut unmapped = Vec::new();
         if let Some(rev) = &options.since {
             let changed = git_changed(&root, rev, self.cancel)?;
-            for path in changed {
+            let output = self.graph_output();
+            for (path, change) in changed {
+                // The snapshots this graph lives in are the tool's output,
+                // not a change to the code.
+                if output
+                    .as_deref()
+                    .is_some_and(|output| canonical(&root.join(&path)).starts_with(output))
+                {
+                    continue;
+                }
                 if super::super::super::freshness::is_global_config(&path) {
                     global.push((
                         crate::tools::ast_graph::paths::parent(&path).to_owned(),
@@ -40,7 +50,7 @@ impl Query<'_> {
                 } else if g.t.by_key(&path).is_some() {
                     refs.push(path);
                 } else {
-                    unmapped.push(path);
+                    unmapped.push(json!({"path": path, "status": change.as_str()}));
                 }
             }
         }
@@ -189,8 +199,16 @@ impl Query<'_> {
         extra.insert("summary".into(), summary);
         let mut status = BTreeMap::<String, &str>::new();
         if let Some(base) = &options.baseline {
-            let baseline =
-                self.baseline(paths, base, &detectors, entries, &findings, &mut status)?;
+            // Every head finding, listed or hidden by `minTier`/`minScore`: a
+            // finding the view hides is still present, so never resolved.
+            let baseline = self.baseline(
+                paths,
+                base,
+                &detectors,
+                entries,
+                &report.findings,
+                &mut status,
+            )?;
             extra.insert("baseline".into(), baseline);
         }
         let rows = findings
@@ -205,6 +223,20 @@ impl Query<'_> {
             })
             .collect::<Vec<_>>();
         Ok((extra, rows))
+    }
+
+    /// The directory holding this graph's snapshots, canonical: the snapshot
+    /// directory's parent when `graph` named it by path, else the home.
+    fn graph_output(&self) -> Option<PathBuf> {
+        let home = match self.g.explicit_path.as_deref() {
+            Some(snapshot) => snapshot.parent()?.to_path_buf(),
+            None => graph_home(
+                self.options.workspace.as_deref(),
+                self.options.home.as_deref(),
+            )
+            .ok()?,
+        };
+        Some(canonical(&home))
     }
 
     /// The structural drift from the `baseline` snapshot to this one.
@@ -239,7 +271,9 @@ impl Query<'_> {
     }
 
     /// Findings compared with a baseline graph: each current one is `new`
-    /// or `existing` (written to `status`), and the resolved ones are listed.
+    /// or `existing` (written to `status`), and the resolved ones (in the
+    /// baseline, absent from `findings`) are listed. `findings` is every head
+    /// finding, before the view's filters: resolved means gone, not hidden.
     pub(super) fn baseline(
         &self,
         paths: &PathPolicy,
@@ -301,6 +335,28 @@ impl Query<'_> {
             "resolved": resolved.len(),
             "resolvedFindings": resolved,
         }))
+    }
+}
+
+/// `path` with its deepest existing ancestor resolved (symlinks, `/var` as
+/// `/private/var`): a deleted file still compares by its directory.
+fn canonical(path: &Path) -> PathBuf {
+    let mut rest = Vec::new();
+    let mut at = path;
+    loop {
+        if let Ok(resolved) = at.canonicalize() {
+            return rest
+                .iter()
+                .rev()
+                .fold(resolved, |path, part| path.join(part));
+        }
+        match (at.parent(), at.file_name()) {
+            (Some(parent), Some(name)) => {
+                rest.push(name.to_owned());
+                at = parent;
+            }
+            _ => return path.to_path_buf(),
+        }
     }
 }
 

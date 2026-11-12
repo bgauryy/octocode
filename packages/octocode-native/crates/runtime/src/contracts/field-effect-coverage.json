@@ -991,7 +991,8 @@
         "src/tools/ast_graph/store/tests/impact.rs",
         "src/tools/ast_graph/store/tests/issues.rs",
         "src/tools/ast_graph/store/query/sources.rs",
-        "src/tools/ast_graph/store/tools/tests/projection.rs"
+        "src/tools/ast_graph/store/tools/tests/projection.rs",
+        "src/tools/ast_graph/store/tests/weights.rs"
       ],
       "fields": {
         "path": [
@@ -1017,6 +1018,9 @@
         ],
         "direction": [
           "navigation"
+        ],
+        "rankBy": [
+          "ordering"
         ],
         "depth": [
           "navigation"

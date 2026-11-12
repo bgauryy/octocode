@@ -331,13 +331,14 @@ fn directory_probe(
             let text = octocode_engine::text::read_source(source, limit)
                 .ok()
                 .map(|read| String::from_utf8_lossy(&read.bytes).into_owned());
+            let judge = super::super::source::judge();
             let matches = |rule: &Value| match octocode_engine::structural::file_matches(
                 source,
                 extension,
                 None,
                 Some(rule),
                 digest,
-                limit,
+                (limit, Some(&judge)),
                 &stop,
             ) {
                 Ok(Rebuilt::Matches(matches)) => Some(matches),

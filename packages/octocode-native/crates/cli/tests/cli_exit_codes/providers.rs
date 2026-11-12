@@ -63,17 +63,39 @@ async fn classification_provider(delay: std::time::Duration) -> MockServer {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"models":[]})))
         .mount(&server)
         .await;
+    // Each question answered under its own key and type, as the provider
+    // does: a text judged whole also asks where its answer sits.
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
-        .respond_with(
+        .respond_with(move |request: &wiremock::Request| {
+            let body: Value = serde_json::from_slice(&request.body).unwrap_or_default();
+            let answers = body["questions"]
+                .as_object()
+                .into_iter()
+                .flatten()
+                .map(|(id, question)| {
+                    let answer = match question["criteria"].as_object() {
+                        Some(labels) if question["type"] == "choice" => {
+                            let first = labels.keys().next().cloned().unwrap_or_default();
+                            let probabilities = labels
+                                .keys()
+                                .map(|label| (label.clone(), json!(if *label == first { 1.0 } else { 0.0 })))
+                                .collect::<serde_json::Map<_, _>>();
+                            json!({"type":"choice","choice":first,"confidence":1,"probabilities":probabilities})
+                        }
+                        _ => json!({"type":"noul","noul":0.8}),
+                    };
+                    (id.clone(), answer)
+                })
+                .collect::<serde_json::Map<_, _>>();
             ResponseTemplate::new(200)
                 .set_body_json(json!({
                     "model":"resolved",
-                    "answers":{"answer":{"type":"noul","noul":0.8}},
+                    "answers":answers,
                     "usage":{"input_tokens":2,"output_tokens":1}
                 }))
-                .set_delay(delay),
-        )
+                .set_delay(delay)
+        })
         .mount(&server)
         .await;
     server
@@ -182,6 +204,72 @@ async fn clasify_exits_by_worst_row_outcome() {
         plan_server.received_requests().await.unwrap().is_empty(),
         "a memory-only section-plan refusal must precede every provider request"
     );
+}
+
+/// `clasify --content -` sends stdin, byte for byte, as the one row's
+/// `content`, and the answer names its deciding lines of that text. A row
+/// that names its own input is refused before any provider request.
+#[tokio::test]
+async fn clasify_reads_a_rows_content_from_stdin() {
+    use std::io::Write as _;
+    let server = classification_provider(std::time::Duration::ZERO).await;
+    let workspace = Workspace::new();
+    let piped = |query: Value, stdin: &'static str| {
+        let mut command = clasify_command(workspace.cli(), &server);
+        command
+            .args(["clasify", "--content", "-", &query.to_string(), "--json"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        move || {
+            let mut child = command.spawn().unwrap();
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(stdin.as_bytes())
+                .unwrap();
+            child.wait_with_output().unwrap()
+        }
+    };
+    let text = "test a ... ok\ntest b ... FAILED\n";
+    let output = tokio::task::spawn_blocking(piped(rows(vec![json!({})]), text))
+        .await
+        .unwrap();
+    assert_exit(&output, 0);
+    let answered = json_output(&output);
+    let data = &answered["results"][0]["data"];
+    assert_eq!(
+        data["answers"]["q"],
+        json!({"noul":0.8,"lines":{"startLine":1,"endLine":1}}),
+        "{answered}"
+    );
+    let posts = || async {
+        server
+            .received_requests()
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|request| request.method.as_str() == "POST")
+            .collect::<Vec<_>>()
+    };
+    let body: Value = serde_json::from_slice(&posts().await[0].body).unwrap();
+    assert_eq!(
+        body["state"],
+        json!("[p1]\ntest a ... ok\n[p2]\ntest b ... FAILED\n")
+    );
+    let refused = tokio::task::spawn_blocking(piped(
+        rows(vec![
+            json!({"source":{"tool":"localFetch","query":{"path":"a.txt"}}}),
+        ]),
+        text,
+    ))
+    .await
+    .unwrap();
+    assert_exit(&refused, 2);
+    let stdout = String::from_utf8_lossy(&refused.stdout);
+    assert!(stdout.contains("drop its `source`"), "{stdout}");
+    assert_eq!(posts().await.len(), 1, "the refusal sent nothing");
 }
 
 #[tokio::test]

@@ -245,14 +245,14 @@ async fn a_row_reading_the_warm_up_carries_its_admission_waits_once() {
     let (transport, _) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
     let provider = crate::GitHubProvider::new(transport);
     let sha = "0123456789abcdef0123456789abcdef01234567";
-    let memo = std::sync::Arc::new(crate::LastCommitMemo::new());
+    let memo = std::sync::Arc::new(crate::RefMemo::new());
     let warm = with_token("warm", Duration::from_secs(5), 1024);
     warm.waits
         .record(ClientWaitKind::QuotaPacing, Duration::from_millis(300));
     memo.record_ref("acme", "repo", Some("main"), Ok(sha.to_owned()));
     memo.observed_by(&warm);
     memo.refs_known();
-    let row = with_token("warm", Duration::from_secs(5), 1024).with_last_commits(memo.clone());
+    let row = with_token("warm", Duration::from_secs(5), 1024).with_ref_memo(memo.clone());
     row.waits
         .record(ClientWaitKind::Spacing, Duration::from_millis(7));
     for _ in 0..2 {
@@ -274,7 +274,7 @@ async fn a_row_reading_the_warm_up_carries_its_admission_waits_once() {
         "{:?}",
         row.waits.summed()
     );
-    let other = with_token("warm", Duration::from_secs(5), 1024).with_last_commits(memo);
+    let other = with_token("warm", Duration::from_secs(5), 1024).with_ref_memo(memo);
     provider
         .resolve_reference("acme", "repo", Some("main"), &other)
         .await

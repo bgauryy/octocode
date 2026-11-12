@@ -337,3 +337,19 @@ fn the_search_terms_are_said_only_where_the_rows_do_not_explain_the_answer() {
     let cut = shaped(vec![row()], true);
     assert_eq!(cut["effectiveQuery"], "fix is:pr repo:o/r", "{cut}");
 }
+
+/// The labels a `labels` filter requires are on every row and in the
+/// request: a row states only its other labels, and none when it has none.
+#[test]
+fn rows_leave_out_the_labels_the_filter_requires() {
+    let mut page = json!({"issues":[
+        {"number":1,"labels":["bug","area: cli"]},
+        {"number":2,"labels":["Bug"]},
+        {"number":3}
+    ]});
+    super::rows::drop_filtered_labels(&mut page, "issues", &["bug".to_owned()]);
+    assert_eq!(
+        page["issues"],
+        json!([{"number":1,"labels":["area: cli"]},{"number":2},{"number":3}])
+    );
+}

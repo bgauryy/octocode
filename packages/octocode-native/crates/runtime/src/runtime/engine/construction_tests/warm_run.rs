@@ -11,7 +11,7 @@ async fn a_panicking_warm_up_is_contained_and_releases_the_rows() {
     let runtime = runtime(home.path(), &[("GITHUB_TOKEN", "fixture-token")]);
     let dispatcher = runtime.dispatcher();
     let queries = [CheckedQuery::checked(
-        serde_json::json!({"owner": "a", "repo": "b", "path": "f.txt", "ref": "0123456789abcdef0123456789abcdef01234567"}),
+        serde_json::json!({"owner": "a", "repo": "b", "path": "f.txt", "ref": "main"}),
     )];
     let warm = dispatcher
         .plan_warm(crate::id::ToolId::GhGetFileContent, &queries)
@@ -25,7 +25,7 @@ async fn a_panicking_warm_up_is_contained_and_releases_the_rows() {
     dispatcher.run_warm(&warm, &context);
     let released = tokio::time::timeout(
         std::time::Duration::from_secs(5),
-        warm.memo().resolved_ref("a", "b", None),
+        warm.memo().resolved_ref("a", "b", Some("main")),
     )
     .await
     .expect("the row is released");

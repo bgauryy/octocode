@@ -115,16 +115,22 @@ impl ChannelRun {
     /// walk remains, or when a walk continues the page its row answered
     /// (`continues_page`: the rest of that page is the rest of this
     /// response). One walk to a later page on an unpaged response stays
-    /// where it is.
+    /// where it is. A section's own walk (`next.<section>`) continues that
+    /// section alone: it stays on its row, and a split row places it on the
+    /// row's last part (`row_pages`, `take_enclosing_walks`).
     pub(super) fn hoist_walks(
         &self,
         structured: &mut Sanitized,
         pending: &mut Pending,
         continues_page: bool,
     ) -> Result<(), contracts::ContractValidationError> {
-        let walks = continuations::linear_walks(self.id, structured)?;
-        let handles = continuations::walk_handles(structured, &walks);
+        let mut walks = continuations::linear_walks(self.id, structured)?;
+        walks.retain(|walk| {
+            walk.last()
+                .is_some_and(|name| name == continuations::LINEAR_WALK)
+        });
         let splits = self.options.pages(structured, self.output.auto_page_chars);
+        let handles = continuations::walk_handles(structured, &walks);
         if handles.is_empty() || (handles.len() == 1 && !splits && !continues_page) {
             return Ok(());
         }

@@ -6,6 +6,7 @@ mod frames;
 mod identity;
 mod served;
 mod sockets;
+mod startup;
 #[cfg(test)]
 mod tests;
 

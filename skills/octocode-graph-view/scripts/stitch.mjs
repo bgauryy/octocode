@@ -1,5 +1,5 @@
 // Chunk membership and stitching: one root-relative graph from separately built chunk snapshots.
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, posix, relative, sep } from 'node:path';
 import { degrees, topGroup } from './lib.mjs';
 
@@ -19,9 +19,10 @@ export function chunkOf(path, chunks) {
 }
 
 // A relative import specifier to a root-relative file that `has` knows, by the usual module suffixes;
-// Rust `crate::`, `super::` and `self::` paths by the module tree.
-export function resolveImport(from, specifier, has, cratePrefix = null) {
-  if (/^(crate|super|self)::/.test(specifier ?? '')) return resolveRustPath(from, specifier, has, cratePrefix);
+// Rust `crate::`, `super::` and `self::` paths, and paths into a workspace crate of `rust.crates`, by the module tree.
+// `rust` is `{ cratePrefix, crates }`: the stitched root's module path and the workspace crates (both optional).
+export function resolveImport(from, specifier, has, rust = {}) {
+  if (/^(crate|super|self)::/.test(specifier ?? '') || rust.crates?.has(rustHead(specifier))) return resolveRustPath(from, specifier, has, rust);
   if (!specifier || !/^\.\.?(\/|$)/.test(specifier)) return null;
   const target = posix.normalize(posix.join(posix.dirname(from), specifier));
   if (target.startsWith('../')) return null;
@@ -49,13 +50,60 @@ export function crateModulePrefix(root) {
   return null;
 }
 
-// Where a Rust path starts: the crate's `src` for `crate::`, else this module walked up by `super`.
-function rustAnchor(from, parts, has, cratePrefix) {
-  if (parts[0] !== 'crate') {
-    let dir = moduleDir(from), i = 0;
-    for (; parts[i] === 'self' || parts[i] === 'super'; i++) if (parts[i] === 'super') dir = posix.dirname(dir);
-    return { dir, rest: parts.slice(i) };
+const rustHead = (specifier) => String(specifier).split('::')[0];
+
+// Workspace library crates by the name a Rust path spells: `[lib] name`, else the package name with `-` as `_`,
+// to the crate root file (`[lib] path`, else `src/lib.rs`). Read from every Cargo.toml in `files`, since a crate can be
+// split over several chunks. A name two crates share maps to null: a path cannot tell them apart.
+export function workspaceCrates(root, files) {
+  const has = new Set(files);
+  const crates = new Map();
+  for (const manifest of files.filter((p) => posix.basename(p) === 'Cargo.toml')) {
+    let toml = '';
+    try { toml = readFileSync(join(root, manifest), 'utf8'); } catch { /* unreadable: the defaults below */ }
+    const lib = tomlTable(toml, 'lib');
+    const name = (lib.name ?? tomlTable(toml, 'package').name)?.replaceAll('-', '_');
+    const file = posix.join(posix.dirname(manifest), lib.path ?? 'src/lib.rs');
+    if (name && has.has(file)) crates.set(name, crates.has(name) ? null : file);
   }
+  return crates;
+}
+
+// The string keys of one TOML table (`[lib]`), enough for Cargo's `name` and `path`.
+function tomlTable(text, table) {
+  const out = {};
+  let current = null;
+  for (const line of text.split('\n')) {
+    const head = line.match(/^\s*\[([^\]]+)\]/);
+    if (head) current = head[1].trim();
+    else if (current === table) {
+      const kv = line.match(/^\s*([\w-]+)\s*=\s*"([^"]*)"/);
+      if (kv) out[kv[1]] = kv[2];
+    }
+  }
+  return out;
+}
+
+// Where a Rust path starts: another workspace crate's root, the crate's `src` for `crate::`, else this module walked
+// up by `super`. A crate root file owns its own directory whatever its name.
+function rustAnchor(from, parts, has, { cratePrefix = null, crates = null } = {}) {
+  if (crates?.has(parts[0])) {
+    const file = crates.get(parts[0]);
+    return file && { dir: posix.dirname(file), file, rest: parts.slice(1) };
+  }
+  if (parts[0] !== 'crate') return relativeAnchor(from, parts);
+  return crateAnchor(from, parts, has, cratePrefix);
+}
+
+// `self::`/`super::` paths: this module's directory walked up once per `super`.
+function relativeAnchor(from, parts) {
+  let dir = moduleDir(from), i = 0;
+  for (; parts[i] === 'self' || parts[i] === 'super'; i++) if (parts[i] === 'super') dir = posix.dirname(dir);
+  return { dir, rest: parts.slice(i) };
+}
+
+// `crate::` paths: the nearest Cargo.toml's `src`, else the root's own module path stripped.
+function crateAnchor(from, parts, has, cratePrefix) {
   for (let d = posix.dirname(from); ; d = posix.dirname(d)) {
     if (has(d === '.' ? 'Cargo.toml' : `${d}/Cargo.toml`)) return { dir: d === '.' ? 'src' : `${d}/src`, rest: parts.slice(1) };
     if (d === '.' || d === '/') break;
@@ -65,18 +113,25 @@ function rustAnchor(from, parts, has, cratePrefix) {
   return cratePrefix && cratePrefix.every((seg, i) => rest[i] === seg) ? { dir: '.', rest: rest.slice(cratePrefix.length) } : null;
 }
 
-// The deepest module file a `crate::`/`super::`/`self::` path names; trailing segments are items in it.
-export function resolveRustPath(from, specifier, has, cratePrefix = null) {
-  const anchor = rustAnchor(from, specifier.split('::'), has, cratePrefix);
+// The deepest module file a `crate::`/`super::`/`self::`/workspace-crate path names; trailing segments are items in it.
+export function resolveRustPath(from, specifier, has, rust = {}) {
+  const target = rustModule(from, specifier, has, rust)?.file;
+  return target && target !== from ? target : null;
+}
+
+// That module file and the item segments left after it.
+function rustModule(from, specifier, has, rust) {
+  const anchor = rustAnchor(from, specifier.split('::'), has, rust);
   if (!anchor) return null;
   let { dir } = anchor;
-  let target = moduleFile(dir, has);
-  for (const seg of anchor.rest) {
-    const file = moduleFile(childDir(dir, seg), has);
-    if (!file || /(^|\/)(lib|main)\.rs$/.test(file)) break;
-    [dir, target] = [childDir(dir, seg), file];
+  let file = anchor.file ?? moduleFile(dir, has);
+  let i = 0;
+  for (; i < anchor.rest.length; i++) {
+    const next = moduleFile(childDir(dir, anchor.rest[i]), has);
+    if (!next || /(^|\/)(lib|main)\.rs$/.test(next)) break;
+    [dir, file] = [childDir(dir, anchor.rest[i]), next];
   }
-  return target && target !== from ? target : null;
+  return file && { file, rest: anchor.rest.slice(i) };
 }
 
 // A Rust path naming a module above the stitched root: a `crate::` path outside the root's module
@@ -97,29 +152,38 @@ export const packageKey = (id) => {
 
 // chunks: plan rows ({id, path, package, exclude}); datas: Map chunk id -> its data.json; files: every root-relative file.
 export function stitch({ root, chunks, datas, files }) {
-  const ctx = { chunks, datas, has: new Set(files), cratePrefix: crateModulePrefix(root), byPackage: new Map(chunks.filter((c) => c.package).map((c) => [packageKey(c.package), c])) };
+  const ctx = { chunks, datas, has: new Set(files), cratePrefix: crateModulePrefix(root), crates: workspaceCrates(root, files), byPackage: new Map(chunks.filter((c) => c.package).map((c) => [packageKey(c.package), c])) };
   const cross = [];
   const unresolved = [];
   for (const c of chunks.filter((x) => datas.has(x.id))) {
     for (const o of datas.get(c.id).outsideRoot ?? []) stitchRelative(ctx, c, o, { cross, unresolved });
     for (const x of datas.get(c.id).externals ?? []) stitchPackage(ctx, c, x, cross);
   }
-  const crossCalls = bindCalls({ chunks, datas, cross });
+  const has = (p) => ctx.has.has(p);
+  const crateItem = (path) => (ctx.crates.has(rustHead(path)) ? rustModule(null, path, has, { crates: ctx.crates }) : null);
+  const crossCalls = bindCalls({ chunks, datas, cross, crateItem });
   return { cross, unresolved, crossCalls, whole: whole({ root, chunks, datas, cross, crossCalls }) };
 }
 
 // One out-of-root import of chunk `c`: an edge to the chunk that holds its target, or an unresolved row with the reason.
-function stitchRelative({ chunks, datas, has, cratePrefix }, c, o, { cross, unresolved }) {
+// A Rust path into another workspace crate (`octocode_io::memo::Memo`) is a `crate-path` edge naming that crate.
+function stitchRelative({ chunks, datas, has, cratePrefix, crates }, c, o, { cross, unresolved }) {
   const source = prefixOf(c) + o.file;
-  const target = resolveImport(source, o.specifier, (p) => has.has(p), cratePrefix);
+  const target = resolveImport(source, o.specifier, (p) => has.has(p), { cratePrefix, crates });
   const owner = target && chunkOf(target, chunks);
   const gap = (reason) => unresolved.push({ source, line: o.line, specifier: o.specifier, reason });
+  const crate = crates.has(rustHead(o.specifier)) ? rustHead(o.specifier) : null;
+  const via = crate ? { via: 'crate-path', crate } : { via: 'relative' };
   // Inside its own chunk the engine already decided; an import it left unlinked stays unlinked.
   if (owner === c) gap('unlinked inside its own chunk');
-  else if (owner) cross.push({ source, target, line: o.line, via: 'relative', sourceChunk: c.id, targetChunk: owner.id, targetBuilt: datas.has(owner.id) });
+  else if (owner) cross.push({ source, target, line: o.line, ...via, sourceChunk: c.id, targetChunk: owner.id, targetBuilt: datas.has(owner.id) });
   else if (target) gap('target file is in no chunk');
-  else gap(leavesRoot(source, o.specifier, cratePrefix) ? 'outside the stitched root' : 'no file matches the specifier');
+  else if (crate && !crates.get(crate)) gap('crate name is shared by several workspace crates');
+  else gap(leavesRoot(source, o.specifier, cratePrefix) ? 'outside the stitched root' : unknownCrate(source, o.specifier) ? 'names no workspace crate' : 'no file matches the specifier');
 }
+
+// A Rust `use` path from a Rust file whose first segment is a crate name the workspace does not build.
+const unknownCrate = (source, specifier) => source.endsWith('.rs') && /^[A-Za-z_]\w*::/.test(specifier ?? '') && !/^(crate|super|self)::/.test(specifier);
 
 // A package import of chunk `c` that names another chunk's workspace package: one edge per importing file.
 function stitchPackage({ datas, byPackage }, c, x, cross) {
@@ -133,22 +197,33 @@ function stitchPackage({ datas, byPackage }, c, x, cross) {
 
 // A call site a chunk left unbound (`not-declared-in-repo`) binds through its file's imports of other
 // chunks when exactly one imported file declares that exact top-level name (`medium`, `stitched-import`).
+// A call by a path into another workspace crate (`octocode_io::memo::fresh`, the engine spells imported names so)
+// binds when the module file that path names (`crateItem`) declares its last segment.
 // Everything else stays unbound and remains in the chunk's evidence: a repository-wide unique-name
 // fallback measured mostly wrong on Rust, and a last-segment match bound unrelated members.
-export function bindCalls({ chunks, datas, cross }) {
+export function bindCalls({ chunks, datas, cross, crateItem = () => null }) {
   const declared = declarationsByFile(chunks, datas);
   const reach = importTargets(cross, declared, chunks);
   const index = new NameIndex(declared);
   const by = new Map();
   for (const c of chunks) for (const u of datas.get(c.id)?.unresolvedCalls ?? []) {
-    const exact = candidates(u, reach.get(prefixOf(c) + u.file), index);
-    if (exact.length !== 1) continue;
+    const exact = crateCall(u, crateItem, index) ?? candidates(u, reach.get(prefixOf(c) + u.file), index);
+    if (exact.length !== 1 || chunkOf(exact[0].file, chunks) === c) continue;
     const source = prefixOf(c) + u.from, k = `${source}>${exact[0].id}`;
     const e = by.get(k) ?? { source, target: exact[0].id, line: u.line, count: 0, confidence: 'medium', resolution: ['stitched-import'], via: 'graph', crossChunk: true };
     e.count++;
     by.set(k, e);
   }
   return [...by.values()];
+}
+
+// The declarations a `not-declared-in-repo` call by a workspace crate path names: the top-level item that path's
+// module file declares, when exactly one segment (the item) follows the module; `Type::new` is a member and binds
+// nothing. Null when the path names no workspace crate.
+function crateCall(u, crateItem, index) {
+  if (u.reason !== 'not-declared-in-repo' || String(u.targetName).includes('.')) return null;
+  const at = crateItem(u.targetName);
+  return at ? (at.rest.length === 1 ? index.lookup([at.file], at.rest[0]) : []) : null;
 }
 
 // The declarations an unbound call can name, by the engine's own reason for leaving it unbound:
@@ -200,7 +275,7 @@ function importTargets(cross, declared, chunks) {
   for (const e of cross.filter((x) => x.source)) {
     if (!reach.has(e.source)) reach.set(e.source, { files: [], packages: new Map(), chunkFiles });
     const r = reach.get(e.source);
-    if (e.via === 'relative') r.files.push(e.target);
+    if (e.via !== 'package') r.files.push(e.target);
     else r.packages.set(packageKey(e.package ?? e.target), e.targetChunk);
   }
   return reach;
@@ -297,7 +372,7 @@ function whole({ root, chunks, datas, cross, crossCalls }) {
     mode: 'whole',
     frozen: false,
     evidence: 'chunks/<id>/tmp/evidence',
-    coverage: { chunks: chunks.length, built: built.length, notBuilt: chunks.filter((c) => !datas.has(c.id)).map((c) => c.id), files: sources.length, imports: m.imports.length, crossChunkImports: crossCount, calls: m.calls.length, crossChunkCalls: m.calls.filter((c) => c.crossChunk).length, callsOutside: m.callsOutside, note: 'Stitched from built chunk snapshots. Imports between chunks come from out-of-root relative imports and workspace package imports. Calls between chunks are bound by name through those imports (stitched-import, medium: the exact top-level name declared in one imported file); member, qualified, dynamic-import and ambiguous calls stay unbound in the evidence of each chunk. Cycles and findings are per chunk.' },
+    coverage: { chunks: chunks.length, built: built.length, notBuilt: chunks.filter((c) => !datas.has(c.id)).map((c) => c.id), files: sources.length, imports: m.imports.length, crossChunkImports: crossCount, calls: m.calls.length, crossChunkCalls: m.calls.filter((c) => c.crossChunk).length, callsOutside: m.callsOutside, note: 'Stitched from built chunk snapshots. Imports between chunks come from out-of-root relative imports, Rust paths into other workspace crates (crate-path) and workspace package imports. Calls between chunks are bound by name through those imports (stitched-import, medium: the exact top-level name declared in one imported file, or in the module file a workspace crate path names); member, other qualified, dynamic-import and ambiguous calls stay unbound in the evidence of each chunk. Cycles and findings are per chunk.' },
     snapshot: { id: 'whole', root, counts: { nodes: m.files.length + m.symbols.length, edges: m.imports.length + m.calls.length, nodesByKind: { file: sources.length } } },
     files: m.files,
     imports: m.imports,

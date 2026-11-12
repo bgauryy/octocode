@@ -115,8 +115,8 @@ async fn cancellation_interrupts_an_inflight_response() {
 }
 
 /// A next link to another origin (a proxy forwarding GitHub's own) is the
-/// fact that more rows exist: the page is read and keeps it, a read of the
-/// first page alone does not parse it, and following it is refused.
+/// fact that more rows exist: the page is read and keeps it, and following
+/// it is refused.
 #[tokio::test]
 async fn a_cross_origin_next_link_is_kept_as_more_rows_and_never_followed() {
     let server = MockServer::builder().start().await;
@@ -132,11 +132,6 @@ async fn a_cross_origin_next_link_is_kept_as_more_rows_and_never_followed() {
     let transport = anonymous_transport(&endpoint);
     let spec = || RequestSpec::get(endpoint.rest(&["items"]).expect("route"));
     let context = || RequestContext::with_timeout(Duration::from_secs(2), 16);
-    let first = transport
-        .execute(spec().reading_first_page_only(), &context())
-        .await
-        .expect("first page");
-    assert!(first.next.is_none());
     let page = transport.execute(spec(), &context()).await.expect("page");
     let next = page.next.expect("more rows exist");
     assert_eq!(next.host_str(), Some("evil.example"));

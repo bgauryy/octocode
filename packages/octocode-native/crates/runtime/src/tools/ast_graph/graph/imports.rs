@@ -201,6 +201,10 @@ impl FileLink<'_, '_> {
             if kind == super::super::edges::PYTHON_IMPORT && self.inside_function(i.line) {
                 kind = super::super::edges::PYTHON_LAZY_IMPORT;
             }
+            // A binding read only as a type: the emit settings decide its load.
+            if i.type_use_only {
+                kind = super::super::edges::TYPE_USE_IMPORT;
+            }
             self.edge(t, kind, i.line);
             if i.imported_name.as_deref() == Some("*") || self.lang == Linker::CFamily || splice {
                 self.b.namespace_targets.insert(t.clone());

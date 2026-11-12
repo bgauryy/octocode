@@ -316,3 +316,35 @@ async fn pr_side_reads_stay_on_the_page_and_the_merge_read_spans_the_pr() {
     assert!(side_reads > 0, "a shown file has a side read: {out}");
     assert_eq!(merge_paths, ["src/gamma.ts"], "{out}");
 }
+
+/// Comment sections the caller asked for are stated even when they hold
+/// nothing: an empty list says zero, where an absent one reads as not
+/// fetched.
+#[tokio::test]
+async fn requested_comment_sections_with_none_are_empty_lists() {
+    let server = MockServer::builder().start().await;
+    mount_pr(&server, json!([changed_file("src/a.rs")])).await;
+    mount_json(
+        &server,
+        "/api/v3/repos/o/r/issues/1/comments",
+        200,
+        json!([]),
+    )
+    .await;
+    mount_json(
+        &server,
+        "/api/v3/repos/o/r/pulls/1/comments",
+        200,
+        json!([]),
+    )
+    .await;
+    let out = read(
+        &server,
+        json!({"operation":"pullRequest","owner":"o","repo":"r","number":1,
+            "sections":["comments","reviewComments"]}),
+    )
+    .await;
+    let pr = &out["pullRequests"][0];
+    assert_eq!(pr["comments"], json!([]), "{out}");
+    assert_eq!(pr["reviewComments"], json!([]), "{out}");
+}

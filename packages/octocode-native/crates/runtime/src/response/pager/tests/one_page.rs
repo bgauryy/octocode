@@ -5,10 +5,13 @@
 //! top-level `oversized`, as on every page of a walk.
 use super::*;
 
-/// An envelope whose only row is one indivisible value wider than `budget`.
+/// An envelope whose only row is one indivisible value wider than `budget`:
+/// a ready call, which runs only whole (free text would be windowed).
 fn indivisible(budget: usize) -> Value {
     let atomic = format!("{}\"\\界😀", "x".repeat(budget));
-    json!({"results":[{"index":0,"data":{"node":{"id":atomic},"rows":[]}}]})
+    json!({"results":[{"index":0,"data":{"rows":[],"related":[
+        {"kind":"related","tool":"localFetch","input":{"queries":[{"path":atomic}]}}
+    ]}}]})
 }
 
 fn page_of(input: &Value, budget: usize, replayed: Option<bool>) -> PreparedPage {

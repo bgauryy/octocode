@@ -186,8 +186,12 @@ async fn a_paged_partial_batch_discloses_oversized_pages_and_returns_rejections_
         assert!(pagination.get("oversized").is_none(), "{output}");
         assert_eq!(
             output.get("oversized") == Some(&json!(true)),
-            chars > 800,
-            "{output}"
+            octocode_native::response::pager::holds_value_over(
+                planned.as_object().expect("envelope"),
+                octocode_native::id::ToolId::LocalSearch,
+                800
+            ),
+            "{chars}: {output}"
         );
         rejected += output["results"]
             .as_array()

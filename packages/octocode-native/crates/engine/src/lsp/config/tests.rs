@@ -1,7 +1,8 @@
 use super::{
-    LspDiscoveryOptions, default_server_for_file, default_server_for_workspace_root,
-    detect_language_id, invocation::is_node_executable, invocation::resolve_known_server_command,
-    is_rust_analyzer_command, workspace_root_representative_source,
+    LspDiscoveryOptions, default_server_for_directory, default_server_for_file, detect_language_id,
+    directory_languages, directory_representative, invocation::is_node_executable,
+    invocation::resolve_known_server_command, is_rust_analyzer_command,
+    workspace_root_representative_source,
 };
 #[cfg(unix)]
 use super::{

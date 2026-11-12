@@ -1,45 +1,44 @@
-Load when you review `unsafe`, validate untrusted input, build a Node addon (napi-rs; not used in this repo), a C-ABI library (`cdylib`), a language binding, or wrap a C library (tree-sitter grammars, `cc`-built deps). Why: UB or a panic across a boundary crashes the host process, not just your crate. UB and aliasing authority: **The Rustonomicon** (`references/sources-and-crates.md`); cite it, do not reason about UB from memory. Allocation-level `unsafe` and memory across FFI: `references/performance-and-memory.md`. napi TS types and npm packaging: `references/napi.md`.
+# Unsafe code, trust boundaries and FFI
 
-# Safety, security, and FFI
+Load for unsafe operations, untrusted input or foreign interfaces. The [Reference](https://doc.rust-lang.org/reference/behavior-considered-undefined.html) owns language rules; the [Rustonomicon](https://doc.rust-lang.org/nomicon/) explains unsafe design. Neither supplies a complete formal model for every aliasing question.
 
-## unsafe
-- For a crate with no intended unsafe code, use `#![forbid(unsafe_code)]` when its dependency and generated-code boundaries permit it. For audited unsafe modules, use `#![deny(unsafe_code)]` with narrow `#[allow]`s.
-- A crate whose job is FFI (`libc`, `windows-sys`, process and job control) keeps `unsafe`. Deny `undocumented_unsafe_blocks` there. Do not `forbid(unsafe_code)` on that whole crate. A search that counts the token `unsafe` in string literals, keyword lists, and tests is not a missing `SAFETY` comment.
-- The `// SAFETY:` comment says why the invariant holds here; for FFI it states null-ness, lifetime, alignment, and thread-affinity. No invariant → not ready to ship.
-- Keep `unsafe` minimal, wrapped in a safe API that upholds the invariant; do not leak raw pointers/lifetimes across the boundary.
-- Run **Miri** (`cargo +nightly miri test`) on any crate with `unsafe`: it catches UB, data races, and invalid aliasing.
-- Prefer a vetted crate (`bytes`, `zerocopy`, `bytemuck`) over hand-rolled `transmute`/pointer casts.
+## Unsafe obligations
 
-## Untrusted input
-- Validate and bound everything crossing a trust boundary (sizes, lengths, ranges, encodings); reject early with a typed error. Values from the other side of an FFI boundary (sizes, indices, UTF-8) are untrusted input.
-- **DoS via unbounded resources** is the common real-world Rust vuln: cap request/body/file sizes, time out fetches and parses, bound in-flight work. An OOM from an attacker-sized input is a security bug.
-- **Regex ReDoS:** prefer `regex` for untrusted patterns; bound pattern and input sizes and the number of matches. Its search bound depends on both pattern and input length, and repeated searches can cost more. A backtracking engine (`pcre2`, `fancy-regex`) also needs an engine-specific work or time bound. [regex's untrusted-input guidance](https://docs.rs/regex/latest/regex/#untrusted-inputs).
-- **SSRF / path traversal:** enforce allowed schemes and destinations on the resolved connection, including redirects and DNS changes; parsing or normalizing a URL alone does not make a fetch safe. For filesystem access, prefer a capability directory such as `cap-std`. A `canonicalize` then `starts_with(root)` check can race a later open if a symlink changes; use handle-relative operations for an adversarial tree.
-- Secrets: never log them; scrub tokens/keys from error chains and debug output. Wrap in `secrecy::SecretString` (redacted `Debug`, zeroized on drop); compare tokens/MACs with `subtle` (constant-time), never `==`.
-- Deserialization: reject unknown fields only where the input contract is closed; preserve documented extension fields. Size-cap bytes *before* parsing; keep `serde_json`'s default recursion limit. Octocode wire types follow `references/parsing-and-codegen.md`.
-- Crypto: never hand-roll. `rustls`, `ring`/`aws-lc-rs`, RustCrypto crates; randomness from `getrandom`/`rand::rngs::OsRng`.
-- Arithmetic: debug panics on overflow, release wraps. Untrusted arithmetic uses `checked_*` / `saturating_*` / `try_into()`. Security-critical binaries can keep `overflow-checks = true` in `[profile.release]`.
+1. Establish why safe Rust or an existing safe API cannot meet the requirement. Unsafe is not a fix for an unexplained borrow error or an unmeasured optimization.
+2. Enumerate preconditions: initialization, validity, provenance, alignment, allocation bounds, aliasing, lifetimes, ownership and thread affinity as applicable.
+3. Keep the unsafe operation small and explain with `// SAFETY:` why its preconditions hold at this site. An `unsafe fn` needs a public `# Safety` contract; use explicit unsafe blocks inside it. Audit `unsafe impl`, including `Send`/`Sync`, with the same care.
+4. Ensure safe callers cannot violate those conditions, including on errors, panics and cancellation. A safe wrapper is sound only if all permitted safe calls uphold the contract.
+5. Run targeted tests and supported Miri checks. Add fuzzing, concurrency modeling or platform/FFI tests where the risk requires them. Report unsupported execution paths.
 
-## Hardening lints (opt in per crate, in `[lints.clippy]`)
-`undocumented_unsafe_blocks`, `multiple_unsafe_ops_per_block`, `indexing_slicing`, `arithmetic_side_effects`, `cast_possible_truncation`, `unwrap_used`/`expect_used`, `mem_forget`. These are single lints, not a workspace group (`references/workspace.md`). `indexing_slicing` and `arithmetic_side_effects` are restriction lints and flood a parser or search crate; opt in only where a bad index or wrap is a security bug. Strictest on parsers and code touching untrusted bytes.
+Respect existing lint policy. A safe-only crate may forbid unsafe; an FFI crate needs narrow audited unsafe sites. Useful selected lints include `unsafe_op_in_unsafe_fn` and `clippy::undocumented_unsafe_blocks`; do not replace a safety argument with a lint count.
 
-## Supply chain
-- `build.rs` and proc-macros run arbitrary code at build time: review new ones like code you execute. `cargo geiger` counts `unsafe` in the dep tree. A count is not a defect; Miri and `cargo careful` check behavior (`references/testing-and-tooling.md`). `cargo vet` records who reviewed what. `cargo unmaintained` flags abandoned crates and does not replace `cargo audit`.
-- `cargo auditable build` embeds the dep list so shipped binaries stay scannable. `deny.toml` bans duplicates, yanked crates, unknown registries, and git sources.
+**Miri is a detector, not a soundness proof.** It exercises specific executions, has incomplete nondeterministic coverage and limited platform/FFI support. Do not promise that a whole FFI crate can run under Miri. Isolate the pure-Rust invariant where possible and retain real platform tests. Use the project's supported nightly/component selection rather than silently changing its toolchain.
 
-## FFI: panic must not cross the boundary
-- A Rust panic reaching a non-unwinding ABI aborts; a foreign exception entering Rust there is undefined behavior. `C-unwind` permits unwinding but requires a compatible caller. [Rustonomicon FFI](https://doc.rust-lang.org/nomicon/ffi.html#ffi-and-unwinding).
-- Where the host must survive, catch unwinding Rust panics inside the export and return an error. `catch_unwind` cannot catch aborts or safely handle foreign exceptions; `panic = "abort"` terminates the host.
-- In a napi-rs project (not used in this repo), return `napi::Result` (`references/napi.md`); map core errors with `napi::Error::new(Status::InvalidArg, msg)`. Never `panic!`/`unwrap()` in exports; enforce with `unwrap_used = "deny"` (this repo does).
+## Untrusted input and resources
 
-## FFI: napi-rs threads (for napi-rs projects; not used in this repo)
-- **Async rule:** move work that can block the Node event loop to the appropriate executor: `#[napi] async fn` for asynchronous I/O, `AsyncTask` for bounded blocking jobs, or a dedicated bounded pool for CPU-heavy work. Verify cancellation and lifetime behavior for the chosen API; latency depends on the caller's budget, not a universal millisecond cutoff.
-- **Don't flood libuv's shared pool.** libuv threads also serve Node's fs/DNS/crypto. Route CPU-heavy parse/search work to your own `rayon`/Tokio pool; keep libuv for the thin async boundary. Bound concurrency at the JS API.
-- **`ThreadsafeFunction` payloads must be `'static` owned data.** Convert to `String`/`Buffer`/owned structs before crossing the thread boundary; never store borrowed `Object<'env>`/`Function<'env>`.
-- Isolate Node dependencies in a binding crate so runtime libraries build without Node. For an existing single-crate addon, a feature gate is an alternative.
+| Boundary | Required decision |
+|---|---|
+| Lengths, counts and arithmetic | Validate ranges before allocation/conversion. Use checked arithmetic for rejection; saturation only when saturation is the intended meaning. Overflow behavior depends on compiler/profile settings. |
+| Memory, queues and concurrency | Follow the owner's resource policy. Use backpressure, streaming, pagination or explicit refusal; do not invent a fixed cap that silently drops valid work. `try_reserve` helps only for allocations using that fallible path. |
+| Text and serialization | Define byte/encoding, depth and extension-field rules. Reject unknown fields only for a closed contract. Keep parser protections unless an equivalent policy replaces them. |
+| Regex | Inspect the selected engine's complexity and controls. `regex` searches depend on both pattern and input size; repeated searches can cost more. Backtracking engines need their own work controls. |
+| Filesystem | Match the threat model. A canonicalize/check/open sequence can race symlink replacement; use handle-relative/capability access when adversarial mutation is in scope. |
+| Network destinations | Enforce destination policy across resolution, redirects and connection; URL parsing alone does not prevent SSRF. |
+| Diagnostics | Keep credentials and sensitive data out of errors, logs, snapshots and derived `Debug`. Use established redaction/secret-handling facilities. |
 
-## FFI: crate types, linking, data
-- `crate-type = ["cdylib", "rlib"]` when the same binding crate needs a loadable `.node`/`.so` and Rust consumers or integration tests. Keep only the crate types the package actually uses; Octocode's current native runtime is an `rlib`, with a separate binary host.
-- Wrapping C (tree-sitter grammars, compression, crypto): isolate the `-sys` / `cc`-built crate so a Rust edit doesn't retrigger the C compile; feature-gate optional grammars/backends.
-- Generate C headers with `cbindgen` when exposing a C ABI.
-- Prefer copying owned data (`String`, `Vec<u8>`, `Buffer`) over lending pointers. A borrowed slice that outlives the Rust call is a use-after-free.
+A policy limit must name the refused or unread scope. A bounded read that stops before EOF is not a complete file. Avoid unchecked narrowing casts and do not rely on debug overflow behavior in release.
+
+## FFI contracts
+
+- Choose and document the ABI, representation, ownership transfer, allocator/free pairing, pointer validity and callback/thread lifetime. `repr(C)` does not make Rust-owned containers or arbitrary Rust types a stable foreign API.
+- The allocator/library that creates a resource must release it through the matching API. Reconstruct `Box`/`CString` from raw pointers only with the exact ownership preconditions and at most once.
+- Keep a borrowed pointer valid for the full foreign use; account for callbacks after the original call and shutdown races. Copying into owned data is often the simpler boundary.
+- A Rust panic reaching a non-unwinding ABI aborts; foreign unwinding entering Rust there is undefined behavior. `C-unwind` permits unwinding only with a compatible contract. `catch_unwind` does not catch aborts and is not general foreign-exception recovery.
+- When containment is required, catch only within an established boundary, convert to a defined failure and avoid reusing potentially invalid state. Respect the existing panic strategy; `panic = "abort"` terminates the process, including a hosting application.
+- Verify exported signatures and the built artifact from a real consumer. For napi-rs-specific details, read [napi](napi.md).
+
+## Dependency execution
+
+A build script or proc macro executes during the build. Inspect new build-time dependencies, native libraries and sources with that in mind. Use the repository's advisory/license/source checks; an unsafe count, popularity ranking or successful advisory scan does not establish safety.
+
+Sources: [Reference: undefined behavior](https://doc.rust-lang.org/reference/behavior-considered-undefined.html), [explicit unsafe blocks](https://doc.rust-lang.org/edition-guide/rust-2024/unsafe-op-in-unsafe-fn.html), [Miri limitations](https://github.com/rust-lang/miri/blob/master/README.md), [FFI unwinding](https://doc.rust-lang.org/nomicon/ffi.html#ffi-and-unwinding), [regex untrusted inputs](https://docs.rs/regex/latest/regex/#untrusted-inputs).

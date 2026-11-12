@@ -106,7 +106,7 @@ fn only_a_site_that_names_the_anchor_is_a_use_left_out() {
             .find(|warning| warning.contains(text))
             .unwrap_or_else(|| panic!("no warning with {text}: {row}"))
     };
-    let left_out = naming("leaves out 1 code use(s) of `target`");
+    let left_out = naming("leaves out 1 line where `target` names the anchor as a use");
     assert!(left_out.contains("g000.ts:5"), "{row}");
     assert!(!left_out.contains("g000.ts:4"), "{row}");
     let unverified = naming("unverified");

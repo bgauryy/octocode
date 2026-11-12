@@ -81,6 +81,9 @@ pub(super) fn detect_reachability(c: &mut Ctx) {
             json!({"files": files, "entrypoints": entries.len()}),
         );
     }
+    // One inferred entrypoint is more likely an incomplete entry set (a
+    // second binary, a worker, a plugin missed), so a file it does not reach
+    // is less likely dead; the evidence states the count.
     let entry_quality = if entries.len() >= 2 { 0.7 } else { 0.5 };
     let rules = v.entries.values().copied().collect::<BTreeSet<_>>();
     let scoped = v
@@ -131,31 +134,79 @@ pub(super) fn detect_reachability(c: &mut Ctx) {
                 confidence: entry_quality
                     * if orphan { 1.0 } else { 0.85 }
                     * if templates { 0.5 } else { 1.0 },
-                impact: 0.2,
+                impact: v.impact(file),
                 evidence: json!({"orphan": orphan, "entrypoints": entries.len(), "entryRules": rules}),
                 controls,
             },
         );
     }
+    let classes = if test_only.is_empty() {
+        Vec::new()
+    } else {
+        non_production_reach(v)
+    };
     for file in test_only {
         let key = v.key(file).to_owned();
+        let reached_by = classes
+            .iter()
+            .filter(|(_, _, reach)| reach[file as usize])
+            .collect::<Vec<_>>();
         push(
             &mut c.findings,
             Draft {
                 detector: "test-only",
                 subject: key.clone(),
                 id_parts: &[],
-                title: "Production file used only by tests or support code".into(),
+                title: format!(
+                    "Production file used only by {}",
+                    reached_by
+                        .iter()
+                        .map(|(_, who, _)| *who)
+                        .collect::<Vec<_>>()
+                        .join(" and ")
+                ),
                 severity: 0.45,
                 confidence: entry_quality,
-                impact: 0.2,
-                evidence: json!({"reachedFromTests": true, "reachedFromEntrypoints": false}),
+                impact: v.impact(file),
+                evidence: json!({
+                    "reachedBy": reached_by.iter().map(|(class, ..)| *class).collect::<Vec<_>>(),
+                }),
                 controls: vec![
                     "tests, configs and support code (examples, benches) treated as a separate entry class",
                 ],
             },
         );
     }
+}
+
+/// Per class of non-production code (tests, configs, support code), its
+/// name, who it is in a title, and the nodes its own walk reaches: a
+/// `test-only` file names the classes that reach it. Tests seed from test
+/// files and test functions inside production files (Rust `mod tests`,
+/// pytest functions).
+fn non_production_reach(v: &View) -> Vec<(&'static str, &'static str, Vec<bool>)> {
+    [
+        ("test", "tests", ROLE_TEST),
+        ("config", "config files", ROLE_CONFIG),
+        ("support", "support code", ROLE_SUPPORT),
+    ]
+    .into_iter()
+    .map(|(class, who, role)| {
+        let mut seeds = v
+            .files
+            .iter()
+            .copied()
+            .filter(|f| v.flags(*f) & role != 0)
+            .collect::<Vec<_>>();
+        if role == ROLE_TEST {
+            seeds.extend(v.t.node_ids().filter(|id| {
+                let node = &v.t.nodes[*id as usize];
+                node.kind == NodeKind::Symbol && node.flags & FLAG_TEST != 0
+            }));
+        }
+        (class, who, v.reach(&seeds, true))
+    })
+    .collect()
 }
 
 /// The public API, per exported name: the files whose every export is
@@ -312,32 +363,87 @@ pub(super) fn detect_unused_exports(c: &mut Ctx) {
     for ((file, tested), exports) in by_file {
         let names = exports.iter().map(|(name, ..)| *name).collect::<Vec<_>>();
         let (_, line, _) = exports[0];
-        let key = v.key(file).to_owned();
-        let lazy = dynamic.contains(&file);
-        push(
+        push_unused_export(
             &mut c.findings,
-            Draft {
-                detector: "unused-export",
-                subject: key.clone(),
-                id_parts: &[&names.join(",")],
-                title: format!(
-                    "{} export(s) with no importer outside the file{}",
-                    names.len(),
-                    if tested { " except tests" } else { "" }
-                ),
-                severity: 0.4 * magnitude(names.len()),
-                confidence: if lazy { 0.3 } else { 0.6 },
-                impact: v.impact(file),
-                evidence: json!({"exports": names, "exportLine": line, "count": names.len(), "dynamicallyImported": lazy}),
-                controls: vec![
-                    "entry files and the names they re-export (all of an `export *`) treated as public API",
-                    "namespace-imported files skipped",
-                    "only languages with named-import linking (JS/TS/Python)",
-                ],
-            },
+            v,
+            file,
+            &names,
+            line,
+            dynamic.contains(&file),
+            tested,
         );
         tier_tested(&mut c.findings, tested);
     }
+}
+
+/// The `unused-export` finding for `names` of `file`, the first declared on
+/// `line`; `lazy` when the file is also imported dynamically.
+fn push_unused_export(
+    out: &mut Vec<Finding>,
+    v: &View,
+    file: u32,
+    names: &[&str],
+    line: u32,
+    lazy: bool,
+    tested: bool,
+) {
+    push(
+        out,
+        Draft {
+            detector: "unused-export",
+            subject: v.key(file).to_owned(),
+            id_parts: &[&names.join(",")],
+            title: format!(
+                "{} export(s) with no importer outside the file{}",
+                names.len(),
+                if tested { " except tests" } else { "" }
+            ),
+            severity: 0.4 * magnitude(names.len()),
+            confidence: if lazy { 0.3 } else { 0.6 },
+            impact: v.impact(file),
+            evidence: json!({"exports": names, "exportLine": line, "count": names.len(), "dynamicallyImported": lazy}),
+            controls: vec![
+                "entry files and the names they re-export (all of an `export *`) treated as public API",
+                "namespace-imported files skipped",
+                "only languages with named-import linking (JS/TS/Python)",
+            ],
+        },
+    );
+}
+
+/// An untested `unused-export` finding narrowed to `names` (some of its
+/// exports, in its order): its own id, count, severity and first line.
+/// `None` when `names` is empty or its subject is not in the graph.
+pub(super) fn regroup_unused_export(
+    v: &View,
+    finding: &Finding,
+    names: &[&String],
+) -> Option<Finding> {
+    let file = v.t.by_key(&finding.subject)?;
+    let line =
+        v.t.node_ids()
+            .zip(&v.t.nodes)
+            .filter(|(_, node)| {
+                node.kind == NodeKind::Symbol
+                    && node.file == file
+                    && node.parent == NONE
+                    && node.flags & FLAG_EXPORTED != 0
+                    && names.iter().any(|name| v.t.str(node.name) == name.as_str())
+            })
+            .map(|(_, node)| node.line)
+            .min()?;
+    let names = names.iter().map(|name| name.as_str()).collect::<Vec<_>>();
+    let mut out = Vec::new();
+    push_unused_export(
+        &mut out,
+        v,
+        file,
+        &names,
+        line,
+        finding.evidence["dynamicallyImported"] == true,
+        false,
+    );
+    out.pop()
 }
 
 /// Who uses an export from another file.

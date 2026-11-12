@@ -2,15 +2,44 @@
 
 use super::*;
 
+/// How a path changed since a revision.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum Change {
+    Added,
+    Deleted,
+    Modified,
+}
+
+impl Change {
+    /// Git's `--name-status` letter as a change: a rename is a deletion and
+    /// an addition (`--no-renames`); a type change or an unmerged path is a
+    /// modification.
+    fn of_status(status: &str) -> Self {
+        match status.as_bytes().first() {
+            Some(b'A') => Self::Added,
+            Some(b'D') => Self::Deleted,
+            _ => Self::Modified,
+        }
+    }
+
+    pub(super) fn as_str(self) -> &'static str {
+        match self {
+            Self::Added => "added",
+            Self::Deleted => "deleted",
+            Self::Modified => "modified",
+        }
+    }
+}
+
 /// Root-relative files changed since `rev` (committed, staged, unstaged) plus
-/// untracked files, via git. Only the request's cancellation bounds the runs:
-/// a large repository or a cold filesystem is valid work, and the output is
-/// read whole.
+/// untracked files (added), each with how it changed, in path order, via git.
+/// Only the request's cancellation bounds the runs: a large repository or a
+/// cold filesystem is valid work, and the output is read whole.
 pub(super) fn git_changed(
     root: &Path,
     rev: &str,
     cancel: &dyn crate::execution::cancel::CancellationCheck,
-) -> Result<Vec<String>, GraphOutput> {
+) -> Result<Vec<(String, Change)>, GraphOutput> {
     if rev.starts_with('-') {
         return Err(GraphOutput::error(
             ErrorCode::GitFailed,
@@ -18,49 +47,76 @@ pub(super) fn git_changed(
         ));
     }
     let run = |args: &[&str]| -> Result<Vec<String>, GraphOutput> {
-        let mut command = std::process::Command::new("git");
-        // The repository's own config must not run programs: an fsmonitor
-        // hook executes on every index read. No prompts, no index rewrites.
-        command
-            .arg("-C")
-            .arg(root)
-            .args(["-c", "core.fsmonitor=false"])
-            .args(args)
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .env("GIT_OPTIONAL_LOCKS", "0");
-        let output = crate::tools::bounded_process::run_bounded(
-            command,
-            "git",
-            std::time::Duration::MAX,
-            usize::MAX,
-            cancel,
-        )
-        .map_err(|error| {
-            use crate::tools::bounded_process::BoundedError;
-            match error {
-                BoundedError::Cancelled(message) => {
-                    GraphOutput::error(ErrorCode::Cancelled, message)
-                }
-                BoundedError::TimedOut(message) | BoundedError::Failed(message) => {
-                    GraphOutput::error(ErrorCode::GitFailed, message)
-                }
-            }
-        })?;
-        if !output.status.success() {
-            return Err(GraphOutput::error(
-                ErrorCode::GitFailed,
-                String::from_utf8_lossy(&output.stderr).trim().to_owned(),
-            ));
-        }
-        Ok(String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .filter(|line| !line.is_empty())
+        // NUL-separated (`-z`): paths arrive unquoted, whatever they hold.
+        Ok(String::from_utf8_lossy(&git(root, args, cancel)?)
+            .split('\0')
+            .filter(|field| !field.is_empty())
             .map(str::to_owned)
-            .collect())
+            .collect::<Vec<_>>())
     };
-    let mut files = run(&["diff", "--name-only", "--relative", rev, "--"])?;
-    files.extend(run(&["ls-files", "--others", "--exclude-standard"])?);
+    let diff = run(&[
+        "diff",
+        "--name-status",
+        "-z",
+        "--no-renames",
+        "--relative",
+        rev,
+        "--",
+    ])?;
+    let mut files = diff
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|[status, path]| (path.clone(), Change::of_status(status)))
+        .collect::<Vec<_>>();
+    files.extend(
+        run(&["ls-files", "-z", "--others", "--exclude-standard"])?
+            .into_iter()
+            .map(|path| (path, Change::Added)),
+    );
     files.sort();
-    files.dedup();
+    files.dedup_by(|a, b| a.0 == b.0);
     Ok(files)
+}
+
+/// The standard output of `git -C root <args>`, read whole. The repository's
+/// own config must not run programs: an fsmonitor hook executes on every
+/// index read. No prompts, no index rewrites. Only the request's
+/// cancellation bounds the run.
+pub(in super::super) fn git(
+    root: &Path,
+    args: &[&str],
+    cancel: &dyn crate::execution::cancel::CancellationCheck,
+) -> Result<Vec<u8>, GraphOutput> {
+    let mut command = std::process::Command::new("git");
+    command
+        .arg("-C")
+        .arg(root)
+        .args(["-c", "core.fsmonitor=false"])
+        .args(args)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_OPTIONAL_LOCKS", "0");
+    let output = crate::tools::bounded_process::run_bounded(
+        command,
+        "git",
+        std::time::Duration::MAX,
+        usize::MAX,
+        cancel,
+    )
+    .map_err(|error| {
+        use crate::tools::bounded_process::BoundedError;
+        match error {
+            BoundedError::Cancelled(message) => GraphOutput::error(ErrorCode::Cancelled, message),
+            BoundedError::TimedOut(message) | BoundedError::Failed(message) => {
+                GraphOutput::error(ErrorCode::GitFailed, message)
+            }
+        }
+    })?;
+    if !output.status.success() {
+        return Err(GraphOutput::error(
+            ErrorCode::GitFailed,
+            String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+        ));
+    }
+    Ok(output.stdout)
 }

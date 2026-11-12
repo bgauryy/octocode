@@ -66,8 +66,24 @@ pub(super) fn stamp(row: &mut Value) {
 /// decides a next step only when it deviates (another level, an
 /// unavailable server, a degraded `source`, diagnostics that are errors,
 /// truncated or unavailable), so every such row keeps it whole; so does
-/// every error row.
+/// every error row. The compilation context (C family) explains only a gap:
+/// a row that is neither partial nor empty drops it first.
 pub(super) fn omit_healthy_receipt(row: &mut Value) {
+    let status = row.get("status").and_then(Value::as_str);
+    let gap = row.get("isPartial").and_then(Value::as_bool) == Some(true)
+        || matches!(status, Some("empty" | "error"));
+    if !gap
+        && let Some(context) = row
+            .pointer_mut("/lsp/analysisContext")
+            .and_then(Value::as_object_mut)
+    {
+        context.shift_remove("compilation");
+        if context.is_empty()
+            && let Some(lsp) = row.get_mut("lsp").and_then(Value::as_object_mut)
+        {
+            lsp.shift_remove("analysisContext");
+        }
+    }
     // An error row's `serverAvailable` says whether its server would launch.
     let healthy = row.get("status").and_then(Value::as_str) != Some("error")
         && row

@@ -154,8 +154,8 @@ pub(in super::super) fn flag_answer_gaps(
             row,
             crate::response::paging::PartialReason::ServerUnanswered,
             &[format!(
-                "The server's answer leaves out {} code {kind}(s) of `{name}` in files it answers: {}. The text lead reads them.",
-                left_out.len(),
+                "The server's answer leaves out {} where `{name}` names the anchor as a {kind}, in files it answers: {}. The text lead reads them.",
+                octocode_engine::text::counted(left_out.len(), "line", "lines"),
                 left_out.join(", ")
             )],
         );
@@ -165,8 +165,8 @@ pub(in super::super) fn flag_answer_gaps(
         crate::response::paging::push_warnings(
             row,
             [format!(
-                "{} line(s) in files the answer covers spell `{name}` in code and are not in it: {}. The server did not say what they name, so they are unverified (another symbol of that name, or code it does not analyze), not missing {kind}s. The text lead reads them.",
-                unverified.len(),
+                "{} in files the answer covers spell `{name}` in code and are not in it: {}. The server did not say what they name, so they are unverified (another symbol of that name, or code it does not analyze), not missing {kind}s. The text lead reads them.",
+                octocode_engine::text::counted(unverified.len(), "line", "lines"),
                 unverified.join(", ")
             )],
         );

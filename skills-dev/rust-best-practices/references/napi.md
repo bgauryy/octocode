@@ -1,75 +1,33 @@
-Load when you type `#[napi]` signatures, read a generated `.d.ts`, debug a JS↔Rust value mismatch, lay out a binding crate, or ship a `.node` via per-platform npm packages. Why: the generated types are the contract JS sees, and a wrong mapping fails at runtime, not compile time. Sources: napi-rs `PRIMITIVE_TYPES`/`KNOWN_TYPES`, `@napi-rs/cli`, `napi-rs/package-template`, `oxc/napi/parser`. Panics, threads, and boundary errors: `references/safety-and-ffi.md`.
+# napi-rs boundaries
 
-# napi-rs: types, binding crate, per-platform packages
+Load only for a project that actually uses napi-rs. Inspect its `Cargo.lock`, Cargo features, `napi`/`napi-derive` versions, CLI version, Node-API baseline and supported Node/platform matrix. Octocode's current native binary does not require this branch.
 
-For napi-rs projects; not used in this repo (no napi crates in `packages/octocode-native`).
+## Verify the generated interface
 
-## Types: scalars
-| Rust | TS | Watch |
-|---|---|---|
-| `u8 u16 u32 i8 i16 i32 f32 f64` | `number` | `u32`/`i32`/`f64` are the safe defaults |
-| `i64` | `number` | lossy beyond ±2^53; counts/timestamps only |
-| `u64 usize isize u128 i128`, `BigInt` | `bigint` | **`usize` in a signature forces `bigint` on JS**: expose `u32`/`f64`, convert inside |
-| `bool` | `boolean` | |
-| `String`, `&str`, `char`, `PathBuf`, `OsString` | `string` | copies; `Utf16String`/`Latin1String` skip re-encoding |
-| `()` | `undefined` | |
-| `serde_json::Value` (`serde-json` feature) | `any` | escape hatch; prefer typed structs |
-
-## Types: containers & absence
-| Rust | TS |
+| Boundary | Required evidence |
 |---|---|
-| `Option<T>` argument / return / `#[napi(object)]` field | `T \| undefined \| null` / `T \| null` / `field?: T` |
-| `Vec<T>`; `HashMap`/`BTreeMap`/`IndexMap`; `HashSet`/`BTreeSet` | `Array<T>` (copied per element); `Record<K, V>`; `Set<T>` |
-| `Either<A, B>` … `Either26` | `A \| B …` |
-| `Result<T>` (return) | `T`; `Err` throws an `Error` |
-| `AsyncTask<T>`, `async fn -> T`, `Promise<T>` | `Promise<T>` |
-| `Buffer`, `Uint8Array`, `Float64Array`… | matching typed array (no per-element conversion) |
-| `External<T>` | `ExternalObject<T>`, an opaque Rust handle |
-| `Function`/`ThreadsafeFunction`; `Date` (and `chrono` types) | `(args) => R`; `Date` |
+| Rust to JS types | Generate declarations with the project's pinned toolchain and inspect the resulting `.d.ts`; validate behavior from JS as well. |
+| Integers and sizes | Check the locked version's number/BigInt conversion for each exact Rust type. Test safe-integer edges, sign, range and coercion; a TypeScript declaration is not runtime validation. |
+| `Option`, maps, enums and typed arrays | Check undefined/null/omitted-field behavior, keys, discriminants, copying and ownership. Do not infer a mapping from a similar Rust type. |
+| Error channel | Preserve useful core failure reasons through the established N-API error mapping; test throws and Promise rejection from JS. |
+| DTO versus native object | Use small by-value data for transfer or an owned native object for retained state according to caller needs; measure repeated boundary conversion. |
 
-## Types: structs & enums
-- `#[napi(object)] struct` → TS `interface`, converted **by value** on every crossing: small DTOs only.
-- `#[napi] struct` + `#[napi] impl` → TS `class`, data stays in Rust: stateful or large things (`#[napi(constructor)]`/`#[napi(factory)]`).
-- Fieldless `#[napi] enum` → numeric TS `enum`; `#[napi(string_enum)]` → string literals (`string_enum = "lowercase"`, per-variant `#[napi(value = "…")]`).
-- Enums **with data** → discriminated union: `#[napi(discriminant = "type")] enum Shape { Circle { r: f64 } }` → `{ type: 'Circle', r: number }`; use it instead of `Option`-soup objects.
-- `#[napi(transparent)] struct Id(u32)` exposes the inner type. Rename with `js_name`; fields become camelCase.
+Keep generated declarations/loaders derived from their owning declarations. Use supported custom type annotations only when runtime behavior matches them; do not maintain a separate handwritten mirror that can drift.
 
-## Own the `.d.ts` (generated, never mirrored)
-- The generated `.d.ts` is the TypeScript surface derived from binding declarations; runtime validation still decides accepted JS values. Add helper types via `napi.dtsHeaderFile` (oxc: `src-js/header.d.ts`) or `ts_args_type` / `ts_return_type` / `ts_type`, never a hand mirror.
-- Type the error channel, not `Promise<unknown>` (rolldown `BindingResult<T>`). An idiomatic `src/index.ts` imports types *from* the binding.
-- Drift guard: commit the generated `.d.ts`/loader, regenerate in CI, `git diff --exit-code`.
-- Distinguish a binding's TypeScript surface from a tool's authored contract. If a project uses generated tool types, keep binding declarations aligned with that owner. Octocode currently uses a native CLI/MCP binary rather than a N-API adapter; its contract flow is in `references/parsing-and-codegen.md`.
-- `#[napi(strict)]` throws on wrong argument types; still validate NaN, negatives, and > u32 for sizes or indices.
-- Dual-package hazard: oxc/rolldown ship ESM-only; a kept `require` path re-exports ESM state so the `.node` loads once.
+## Execution and lifetime
 
-## Binding crate
-- `Cargo.toml` (crate type: `references/safety-and-ffi.md`): `[lib] test = false, doctest = false` (oxc `napi/parser`), `napi`/`napi-derive`, `[build-dependencies] napi-build`, `build.rs` → `napi_build::setup()`.
-- Allocator: gate `mimalloc-safe` behind a feature with `local_dynamic_tls` on Linux; a `dlopen`ed `.node` can't use initial-exec TLS.
-- **Batch across the boundary**: one result per job; for big trees return a JSON string or a `Buffer` and decode in JS.
-- Keep test stubs such as `napi/noop` out of shipped addons. Verify release feature selection against the built artifact.
-- Stage a changed addon beside its destination and replace it atomically. In-place overwrite can break a process with the old inode mapped. Smoke-load the final addon in a subprocess with a deadline; a successful compile does not prove Node can load it. Sign the staged artifact before replacement where the target platform requires signing.
+- Use the binding's supported async/task mechanisms to avoid blocking the JS event loop. An `async fn` body can still run blocking CPU work; select a finite blocking job or owned CPU worker when needed.
+- Inspect which executor/pool each API uses. Do not assume every binding task shares Tokio or libuv, or that cancelling a Promise stops native work.
+- Keep environment-bound JS values on their permitted thread/lifetime. Use the binding's supported owned/thread-safe transfer API for cross-thread callbacks; account for callbacks during teardown.
+- Avoid flooding pools or retaining unbounded pending work. Follow the application's admission policy and test shutdown with native jobs still running.
+- Follow [FFI panic and allocator rules](safety-and-ffi.md). An abort in a loaded addon terminates the host; panic containment must match the binding version and project policy.
 
-## Per-platform package pattern (`@napi-rs/cli` v3)
-Root `package.json`:
-```jsonc
-{ "name": "my-lib", "main": "index.js", "types": "index.d.ts",
-  "files": ["index.js", "index.d.ts"],
-  "napi": { "binaryName": "my-lib", "packageName": "@my-lib/binding",   // optional scope for platform pkgs
-            "targets": ["x86_64-apple-darwin", "aarch64-apple-darwin", "x86_64-unknown-linux-gnu",
-                        "x86_64-unknown-linux-musl", "aarch64-unknown-linux-gnu", "x86_64-pc-windows-msvc"] },
-  "scripts": { "build": "napi build --platform --release", "artifacts": "napi artifacts",
-               "prepublishOnly": "napi prepublish -t npm" } }
-```
-`napi create-npm-dirs` makes each `npm/<platform-arch-abi>/package.json`: `name: <pkg>-<platform>-<arch>[-abi]`, `os`, `cpu`, **`libc` on Linux**, the one `<binaryName>.<triple>.node`, copied `engines`/`license`/`repository`/`publishConfig`.
-- **`napi prepublish` writes `optionalDependencies`** as exact pins; commit none, since hand-kept pins drift.
-- Keep the generated `index.js` loader (local `.node` → `require('<pkg>-<triple>')`, musl detection, `NAPI_RS_NATIVE_LIBRARY_PATH`, WASI fallback); wrap it in `src/index.ts`.
-- **Missing `libc`** makes pnpm, Yarn Berry, and recent npm install both gnu and musl packages.
-- A CLI executable shares the platform package (esbuild/biome), resolved by `require.resolve('<pkg>-<triple>/<bin>')`; check the exec bit survives `npm pack`.
-- A foreign-OS lockfile or `--omit=optional` drops the platform package; the loader error must say "reinstall without --omit=optional / delete lockfile".
+## Packaging and verification
 
-## Release pipeline
-- `napi create-npm-dirs` → `napi artifacts` → `napi prepublish -t npm`; no hand-written copy/version-sync scripts.
-- Gate: `publint`, `npm pack --dry-run` size, and **load-test each `.node` on its target** (QEMU, alpine for musl); a wrong-glibc binary fails only at `require()`.
-- Publish platform packages first and wait until npm serves them (malware scan: up to ~90 min; rolldown `wait-for-npm-packages`). Publish only when local `package.json` differs from the registry's latest.
-- Provenance: `permissions: id-token: write` + `npm publish --provenance`.
-- Matrix: zig cross-compile (`napi build --use-napi-cross` / `-x`) or digest-pinned napi-rs images cover many Linux targets from one runner; per-target runners suit a small set. Add `wasm32-wasip1-threads` only for browser/edge consumers.
+Use the existing binding template/CLI and package generation. Verify target, architecture, ABI, libc/Node-API compatibility, loader resolution, optional dependencies and the final archive's contents. A successful Rust compile is not proof that Node can load the addon.
+
+Stage replacement artifacts according to the platform's loading/signing rules; do not overwrite an in-use mapped artifact in place. Load-test the final artifact in a child process on each supported environment required by the task. Preserve the owner's test configuration rather than copying another addon's disabled test/doctest settings.
+
+Release metadata/provenance and publishing follow the project's release policy. Do not delete a user's lockfile or add a fallback loader merely to hide a missing platform artifact.
+
+Sources: [napi-rs values](https://napi.rs/docs/concepts/values), [async functions](https://napi.rs/docs/concepts/async-fn), [thread-safe functions](https://napi.rs/docs/concepts/threadsafe-function), [napi-rs source](https://github.com/napi-rs/napi-rs). The pinned version and generated artifact decide applicability; website examples may describe a newer release.

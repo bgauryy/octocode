@@ -157,6 +157,30 @@ pub struct StructuralSearchFilesOptions {
     /// `max_files`.
     pub skip_files: Option<u32>,
     pub max_file_bytes: Option<u32>,
+    /// The text each source is matched as, in place of its admitted text
+    /// ([`TextJudge`]); `None` matches every source as admitted.
+    pub judge: Option<TextJudge>,
+}
+
+/// What a structural search hides of a source whose admitted text is
+/// `text`: each byte range of `text` its judge hides, with the text a read
+/// shows there (empty: nothing hidden). The source is matched as the text a
+/// read shows ([`crate::text::analysis::AdmittedSource::judged`]), so a
+/// node's lines, columns and byte ranges count that text, as a read of it
+/// does, and a match, a count, a `regex`, `range`, `follows` or `precedes`
+/// decision, a digest or a byte range never reads a byte a read withholds,
+/// nor its length.
+pub type JudgeText =
+    dyn Fn(&std::path::Path, &str) -> Vec<(std::ops::Range<usize>, String)> + Send + Sync;
+
+/// A shared [`JudgeText`].
+#[derive(Clone)]
+pub struct TextJudge(pub Arc<JudgeText>);
+
+impl std::fmt::Debug for TextJudge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("TextJudge")
+    }
 }
 
 /// A macro body whose re-parse could not read a node the query matched

@@ -79,8 +79,15 @@ fn stale_reports_sources_added_since_ingest() {
         "{}",
         out.value
     );
+    // The lead names the snapshot's own scope, as graphBuild takes it: the
+    // workspace-relative root every row of the answer is stated from.
+    let path = &reingest["input"]["queries"][0]["path"];
+    assert_eq!(path, &out.value["graph"]["root"], "{}", out.value);
     assert!(
-        reingest["input"]["queries"][0]["path"].is_string(),
+        dir.0
+            .as_path()
+            .join(path.as_str().unwrap_or_default())
+            .is_dir(),
         "{reingest}"
     );
     assert_fresh_build(&ingest_fixture(dir.0.as_path(), None));

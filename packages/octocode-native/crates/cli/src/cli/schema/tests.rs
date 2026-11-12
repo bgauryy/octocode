@@ -366,3 +366,32 @@ fn a_tool_the_runtime_does_not_list_is_disabled() {
     let view = tool_view(&m, "localSearch", Some("variants"), None).expect("variants");
     assert_eq!(view["availability"]["enabled"], false);
 }
+
+/// The CLI states the instructions once, in the full catalog: no catalog row
+/// and no per-tool view (`schema <tool>`, `--view query`, `--view variants`)
+/// repeats one of their statements.
+#[test]
+fn cli_views_state_the_instructions_once() {
+    use super::{instruction_sentences, strings_of};
+    let machine = machine(&[]);
+    let full = catalog(&machine, Some("full")).expect("catalog");
+    let instructions = full["instructions"].as_str().expect("instructions");
+    let sentences = instruction_sentences(instructions);
+    assert!(sentences.len() > 20, "{sentences:?}");
+    let mut rest = full.clone();
+    rest.as_object_mut().expect("catalog").remove("instructions");
+    let mut exposed = vec![("catalog".to_owned(), strings_of(&rest))];
+    for tool in full["tools"].as_array().expect("tools") {
+        let name = tool["name"].as_str().expect("name");
+        for view in [None, Some("query"), Some("variants")] {
+            let value = tool_view(&machine, name, view, None).expect("tool view");
+            exposed.push((format!("{name} {view:?}"), strings_of(&value)));
+        }
+    }
+    for sentence in &sentences {
+        assert_eq!(instructions.matches(sentence).count(), 1, "stated twice: {sentence}");
+        for (place, text) in &exposed {
+            assert!(!text.contains(sentence), "{place} repeats: {sentence}");
+        }
+    }
+}

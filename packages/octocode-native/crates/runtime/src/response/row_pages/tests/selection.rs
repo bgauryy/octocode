@@ -87,7 +87,9 @@ fn budget_selection_preserves_every_row_across_varied_shapes() {
                 let mut continued = row.pointer("/rowPart/text").is_some();
                 for file in row["data"]["files"].as_array().expect("files") {
                     assert_eq!(file["path"], "a");
-                    for item in file["matches"].as_array().expect("matches") {
+                    // A part whose file's matches another part delivers
+                    // omits the list rather than show it empty.
+                    for item in file["matches"].as_array().into_iter().flatten() {
                         if std::mem::take(&mut continued) {
                             let last: &mut Value = seen[index].last_mut().expect("a first part");
                             let text = format!(

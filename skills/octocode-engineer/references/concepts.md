@@ -2,7 +2,32 @@ Load when naming what code is (a style, pattern, role, transport, or mechanism),
 
 # Architecture concepts
 
-A name is a hypothesis about intent. `OrderService` or a `facade/` folder is declared intent; the mechanism the code implements is observed. Use this reference to name what you see, to pick the rival explanation to rule out, and to choose the evidence that separates them. Every section answers three questions: which responsibility belongs where, which dependencies are permitted, and which complexity the requirements justify. A pattern present, absent, or misnamed is no finding by itself ([claims](../SKILL.md#when-making-a-claim)); a consequence is.
+A name is a hypothesis about intent. `OrderService` or a `facade/` folder is declared intent; the mechanism the code implements is observed. Use this reference to name what you see, to pick the rival explanation to rule out, and to choose the evidence that separates them. Every section answers three questions: which responsibility belongs where, which dependencies are permitted, and which complexity the requirements justify.
+
+## Contents
+
+- [Use a concept in a review](#use-a-concept-in-a-review)
+- [Architecture styles](#architecture-styles)
+- [Dependencies and coupling](#dependencies-and-coupling)
+- [Architecture smells](#architecture-smells)
+- [Boundaries and contracts](#boundaries-and-contracts)
+- [Object-oriented concepts and principles](#object-oriented-concepts-and-principles)
+- [Design patterns (Gang of Four)](#design-patterns-gang-of-four)
+- [Application components and roles](#application-components-and-roles)
+- [Communication](#communication)
+- [Messaging and distributed-system patterns](#messaging-and-distributed-system-patterns)
+- [Dependency injection and lifetimes](#dependency-injection-and-lifetimes)
+- [Concurrency and parallelism](#concurrency-and-parallelism)
+- [Data and persistence patterns](#data-and-persistence-patterns)
+- [Domain-driven design](#domain-driven-design)
+- [Runtime mechanics and resilience](#runtime-mechanics-and-resilience)
+- [Migration and refactoring vocabulary](#migration-and-refactoring-vocabulary)
+- [Look-alike terms](#look-alike-terms)
+- [Decision guide](#decision-guide)
+- [Debugging and observability concepts](#debugging-and-observability-concepts)
+- [Bug categories](#bug-categories)
+- [Testing concepts](#testing-concepts)
+- [Repository layouts](#repository-layouts)
 
 ## Use a concept in a review
 
@@ -11,7 +36,7 @@ A name is a hypothesis about intent. `OrderService` or a `facade/` folder is dec
 | Name | Match observed participants, edges, owned data, and lifecycle to one row; label the match `declared` (name, comment, doc) or `observed` (code). |
 | Rival | Rule out the [look-alike](#look-alike-terms) with a stronger claim on the same surface before naming. |
 | Evidence | Styles: dependency direction and deployment units. Patterns: participants and the axis that varies. Roles: owned data, callers, and effects. Transports: framing, delivery, and failure semantics. |
-| Judge | Report a misapplied or missing concept only with its consequence (the quality attribute, blast radius, or failure mode it costs), proven per the [hypothesis test](../SKILL.md#steps). |
+| Judge | Report a misapplied or missing concept only with its consequence (the quality attribute, blast radius, or failure mode it costs), proven per the [hypothesis test](review-method.md#steps). |
 
 ## Architecture styles
 
@@ -213,7 +238,6 @@ Recognize and verify:
 
 - A pattern is its participants plus the axis that varies: strategy varies the algorithm, state varies with transitions, template method fixes the skeleton. Same class shapes, different reasons to change.
 - A class named for a pattern that lacks its participants (a `Factory` that constructs one fixed type, a `Singleton` that tests reset) is declared, not observed.
-- Patterns are tools, not findings. Report one only when its absence or misuse costs a named quality attribute.
 
 ## Application components and roles
 
@@ -276,7 +300,7 @@ Delivery guarantees: at-most-once (fire and forget), at-least-once (retry until 
 | Electron IPC | Messages between main and renderer processes | Electron desktop applications |
 | stdio (JSON-RPC, MCP) | Framed messages over a child process's standard streams | Tool servers, language servers, agent protocols |
 
-Semaphores, mutexes, and condition variables coordinate access; they transport nothing and are listed under [concurrency](#concurrency-and-parallelism).
+Semaphores, mutexes, and condition variables coordinate access; they transport nothing and are defined under [concurrency](concurrency.md#primitives-and-patterns).
 
 ### Network and distributed communication
 
@@ -313,28 +337,21 @@ Semaphores, mutexes, and condition variables coordinate access; they transport n
 | Competing consumers | Several consumers read one queue | Horizontal scaling of work |
 | Claim check | Store a large payload and pass a reference | Large messages |
 | Dead letter queue (DLQ) | Stores messages that cannot be processed | Recovering failed message operations |
-| Transactional outbox | Persists business data and outgoing events in one transaction | Avoiding lost events (versus dual write) |
 | Inbox | Tracks processed incoming message ids | Consumer deduplication |
 | Idempotent consumer | Safely handles duplicate deliveries | At-least-once messaging |
-| Idempotency key | Caller-supplied id that makes a retried request a no-op | Payments, retried commands |
-| Saga | Distributed workflow as local transactions with compensations | Multi-service business workflows |
 | Choreography | Services react to each other's events | Decentralized workflows |
 | Orchestration | A coordinator directs workflow steps | Explicit workflow management |
 | Message broker | Intermediary that stores and delivers messages | Distributed messaging |
-| Circuit breaker | Stops calls to a failing dependency for a period | Prevent cascading failures |
-| Retry with backoff | Retries transient failures with increasing delays and jitter | Network instability |
-| Bulkhead | Isolates resource pools or workloads | Prevent failure propagation |
-| Timeout | Bounds how long an operation may take | External calls and remote operations |
-| Rate limiting | Restricts request frequency | API protection and quotas |
 | Load balancing | Distributes traffic across instances | Scaling and availability |
 | Service discovery | Resolves available service instances | Dynamic distributed environments |
 | Sidecar | Runs supporting functionality beside an application | Proxies, telemetry, service mesh; costs resources per instance |
 | Ambassador | A proxy for outbound calls (retries, routing, credentials) | Legacy clients that cannot add resilience themselves; adds a network hop |
 | Service mesh | Sidecar proxies plus a control plane that set service-to-service traffic, identity and policy | Many services needing uniform mTLS, retries and telemetry; infrastructure complexity |
-| Leader election | Selects a coordinating node | Distributed coordination |
 | Distributed lock | Exclusive ownership across nodes | Rare shared-resource coordination |
 | Sharding | Partitions data between nodes | Large datasets and high scale |
 | Strong, eventual, causal consistency | Readers see the latest write; converge later; see writes in causal order | Pick per data item; name the window a consumer can observe |
+
+Resilience patterns (timeout, retry with backoff and jitter, circuit breaker, bulkhead, rate limiting, health checks) are defined with their watch points in [reliability and overload](systems-and-delivery.md#reliability-and-overload); saga, transactional outbox, idempotency keys and leader election in [distributed data](data-systems.md#distributed-data-and-consistency).
 
 ## Dependency injection and lifetimes
 
@@ -357,36 +374,7 @@ Constructor injection is usually clearer than service location because required 
 
 ## Concurrency and parallelism
 
-| Concept or pattern | Description | When to use |
-|---|---|---|
-| Thread | Execution sequence within a process | Concurrent or parallel execution |
-| Thread pool | Reuses worker threads | Many short tasks |
-| Process pool | Distributes work across processes | CPU-intensive workloads and isolation |
-| Async/await | Expresses asynchronous operations sequentially | I/O-bound operations |
-| Future, promise | An eventual result | Async APIs |
-| Reactive streams | Asynchronous data streams with backpressure | Continuous data |
-| Actor model | Isolated state with message-based interaction | Concurrent stateful systems |
-| Producer–consumer | Producers create work for consumers | Job pipelines |
-| Work queue | Buffers tasks for later execution | Asynchronous work distribution |
-| Worker pool | Fixed workers process queued work | Bounded parallelism |
-| Fork–join | Splits tasks and combines results | Parallel recursive computations |
-| MapReduce | Parallel transformation and aggregation | Large-scale batch processing |
-| Mutex (lock) | Serializes access to shared state; one owner releases | Protecting critical sections |
-| Read–write lock | Concurrent reads, exclusive writes | Read-heavy shared structures |
-| Semaphore | Limits concurrent access to a count of permits | Resource pools, concurrency limits |
-| Condition variable | Waits for a state change under a lock | Coordinating shared-memory consumers |
-| Atomic operations, compare-and-swap | Indivisible updates; conditional atomic update | Counters, lock-free structures, optimistic algorithms |
-| Memory barrier, happens-before | Ordering guarantees between threads | Lazy initialization, publication of shared state |
-| Thread-local storage | Per-thread state | Thread-specific contexts |
-| Immutable state | No mutation after construction | Reducing synchronization |
-| Cancellation token | Cooperative cancellation | Long-running tasks |
-| Backpressure | Slows production when consumers are overloaded | Streams and high-throughput systems |
-| Structured concurrency | Child-task lifetimes tied to a parent scope | Reliable async task management |
-| Event loop | Dispatches events and asynchronous callbacks | Node.js, GUI frameworks |
-| Reactor | Dispatches readiness events to handlers | Network servers |
-| Proactor | Dispatches completed asynchronous operations | Asynchronous I/O frameworks |
-
-Termination, races, and lock-order inversion are checked under [algorithms](checks.md#algorithms); resource lifetime under [memory and resource health](checks.md#memory-and-resource-health).
+Primitives, execution models and failure modes are owned by [concurrency](concurrency.md); look-alikes (thread, worker and process pools; mutex and semaphore; reactor and proactor) are under [look-alike terms](#look-alike-terms). Termination, races, and lock-order inversion are checked under [algorithms](checks.md#algorithms); resource lifetime under [memory and resource health](checks.md#memory-and-resource-health).
 
 ## Data and persistence patterns
 
@@ -401,19 +389,12 @@ Termination, races, and lock-order inversion are checked under [algorithms](chec
 | Query object | Encapsulates query logic | Complex reusable queries |
 | Specification | Combinable business criteria | Composable filtering and domain rules |
 | Materialized view | Stores precomputed query results | Read optimization |
-| Cache-aside | Application checks the cache, then the source, and fills the cache | Read-heavy workloads |
-| Read-through cache | The cache loads missing data | Centralized cache loading |
-| Write-through cache | Updates cache and backing store together | Simplified read consistency |
-| Write-behind cache | Defers backing-store writes | High write throughput with controlled risk |
-| Optimistic locking | Detects conflicting concurrent changes by version | Low-contention updates |
-| Pessimistic locking | Locks data before changes | Operations requiring exclusive access |
 | Database per service | Each service owns its persistence | Independent microservices |
 | Transaction script | Business operation implemented procedurally | Straightforward domain logic |
 | Domain model | Rich objects encapsulate business behavior | Complex business rules |
-| Schema migration (expand, migrate, contract) | Add the new shape, move data and readers, remove the old | Zero-downtime schema change |
 | Soft delete | Mark records deleted instead of removing them | Audit and recovery; every query must filter |
 
-CQRS and event sourcing are owned by [architecture styles](#architecture-styles). Verify a cache by its invalidation owner and lifetime ([efficiency](checks.md#efficiency)).
+CQRS and event sourcing are owned by [architecture styles](#architecture-styles); cache-aside, read-through, write-through and write-behind by [data systems](data-systems.md#read-and-write-strategies); optimistic and pessimistic locking by [concurrency](concurrency.md#synchronization-and-atomic-operations). Verify a cache by its invalidation owner and lifetime ([efficiency](checks.md#efficiency)).
 
 ## Domain-driven design
 
@@ -438,7 +419,6 @@ Application services and repositories keep their definitions under [roles](#appl
 
 | Pattern or concept | Description | When to use |
 |---|---|---|
-| Feature flags | Enable functionality conditionally | Gradual rollouts; remove after rollout |
 | Plugin system, plugin loader | Discovers and loads optional functionality | Extensible products |
 | Middleware pipeline | Ordered request processing stages | Servers, CLI tools |
 | State machine, finite state machine | Valid states and transitions | Protocols, workflows, UI flows |
@@ -451,7 +431,6 @@ Application services and repositories keep their definitions under [roles](#appl
 | Null object | Safe default behavior | Removing some null checks |
 | Result (either), option (maybe) | Explicit success or failure; explicit absence | Recoverable errors; null-safe APIs |
 | RAII, resource scope | Cleanup tied to object lifetime or a scope | Files, connections, locks |
-| Health check | Reports whether a component can operate | Monitoring and orchestration |
 | Graceful shutdown | Stop intake, drain in-flight work, release resources | Services and workers |
 
 ## Migration and refactoring vocabulary
@@ -463,8 +442,8 @@ Terms used by [change discipline](change-discipline.md#refactor), which owns the
 | Seam | A place where behavior can be changed without editing the code in place | A [characterization test](#testing-concepts) can substitute one side |
 | Strangler fig | Route traffic to new code path by path, then retire the old | Both paths measured; old path removed after consumer checks |
 | Branch by abstraction | Introduce an abstraction, move implementations behind it, swap | No duplicated callers at the end |
-| Parallel change (expand, migrate, contract) | Add the new shape, move consumers, remove the old | Persisted data and deployed versions read both shapes during migration |
-| Feature toggle | Runtime switch selecting a path | Both paths tested; toggle removed after rollout |
+| Parallel change (expand, migrate, contract) | Add the new shape, move consumers and data, remove the old; the zero-downtime schema migration | Persisted data and deployed versions read both shapes during migration |
+| Feature toggle (feature flag) | Runtime switch selecting a path, for gradual rollouts | Both paths tested; toggle removed after rollout |
 | Sprout, wrap | Add new behavior in a new unit, or around the old one | Old unit unchanged; new behavior tested at the seam |
 | Shim, compatibility layer | Adapter that keeps an old contract alive | Consumer list and retirement check; a candidate for removal once consumers moved |
 | Vertical slice | One scenario moved end to end | Scenario passes through the new path with the old removed for it |
@@ -534,7 +513,7 @@ Rule out the stronger rival on the same surface before naming ([kill the stronge
 | Coordinate concurrent writers | Optimistic locking | Pessimistic locking, under high contention |
 | Compose dependencies | Constructor injection at a composition root | Service locator |
 | Extend a product without editing the core | Plugin or microkernel with a registry | Feature flags, for temporary switches |
-| Enforce a layering rule | Build-time boundary check (a boundary test over the module tree, `cargo metadata` or `cargo deny` bans for crate edges) | A prose rule, which stays `inferred` |
+| Enforce a layering rule | Build-time boundary check ([model the wiring](analysis.md#model-the-wiring) lists the mechanisms) | A prose rule, which stays `inferred` |
 
 ## Debugging and observability concepts
 
@@ -583,7 +562,6 @@ Debugging evidence is runtime evidence; it establishes the loaded artifact and s
 | Stack overflow | Excessive recursion | Call stack |
 | Serialization bug | Incorrect data exchange | Payload inspection |
 | Integration bug | Components disagree | Contract tests, tracing |
-| Timeout | Operations exceed a deadline | Latency profiling |
 | Heisenbug | Behavior changes when observed | Low-overhead tracing, replay |
 | Regression | Previously working behavior fails | Bisection, regression tests |
 
@@ -614,184 +592,4 @@ Test doubles: dummy (passed, never used), stub (canned answers), spy (records ca
 
 ## Repository layouts
 
-A folder layout is a layering candidate, `inferred` until a build rule, lint, or package boundary enforces it ([model the wiring](analysis.md#model-the-wiring)). Verify a layout's claim with graphQuery `path` across the folders it names, and `issues` with `detectors: ["boundary-violation","dir-cycle"]`.
-
-Layered, for straightforward APIs and CRUD applications:
-
-```text
-my-app/
-├── src/
-│   ├── controllers/user.controller.ts
-│   ├── services/user.service.ts
-│   ├── repositories/user.repository.ts
-│   ├── models/user.model.ts
-│   ├── dtos/
-│   ├── middleware/
-│   ├── config/
-│   └── main.ts
-├── tests/
-└── package.json
-```
-
-Feature-based modular monolith, the default for most medium-sized projects:
-
-```text
-my-app/
-├── src/
-│   ├── modules/
-│   │   ├── users/
-│   │   │   ├── user.controller.ts
-│   │   │   ├── user.service.ts
-│   │   │   ├── user.repository.ts
-│   │   │   ├── user.model.ts
-│   │   │   └── user.test.ts
-│   │   ├── orders/
-│   │   └── payments/
-│   ├── shared/
-│   │   ├── errors/
-│   │   ├── logging/
-│   │   └── config/
-│   └── main.ts
-├── tests/
-└── package.json
-```
-
-Clean or hexagonal, for complex business logic with several infrastructure integrations. Infrastructure and presentation depend on application and domain abstractions, never the reverse:
-
-```text
-my-app/
-├── src/
-│   ├── domain/
-│   │   ├── entities/
-│   │   ├── value-objects/
-│   │   ├── services/
-│   │   └── events/
-│   ├── application/
-│   │   ├── use-cases/
-│   │   ├── ports/
-│   │   └── dtos/
-│   ├── infrastructure/
-│   │   ├── persistence/
-│   │   ├── messaging/
-│   │   └── external-apis/
-│   ├── presentation/
-│   │   ├── controllers/
-│   │   └── middleware/
-│   └── main.ts
-├── tests/
-└── package.json
-```
-
-DDD with feature modules, for large business domains:
-
-```text
-my-app/
-├── src/
-│   ├── modules/
-│   │   ├── orders/
-│   │   │   ├── domain/        # entities, value-objects, events, repositories (interfaces)
-│   │   │   ├── application/   # commands, queries, handlers
-│   │   │   ├── infrastructure/ # persistence, messaging
-│   │   │   └── presentation/  # controllers
-│   │   ├── payments/
-│   │   └── inventory/
-│   ├── shared/
-│   └── main.ts
-└── tests/
-```
-
-Microservices in a monorepo, when services genuinely need independent deployment. Share stable contracts, never internal domain models:
-
-```text
-platform/
-├── services/
-│   ├── user-service/
-│   │   ├── src/
-│   │   ├── tests/
-│   │   └── Dockerfile
-│   ├── order-service/
-│   └── payment-service/
-├── packages/
-│   ├── contracts/
-│   ├── observability/
-│   └── tooling/
-├── infrastructure/
-│   ├── docker/
-│   ├── kubernetes/
-│   └── terraform/
-├── scripts/
-└── README.md
-```
-
-Desktop application with IPC (Electron, Tauri, multi-process). The flow is renderer, preload API, IPC handler, service; expose a narrow, validated IPC API instead of privileged access:
-
-```text
-desktop-app/
-├── src/
-│   ├── main/
-│   │   ├── ipc/file.handler.ts
-│   │   ├── services/file.service.ts
-│   │   └── main.ts
-│   ├── preload/index.ts
-│   ├── renderer/
-│   │   ├── components/
-│   │   ├── features/
-│   │   ├── hooks/
-│   │   └── app.tsx
-│   └── shared/
-│       ├── ipc-contracts.ts
-│       └── types.ts
-├── tests/
-└── package.json
-```
-
-Frontend with several features (React, Vue, Angular):
-
-```text
-frontend/
-├── src/
-│   ├── app/
-│   │   ├── routes/
-│   │   └── providers/
-│   ├── features/
-│   │   ├── auth/
-│   │   │   ├── components/
-│   │   │   ├── hooks/
-│   │   │   ├── api/
-│   │   │   └── types.ts
-│   │   └── dashboard/
-│   ├── components/ui/
-│   ├── lib/
-│   ├── assets/
-│   └── main.tsx
-├── public/
-└── package.json
-```
-
-Engineering support, whatever the architecture: explicit homes for tests, configuration, documentation, diagnostics, and automation:
-
-```text
-project/
-├── src/
-├── tests/
-│   ├── unit/
-│   ├── integration/
-│   ├── e2e/
-│   └── fixtures/
-├── scripts/
-│   ├── dev/
-│   └── diagnostics/
-├── config/
-├── docs/
-│   ├── architecture/
-│   ├── adr/
-│   └── runbooks/
-├── .github/workflows/
-├── .vscode/launch.json
-├── .env.example
-├── Dockerfile
-├── README.md
-└── CONTRIBUTING.md
-```
-
-A practical default combines feature-based modules, enforced boundaries, colocated unit tests, centralized integration and end-to-end tests, structured logging, correlation ids, and reproducible debugging configurations.
+Load [repository layouts](repository-layouts.md) only when choosing or comparing folder organization; its examples do not establish an enforced architecture.

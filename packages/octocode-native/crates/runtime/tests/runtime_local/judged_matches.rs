@@ -105,3 +105,138 @@ async fn a_search_never_matches_what_a_read_withholds() {
         }
     }
 }
+
+/// A JavaScript source whose credential-named literal a read hides, between
+/// an ordinary literal and a declaration that follows it.
+const SCRIPT: &str = "const greeting = \"hello\";\nconst db_password = \"Hx8vQ2mLp9Zr4Tn7Wk3Bd\";\nconst after = 1;\n";
+
+/// astSearch matches the text a read serves: a `regex` walk over a hidden
+/// value, or a `follows` rule that depends on it, finds nothing in the match
+/// and count views, for the file alone and for its directory; an ordinary
+/// match keeps its line and column.
+#[tokio::test]
+async fn an_ast_match_never_reads_what_a_read_withholds() {
+    let workspace = Workspace::new();
+    let path = workspace.write("ast/app.js", SCRIPT);
+    let dir = path.parent().expect("dir").to_owned();
+    let runtime = workspace.runtime(&[]);
+    let run = |target: &std::path::Path, query: Value| {
+        let runtime = &runtime;
+        let query = query_path(target, query);
+        async move {
+            let outcome = call(runtime, "astSearch", query.clone())
+                .await
+                .unwrap_or_else(|error| panic!("astSearch {query}: {error:?}"));
+            let output = outcome.structured_content.into_value();
+            assert!(
+                output.pointer("/results/0/data/errorCode").is_none(),
+                "astSearch {query}: {output}"
+            );
+            output["results"][0]["data"].clone()
+        }
+    };
+    let follows = |regex: &str| json!({"kind":"lexical_declaration","follows":{"kind":"lexical_declaration","has":{"kind":"string_fragment","regex":regex,"stopBy":"end"}}});
+    for rule in [
+        json!({"kind":"string_fragment","regex":"^Hx8v[A-M]"}),
+        json!({"kind":"string_fragment","regex":"^Hx8v[N-Z]"}),
+        follows("^Hx8v[A-M]"),
+        follows("^Hx8v[N-Z]"),
+    ] {
+        for target in [path.as_path(), dir.as_path()] {
+            for view in ["content", "countMatches"] {
+                let query = json!({"operation":"match","rule":rule,"view":view});
+                let data = run(target, query).await;
+                assert_eq!(hits(&data), 0, "{rule} {view} {}: {data}", target.display());
+            }
+        }
+    }
+    // What a read shows still matches, where it is.
+    for target in [path.as_path(), dir.as_path()] {
+        let rule = json!({"kind":"string_fragment","regex":"^hel"});
+        let data = run(target, json!({"operation":"match","rule":rule})).await;
+        assert_eq!(hits(&data), 1, "{data}");
+        let row = &data["files"][0]["matches"][0];
+        assert_eq!(
+            (&row["line"], &row["column"]),
+            (&json!(1), &json!(19)),
+            "{data}"
+        );
+        let data = run(
+            target,
+            json!({"operation":"match","rule":follows("^hel"),"view":"countMatches"}),
+        )
+        .await;
+        assert_eq!(hits(&data), 1, "{data}");
+    }
+}
+
+/// D5 (bin16 retest): a context row whose first line is a key's END armor,
+/// numbered past 999, keeps its number and its armor: the label a numbered
+/// view writes is no key text. The key's body stays hidden.
+#[tokio::test]
+async fn a_numbered_armor_line_keeps_its_number() {
+    let filler = "2026-11-12 ordinary log text here\n".repeat(1500);
+    let body = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7Zq8Rm4Lx2Vt9Wp\n".repeat(3);
+    let text = format!(
+        "{filler}-----BEGIN PRIVATE KEY-----\n{body}-----END PRIVATE KEY-----\nafter one\nafter two\n"
+    );
+    let workspace = Workspace::new();
+    let path = workspace.write("fx/mid.log", &text);
+    let runtime = workspace.runtime(&[]);
+    let query = query_path(
+        &path,
+        json!({"matchString": ["BEGIN|END"], "regexEngine": "rust", "contextLines": {"before": 0, "after": 2}}),
+    );
+    let output = call(&runtime, "localSearch", query)
+        .await
+        .expect("search")
+        .structured_content
+        .into_value();
+    let rows = &output["results"][0]["data"]["files"][0]["matches"];
+    let begin = rows[0]["value"].as_str().expect("begin row");
+    let end = rows[1]["value"].as_str().expect("end row");
+    assert!(begin.starts_with("1501\t-----BEGIN PRIVATE KEY-----\n1502\t[REDACTED-"), "{begin}");
+    assert!(!begin.contains("MIIEvQ"), "{begin}");
+    assert_eq!(
+        end,
+        "1505\t-----END PRIVATE KEY-----\n1506\tafter one\n1507\tafter two",
+        "{output}"
+    );
+}
+
+/// D6 (bin16 retest): an empty match follows rg's rule in matchOnly: a
+/// line's matches end with the line, so no row sits past the end of the
+/// file, none reads as unreadable, and no warning says so.
+#[tokio::test]
+async fn match_only_empty_matches_end_with_their_line() {
+    let workspace = Workspace::new();
+    let path = workspace.write("fx/clean.txt", "nothing secret here\njust words\n");
+    let runtime = workspace.runtime(&[]);
+    let run = |pattern: &'static str| {
+        let runtime = &runtime;
+        let query = query_path(
+            &path,
+            json!({"matchString": [pattern], "regexEngine": "rust", "view": "matchOnly"}),
+        );
+        async move {
+            call(runtime, "localSearch", query)
+                .await
+                .expect("search")
+                .structured_content
+                .into_value()["results"][0]["data"]
+                .clone()
+        }
+    };
+    let lines = run("^.*$").await;
+    let rows = lines["files"][0]["matches"].as_array().expect("rows");
+    let shown: Vec<(u64, &str)> = rows
+        .iter()
+        .map(|row| (row["line"].as_u64().expect("line"), row["value"].as_str().expect("value")))
+        .collect();
+    assert_eq!(shown, [(1, "nothing secret here"), (2, "just words")], "{lines}");
+    assert_eq!(lines["matchCount"], 2, "{lines}");
+    assert!(lines.get("warnings").is_none(), "{lines}");
+    let empty = run("x*").await;
+    assert_eq!(empty["matchCount"], 31, "{empty}");
+    assert!(!empty.to_string().contains("REDACTED"), "{empty}");
+}

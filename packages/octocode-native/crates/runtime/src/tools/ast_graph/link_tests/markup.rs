@@ -125,3 +125,33 @@ fn the_markup_walk_counts_nothing_twice() {
         "{message}"
     );
 }
+
+/// A checkout root holds its own `.git` directory, which the default prune
+/// leaves out anyway: no scan of a repository root is marked unproven by it.
+/// A credential store the prune would walk stays withheld and disclosed.
+#[test]
+fn a_repository_root_is_not_withheld_for_its_own_git_directory() {
+    let temp = fixture(&[
+        ("a.ts", "export const a = 1;\n"),
+        (".git/HEAD", "ref: refs/heads/main\n"),
+        (".git/config", "[core]\n"),
+    ]);
+    let root = ingested(&temp);
+    let answer = ask(root, "diagnostics", Some("path-policy-withheld"));
+    assert_eq!(answer["rows"].as_array().map_or(0, Vec::len), 0, "{answer}");
+
+    let temp = fixture(&[
+        ("a.ts", "export const a = 1;\n"),
+        (".git/HEAD", "ref: refs/heads/main\n"),
+        ("src/.aws/key.ts", "export const k = 1;\n"),
+    ]);
+    let root = ingested(&temp);
+    let answer = ask(root, "diagnostics", Some("path-policy-withheld"));
+    let rows = answer["rows"].as_array().cloned().unwrap_or_default();
+    assert_eq!(rows.len(), 1, "{answer}");
+    let message = rows[0]["message"].as_str().unwrap_or_default();
+    assert!(
+        message.contains(".aws/") && !message.contains(".git"),
+        "{message}"
+    );
+}

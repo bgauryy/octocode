@@ -116,7 +116,8 @@ async fn the_read_lead_returns_the_classified_capture() {
     let content = replay.structured_content["results"][0]["data"]["content"]
         .as_str()
         .unwrap();
-    assert!(content.contains("fn b() {}"), "{content}");
+    // The mock's companion points at the first part: the read is its line.
+    assert!(content.contains("fn a() {}"), "{content}");
     // A changed file no longer matches the captured snapshot.
     workspace.write("src/a.rs", "fn changed() {}\n");
     let stale = runtime
@@ -131,6 +132,101 @@ async fn the_read_lead_returns_the_classified_capture() {
         stale.structured_content["results"][0]["data"]["errorCode"], "staleSnapshot",
         "{}",
         stale.structured_content
+    );
+    runtime.close().await;
+}
+
+/// A text judged whole names the lines its companion choice pointed to, in
+/// the same one request: the marked text is sent, `next.read` reads only
+/// those lines, `readChars` counts them, and no sections call is offered to
+/// locate the yes. Literal text names its lines too.
+#[tokio::test]
+async fn a_whole_window_answer_names_its_deciding_lines_in_the_same_request() {
+    let server = provider(2).await;
+    let workspace = Workspace::new();
+    let line = |n: usize| format!("test case_{n:04} ... ok\n");
+    let lines = 3_000;
+    let body: String = (1..=lines).map(line).collect();
+    workspace.write("out.log", &body);
+    let runtime = clasify_runtime(&workspace, &server, &[]);
+    let out = clasify(
+        &runtime,
+        vec![
+            json!({"operation":"evaluate","source":{"tool":"localFetch","query":{"path":"out.log"}},
+                "questions":{"fail":noul("Does a test fail?")}}),
+            json!({"operation":"evaluate","content":body,
+                "questions":{"fail":noul("Does a test fail in this output?")}}),
+        ],
+    )
+    .await;
+    // A part is about one automatic read page of shown characters (each line
+    // and its gutter); the mock's companion picks the first part.
+    let page = octocode_native::execution::RuntimeLimits::DEFAULT.auto_page_chars;
+    let shown: usize = (1..=lines)
+        .map(|n| line(n).chars().count() + n.to_string().len() + 1)
+        .sum();
+    let parts = shown.div_ceil(page).max(2);
+    let data = &out["results"][0]["data"];
+    assert_eq!(data["answers"]["fail"]["noul"], 0.9, "{out}");
+    let decided = &data["answers"]["fail"]["lines"];
+    assert_eq!(decided["startLine"], 1, "{out}");
+    let end = usize::try_from(decided["endLine"].as_u64().expect("end")).unwrap();
+    assert!(end < lines, "{out}");
+    let first: usize = (1..=end)
+        .map(|n| line(n).chars().count() + n.to_string().len() + 1)
+        .sum();
+    assert!(first <= shown.div_ceil(parts) + 16, "one page: {first}");
+    assert_eq!(
+        data["readChars"],
+        json!((1..=end).map(|n| line(n).chars().count()).sum::<usize>())
+    );
+    assert!(data.get("related").is_none(), "{data}");
+    assert!(
+        data["usage"]["calls"]
+            .as_u64()
+            .is_none_or(|calls| calls == 1),
+        "one request: {data}"
+    );
+    let literal = &out["results"][1]["data"];
+    assert_eq!(literal["answers"]["fail"]["lines"], *decided);
+    assert!(literal["next"].get("read").is_none(), "{literal}");
+    for request in sent(&server).await {
+        let questions = request["questions"].as_object().expect("questions");
+        assert_eq!(questions.len(), 2, "the question and its companion");
+        assert_eq!(questions["answer_1"]["type"], "choice");
+        assert_eq!(
+            questions["answer_1"]["criteria"].as_object().unwrap().len(),
+            parts + 1,
+            "{parts} parts and unknown"
+        );
+        let text = request["state"]["text"]
+            .as_str()
+            .or(request["state"].as_str())
+            .unwrap();
+        assert!(
+            text.starts_with(&format!("[p1]\n{}", line(1))),
+            "{text:.80}"
+        );
+    }
+    let read = data["next"]["read"].clone();
+    let replay = runtime
+        .run(
+            "deciding-lines".into(),
+            read["tool"].as_str().unwrap().into(),
+            read["input"].clone(),
+        )
+        .await
+        .expect("lead runs");
+    let content = replay.structured_content["results"][0]["data"]["content"]
+        .as_str()
+        .unwrap();
+    assert!(
+        content.contains(&format!("case_{end:04} ")),
+        "{content:.200}"
+    );
+    assert!(
+        !content.contains(&format!("case_{:04} ", end + 1)),
+        "{content:.200}"
     );
     runtime.close().await;
 }
@@ -390,6 +486,11 @@ async fn an_omitted_long_context_asks_for_the_long_window_only_after_a_refusal()
         (3, 1),
         "refused, then the long window"
     );
+    // The usage says which of its requests the default window refused, as a
+    // sectioned row's does.
+    let usage = &out["results"][0]["data"]["usage"];
+    assert_eq!(usage["calls"], 2, "{out}");
+    assert_eq!(usage["refused"], 1, "{out}");
     // false never asks for the long window. The source is judged in
     // sections the default window takes: one it refuses is split smaller,
     // and every request sent, refused ones too, is counted.

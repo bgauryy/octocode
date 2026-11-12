@@ -95,7 +95,10 @@ pub(crate) const MAGIC: &[u8; 8] = b"OCGRAPH\0";
 /// `SRCO` blocks are stored deflated (their raw length, then the deflated
 /// body), authenticated as stored.
 /// v19: a node's flags are a varint (file roles outgrew a byte: `support`).
-pub(crate) const FORMAT_VERSION: u32 = 19;
+/// v20: a file node flags a source a read hides a value of
+/// (`ROLE_HIDDEN_VALUE`); its rows state no byte provenance. An older
+/// snapshot cannot say which, so it is rebuilt.
+pub(crate) const FORMAT_VERSION: u32 = 20;
 /// Packed edge byte bit: the edge's evidence is test code.
 const EDGE_TEST: u8 = 0x80;
 const HEADER_LEN: usize = 8 + 4 + 4 + 32;

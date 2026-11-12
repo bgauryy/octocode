@@ -171,12 +171,16 @@ impl Body {
     /// ending inside it (or at its end) starts before it. A node the parser
     /// read cleanly spans each group it touches or lies strictly inside it.
     fn crosses_a_group(&self, node: Span) -> bool {
-        let first = self.groups.partition_point(|group| group.start < node.start);
+        let first = self
+            .groups
+            .partition_point(|group| group.start < node.start);
         let starts_wrong = self.groups[first..]
             .iter()
             .take_while(|group| group.start < node.end)
             .any(|group| group.end > node.end);
-        let first_end = self.group_ends.partition_point(|&(end, _)| end <= node.start);
+        let first_end = self
+            .group_ends
+            .partition_point(|&(end, _)| end <= node.start);
         let ends_wrong = self.group_ends[first_end..]
             .iter()
             .take_while(|&&(end, _)| end <= node.end)
@@ -191,7 +195,9 @@ impl Body {
     /// the file's own tree. A `json!` key read into a call (`"id": v.f()`)
     /// recovers at the node's own level.
     fn recovers_inside_its_groups(&self, node: Span) -> bool {
-        let first = self.errors.partition_point(|(error, _)| error.start < node.start);
+        let first = self
+            .errors
+            .partition_point(|(error, _)| error.start < node.start);
         self.errors[first..]
             .iter()
             .take_while(|(error, _)| error.start <= node.end && error.end <= node.end)
@@ -556,8 +562,8 @@ impl<'f> ExpandedTree<'f> {
             Some(&index) => self.bodies[index].root(),
             None => self.root,
         };
-        let mut node = tree
-            .descendant_for_byte_range(body.owner_range.start_byte, body.owner_range.end_byte)?;
+        let mut node =
+            tree.descendant_for_byte_range(body.owner_range.start_byte, body.owner_range.end_byte)?;
         while node.id() != body.owner {
             node = node.parent()?;
         }
@@ -611,7 +617,8 @@ impl Expansion<'_> {
     /// Whether `node`'s text may hold an anchor, so a body under it may be
     /// expandable.
     fn may_hold_anchor(&self, node: Node<'_>) -> bool {
-        self.anchors.is_none_or(|_| self.holds_anchor(node.byte_range()))
+        self.anchors
+            .is_none_or(|_| self.holds_anchor(node.byte_range()))
     }
 
     /// Whether an anchor starts in `span`; `false` for a query without
@@ -644,8 +651,8 @@ impl Expansion<'_> {
             ExecutionError::check(self.deadline)?;
             let current = cursor.node();
             let start = current.start_byte();
-            let mut descend = self.may_hold_anchor(current)
-                && !shadowed.iter().any(|call| call.contains(&start));
+            let mut descend =
+                self.may_hold_anchor(current) && !shadowed.iter().any(|call| call.contains(&start));
             if descend
                 && depth < MAX_MACRO_DEPTH
                 && self
@@ -888,7 +895,10 @@ fn with_groups(mut body: Body, groups: &[Span], recovered: bool) -> Body {
             })
             .collect();
         body.groups = groups.to_vec();
-        body.group_ends = groups.iter().map(|group| (group.end, group.start)).collect();
+        body.group_ends = groups
+            .iter()
+            .map(|group| (group.end, group.start))
+            .collect();
         body.group_ends.sort_unstable();
     }
     body

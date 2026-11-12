@@ -252,7 +252,10 @@ fn rebuild_file(
         None,
         q.rule().as_ref(),
         digest,
-        crate::security::SourceLimits::REAL.whole_source as u64,
+        (
+            crate::security::SourceLimits::REAL.whole_source as u64,
+            Some(&super::super::source::judge()),
+        ),
         &|| cancel.check().is_err(),
     ) {
         Ok(octocode_engine::structural::Rebuilt::Matches(matches)) => matches,

@@ -1,5 +1,6 @@
 //! The precomputed file-level view every detector reads.
 use super::*;
+use crate::tools::ast_graph::algorithms::rank_tie_class;
 
 /// Precomputed file-level views shared by every detector.
 pub(super) struct View<'a> {
@@ -152,56 +153,42 @@ impl<'a> View<'a> {
             .filter(|l| *l != NONE)
     }
 
-    /// PageRank over runtime imports (importer → imported): a file many
-    /// important files depend on ranks high. Damping 0.85, ≤ 50 iterations.
+    /// PageRank over runtime imports (importer → imported), every edge
+    /// alike: a file many important files depend on ranks high
+    /// ([`crate::tools::ast_graph::algorithms::page_rank`]).
     pub(super) fn page_rank(&self) -> Vec<f64> {
-        let n = self.t.nodes.len();
-        let count = self.files.len().max(1) as f64;
-        let mut rank = vec![0.0; n];
-        for file in &self.files {
-            rank[*file as usize] = 1.0 / count;
-        }
-        for _ in 0..50 {
-            let mut next = vec![0.0; n];
-            let mut dangling = 0.0;
-            for file in &self.files {
-                let targets = &self.out[*file as usize];
-                let r = rank[*file as usize];
-                if targets.is_empty() {
-                    dangling += r;
-                } else {
-                    let share = r / targets.len() as f64;
-                    for target in targets {
-                        next[*target as usize] += share;
-                    }
-                }
-            }
-            let base = (1.0 - 0.85) / count + 0.85 * dangling / count;
-            let mut delta = 0.0;
-            for file in &self.files {
-                let value = base + 0.85 * next[*file as usize];
-                delta += (value - rank[*file as usize]).abs();
-                next[*file as usize] = value;
-            }
-            rank = next;
-            if delta < 1e-6 {
-                break;
-            }
-        }
-        rank
+        let out = self
+            .out
+            .iter()
+            .map(|targets| targets.iter().map(|target| (*target, 1.0)).collect())
+            .collect::<Vec<_>>();
+        crate::tools::ast_graph::algorithms::page_rank(self.t.nodes.len(), &self.files, &out)
     }
 
+    /// Each file's position among the files ordered by `values`, in
+    /// `[0, 1]`. Equal values share one percentile (the mean of their
+    /// positions): structurally equal files must score alike, so ties are
+    /// never broken by node id. Ties are [`rank_tie_class`]es: PageRank sums
+    /// in edge order, so symmetric files can differ in the last bits.
     pub(super) fn percentiles(&self, values: &[f64]) -> Vec<f64> {
+        let tie_key = |file: u32| rank_tie_class(values[file as usize], self.files.len());
         let mut order = self.files.clone();
-        order.sort_by(|a, b| {
-            values[*a as usize]
-                .total_cmp(&values[*b as usize])
-                .then(a.cmp(b))
-        });
+        order.sort_by_key(|file| (tie_key(*file), *file));
         let mut out = vec![0.5; self.t.nodes.len()];
         let denominator = (order.len().max(2) - 1) as f64;
-        for (position, file) in order.iter().enumerate() {
-            out[*file as usize] = position as f64 / denominator;
+        let mut start = 0;
+        while start < order.len() {
+            let key = tie_key(order[start]);
+            let end = start
+                + order[start..]
+                    .iter()
+                    .take_while(|f| tie_key(**f) == key)
+                    .count();
+            let shared = (start + end - 1) as f64 / 2.0 / denominator;
+            for file in &order[start..end] {
+                out[*file as usize] = shared;
+            }
+            start = end;
         }
         out
     }

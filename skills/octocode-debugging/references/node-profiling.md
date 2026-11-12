@@ -6,7 +6,7 @@ Identify the worker handling the request. For an existing private inspector, [at
 
 ## Launch
 
-Use the production entry point and TypeScript loader. Set `out` to a fresh capture directory and `skill` to the absolute skill directory. Choose the run that answers the question.
+Use the production entry point and TypeScript loader, and a fresh `out` directory per run. Choose the run that answers the question.
 
 ```bash
 node --cpu-prof --cpu-prof-dir="$out" app.mjs

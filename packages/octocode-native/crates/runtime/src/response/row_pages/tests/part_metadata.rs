@@ -33,6 +33,7 @@ fn search_row() -> Value {
             .collect::<Vec<_>>()
     };
     json!({"matchCount":6,"matchedLineCount":6,"filesScanned":2,
+        "warnings":["src/a.rs starts with a byte order mark"],
         "files":[{"path":"src/a.rs","matches":matches("alpha")},{"path":"src/b.rs","matches":matches("beta")}]})
 }
 
@@ -54,6 +55,10 @@ fn outline_row() -> Value {
 pub(super) fn may_repeat(tool: ToolId, data: &Value, name: &str) -> bool {
     let contract = crate::contracts::tool_contract(tool).expect("embedded contract");
     let pointer = format!("/data/{}", crate::json_pointer::escape(name));
+    // A member the first part carries alone is stated once.
+    if tool.first_fragment_fields().contains(&pointer.as_str()) {
+        return false;
+    }
     let listed = |kind: &str| {
         contract["pageContextFields"][kind]
             .as_array()

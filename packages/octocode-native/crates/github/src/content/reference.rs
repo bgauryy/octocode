@@ -37,11 +37,11 @@ impl GitHubProvider {
         {
             return Ok(reference.to_ascii_lowercase());
         }
-        // A batch that warmed this ref answers it; one that did not resolve
-        // it leaves the request to ask.
-        if let Some(memo) = context.last_commits() {
+        // A batch that resolved this ref answers it; one that did not
+        // leaves the request to ask.
+        if let Some(memo) = context.ref_memo() {
             let resolved = memo.resolved_ref(owner, repo, reference).await;
-            // The row waited on the warm-up whether or not it answered.
+            // The row waited on the batch's resolution whether or not it answered.
             memo.adopt_waits(context);
             if let Some(resolved) = resolved {
                 memo.adopt_observed(context);

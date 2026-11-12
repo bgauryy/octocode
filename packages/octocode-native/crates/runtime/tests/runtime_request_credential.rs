@@ -195,15 +195,6 @@ async fn rejected_request_token_never_falls_back_or_echoes() {
         )
         .mount(&server)
         .await;
-    Mock::given(method("POST"))
-        .and(path("/api/graphql"))
-        .and(header("authorization", format!("Bearer {bad}").as_str()))
-        .respond_with(
-            ResponseTemplate::new(401)
-                .set_body_json(json!({"message": format!("Bad credentials {bad}")})),
-        )
-        .mount(&server)
-        .await;
     Mock::given(method("GET"))
         .respond_with(file("ambient body\n"))
         .with_priority(10)
@@ -243,8 +234,9 @@ async fn rejected_request_token_never_falls_back_or_echoes() {
         assert_eq!(data["errorCode"], "authentication", "{text}");
         assert!(text.contains("supplied with this request"), "{text}");
     }
-    // Each call sends the supplied token on its content read and on the
-    // contract's concurrent first-page last-change request, and nothing else.
+    // Each call sends the supplied token on its content read, and nothing
+    // else: a read at a full SHA resolves no ref and asks no last-change
+    // date.
     let bearer = format!("Bearer {bad}");
     let requests = server.received_requests().await.unwrap();
     let by_bad = requests
@@ -257,25 +249,13 @@ async fn rejected_request_token_never_falls_back_or_echoes() {
         })
         .map(|request| request.url.path())
         .collect::<Vec<_>>();
-    let reads = by_bad
-        .iter()
-        .filter(|path| **path == "/api/v3/repos/a/b/contents/x.txt")
-        .count();
-    let dates = by_bad
-        .iter()
-        .filter(|path| **path == "/api/graphql")
-        .count();
-    assert_eq!((reads, dates), (2, 2), "{by_bad:?}");
-    // GraphQL refuses the token with 401: no REST request that cannot
-    // succeed follows.
-    let lists = by_bad
-        .iter()
-        .filter(|path| **path == "/api/v3/repos/a/b/commits")
-        .count();
-    assert_eq!(lists, 0, "{by_bad:?}");
+    assert_eq!(
+        by_bad, ["/api/v3/repos/a/b/contents/x.txt"; 2],
+        "{by_bad:?}"
+    );
     assert_eq!(
         sends_by(&server, &bad).await,
-        reads + dates + lists,
+        by_bad.len(),
         "the supplied token, every time, on nothing else"
     );
     assert_eq!(

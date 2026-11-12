@@ -20,6 +20,7 @@ import path from 'node:path';
 import { checks, spawnCli, writeResults } from './mcp-client.mjs';
 import { contractValidators } from './contract.mjs';
 import { startRegistryProxy } from './tool-health/mock-registry-proxy.mjs';
+import { ownTestBrokers } from './tool-health/mock-lsp-config.mjs';
 import { REGISTRY_HOSTS } from './tool-health/mock-routes-registry.mjs';
 import { hermeticEnv } from './tool-health/surfaces.mjs';
 import { casePath, hasCase, hostsOf, readCase, replayer, requestKey, served, writeCase } from './tool-health/recorded-answers.mjs';
@@ -52,6 +53,8 @@ function githubToken() {
 /** One tool call, its whole response, with `answer` standing in for the providers. */
 async function runCall(entry, { hosts, answer, token }) {
   const tmp = fs.mkdtempSync(path.join(process.platform === 'darwin' ? '/tmp' : os.tmpdir(), 'octocode-answers-'));
+  // Each CLI call here starts a warm server under `tmp`: stop it with the case, or at an early exit.
+  const release = ownTestBrokers(tmp);
   const home = path.join(tmp, 'home');
   fs.mkdirSync(home, { recursive: true });
   const proxy = await startRegistryProxy(tmp, { hosts, answer });
@@ -70,6 +73,7 @@ async function runCall(entry, { hosts, answer, token }) {
     return { outputs, denied: proxy.denied };
   } finally {
     await proxy.close();
+    await release();
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 }

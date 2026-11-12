@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { scenario } from './advanced-local/helpers.mjs';
 import { checkGraphLookup, prepareGraphLookup } from './advanced-graph-lookup.mjs';
 import { checkGraphImpact, prepareGraphImpact } from './advanced-graph-impact.mjs';
+import { checkGraphCochange, prepareGraphCochange } from './advanced-graph-cochange.mjs';
 import { contract } from '../contract.mjs';
 import { finiteInputDomains } from './input-coverage.mjs';
 import { firstDiff, parityView } from './compare.mjs';
@@ -209,6 +210,7 @@ export const ADVANCED_GRAPH = {
     prepareGraphLookup(ctx.cwd);
     prepareGraphImpact(ctx.cwd);
     prepareGroupedViews(ctx.cwd);
+    const cochange = prepareGraphCochange(ctx.cwd);
     const snapshot = data(await ctx.cliCall('graphBuild', input({ keep: 10 })));
     const files = data(await ctx.cliCall('graphQuery', input({ operation: 'find', target: '.ts', kind: 'file' })));
     const symbols = data(await ctx.cliCall('graphQuery', input({ operation: 'find', target: 'greet', kind: 'symbol' })));
@@ -217,6 +219,8 @@ export const ADVANCED_GRAPH = {
     const checks = [];
     const operations = finiteInputDomains(contract.tools.find(tool => tool.name === 'graphQuery').querySchema).find(domain => domain.path.join('.') === 'operation').values;
     for (const operation of operations) {
+      // Its scope must be a Git work tree: checkGraphCochange owns it.
+      if (operation === 'cochange') continue;
       const query = { operation, graph: snapshot.id };
       if (['candidates', 'node', 'callers', 'callees'].includes(operation)) query.target = symbol;
       if (['symbols', 'deps', 'dependents', 'walk', 'impact', 'path'].includes(operation)) query.target = file;
@@ -250,6 +254,7 @@ export const ADVANCED_GRAPH = {
     await checkGraphLookup(ctx, snapshot.id, checks);
     await checkGraphImpact(ctx, snapshot.id, checks);
     await groupedViews(ctx, snapshot.id, checks);
+    await checkGraphCochange(ctx, cochange, checks);
     return checks;
   },
 };

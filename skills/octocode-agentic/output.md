@@ -13,7 +13,7 @@ BLUF: lead with the decision, verdict or outcome and its confidence. Then give w
 | Design or audit | The layer it affects (context, tools, loop, routing, communication, trust), evidence, trade-offs, limits |
 | Prompt or instruction | The prompt in the requested format. For an edit: a full replacement, a change summary and verification. For a review: the affected text, its behavioral effect and a repair. Ready-to-paste task prompts follow [question selection and prompt labels](references/question-selection.md) |
 | Measurement | The question and checks, then for a comparison: baseline and candidate conditions (scope, budget), metrics, guardrails, uncertainty, coverage, failures, cost |
-| Coordination | Any pending conflict and who must act. Message and lease identifiers stay in the protocol; use `/cli <command> --json` for machine-readable output |
+| Coordination | Any pending conflict and who must act. Message and lease identifiers stay in the protocol unless another agent must act on them ([Pending](#pending)) |
 
 ## Design answer
 

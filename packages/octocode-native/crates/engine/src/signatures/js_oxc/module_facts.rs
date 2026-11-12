@@ -130,6 +130,7 @@ pub(super) fn collect_module_facts(
                     resolution_hint: None,
                     module_scope: None,
                     scope_id: None,
+                    type_use_only: false,
                 });
             }
             _ => {}
@@ -186,6 +187,7 @@ fn collect_import_declaration(
                 resolution_hint: None,
                 module_scope: None,
                 scope_id: None,
+                type_use_only: false,
             });
         }
     } else {
@@ -201,6 +203,7 @@ fn collect_import_declaration(
             resolution_hint: None,
             module_scope: None,
             scope_id: None,
+            type_use_only: false,
         });
     }
 }

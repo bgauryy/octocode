@@ -97,13 +97,16 @@ impl ToolId {
         )
     }
 
-    /// Shared row definitions carried by the first display fragment only:
-    /// clasify rows are keyed query results that state their questions once.
+    /// Row members carried by a split row's first part only, stated once
+    /// for the whole row: its notices (`warnings`) and the receipt of the
+    /// scan that found it (`filesScanned`); clasify rows are keyed query
+    /// results that also state their questions once. The output schema
+    /// requires none of them, so a later part without them is valid.
     #[must_use]
     pub(crate) const fn first_fragment_fields(self) -> &'static [&'static str] {
         match self {
-            Self::Clasify => &["/data/questions"],
-            _ => &[],
+            Self::Clasify => &["/data/questions", "/data/warnings", "/data/filesScanned"],
+            _ => &["/data/warnings", "/data/filesScanned"],
         }
     }
 }

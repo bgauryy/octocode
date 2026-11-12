@@ -156,6 +156,9 @@ pub(crate) struct RowSources<'a> {
     read: RefCell<HashMap<String, Option<Arc<JudgedText>>>>,
     /// Placeholders this request's cuts put in its rows.
     redacted: std::cell::Cell<usize>,
+    /// The rows' positions count the text a read shows of each source, and
+    /// their texts are cut from it ([`JudgedText::as_shown`]).
+    shown: bool,
 }
 
 impl<'a> RowSources<'a> {
@@ -165,6 +168,17 @@ impl<'a> RowSources<'a> {
             security,
             read: RefCell::default(),
             redacted: std::cell::Cell::new(0),
+            shown: false,
+        }
+    }
+
+    /// [`Self::new`] for rows whose positions and texts count the text a
+    /// read shows of their source (astSearch matches that text): each source
+    /// is judged as that text, its placeholders shown as themselves.
+    pub(crate) fn as_shown(paths: &'a PathPolicy, security: &'a ContentSecurity) -> Self {
+        Self {
+            shown: true,
+            ..Self::new(paths, security)
         }
     }
 
@@ -180,9 +194,14 @@ impl<'a> RowSources<'a> {
             let bytes = crate::tools::source::read_bounded(&validated.canonical, limit).ok()?;
             let text = octocode_engine::text::decode(&bytes).text;
             let path = &validated.canonical;
-            Some(self.security.judge_source(&text, path, |digest| {
+            let judged = self.security.judge_source(&text, path, |digest| {
                 judged(&text, digest, path, self.security)
-            }))
+            });
+            Some(if self.shown {
+                Arc::new(judged.as_shown())
+            } else {
+                judged
+            })
         });
         self.read
             .borrow_mut()
@@ -257,6 +276,10 @@ impl<'a> RowSources<'a> {
             self.redacted.set(
                 self.redacted.get() + crate::security::placeholders(&shown).saturating_sub(before),
             );
+        } else if self.shown && source.is_redacted() {
+            // The shown text's placeholders stand in the leaf already.
+            self.redacted
+                .set(self.redacted.get() + crate::security::placeholders(&shown));
         }
         self.security.show(source.path(), &shown);
         if changed {

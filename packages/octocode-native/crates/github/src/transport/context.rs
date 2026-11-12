@@ -31,8 +31,8 @@ pub struct RequestContext {
     /// request): a repository that answers under its id answers for its
     /// old name.
     renamed: Arc<std::sync::Mutex<Vec<(Url, Url, bool)>>>,
-    /// The batch's warmed refs and last commits, when the host warmed them.
-    last_commits: Option<Arc<crate::LastCommitMemo>>,
+    /// The batch's resolved refs, when the host resolved them.
+    ref_memo: Option<Arc<crate::RefMemo>>,
     /// What this request waited on the client before its sends. Kept out of
     /// the journal: a resumed page did not wait the first page's waits.
     pub(crate) waits: Arc<crate::budget::ClientWaits>,
@@ -47,7 +47,7 @@ impl RequestContext {
             proven: Arc::default(),
             missing: Arc::default(),
             renamed: Arc::default(),
-            last_commits: None,
+            ref_memo: None,
             waits: Arc::default(),
         }
     }
@@ -64,13 +64,13 @@ impl RequestContext {
     }
 
     #[must_use]
-    pub fn with_last_commits(mut self, memo: Arc<crate::LastCommitMemo>) -> Self {
-        self.last_commits = Some(memo);
+    pub fn with_ref_memo(mut self, memo: Arc<crate::RefMemo>) -> Self {
+        self.ref_memo = Some(memo);
         self
     }
 
-    pub(crate) fn last_commits(&self) -> Option<&crate::LastCommitMemo> {
-        self.last_commits.as_deref()
+    pub(crate) fn ref_memo(&self) -> Option<&crate::RefMemo> {
+        self.ref_memo.as_deref()
     }
 
     /// This request resumes an issued continuation that owns `evidence`:

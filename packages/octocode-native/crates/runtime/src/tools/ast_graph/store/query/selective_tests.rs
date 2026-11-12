@@ -118,7 +118,11 @@ fn topology_skips_occurrence_bodies_and_point_freshness_keeps_inventory_checks()
             ExitClass::Success | ExitClass::Empty
         ));
         assert_eq!(selected.validation["scope"], "accessedBlocks");
-        assert_eq!(selected.validation["decodedWitnesses"], 0);
+        // Rows of edges count the witness records behind them (`sites`);
+        // no topology answer reads an unresolved site.
+        if op == "stats" {
+            assert_eq!(selected.validation["decodedWitnesses"], 0);
+        }
         assert!(selected.validation["decodedEdges"].as_u64().unwrap() > 0);
         assert_eq!(evidence(selected), evidence(full), "{op}");
     }
@@ -229,6 +233,13 @@ fn point_and_topology_reads_skip_evidence_text() {
         let out = ask(&dir, op, target, 0, false);
         assert_eq!(out.class, ExitClass::Success, "{op}: {}", out.value);
         let read = out.validation["bytesRead"].as_u64().unwrap();
+        // An edge row counts the witness records behind its edge (`sites`);
+        // no answer here reads evidence text.
+        let unread = if op == "callers" {
+            unread - len(b"WITN")
+        } else {
+            unread
+        };
         assert!(
             read <= bytes.len() as u64 + directories - unread,
             "{op} read {read} of {} bytes",

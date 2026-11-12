@@ -15,7 +15,12 @@ pub(super) enum Reuse {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LocationRequest {
     Definition,
-    References { include_declaration: bool },
+    /// The declaration the anchor's own unit resolves (clangd: the header
+    /// prototype it includes).
+    Declaration,
+    References {
+        include_declaration: bool,
+    },
     TypeDefinition,
     Implementation,
 }
@@ -24,6 +29,7 @@ impl LocationRequest {
     pub(super) fn method(self) -> &'static str {
         match self {
             Self::Definition => "textDocument/definition",
+            Self::Declaration => "textDocument/declaration",
             Self::References { .. } => "textDocument/references",
             Self::TypeDefinition => "textDocument/typeDefinition",
             Self::Implementation => "textDocument/implementation",

@@ -124,6 +124,8 @@ pub(in crate::tools::gh_get_history_item) fn map_graphql_comments(pr: &Value) ->
             "body": node.get("body"),
             "user": { "login": author_login(node) },
             "created_at": node.get("createdAt"),
+            // The REST rule: an edited comment states when (`map_comments`).
+            "updated_at": node.get("updatedAt"),
             "html_url": node.get("url"),
         })
     })

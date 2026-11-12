@@ -23,10 +23,8 @@ use crate::policy::path::PathPolicy;
 use octocode_contract_types::{ErrorCode, LspSearchQuery};
 use octocode_engine::lsp::client::Readiness;
 use octocode_engine::lsp::config::{
-    LspDiscoveryOptions, default_server_for_file, default_server_for_workspace_root,
-    representative_source_for, typescript_server_fallback,
-    typescript_server_fallback_for_workspace_root, workspace_root_languages,
-    workspace_root_representative_source,
+    LspDiscoveryOptions, default_server_for_directory, default_server_for_file,
+    directory_representative, typescript_server_fallback, typescript_server_fallback_for_directory,
 };
 use octocode_engine::lsp::pool::LspClientPool;
 use octocode_engine::lsp::workspace::resolve_workspace_root_for_file;

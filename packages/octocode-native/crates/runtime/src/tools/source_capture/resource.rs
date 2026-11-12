@@ -10,6 +10,11 @@ pub(crate) struct TextResource {
     pub path: PathBuf,
     pub metadata: Value,
     pub(crate) local_check: Option<Value>,
+    /// What a read of exactly this capture is pinned to: a local file's
+    /// snapshot (the digest of its bytes, which a read checks the file
+    /// against), a GitHub commit or a URL capture's digest. Kept for the
+    /// read lead, whose cursor holds it; a local pin is never shown.
+    pub(crate) pin: Option<String>,
 }
 
 /// Identity of complete acquisition, independent of each resource's ranges.
@@ -55,8 +60,7 @@ pub(crate) fn selection_metadata(captured: &TextResource, source: &Value) -> Val
     let mut metadata = captured.metadata.clone();
     metadata["source"] = source.clone();
     if let Some(tool) = source["tool"].as_str().and_then(ToolId::from_name) {
-        metadata["read"] =
-            super::read_lead(tool, &source["query"], metadata["sourceDigest"].as_str());
+        metadata["read"] = super::read_lead(tool, &source["query"], captured.pin.as_deref());
     }
     metadata
 }
@@ -79,6 +83,7 @@ pub(crate) fn capture(
             path: PathBuf::from("capture.txt"),
             metadata: json!({"status":"ready","source":source,"sourceDigest":provenance["sourceDigest"],"coordinateSpace":"capture","expiresAt":provenance["expiresAt"],"read":captured.read}),
             local_check: None,
+            pin: provenance["sourceDigest"].as_str().map(str::to_owned),
         });
     }
     let tool = source["tool"]
@@ -150,11 +155,20 @@ pub(crate) fn capture(
         }
     };
     let read = super::read_lead(tool, &query, Some(&snapshot));
+    // A local snapshot is the digest of the file's bytes: the row names the
+    // source by the text a read shows of it instead (the sections plan
+    // states it), so no shown digest tests a guess of a hidden value.
+    let metadata = if local_check.is_some() {
+        json!({"status":"ready","source":source,"read":read})
+    } else {
+        json!({"status":"ready","source":source,"sourceDigest":snapshot,"read":read})
+    };
     Ok(TextResource {
         text,
         path,
-        metadata: json!({"status":"ready","source":source,"sourceDigest":snapshot,"read":read}),
+        metadata,
         local_check,
+        pin: Some(snapshot),
     })
 }
 
@@ -188,32 +202,39 @@ pub(super) fn local_recovery(
     error
 }
 
+/// Whether a retained local source still holds the text captured at its
+/// snapshot, at the same file. Its text or its file changed: `staleSnapshot`
+/// with the one shared message, as a read pinned to that snapshot gives; the
+/// caller names the restart.
 pub(crate) fn validate_local(
     source: &Value,
     dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
 ) -> Result<(), ClassificationError> {
+    let stale = || {
+        ClassificationError::with_hints(
+            ErrorCode::StaleSnapshot,
+            crate::response::result::STALE_SNAPSHOT_ERROR,
+            Vec::new(),
+        )
+    };
     let query = super::prepare_source(ToolId::LocalFetch, &source["query"], dispatcher)?;
     dispatcher
         .capture_local_text(&query, context)
-        .map_err(|mut error| {
-            if error.code == ErrorCode::InvalidClassificationContext {
-                return ClassificationError::new(
-                    ErrorCode::ClassificationContextUnavailable,
-                    "The retained local source identity is invalid.",
-                    "Start a fresh sections request.",
-                );
-            }
-            if matches!(error.code, ErrorCode::StaleSnapshot | ErrorCode::SourceMismatch) {
-                error.code = ErrorCode::SourceMismatch;
-            }
-            error
+        .map_err(|error| match error.code {
+            ErrorCode::InvalidClassificationContext => ClassificationError::new(
+                ErrorCode::ClassificationContextUnavailable,
+                "The retained local source identity is invalid.",
+                "Start a fresh sections request.",
+            ),
+            ErrorCode::StaleSnapshot | ErrorCode::SourceMismatch => stale(),
+            _ => error,
         })
         .and_then(|(_, canonical, _)| {
             if source["canonical"] == json!(canonical) {
                 Ok(())
             } else {
-                Err(ClassificationError::new(ErrorCode::SourceMismatch, "The original local source locator now resolves to a different file; no new inference ran.", "Start a fresh sections request to assess the changed source."))
+                Err(stale())
             }
         })
 }
@@ -371,8 +392,9 @@ mod tests {
         let captured = TextResource {
             text: String::new(),
             path: PathBuf::from("a.rs"),
-            metadata: json!({"status": "ready", "sourceDigest": snapshot}),
+            metadata: json!({"status": "ready"}),
             local_check: None,
+            pin: Some(snapshot.clone()),
         };
         let local = json!({"tool":"localFetch","query":{"path":"a.rs"}});
         let metadata = selection_metadata(&captured, &local);

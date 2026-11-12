@@ -111,8 +111,8 @@ pub(super) async fn issue(
         )
         .with_reason(ProviderErrorReason::IssueIsPullRequest));
     }
-    // A summary (no section named) shows the body; a section read what it
-    // names.
+    // A summary (no section named) previews the body; a section read shows
+    // what it names.
     let sections = query.sections();
     let want_body = sections.is_empty() || sections.has(Section::Body);
     let want_comments = sections.has(Section::Comments);
@@ -141,7 +141,14 @@ pub(super) async fn issue(
     let mut row = header_for();
     let mut pagination = Map::new();
     let mut remainder = Remainder::default();
-    if let Some(body_view) = body_view.filter(|_| show_body) {
+    // A summary previews the body, as a pull request's does; the body read
+    // (`sections:["body"]`, its `readBody` lead) holds it whole.
+    let summary = sections.is_empty();
+    if summary {
+        // An empty body previews nothing: the null is removed with the row's.
+        let preview = body_view.and_then(super::pr_finish::body_preview);
+        row["bodyPreview"] = json!(preview);
+    } else if let Some(body_view) = body_view.filter(|_| show_body) {
         let (body, page) = paginate_text(
             body_view,
             gh_get_history_item_query::char_offset(query),
@@ -170,6 +177,11 @@ pub(super) async fn issue(
         };
         let page = issue_comments(source, query, context, &at, prefetched).await?;
         page.attach(&at, &mut row, &mut pagination, &mut remainder);
+        // The discussion the caller asked for is always stated: an empty
+        // list says zero. A body hop lists only the bodies it continues.
+        if !comment_hop && row.get("comments").is_none() {
+            row["comments"] = json!([]);
+        }
     }
     if !pagination.is_empty() {
         row["sectionPagination"] = Value::Object(pagination);
@@ -179,8 +191,12 @@ pub(super) async fn issue(
     if let Some(references) = closed_by.as_ref().filter(|refs| !refs.prs.is_empty()) {
         row["closedBy"] = Value::Array(references.prs.iter().map(|pr| pr.row.clone()).collect());
     }
+    let previewed = row["bodyPreview"].is_string();
     let mut out = json!({"issues":[row]});
     promote_issue_continuations(&mut out, query, &remainder);
+    if previewed {
+        attach_body_read(&mut out, query);
+    }
     if !want_comments && !later_page {
         attach_comments_read(&mut out, query, &raw);
     }
@@ -215,6 +231,16 @@ fn issue_header(raw: &Value) -> Value {
         "updatedAt":(str_at(raw,"/state").unwrap_or("open") == "open").then(|| utc_date(str_at(raw,"/updated_at"))),
         "closedAt":utc_value(raw.get("closed_at"))
     })
+}
+
+/// A summary's body preview offers the whole body as related work (the
+/// same issue, `sections:["body"]`).
+fn attach_body_read(out: &mut Value, query: &HistoryItemRequest) {
+    let mut nq = super::pr_menu::base_public_query(query, super::ItemOperation::Issue);
+    Sections::of([Section::Body]).set_on(&mut nq);
+    ensure_calls(out);
+    out["calls"]["readBody"] =
+        crate::response::result::restart_query(ToolId::GhGetHistoryItem, &nq);
 }
 
 /// An issue read without its discussion offers it as related work

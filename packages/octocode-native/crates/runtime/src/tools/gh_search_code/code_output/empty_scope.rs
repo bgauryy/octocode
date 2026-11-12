@@ -94,8 +94,8 @@ pub(in crate::tools::gh_search_code) async fn empty_scope(
                 }
                 return Ok(default_branch);
             };
-            // `path` is a directory prefix: list the directory, or for a
-            // file's path its parent, and read the file for the keywords.
+            // List the directory, or for a file's path its parent, and read
+            // the file for the keywords: the index may not hold it.
             let listed = match file_scope(scope) {
                 Some(file) => {
                     ensure_calls(value);
@@ -184,13 +184,12 @@ pub(in crate::tools::gh_search_code) struct FileScope<'a> {
     /// The scope without surrounding slashes.
     pub(in crate::tools::gh_search_code) path: &'a str,
     pub(in crate::tools::gh_search_code) parent: &'a str,
-    pub(in crate::tools::gh_search_code) name: &'a str,
 }
 
-/// The index matches `path` as a directory prefix, so a scope whose last
-/// segment looks like a file (an extension that holds a letter, or a known
-/// extensionless or dot file such as `Makefile` or `.gitignore`) matches
-/// nothing. A dotted directory such as `docs/v1.2` is not a file.
+/// A scope whose last segment looks like a file (an extension that holds a
+/// letter, or a known extensionless or dot file such as `Makefile` or
+/// `.gitignore`): its empty search leads to the file's read and its parent's
+/// listing. A dotted directory such as `docs/v1.2` is not a file.
 pub(in crate::tools::gh_search_code) fn file_scope(scope: &str) -> Option<FileScope<'_>> {
     let path = scope.trim_matches('/');
     let (parent, name) = path.rsplit_once('/').unwrap_or(("", path));
@@ -204,7 +203,7 @@ pub(in crate::tools::gh_search_code) fn file_scope(scope: &str) -> Option<FileSc
         crate::content::classify_file_type(name),
         Some(crate::content::FileType::Config | crate::content::FileType::Lock)
     );
-    (has_extension || known).then_some(FileScope { path, parent, name })
+    (has_extension || known).then_some(FileScope { path, parent })
 }
 
 /// The requested ref the default-branch index did not cover: `None` when no
@@ -219,42 +218,19 @@ pub(in crate::tools::gh_search_code) fn unsearched_ref<'q>(
 
 /// What an empty code search says in its default hint: a requested ref the
 /// default-branch index did not cover ([`unsearched_ref`]), naming that
-/// branch when known, and for a `path` scope why that proves nothing
-/// (a file's path matches no directory; a directory's index can lag). The
-/// leads carry the routes that verify it. Each note is its own hint, so no
-/// composed hint outgrows the guidance budget.
+/// branch when known. The leads carry the routes that verify it.
 pub(in crate::tools::gh_search_code) fn empty_hints(
     query: &GhSearchCodeQuery,
     default_branch: Option<&str>,
 ) -> Vec<String> {
-    let reference = unsearched_ref(query, default_branch).map(|reference| {
-        let branch = default_branch.map_or_else(String::new, |branch| format!(" `{branch}`"));
-        format!(
-            "Code search indexes only the default branch{branch}; `{reference}` was not searched."
-        )
-    });
-    let scope = query.path.as_deref().map(std::string::String::as_str).and_then(|scope| {
-        match file_scope(scope) {
-            Some(file) => {
-                let under = if file.parent.is_empty() {
-                    String::new()
-                } else {
-                    format!(" with `path:\"{}\"`", file.parent)
-                };
-                Some(format!(
-                    "`path` is a directory prefix and `{}` looks like a file: search it by `nameContains:\"{}\"`{under}, or read it with matchString.",
-                    file.path, file.name
-                ))
-            }
-            // Absence under a directory is a repository fact: an owner-wide
-            // search has no one directory to list.
-            None => query.repo.as_ref().map(|_| {
-                format!(
-                    "`path:\"{}\"` is a directory scope: to search one file there, set `nameContains` to its name and `path` to its parent.",
-                    scope.trim_matches('/')
-                )
-            }),
-        }
-    });
-    reference.into_iter().chain(scope).collect()
+    unsearched_ref(query, default_branch)
+        .map(|reference| {
+            let branch =
+                default_branch.map_or_else(String::new, |branch| format!(" `{branch}`"));
+            format!(
+                "Code search indexes only the default branch{branch}; `{reference}` was not searched."
+            )
+        })
+        .into_iter()
+        .collect()
 }

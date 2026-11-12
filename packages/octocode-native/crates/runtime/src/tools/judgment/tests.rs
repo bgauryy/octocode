@@ -79,6 +79,7 @@ async fn a_long_context_retry_is_disclosed_with_its_billed_tokens() {
                 questions: &questions,
                 assets: None,
                 long_context: LongContext::OnRefusal,
+                companions: 0,
             },
             None,
             &budget,
@@ -90,7 +91,8 @@ async fn a_long_context_retry_is_disclosed_with_its_billed_tokens() {
     assert_eq!(
         judged.long_context_retry,
         Some(super::LongContextRetry {
-            unreported_calls: 0
+            unreported_calls: 0,
+            refused_calls: 1
         }),
         "the retry is a fact of the row, its usage reported"
     );
@@ -150,6 +152,7 @@ async fn a_refused_text_group_retries_whole_in_the_long_window_without_splitting
                 questions: &questions,
                 assets: None,
                 long_context: LongContext::OnRefusal,
+                companions: 0,
             },
             None,
             &budget,
@@ -260,6 +263,7 @@ async fn noncanonical_provider_answers_are_not_cached() {
             questions: &questions,
             assets: None,
             long_context: crate::tools::judgment::LongContext::Never,
+            companions: 0,
         };
         for _ in 0..2 {
             let error = evaluator
@@ -321,4 +325,99 @@ fn references_match_whole_asset_keys_not_substrings() {
     }
     assert!(!cited("Is it blank, table or data?", "a"));
     assert!(!cited("an a-b pair", "a-b-c"));
+}
+
+/// Companions ride only in the grouped request: when both windows refuse the
+/// group, the per-question requests carry the asked questions alone, so a
+/// companion never adds a request. The complete answer holds only those.
+#[tokio::test]
+async fn companions_are_never_sent_alone() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(|request: &Request| {
+            let body: Value = request.body_json().expect("body");
+            let questions = body["questions"].as_object().expect("questions");
+            if questions.len() > 1 {
+                return ResponseTemplate::new(400)
+                    .set_body_json(json!({"detail":{"error_type":"max_tokens_exceeded"}}));
+            }
+            response(request)
+        })
+        .mount(&server)
+        .await;
+    let evaluator = evaluator(&server);
+    let budget = evaluation_budget(&evaluator);
+    let state = json!("source");
+    let questions = vec![
+        json!({"type":"noul","instructions":"Evidence?"}),
+        json!({"type":"choice","instructions":"Where?","criteria":{"p1":null,"unknown":null}}),
+    ];
+    let judged = evaluator
+        .evaluate_prepared(
+            EvaluationInput {
+                state: &state,
+                questions: &questions,
+                assets: None,
+                long_context: LongContext::OnRefusal,
+                companions: 1,
+            },
+            None,
+            &budget,
+            &evaluator.gate(),
+        )
+        .await
+        .expect("the asked question answered alone");
+    assert_eq!(judged.answers, vec![json!({"type":"noul","noul":0.8})]);
+    let sent = server.received_requests().await.unwrap();
+    // The group in each window, then the one asked question; never the companion.
+    assert_eq!(sent.len(), 3, "{}", sent.len());
+    let last: Value = sent[2].body_json().expect("body");
+    assert_eq!(last["questions"]["answer"]["type"], "noul");
+    assert_eq!(judged.provider_calls, 3);
+}
+
+/// A companion's malformed answer fails nothing: the asked answers stand
+/// and the companion's place is `null`.
+#[tokio::test]
+async fn a_malformed_companion_answer_fails_nothing() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "model":"jev-resolved",
+            "answers":{
+                "answer_0":{"type":"noul","noul":0.7},
+                "answer_1":{"type":"choice","choice":"nowhere","confidence":1,"probabilities":{"nowhere":1.0}}
+            },
+            "usage":{"input_tokens":10,"output_tokens":2}
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let evaluator = evaluator(&server);
+    let budget = evaluation_budget(&evaluator);
+    let state = json!("source");
+    let questions = vec![
+        json!({"type":"noul","instructions":"Evidence?"}),
+        json!({"type":"choice","instructions":"Where?","criteria":{"p1":null,"unknown":null}}),
+    ];
+    let judged = evaluator
+        .evaluate_prepared(
+            EvaluationInput {
+                state: &state,
+                questions: &questions,
+                assets: None,
+                long_context: LongContext::Never,
+                companions: 1,
+            },
+            None,
+            &budget,
+            &evaluator.gate(),
+        )
+        .await
+        .expect("the asked answer stands");
+    assert_eq!(
+        judged.answers,
+        vec![json!({"type":"noul","noul":0.7}), Value::Null]
+    );
+    assert_eq!(judged.provider_calls, 1);
 }

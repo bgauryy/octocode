@@ -108,3 +108,34 @@ fn workspace_symbol_outside_rust_keeps_its_nearest_project_root() {
     let member = manifest_at(&mixed, "crates/member", MEMBER);
     assert_eq!(symbol_root(&member, none, &paths), text(&member));
 }
+
+/// A directory its files route (a folder of Python scripts with no manifest
+/// of its own, under a TypeScript package of a Python project) runs from the
+/// root a call on one of its files runs from, so both reach one server.
+#[test]
+fn a_directory_routed_by_its_files_runs_from_its_files_root() {
+    let (_dir, root, paths) = temp_workspace();
+    let text = |path: &std::path::Path| path.to_string_lossy().into_owned();
+    std::fs::write(root.join("pyproject.toml"), "[project]\nname = 'p'\n").expect("pyproject");
+    let tools = root.join("tools");
+    let scripts = tools.join("scripts");
+    std::fs::create_dir_all(&scripts).expect("scripts");
+    std::fs::write(tools.join("package.json"), "{}").expect("package.json");
+    for name in ["flows.py", "walk.py", "stub.mjs"] {
+        std::fs::write(scripts.join(name), "").expect("script");
+    }
+    let file_root = octocode_engine::lsp::workspace::resolve_workspace_root_for_file(text(
+        &scripts.join("flows.py"),
+    ))
+    .expect("root of a file");
+    assert_eq!(file_root, text(&root), "the Python project");
+    assert_eq!(
+        symbol_root(&scripts, serde_json::json!({}), &paths),
+        file_root
+    );
+    // A directory with markers of its own keeps its nearest project root.
+    assert_eq!(
+        symbol_root(&tools, serde_json::json!({}), &paths),
+        text(&tools)
+    );
+}

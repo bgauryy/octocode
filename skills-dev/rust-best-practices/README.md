@@ -1,9 +1,12 @@
 # Rust Best Practices
 
-Write, structure, and harden Rust that a seasoned maintainer would approve. The skill inspects the real code and manifests before it advises, and it checks crate claims against upstream source, not registry popularity.
+An agent-neutral workflow for implementing, debugging and reviewing Rust. It starts from the actual repository, compiler/edition/MSRV and enabled features, then routes to the relevant decision.
 
-- **Structure:** `SKILL.md` holds the rules and one skill map (trigger → reference); `basics.md` is the quick-start; `references/` holds 17 pages, one per decision area. `output.md` is the answer format. `scripts/lib/config-env.mjs` is a generated copy of the shared config loader (from `skills/common/build.mjs`), linked by `references/configuration.md`; it is not Rust guidance.
-- **Maintainer check:** run the `octocode-skills` review against this folder before shipping.
-- **Repository practice:** covers generated contracts, runtime ownership, cancellation, lossless pagination, build features, and safe native binary staging. Source anchors are in `references/sources-and-crates.md`.
-- **Lint and the dev loop:** the manifest floor and which Clippy groups stay off are in `references/workspace.md`. The edit loop versus the full gate, and what a green CI run proves, are in `references/testing-and-tooling.md` and `references/build-profiles.md`.
-- **Open choices:** compare an existing approach with one alternative and test the deciding unknown; route broader scope exploration to `octocode-brainstorming`.
+- `SKILL.md`: entry, work loop, core rules and conditional reference map.
+- `basics.md`: concise ownership/correctness refresher and common misconceptions.
+- `references/`: ownership/errors, types, concurrency/cancellation, Cargo/builds, performance, tests, safety/FFI and conditional CLI/parser/napi guidance. `octocode.md` isolates this repository's policies; `sources-and-crates.md` names primary authorities and dependency checks.
+- `output.md`: outcome, evidence, verification scope and material limits without requiring a report for routine work.
+
+Use any available agent tools; Octocode and neighboring skills are optional outside this repository. Shared research/config/presentation resources are generated from `skills/common` and must not be hand-edited. Their presence does not make a Rust change depend on Octocode credentials.
+
+Maintainers: run the `octocode-skills` structural review and the repository's `skills:check` and applicable docs checks. Exercise representative tasks separately; passing structure alone does not establish agent activation or behavioral correctness.

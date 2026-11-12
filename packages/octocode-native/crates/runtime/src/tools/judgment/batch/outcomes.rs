@@ -77,18 +77,27 @@ pub(super) fn fold_singles(
     }
 }
 
+/// A grouped response's outcomes. Its last `companions` answers ride along
+/// ([`crate::tools::judgment::EvaluationInput::companions`]): one that failed
+/// validation is `null` in the complete answers and fails nothing.
 pub(super) fn grouped_outcomes(
     request: &Value,
     response: &Value,
     calls: u64,
     provider: &dyn ClassificationProvider,
+    companions: usize,
 ) -> Result<QuestionOutcomes, ClassificationError> {
     let ProviderResponse {
         answers,
         model,
         usage,
     } = provider.read(request, response);
-    let parts = answers.map_err(|error| response_error(error, usage, calls))?;
+    let mut parts = answers.map_err(|error| response_error(error, usage, calls))?;
+    let riders: Vec<Value> = parts
+        .split_off(parts.len().saturating_sub(companions))
+        .into_iter()
+        .map(|part| part.unwrap_or(Value::Null))
+        .collect();
     let failure = parts.iter().find_map(|part| part.as_ref().err()).cloned();
     let models = parts
         .iter()
@@ -105,6 +114,7 @@ pub(super) fn grouped_outcomes(
                 parts
                     .iter()
                     .filter_map(|part| part.as_ref().ok().cloned())
+                    .chain(riders)
                     .collect(),
             ),
             calls,

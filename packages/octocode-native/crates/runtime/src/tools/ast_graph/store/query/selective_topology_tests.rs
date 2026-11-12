@@ -76,8 +76,11 @@ fn every_topology_operation_matches_the_full_snapshot_oracle() {
             "{operation}: {}",
             selective.value
         );
+        // `cochange` reads Git history, which this fixture has none of: both
+        // decodes refuse it alike.
         assert!(
-            matches!(selective.class, ExitClass::Success | ExitClass::Empty),
+            operation == "cochange"
+                || matches!(selective.class, ExitClass::Success | ExitClass::Empty),
             "{operation}: {}",
             selective.value
         );

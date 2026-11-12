@@ -821,10 +821,12 @@ fn every_call_inside_a_json_object_body_is_a_match() {
 #[test]
 fn unread_body_text_with_the_anchor_names_its_macro() {
     let rule = json!({"pattern": "$X.len()"});
-    let (heads, bodies) = rule_heads_and_bodies("fn f() {\n    m!(a b c len, d.len());\n}\n", "rs", &rule);
+    let (heads, bodies) =
+        rule_heads_and_bodies("fn f() {\n    m!(a b c len, d.len());\n}\n", "rs", &rule);
     assert_eq!(heads, ["d.len()"]);
     assert_eq!(bodies, ["m! 2"]);
-    let (heads, bodies) = rule_heads_and_bodies("fn f() {\n    m!(a b c, d.len());\n}\n", "rs", &rule);
+    let (heads, bodies) =
+        rule_heads_and_bodies("fn f() {\n    m!(a b c, d.len());\n}\n", "rs", &rule);
     assert_eq!(heads, ["d.len()"]);
     assert!(bodies.is_empty(), "{bodies:?}");
 }
@@ -953,7 +955,10 @@ fn a_matched_unreadable_body_node_names_its_macro_and_line() {
     assert!(heads.is_empty(), "{heads:?}");
     assert_eq!(bodies, ["m! 2"]);
     let (heads, bodies) = rule_heads_and_bodies("fn t() { m!(a, b); }\n", "rs", &rule);
-    assert!(heads.is_empty() && bodies.is_empty(), "{heads:?} {bodies:?}");
+    assert!(
+        heads.is_empty() && bodies.is_empty(),
+        "{heads:?} {bodies:?}"
+    );
     let (_, bodies) = rule_heads_and_bodies(
         "fn t() { m!(a b c); }\n",
         "rs",
@@ -963,15 +968,18 @@ fn a_matched_unreadable_body_node_names_its_macro_and_line() {
     // A `json!` object's key-led misread (`"id": v[…].to_string()` read as
     // one call) is no match; the value's own re-parse holds the call, so
     // nothing is hidden and the object is not named.
-    let source = "fn f() {\n    let c = json!({\n        \"id\": v[\"id\"].to_string(),\n    });\n}\n";
+    let source =
+        "fn f() {\n    let c = json!({\n        \"id\": v[\"id\"].to_string(),\n    });\n}\n";
     let (heads, bodies) = rule_heads_and_bodies(
         source,
         "rs",
         &json!({"kind": "call_expression", "regex": "^\""}),
     );
-    assert!(heads.is_empty() && bodies.is_empty(), "{heads:?} {bodies:?}");
-    let (heads, bodies) =
-        rule_heads_and_bodies(source, "rs", &json!({"kind": "call_expression"}));
+    assert!(
+        heads.is_empty() && bodies.is_empty(),
+        "{heads:?} {bodies:?}"
+    );
+    let (heads, bodies) = rule_heads_and_bodies(source, "rs", &json!({"kind": "call_expression"}));
     assert_eq!(heads, ["v[\"id\"].to_string()"]);
     assert!(bodies.is_empty(), "{bodies:?}");
 }

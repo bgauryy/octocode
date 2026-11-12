@@ -84,8 +84,11 @@ pub(super) struct Scan {
     /// The source bytes a match crossing an edge is followed for.
     pub(super) overlap: usize,
     /// What the pass proved of the whole source: its digest, and where the
-    /// page's windows can be read from without a second pass.
+    /// page's windows can be read from without a second pass; `None` when a
+    /// kept judgment proved it.
     pub(super) proven: Option<super::proven::Proven>,
+    /// The digest of the bytes the scan read.
+    pub(super) digest: Option<String>,
     /// The most text the window held at once.
     #[cfg(test)]
     pub(super) peak: usize,
@@ -127,21 +130,69 @@ impl Scan {
     }
 }
 
-/// Judge the whole source behind `file` for `q`'s patterns, from its start.
+/// Judge the whole source behind `file` for `q`'s patterns, from its start,
+/// over the text a read serves: each of `changed` (the lines a read serves
+/// differently, [`super::searched::changed_lines`]) replaces its line, so a
+/// hit is never made by a byte a read withholds. `kept` names the digest of
+/// the bytes the judgment that found them proved and kept
+/// ([`super::kept`]): the scan then proves only that it read those bytes,
+/// not the whole source again.
 pub(super) fn scan(
     q: &LocalFetchQuery,
-    file: &std::fs::File,
+    judged: Judged<'_>,
     path: &std::path::Path,
     resume: usize,
     security: &dyn crate::security::scan::ContentScan,
     cancel: &impl CancellationCheck,
 ) -> Result<Scan, ExtractionError> {
-    scan_with(q, file, path, resume, Limits::of(q), security, cancel)
+    scan_with(q, judged, path, resume, Limits::of(q), security, cancel)
+}
+
+/// The source a scan reads, and what its streamed judgment found of it.
+#[derive(Clone, Copy)]
+pub(super) struct Judged<'a> {
+    pub(super) file: &'a std::fs::File,
+    pub(super) changed: Option<&'a super::ChangedLines>,
+    pub(super) kept: Option<&'a str>,
+}
+
+/// `raw` with each of `changed` replacing its line ([`super::Patched`]).
+fn patched<'a>(
+    raw: Box<dyn BufRead + 'a>,
+    changed: Option<&'a super::ChangedLines>,
+    read: usize,
+) -> Box<dyn BufRead + 'a> {
+    match changed {
+        Some(changed) => Box::new(std::io::BufReader::with_capacity(
+            read,
+            super::Patched::new(raw, changed),
+        )),
+        None => raw,
+    }
+}
+
+/// Bytes read through, hashed as they pass.
+struct Hashed<R> {
+    inner: R,
+    hasher: std::rc::Rc<std::cell::RefCell<octocode_engine::digest::HashWriter>>,
+}
+
+impl<R: std::io::Read> std::io::Read for Hashed<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let read = self.inner.read(buf)?;
+        super::count_read(read);
+        self.hasher.borrow_mut().update(&buf[..read]);
+        Ok(read)
+    }
 }
 
 pub(super) fn scan_with(
     q: &LocalFetchQuery,
-    file: &std::fs::File,
+    Judged {
+        file,
+        changed,
+        kept,
+    }: Judged<'_>,
     path: &std::path::Path,
     resume: usize,
     limits: Limits,
@@ -149,9 +200,51 @@ pub(super) fn scan_with(
     cancel: &impl CancellationCheck,
 ) -> Result<Scan, ExtractionError> {
     let failed = |error: String| ExtractionError::new(ErrorCode::FileReadFailed, error);
-    let mut reader = std::io::BufReader::with_capacity(limits.read, file);
-    std::io::Seek::seek(&mut reader, std::io::SeekFrom::Start(0))
+    let changed = changed.filter(|changed| !changed.is_empty());
+    let mut handle = file;
+    std::io::Seek::seek(&mut handle, std::io::SeekFrom::Start(0))
         .map_err(|error| failed(error.to_string()))?;
+    let hasher = std::rc::Rc::new(std::cell::RefCell::new(
+        octocode_engine::digest::HashWriter::default(),
+    ));
+    let (reader, proof): (Box<dyn BufRead + '_>, Option<super::proven::Proof<'_>>) = match kept {
+        // The judgment proved and kept these bytes: they are only hashed.
+        Some(_) => {
+            let raw = std::io::BufReader::with_capacity(
+                limits.read,
+                Hashed {
+                    inner: handle,
+                    hasher: std::rc::Rc::clone(&hasher),
+                },
+            );
+            (patched(Box::new(raw), changed, limits.read), None)
+        }
+        None => {
+            let mut raw = std::io::BufReader::with_capacity(limits.read, handle);
+            let mut proof = super::proven::Proof::new(file, path, &[], security)
+                .map_err(|error| failed(error.message().to_owned()))?;
+            // The proof is of the source's own bytes: with lines replaced,
+            // they pass it first, and the scan reads the replaced text.
+            if changed.is_some() {
+                loop {
+                    let piece = raw.fill_buf().map_err(|error| failed(error.to_string()))?;
+                    if piece.is_empty() {
+                        break;
+                    }
+                    let read = piece.len();
+                    super::count_read(read);
+                    proof.feed(piece);
+                    raw.consume(read);
+                    cancel.check().map_err(failed)?;
+                }
+                std::io::Seek::seek(&mut raw, std::io::SeekFrom::Start(0))
+                    .map_err(|error| failed(error.to_string()))?;
+            }
+            (patched(Box::new(raw), changed, limits.read), Some(proof))
+        }
+    };
+    let mut reader = reader;
+    let proven = changed.is_some() || kept.is_some();
     let mut scanner = Scanner {
         q,
         cancel,
@@ -169,8 +262,8 @@ pub(super) fn scan_with(
         counted: 0,
         newlines: 0,
         last: None,
-        proof: super::proven::Proof::new(file, path, &[], security)
-            .map_err(|error| failed(error.message().to_owned()))?,
+        proof,
+        proven,
     };
     loop {
         let ended = scanner.fill(&mut reader)?;
@@ -181,7 +274,16 @@ pub(super) fn scan_with(
             break;
         }
     }
-    scanner.finish()
+    drop(reader);
+    let mut found = scanner.finish()?;
+    if let Some(kept) = kept {
+        let digest = hex::encode(std::mem::take(&mut *hasher.borrow_mut()).finalize());
+        if digest != kept {
+            return Err(failed("The source changed while it was read.".to_owned()));
+        }
+        found.digest = Some(digest);
+    }
+    Ok(found)
 }
 
 /// One scan's sliding window over the source.
@@ -207,7 +309,11 @@ struct Scanner<'a, C: CancellationCheck> {
     newlines: usize,
     last: Option<u8>,
     /// Every source byte, read once: the digest and window checkpoints.
-    proof: super::proven::Proof<'a>,
+    /// `None` when a kept judgment proved the source.
+    proof: Option<super::proven::Proof<'a>>,
+    /// The proof already read every source byte, or a kept judgment did:
+    /// the scan reads replaced lines, which are not the source's.
+    proven: bool,
 }
 
 impl<C: CancellationCheck> Scanner<'_, C> {
@@ -234,8 +340,12 @@ impl<C: CancellationCheck> Scanner<'_, C> {
             let read = piece.len();
             self.newlines += piece.iter().filter(|byte| **byte == b'\n').count();
             self.last = piece.last().copied();
-            super::count_read(read);
-            self.proof.feed(piece);
+            if !self.proven
+                && let Some(proof) = &mut self.proof
+            {
+                super::count_read(read);
+                proof.feed(piece);
+            }
             let nul = piece.contains(&0);
             self.found.nul |= nul;
             if !limited {
@@ -380,11 +490,13 @@ impl<C: CancellationCheck> Scanner<'_, C> {
     fn finish(mut self) -> Result<Scan, ExtractionError> {
         let lines = self.newlines + usize::from(self.last.is_some_and(|byte| byte != b'\n'));
         self.found.close(lines);
-        let pass = self
-            .proof
-            .finish()
-            .map_err(|error| ExtractionError::new(ErrorCode::FileReadFailed, error.message()))?;
-        self.found.proven = Some(pass.proven);
+        if let Some(proof) = self.proof {
+            let pass = proof.finish().map_err(|error| {
+                ExtractionError::new(ErrorCode::FileReadFailed, error.message())
+            })?;
+            self.found.digest = Some(pass.proven.digest.clone());
+            self.found.proven = Some(pass.proven);
+        }
         Ok(self.found)
     }
 }

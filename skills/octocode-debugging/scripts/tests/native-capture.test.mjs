@@ -2,9 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-const script = resolve('skills/octocode-debugging/scripts/native-capture.sh');
+const script = fileURLToPath(new URL('../native-capture.sh', import.meta.url));
 test('Linux backend passes PID, finite window and paths without shell expansion', () => {
   const dir = mkdtempSync(join(tmpdir(), 'native-capture-test-'));
   try {

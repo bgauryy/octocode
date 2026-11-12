@@ -1162,7 +1162,7 @@ fn camel_parts(word: &str) -> impl Iterator<Item = &str> {
 /// Whether `secret` is one PEM armor line (`-----BEGIN RSA PRIVATE KEY-----`):
 /// it names the block that follows and holds none of it. A block's body, or
 /// an armor line with its body, is the key rules' own.
-fn is_armor_line(secret: &str) -> bool {
+pub(super) fn is_armor_line(secret: &str) -> bool {
     secret
         .strip_prefix("-----")
         .and_then(|rest| rest.strip_suffix("-----"))
@@ -1825,15 +1825,20 @@ pub(super) fn is_value_of_its_own(key: &str, part: &str) -> bool {
     literal_chars(part) >= OPAQUE_LITERAL_CHARS && ValueTest::Quoted.redacts(key, part)
 }
 
-/// `text` after the blanks, line breaks and comments it starts with (`/* …
-/// */`, and `// …` or `# …` to the end of its line): what source code may
-/// write between the pieces of one literal.
+/// `text` after the blanks, line breaks, line continuations (`\` before a
+/// line break) and comments it starts with (`/* … */`, and `// …` or `# …`
+/// to the end of its line): what source code may write between the pieces
+/// of one literal.
 fn after_code_gap(text: &str) -> &str {
     let mut rest = text;
     loop {
         let trimmed = rest.trim_start();
         let after = if let Some(body) = trimmed.strip_prefix("/*") {
             body.split_once("*/").map(|(_, after)| after)
+        } else if let Some(body) = trimmed.strip_prefix('\\') {
+            // A backslash that continues the line.
+            body.strip_prefix("\r\n")
+                .or_else(|| body.strip_prefix('\n'))
         } else if trimmed.starts_with("//") || trimmed.starts_with('#') {
             trimmed.split_once(['\n', '\r']).map(|(_, after)| after)
         } else {

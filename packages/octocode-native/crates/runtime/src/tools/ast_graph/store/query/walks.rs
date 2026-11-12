@@ -105,6 +105,11 @@ pub(super) fn walk(
             row.insert("depth".into(), json!(level + 1));
             row.insert("from".into(), json!(g.key(id)));
             g.edge_fields(&mut row, edge);
+            // The source occurrences behind the walked edge.
+            row.insert(
+                "sites".into(),
+                json!(g.sites(cancel)?.behind(edge, filter.tests)),
+            );
             rows.push(Value::Object(row));
         }
     }
@@ -277,37 +282,67 @@ pub(super) fn cycles(
     })
 }
 
+/// What a `hubs` page orders by.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RankBy {
+    /// Distinct neighbours in the ranked direction (`fanIn` or `fanOut`).
+    Degree,
+    /// Weighted PageRank over the admitted edges, each weighted by its sites.
+    PageRank,
+}
+
+/// One ranked node: its degrees both ways, the sites behind its counted
+/// edges, and its PageRank when the page ranks by it.
+struct Hub {
+    id: u32,
+    fan_in: usize,
+    fan_out: usize,
+    sites: u64,
+    rank: Option<f64>,
+}
+
+/// The `hubs` ranking over the admitted edges. `direction` picks the counted
+/// edges: incoming (`In`) or outgoing (`Out`); PageRank over outgoing edges
+/// runs on the reversed graph, so a node that depends on many important
+/// nodes ranks high.
 pub(super) fn hubs(
     g: &Graph,
     filter: &EdgeFilter,
     kind: Option<NodeKind>,
-    rank_by: Direction,
+    direction: Direction,
+    rank_by: RankBy,
     range: std::ops::Range<usize>,
     cancel: &dyn crate::execution::cancel::CancellationCheck,
 ) -> Result<Page, GraphOutput> {
     let default_kind = match filter.kinds.as_slice() {
         [EdgeKind::Calls] => Some(NodeKind::Symbol),
-        [EdgeKind::Imports] if rank_by == Direction::Out => Some(NodeKind::File),
+        [EdgeKind::Imports] if direction == Direction::Out => Some(NodeKind::File),
         _ => None,
     };
     let kind = kind.or(default_kind);
-    let distinct = |edges: Vec<u32>| {
-        let mut edges = edges;
-        edges.sort_unstable();
-        edges.dedup();
-        edges.len()
+    let sites = g.sites(cancel)?;
+    let n = g.t.nodes.len();
+    let distinct = |mut neighbours: Vec<u32>| {
+        neighbours.sort_unstable();
+        neighbours.dedup();
+        neighbours.len()
     };
-    let mut ranked = Vec::new();
+    // PageRank flows along each counted edge: importer → imported for
+    // incoming, reversed for outgoing.
+    let mut flow = vec![Vec::new(); if rank_by == RankBy::PageRank { n } else { 0 }];
+    let mut member = vec![false; n];
+    let mut hubs = Vec::new();
     for id in g.t.node_ids() {
         check(cancel)?;
-        if kind.is_some_and(|kind| g.t.nodes[id as usize].kind != kind) {
-            continue;
-        }
         let mut incoming = Vec::new();
+        let mut counted_sites = 0;
         for edge in g.t.incoming(id) {
             check(cancel)?;
             if filter.admits(edge) {
                 incoming.push(edge.src);
+                if direction != Direction::Out {
+                    counted_sites += sites.behind(edge, filter.tests);
+                }
             }
         }
         let mut outgoing = Vec::new();
@@ -315,39 +350,99 @@ pub(super) fn hubs(
             check(cancel)?;
             if filter.admits(edge) {
                 outgoing.push(edge.dst);
+                let weight = sites.behind(edge, filter.tests);
+                if direction == Direction::Out {
+                    counted_sites += weight;
+                }
+                if rank_by == RankBy::PageRank {
+                    let (from, to) = if direction == Direction::Out {
+                        (edge.dst, edge.src)
+                    } else {
+                        (edge.src, edge.dst)
+                    };
+                    flow[from as usize].push((to, weight as f64));
+                    member[edge.src as usize] = true;
+                    member[edge.dst as usize] = true;
+                }
             }
         }
-        let fan_in = distinct(incoming);
-        let fan_out = distinct(outgoing);
-        if (if rank_by == Direction::Out {
+        let (fan_in, fan_out) = (distinct(incoming), distinct(outgoing));
+        let counted = if direction == Direction::Out {
             fan_out
         } else {
             fan_in
-        }) > 0
-        {
-            ranked.push((id, fan_in, fan_out));
+        };
+        // A degree ranking lists the nodes with a counted edge; a PageRank
+        // lists every node the admitted edges touch (all its rank).
+        let listed = match rank_by {
+            RankBy::Degree => counted > 0,
+            RankBy::PageRank => fan_in + fan_out > 0,
+        };
+        if listed && kind.is_none_or(|kind| g.t.nodes[id as usize].kind == kind) {
+            hubs.push(Hub {
+                id,
+                fan_in,
+                fan_out,
+                sites: counted_sites,
+                rank: None,
+            });
         }
     }
-    ranked.sort_by(|a, b| {
-        let (ka, kb) = if rank_by == Direction::Out {
-            (a.2, b.2)
-        } else {
-            (a.1, b.1)
-        };
-        kb.cmp(&ka).then_with(|| g.key(a.0).cmp(g.key(b.0)))
-    });
-    let total = ranked.len();
+    match rank_by {
+        RankBy::Degree => {
+            let counted = |hub: &Hub| {
+                if direction == Direction::Out {
+                    hub.fan_out
+                } else {
+                    hub.fan_in
+                }
+            };
+            hubs.sort_by(|a, b| {
+                counted(b)
+                    .cmp(&counted(a))
+                    .then_with(|| g.key(a.id).cmp(g.key(b.id)))
+            });
+        }
+        RankBy::PageRank => {
+            let members =
+                g.t.node_ids()
+                    .filter(|id| member[*id as usize])
+                    .collect::<Vec<_>>();
+            let rank = crate::tools::ast_graph::algorithms::page_rank(n, &members, &flow);
+            for hub in &mut hubs {
+                hub.rank = Some(rank[hub.id as usize]);
+            }
+            // Ranks equal within the PageRank resolution tie; the key
+            // orders a tie.
+            let class = |hub: &Hub| {
+                crate::tools::ast_graph::algorithms::rank_tie_class(
+                    rank[hub.id as usize],
+                    members.len(),
+                )
+            };
+            hubs.sort_by(|a, b| {
+                class(b)
+                    .cmp(&class(a))
+                    .then_with(|| g.key(a.id).cmp(g.key(b.id)))
+            });
+        }
+    }
+    let total = hubs.len();
     let start = range.start;
     let mut rows = Vec::new();
-    for (id, fan_in, fan_out) in ranked
+    for hub in hubs
         .into_iter()
         .skip(start)
         .take(range.end.saturating_sub(start))
     {
         check(cancel)?;
-        let mut row = g.node_json(id, cancel)?;
-        row.insert("fanIn".into(), json!(fan_in));
-        row.insert("fanOut".into(), json!(fan_out));
+        let mut row = g.node_json(hub.id, cancel)?;
+        if let Some(rank) = hub.rank {
+            row.insert("pageRank".into(), json!(rank));
+        }
+        row.insert("fanIn".into(), json!(hub.fan_in));
+        row.insert("fanOut".into(), json!(hub.fan_out));
+        row.insert("sites".into(), json!(hub.sites));
         rows.push(Value::Object(row));
     }
     Ok(Page { total, rows, start })

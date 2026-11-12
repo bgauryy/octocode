@@ -197,3 +197,27 @@ fn a_leading_plus_concatenation_is_quoting_not_text() {
             .contains("const after = 1;")
     );
 }
+
+/// D5 (bin16 retest): a numbered view's label before an armor line is the
+/// runtime's text, no key's: a leaf judged alone that opens at a key's END
+/// keeps its line numbers and armor, however many digits the number has.
+/// Key text glued to the armor still goes.
+#[test]
+fn a_numbered_armor_line_keeps_its_label() {
+    let security = ContentSecurity::new();
+    for number in ["7", "1520", "124169"] {
+        let leaf = format!("{number}\t-----END PRIVATE KEY-----\n{number}1\tafter one");
+        assert_eq!(
+            security.sanitize_judged_leaf(&leaf, None, "big.log"),
+            None,
+            "{leaf}"
+        );
+    }
+    let glued = "Qx7Zk2Vb9Ls4Qx7Zk2Vb9Ls4-----END PRIVATE KEY-----\nafter one";
+    let shown = security
+        .sanitize_judged_leaf(glued, None, "big.log")
+        .expect("key text hidden");
+    assert!(!shown.contains("Qx7Zk2"), "{shown}");
+    assert!(shown.contains("-----END PRIVATE KEY-----"), "{shown}");
+    assert!(shown.ends_with("\nafter one"), "{shown}");
+}

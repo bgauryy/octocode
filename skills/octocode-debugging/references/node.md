@@ -1,5 +1,3 @@
-Load when debugging a Node or TypeScript program or test.
-
 # Node and TypeScript
 
 For an unattended launch, [node-break.mjs](../scripts/node-break.mjs) runs the program under the inspector, prints each pause as JSON, resumes and exits with the program’s exit code.
@@ -12,16 +10,16 @@ node "$skill/scripts/node-break.mjs" --exceptions all --max-hits 5 -- --enable-s
 
 Everything after `--` is what you would pass to `node`: Node flags, the script and its arguments. Node 22.18 and later strip erasable TypeScript syntax directly; use the project loader/build for unsupported transforms or tsconfig path mappings.
 
-| Option                          | Effect                                                                                                                                                                       |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--break file:line[:condition]` | Pause at that line, when the condition holds; repeatable, one per line                                                                                                       |
-| `--eval expression`             | Print these at each pause instead of the top frame's locals; repeatable                                                                                                      |
-| `--exceptions all\|uncaught`    | `uncaught` filters noise. `all` also reveals throws caught by the runtime or application. |
-| `--steps n`                     | After each hit, step over n lines and report each                                                                                                                            |
-| `--max-hits n`                  | After n pauses, stop pausing and let the program finish (default 20)                                                                                                         |
-| `--timeout s`                   | Request stacks from attached JS targets, then terminate the launched child (default 30 seconds)                                                                                          |
+| Option | Effect |
+|---|---|
+| `--break file:line[:condition]` | Pause at that line, when the condition holds; repeatable, one per line |
+| `--eval expression` | Print these at each pause instead of the top frame's locals; repeatable |
+| `--exceptions all\|uncaught` | `uncaught` filters noise. `all` also reveals throws caught by the runtime or application. |
+| `--steps n` | After each hit, step over n lines and report each |
+| `--max-hits n` | After n pauses, stop pausing and let the program finish. Default: every pause; bound a hot loop with a condition or this flag |
+| `--timeout s` | For a hang: request stacks from attached JS targets, then terminate the launched child. Default: none, the program runs to its end |
 
-Each output line has `event`: `hit`, `step`, `exception`, `timeout`, `max-hits`, `unbound` or `exit`. Pauses carry `thread` (`main` or `worker N`), `at`, `values` and `stack`; exceptions add `exception`. `unbound` names a breakpoint that matched no loaded code: a wrong path or line, or a file that was never loaded. If the breakpoint bound but recorded no hits, check the executed worker, generated location and condition before inferring which path ran.
+Each output line has `event`: `hit`, `step`, `exception`, `timeout`, `max-hits`, `unbound` or `exit`. Pauses carry `thread` (`main` or `worker N`), `at`, `values` and `stack`, printed whole; exceptions add `exception`. An object value is V8's preview, where `…` marks omitted properties: `--eval` the property to read it. Redirect stdout to a file when a breakpoint fires many times, then read it in ranges. `unbound` names a breakpoint that matched no loaded code: a wrong path or line, or a file that was never loaded. If the breakpoint bound but recorded no hits, check the executed worker, generated location and condition before inferring which path ran.
 
 ## Tests and transformed code
 

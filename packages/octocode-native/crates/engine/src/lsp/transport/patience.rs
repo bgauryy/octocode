@@ -10,9 +10,16 @@
 //!   (the [`CpuClock`]), or
 //! * it sent a new `$/progress` work-done notice (a `begin`, `report` or
 //!   `end`, or a rust-analyzer status change) since the last check. A token
-//!   left open with nothing new said is no progress.
+//!   left open with nothing new said is no progress; or
+//! * it sent any other message since the last check (a log line, a status,
+//!   diagnostics, another request's answer): a server working through an
+//!   external build tool (Metals over its build server) may use little CPU of
+//!   its own while it talks.
 //!
-//! A server with neither is hung and times out at the base, exactly as before.
+//! A server with none of these is idle on the request and is cut at the
+//! base: the base is the window in which a live server shows any sign of
+//! work, not a bound on work, which extends for as long as it lasts. The
+//! failure says which ended the wait ([`Unanswered`]).
 //! A server that spins its CPU without answering still counts as progressing;
 //! without a caller deadline only a cancel ends that wait.
 //! A ceiling bounds even a server that never stops making progress: the
@@ -133,6 +140,17 @@ impl From<u32> for WaitBudget {
     }
 }
 
+/// Why a request wait ended without its answer.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Unanswered {
+    /// How long the budget has waited since it was created, all attempts
+    /// included.
+    pub(super) waited: Duration,
+    /// The span over which the server showed no activity at all, when that
+    /// ended the wait; `None` when the ceiling did while it still worked.
+    pub(super) idle: Option<Duration>,
+}
+
 /// The progress signals of one language server.
 pub(super) struct ServerActivity {
     cpu_clock: Option<CpuClock>,
@@ -149,8 +167,8 @@ impl ServerActivity {
 
     /// Awaits `response` for `budget.base` from `started`, then in steps of a
     /// quarter of it while the server shows progress, never past the
-    /// budget's ceiling. `Err` carries how long the budget has been waiting
-    /// since it was created, all attempts included. Dropping the
+    /// budget's ceiling. `Err` says how long the budget waited and whether
+    /// an idle server or the ceiling ended it. Dropping the
     /// future cancels the wait at the next await, wherever in the extension
     /// it is.
     pub(super) async fn wait<F>(
@@ -158,7 +176,7 @@ impl ServerActivity {
         mut response: F,
         started: Instant,
         budget: WaitBudget,
-    ) -> Result<F::Output, Duration>
+    ) -> Result<F::Output, Unanswered>
     where
         F: Future + Unpin,
     {
@@ -173,27 +191,42 @@ impl ServerActivity {
                 Ok(output) => return Ok(output),
                 Err(_) => self.cpu_time(),
             };
-        // Progress is what changed over the step: new CPU time or a new
-        // work-done notice. A token left open with nothing new said (leaked)
-        // is not progress, so it cannot hold a request without a ceiling.
-        let mut last_reports = self.progress.reports();
+        // Progress is what changed over the step: new CPU time, a new
+        // work-done notice or any other message. A token left open with
+        // nothing new said (leaked) is not progress, so it cannot hold a
+        // request without a ceiling.
+        let mut last_signals = self.signals();
+        let mut sampled = deadline.checked_sub(step).unwrap_or(started);
         loop {
             if let Ok(output) = timeout_at(deadline, &mut response).await {
                 return Ok(output);
             }
             if budget.ceiling.is_some_and(|ceiling| deadline >= ceiling) {
-                return Err(deadline - budget.created);
+                return Err(Unanswered {
+                    waited: deadline - budget.created,
+                    idle: None,
+                });
             }
             let cpu = self.cpu_time();
-            let reports = self.progress.reports();
-            let progressed = cpu_progressed(last_cpu, cpu, step) || reports != last_reports;
+            let signals = self.signals();
+            let progressed = cpu_progressed(last_cpu, cpu, step) || signals != last_signals;
             if !progressed {
-                return Err(deadline - budget.created);
+                return Err(Unanswered {
+                    waited: deadline - budget.created,
+                    idle: Some(deadline - sampled),
+                });
             }
             last_cpu = cpu.or(last_cpu);
-            last_reports = reports;
+            last_signals = signals;
+            sampled = deadline;
             deadline = budget.capped(deadline + step);
         }
+    }
+
+    /// The server's work-done notices and messages so far: either changing
+    /// is a sign of work.
+    fn signals(&self) -> (u64, u64) {
+        (self.progress.reports(), self.progress.messages())
     }
 
     pub(super) fn cpu_time(&self) -> Option<Duration> {

@@ -24,11 +24,21 @@ fn walk_tool(tool: &str, input: &Value, budget: usize) -> Vec<Value> {
         .expect("page");
         let page = prepared.value;
         let chars = page.to_string().encode_utf16().count();
-        // Exactly the pages a full measure finds over budget say so, at the
-        // top level, whether or not the page carries a block.
+        // Exactly the pages holding a value longer than the budget alone
+        // say so, at the top level, whether or not the page carries a
+        // block; any other page over the budget is over by its fixed parts.
+        let flagged = page.get("oversized") == Some(&json!(true));
         assert_eq!(
-            page.get("oversized") == Some(&json!(true)),
-            chars > budget,
+            flagged,
+            oversized::holds_value_over(
+                page.as_object().expect("envelope"),
+                tool.parse().expect("tool name"),
+                budget
+            ),
+            "{chars} chars at {budget}: {page}"
+        );
+        assert!(
+            !flagged || chars > budget,
             "{chars} chars at {budget}: {page}"
         );
         assert_ne!(page.get("oversized"), Some(&json!(false)), "{page}");

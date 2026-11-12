@@ -1171,13 +1171,19 @@ async fn over_ceiling_source_rows_are_the_reads_lines() {
             }
         }
     }
-    for needle in ["[\"`][^\"`]*[\"`]", "H7Kq2Lm9Zp4V"] {
+    // A piece of the token is text the read withholds: no span; a literal
+    // the read shows redacted is a span of the read's text.
+    for (needle, hidden) in [("[\"`][^\"`]*[\"`]", false), ("H7Kq2Lm9Zp4V", true)] {
         let query =
             json!({"matchString": needle, "regexEngine": "rust", "view": "matchOnly", "limit": 40});
         let output = run("localSearch", query).await;
         let mut spans = Vec::new();
         rows(&output, "value", &mut spans);
-        assert!(spans.iter().any(|(_, value)| redacted(value)), "{output}");
+        assert_eq!(spans.is_empty(), hidden, "{output}");
+        assert!(
+            hidden || spans.iter().any(|(_, value)| redacted(value)),
+            "{output}"
+        );
         for (line, value) in spans {
             assert!(
                 redacted(&value) || read[&line].contains(&value),
@@ -1185,5 +1191,163 @@ async fn over_ceiling_source_rows_are_the_reads_lines() {
                 read[&line]
             );
         }
+    }
+}
+
+/// The bin16 retest's weak password: a value hidden only by the name that
+/// holds it. Fake.
+const WEAK: &str = "import os\nDB_PASSWORD = \"Summer2024!\"\nprint(os)\n";
+
+/// Every string a value holds, at any depth.
+fn strings(value: &Value, out: &mut Vec<String>) {
+    match value {
+        Value::String(text) => out.push(text.clone()),
+        Value::Array(items) => items.iter().for_each(|item| strings(item, out)),
+        Value::Object(fields) => fields.values().for_each(|field| strings(field, out)),
+        _ => {}
+    }
+}
+
+/// Every number a value holds under `key`, at any depth.
+fn numbers(value: &Value, key: &str, out: &mut Vec<u64>) {
+    match value {
+        Value::Array(items) => items.iter().for_each(|item| numbers(item, key, out)),
+        Value::Object(fields) => {
+            if let Some(number) = fields.get(key).and_then(Value::as_u64) {
+                out.push(number);
+            }
+            fields.values().for_each(|field| numbers(field, key, out));
+        }
+        _ => {}
+    }
+}
+
+/// D1 and D4 (bin16 retest): astSearch states every digest, byte range,
+/// length and coordinate of a source with a hidden value over the text a
+/// read shows, as localFetch and localSearch do: no output carries the raw
+/// file's digest or a length or range that tells the hidden value's, and a
+/// `regex` or `range` rule reads the shown text. The value's neighbours stay
+/// as written.
+#[tokio::test]
+async fn ast_search_states_every_digest_and_coordinate_over_the_shown_text() {
+    use sha2::Digest as _;
+    let workspace = Workspace::new();
+    let path = workspace.write("fx/weakpw.py", WEAK);
+    let runtime = workspace.runtime(&[]);
+    let run = |tool: &'static str, query: Value| {
+        let runtime = &runtime;
+        let query = query_path(&path, query);
+        async move {
+            let outcome = call(runtime, tool, query.clone())
+                .await
+                .unwrap_or_else(|error| panic!("{tool} {query}: {error:?}"));
+            let output = outcome.structured_content.into_value();
+            assert!(
+                output.pointer("/results/0/data/errorCode").is_none(),
+                "{tool} {query}: {output}"
+            );
+            output["results"][0]["data"].clone()
+        }
+    };
+    let read = run("localFetch", json!({})).await;
+    let shown_line = numbered(read["content"].as_str().expect("content"))[&2].clone();
+    assert!(shown_line.starts_with("DB_PASSWORD = \"[REDACTED-"), "{shown_line}");
+    let shown: String = format!("import os\n{shown_line}\nprint(os)\n");
+    let raw_digest = hex::encode(sha2::Sha256::digest(WEAK.as_bytes()));
+    let shown_digest = hex::encode(sha2::Sha256::digest(shown.as_bytes()));
+    // Where the hidden value's string ends, as the read shows it.
+    let quote = shown_line.rfind('"').expect("closing quote");
+    let mut responses = Vec::new();
+    for query in [
+        json!({"operation": "match", "rule": {"kind": "string"}, "includeProvenance": true}),
+        json!({"operation": "symbols", "includeProvenance": true}),
+        json!({"operation": "syntaxTree", "includeProvenance": true}),
+        json!({"operation": "syntaxTree"}),
+    ] {
+        responses.push((query.clone(), run("astSearch", query).await));
+    }
+    for (query, data) in &responses {
+        let mut texts = Vec::new();
+        strings(data, &mut texts);
+        for text in &texts {
+            assert!(!text.contains("Summer2024"), "{query}: {data}");
+            assert_ne!(text, &raw_digest, "{query}: raw digest in {data}");
+        }
+        // Every byte length is the shown text's, never the raw file's.
+        let mut lengths = Vec::new();
+        numbers(data, "byteLength", &mut lengths);
+        assert!(
+            lengths.iter().all(|length| *length == shown.len() as u64),
+            "{query}: {lengths:?} {data}"
+        );
+        // Every byte range ends within the shown text.
+        let mut ends = Vec::new();
+        numbers(data, "endByte", &mut ends);
+        assert!(
+            ends.iter().all(|end| *end <= shown.len() as u64),
+            "{query}: {ends:?}"
+        );
+        if query["includeProvenance"] == true {
+            assert!(texts.contains(&shown_digest), "{query}: {data}");
+        }
+    }
+    // The string node ends where the read's closing quote does.
+    let matched = &responses[0].1["files"][0]["matches"][0];
+    assert_eq!(matched["line"], 2, "{matched}");
+    assert_eq!(matched["value"], shown_line["DB_PASSWORD = ".len()..], "{matched}");
+    let end = matched["endColumn"]
+        .as_u64()
+        .or_else(|| matched["column"].as_u64().map(|c| c + matched["value"].as_str().map_or(0, |v| v.len() as u64)));
+    assert_eq!(end, Some(quote as u64 + 2), "{matched}");
+    // syntaxTree: the string's content spans the placeholder, not the value.
+    let tree = responses[3].1.to_string();
+    let content_end = quote + 1;
+    assert!(
+        tree.contains(&format!("string_content 2:16-2:{content_end}")),
+        "{tree}"
+    );
+    // A regex over the string's length reads the shown text's length.
+    let inner = shown_line[..quote].len() - "DB_PASSWORD = \"".len();
+    for (length, hits) in [(11, 0), (inner, 1)] {
+        let rule = json!({"kind": "string", "regex": format!("^.[^\"]{{{length}}}.$")});
+        let data = run("astSearch", json!({"operation": "match", "rule": rule})).await;
+        assert_eq!(data["matchCount"].as_u64().unwrap_or(0), hits, "{length}: {data}");
+    }
+    // The lines around the value read as written.
+    let data = run("astSearch", json!({"operation": "match", "rule": {"kind": "call"}})).await;
+    assert_eq!(data["files"][0]["matches"][0]["value"], "print(os)", "{data}");
+}
+
+/// Item 8 (bin16 retest): a key in a YAML block scalar (a Kubernetes
+/// Secret's `tls.key: |`) reads as a key does anywhere: its armor lines as
+/// written, its body hidden.
+#[tokio::test]
+async fn a_key_in_a_yaml_block_scalar_reads_as_a_key() {
+    let body = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7Zq8Rm4Lx2Vt9Wp";
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[]);
+    for (name, head) in [
+        ("tls.yaml", "apiVersion: v1\nkind: Secret\nstringData:\n"),
+        ("plain.yaml", "tls:\n"),
+    ] {
+        let path = workspace.write(
+            &format!("fx/{name}"),
+            format!(
+                "{head}  tls.key: |\n    -----BEGIN PRIVATE KEY-----\n    {body}\n    -----END PRIVATE KEY-----\n"
+            ),
+        );
+        let output = call(&runtime, "localFetch", query_path(&path, json!({})))
+            .await
+            .expect("read")
+            .structured_content
+            .into_value();
+        let content = output["results"][0]["data"]["content"].as_str().expect("content");
+        let lines = numbered(content);
+        let first = u64::try_from(head.lines().count()).expect("small") + 1;
+        assert_eq!(lines[&first], "  tls.key: |", "{name}: {content}");
+        assert_eq!(lines[&(first + 1)], "    -----BEGIN PRIVATE KEY-----", "{name}: {content}");
+        assert!(lines[&(first + 2)].contains("[REDACTED-"), "{name}: {content}");
+        assert_eq!(lines[&(first + 3)], "    -----END PRIVATE KEY-----", "{name}: {content}");
+        assert!(!content.contains(body), "{name}: {content}");
     }
 }

@@ -63,7 +63,7 @@ pub(crate) async fn answer_questions(
 ) -> QuestionOutcomes {
     let outcomes = match answer_inner(input, model, connection, budget, gate).await {
         Ok(outcomes) => outcomes,
-        Err(error) => QuestionOutcomes::from_complete(Err(error), input.questions.len()),
+        Err(error) => QuestionOutcomes::from_complete(Err(error), input.asked().len()),
     };
     let refused = match &outcomes.complete {
         Err(error)
@@ -83,13 +83,14 @@ pub(crate) async fn answer_questions(
     };
     let mut outcomes = match answer_inner(long, model, connection, budget, gate).await {
         Ok(outcomes) => outcomes,
-        Err(error) => QuestionOutcomes::from_complete(Err(error), input.questions.len()),
+        Err(error) => QuestionOutcomes::from_complete(Err(error), input.asked().len()),
     };
     if let Ok(judged) = &mut outcomes.complete {
         judged.long_context_retry = Some(super::LongContextRetry {
             unreported_calls: judged
                 .provider_calls
                 .saturating_sub(judged.known_usage_calls),
+            refused_calls: refused,
         });
     }
     add_refused(&mut outcomes, refused);
@@ -156,7 +157,7 @@ async fn answer_inner(
     gate: &GateLease,
 ) -> Result<QuestionOutcomes, ClassificationError> {
     let questions = input.questions;
-    if questions.is_empty() {
+    if input.asked().is_empty() {
         return Err(request_error("An evaluation needs at least one question."));
     }
     check_budget(budget)?;
@@ -168,7 +169,9 @@ async fn answer_inner(
         && let Some((request, body)) = grouped(input, model, provider)
     {
         match send(body, &request, input, model, connection, budget, gate).await {
-            Ok((response, calls)) => return grouped_outcomes(&request, &response, calls, provider),
+            Ok((response, calls)) => {
+                return grouped_outcomes(&request, &response, calls, provider, input.companions);
+            }
             // The provider's window, not a byte count, decides whether a
             // group fits: its refusal tries the long window, then splits the
             // group into the per-question requests below. An image group
@@ -185,8 +188,10 @@ async fn answer_inner(
             Err(error) => return Err(error),
         }
     }
-    // One request per question, concurrently; the gate bounds them.
-    let singles = stream::iter(questions.iter())
+    // One request per asked question, concurrently; the gate bounds them.
+    // Companions are not sent alone.
+    let asked = input.asked();
+    let singles = stream::iter(asked.iter())
         .map(|question| async move {
             let assets = input.assets.and_then(Value::as_object).and_then(|assets| {
                 let selected = assets
@@ -201,6 +206,7 @@ async fn answer_inner(
             let single = EvaluationInput {
                 questions: std::slice::from_ref(question),
                 assets: assets.as_ref(),
+                companions: 0,
                 ..input
             };
             let request = provider.build(single.state, &[question], model, single.assets);
@@ -223,10 +229,10 @@ async fn answer_inner(
                 .map_err(|error| response_error(error, read.usage, calls))?;
             Ok::<_, ClassificationError>((parse(read.model, read.usage, vec![answer]), calls))
         })
-        .buffered(questions.len())
+        .buffered(asked.len())
         .collect::<Vec<_>>()
         .await;
-    let mut outcomes = fold_singles(singles, questions.len());
+    let mut outcomes = fold_singles(singles, asked.len());
     add_refused(&mut outcomes, refused_calls);
     Ok(outcomes)
 }

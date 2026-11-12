@@ -81,7 +81,8 @@ async fn patch_rows_in_one_call_share_one_budget() {
         "two rows overflowed the page: {}",
         content["responsePagination"]
     );
-    assert!(content["responsePagination"]["next"]["input"]["cursor"].is_string());
+    // An unpaged response leaves each row its own section walk.
+    assert!(content.get("responsePagination").is_none(), "{content}");
     for index in 0..2 {
         let data = &content["results"][index]["data"];
         let file = &data["pullRequests"][0]["files"][0];
@@ -90,6 +91,10 @@ async fn patch_rows_in_one_call_share_one_budget() {
         assert!((4_000..=20_000).contains(&taken), "row {index}: {taken}");
         assert_eq!(
             data["pullRequests"][0]["sectionPagination"]["patches"]["hasMore"], true,
+            "row {index}: {data}"
+        );
+        assert!(
+            data["pullRequests"][0]["next"]["patches"]["input"]["cursor"].is_string(),
             "row {index}: {data}"
         );
     }

@@ -1,67 +1,37 @@
-Load when an idiom or API claim needs an authoritative anchor, or when you choose a library or vet one already in `Cargo.toml`. Why: memory and registry popularity are not evidence; upstream source and the canon are. `rustup doc` serves the canon offline. Vetting rules (std first, upstream source, consent) are in SKILL.md.
+# Primary sources and dependency decisions
 
-# Sources and crates
+Load for a disputed language/API claim or dependency selection. Distinguish language guarantees, compiler behavior, crate contracts and recommended design. Project policy controls the local workflow; it cannot change language semantics.
 
-## Canonical sources
+## Choose the authority
 
-| Open question | Source | URL |
+| Question | Primary source | Applicability |
 |---|---|---|
-| Public API shape, naming, `must_use`, conversions, traits | **Rust API Guidelines** | https://rust-lang.github.io/api-guidelines/ |
-| Idioms, ownership, errors, language model | **The Book** | https://doc.rust-lang.org/book/ |
-| Exact semantics, "is this defined behavior?" | **The Reference** | https://doc.rust-lang.org/reference/ |
-| `unsafe`, aliasing, UB, sound raw-pointer abstractions | **The Rustonomicon** | https://doc.rust-lang.org/nomicon/ |
-| Profiles, features, workspaces, publishing | **The Cargo Book** | https://doc.rust-lang.org/cargo/ |
-| A lint, diagnostic, or codegen knob | **The rustc Book** + lint index | https://doc.rust-lang.org/rustc/ |
-| Clippy groups, `clippy.toml`, false positives | **Clippy** | https://doc.rust-lang.org/clippy/ |
-| Edition migration (2015→2018→2021→2024) | **The Edition Guide** | https://doc.rust-lang.org/edition-guide/ |
-| Toolchain, channels, targets, MSRV | **The rustup Book** | https://rust-lang.github.io/rustup/ |
-| `cargo doc`, doctests, intra-doc links | **The rustdoc Book** | https://doc.rust-lang.org/rustdoc/ |
-| std API and guarantees | **std docs** | https://doc.rust-lang.org/std/ |
-| CLI apps | **Command Line Book** | https://rust-cli.github.io/book/ |
-| Embedded | **Embedded Book** · **Discovery** · **Embedonomicon** | https://docs.rust-embedded.org/book/ · https://docs.rust-embedded.org/discovery/ · https://docs.rust-embedded.org/embedonomicon/ |
-| WebAssembly | **wasm-bindgen Guide** (rustwasm org archived 2025; its book is frozen) | https://wasm-bindgen.github.io/wasm-bindgen/ |
-| Onboarding | **Rust by Example** · **Rustlings** | https://doc.rust-lang.org/rust-by-example/ · https://github.com/rust-lang/rustlings |
+| Ownership and ordinary error handling | [The Book](https://doc.rust-lang.org/book/) | Explanatory introduction; check the project's compiler/edition. |
+| Language rules and undefined behavior | [The Reference](https://doc.rust-lang.org/reference/) | Language authority; its UB/aliasing description is not a complete formal specification. |
+| Unsafe design and FFI | [Rustonomicon](https://doc.rust-lang.org/nomicon/) | Explanation alongside the Reference and exact API safety contract. |
+| Std guarantees and stabilization | [std](https://doc.rust-lang.org/std/) | Read the exact API, guarantees and “since” version. |
+| Public API recommendations | [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/) | Design guidance; do not treat every recommendation as a language requirement. |
+| Features, manifests, profiles, MSRV and lockfiles | [Cargo Book](https://doc.rust-lang.org/cargo/) | Match the Cargo version and effective config. |
+| Edition-sensitive behavior | [Edition Guide](https://doc.rust-lang.org/edition-guide/) | Check edition and compiler stabilization separately. |
+| Lints | [Clippy](https://doc.rust-lang.org/clippy/) and [rustc lint listing](https://doc.rust-lang.org/rustc/lints/listing/index.html) | Inspect the lint's meaning, applicability and group before suppression. |
+| Toolchain/components | [rustup Book](https://rust-lang.github.io/rustup/) | Toolchain selection is distinct from the package's MSRV promise. |
+| Documentation tests | [rustdoc Book](https://doc.rust-lang.org/rustdoc/) | Enabled doctests need an executing runner. |
+| Async/task lifecycle | [Tokio docs](https://docs.rs/tokio/latest/tokio/) or the actual runtime's upstream docs | Resolve to the version in `Cargo.lock`; no runtime is assumed. |
+| UB checking and its limits | [Miri](https://github.com/rust-lang/miri) | Detector with execution/platform limitations, not proof of soundness. |
+| Performance methods | [Rust Performance Book](https://nnethercote.github.io/perf-book/) | Author's methodology; benchmark results are workload-dependent. |
+| Organizational practice | [Microsoft Rust Guidelines](https://microsoft.github.io/rust-guidelines/), [Canonical Rust practices](https://canonical.github.io/rust-best-practices/) | First-party practice, not universal Rust requirements. |
+| JS/native bindings | [napi-rs docs](https://napi.rs/) and [source](https://github.com/napi-rs/napi-rs) | Locked binding/CLI versions and generated/runtime interface decide. |
 
-- The API Guidelines and the Reference settle disputes.
-- Toolchain baseline: install via **rustup**; `cargo new`/`build`/`run`/`test`/`doc`/`publish`; add deps with `cargo add`; `Cargo.lock` pins versions; `rustup update` keeps the toolchain current.
-- If the canon and this skill disagree, the canon wins: fix the skill via `octocode-skills`.
+Use `rustup doc` for installed offline documentation. If browsing is unavailable, identify the version/evidence gap; do not invent API availability or report a search as verification. For third-party APIs, `/latest/` is a discovery link: use the resolved version's docs/source for an actual change.
 
-## The vetted crate stack
+## Evaluate a dependency
 
-These are candidates when the repository has no established choice. Reuse the existing dependency and error/config conventions first.
+1. Identify the required capability and why std or an already-used dependency does not meet it. Do not select a crate from a generic “best stack” table.
+2. Read the resolved/candidate version's upstream API, changelog and support policy. Check MSRV, target support, enabled features, license and maintenance; a download count is not a quality guarantee.
+3. Inspect the added graph and build-time execution: proc macros, build scripts, native code, TLS/backend choices and optional features. Existing advisory/license tools answer narrower questions than trustworthiness.
+4. Compare the existing solution with the candidate on the deciding constraint. Benchmark performance claims; test public error/type interoperability and JS/FFI boundaries when applicable.
+5. Make authorized manifest/lockfile changes through Cargo and review the diff. Do not upgrade unrelated dependencies or change compatibility promises as a side effect.
 
-| Need | Default | Notes |
-|------|---------|-------|
-| Errors in a **library** | `thiserror` | Typed variants callers can `match` |
-| Errors in a **binary/app** | `anyhow` | One `Result`, `?`, `.context()` |
-| Serialization | `serde` + format crate (`serde_json`, `toml`, …) | Derive-driven |
-| Async runtime | `tokio` | `smol`, `async-std` are niche |
-| CLI args | `clap` (derive API) | |
-| Structured logging | `tracing` + `tracing-subscriber` | Prefer over `log` in async code |
-| Data parallelism | `rayon` | |
-| HTTP client | `reqwest` | `rustls` feature drops OpenSSL; prefer `rustls` over native TLS where the platform allows |
-| Web server | `axum` | On tokio/tower/hyper |
-| Regex | `regex` / `regex-automata` | Linear-time, no catastrophic backtracking |
-| Date/time | `jiff` (recommended) or `time`/`chrono` | |
-| Small/stack collections | `arrayvec`, `smallvec` | Benchmark `smallvec`. Rules in `references/performance-and-memory.md` |
-| Concurrent map | `dashmap` | Sharded |
-| Non-crypto hashing | `ahash` / `rustc-hash` (`FxHashMap`) | Not for security |
-| Iterator tools | `itertools` | `chunk_by`, `dedup`, `cartesian_product` |
+## Refinement provenance
 
-- Check transitive weight with `cargo tree`. Log why a canon default did not fit.
-
-## Repository evidence
-When this skill runs inside Octocode, recheck these owners before applying a local example. `<repo>` is the checkout root.
-
-| Practice | Source under `<repo>` | Deciding evidence |
-|---|---|---|
-| Crate boundaries and host ownership | `packages/octocode-native/ARCHITECTURE.md` | Runtime is an `rlib`; hosts own conversion, not tool execution |
-| Resolver, LTO, codegen units, shared metadata | `packages/octocode-native/Cargo.toml` | Explicit resolver 3; thin LTO; engine regression note |
-| Request admission and cleanup | `packages/octocode-native/crates/runtime/src/execution/lifecycle.rs` | `RequestAdmission`, `RequestGuard`, cancellation and blocking-task join |
-| Contract generation and field effects | `packages/octocode-native/ARCHITECTURE.md`; `packages/octocode-native/crates/runtime/tests/contract_field_effects.rs` | One generator; generated wire types; effect coverage |
-| Native artifact staging | `packages/octocode-native/scripts/stage-binary.cjs`; `packages/octocode-native/scripts/build-native.cjs` | `stageFile` retains an unchanged inode; build stages and smoke-tests the CLI binary |
-| Test selection and page replay | `packages/octocode-native/package.json`; `packages/octocode-native/crates/runtime/tests/runtime_page_replay.rs` | Test-only features; snapshots and source-edit replay |
-
-Manifest timing notes are historical observations, not new benchmark results. Verify the current toolchain and rerun the relevant workload before claiming a gain.
-
-Next: how the error crate shapes signatures → `references/idioms.md`.
+Reviewed against primary documentation on **2026-11-12**: Vec growth and Arc auto-trait guarantees; additive Cargo features and MSRV; Tokio task/process cancellation; Miri's limitations; unsafe-block obligations; API evolution and profiling methodology. This review establishes source support, not measured runtime improvement or activation accuracy across every agent host. Recheck version-sensitive advice when applying it.

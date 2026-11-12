@@ -169,7 +169,11 @@ pub(super) fn shape_pr_comments(
         CommentSection::Discussion => Vec::new(),
     };
     super::util::humans_first(&mut shaped);
-    if !shaped.is_empty() {
+    // A section the caller asked for is always stated: an empty list says
+    // zero, where an absent one would read as not fetched. A body hop
+    // lists only the bodies it continues, so it states none.
+    let body_hop = gh_get_history_item_query::char_offset(query).is_some_and(|offset| offset > 0);
+    if !shaped.is_empty() || !body_hop {
         row[section.key()] = Value::Array(shaped);
     }
     pagination.insert(section.key().into(), page);

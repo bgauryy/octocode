@@ -190,13 +190,14 @@ async fn issue_comment_body_hops_list_only_unfinished_bodies() {
         if let Some(next) = content["responsePagination"]["next"]["input"].as_object() {
             queue.push_back(serde_json::Value::Object(next.clone()));
         }
-        for section in data["issues"][0]["sectionPagination"]
+        // A section's walk rides its row's last part, which need not
+        // repeat the section's `sectionPagination`: follow every one shown.
+        for lead in data["issues"][0]["next"]
             .as_object()
             .into_iter()
             .flatten()
-            .map(|(section, _)| section)
+            .map(|(_, lead)| lead)
         {
-            let lead = &data["issues"][0]["next"][section];
             if lead.is_object() {
                 queue.push_back(lead["input"].clone());
             }

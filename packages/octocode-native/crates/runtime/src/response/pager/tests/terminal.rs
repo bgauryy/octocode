@@ -26,10 +26,12 @@ fn a_complete_tail_spends_no_room_on_a_response_continuation() {
         .cloned()
         .collect::<Vec<_>>();
     assert_eq!(collected, json!(files).as_array().unwrap().to_vec());
+    // The answer's notices are stated once, by its first page.
     assert_eq!(
-        pages[1]["warnings"],
+        pages[0]["warnings"],
         json!(["source coverage remains limited"])
     );
+    assert!(pages[1].get("warnings").is_none(), "{}", pages[1]);
     assert!(pages[1]["results"][0]["data"].get("related").is_none());
 }
 

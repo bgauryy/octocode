@@ -85,3 +85,15 @@ test('benchmark commands distinguish complete, failed and empty measurements', a
     assert.equal(empty.row.recall.recall, null);
   });
 });
+
+test('rows the tool states from the workspace are read in the oracle frame', async () => {
+  const { callCounts, rootRelative } = await import('./graph-bench.mjs');
+  assert.equal(rootRelative('src', 'src/object.c'), 'object.c');
+  assert.equal(rootRelative('.', 'src/object.c'), 'src/object.c');
+  assert.equal(rootRelative('src', 'srcx/a.c'), 'srcx/a.c');
+  assert.deepEqual(callCounts({ calls: { sites: 4, unresolvedByReason: { other: 1 } }, linkage: { linked: 3 } }), {
+    callSites: 4,
+    callLinkRate: 0.75,
+    unresolvedByReason: { other: 1 },
+  });
+});

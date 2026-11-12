@@ -8,6 +8,7 @@ use super::identity::{call_identity, env_digest};
 use super::same_dir_form;
 pub(super) use super::served::Served;
 use super::sockets::remove_stale_sockets;
+use super::startup::Startup;
 #[cfg(test)]
 pub(super) use request::attended;
 pub(super) use request::handle;
@@ -37,7 +38,7 @@ pub(super) const ACCEPT_BACKOFF: std::time::Duration = std::time::Duration::from
 pub(in crate::cli) async fn run(socket: &Path) -> u8 {
     octocode_engine::memory::MEMORY.sweep_expired_while_running();
     tokio::task::LocalSet::new()
-        .run_until(serve(socket.to_owned()))
+        .run_until(serve(socket.to_owned(), super::startup::announce))
         .await
 }
 
@@ -192,16 +193,33 @@ impl Daemon {
     }
 }
 
-pub(super) async fn serve(socket: PathBuf) -> u8 {
-    let Some(listener) = bind(&socket) else {
-        return 0;
+/// Claim the socket, `announce` the [`Startup`] outcome (on the startup
+/// channel: [`super::startup::announce`]), and serve when this server owns
+/// it. Exit code 1 when it cannot serve; 0 after serving, or when another
+/// server answers on the socket.
+pub(super) async fn serve(socket: PathBuf, announce: impl FnOnce(&Startup) -> bool) -> u8 {
+    let claimed = claim(&socket).and_then(|(listener, ours)| {
+        listener
+            .set_nonblocking(true)
+            .and_then(|()| tokio::net::UnixListener::from_std(listener))
+            .map(|listener| (listener, ours))
+            .map_err(|error| {
+                remove_if_ours(&socket, ours);
+                Startup::Unavailable(format!("cannot listen on {}: {error}", socket.display()))
+            })
+    });
+    let (listener, ours) = match claimed {
+        Ok(claimed) => claimed,
+        Err(outcome) => {
+            let _ = announce(&outcome);
+            return u8::from(outcome != Startup::Existing);
+        }
     };
-    let ours = socket_identity(&socket);
-    // A socket whose mode is left to the umask is not served, as one that
-    // did not bind.
-    if restrict(&socket).is_err() {
+    // Ready only once the client took it: a server whose client is gone
+    // leaves before it reads a call.
+    if !announce(&Startup::Ready) {
         remove_if_ours(&socket, ours);
-        return 0;
+        return 1;
     }
     remove_stale_sockets(&socket);
     let daemon = std::rc::Rc::new(Daemon::new(socket.clone()));
@@ -325,18 +343,58 @@ pub(super) fn restrict(socket: &Path) -> std::io::Result<()> {
     std::fs::set_permissions(socket, std::fs::Permissions::from_mode(0o600))
 }
 
-/// Bind the socket, replacing a stale file no server answers on. `None`
-/// when another server already owns it.
-pub(super) fn bind(socket: &Path) -> Option<tokio::net::UnixListener> {
-    match tokio::net::UnixListener::bind(socket) {
-        Ok(listener) => Some(listener),
+/// Bind the socket for this server: the listener and the bound file's
+/// identity ([`socket_identity`]), restricted to its owner. Otherwise the
+/// outcome to announce instead: [`Startup::Existing`] when a server answers
+/// on it, or why none can. A stale file nobody answers on is replaced.
+///
+/// The socket directory's lock is held from bind to restriction, so two
+/// servers starting at once never both bind: the one that waited finds the
+/// other's socket answering. A bound socket answers (from its backlog) once
+/// the lock is released.
+pub(super) fn claim(
+    socket: &Path,
+) -> Result<(std::os::unix::net::UnixListener, Option<(u64, u64)>), Startup> {
+    use std::os::unix::net::{UnixListener, UnixStream};
+    let failed = |what: &str, error: std::io::Error| {
+        Startup::Unavailable(format!("cannot {what} {}: {error}", socket.display()))
+    };
+    let dir = socket
+        .parent()
+        .ok_or_else(|| Startup::Unavailable(format!("{} has no directory", socket.display())))?;
+    let _locked = lock(dir).map_err(|error| failed("lock the directory of", error))?;
+    let listener = match UnixListener::bind(socket) {
+        Ok(listener) => listener,
         Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => {
-            if std::os::unix::net::UnixStream::connect(socket).is_ok() {
-                return None;
+            if UnixStream::connect(socket).is_ok() {
+                return Err(Startup::Existing);
             }
-            std::fs::remove_file(socket).ok()?;
-            tokio::net::UnixListener::bind(socket).ok()
+            std::fs::remove_file(socket).map_err(|error| failed("replace the stale", error))?;
+            UnixListener::bind(socket).map_err(|error| failed("bind", error))?
         }
-        Err(_) => None,
+        Err(error) => return Err(failed("bind", error)),
+    };
+    let ours = socket_identity(socket);
+    // A socket whose mode is left to the umask is not served.
+    if let Err(error) = restrict(socket) {
+        remove_if_ours(socket, ours);
+        return Err(failed("restrict", error));
+    }
+    Ok((listener, ours))
+}
+
+/// An exclusive lock on `dir`, held until the returned handle drops.
+fn lock(dir: &Path) -> std::io::Result<std::fs::File> {
+    use std::os::fd::AsRawFd as _;
+    let dir = std::fs::File::open(dir)?;
+    loop {
+        // SAFETY: `dir` is an open descriptor for the whole call.
+        if unsafe { libc::flock(dir.as_raw_fd(), libc::LOCK_EX) } == 0 {
+            return Ok(dir);
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error);
+        }
     }
 }

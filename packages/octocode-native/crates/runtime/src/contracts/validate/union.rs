@@ -16,7 +16,9 @@ use selectors::{
     render_selector, selector_literals, selectors_accept, sibling_selector_values,
 };
 use serde_json::Value;
-use siblings::{annotate_allowed_fields, annotate_sibling_branch_fields, branch_object};
+use siblings::{
+    annotate_allowed_fields, annotate_sibling_branch_fields, branch_object, name_forms,
+};
 use std::cell::Cell;
 
 thread_local! {
@@ -301,6 +303,11 @@ fn reference(
     annotate_sibling_selectors(&mut selected, root, branches, value, path);
     annotate_forbidden_fields(&mut selected, root, branches, value, path);
     annotate_missing_selector(&mut selected, root, branches, value, path);
+    if branches::chooses_no_form(root, branches, value)
+        && let Some(forms) = branches::disjoint_forms(root, branches)
+    {
+        name_forms(&mut selected, &forms, path);
+    }
     // A wrong or missing selector is the first repair: the other issues are
     // relative to the branch it picked. The sort is stable.
     let depth = path.len();

@@ -101,7 +101,12 @@ async fn shared_pipeline_ranges_redacts_and_pins_remote_identity() {
     let wire = serde_json::to_value(&result.file).expect("file json");
     assert_eq!(wire["commitSha"], sha);
     assert!(wire.get("ref").is_none(), "{wire}");
-    assert!(result.file.calls.is_none(), "bounded range is complete");
+    // A bounded range is complete: its one lead is the file's last change.
+    let calls = result.file.calls.as_ref().and_then(Value::as_object);
+    assert!(
+        calls.is_some_and(|calls| calls.keys().eq(["lastChange"])),
+        "bounded range is complete: {calls:?}"
+    );
 }
 
 #[tokio::test]

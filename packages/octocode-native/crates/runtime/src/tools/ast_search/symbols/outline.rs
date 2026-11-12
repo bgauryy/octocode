@@ -242,11 +242,12 @@ pub(super) fn outline_file(
             name,
         )));
     };
-    // Parse the file as the directory scan does: admitted by the one text
-    // rule, raw. Output strings are redacted by the response stage.
+    // Parse the file as a match does: admitted by the one text rule, as a
+    // read shows it, so a declaration's lines, columns, ranges and digests
+    // count the shown text; its names are judged by their place there.
     let cancelled = || cancel.check().is_err();
     let mut maps = super::super::source::mapping_budget(cancel, &cancelled);
-    let admitted = super::super::source::admitted(canonical, &b, &mut maps)?;
+    let (admitted, _) = super::super::source::admitted_for_match(canonical, &b, &mut maps)?;
     let source = admitted.text();
     let source_path = canonical.to_string_lossy();
     let parser = crate::tools::ast_search::language::parser_override(

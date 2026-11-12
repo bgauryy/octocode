@@ -76,7 +76,14 @@ pub(crate) mod receiver_fields;
 /// v30: a CommonJS file (`require`, `module.exports`) is a module, so its
 /// declarations are not global, and the DOM `window` is typed
 /// `globalThis.Window`, never a `Window` the file declares or imports.
-pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 30;
+/// v31: a TypeScript value import whose binding the file uses only as a type
+/// (or not at all) says so (`typeUseOnly`).
+/// v32: a bare call of a parameter, a local variable or a closure says so
+/// (`termBinding`) in JS/TS, Python, Go, Rust, C/C++/CUDA and C#, not only in
+/// Scala; a JS/TS bare callee oxc binds to a listed declaration names it
+/// (`boundDeclaration`); a pattern's written type (`x: T`, `Wrapper(x)`) and
+/// a block-scope C/C++ function prototype bind no local value.
+pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 32;
 
 /// The declaration kinds an `extends`/`implements` clause can name or
 /// declare: the nodes of a type hierarchy. One list for the graph's linking

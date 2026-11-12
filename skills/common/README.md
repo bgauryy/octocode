@@ -30,6 +30,7 @@ Shared Markdown under `references/` is discovered automatically. Link a shared p
 | `references/octocode-usage.md` | Same path | Research MCP/CLI selection, schema discovery, paging, errors |
 | `references/configuration.md` | Same path | Config lookup, credentials, ownership |
 | `references/evidence.md` | Same path | Source vs runtime proof, absence, verification |
+| `references/mental-models.md` | Same path | Select thinking lenses and turn assumptions into distinguishing checks |
 | `references/protocol-catalog.md` | Same path | Common task, finding, handoff, and reporting protocols |
 | `references/presentation.md` | Same path | Visual-first output, HTML offer |
 | `references/report-mermaid.md` | Same path | Diagram-family chooser |

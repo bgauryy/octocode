@@ -18,6 +18,10 @@ fn strings(row: &Value, key: &str) -> Vec<String> {
         .collect()
 }
 
+/// What a graph of a directory outside the workspace needs besides read
+/// access: one sentence every refusal of such a path ends with.
+const OUTSIDE_WORKSPACE: &str = " A graph outside the workspace also needs local.graphHome (OCTOCODE_GRAPH_HOME) to keep its snapshots, and the directory in allowed paths (ALLOWED_PATHS).";
+
 fn failure(message: impl Into<String>) -> GraphOutput {
     GraphOutput::error(ErrorCode::InvalidInput, message)
 }
@@ -34,7 +38,15 @@ fn scope(
     let policy = |e: crate::policy::PolicyError| GraphOutput::error(e.shared_code(), e.message);
     let resolve = |path: &str| paths.validate(path).map(|p| p.canonical).map_err(policy);
     let workspace = resolve(".")?;
-    let root = resolve(path)?;
+    // Outside the workspace a graph needs a readable root and a snapshot home
+    // of its own: the refusal names both, so one correction makes the call
+    // succeed.
+    let root = paths.validate(path).map(|p| p.canonical).map_err(|mut e| {
+        if configured.is_none() && e.code == crate::policy::PolicyErrorCode::OutsideAllowedRoots {
+            e.message.push_str(OUTSIDE_WORKSPACE);
+        }
+        policy(e)
+    })?;
     let home = graph_home(Some(&workspace), configured).map_err(failure)?;
     let home = paths.validate_output(home).map_err(policy)?.canonical;
     if configured.is_some() {
@@ -52,7 +64,7 @@ fn scope(
     }
     if !root.is_dir() || !root.starts_with(&workspace) {
         return Err(failure(format!(
-            "path must be a directory inside the current workspace ({}): graph snapshots live in the workspace. Start Octocode inside that directory, set local.graphHome (OCTOCODE_GRAPH_HOME) to keep snapshots outside it and build any allowed directory, or use astSearch and localSearch at it",
+            "path must be a directory inside the current workspace ({}): graph snapshots live in the workspace. Start Octocode inside that directory, or use astSearch and localSearch at it.{OUTSIDE_WORKSPACE}",
             workspace.display()
         )));
     }
@@ -239,6 +251,7 @@ fn options(
         edges: strings(row, "edges"),
         kind: text(row, "kind"),
         direction: text(row, "direction"),
+        rank_by: text(row, "rankBy"),
         depth: row["depth"]
             .as_u64()
             .map(octocode_engine::num::saturating_u32),

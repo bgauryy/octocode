@@ -14,7 +14,7 @@ import { statusClass } from './driver.mjs';
 import { addBulkPullRequest } from './mock-model.mjs';
 import { GIT_PATH, startMock } from './mock-server.mjs';
 import { startRegistryProxy } from './mock-registry-proxy.mjs';
-import { configureMockLsp, stopTestBrokers } from './mock-lsp-config.mjs';
+import { configureMockLsp, ownTestBrokers } from './mock-lsp-config.mjs';
 
 const DEAD_PROXY = 'http://127.0.0.1:9';
 const ISOLATED_ENV = /^(GITHUB_|GH_|OCTOCODE_|NPM_CONFIG_|npm_config_|GIT_)/;
@@ -100,6 +100,8 @@ export async function startSurfaces(fixture, { unmetered = false } = {}) {
   const live = process.env.OCTOCODE_LIVE === '1';
   // macOS Unix sockets have a short path limit; isolate broker sockets as well as HOME.
   const tmp = fs.mkdtempSync(path.join(process.platform === 'darwin' ? '/tmp' : os.tmpdir(), 'octocode-tool-health-'));
+  // Every CLI call starts a warm server under `tmp`: stopped at close, or at an early exit.
+  const releaseBrokers = ownTestBrokers(tmp);
   const home = path.join(tmp, 'home');
   fs.mkdirSync(home, { recursive: true });
   const allTokens = contract.tools.flatMap(t => ['cli', 'mcp'].map(s => tokenFor(t.name, s)));
@@ -165,7 +167,7 @@ export async function startSurfaces(fixture, { unmetered = false } = {}) {
       clone: () => (mock.git ? null : `git smart-HTTP mock unavailable: ${mock.gitUnavailable}`),
     },
     close: async () => {
-      await registry.close(); await mock.close(); await stopTestBrokers(tmp);
+      await registry.close(); await mock.close(); await releaseBrokers();
       try { fs.rmSync(tmp, { recursive: true, force: true }); }
       catch (error) {
         if (error.code !== 'ENOTEMPTY') throw error;

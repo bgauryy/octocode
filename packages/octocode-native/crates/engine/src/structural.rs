@@ -30,10 +30,9 @@ pub use syntax_tree::{
 #[cfg(test)]
 use types::StructuralMatch;
 pub use types::{
-    FileMatches, KeepLine, RecoveredBody, StructuralDemand, StructuralDetailedMatch,
-    StructuralDiagnostic,
-    StructuralSearchDetailedResult, StructuralSearchFilesDetailedResult,
-    StructuralSearchFilesOptions, WalkErrors,
+    FileMatches, JudgeText, KeepLine, RecoveredBody, StructuralDemand, StructuralDetailedMatch,
+    StructuralDiagnostic, StructuralSearchDetailedResult, StructuralSearchFilesDetailedResult,
+    StructuralSearchFilesOptions, TextJudge, WalkErrors,
 };
 
 use crate::signatures::languages;
@@ -230,6 +229,41 @@ pub fn search_detailed(
         str::to_owned,
     );
     evaluate_source(content, file_path, &extension, pattern, rule)
+}
+
+/// Restate each text of `matches`, found by matching `masked` (the shown
+/// text with each placeholder written over in place, [`JudgeText`]), from
+/// `raw`, the text a read shows, at the same bytes: a row shows its
+/// source's text as a read does, and is judged by its place there. A text
+/// that is not `masked`'s bytes at its span (a node of another unit) stays.
+pub fn restore_texts(matches: &mut [StructuralDetailedMatch], masked: &str, raw: &str) {
+    let restate = |text: &mut String, range: &crate::text::analysis::ByteRange| {
+        let at = range.start_byte as usize..range.end_byte as usize;
+        if masked.get(at.clone()) == Some(text.as_str())
+            && let Some(own) = raw.get(at)
+        {
+            own.clone_into(text);
+        }
+    };
+    for matched in matches {
+        restate(&mut matched.text, &matched.source_span.range);
+        if let (Some(header), Some(span)) = (&mut matched.header, &matched.header_span) {
+            restate(header, &span.range);
+        }
+        for (name, ranges) in &mut matched.metavar_ranges {
+            let values = matched.metavars.get_mut(name);
+            let mut values = values.map(|values| values.iter_mut());
+            for range in ranges {
+                let before = range.text.clone();
+                restate(&mut range.text, &range.source_span.range);
+                if let Some(value) = values.as_mut().and_then(Iterator::next)
+                    && *value == before
+                {
+                    value.clone_from(&range.text);
+                }
+            }
+        }
+    }
 }
 
 pub(crate) fn evaluate_source(

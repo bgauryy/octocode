@@ -1,6 +1,7 @@
 //! The text-mention scan: one pass over the repository's text that says which
 //! candidate file stems and export names it mentions, and where.
 use super::mention_stream::scan_stream;
+use super::mention_tokens::{BARE_CODE, Found, QUALIFIED, STEMS, WORDS};
 use super::*;
 use crate::tools::ast_graph::classify::VENDORED_DIRS;
 use crate::tools::page_memo::{
@@ -28,13 +29,21 @@ pub(super) type Mentions = BTreeMap<String, Vec<String>>;
 /// names split by kind ([`scan_mentions`]).
 #[derive(Default)]
 pub(super) struct MentionHits {
+    /// Stem keys ([`super::mention_tokens::path_key`]) in path-like tokens
+    /// and whole string literals.
     pub(super) stems: Mentions,
-    /// Names in source code, or qualified (`index.run`, `checks/run`) in
-    /// any text: a reference that may load the export.
-    pub(super) references: Mentions,
+    /// Names qualified (`index.run`, `checks/run`) in any text: a member of
+    /// a loaded module, so a reference that may load the export.
+    pub(super) qualified: Mentions,
+    /// Bare names in source code: a reference unless the file binds that
+    /// name itself.
+    pub(super) bare: Mentions,
     /// Names only as bare words of non-code text (prose, a list): context,
     /// never a reference.
     pub(super) words: Mentions,
+    /// Text files the scan could not read (wholly or in part), in path
+    /// order: what they mention is unknown.
+    pub(super) unread: Vec<String>,
     /// What proves the scan current, when it could be taken: every file and
     /// directory its walk met and the ignore inputs that shaped it.
     pub(super) proof: Option<Proof>,
@@ -43,7 +52,7 @@ pub(super) struct MentionHits {
 impl MentionHits {
     /// About what the hits hold, for the memory budget.
     fn weight(&self) -> usize {
-        [&self.stems, &self.references, &self.words]
+        [&self.stems, &self.qualified, &self.bare, &self.words]
             .into_iter()
             .flatten()
             .map(|(key, list)| {
@@ -54,7 +63,8 @@ impl MentionHits {
                         .map(|mention| mention.len() + std::mem::size_of::<String>())
                         .sum::<usize>()
             })
-            .sum()
+            .sum::<usize>()
+            + self.unread.iter().map(String::len).sum::<usize>()
     }
 }
 
@@ -208,9 +218,9 @@ fn scan_listed(
                         .get(next.fetch_add(1, Ordering::Relaxed))
                         .filter(|_| !stopped())
                     {
-                        let local = scan_file(file, &keys, stopped);
-                        if local.iter().any(|kind| !kind.is_empty()) {
-                            hits.push((file.rel.as_str(), local));
+                        let (local, unread) = scan_file(file, &keys, stopped);
+                        if unread || local.iter().any(|kind| !kind.is_empty()) {
+                            hits.push((file.rel.as_str(), local, unread));
                         }
                     }
                     hits
@@ -229,12 +239,13 @@ fn scan_listed(
     (!stopped()).then(|| assemble(found))
 }
 
-/// The hits of one file, none when it cannot be read as text.
+/// The hits of one file, and whether it could not be read (wholly or in
+/// part). Binary content is no text: none, and read.
 fn scan_file<'k>(
     file: &Listed,
     keys: &Keys<'k>,
     stopped: &(dyn Fn() -> bool + Sync),
-) -> [BTreeMap<&'k str, usize>; 3] {
+) -> (Found<'k>, bool) {
     let extension = octocode_engine::text::extension_of(&file.rel, true, "");
     let code = octocode_engine::signatures::languages::may_reference_code(&extension);
     let limit = if file.size <= MENTION_MAX_FILE {
@@ -243,18 +254,18 @@ fn scan_file<'k>(
         match large_file(file) {
             Some(Large::Windows(source)) => return scan_stream(source, code, keys, stopped),
             Some(Large::Whole) => file.size,
-            None => return Default::default(),
+            None => return (Found::default(), true),
         }
     };
     let Ok(source) = octocode_engine::text::read_regular(&file.path, limit) else {
-        return Default::default();
+        return (Found::default(), true);
     };
     // The one source admission: binary refused, any text decoded as the
     // reader tools show it.
     let Ok(decoded) = source.admit(octocode_engine::text::Decoding::Lenient) else {
-        return Default::default();
+        return (Found::default(), false);
     };
-    scan_text(&decoded.text, code, keys)
+    (scan_text(&decoded.text, code, keys), false)
 }
 
 /// How a file past [`MENTION_MAX_FILE`] is read.
@@ -279,10 +290,14 @@ fn large_file(file: &Listed) -> Option<Large> {
 
 /// Per key, its mentions: files in path order, so each key lists its files in
 /// path order whatever order the workers read them in.
-fn assemble(mut files: Vec<(&str, [BTreeMap<&str, usize>; 3])>) -> MentionHits {
+fn assemble(mut files: Vec<(&str, Found<'_>, bool)>) -> MentionHits {
     files.sort_unstable_by(|a, b| a.0.cmp(b.0));
-    let mut hits: [Mentions; 3] = Default::default();
-    for (rel, local) in &files {
+    let mut hits: [Mentions; 4] = Default::default();
+    let mut unread = Vec::new();
+    for (rel, local, failed) in &files {
+        if *failed {
+            unread.push((*rel).to_owned());
+        }
         for (mentions, mine) in hits.iter_mut().zip(local) {
             for (key, line) in mine {
                 match mentions.get_mut(*key) {
@@ -294,11 +309,13 @@ fn assemble(mut files: Vec<(&str, [BTreeMap<&str, usize>; 3])>) -> MentionHits {
             }
         }
     }
-    let [stems, references, words] = hits;
+    let mut take = |kind: usize| std::mem::take(&mut hits[kind]);
     MentionHits {
-        stems,
-        references,
-        words,
+        stems: take(STEMS),
+        qualified: take(QUALIFIED),
+        bare: take(BARE_CODE),
+        words: take(WORDS),
+        unread,
         proof: None,
     }
 }

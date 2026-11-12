@@ -8,6 +8,7 @@ mod argument_controls;
 mod arguments;
 mod call_recall;
 mod cargo_workspaces;
+mod cochange;
 mod detectors;
 mod evidence;
 mod evidence_coverage;
@@ -22,6 +23,7 @@ mod issues;
 mod large_sources;
 mod limits;
 mod linking;
+mod navigation;
 mod nested_calls;
 mod pagination;
 mod queries;
@@ -37,6 +39,7 @@ mod source_correspondence;
 mod stale;
 mod stale_scope;
 mod test_roles;
+mod weights;
 
 fn fixture() -> Fixture {
     let dir = Fixture::new();

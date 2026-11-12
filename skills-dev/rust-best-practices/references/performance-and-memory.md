@@ -1,64 +1,45 @@
-Load when a hot path is slow or allocation-heavy, RSS or peak memory is high, a process OOMs, types look bloated, a structure holds millions of items, or you translate C allocation habits, allocate big/zeroed buffers, hand memory across FFI, or reach for `std::alloc`/`MaybeUninit`. Why: Rust's defaults hide allocation and layout costs that only a profile reveals.
+# Runtime performance and memory
 
-# Performance and memory
+Load for latency, throughput, allocation, peak memory, layout or binary-size work. Establish correctness first. A suspected cost is a hypothesis until measured.
 
-## Measure first
-- Never optimize on intuition.
-- Microbenchmarks: `criterion`. Whole program: `cargo flamegraph`, `samply`, `perf`.
-- Allocation counts/peaks: `dhat-rs` (drop-in global allocator, works in tests), `dhat`, `heaptrack`, Instruments/`samply` (macOS). Peak RSS: `/usr/bin/time -l` (macOS) / `-v` (Linux).
-- Type sizes: `std::mem::size_of::<T>()`; pin hot types: `const _: () = assert!(size_of::<Node>() <= 32);`. Nightly `-Zprint-type-sizes` lists all layouts. Binary size (not heap): `cargo bloat --release --crates`.
-- Baseline, change one thing, re-measure, keep only what moves the number. Tracked comparison: `octocode-agentic`.
+## Measure the deployed workload
 
-## Cut allocations (biggest lever)
-- Pre-size: `Vec::with_capacity(n)`, `String::with_capacity(n)`.
-- Reuse buffers across a loop (`buf.clear()`), not one allocation per iteration. Fill an existing `String` or `Vec` with `clone_from` so its capacity survives.
-- Known maximum length: `arrayvec::ArrayVec` (no heap). Mostly short, with a few long: `smallvec::SmallVec` skips the heap for the short case and checks inline-versus-heap on every operation. A large inline `N` is slower to move than `Vec`. Benchmark it ([heap allocations](https://nnethercote.github.io/perf-book/heap-allocations.html)).
-- `mem::take`/`mem::replace` move out without cloning; `write!` into a pre-sized `String` beats repeated `format!`/`+`.
+1. Record the input/corpus, expected output, toolchain, target, features, optimization, allocator and cache/process state. Use release-equivalent settings for production claims; use the actual dev configuration when investigating dev behavior.
+2. Pick the metric that answers the question: wall time, CPU, throughput, allocations, live/peak heap, RSS or binary size. These are not interchangeable. Include the serving process and children when a thin CLI delegates work.
+3. Repeat a stable baseline, inspect noise and profile the relevant process. Change one factor, verify identical behavior, then compare under the same conditions. Do not quote universal speedup factors.
 
-## Let the compiler work
-- `#[inline]` only on tiny hot functions that cross crate boundaries.
-- Hot paths: generics (monomorphization) over `Box<dyn Trait>`; `dyn` where code size or open extension matters more.
-- Non-crypto maps (`ahash`/`FxHashMap`) only when hashing dominates. Deterministic output: `BTreeMap`/`BTreeSet`, or `HashMap` + explicit sort.
-- CPU-bound data: `rayon` `.par_iter()`. Profile: thread overhead can exceed the gain on small workloads. Async I/O concurrency is `tokio` tasks, not CPU parallelism.
-- Last resorts: manual field order only after profiling a layout problem; PGO for a measured workload. Use `target-cpu=native` only when deployment CPUs support the build machine's instructions; portable releases need an explicit supported CPU baseline. Release flags: `references/build-profiles.md`.
+| Question | Candidate evidence |
+|---|---|
+| Where is CPU time spent? | Existing profiler; `samply`, `perf`/flamegraph or platform tools as supported. |
+| What allocates or remains live? | Allocation profiler such as DHAT, heaptrack or Instruments. Sampling CPU alone does not measure heap allocation. |
+| What is peak process memory? | Platform process accounting; state whether it includes children and allocator-retained pages. |
+| Is a layout too large? | `size_of`, collection counts and measured access patterns on the supported target. |
+| Is code size the issue? | Shipped artifact size and code-size tools; distinguish symbols from executable code. |
 
-## C → Rust map
-| C | Rust | Note |
-|---|---|---|
-| `malloc(sizeof T)` / `free` | `Box::new(t)` / scope end, `drop(x)` | one owner, no `free` call |
-| `malloc(n * sizeof T)` | `Vec::with_capacity(n)` + `push`/`extend` | `len` stays 0; no garbage reads |
-| `calloc(n, size)` | `vec![0u8; n]` | initializes `n` bytes to zero; allocator and compiler choices determine how |
-| `realloc` | `reserve` / `reserve_exact` / growth on `push` | `shrink_to_fit` requests reduced capacity; the allocator may retain excess ([std](https://doc.rust-lang.org/std/vec/struct.Vec.html#method.shrink_to_fit)) |
-| `memset(p, 0, n)` | `buf.fill(0)` | `clear()` changes length, not retained bytes; secrets need `zeroize` because plain writes may be optimized out |
-| `memcpy` | `copy_from_slice` for `Copy` elements; `clone_from_slice` for `Clone` elements | length-checked; generated code depends on the element type and optimizer |
-| `alloca`, big stack array | `vec!` / `Box<[T]>` | thread stack size varies by platform and configuration; deep recursion → explicit work-stack |
+## Optimize the measured cost
 
-## Shrink types
-- `clippy::large_enum_variant`: enum layout reflects its variants plus alignment and any discriminant or niche. If a large variant inflates hot values, consider boxing that variant and measure the allocation cost against the smaller enum.
-- Niches are free: `Option<Box<T>>`, `Option<&T>`, `Option<NonZeroU32>` add no bytes. Use `NonZero*` for ids.
-- Right-size ints (`u32` index for 4-billion-bounded ids). Let the compiler reorder fields; `#[repr(C)]` only for FFI.
-- Strings: immutable `Box<str>` (2 words) over `String` (3); shared `Arc<str>` over `Arc<String>`; short `compact_str`/`smol_str` (inline ≤24 B); repeated → intern to `u32` (`lasso`).
-- Long-lived collections: `shrink_to_fit()` or `into_boxed_slice()` after building; `Vec` doubling can leave ~50% slack.
+- Prefer improving algorithms, access patterns or unnecessary work when the profile supports it. Do not assume allocations dominate every workload.
+- Reserve when a trustworthy size estimate helps. `Vec` growth is unspecified; `clear()` retains capacity, and `shrink_to_fit()` is a request that may leave excess capacity. Repeated shrinking can create more allocations.
+- Reuse buffers where ownership permits. `clone_from` can reuse storage depending on the type. `mem::take` transfers the old allocation away; it does not leave that capacity available in the original value.
+- Consider inline storage only for measured small-value distributions. `SmallVec` can spill; `ArrayVec` has a fixed capacity whose overflow must follow the input contract. Large inline values cost stack space and movement.
+- Use `Arc`, `Cow`, borrowed parsing or arenas when the ownership/lifetime contract fits. Check retention: one small view can retain a large backing allocation. Arena reset/drop semantics vary by allocator and stored type.
+- Box a large enum variant only when the reduced layout/access cost outweighs allocation and indirection. Default Rust field layout and word size are not portable ABI promises; rely only on documented niche/layout guarantees.
+- Use deterministic output deliberately: ordered collections or explicit sorting. A faster hasher is a candidate only when hashing is material and its collision-resistance policy fits the threat model; “non-cryptographic” does not mean safe for adversarial keys.
+- Compare static/dynamic dispatch, parallel execution, inlining, LTO, target CPU and allocator changes rather than assuming they are faster. Avoid oversubscribing CPU pools. Portable releases must respect their CPU baseline.
 
-## Ownership shape
-- Many short-lived allocations with one lifetime (AST, per-request scratch): an arena (`bumpalo`, `typed-arena`). One reset, no per-object free, `!Sync`. It is not a `#[global_allocator]`.
-- Share, don't copy: `Arc<T>` read-mostly across threads, `Arc::make_mut` copy-on-write, `bytes::Bytes` for a shared byte buffer (a shallow clone, not a `String`), `Cow` at API edges. Do not `Arc` a value that is never shared.
-- Zero-copy parse: `#[serde(borrow)] &'a str` fields; `serde_json::from_slice` over a buffer you own.
+## Memory correctness
 
-## Bound what grows
-- Stream with `BufReader` and bound line/record size. A `.take(limit)` read can stop before EOF: detect overflow (for example, read up to checked `limit + 1`) and return an explicit limit error or continuation, never claim the prefix is complete. Large read-only files: `memmap2` (unsafe contract: the file must not be truncated underneath).
-- Every cache has a cap and eviction (`lru`, `moka`). Channels are bounded (`tokio::sync::mpsc::channel(n)`, `crossbeam::bounded`). An unbounded channel can exhaust memory and abort the process.
-- Leaks are safe but real: `Rc` cycles, `mem::forget`, `Box::leak` (only for true `'static` config, never per request).
-- Allocation failure aborts by default. Untrusted sizes: cap first, then `Vec::try_reserve(n)?`.
+| Operation | Obligation |
+|---|---|
+| `Vec::with_capacity(n)` | Capacity is not initialized length; initialize before reading. Validate untrusted sizes before allocation. |
+| `clear`, zeroing or reuse | `clear` does not erase retained bytes. Follow the project's secret-erasure policy; ordinary writes may be optimized away. |
+| `MaybeUninit`, spare capacity, `set_len` | Prove initialized, valid elements and correct cleanup on every partial-failure path. Read no uninitialized value, including bytes. |
+| Raw allocation/deallocation | Correct layout, alignment, provenance, allocation-failure handling and allocator pairing. Prefer existing safe storage. |
+| File mapping | Honor the mapping API's unsafe contract, including concurrent truncation/mutation risks. |
+| Deep recursive data | Consider stack use during traversal and destruction, not just construction. |
 
-## Uninitialized and raw memory (measured reason only)
-- Prefer zeroing. Else `Box::<[T]>::new_uninit_slice(n)` / `Vec::spare_capacity_mut()` + `MaybeUninit::write`; `assume_init`/`set_len` only after **every** element is written — reading uninit memory is UB even for `u8`.
-- Never `mem::zeroed()` for types with invalid all-zero patterns (references, `NonZero`, enums, `Box`).
-- Raw `std::alloc::{alloc, alloc_zeroed, realloc, dealloc}` + `Layout` is for containers/allocators only: check null (`handle_alloc_error`), dealloc with the *same* layout.
+Use fallible allocation where recoverable allocation failure is part of the contract. It does not make every allocation in the process recoverable. Bound retained caches, queued work and in-flight work through the owner's policy; report explicit refusal or continuation rather than silently dropping evidence.
 
-## Across FFI
-- The allocator that made memory frees it: C-allocated → C `free` / the library's `*_free`; Rust-allocated → Rust. Mixing is UB.
-- Hand out with `Box::into_raw`; take back with `Box::from_raw` exactly once (export a `my_free` fn). Strings: `CString::into_raw`/`from_raw`.
+For raw memory and FFI proofs, read [safety](safety-and-ffi.md). For build/optimization flags, read [profiles](build-profiles.md).
 
-## Global allocator (last lever)
-The system allocator stays until a profile shows `malloc` hot. Then benchmark `tikv-jemallocator` (the maintained jemalloc binding; the older `jemallocator` crate is finished) or `mimalloc` on peak RSS and throughput. There is no universal winner: ripgrep enables jemalloc only for 64-bit musl. `#[global_allocator]` does not replace `malloc` inside libc. A library never sets the global allocator.
+Sources: [Rust Performance Book: profiling](https://nnethercote.github.io/perf-book/profiling.html), [heap allocations](https://nnethercote.github.io/perf-book/heap-allocations.html), [Vec guarantees](https://doc.rust-lang.org/std/vec/struct.Vec.html#guarantees), [MaybeUninit](https://doc.rust-lang.org/std/mem/union.MaybeUninit.html).

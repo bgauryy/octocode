@@ -22,8 +22,8 @@ Use boundary events with a monotonic duration, operation ID, input size and phas
 
 ## Follow a full-stack request
 
-A trace ID, parent/child span IDs or span links can connect a slow interaction to its server, queue or downstream dependency. Request IDs can join logs when spans are unavailable. Retries may share a trace ID. Look for the attempt that delayed completion.
+A trace ID, parent/child span IDs or span links can connect a slow interaction to its server, queue or downstream dependency. Request IDs can join logs when spans are unavailable. Retries may share a trace ID. Look for the attempt that delayed completion, and follow the dependency that gates it.
 
-A browser’s time to first byte includes transit and server work. To attribute that interval, use whichever boundary is visible, such as a connection-pool wait or a downstream span. Child spans can overlap. A hot stack shared by many concurrent requests establishes process activity. Per-request attribution requires a task/span association or an isolated replay.
+A browser’s time to first byte includes transit and server work. To attribute that interval, use whichever boundary is visible, such as a connection-pool wait or a downstream span. A parent span includes its children's time, and parallel children overlap, so summed spans can exceed the request's latency. A hot stack shared by many concurrent requests establishes process activity. Per-request attribution requires a task/span association or an isolated replay.
 
-If a timeline would clarify the finding, a shared time axis requires aligned clocks or measured offsets. Local durations and causal links remain usable across independent clocks. [OpenTelemetry traces](https://opentelemetry.io/docs/concepts/signals/traces/) · [W3C Trace Context](https://www.w3.org/TR/trace-context/) · [Perfetto clock synchronization](https://perfetto.dev/docs/concepts/clock-sync)
+If a timeline would clarify the finding, a shared time axis, including cross-host timestamp subtraction, requires aligned clocks or measured offsets. Local durations and causal links remain usable across independent clocks. [OpenTelemetry traces](https://opentelemetry.io/docs/concepts/signals/traces/) · [W3C Trace Context](https://www.w3.org/TR/trace-context/) · [Perfetto clock synchronization](https://perfetto.dev/docs/concepts/clock-sync)

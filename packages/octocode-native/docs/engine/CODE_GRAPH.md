@@ -131,6 +131,7 @@ is required for snapshot creation.
 | `path` | Required `target` and `to`; optional edge filters, `direction`, `kind` | Shortest candidate path; calls between two symbols, otherwise imports; no depth option. Condition compatibility is not assessed and execution is not observed. |
 | `cycles` | Optional edge filters | Production cycles; imports by default |
 | `hubs` | Optional edge filters, `kind`, `direction: in/out` | Production nodes ranked by incoming edge count by default |
+| `cochange` | Required file `target` | Files under the scope that non-merge Git commits changed together with `target` (`commits`, `share` of the target's commits, `linked` when an edge of the snapshot joins the two either way), most commits first; `summary.targetCommits`. Read from Git at query time, not stored; renames are not followed, files outside the scope are left out, and nothing is capped: rows page |
 | `diagnostics` | Optional `target` code or file prefix | Matching scan/link diagnostics |
 | `witnesses` | Optional source `target` (one or a list), destination `to`, edge filters | Occurrences supporting linked relations; a file target includes its symbols |
 | `unresolved` | Optional source `target` (one or a list), edge filters, `reasons` | Unlinked call or argument references and unsupported argument forms; a file target includes its symbols; `reasons` filters before paging, so `total` counts kept rows |
@@ -163,7 +164,7 @@ external test package), never a method, and non-test files never see
 `_test.go` files. Call traversals report their applied confidence. Stats rank called
 symbols using high-confidence production edges and report `callConfidence`.
 `cycles` and `hubs` exclude test edges. Import cycles include type imports;
-`runtime: false` means that group contains no detected eager module-loading cycle; `runtime: "unknown"` means a loop closes only through an edge whose load is not established (see parser fallback). List operations
+`runtime: false` means that group contains no detected eager module-loading cycle; `runtime: "unknown"` means a loop closes only through an edge whose load is not established: a parser-fallback import, or a `type-use-import` (a TypeScript value import whose bindings the file reads only in type positions or not at all; TypeScript's emit elides it unless the project keeps value imports with `verbatimModuleSyntax` or decorator metadata, which the graph does not read; a JSX tag, an export clause or any expression read keeps the import `static-import`). List operations
 accept `limit` (default 50, maximum 1,000); `stats`, `node` and `path` do not.
 Depth is bounded to 1–20 where supported. `impact` uses its own impact analysis
 and does not accept edge or direction overrides.
@@ -257,7 +258,11 @@ and core parser contract, so Octocode Code needs no grammar-specific change.
 ### `issues`: ranked hypotheses
 
 Each finding carries `evidence`, the false-positive `controls` applied, and a
-`score` (severity × confidence × (0.5 + 0.5 × PageRank percentile)). A
+`score` (severity × confidence × (0.5 + 0.5 × impact), ×1.1 up to 1 for each
+other detector flagging the subject). `impact` is the highest PageRank
+percentile among the subject's files, for every detector. Files of equal
+PageRank share one percentile, the mean of their positions, so structurally
+equal files score alike (`detect/view.rs` `percentiles`). A
 finding's subject and evidence are what to check before acting: a cycle by a
 `path` query between two members, an unused export by `lspSearch` references
 at its `exportLine`, a critical file by `dependents` to its `farthestDepth`.
@@ -266,7 +271,7 @@ at its `exportLine`, a critical file by `dependents` to its `farthestDepth`.
 |---|---|
 | Structure | `cycle` (runtime imports; witness plus `suggestedCuts`) · `dir-cycle` · `unreachable-file` · `test-only` · `unused-export` (JS/TS/Python) · `export-only-local` (exported but used only in its own file) |
 | Dependencies | `undeclared-dependency` (including hoisted phantoms) · `boundary-violation` (deep imports between npm packages) · `unresolved-import` |
-| Architecture | `critical-file` (PageRank) · `single-point-of-failure` (articulation points) |
+| Architecture | `critical-file` (every production file with 5+ transitive runtime dependents; severity grows with the count) · `single-point-of-failure` (articulation points) |
 
 - Any edge keeps code alive. Only runtime imports between authored files prove
   cycles, hubs, or layering; type-only, dynamic, and Python function-level
@@ -305,14 +310,33 @@ at its `exportLine`, a critical file by `dependents` to its `farthestDepth`.
   only the `calls`, `uses` and `inherits` edges bound to it, plus importers that
   bind no name (`precision: "symbol"`). Barrel files pass changes through by
   symbol.
+- Rows are dependents, not breakage: `direct` means "depends on the change
+  directly, inspect first". Only tests or execution prove a break.
 - `depth` defaults to 3. Rows carry `depth`, `risk` (`direct` at depth 1,
   `likely` at 2, `transitive` at 3+), `packageDistance`, `confidence` and
   `typesOnly`.
 - The summary (first page only) counts rows `byDepth` and lists
   `affectedEntrypoints`, `testsToRun`, `components`, and `testFunctions`
-  (including Rust `mod tests` and pytest `test_*` functions).
+  (including Rust `mod tests` and pytest `test_*` functions). Tests are named
+  at any depth: a `depthLimited` walk still lists every test the change reaches.
 - A manifest, lockfile, or tsconfig/pyproject/go.mod change affects everything
   below its directory; `allAffected` marks a root-level change.
+
+### Weights and the co-change overlay
+
+Each weight has one meaning and one source; none is a probability or a
+runtime frequency.
+
+| Signal | Field | Source |
+|---|---|---|
+| Binding confidence | `confidence` (`high`, `medium`, `low`) | The resolution strategy; categorical by design |
+| Connection strength | `sites` | Distinct witness occurrences behind an edge; `hubs` sums the counted edges |
+| Structural importance | `pageRank` (`hubs` `rankBy: "pageRank"`) | PageRank over the admitted edges, each weighted by `sites`; `direction: "out"` reverses them. `path` stays unweighted: shortest-path algorithms read a weight as cost, PageRank as strength |
+| Change coupling | `cochange`: `commits`, `share`, `linked`, summary `targetCommits` | `git log --no-merges --full-diff` of the target at query time; not stored in the snapshot. Renames are not followed |
+| Runtime frequency | — | Not modeled: it needs observed profiles |
+
+`issues` keeps unit-weight PageRank over runtime imports for its `impact`
+term, so issue scores do not move with call counts.
 
 ### Recipes
 
@@ -320,7 +344,8 @@ at its `exportLine`, a critical file by `dependents` to its `farthestDepth`.
 |---|---|
 | Who can reach a dangerous operation? | `impact` with `target` on the function that deletes, spawns or writes. `affectedEntrypoints` is the attack surface. |
 | Unbounded recursion | `cycles` with `edges: ["calls"]`; check each group that walks untrusted input for a depth bound. |
-| Choke points | `issues` with `detectors: ["single-point-of-failure","critical-file"]`. |
+| Choke points | `issues` with `detectors: ["single-point-of-failure","critical-file"]`, or `hubs` with `rankBy: "pageRank"`. |
+| Hidden coupling | `cochange` on a file; rows with `linked: false` changed with it but share no graph edge. |
 | Is this cycle real? | `path` from `target` to `to` shows the witness; `issues` with `detectors: ["cycle"]` gives `suggestedCuts`. |
 | Dead or orphaned code | `issues` with `detectors: ["unreachable-file","unused-export"]` (add `test-only` for files only tests reach; `entries` names entrypoints), then `dependents` with `edges: ["imports","uses","calls"]` before deleting. |
 | Call gaps of many files | `unresolved` with `target` as a list (up to the schema's maximum) and `reasons`, which filter before paging. |
@@ -735,6 +760,25 @@ invalidates earlier extraction, binding or storage representations: rebuild olde
 snapshots with the current binary. A call to a name whose only declaration parsed
 recovered reports `recovered-declaration`, not `not-declared-in-repo`.
 
+A bare call whose callee the file binds to a parameter, a local variable or a
+closure calls that value, not a declaration of the same name: the call fact
+records `termBinding`, and the site links nothing and stays unresolved as
+`local-binding`, outside the eligible linkage denominator. Each lane reads the
+fact from its own scopes, never from the name:
+
+| Lane | Binding read |
+|---|---|
+| JS/TS (oxc) | oxc semantics bind the callee of a call, `new`, tagged template or JSX tag to its symbol. A symbol the outline lists as a declaration (a nested `const f = () => ..` included) is recorded as `boundDeclaration` and the call links that declaration only, `local` at high confidence; a symbol in a function or block scope that is no listed declaration, import or CommonJS load binding is a term. Files with `with` or direct `eval` are not assessed |
+| Python, Go, Rust, C/C++/CUDA, C# | the argument adapter's lexical bindings: parameters, and variables bound inside a callable (`let`, `:=`, assignments, declarators); a pattern's written type and a block-scope C/C++ prototype bind no value |
+| Scala | its own term scopes (`Call::term_binding`), which also cover the untyped head of `x.m()`; such member calls keep their receiver reason |
+| Java | none by rule: a bare call names a method, never a variable |
+
+Gaps stay explicit: a scope a lane cannot settle (Rust and C++ closure and
+lambda bodies, Rust `match` and macros, C# lambdas and patterns, Python
+comprehensions, `with`, `global` and an enclosing function that declares a
+nested function, class or import), module-level variables, and JS/TS files
+read by the tree-sitter fallback lane keep the name-based link.
+
 oxc owns JS/TS. A file it cannot parse keeps its facts through the tree-sitter
 lane (partial facts beat none), and says so: `scan.parserFallback` lists each
 `file` with its `producer`, and a `parser-fallback` diagnostic gives oxc's error.
@@ -1013,6 +1057,14 @@ The oracle still matches text, not bindings:
   picked before measuring; its callers use module-scope destructured requires.
 - **TSX:** one oracle hit is a type position
   (`typeof h.app.scene.mutateElement<T>`), not a call.
+
+`local-binding` (2026-11-12) left recall and precision unchanged on every row.
+The sites it moved out of name-based links and other reasons: JavaScript 3,321
+(1,208 of them were linked, mostly lodash's `func`, `iteratee` and
+`runInContext` locals such as `nativeMax`), Python 4,156, Go 3,875, TSX 2,476,
+Scala 1,003 (relabelled from `other` and `not-declared-in-repo`; no link
+changed), TypeScript 329, CUDA 80, `javascript-cjs` 70, C# 41, Rust 38,
+`javascript-lazy` 38, C++ 15, C 2; Java none, by rule.
 
 Rust receiver typing was also checked against rust-analyzer call hierarchy on
 the octocode native crates (2026-11-01, graph-view LSP cross-check, same-crate

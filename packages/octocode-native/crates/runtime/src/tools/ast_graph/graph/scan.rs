@@ -292,7 +292,8 @@ fn keep_file(
     let (kept, fact_bytes) = match job {
         Some(job) => job.keep(view, source, holds_secret)?,
         None => {
-            let marks = super::super::classify::SourceMarks::of(view.relative_path, view.content);
+            let marks = super::super::classify::SourceMarks::of(view.relative_path, view.content)
+                .hiding(holds_secret);
             let fact_bytes = octocode_engine::json_size::bytes_or(view.facts, usize::MAX);
             (
                 Kept::Memory(Box::new((view.to_entry(), marks, source))),

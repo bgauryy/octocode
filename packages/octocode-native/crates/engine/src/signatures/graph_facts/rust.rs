@@ -299,6 +299,7 @@ pub(super) fn collect_rust_imports(
                     resolution_hint: unsupported.then(|| "unsupported".to_owned()),
                     module_scope: Some(module_scope.to_vec()),
                     scope_id: None,
+                    type_use_only: false,
                 });
             }
         }

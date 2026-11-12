@@ -70,7 +70,7 @@ A2A manages independent agent tasks, messages, artifacts and capability discover
 | Choreography | Agents react to events | Decentralized workflows |
 | Consensus / voting | Candidates combined or compared | Selected high-uncertainty decisions |
 
-Start with one supervisor and bounded specialist workers.
+Start with one supervisor and bounded specialist workers ([delegate only separable work](models-and-delegation.md#delegate-only-separable-work)).
 
 ## A2A building blocks
 
@@ -297,7 +297,7 @@ Run compatibility checks in CI, keep fixtures for older producers and consumers,
 
 Select agents by declared capabilities, not names: stable ID, supported skills, input and output modalities, contract versions, execution mode (sync, async, streaming), payload and concurrency limits, authorization requirements, data classification, cost and latency profile, health and deployment version.
 
-Route by capability fit → permission → contract compatibility → health → cost and latency. Never pick an untrusted external agent only because its description claims the capability.
+Route by capability fit → permission → contract compatibility → health → cost and latency. A claimed capability is not trust ([between agents](security.md#between-agents)).
 
 ## Testing
 

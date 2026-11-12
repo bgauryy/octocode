@@ -294,6 +294,7 @@ fn pull_requests(query: &HistorySearch, items: &[Value], paging: &Paging, terms:
         &["number", "owner", "repo"],
         &fields,
     );
+    rows::drop_filtered_labels(&mut v, "pullRequests", &query.filters().label);
     // The count call is the same on every page: offered once, on page 1.
     if paging.listed
         && paging.more
@@ -344,6 +345,7 @@ fn issues(query: &HistorySearch, items: &[Value], paging: &Paging, terms: String
         &fields,
     );
     pick_rows(&mut v, "issues", &["number", "owner", "repo"], &fields);
+    rows::drop_filtered_labels(&mut v, "issues", &query.filters().label);
     // List mode runs the REST endpoint, not the search terms.
     if paging.listed
         && let Some(map) = v.as_object_mut()

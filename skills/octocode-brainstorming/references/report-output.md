@@ -15,7 +15,7 @@ Start with YAML `status` and `question`; `confidence` is optional, `next` only f
 
 ## Choose the format
 
-Author Markdown; the template supplies presentation. Follow the [shared visual-first, content-only rules](presentation.md): visualize flows and logic, compare values graphically, retain exact evidence, and omit probe output and process metadata.
+Author Markdown; the template supplies presentation. Apply the [format and content rules](presentation.md), then select the syntax below.
 
 | Format / syntax | Use when / why |
 |---|---|

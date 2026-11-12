@@ -120,7 +120,7 @@ pub fn execute_ast(
     };
     run_ast(query, paths, cancellation, response_window)
         .map(|(mut data, places)| {
-            let sources = crate::tools::judged_rows::RowSources::new(paths, security);
+            let sources = crate::tools::judged_rows::RowSources::as_shown(paths, security);
             judged_rows::judge_rows(&mut data, &sources, places);
             data
         })

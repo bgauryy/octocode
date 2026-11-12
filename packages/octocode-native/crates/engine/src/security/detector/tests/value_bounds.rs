@@ -294,6 +294,15 @@ fn a_request_runs_exactly_what_the_file_judge_shows() {
         "x_token = \"//registry.npmjs.org/:_authToken=${NPM_TOKEN}\\n\"",
         "    let cs_credential = format!(\"  var cred = new NetworkCredential(\\\"svc\\\", \\\"{PASSWORD}\\\");\\n\");",
         "    let cs = \"  password = \\\"Zq7Xk2Pm9Vt4Lw8Rb3Nc6Hy1Jd5Fg0Ts7Qe2Ua4\\\";\";",
+        // bin16 retest: a name split from its value, an unquoted value and
+        // the word after it, literals side by side.
+        "const a = `password=${x}DvR8R8i4INNejI81pSk6GW`;",
+        "const e = `\nline\npassword=${\"x\"}DvR8R8i4INNejI81pSk6GW\n`;",
+        "const b = `API_KEY=${env}Qm7Hx2LpT9vRk4Wn8sZcYb`;",
+        "const c = \"password=\" + \"DvR8R8i4INNejI81pSk6GW\";",
+        "const u = `https://api.example.com/v1/users/${id}/tokens/${tokenId}`;",
+        "password=Qm7Hx2LpT9vRk4Wn8sZcYb build42 then text",
+        "password = \"Qm7Hx2LpT9vRk4Wn8sZcYb\" \\\n    \"DvR8R8i4INNejI81pSk6GW\"\n",
         // KNOWN: consistent misses, the same in both (neither hides them).
         "ＰＡＳＳＷＯＲＤ=Hunter2Zebra9xQ",
         "client.login(\"admin\",\"Hunter2Zebra9\")",
@@ -471,25 +480,34 @@ fn prose_states_a_chosen_secret_that_mixes_letters_with_digits_or_symbols() {
     }
 }
 
-/// D7: a value of several words, a blank apart, each of an opaque value's
-/// make, is one value: hidden whole when a word of it is a credential,
-/// shown whole when none is, never half. The line's own words after it stay.
+/// D3 (bin16 retest): an unquoted value ends at its first blank. The word
+/// after it is the line's own, digits or not (`build42`, `release1`, `v2`),
+/// and stays readable and searchable; only the value goes.
 #[test]
-fn a_value_of_several_words_is_hidden_whole_or_not_at_all() {
-    hidden_alone(
-        "SIGNING_KEY=x-9f8.6d0.818 84c.7d6.59a\n",
-        "notes.txt",
-        &["x-9f8.6d0.818 84c.7d6.59a"],
-    );
-    for content in [
-        "AUTH_TOKEN=q7.x2.k9 m4.p8.z1\n",
-        "ENCRYPTION_KEY=a.1.b.2 c.3.d.4 e.5.f.6\n",
+fn an_unquoted_value_ends_at_its_first_blank() {
+    const VALUE: &str = "Qm7Hx2LpT9vRk4Wn8sZcYb";
+    const B64: &str = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYzQ8vT3kLm2";
+    for (content, kept) in [
+        (format!("password={VALUE} build42 then text\n"), " build42 then text\n"),
+        (format!("token: {VALUE} release1\n"), " release1\n"),
+        (format!("DB_PASSWORD={VALUE} v2 # note\n"), " v2 # note\n"),
+        (format!("secret_key={B64} mark8m\n"), " mark8m\n"),
+        (format!("ACCESS_TOKEN={B64} is the key\n"), " is the key\n"),
+        (format!("the password is {VALUE} build42\n"), " build42\n"),
     ] {
-        shown_and_run(content, "notes.txt");
+        for path in [Some("notes.txt"), None] {
+            let shown = detect(&content, path).sanitized;
+            let secret = if content.contains(B64) { B64 } else { VALUE };
+            assert!(!shown.contains(secret), "{path:?}: {shown:?}");
+            assert!(shown.ends_with(kept), "{path:?}: {shown:?}");
+            let placeholder = &shown[shown.find("[REDACTED-").expect("placeholder")..];
+            assert!(placeholder.contains(&format!("]{kept}")), "{path:?}: {shown:?}");
+        }
     }
-    let fixture = "ACCESS_TOKEN=wJalrXUtnFEMI/K7MDENG/bPxRfiCYzQ8vT3kLm2 is the key\n";
-    let shown = detect(fixture, Some("notes.txt")).sanitized;
-    assert!(shown.ends_with(" is the key\n"), "{shown:?}");
+    // Words of a value's make a blank apart: each judged alone.
+    let shown = detect("SIGNING_KEY=x-9f8.6d0.818 84c.7d6.59a\n", Some("notes.txt")).sanitized;
+    assert!(!shown.contains("x-9f8.6d0.818"), "{shown:?}");
+    assert!(shown.ends_with("] 84c.7d6.59a\n"), "{shown:?}");
 }
 
 /// D6, D8: in a text file, a member access, `undefined`, `null`, a type

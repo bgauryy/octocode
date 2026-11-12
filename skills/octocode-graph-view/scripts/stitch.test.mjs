@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { bindCalls, chunkOf, packageKey, resolveImport, resolveRustPath, stitch } from './stitch.mjs';
+import { tempDir } from './test-tmp.mjs';
 
 const has = (p) => ['lib/a.ts', 'lib/b/index.js', 'c.mjs'].includes(p);
 const node = (id) => ({ id, label: id, group: '.', fanIn: 0, fanOut: 0 });
@@ -82,9 +85,9 @@ test('rust paths from a root inside a crate resolve from the root module, and cl
   const files = new Set(['limits.rs', 'store/ingest.rs', 'store/tests/limits.rs']);
   const inRoot = (p) => files.has(p);
   // The root is the crate's `tools/ast_graph` module.
-  assert.equal(resolveRustPath('store/tests/limits.rs', 'crate::tools::ast_graph::limits::LIMITS', inRoot, ['tools', 'ast_graph']), 'limits.rs');
+  assert.equal(resolveRustPath('store/tests/limits.rs', 'crate::tools::ast_graph::limits::LIMITS', inRoot, { cratePrefix: ['tools', 'ast_graph'] }), 'limits.rs');
   assert.equal(resolveRustPath('store/tests/limits.rs', 'super::super::ingest::build', inRoot), 'store/ingest.rs');
-  assert.equal(resolveRustPath('store/tests/limits.rs', 'crate::other::x', inRoot, ['tools', 'ast_graph']), null);
+  assert.equal(resolveRustPath('store/tests/limits.rs', 'crate::other::x', inRoot, { cratePrefix: ['tools', 'ast_graph'] }), null);
   assert.equal(resolveRustPath('store/tests/limits.rs', 'crate::tools::ast_graph::limits::LIMITS', inRoot), null);
 });
 
@@ -98,3 +101,51 @@ test('package calls bind only names the engine saw imported, never macros or mod
   assert.deepEqual(crossCalls.map((c) => [c.source, c.target]), [['app/main.rs#main', 'lib/m.rs#run'], ['app/main.rs#go', 'lib/m.rs#run']]);
 });
 
+test('rust paths into another workspace crate resolve to its deepest module file by the crate name `use` spells', () => {
+  const root = tempDir('stitch-crates-');
+  const manifests = {
+    'crates/io/Cargo.toml': '[package]\nname = "octocode-io"\n\n[lib]\ndoctest = false\n',
+    'crates/rt/Cargo.toml': '[package]\nname = "rt-pkg"\n\n[lib]\nname = "rt_core"\npath = "lib/root.rs"\n\n[dependencies]\nname = "not-the-lib"\n',
+    'crates/cli/Cargo.toml': '[package]\nname = "octocode-cli"\n',
+  };
+  for (const [p, text] of Object.entries(manifests)) {
+    mkdirSync(join(root, dirname(p)), { recursive: true });
+    writeFileSync(join(root, p), text);
+  }
+  const files = [...Object.keys(manifests), 'crates/io/src/lib.rs', 'crates/io/src/memo.rs', 'crates/rt/lib/root.rs', 'crates/rt/lib/config.rs', 'crates/rt/lib/config/edit.rs', 'crates/cli/src/main.rs', 'crates/cli/src/run.rs'];
+  const chunks = [{ id: 'io', path: 'crates/io', package: 'octocode-io' }, { id: 'rt', path: 'crates/rt', package: 'rt-pkg' }, { id: 'cli', path: 'crates/cli', package: 'octocode-cli' }];
+  const empty = { files: [], imports: [], symbols: [], calls: [], externals: [], insights: { findings: {}, issues: [], cycles: { all: [] } } };
+  const fn = (file, name) => ({ id: `${file}#${name}`, file, name, kind: 'function' });
+  const datas = new Map([
+    ['io', { ...empty, files: [node('src/lib.rs'), node('src/memo.rs')], declarations: [fn('src/memo.rs', 'fresh'), fn('src/lib.rs', 'fresh')] }],
+    ['rt', { ...empty, files: [node('lib/root.rs'), node('lib/config.rs'), node('lib/config/edit.rs')], declarations: [fn('lib/config/edit.rs', 'apply'), fn('lib/config/edit.rs', 'new')] }],
+    ['cli', { ...empty, files: [node('src/main.rs'), node('src/run.rs')], declarations: [fn('src/run.rs', 'go')],
+      outsideRoot: [
+        { file: 'src/run.rs', line: 1, specifier: 'octocode_io::memo::Memo' },
+        { file: 'src/run.rs', line: 2, specifier: 'rt_core::config::edit::apply' },
+        { file: 'src/run.rs', line: 3, specifier: 'octocode_io::Thing' },
+        { file: 'src/run.rs', line: 4, specifier: 'octocode_io::*' },
+        { file: 'src/main.rs', line: 1, specifier: 'octocode_io::memo' },
+        { file: 'src/main.rs', line: 2, specifier: 'rt_pkg::config::Edit' },
+        { file: 'src/main.rs', line: 3, specifier: 'not_in_repo::x' },
+      ],
+      unresolvedCalls: [
+        { from: 'src/run.rs#go', file: 'src/run.rs', targetName: 'apply', line: 5 },
+        { from: 'src/run.rs#go', file: 'src/run.rs', targetName: 'octocode_io::memo::fresh', line: 6 },
+        { from: 'src/run.rs#go', file: 'src/run.rs', targetName: 'rt_core::config::edit::Edit::new', line: 7 },
+        { from: 'src/run.rs#go', file: 'src/run.rs', targetName: 'octocode_io::memo::fresh().unwrap', line: 8 },
+      ].map((u) => ({ ...u, reason: 'not-declared-in-repo' })) }],
+  ]);
+  const { cross, unresolved, crossCalls, whole } = stitch({ root, chunks, datas, files });
+  assert.deepEqual(cross.map((e) => [e.source, e.line, e.target, e.via, e.targetChunk]), [
+    ['crates/cli/src/run.rs', 1, 'crates/io/src/memo.rs', 'crate-path', 'io'],
+    ['crates/cli/src/run.rs', 2, 'crates/rt/lib/config/edit.rs', 'crate-path', 'rt'],
+    ['crates/cli/src/run.rs', 3, 'crates/io/src/lib.rs', 'crate-path', 'io'],
+    ['crates/cli/src/run.rs', 4, 'crates/io/src/lib.rs', 'crate-path', 'io'],
+    ['crates/cli/src/main.rs', 1, 'crates/io/src/memo.rs', 'crate-path', 'io'],
+  ]);
+  assert.deepEqual(unresolved.map((u) => [u.specifier, u.reason]), [['rt_pkg::config::Edit', 'names no workspace crate'], ['not_in_repo::x', 'names no workspace crate']]);
+  assert.deepEqual(crossCalls.map((e) => [e.source, e.target, e.line]), [['crates/cli/src/run.rs#go', 'crates/rt/lib/config/edit.rs#apply', 5], ['crates/cli/src/run.rs#go', 'crates/io/src/memo.rs#fresh', 6]]);
+  assert.equal(whole.coverage.crossChunkImports, 4);
+  assert.equal(whole.coverage.crossChunkCalls, 2);
+});

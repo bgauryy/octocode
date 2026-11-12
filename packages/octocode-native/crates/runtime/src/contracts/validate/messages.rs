@@ -54,6 +54,11 @@ pub fn format_input_error(
             if let Some(message) = mixed_with_whole_request(tool_name, issue) {
                 return message;
             }
+            if issue.rule_id == "schema.union"
+                && let Some(forms) = forms_clause(tool_name, issue, &issue.path)
+            {
+                return format!("{path}: {}; {forms}.", issue.message);
+            }
             let message = match required_guidance(issue) {
                 Some(guidance) => format!("{} ({guidance})", issue.message),
                 None => issue.message.clone(),
@@ -263,10 +268,115 @@ fn unknown_field_message(
             "'{field}' is a field of {owner}, not of {query}: send {owner}:{{\"{field}\":…}}."
         );
     }
+    if let Some(forms) = forms_clause(
+        tool_name,
+        issue,
+        &issue.path[..issue.path.len().saturating_sub(1)],
+    ) {
+        return format!("Unknown field '{field}' in {query}; {forms}.");
+    }
     format!(
         "Unknown field '{field}' in {query}. Allowed fields: {}.",
         known.join(", ")
     )
+}
+
+/// The forms a value at `at` chose none of (`[["tool","query"],["url"]]`,
+/// set by the union check), named in one clause with an example value of the
+/// field from core's examples: `it takes tool and query, or url, e.g. {…}`.
+fn forms_clause(tool_name: &str, issue: &ValidationIssue, at: &[String]) -> Option<String> {
+    let forms = issue.schema.as_ref()?.get("forms")?.as_array()?;
+    let named = forms
+        .iter()
+        .map(|form| {
+            form.as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(" and ")
+        })
+        .collect::<Vec<_>>()
+        .join(", or ");
+    let examples = core_examples(tool_name);
+    let example = field_example(&examples, at)
+        .or_else(|| form_example(&examples, forms))
+        .map(|example| format!(", e.g. {example}"))
+        .unwrap_or_default();
+    Some(format!("it takes {named}{example}"))
+}
+
+/// Core's request examples of `tool_name`, one per form of its rows.
+fn core_examples(tool_name: &str) -> Vec<Value> {
+    crate::contracts::cli_presentation()
+        .ok()
+        .and_then(|presentation| {
+            let entry = presentation["tools"]
+                .as_array()?
+                .iter()
+                .find(|entry| entry["name"] == tool_name)?;
+            let variants = entry["views"]["variants"]["variants"].as_array()?;
+            Some(
+                variants
+                    .iter()
+                    .filter_map(|variant| variant.get("example").cloned())
+                    .collect(),
+            )
+        })
+        .unwrap_or_default()
+}
+
+/// The value the first example holding row field `at[2]` gives at `at`
+/// (`queries.N.<field>…`). Below the row field the path was valid up to
+/// here, so a key the example lacks is a record's own key or a list index:
+/// its first entry stands for it.
+fn field_example(examples: &[Value], at: &[String]) -> Option<String> {
+    let [queries, _, field, within @ ..] = at else {
+        return None;
+    };
+    if queries != "queries" {
+        return None;
+    }
+    examples.iter().find_map(|example| {
+        let mut value = example.get(field)?;
+        for key in within {
+            value = value.get(key.as_str()).or_else(|| match value {
+                Value::Object(entries) => entries.values().next(),
+                Value::Array(items) => items.first(),
+                _ => None,
+            })?;
+        }
+        Some(value.to_string())
+    })
+}
+
+/// An object in any example whose fields are exactly one of `forms`, for a
+/// field no example sets (`assets.<key>.source` takes the forms `source`
+/// shows).
+fn form_example(examples: &[Value], forms: &[Value]) -> Option<String> {
+    fn find<'a>(value: &'a Value, forms: &[Value]) -> Option<&'a Value> {
+        match value {
+            Value::Object(entries) => {
+                let fits = forms.iter().filter_map(Value::as_array).any(|form| {
+                    form.len() == entries.len()
+                        && form
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .all(|field| entries.contains_key(field))
+                });
+                if fits {
+                    return Some(value);
+                }
+                entries.values().find_map(|entry| find(entry, forms))
+            }
+            Value::Array(items) => items.iter().find_map(|item| find(item, forms)),
+            _ => None,
+        }
+    }
+    examples
+        .iter()
+        .find_map(|example| find(example, forms))
+        .map(Value::to_string)
 }
 
 /// Every field a caller may author in `tool_name`'s rows, across its forms:

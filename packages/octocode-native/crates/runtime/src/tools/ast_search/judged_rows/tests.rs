@@ -130,8 +130,9 @@ fn stating<'a>(value: &'a Value, key: &str, out: &mut Vec<&'a Value>) {
     }
 }
 
-/// The bytes of `source` a row's 1-based `line`/`column` to
-/// `endLine`/`endColumn` name (ASCII sources: a column is a byte).
+/// The bytes of `text` (a source as a read shows it) a row's 1-based
+/// `line`/`column` to `endLine`/`endColumn` name (ASCII sources: a column
+/// is a byte).
 fn row_bytes(source: &str, row: &Value) -> std::ops::Range<usize> {
     let number = |key: &str| row[key].as_u64().and_then(|n| usize::try_from(n).ok());
     let starts: Vec<usize> = std::iter::once(0)
@@ -157,11 +158,10 @@ const LANGUAGES: [(&str, &[&str], &str); 3] = [
 
 /// Over every position of every declaration in its file, in each language:
 /// each declaration is named by its identifier, no row keeps the place the
-/// name was cut at, each node is the cut of its own range, and each line a
-/// node shows is part of what a read of that line shows (a node that starts
-/// inside a value hidden from an earlier line on shows that value's
-/// placeholder instead). No row shows a hidden value or a placeholder of no
-/// kind.
+/// name was cut at, and each node is the read's text at its own range: its
+/// lines and columns count the text a read shows (D4, bin16 retest), so
+/// every line a node shows is that line of the read. No row shows a hidden
+/// value or a placeholder of no kind.
 #[test]
 fn rows_of_multi_line_redactions_are_cut_at_their_own_place() {
     let mut layouts = 0;
@@ -251,28 +251,19 @@ fn rows_of_multi_line_redactions_are_cut_at_their_own_place() {
                 for row in rows.iter().filter(|row| row.get("value").is_some()) {
                     nodes += 1;
                     let shown = row["value"].as_str().expect("value");
-                    let at = row_bytes(&source, row);
-                    assert_eq!(shown, judged.cut(at.clone()), "{layout} {query}: {row}");
+                    let at = row_bytes(&read, row);
+                    assert_eq!(Some(shown), read.get(at), "{layout} {query}: {row}");
                     let first = row["line"].as_u64().and_then(|n| usize::try_from(n).ok());
                     let first = first.expect("line");
                     for (line, piece) in (first..).zip(shown.split('\n')) {
-                        if read_lines[line - 1].contains(piece) {
-                            continue;
-                        }
-                        // Starts inside a value hidden from an earlier line on.
-                        let kept = placeholder.replace_all(piece, "\n");
                         assert!(
-                            line == first
-                                && judged.exposes(&(at.start..at.start + 1))
-                                && placeholder
-                                    .find_iter(piece)
-                                    .all(|kind| read.contains(kind.as_str()))
-                                && kept
-                                    .split('\n')
-                                    .all(|kept| raw_lines[line - 1].contains(kept)),
+                            read_lines[line - 1].contains(piece),
                             "{layout} {query}: line {line} shows {piece:?}, the read {:?}",
                             read_lines[line - 1]
                         );
+                    }
+                    for kind in placeholder.find_iter(shown) {
+                        assert!(read.contains(kind.as_str()), "{layout} {query}: {row}");
                     }
                 }
                 let text = out.to_string();

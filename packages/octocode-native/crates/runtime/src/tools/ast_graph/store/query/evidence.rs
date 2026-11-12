@@ -89,48 +89,7 @@ impl Query<'_> {
                     filtered_by_confidence += 1;
                     continue;
                 }
-                keep(&|| {
-                    let text = |id| self.g.text(id, self.cancel);
-                    let source_digest = text(witness.provenance.source_digest)?;
-                    let file = self.g.key(self.g.t.nodes[edge.src as usize].file);
-                    let version = text(witness.provenance.derivation_version)?;
-                    let detail = text(edge.detail)?;
-                    let range = source_range(witness.provenance)?;
-                    let origin = self.g.project_origin(
-                        witness.provenance.source_origin,
-                        file,
-                        &source_digest,
-                        self.cancel,
-                    )?;
-                    let rule = derivation_rule(edge.kind, &detail);
-                    let identity = json!([
-                        source_digest,
-                        text(witness.occurrence)?,
-                        self.g.key(edge.src),
-                        self.g.key(edge.dst),
-                        &rule,
-                        version,
-                        &range,
-                        origin.analysis_unit_id,
-                    ])
-                    .to_string();
-                    let mut row = json!({
-                        "from": self.g.key(edge.src), "to": self.g.key(edge.dst),
-                        "edge": edge.kind.as_str(), "detail": detail,
-                        "path": file,
-                        "line": (edge.line != NONE).then_some(edge.line), "confidence": edge.confidence.as_str(),
-                        "sourceDigest": source_digest,
-                        "sourceRange": range, "sourceOrigin": origin.value,
-                    });
-                    // Absent `test` is false; the page states the evidence.
-                    if edge.test {
-                        row["test"] = json!(true);
-                    }
-                    self.occurrence_id(&mut row, &identity);
-                    self.derivation(&mut row, rule, &version);
-                    argument_fields(self.g, witness.argument, &mut row, self.cancel)?;
-                    Ok(row)
-                })?;
+                keep(&|| self.witness_row(witness))?;
             }
         } else {
             let filter = self.filter(&[EdgeKind::Calls, EdgeKind::Passes]);
@@ -145,45 +104,7 @@ impl Query<'_> {
                 {
                     continue;
                 }
-                keep(&|| {
-                    let text = |id| self.g.text(id, self.cancel);
-                    let source_digest = text(site.provenance.source_digest)?;
-                    let file = self.g.key(self.g.t.nodes[site.src as usize].file);
-                    let version = text(site.provenance.derivation_version)?;
-                    let reason = text(site.reason)?;
-                    let callee = text(site.callee)?;
-                    let range = source_range(site.provenance)?;
-                    let origin = self.g.project_origin(
-                        site.provenance.source_origin,
-                        file,
-                        &source_digest,
-                        self.cancel,
-                    )?;
-                    let rule = derivation_rule(site.relation, &format!("unresolved:{reason}"));
-                    let identity = json!([
-                        source_digest,
-                        self.g.key(site.src),
-                        text(site.occurrence)?,
-                        callee,
-                        &rule,
-                        version,
-                        &range,
-                        origin.analysis_unit_id,
-                    ])
-                    .to_string();
-                    let mut row = json!({
-                        "from": self.g.key(site.src), "targetName": callee,
-                        "edge": site.relation.as_str(),
-                        "path": file,
-                        "line": site.line, "reason": reason,
-                        "sourceDigest": source_digest,
-                        "sourceRange": range, "sourceOrigin": origin.value,
-                    });
-                    self.occurrence_id(&mut row, &identity);
-                    self.derivation(&mut row, rule, &version);
-                    argument_fields(self.g, site.argument, &mut row, self.cancel)?;
-                    Ok(row)
-                })?;
+                keep(&|| self.unresolved_row(site))?;
             }
         }
         let mut extra = Map::new();
@@ -203,6 +124,114 @@ impl Query<'_> {
 }
 
 impl Query<'_> {
+    /// A witness row: the edge, its line, and its byte provenance when its
+    /// file shows it ([`Graph::shows_provenance`]).
+    fn witness_row(
+        &self,
+        witness: &super::super::format::WitnessRec,
+    ) -> Result<Value, GraphOutput> {
+        let edge = &witness.edge;
+        let text = |id| self.g.text(id, self.cancel);
+        let file_node = self.g.t.nodes[edge.src as usize].file;
+        let file = self.g.key(file_node);
+        let version = text(witness.provenance.derivation_version)?;
+        let detail = text(edge.detail)?;
+        let rule = derivation_rule(edge.kind, &detail);
+        let mut row = json!({
+            "from": self.g.key(edge.src), "to": self.g.key(edge.dst),
+            "edge": edge.kind.as_str(), "detail": detail,
+            "path": file,
+            "line": (edge.line != NONE).then_some(edge.line), "confidence": edge.confidence.as_str(),
+        });
+        let shown = Graph::shows_provenance(&self.g.t.nodes[file_node as usize]);
+        let identity = if shown {
+            let source_digest = text(witness.provenance.source_digest)?;
+            let range = source_range(witness.provenance)?;
+            let origin = self.g.project_origin(
+                witness.provenance.source_origin,
+                file,
+                &source_digest,
+                self.cancel,
+            )?;
+            let identity = json!([
+                source_digest,
+                text(witness.occurrence)?,
+                self.g.key(edge.src),
+                self.g.key(edge.dst),
+                &rule,
+                version,
+                &range,
+                origin.analysis_unit_id,
+            ])
+            .to_string();
+            row["sourceDigest"] = json!(source_digest);
+            row["sourceRange"] = range;
+            row["sourceOrigin"] = origin.value;
+            Some(identity)
+        } else {
+            None
+        };
+        // Absent `test` is false; the page states the evidence.
+        if edge.test {
+            row["test"] = json!(true);
+        }
+        if let Some(identity) = identity {
+            self.occurrence_id(&mut row, &identity);
+        }
+        self.derivation(&mut row, rule, &version);
+        argument_fields(self.g, witness.argument, &mut row, shown, self.cancel)?;
+        Ok(row)
+    }
+
+    /// An unresolved site's row, its provenance as [`Self::witness_row`]'s.
+    fn unresolved_row(
+        &self,
+        site: &super::super::format::UnresolvedRec,
+    ) -> Result<Value, GraphOutput> {
+        let text = |id| self.g.text(id, self.cancel);
+        let file_node = self.g.t.nodes[site.src as usize].file;
+        let file = self.g.key(file_node);
+        let version = text(site.provenance.derivation_version)?;
+        let reason = text(site.reason)?;
+        let callee = text(site.callee)?;
+        let rule = derivation_rule(site.relation, &format!("unresolved:{reason}"));
+        let mut row = json!({
+            "from": self.g.key(site.src), "targetName": callee,
+            "edge": site.relation.as_str(),
+            "path": file,
+            "line": site.line, "reason": reason,
+        });
+        let shown = Graph::shows_provenance(&self.g.t.nodes[file_node as usize]);
+        if shown {
+            let source_digest = text(site.provenance.source_digest)?;
+            let range = source_range(site.provenance)?;
+            let origin = self.g.project_origin(
+                site.provenance.source_origin,
+                file,
+                &source_digest,
+                self.cancel,
+            )?;
+            let identity = json!([
+                source_digest,
+                self.g.key(site.src),
+                text(site.occurrence)?,
+                callee,
+                &rule,
+                version,
+                &range,
+                origin.analysis_unit_id,
+            ])
+            .to_string();
+            row["sourceDigest"] = json!(source_digest);
+            row["sourceRange"] = range;
+            row["sourceOrigin"] = origin.value;
+            self.occurrence_id(&mut row, &identity);
+        }
+        self.derivation(&mut row, rule, &version);
+        argument_fields(self.g, site.argument, &mut row, shown, self.cancel)?;
+        Ok(row)
+    }
+
     /// The row's occurrence `id`, a digest of its provenance: only under
     /// `includeProvenance:true`, as the digest and spans it comes from.
     fn occurrence_id(&self, row: &mut Value, identity: &str) {
@@ -239,10 +268,15 @@ fn derivation_rule(edge: EdgeKind, detail: &str) -> String {
     }
 }
 
+/// The argument a row observes. `shown`: the row states its byte
+/// provenance ([`Graph::shows_provenance`]); otherwise the argument's spans,
+/// origins and recipient (whose occurrence id names the source's digest)
+/// are left out with the rest of it.
 fn argument_fields(
     graph: &Graph,
     reference: u32,
     row: &mut Value,
+    shown: bool,
     cancel: &dyn crate::execution::cancel::CancellationCheck,
 ) -> Result<(), GraphOutput> {
     use super::super::format::arguments::{ArgumentEvidence, Observation};
@@ -264,11 +298,13 @@ fn argument_fields(
             .project_origin(reference, &file, &digest, cancel)
             .map(|origin| origin.value)
     };
-    row["recipient"] = json!({
-        "occurrenceId":evidence.recipient,
-        "sourceRange":range(evidence.recipient_range.range)?,
-        "sourceOrigin":origin(evidence.recipient_range.origin)?,
-    });
+    if shown {
+        row["recipient"] = json!({
+            "occurrenceId":evidence.recipient,
+            "sourceRange":range(evidence.recipient_range.range)?,
+            "sourceOrigin":origin(evidence.recipient_range.origin)?,
+        });
+    }
     row["parseAssessment"] = json!(evidence.assessment);
     let mut argument = json!({"groupIndex":evidence.group});
     match evidence.observation {
@@ -286,11 +322,13 @@ fn argument_fields(
                 argument["label"] = json!(label);
             }
             row["targetName"] = json!(target);
-            row["selectionByteRange"] = json!(range(selection.range)?);
-            row["selectionOrigin"] = origin(selection.origin)?;
-            if let Some(blocker) = blocker {
-                row["bindingSourceRange"] = json!(range(blocker.range)?);
-                row["bindingOrigin"] = origin(blocker.origin)?;
+            if shown {
+                row["selectionByteRange"] = json!(range(selection.range)?);
+                row["selectionOrigin"] = origin(selection.origin)?;
+                if let Some(blocker) = blocker {
+                    row["bindingSourceRange"] = json!(range(blocker.range)?);
+                    row["bindingOrigin"] = origin(blocker.origin)?;
+                }
             }
         }
         Observation::UnsupportedSlot {

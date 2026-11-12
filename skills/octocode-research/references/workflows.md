@@ -43,3 +43,8 @@ flowchart LR
 | L | cross-package | graph dependents/cycles, root build, final search for old names |
 
 Report per [output](../output.md#response).
+
+## Prove, then act
+
+- When the graph suggests an unused export, inspect `lspSearch` callers and read the call sites. Before deletion also check runtime registration, tests, configuration and external consumers. Name any scope you could not verify.
+- For a [change or refactor](#change-impact), keep coverage floors and never edit a grader to hide a failure. Run checks at the changed boundary and exercise the rebuilt CLI or MCP after a tool or package change.

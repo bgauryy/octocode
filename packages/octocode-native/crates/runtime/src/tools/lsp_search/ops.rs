@@ -29,7 +29,9 @@ use crate::execution::cancel::CancellationCheck;
 use crate::policy::path::PathPolicy;
 use crate::tools::lsp_search::lsp_search_query;
 use octocode_engine::lsp::client::{LocationRequest, NativeLspClient, SnippetReadPolicy};
-use octocode_engine::lsp::config::{representative_source_for, workspace_root_languages};
+use octocode_engine::lsp::config::{
+    directory_languages, directory_representative, representative_source_for,
+};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 

@@ -20,6 +20,11 @@ pub(super) const RUST_INCLUDE_DATA: &str = "rust-include-data";
 pub(super) const RECOVERED_IMPORT: &str = "recovered-import";
 pub(super) const RECOVERED_NAMED_REEXPORT: &str = "recovered-named-reexport";
 pub(super) const RECOVERED_STAR_REEXPORT: &str = "recovered-star-reexport";
+/// A TypeScript value import whose binding the file uses only as a type
+/// (`typeUseOnly`): TypeScript's emit elides it unless the project keeps
+/// value imports (`verbatimModuleSyntax`, decorator metadata), which the
+/// graph does not read, so its load is not established.
+pub(super) const TYPE_USE_IMPORT: &str = "type-use-import";
 
 /// When the import an edge records takes effect.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -37,8 +42,9 @@ pub(super) enum Load {
     CompileTime,
     /// Module structure (a Rust `mod` declaration): not a dependency.
     ModuleTree,
-    /// Not established: a parser fallback read the edge, so it may load
-    /// eagerly or be erased.
+    /// Not established: a parser fallback read the edge, or a TypeScript
+    /// import is used only as a type and the project's emit settings decide
+    /// it, so it may load eagerly or be erased.
     Unknown,
     /// Never as code: the target is embedded as text or bytes. A build
     /// input (its dependents rebuild), but it adds no names and closes no
@@ -62,6 +68,7 @@ const KINDS: &[(&str, Load)] = &[
     (RECOVERED_IMPORT, Load::Unknown),
     (RECOVERED_NAMED_REEXPORT, Load::Unknown),
     (RECOVERED_STAR_REEXPORT, Load::Unknown),
+    (TYPE_USE_IMPORT, Load::Unknown),
     ("rust-use", Load::CompileTime),
     (RUST_PATH, Load::CompileTime),
     ("go-import", Load::CompileTime),
@@ -117,6 +124,7 @@ mod tests {
         assert_eq!(load(RUST_INCLUDE_DATA), Load::Data);
         assert_eq!(load(RUST_INCLUDE), Load::CompileTime);
         assert_eq!(load(RECOVERED_IMPORT), Load::Unknown);
+        assert_eq!(load(TYPE_USE_IMPORT), Load::Unknown);
         assert!(mounts(RUST_MODULE) && mounts(RUST_INCLUDE) && !mounts("rust-use"));
         assert_eq!(load("unparsed-target"), Load::CompileTime);
     }

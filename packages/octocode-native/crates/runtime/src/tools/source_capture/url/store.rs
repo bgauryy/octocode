@@ -135,6 +135,7 @@ impl<'a> Store<'a> {
             source: Some(
                 json!({ "url": url, "sourceDigest": snapshot, "path": file, "expiresAt": saved["expiresAt"] }),
             ),
+            pin: None,
         })
     }
 

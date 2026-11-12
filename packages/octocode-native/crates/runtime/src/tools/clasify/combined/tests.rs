@@ -1,6 +1,17 @@
 //! The combination rules of a sectioned source, one per question type.
 use super::*;
 
+/// The read a combined row attaches for its `answers` object.
+fn deciding_read(
+    source: &Value,
+    pin: Option<&str>,
+    answers: &Value,
+    can_resume: bool,
+) -> Option<Value> {
+    let lines = deciding_lines(answers.as_object()?.values());
+    lines_read(source, pin, &lines, can_resume)
+}
+
 fn section(start: u64, end: u64, cells: Vec<Value>) -> JudgedSection {
     JudgedSection {
         lines: json!({"startLine":start,"endLine":end}),
@@ -23,6 +34,23 @@ fn noul_is_the_highest_section_and_names_its_lines() {
         answer,
         json!({"noul":0.97,"lines":{"startLine":11,"endLine":20}})
     );
+}
+
+/// An absent fact answered low in every section: no section decided the
+/// no, so it names no lines and adds nothing to the read, as a whole-source
+/// answer names none.
+#[test]
+fn a_noul_no_names_no_lines_and_no_read() {
+    let sections = [
+        section(1, 428, vec![json!({"noul":0.02})]),
+        section(429, 853, vec![json!({"noul":0.01})]),
+        section(854, 900, vec![json!({"noul":0.49})]),
+    ];
+    let answer = combine(&json!({"type":"noul"}), &sections, 0).unwrap();
+    assert_eq!(answer, json!({"noul":0.49}));
+    let source = json!({"tool":"localFetch","query":{"path":"big.log"}});
+    let answers = json!({"payments":answer});
+    assert!(deciding_read(&source, None, &answers, true).is_none());
 }
 
 fn pick(label: &str, confidence: f64) -> Value {
@@ -90,7 +118,7 @@ fn all_abstaining_sections_answer_unknown_without_lines() {
     assert!(answer.get("lines").is_none());
     let source = json!({"tool":"localFetch","query":{"path":"big.rs"}});
     let answers = json!({"kind":answer});
-    assert!(deciding_read(&source, &json!({}), &answers, false).is_none());
+    assert!(deciding_read(&source, None, &answers, false).is_none());
 }
 
 #[test]
@@ -144,16 +172,16 @@ fn the_read_covers_the_deciding_lines_only() {
     let source = json!({"tool":"localFetch","query":{"path":"big.rs"}});
     let answers = json!({
         "yes":{"noul":0.9,"lines":{"startLine":11,"endLine":20}},
-        "no":{"noul":0.1,"lines":{"startLine":500,"endLine":600}},
+        "no":{"noul":0.1},
         "kind":{"choice":"types","lines":{"startLine":21,"endLine":30}},
     });
-    let read = deciding_read(&source, &json!({}), &answers, false).unwrap();
+    let read = deciding_read(&source, None, &answers, false).unwrap();
     assert_eq!(
         read["input"]["queries"][0]["ranges"],
         json!([{"startLine":11,"endLine":30}])
     );
-    let none = json!({"no":{"noul":0.1,"lines":{"startLine":1,"endLine":2}}});
-    assert!(deciding_read(&source, &json!({}), &none, false).is_none());
+    let none = json!({"no":{"noul":0.1}});
+    assert!(deciding_read(&source, None, &none, false).is_none());
     let page = json!({"url":"https://example.com/a"});
-    assert!(deciding_read(&page, &json!({}), &answers, false).is_none());
+    assert!(deciding_read(&page, None, &answers, false).is_none());
 }

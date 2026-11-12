@@ -67,35 +67,9 @@ pub(super) fn evaluate_row(
         }
         Target::Content(_) => {}
     }
-    let (state, captured) = match target {
-        // An empty literal is nothing to judge, as an empty source is.
-        Target::Content(state) if blank(state) => {
-            return rejected(
-                ClassificationError::new(
-                    ErrorCode::ClassificationContextEmpty,
-                    "content is empty; nothing was judged.",
-                    "Supply the text to judge.",
-                ),
-                None,
-            );
-        }
-        Target::Content(state) => (state.clone(), None),
-        Target::Source(source) => {
-            // Only local memory bounds a capture: the provider's own window
-            // decides what it judges, and its refusal says so.
-            let limit = dispatcher.text_capture_limit();
-            let mut captured =
-                match source_capture::capture(source, dispatcher, context, limit, can_resume) {
-                    Ok(captured) => captured,
-                    Err(error) => return rejected(error, None),
-                };
-            // The answer row reports the capture's read and provenance, never
-            // its state.
-            (
-                std::mem::take(&mut captured.state),
-                Some(Box::new(captured)),
-            )
-        }
+    let (state, mut captured) = match judged_state(target, dispatcher, context, can_resume) {
+        Ok(judged) => judged,
+        Err(error) => return rejected(error, None),
     };
     let assets = match row
         .assets
@@ -116,17 +90,37 @@ pub(super) fn evaluate_row(
         Ok(assets) => assets,
         Err(error) => return rejected(error, captured),
     };
-    let state = super::rows::contextual_state(&state, row.context.as_deref());
+    // A text judged whole says where its answers sit
+    // ([`super::locate`]); images point with their own boxes.
+    let located = assets
+        .is_none()
+        .then(|| {
+            super::locate::locate(
+                target,
+                &state,
+                &row.questions,
+                dispatcher.limits().auto_page_chars,
+            )
+        })
+        .flatten();
+    let questions = super::locate::questions(located.as_ref(), &row.questions);
+    let sent = super::rows::contextual_state(
+        located.as_ref().map_or(&state, |located| &located.state),
+        row.context.as_deref(),
+    );
     // One request's time starts when it runs, after the capture.
     let budget = evaluator.budget(
         crate::execution::cancel::deadline_of(context),
         context.cancellation.clone(),
     );
     let input = EvaluationInput {
-        state: &state,
-        questions: &row.questions,
+        state: &sent,
+        questions: &questions,
         assets: assets.as_ref().map(|assets| &assets.provider),
         long_context: LongContext::from_field(row.long_context),
+        companions: located
+            .as_ref()
+            .map_or(0, |located| located.companions.len()),
     };
     // A source the provider is known to refuse at this size is not uploaded
     // whole to be refused again: it goes straight to its sections. When they
@@ -151,6 +145,19 @@ pub(super) fn evaluate_row(
     // on the original image.
     if let (Ok(judged), Some(assets)) = (&mut judged, &assets) {
         assets.attach_source_boxes(&row.questions, &mut judged.answers);
+    }
+    if let (Ok(judged), Some(located)) = (&mut judged, &located) {
+        located.settle(&mut judged.answers, row.questions.len());
+        if let (Target::Source(source), Some(captured)) = (target, captured.as_deref_mut()) {
+            super::locate::narrow_read(
+                captured,
+                source,
+                &state,
+                &judged.answers,
+                can_resume,
+                dispatcher.limits().auto_page_chars,
+            );
+        }
     }
     // A text source over the provider's window is judged in sections and
     // answered once per question; when no section can answer, the refusal
@@ -180,6 +187,37 @@ pub(super) fn evaluate_row(
         captured,
         assets: assets.map(|assets| assets.provenance),
         identity,
+    }
+}
+
+/// The state `target` is judged by, and its capture when it names a source.
+fn judged_state(
+    target: &Target,
+    dispatcher: &dyn SourceReader,
+    context: &ExecutionContext,
+    can_resume: bool,
+) -> Result<(serde_json::Value, Option<Box<Captured>>), ClassificationError> {
+    match target {
+        // An empty literal is nothing to judge, as an empty source is.
+        Target::Content(state) if blank(state) => Err(ClassificationError::new(
+            ErrorCode::ClassificationContextEmpty,
+            "content is empty; nothing was judged.",
+            "Supply the text to judge.",
+        )),
+        Target::Content(state) => Ok((state.clone(), None)),
+        Target::Source(source) => {
+            // Only local memory bounds a capture: the provider's own window
+            // decides what it judges, and its refusal says so.
+            let limit = dispatcher.text_capture_limit();
+            let mut captured =
+                source_capture::capture(source, dispatcher, context, limit, can_resume)?;
+            // The answer row reports the capture's read and provenance, never
+            // its state.
+            Ok((
+                std::mem::take(&mut captured.state),
+                Some(Box::new(captured)),
+            ))
+        }
     }
 }
 

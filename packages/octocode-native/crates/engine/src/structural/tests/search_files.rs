@@ -21,6 +21,7 @@ fn search_files_finds_matches_and_prefilters_non_matching_files() {
         max_files: Some(10),
         skip_files: None,
         max_file_bytes: None,
+        judge: None,
     })
     .expect("search files");
 
@@ -58,6 +59,7 @@ fn search_files_flags_the_file_whose_recovered_syntax_could_hide_a_match() {
         max_files: Some(10),
         skip_files: None,
         max_file_bytes: None,
+        judge: None,
     })
     .expect("search files");
     let recovered: Vec<_> = result
@@ -95,6 +97,7 @@ fn search_files_errors_on_nonexistent_root_for_every_prefilter_branch() {
             max_files: Some(10),
             skip_files: None,
             max_file_bytes: None,
+            judge: None,
         });
         match result {
             Ok(ok) => panic!(
@@ -130,6 +133,7 @@ fn search_files_respects_excluded_directories_and_large_file_limit() {
         max_files: Some(10),
         skip_files: None,
         max_file_bytes: Some(14),
+        judge: None,
     })
     .expect("search files");
 
@@ -157,6 +161,7 @@ fn search_files_reports_non_utf8_and_oversized_sources_per_file() {
         max_files: Some(10),
         skip_files: None,
         max_file_bytes: Some(14),
+        judge: None,
     })
     .expect("search files");
 
@@ -215,6 +220,7 @@ fn search_files_accepts_single_file_root() {
         max_files: None,
         skip_files: None,
         max_file_bytes: None,
+        judge: None,
     })
     .expect("search file");
 
@@ -240,6 +246,7 @@ fn anchored_options(
         max_files: Some(10),
         skip_files: None,
         max_file_bytes,
+        judge: None,
     }
 }
 

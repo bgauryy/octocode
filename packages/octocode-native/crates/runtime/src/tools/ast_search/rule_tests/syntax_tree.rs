@@ -168,8 +168,11 @@ fn a_recovered_syntax_tree_is_partial_without_a_terminal_limit() {
     assert_eq!(out.get("diagnostics"), None, "{out}");
 }
 
+/// D1, D4 (bin16 retest): a tree's coordinates and byte ranges count the
+/// text a read shows, as every view's do: a node after a hidden value sits
+/// where the read shows it, and no range or length tells the value's.
 #[test]
-fn syntax_tree_redacted_looking_text_keeps_original_coordinates_without_exposing_text() {
+fn syntax_tree_coordinates_count_the_shown_text_without_exposing_text() {
     let root = Fixture::new();
     let token = format!("ghp_{}", "a".repeat(36));
     let function = "function after() { return 7; }";
@@ -197,15 +200,25 @@ fn syntax_tree_redacted_looking_text_keeps_original_coordinates_without_exposing
                 .is_some_and(|node| node.contains("function_declaration "))
         })
         .expect("function node");
-    let start = source.find(function).expect("source function");
+    let shown = security
+        .sanitize_text(&source, Some(&file))
+        .content
+        .into_owned();
+    assert!(shown.contains("[REDACTED-"), "{shown}");
+    let start = shown.find(function).expect("shown function");
+    assert_ne!(start, source.find(function).expect("source function"));
     assert_eq!(
         node["sourceRange"],
         json!({"startByte":start,"endByte":start+function.len()})
     );
     assert_eq!(
         out["nodes"][0]["sourceRange"],
-        json!({"startByte":0,"endByte":source.len()})
+        json!({"startByte":0,"endByte":shown.len()})
     );
+    // The node's columns are the read's too.
+    let column = start + 1;
+    let node_text = node["node"].as_str().expect("node row");
+    assert!(node_text.contains(&format!("1:{column}-")), "{node_text}");
     assert!(
         !out.to_string().contains(&token),
         "source text must not enter node rows"

@@ -148,6 +148,7 @@ pub(super) fn collect_import(
             resolution_hint: None,
             module_scope: None,
             scope_id: None,
+            type_use_only: false,
         });
     }
 }

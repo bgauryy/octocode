@@ -20,7 +20,7 @@ When workload, sizes or versions are unknown, state the assumption and what woul
 
 ## Review findings
 
-Order findings worst first. Give each its location (`path:line` or component), trigger, consequence, fix and the check that proves the fix, with its [hypothesis-test result](SKILL.md#steps). Separate proven defects from candidates that still need a check or a measurement.
+Order findings worst first. Give each its location (`path:line` or component), trigger, consequence, fix and the check that proves the fix, with its [hypothesis-test result](references/review-method.md#steps). Separate proven defects from candidates that still need a check or a measurement.
 
 ## Decision record
 
@@ -30,15 +30,11 @@ Consequential work only; include the material slots in any layout. Use Mermaid f
 - **Low-risk change.** Slice, impact, verify.
 - **Plan.** Slice; wiring (source -> transform -> boundary -> sink); scope; interface and invariants; contract and data flow; tests as Given–When–Then (given <state>, when <action>, then <result>) starting from the first failing case (absent, concurrent, replay); blast radius; rollout and revert; rejected options. For a risky plan, an optional premortem: assume it failed and list the reasons independently.
 - **Review, objection versus concern.** One major objection (blocks; states the consequence) or none, then non-blocking concerns, verification and a verdict (block or approve).
-- **Material replan or unresolved verification.** After Action Review: intended, happened, why different or still unknown, next check; follow [workflow recovery](../octocode-workflows/references/verification.md#diagnose-and-replan-from-evidence).
+- **Material replan or unresolved verification.** After Action Review: intended, happened, why different or still unknown, next check. A selected `octocode-workflows` procedure, when installed, supplies recovery detail.
 - **Architecture findings.** Model; finding (boundary -> mechanism -> impact -> proof) with its hypothesis-test result and confidence; alternatives; refactor (seam, slices, preserved contract, rollback); hot path (workload, baseline, attributed cost).
 - **Deep review.** Critical paths and reviewed concerns, healthy invariants to preserve, proven defects and candidates, AST/LSP coverage limits, runtime evidence, measured efficiency and memory where relevant, and justified keep, delete or unify decisions. Do not assign health or efficiency from source shape alone.
 
-When a workflow is selected, keep working state in its [coverage ledger](../octocode-workflows/references/verification.md#keep-one-compact-coverage-ledger). Final results summarize the verified scope, failed or unverified checks and remaining work; keep process identities and handoff bookkeeping in linked scratch evidence.
-
-## Saved result
-
-Keep approved edits in the source tree. Save notes at `<workspace>/.octocode/octocode-engineer/<YYYY-MM-DD>-<slug>.md` and scratch files in `<workspace>/.octocode/octocode-engineer/tmp/` (`<workspace>`: the repository root, else the current directory; never inside an existing `.octocode/`). A path the user or a parent names wins; a scratch folder does not (link from there).
+Keep one coverage ledger for consequential work: surface or scenario, evidence, check and result, remaining gap. Use the selected workflow’s ledger when one exists. Final results summarize the verified scope, failed or unverified checks and remaining work; keep process identities and handoff bookkeeping in linked scratch evidence.
 
 ## Presentation choices
 
@@ -55,6 +51,8 @@ Use the [shared format guide](references/report-output.md#choose-the-format); lo
 ## Saved report
 
 Save a result with a table, a diagram, 40+ lines or 5+ findings, or when the user or `AGENTS.md` asks; otherwise answer in chat.
+
+Keep approved edits in the source tree. Save the report at `<workspace>/.octocode/octocode-engineer/<YYYY-MM-DD>-<slug>.md` and scratch files in `<workspace>/.octocode/octocode-engineer/tmp/` (`<workspace>`: the repository root, else the current directory; never inside an existing `.octocode/`). A path the user or a parent names wins; a scratch folder does not (link from there).
 
 Use the [shared header](references/report-output.md#report-header). Accepted `status` values: `Proposed`, `Accepted`, `Needs work`.
 

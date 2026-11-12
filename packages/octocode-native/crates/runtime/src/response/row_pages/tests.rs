@@ -10,6 +10,7 @@ mod part_metadata;
 mod recursive_symbols;
 mod required_text;
 mod scope;
+mod section_walks;
 mod selection;
 mod source_inputs;
 

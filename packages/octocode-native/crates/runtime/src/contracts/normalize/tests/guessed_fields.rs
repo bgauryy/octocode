@@ -266,3 +266,65 @@ fn a_pattern_that_reads_as_a_regex_is_refused_naming_both_fields() {
     assert_eq!(input["queries"][0]["matchString"], json!(["export|import"]));
     assert_eq!(notes.len(), 1, "{notes:?}");
 }
+
+/// A `{tool, query}` field sent as the query alone (`source:{path}`) runs as
+/// the one tool whose query form takes exactly those fields, wherever the
+/// field sits (`source`, `resources.<key>`, `assets.<key>.source`), and the
+/// call names the form to send. A value fitting no tool, or sending a field
+/// of the union itself, is left for validation to refuse.
+#[test]
+fn a_tool_query_sent_alone_runs_as_its_one_tool_and_is_named() {
+    let questions = json!({"q":{"type":"noul","instructions":"Is it ok?"}});
+    let local = json!({"tool":"localFetch","query":{"path":"x.ts"}});
+    for (sent, at, read) in [
+        (
+            json!({"operation":"evaluate","source":{"path":"x.ts"},"questions":questions}),
+            "/queries/0/source",
+            local.clone(),
+        ),
+        (
+            json!({"operation":"evaluate","source":{"path":"x.ts","ranges":[{"startLine":1,"endLine":2}]},
+                "questions":questions}),
+            "/queries/0/source",
+            json!({"tool":"localFetch","query":{"path":"x.ts","ranges":[{"startLine":1,"endLine":2}]}}),
+        ),
+        (
+            json!({"operation":"evaluate","source":{"owner":"o","repo":"r","path":"x.ts"},
+                "questions":questions}),
+            "/queries/0/source",
+            json!({"tool":"ghGetFileContent","query":{"owner":"o","repo":"r","path":"x.ts"}}),
+        ),
+        (
+            json!({"operation":"sections","resources":{"a":{"path":"x.ts"}},"questions":questions}),
+            "/queries/0/resources/a",
+            local.clone(),
+        ),
+        (
+            json!({"operation":"evaluate","content":"Screenshot a.","questions":questions,
+                "assets":{"a":{"source":{"path":"a.png"}}}}),
+            "/queries/0/assets/a/source",
+            json!({"tool":"localFetch","query":{"path":"a.png"}}),
+        ),
+    ] {
+        let (input, notes) = normalized_input("clasify", json!({"queries":[sent.clone()]}));
+        assert_eq!(input.pointer(at), Some(&read), "{sent}");
+        assert_eq!(notes.len(), 1, "{sent}: {notes:?}");
+        assert!(
+            notes[0].contains("send that next time") && notes[0].contains("tool:"),
+            "{notes:?}"
+        );
+        accepted("clasify", json!({"queries":[sent]}));
+    }
+    for source in [
+        json!({"path":"x.ts","bogus":1}),
+        json!({"ranges":[{"startLine":1,"endLine":2}]}),
+        json!({"tool":"localFetch","path":"x.ts"}),
+        json!({"url":"https://example.com","path":"x.ts"}),
+        json!({}),
+    ] {
+        let sent = json!({"operation":"evaluate","source":source,"questions":questions});
+        let (input, notes) = normalized_input("clasify", json!({"queries":[sent.clone()]}));
+        assert_eq!(input["queries"][0]["source"], source, "{sent}");
+        assert!(notes.is_empty(), "{sent}: {notes:?}");
+    }
+}

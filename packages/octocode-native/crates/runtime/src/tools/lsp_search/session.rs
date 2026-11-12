@@ -25,14 +25,14 @@ pub(super) fn discover_server(
         ));
     }
     let discovered = if root_only {
-        default_server_for_workspace_root(&workspace, &discovery)
+        default_server_for_directory(&path, &workspace, &discovery)
     } else {
         default_server_for_file(&path, &workspace, &discovery)
     };
     let Some(mut config) = discovered else {
         let message = if root_only {
             format!(
-                "No language server could be inferred for this workspace root (none of {}).",
+                "No language server could be inferred for this directory: it holds no source file of a supported language, and neither it nor the workspace root has a project marker (none of {}).",
                 octocode_engine::lsp::config::workspace_root_marker_names()
                     .collect::<Vec<_>>()
                     .join(", ")
@@ -385,7 +385,7 @@ pub(super) fn start_failure(
 
 mod sync;
 mod waits;
-pub(in crate::tools::lsp_search) use sync::{root_representative, sync_document};
+pub(in crate::tools::lsp_search) use sync::sync_document;
 pub(in crate::tools::lsp_search) use waits::{
-    disclose_pool_overflow, disclose_waits, record_waits,
+    disclose_pool_overflow, disclose_waits, record_waits, session_failed,
 };

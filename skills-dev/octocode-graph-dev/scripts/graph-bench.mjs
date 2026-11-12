@@ -2,8 +2,9 @@
 // Graph language battery: per pinned grammar repository, the agent workflow
 // graphBuild → graphQuery stats → find → callers → impact → issues → cycles → unresolved, plus
 // a file-level recall/precision check of `callers` against ripgrep call sites (lib/oracle.mjs).
-import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawn } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isMainModule } from './lib/entrypoint.mjs';
@@ -72,10 +73,10 @@ function freshOut() {
   return join(dir, 'bench.json');
 }
 
-function run(cmd, args, cwd) {
+function run(cmd, args, cwd, env) {
   return new Promise((done) => {
     const started = Date.now();
-    const child = spawn(cmd, args, { cwd });
+    const child = spawn(cmd, args, { cwd, env });
     let out = '';
     let err = '';
     child.stdout.on('data', (d) => (out += d));
@@ -100,11 +101,11 @@ const leafName = (id) => id?.split('#')[1]?.split('.').pop()?.replace(/@\d+$/, '
 
 // One CLI client per run: the generated tool commands (`octocode graphQuery --json '<envelope>'`), a query helper
 // pinned to one snapshot and scope, and a pager that follows every continuation the tool returns.
-function client(opts, cwd) {
+function client(opts, cwd, env) {
   const failures = [];
   const octo = (tool, input) => {
     const args = [tool, '--json', JSON.stringify(input)];
-    return opts.bin.endsWith('.js') ? run('node', [opts.bin, ...args], cwd) : run(opts.bin, args, cwd);
+    return opts.bin.endsWith('.js') ? run('node', [opts.bin, ...args], cwd, env) : run(opts.bin, args, cwd, env);
   };
   const call = async (tool, input) => {
     const res = await octo(tool, input);
@@ -113,8 +114,11 @@ function client(opts, cwd) {
     if (failure) failures.push({ tool, input, ...failure });
     return { res, j };
   };
-  const withGraph = (path, id) => {
+  // `root` is the build's shown root: the tool states each row `path` from the workspace
+  // (`src/a.c` for a build of `src`); the oracle reads files from the scan root (`a.c`).
+  const withGraph = (path, id, root) => {
     const q = (fields) => call('graphQuery', { queries: [{ ...fields, path, graph: id }], responseChars: RESPONSE_CHARS });
+    const fromRoot = (row) => (typeof row?.path === 'string' ? { ...row, path: rootRelative(root, row.path) } : row);
     // Every page of a list: the serialized-response page first, then the row's next.nextPage, until neither remains.
     const pages = async (fields) => {
       const rows = [];
@@ -124,7 +128,7 @@ function client(opts, cwd) {
         calls++;
         ms += page.res.ms;
         bytes += page.res.out.length;
-        rows.push(...(page.j.rows ?? []));
+        rows.push(...(page.j.rows ?? []).map(fromRoot));
         const next = page.j.responsePagination?.next?.input ?? page.j.next?.nextPage?.input;
         if (!next || callFailure(page.res, page.j)) break;
         page = await call('graphQuery', next);
@@ -136,6 +140,9 @@ function client(opts, cwd) {
   return { call, withGraph, failures };
 }
 
+// A workspace-relative `path` the tool states, read from the scan root `root` ('.' or `src`).
+export const rootRelative = (root, path) => (root && root !== '.' && path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path);
+
 function ingestRow(ing, r) {
   return {
     ms: ing.ms,
@@ -144,12 +151,19 @@ function ingestRow(ing, r) {
     files: r.counts?.nodesByKind?.file,
     symbols: r.counts?.nodesByKind?.symbol,
     edges: r.counts?.edges,
-    callSites: r.calls?.sites,
-    callLinkRate: r.calls?.sites ? +(r.linkage.linked / r.calls.sites).toFixed(3) : null,
-    unresolvedByReason: r.calls?.unresolvedByReason,
     diagnostics: r.diagnostics,
     scan: r.scan,
     linkage: r.linkage,
+  };
+}
+
+// Call-site totals and the unresolved breakdown, which only `stats` `view:"details"` states.
+export function callCounts(stats) {
+  const calls = stats.calls ?? {};
+  return {
+    callSites: calls.sites,
+    callLinkRate: calls.sites && stats.linkage ? +(stats.linkage.linked / calls.sites).toFixed(3) : null,
+    unresolvedByReason: calls.unresolvedByReason,
   };
 }
 
@@ -234,21 +248,54 @@ export async function incrementalRow(call, root, snapshotId) {
   return { ms: res.ms, exit: res.code, error: j.error ?? j.parseError, reused: j.id === snapshotId };
 }
 
+// A CLI read starts a warm `octocode serve` behind a socket in its temp dir, which outlives the
+// call until its idle exit. Each row gets a private temp dir; when the row ends, the servers whose
+// socket lies there are this row's, and are stopped by PID.
+function stopServersIn(dir) {
+  // The system `ps`, not one on the caller's PATH (a test may hide tools there).
+  let listing;
+  try {
+    listing = execFileSync('/bin/ps', ['-Ao', 'pid=,command='], { encoding: 'utf8' });
+  } catch (error) {
+    console.error(`warm servers under ${dir} not stopped: ${error.message}`);
+    return;
+  }
+  for (const line of listing.split('\n')) {
+    const [, pid, command] = line.match(/^\s*(\d+)\s+(.*)$/) ?? [];
+    if (pid && / serve --socket /.test(command) && command.includes(`${dir}/`)) {
+      try {
+        process.kill(Number(pid));
+      } catch {}
+    }
+  }
+}
+
 async function bench(c, opts) {
+  const temp = mkdtempSync(join(tmpdir(), 'graph-bench-'));
+  try {
+    return await benchRow(c, opts, { ...process.env, TMPDIR: temp });
+  } finally {
+    stopServersIn(temp);
+    rmSync(temp, { recursive: true, force: true });
+  }
+}
+
+async function benchRow(c, opts, env) {
   const cwd = join(opts.repos, c.repo);
   const root = join(cwd, c.dir);
   const row = { lang: c.lang, repo: c.repo, dir: c.dir, probe: c.probe };
   if (!existsSync(root)) return { ...row, ingest: { error: `missing clone ${root}` } };
-  const { call, withGraph, failures } = client(opts, cwd);
+  const { call, withGraph, failures } = client(opts, cwd, env);
   row.failures = failures;
   const { res: ing, j: r } = await call('graphBuild', { queries: [{ path: root, refresh: true }] });
   row.ingest = ingestRow(ing, r);
   if (row.ingest.error || !r.id) return row;
   row.incremental = await incrementalRow(call, root, r.id);
-  const { q, pages } = withGraph(root, r.id);
-  const stats = await q({ operation: 'stats' });
+  const { q, pages } = withGraph(root, r.id, r.root);
+  const stats = await q({ operation: 'stats', view: 'details' });
   row.stats = { ms: stats.res.ms, bytes: stats.res.out.length, exit: stats.res.code, keys: Object.keys(stats.j) };
   row.statsBody = stats.j;
+  Object.assign(row.ingest, callCounts(stats.j));
   const find = await pages({ operation: 'find', target: c.probe, kind: 'symbol', limit: 1000, includeProvenance: true });
   row.find = { ms: find.ms, total: find.total, first: find.rows.slice(0, 5).map((x) => x.id ?? x) };
   const defs = find.rows.filter((x) => leafName(x.id) === c.probe);

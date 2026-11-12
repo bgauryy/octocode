@@ -22,6 +22,7 @@ shared	providers/artifact/release_ref/listing.rs	{}: tag {} is taken as its rele
 shared	providers/artifact/release_ref/listing.rs	{}: tags {tags} each name version {version} at different commits, so none is taken as its release tag.
 shared	providers/artifact/types.rs	Version not found: check the registry and manifest/lockfile version; discover published versions before choosing another version.
 shared	providers/artifact/types.rs	{}: {what} could not be checked on GitHub ({}), so what it shows is unknown, not confirmed.
+shared	providers/artifact/versions.rs	Only {} published version(s) to suggest; the lead reads every one.
 shared	providers/classification/transport.rs	Check OCTOCODE_CLASSIFICATION_API_HOST.
 shared	providers/classification/transport.rs	Remove paths, credentials, query strings, and fragments from the configured API root.
 shared	providers/classification/transport.rs	Replace the configured key.
@@ -56,7 +57,7 @@ shared	response/rows/recovery.rs	Correct the missing configuration named in the 
 shared	response/rows/recovery.rs	Inspect octocode config --json and correct the setting named in the error before retrying.
 shared	response/rows/recovery.rs	Inspect the git error, repository access and revision; retry only after correcting the cause.
 shared	response/rows/recovery.rs	Inspect the graphQuery schema and correct the rejected operation or fields; do not retry the same query unchanged.
-shared	response/rows/recovery.rs	Inspect the policy refusal and use an authorized source; do not work around denied access.
+shared	response/rows/recovery.rs	The refusal follows the user's configuration: use an authorized source, and leave any opt-in it names to the user.
 shared	response/rows/recovery.rs	Inspect the requested scope, filters and coverage; no matches in this scope do not establish repository-wide absence.
 shared	response/rows/recovery.rs	Inspect the scan failure and access to its scope. Retry only after fixing the cause; report unscanned paths as a coverage gap.
 shared	response/rows/recovery.rs	Inspect the source acquisition error and use an emitted source read. Unavailable or unjudged evidence is not irrelevant.
@@ -104,6 +105,8 @@ shared	tools/ast_graph/store/detect/reach.rs	exports of {files} production file(
 shared	tools/ast_graph/store/detect/reach.rs	{language}: {}
 shared	tools/ast_graph/store/ingest.rs	extraction committed so far is kept; build this scope again to resume from it
 shared	tools/ast_graph/store/query/references.rs	No node in this snapshot has that key or name: run the find lead, or rebuild with graphBuild when the file is newer than the snapshot.
+shared	tools/ast_graph/store/query/traverse.rs	confidence {} lists {listed} candidate nodes; confirm them with lspSearch
+shared	tools/ast_graph/store/query/traverse.rs	kind {} excludes all {reached} nodes this walk reaches; omit kind to list them
 shared	tools/ast_graph/store/tools.rs	A file changed while the graph was being built, so no snapshot was published. This is not a tool failure: run the same graphBuild again once the edits settle.
 shared	tools/ast_graph/store/tools.rs	Repeat the query with graph {successor}, or omit graph for the newest snapshot of this path. Offsets and pages of {id} do not carry over to a rebuilt snapshot.
 shared	tools/ast_graph/store/tools.rs	Snapshots of this path exist under {others}, the default home of the workspace that built them (<workspace>/.octocode/graph; the workspace follows where Octocode runs). Run Octocode from the directory holding that .octocode, or build here.
@@ -173,15 +176,12 @@ ghCloneRepo	tools/gh_clone_repo/pin.rs	Verify the branch, tag, or SHA (ghStructu
 ghCloneRepo	tools/gh_clone_repo/process.rs	Resolve the reported Git process or resource failure before retrying.
 ghGetFileContent	tools/gh_get_file_content/errors.rs	The tree lists this path, but its read answered not found.
 ghGetFileContent	tools/gh_get_file_content/errors.rs	The tree lists this path, but its read under the repository's old name answered not found.
-ghGetFileContent	tools/gh_get_file_content/timestamp.rs	modifiedAt is absent: the last-change read failed ({})
+ghGetHistoryItem	tools/gh_get_history_item/pr_finish.rs	The patch lead reads {include} of {total} changed files, most-changed source first; without include it reads every patch.
 ghSearchCode	tools/gh_search_code.rs	Check the owner spelling: a user or organization login.
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	 `{branch}`
-ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	 with `path:"{}"`
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	Code search indexes only the default branch{branch}; `{reference}` was not searched.
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	No indexed match across the owner is unproven absence: the index may not cover every repository; list them with the related[] ghSearchRepo request, then search or read one.
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	Repository is archived, and GitHub's code search does not index archived repositories: list its files with the related[] ghStructure request.
-ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	`path:"{}"` is a directory scope: to search one file there, set `nameContains` to its name and `path` to its parent.
-ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	`path` is a directory prefix and `{}` looks like a file: search it by `nameContains:"{}"`{under}, or read it with matchString.
 ghSearchCode	tools/gh_search_code/code_output/index_ref.rs	 at {}
 ghSearchCode	tools/gh_search_code/code_output/index_ref.rs	; `matches` read at {reference}
 ghSearchCode	tools/gh_search_code/code_output/index_ref.rs	Files from the default-branch index{index}, not {reference}{lines}.
@@ -285,15 +285,15 @@ lspSearch	tools/lsp_search/importers/coverage.rs	{count} nested repositories
 lspSearch	tools/lsp_search/inferred_project/compile_database.rs	Generate compile_commands.json for clangd (CMake: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON), or use astSearch/localSearch.
 lspSearch	tools/lsp_search/level.rs	No {name} server answered: {hint}.
 lspSearch	tools/lsp_search/ops/diagnostics.rs	Proc-macros and build scripts are off by default (they run repository code), so rust-analyzer reports unexpanded macros; pass rustContext {buildScripts:true, procMacros:true} to expand them once lsp.allowBuildScripts is on (home .octocoderc, or OCTOCODE_LSP_ALLOW_BUILD_SCRIPTS=true in the process environment or the home .env); until then such a query is refused.
-lspSearch	tools/lsp_search/ops/lookups.rs	workspaceRoot-only search found no {searched} source file to load a project; pass path for a file in the symbol's project.
-lspSearch	tools/lsp_search/ops/lookups.rs	workspaceRoot-only search used the {searched} server; this root also holds {} unsearched projects.
-lspSearch	tools/lsp_search/ops/lookups.rs	workspaceRoot-only search: the {searched} server searched the project of {}; for another project, pass path there.
+lspSearch	tools/lsp_search/ops/lookups.rs	Directory search found no {searched} source file to load a project; pass path for a file in the symbol's project.
+lspSearch	tools/lsp_search/ops/lookups.rs	This directory search used the {searched} server; its {} sources were not searched (related).
+lspSearch	tools/lsp_search/ops/lookups.rs	Directory search: the {searched} server searched the project of {}; for another project, pass path there.
 lspSearch	tools/lsp_search/ops/references.rs	{withheld} reference(s) outside the allowed read roots were omitted; add the path to ALLOWED_PATHS to read them.
 lspSearch	tools/lsp_search/output.rs	Configure the server's project (clangd: compile_commands.json, compile_flags.txt or .clangd); the next call reloads it.
 lspSearch	tools/lsp_search/output.rs	Provide path for a representative workspace source file so Octocode can select its language server.
 lspSearch	tools/lsp_search/output.rs	Retry once if retryable (it restarts); after a memory kill use the related[] text search (unverified), or astSearch + localFetch.
 lspSearch	tools/lsp_search/output.rs	Retry once if retryable; else confirm in source: locate with astSearch/localSearch, then localFetch it.
-lspSearch	tools/lsp_search/output.rs	Retry once: the first call initialises the language server (~60 s cold start); else astSearch/localSearch + localFetch.
+lspSearch	tools/lsp_search/output.rs	Retry once if the error says the server was still working; if it was idle, a retry asks it again: use astSearch/localSearch + localFetch.
 lspSearch	tools/lsp_search/output.rs	This server cannot prove type hierarchy; inspect declarations with astSearch and confirm exact source.
 lspSearch	tools/lsp_search/output.rs	Use astSearch symbols/match or localSearch for candidates, then localFetch exact source.
 lspSearch	tools/lsp_search/output.rs	Use the advertised LSP operations, or fall back to astSearch/localSearch and exact source reads.
@@ -302,7 +302,6 @@ lspSearch	tools/lsp_search/responses.rs	The language server was still loading th
 lspSearch	tools/lsp_search/server_coverage.rs	Files that import the name are missing from the answer: the server did not resolve their import here.
 lspSearch	tools/lsp_search/server_coverage.rs	No .git or workspace file says where this project ends, so only the server's root was searched
 lspSearch	tools/lsp_search/server_coverage.rs	workspace/symbol has no completeness marker: declarations the server did not index or return are unknown, and no page of this list completes it; confirm with a localSearch of the name.
-lspSearch	tools/lsp_search/server_coverage.rs	{base}; no project beside it was found. If the repository holds more, widen workspaceRoot to the folder that holds it.
 lspSearch	tools/lsp_search/server_coverage.rs	{base}; projects beside it may use this name: {names}. Widen (not narrow) workspaceRoot to {} to search them, or search them with the related text search.
 lspSearch	tools/lsp_search/server_coverage.rs	{base}; the projects beside it were not looked for, as the request stopped first. Widen workspaceRoot to the folder that holds the repository to include them.
 lspSearch	tools/lsp_search/session/waits.rs	The language server pool holds about {} MiB, over its {} MiB budget, because servers busy with requests are never stopped; the pool stops them once they are idle.
@@ -353,7 +352,6 @@ shared	tools/source_capture/page.rs	Check the ranges and the path.
 shared	tools/source_capture/page.rs	Run the same read directly to inspect it.
 shared	tools/source_capture/resource.rs	Check the source ranges or omit them to select the complete text.
 shared	tools/source_capture/resource.rs	Enable the reader before assessing this source.
-shared	tools/source_capture/resource.rs	Start a fresh sections request to assess the changed source.
 shared	tools/source_capture/resource.rs	Start a fresh sections request.
 shared	tools/source_capture/resource.rs	Use a text representation with known encoding.
 shared	tools/source_capture/resource.rs	Use an authorized text reader.

@@ -249,6 +249,11 @@ pub(super) fn read(id: ToolId, input: &mut Value) -> Vec<String> {
             notes.extend(read_range(row).map(|note| format!("queries[{index}]: {note}")));
             notes.extend(read_pairs(row).map(|note| format!("queries[{index}]: {note}")));
         }
+        notes.extend(
+            read_tool_queries(id, row)
+                .into_iter()
+                .map(|note| format!("queries[{index}]: {note}")),
+        );
         for guess in GUESSES
             .iter()
             .filter(|guess| guess.within.is_empty() && guess.tools.contains(&id))
@@ -284,6 +289,155 @@ pub(super) fn read(id: ToolId, input: &mut Value) -> Vec<String> {
         }
     }
     notes
+}
+
+/// Each `{tool, query}` field of the row sent as its query alone
+/// (`source:{path}`), read as `{tool, query}` of the one tool whose closed
+/// query form takes it: every sent field declared, none it requires missing.
+/// A form naming several tools (a search query, checked against the named
+/// tool's own schema) names no one tool, and a value sending a field of the
+/// union itself (`tool`, `query`, `url`) has chosen its form: both are left
+/// for validation. One note per field read.
+fn read_tool_queries(id: ToolId, row: &mut Map<String, Value>) -> Vec<String> {
+    let Ok(tool) = super::super::tool_contract(id) else {
+        return Vec::new();
+    };
+    let schema = &tool["querySchema"];
+    let mut notes = Vec::new();
+    wrap_tool_queries(row, &[schema], &schema["$defs"], "", &mut notes);
+    notes
+}
+
+/// [`read_tool_queries`] over the fields of `object`, whose schemas are
+/// `schemas`, and the objects and lists nested in them.
+fn wrap_tool_queries(
+    object: &mut Map<String, Value>,
+    schemas: &[&Value],
+    defs: &Value,
+    at: &str,
+    notes: &mut Vec<String>,
+) {
+    use super::super::schema_facts::{child_schemas, item_schemas};
+    for (key, value) in object.iter_mut() {
+        let children = schemas
+            .iter()
+            .flat_map(|schema| child_schemas(schema, defs, key))
+            .collect::<Vec<_>>();
+        if children.is_empty() {
+            continue;
+        }
+        let label = if at.is_empty() {
+            key.clone()
+        } else {
+            format!("{at}.{key}")
+        };
+        if let Some(note) = wrap_tool_query(value, &children, defs, &label) {
+            notes.push(note);
+            continue;
+        }
+        match value {
+            Value::Object(inner) => wrap_tool_queries(inner, &children, defs, &label, notes),
+            Value::Array(items) => {
+                let item_schemas = children
+                    .iter()
+                    .flat_map(|schema| item_schemas(schema, defs))
+                    .collect::<Vec<_>>();
+                if item_schemas.is_empty() {
+                    continue;
+                }
+                for (index, item) in items.iter_mut().enumerate() {
+                    let label = format!("{label}[{index}]");
+                    if let Some(note) = wrap_tool_query(item, &item_schemas, defs, &label) {
+                        notes.push(note);
+                    } else if let Value::Object(inner) = item {
+                        wrap_tool_queries(inner, &item_schemas, defs, &label, notes);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// `value` as `{tool, query}` when its fields are the query of exactly one
+/// tool among the forms of `schemas`; the note that says so.
+fn wrap_tool_query(
+    value: &mut Value,
+    schemas: &[&Value],
+    defs: &Value,
+    label: &str,
+) -> Option<String> {
+    let sent = value.as_object().filter(|object| !object.is_empty())?;
+    let mut forms = Vec::new();
+    for schema in schemas {
+        object_forms(schema, defs, &mut forms);
+    }
+    let mut tools: Vec<&str> = Vec::new();
+    for form in forms {
+        let Some(properties) = form.get("properties").and_then(Value::as_object) else {
+            continue;
+        };
+        if sent.keys().any(|name| properties.contains_key(name)) {
+            return None;
+        }
+        let (Some(tool), Some(query)) = (properties.get("tool"), properties.get("query")) else {
+            continue;
+        };
+        let Some(tool) = single_name(super::super::schema_facts::resolve_ref(tool, defs)) else {
+            continue;
+        };
+        let query = super::super::schema_facts::resolve_ref(query, defs);
+        let declared = query.get("properties").and_then(Value::as_object);
+        let takes = query.get("additionalProperties") == Some(&Value::Bool(false))
+            && sent
+                .keys()
+                .all(|name| declared.is_some_and(|declared| declared.contains_key(name)))
+            && query
+                .get("required")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .all(|name| sent.contains_key(name));
+        if takes && !tools.contains(&tool) {
+            tools.push(tool);
+        }
+    }
+    let [tool] = tools.as_slice() else {
+        return None;
+    };
+    let fields = sent.keys().cloned().collect::<Vec<_>>().join(",");
+    let query = value.take();
+    *value = json!({"tool": tool, "query": query});
+    Some(format!(
+        "read `{label}:{{{fields}}}` as `{label}:{{tool:\"{tool}\",query:{{{fields}}}}}`; send that next time."
+    ))
+}
+
+/// The object forms `schema` stands for, through references and unions.
+fn object_forms<'a>(schema: &'a Value, defs: &'a Value, forms: &mut Vec<&'a Value>) {
+    let schema = super::super::schema_facts::resolve_ref(schema, defs);
+    let nested = ["anyOf", "oneOf"]
+        .iter()
+        .find_map(|keyword| schema.get(*keyword).and_then(Value::as_array));
+    match nested {
+        Some(branches) => {
+            for branch in branches {
+                object_forms(branch, defs, forms);
+            }
+        }
+        None => forms.push(schema),
+    }
+}
+
+/// The one string a `const`, or a one-value `enum`, pins a field to.
+fn single_name(schema: &Value) -> Option<&str> {
+    schema.get("const").and_then(Value::as_str).or_else(|| {
+        match schema.get("enum").and_then(Value::as_array)?.as_slice() {
+            [only] => only.as_str(),
+            _ => None,
+        }
+    })
 }
 
 /// `startLine` with `endLine` beside a reader's path: the one range they

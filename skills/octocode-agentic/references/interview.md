@@ -36,9 +36,9 @@ flowchart LR
 - Runner: one literal command line in the brief. Shells such as zsh do not word-split a command stored in a variable. Use distinct exit codes for ok, rejected input and other errors, and mark any truncation the runner applies.
 - Targets: a quiet tree or fixed fixtures. Concurrent edits to the searched files stale snapshots and read as false findings.
 - One group per interviewee, by job (local text, structure and identity, remote reads, history, classification), plus one cross-cutting group for the instructions.
-- 6–9 executable scenarios per group against real targets, including edge cases: missing path, empty result, paged or partial result, a field from another mode, an unavailable feature, injected text, a question that needs the user.
+- Executable scenarios per group against real targets, enough to cover these edge cases (typically 6–9): missing path, empty result, paged or partial result, a field from another mode, an unavailable feature, injected text, a question that needs the user.
 - Each round, replace about a third of the scenarios so fixes do not overfit.
-- Keep each round's pack, answers and `graded.json` under `<workspace>/.octocode/octocode-agentic/tmp/<run>/round-<n>/`; the saved report links them.
+- Keep each round's pack, answers and `graded.json` in its [round folder](../output.md#saved-result); the saved report links them.
 
 ## Interviewee brief
 
@@ -78,7 +78,7 @@ Cold-call line:
 
 ## Grade
 
-- Replay every cold call yourself: `node <skill-folder>/scripts/interview-grade.mjs <round-dir> --cmd '<runner {tool} {input}>' --reject <regex>`. The runner must accept both substituted arguments. The grader skips steps whose `input` contains a `<…>` placeholder; exclude intended-error scenarios. Resolve malformed lines and ensure at least one gradable call before reporting valid-cold rate and rejection count per group.
+- Replay every cold call yourself with [interview-grade.mjs](../scripts/interview-grade.mjs) (`--help` lists options and outcomes): `node <skill-folder>/scripts/interview-grade.mjs <round-dir> --cmd '<runner {tool} {input}>' --reject <regex> --empty <regex>`. The runner, run by `sh`, must accept both substituted arguments. For the local Octocode CLI, from the checkout root: `--cmd 'node packages/octocode/out/octocode.js {tool} {input}' --reject 'errorCode: invalidInput' --empty '# status: empty'`. The grader skips steps whose `input` holds a string value that is wholly a `<…>` placeholder (`"<path>"`, not `"Vec<u8>"`); exclude intended-error scenarios with `--exclude`. Calls run to completion unless you pass `--timeout`. Resolve malformed lines and ensure at least one gradable call before reporting valid-cold rate and rejection count per group; `graded.json` keeps every failing call's full output. Run [its tests](../scripts/interview-grade.test.mjs) with `node --test` after changing the grader.
 - Phase B prediction misses are findings: the agent's model of the output was wrong.
 - Self-rated confidence is a tiebreaker only; it moves less than behavior does.
 - Before calling a missing lead or field a regression, compare with schema defaults applied: surfaces that omit default-valued fields make exact-match graders and agent predictions fail on correct output.

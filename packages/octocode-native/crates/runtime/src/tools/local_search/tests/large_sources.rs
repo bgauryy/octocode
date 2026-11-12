@@ -137,3 +137,84 @@ fn a_row_of_a_source_past_the_whole_file_ceiling_is_the_reads_line() {
         }
     }
 }
+
+/// A source past the whole-file ceiling is searched as its streamed read
+/// serves it: a regex walk over a key body or a credential-named value finds
+/// nothing in any view, and ordinary text and the read's placeholders count
+/// as the read's own `matchString` counts them. All key material is fake.
+#[test]
+fn a_source_past_the_ceiling_matches_what_its_read_serves() {
+    let root = tempfile::tempdir().expect("fixture");
+    let path = root.path().join("big.txt");
+    let filler = "ordinary filler words line\n".repeat(LIMITS.whole_source / 20);
+    let body = "aMD5auQx7Tq2Lw9Pz4Vb8Nc3Kd6Hf1Jg5Rs0Ym2Xe7Wu4Ai9Oo3Pl8Ki1Uj6Yh5Tg";
+    let text = format!(
+        "{filler}-----BEGIN RSA PRIVATE KEY-----\n{body}\n{body}\n-----END RSA PRIVATE KEY-----\nhello world\ndb_password = \"Hx8vQ2mLp9Zr4Tn7Wk3Bd\"  # hello\n{filler}"
+    );
+    assert!(text.len() > LIMITS.whole_source, "past the ceiling");
+    fs::write(&path, &text).expect("fixture");
+    let (policy, _) = policy_for(root.path());
+    let security = ContentSecurity::with_limits(LIMITS);
+    let count = |fields: serde_json::Value| {
+        let mut fields = fields;
+        fields["path"] = path.to_string_lossy().into_owned().into();
+        let found = search_in(&ls_query(fields.clone(), None), &policy, &security, None)
+            .expect("search")
+            .to_row()
+            .expect("row");
+        let files = found["files"].as_array().map_or(0, Vec::len);
+        let count = found["matchCount"]
+            .as_u64()
+            .or_else(|| found["matchedLineCount"].as_u64())
+            .unwrap_or(0);
+        assert_eq!(files > 0, count > 0, "{fields}: {found}");
+        assert!(!found.to_string().contains("x7Tq2Lw9"), "{fields}: {found}");
+        count
+    };
+    let read = |pattern: &str| {
+        let query: octocode_contract_types::LocalFetchQuery = serde_json::from_value(
+            serde_json::json!({"path": path, "matchString": [pattern], "regexEngine": "rust"}),
+        )
+        .expect("localFetch row");
+        crate::tools::local_fetch::execute_local_fetch(
+            &query,
+            &policy,
+            &security,
+            &NeverCancel,
+            None,
+            None,
+        )
+        .selected_match_count
+        .unwrap_or(0) as u64
+    };
+    let views = [
+        "content",
+        "matchOnly",
+        "files",
+        "countLines",
+        "countMatches",
+    ];
+    for pattern in [
+        "^aMD5au[A-M]",
+        "^aMD5au[N-Z]",
+        "Hx8v[A-M]",
+        "Hx8v[N-Z]",
+        "x7Tq2Lw9",
+    ] {
+        assert_eq!(read(pattern), 0, "{pattern}: the read's own scan");
+        for view in views {
+            let fields =
+                serde_json::json!({"matchString":[pattern],"regexEngine":"rust","view":view});
+            assert_eq!(count(fields), 0, "{pattern} {view}");
+        }
+    }
+    for pattern in ["hello", "\\[REDACTED-"] {
+        let expected = read(pattern);
+        assert!(expected > 0, "{pattern}");
+        for view in ["content", "countLines", "countMatches"] {
+            let fields =
+                serde_json::json!({"matchString":[pattern],"regexEngine":"rust","view":view});
+            assert_eq!(count(fields), expected, "{pattern} {view}");
+        }
+    }
+}

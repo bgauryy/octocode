@@ -114,6 +114,7 @@ impl FileLink<'_, '_> {
             kind: c.kind,
             receiver_type: c.receiver_type,
             term_binding: c.term_binding,
+            bound_declaration: c.bound_declaration,
             self_template: c.self_template,
             macros: c.macros,
             receiver_call: c.receiver_call,

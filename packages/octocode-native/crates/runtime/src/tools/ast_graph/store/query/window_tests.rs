@@ -65,7 +65,7 @@ fn find_windows_keep_rank_unicode_kind_and_exact_totals() {
             .iter()
             .map(|r| r["match"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        ["exact", "exact", "words", "words", "words", "contains"]
+        ["exact", "exact", "prefix", "prefix", "words", "contains"]
     );
     let mut union = Vec::new();
     for start in (0..8).step_by(2) {
@@ -152,9 +152,27 @@ fn hub_windows_preserve_degree_order_and_key_ties() {
         weakest: Confidence::High,
         tests: false,
     };
-    let incoming = hubs(&g, &filter, None, Direction::In, 0..100, &NeverCancel).unwrap();
+    let incoming = hubs(
+        &g,
+        &filter,
+        None,
+        Direction::In,
+        RankBy::Degree,
+        0..100,
+        &NeverCancel,
+    )
+    .unwrap();
     assert_eq!(ids(&incoming), ["file-00.ts", "file-01.ts"]);
-    let full = hubs(&g, &filter, None, Direction::Out, 0..100, &NeverCancel).unwrap();
+    let full = hubs(
+        &g,
+        &filter,
+        None,
+        Direction::Out,
+        RankBy::Degree,
+        0..100,
+        &NeverCancel,
+    )
+    .unwrap();
     assert_eq!(full.total, 11);
     assert_eq!(full.rows[0]["id"], "file-02.ts");
     assert_eq!(full.rows[10]["id"], "file-01.ts");
@@ -165,6 +183,7 @@ fn hub_windows_preserve_degree_order_and_key_ties() {
             &filter,
             None,
             Direction::Out,
+            RankBy::Degree,
             start..start + 2,
             &NeverCancel,
         )
@@ -181,6 +200,7 @@ fn hub_windows_preserve_degree_order_and_key_ties() {
         &filter,
         Some(NodeKind::File),
         Direction::In,
+        RankBy::Degree,
         0..5,
         &NeverCancel,
     )
@@ -387,10 +407,18 @@ fn scans_cancel_inside_nonmatching_and_ranked_populations() {
         tests: false,
     };
     assert_eq!(
-        hubs(&g, &filter, None, Direction::In, 0..1, &cancel())
-            .err()
-            .unwrap()
-            .value["errorCode"],
+        hubs(
+            &g,
+            &filter,
+            None,
+            Direction::In,
+            RankBy::Degree,
+            0..1,
+            &cancel()
+        )
+        .err()
+        .unwrap()
+        .value["errorCode"],
         "cancelled"
     );
     let options = QueryOptions {

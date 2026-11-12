@@ -127,8 +127,7 @@ pub(super) fn walk_exactly_once(
         // A selection's byte page names source bytes (its offset and its gap
         // markers alike): one line's shift from the view's.
         let shift = page.placed.map_or(0, |(source, _)| source - page.offset);
-        for (at, piece) in crate::tools::source_view::pagination::placed_pieces(at + shift, &text)
-        {
+        for (at, piece) in crate::tools::source_view::pagination::placed_pieces(at + shift, &text) {
             let at = at - shift;
             assert_eq!(
                 view.get(at..at + piece.len()),
@@ -143,8 +142,17 @@ pub(super) fn walk_exactly_once(
             );
             placed.push((at, piece.len()));
         }
+        // The wire states the walk: `hasMore` exactly when a next call
+        // exists.
+        let wire = serde_json::to_value(&read).expect("row");
         let next = read.next.and_then(|next| next.continue_window);
         assert_eq!(page.has_more, next.is_some(), "hasMore has its call");
+        assert_eq!(
+            wire["pagination"]["hasMore"],
+            serde_json::json!(next.is_some()),
+            "the wire's hasMore has its call: {}",
+            wire["pagination"]
+        );
         pages.push((at, text));
         assert!(pages.len() < 2_000, "the walk ends");
         let Some(next) = next else { break };

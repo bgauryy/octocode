@@ -85,18 +85,6 @@ impl GitHubTransport {
             .await
     }
 
-    /// [`Self::execute_graphql`] for a query bound to a commit: its answer
-    /// cannot change, so a kept one answers it.
-    pub(crate) async fn execute_pinned_graphql(
-        &self,
-        query: &str,
-        variables: Value,
-        context: &RequestContext,
-    ) -> Result<GraphQlPage, ProviderError> {
-        let spec = self.graphql_spec(query, variables)?.pinned_to_commit();
-        self.graphql(spec, context).await
-    }
-
     /// [`Self::execute_graphql`] for a read of one pull request: a kept answer
     /// stands for as long as GitHub says that pull request's REST read stands,
     /// disclosed by when it was observed.

@@ -25,6 +25,7 @@ mod across;
 mod admission;
 mod combined;
 mod evaluate;
+mod locate;
 mod recovery;
 mod reply;
 mod rows;

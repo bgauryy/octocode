@@ -218,3 +218,30 @@ fn ordinary_text_with_a_tokens_punctuation_stays() {
         }
     }
 }
+
+/// D7 (bin16 retest): one kind per value. A token a pattern knows by its
+/// shape keeps that pattern's placeholder under a credential's name, after an
+/// auth scheme or in any layout, as the same token read alone does (an LSP
+/// hover, a search row): the most specific detector wins in every view.
+#[test]
+fn a_shaped_token_keeps_its_own_kind_under_any_name() {
+    let token = format!("ghp_{}", body(36));
+    let alone = detect(&token, None).sanitized;
+    assert_eq!(alone, "[REDACTED-GITHUBTOKENS]");
+    for (content, path) in [
+        (format!("const KEY: &str = \"{token}\";\n"), Some("src/lib.rs")),
+        (format!("export const apiKey = \"{token}\";\n"), Some("src/a.ts")),
+        (format!("GITHUB_TOKEN={token}\n"), Some(".env")),
+        (format!("token: {token}\n"), Some("config.yml")),
+        (format!("password={token} build42\n"), Some("notes.txt")),
+        (format!("Authorization: Bearer {token}\n"), None),
+    ] {
+        let shown = detect(&content, path).sanitized;
+        assert!(!shown.contains(&token), "{path:?}: {shown:?}");
+        assert!(shown.contains(&alone), "{path:?}: {shown:?}");
+        assert_eq!(shown.matches("[REDACTED-").count(), 1, "{path:?}: {shown:?}");
+    }
+    // A value no shape names keeps the kind of the rule that found it.
+    let shown = detect("password = \"Qm7Hx2LpT9vRk4Wn8sZcYb\"\n", Some("src/a.py")).sanitized;
+    assert!(!shown.contains("GITHUBTOKENS"), "{shown:?}");
+}

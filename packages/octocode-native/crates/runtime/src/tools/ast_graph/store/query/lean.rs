@@ -1,6 +1,7 @@
-//! A row's default view: file, line and what the edge says. Byte spans, digests
-//! and occurrence identities of source that is plainly the file's own text
-//! return with `includeProvenance:true`. A row with an origin that is not plain
+//! A row's default view: file, line and what the edge says; a site row also
+//! keeps its `sourceRange`. Other byte spans, digests and occurrence
+//! identities of source that is plainly the file's own text return with
+//! `includeProvenance:true`. A row with an origin that is not plain
 //! text keeps all of its provenance, and a parse that was not clean stays,
 //! because they qualify the row.
 use serde_json::{Map, Value};
@@ -43,8 +44,14 @@ fn plain_origins(row: &Map<String, Value>) -> bool {
 
 fn project_row(row: &mut Map<String, Value>) {
     if plain_origins(row) {
+        // A site row (a witness or an unresolved site, no node `id`) keeps its
+        // observed span: one line can hold several sites, and `line` alone
+        // would make them identical rows. A null span places nothing.
+        let site = !row.contains_key("id") && row.get("sourceRange").is_some_and(Value::is_object);
         for (span, origin) in SPANS {
-            row.remove(span);
+            if !(site && span == "sourceRange") {
+                row.remove(span);
+            }
             row.remove(origin);
         }
         row.remove("sourceDigest");

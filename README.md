@@ -86,7 +86,7 @@ Local tools enforce workspace and path rules and redact recognized secrets from 
 
 ## Skills
 
-Install a guided workflow for an agent that supports skills. For example, `npx -y octocode skill install octocode-research --platform codex --project-dir .` installs the research skill for this project. Other skills cover pull request review, architecture, documentation and graph exploration. [Skill catalog](skills/README.md)
+Install a guided workflow for an agent that supports skills. For example, `npx -y octocode skill install octocode-research --platform codex --project-dir .` installs the research skill for this project. Other skills cover pull request review, test plans, architecture, documentation and graph exploration. [Skill catalog](skills/README.md)
 
 ## Benchmarks
 

@@ -1,6 +1,7 @@
 //! One merged page across the `extensions` searches, with repeats from earlier pages dropped.
 use super::listed::{Listed, Seen};
-use super::{GhSearchCodeQuery, GhSearchCodeQueryMatchInItem, per_search, query};
+use super::query::{self, PathAs};
+use super::{GhSearchCodeQuery, GhSearchCodeQueryMatchInItem, per_search};
 use crate::tools::gh_shared::SearchWindow;
 use octocode_github::{CodeSearchRequest, GitHubProvider, ProviderError, RequestContext};
 
@@ -67,9 +68,29 @@ pub(super) fn merged_pages(pages: &[usize]) -> usize {
     1 + later.div_ceil(pages.len().max(1))
 }
 
+/// Merged page `current` of the search. A `path` names a folder or a file,
+/// and GitHub's `path:` matches only a folder: a search that finds nothing
+/// under it as a folder runs once more as the file it names
+/// ([`PathAs::File`]).
 pub(super) async fn search_page(
     provider: &GitHubProvider,
     query: &GhSearchCodeQuery,
+    current: usize,
+    per: usize,
+    context: &RequestContext,
+) -> Result<SearchPage, ProviderError> {
+    let folder = search_as(provider, query, PathAs::Folder, current, per, context).await?;
+    if query.path.is_none() || folder.total > 0 || folder.fetched > 0 {
+        return Ok(folder);
+    }
+    search_as(provider, query, PathAs::File, current, per, context).await
+}
+
+/// [`search_page`] with `path` read as `path_as`.
+async fn search_as(
+    provider: &GitHubProvider,
+    query: &GhSearchCodeQuery,
+    path_as: PathAs,
     current: usize,
     per: usize,
     context: &RequestContext,
@@ -98,7 +119,7 @@ pub(super) async fn search_page(
     let searches = scopes
         .into_iter()
         .map(|extension| CodeSearchRequest {
-            query: query::code(query, extension),
+            query: query::code(query, extension, path_as),
             page: 1,
             per_page: per_search,
             include_fragments: query
@@ -136,8 +157,9 @@ pub(super) async fn search_page(
         refuse(provider, &requests, 0, context)?;
     }
     for (&(search, _), request) in units.iter().zip(&requests) {
-        let data = provider.transport.search_code(request, context).await?;
+        let mut data = provider.transport.search_code(request, context).await?;
         totals[search] = data.total_count;
+        data.items.retain(|item| path_as.keeps(query, &item.path));
         page.add(data);
     }
     for &count in &totals {

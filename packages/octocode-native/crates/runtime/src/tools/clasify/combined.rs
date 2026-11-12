@@ -4,7 +4,8 @@
 //! the lines of its deciding section. The rule per question type:
 //!
 //! - `noul`: the highest section (a fact stated anywhere in the source holds
-//!   for the source);
+//!   for the source); a no below 0.5 names no lines, since no section
+//!   decided it;
 //! - `score`: the highest level, for the same reason;
 //! - `choice`: the label of the most confident section that did not abstain.
 //!   A section abstains when it chose `unknown`, the label the question
@@ -24,7 +25,7 @@ use crate::tools::source_capture::{self, SourceReader};
 use serde_json::{Map, Value, json};
 
 /// A `noul` answer at or above this is a yes: its section is worth reading.
-const YES: f64 = 0.5;
+pub(super) const YES: f64 = 0.5;
 
 /// A combined row: its output, and its typed answers in question order.
 pub(super) struct Combined {
@@ -66,7 +67,13 @@ pub(super) fn judge(
     if let Some(model) = whole.model {
         output["model"] = json!(model);
     }
-    if let Some(read) = deciding_read(source, &whole.metadata, &output["answers"], can_resume) {
+    let lines = deciding_lines(
+        output["answers"]
+            .as_object()
+            .into_iter()
+            .flat_map(Map::values),
+    );
+    if let Some(read) = lines_read(source, whole.pin.as_deref(), &lines, can_resume) {
         crate::response::result::attach_calls(&mut output, json!({"read":read}));
     }
     if let Some(call) = recovery::sections_call(row, source, can_resume) {
@@ -103,9 +110,16 @@ fn combine(question: &Value, sections: &[JudgedSection], index: usize) -> Option
     let answers = answered(sections, index);
     let kind = question["type"].as_str()?;
     let combined = match kind {
+        // A no decides nothing: its highest section is only the strongest
+        // weak one, so it names no lines, as a whole-window no names none
+        // ([`super::locate`]).
         "noul" => {
             let (lines, answer) = highest(&answers, "noul")?;
-            json!({"noul":answer["noul"],"lines":lines})
+            let mut combined = json!({"noul":answer["noul"]});
+            if answer["noul"].as_f64().is_some_and(|noul| noul >= YES) {
+                combined["lines"] = lines.clone();
+            }
+            combined
         }
         "score" => {
             let (lines, answer) = highest(&answers, "score")?;
@@ -131,7 +145,7 @@ fn combine(question: &Value, sections: &[JudgedSection], index: usize) -> Option
 /// Whether a choice of `label` abstains: `unknown` is the label a choice
 /// question offers for evidence the text does not hold (the request schema
 /// tells the agent to add it), so a section that chose it has no answer.
-fn abstains(label: &str) -> bool {
+pub(super) fn abstains(label: &str) -> bool {
     label.eq_ignore_ascii_case("unknown")
 }
 
@@ -214,23 +228,11 @@ fn coverage(sections: &[JudgedSection]) -> Value {
     coverage
 }
 
-/// One read of the deciding sections' lines (adjacent ones merged): every
-/// answer's section except a `noul` no, whose highest section decides
-/// nothing. A URL capture has no line read.
-fn deciding_read(
-    source: &Value,
-    metadata: &Value,
-    answers: &Value,
-    can_resume: bool,
-) -> Option<Value> {
-    let tool = source["tool"]
-        .as_str()
-        .and_then(ToolId::from_name)
-        .filter(|tool| matches!(tool, ToolId::LocalFetch | ToolId::GhGetFileContent))?;
+/// The deciding lines of `answers`, adjacent spans merged: every answer that
+/// names lines (a `noul` no and an all-`unknown` choice name none).
+pub(super) fn deciding_lines<'a>(answers: impl IntoIterator<Item = &'a Value>) -> Vec<(u64, u64)> {
     let mut lines: Vec<(u64, u64)> = answers
-        .as_object()?
-        .values()
-        .filter(|answer| answer["noul"].as_f64().is_none_or(|noul| noul >= YES))
+        .into_iter()
         .filter_map(|answer| {
             let lines = &answer["lines"];
             Some((lines["startLine"].as_u64()?, lines["endLine"].as_u64()?))
@@ -244,15 +246,29 @@ fn deciding_read(
             _ => merged.push((start, end)),
         }
     }
-    if merged.is_empty() {
+    merged
+}
+
+/// One read of `lines` of `source`, pinned to `pin`, the snapshot or commit
+/// the source was judged at. No lines, or a URL capture, has no line read.
+pub(super) fn lines_read(
+    source: &Value,
+    pin: Option<&str>,
+    lines: &[(u64, u64)],
+    can_resume: bool,
+) -> Option<Value> {
+    let tool = source["tool"]
+        .as_str()
+        .and_then(ToolId::from_name)
+        .filter(|tool| matches!(tool, ToolId::LocalFetch | ToolId::GhGetFileContent))?;
+    if lines.is_empty() {
         return None;
     }
     let mut query = source["query"].clone();
-    query["ranges"] = merged
-        .into_iter()
+    query["ranges"] = lines
+        .iter()
         .map(|(start, end)| json!({"startLine":start,"endLine":end}))
         .collect();
-    let pin = metadata["sourceDigest"].as_str();
     Some(if can_resume {
         source_capture::read_lead(tool, &query, pin)
     } else {

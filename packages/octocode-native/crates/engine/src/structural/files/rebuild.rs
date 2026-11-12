@@ -44,7 +44,7 @@ pub fn file_matches(
     pattern: Option<&str>,
     rule: Option<&serde_json::Value>,
     source_sha256: &str,
-    max_file_bytes: u64,
+    (max_file_bytes, judge): (u64, Option<&crate::structural::TextJudge>),
     stop: &crate::search::walk::Stop<'_>,
 ) -> Result<Rebuilt> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -67,6 +67,8 @@ pub fn file_matches(
             Err(crate::text::analysis::SourceError::Refused(_)) => return Ok(Rebuilt::Changed),
             Err(error) => return Err(Error::from(error)),
         };
+        // Matched as the scan matched it.
+        let (content, shown) = super::file_scan::judged(content, judge, path);
         let mut result = crate::structural::evaluate_source(
             content.text(),
             &path.to_string_lossy(),
@@ -79,6 +81,9 @@ pub fn file_matches(
             if let Err(error) = binder.bind_match(matched) {
                 return Err(Error::from(error));
             }
+        }
+        if let Some(shown) = &shown {
+            crate::structural::restore_texts(&mut result.matches, content.text(), shown);
         }
         Ok(Rebuilt::of(result))
     }))

@@ -51,3 +51,32 @@ fn a_file_the_database_does_not_list_is_opened_and_answered() {
     assert_ne!(row["isPartial"], true, "{row}");
     assert!(row["coverage"].get("importerScan").is_none(), "{row}");
 }
+
+/// clangd with no compile database parses a header opened alone as another
+/// language, so the header's declaration is another identity: no references
+/// answer lists it, and its own definition is itself. The declaration the
+/// anchor's unit resolves names it, so the references list the header's
+/// declaration beside the definition, both as declarations.
+#[test]
+fn a_header_declaration_is_listed_without_a_database() {
+    let row = row_of(
+        "references",
+        &[(NO_DATABASE, "-xc\n"), ("header-alone", "")],
+    );
+    let header = row["files"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|group| {
+            group["path"]
+                .as_str()
+                .is_some_and(|path| path.ends_with("lib.h"))
+        })
+        .unwrap_or_else(|| panic!("the header's declaration is listed: {row}"));
+    assert_eq!(header["matches"][0]["role"], "declaration", "{row}");
+    assert_eq!(
+        row["partialReasons"],
+        serde_json::json!(["noCompileDatabase"]),
+        "{row}"
+    );
+}

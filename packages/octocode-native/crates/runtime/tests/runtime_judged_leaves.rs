@@ -565,15 +565,17 @@ fn bound_fixtures() -> Vec<BoundFixture> {
             vec![KEY],
             vec!["API_KEY=\"${API_KEY:-"],
         ),
-        // Prose that states a password, a value of two words, code a text
-        // file quotes.
+        // Prose that states a password, a value and the word after it, code
+        // a text file quotes.
         (
             "r12.txt",
             "my password was Pl4net-Orb1t9\nthe password is: hunter2-Sup3rS3cret\nthen password = hunter2-Sup3rS3cret\nthe password is: s3cretPassw0rd\nthe password is required\nSIGNING_KEY=x-9f8.6d0.818 84c.7d6.59a\nAUTH_TOKEN=q7.x2.k9 m4.p8.z1\ntoken: T | null\n  token: this.token,\n  password: undefined,\n  apiKey: null,\n"
                 .to_owned(),
             "assword",
-            vec!["Pl4net-Orb1t9", "hunter2-Sup3rS3cret", "s3cretPassw0rd", "x-9f8.6d0.818", "84c.7d6.59a"],
+            vec!["Pl4net-Orb1t9", "hunter2-Sup3rS3cret", "s3cretPassw0rd", "x-9f8.6d0.818"],
             vec![
+                // D3 (bin16 retest): an unquoted value ends at its blank.
+                "] 84c.7d6.59a",
                 "my password was ",
                 "the password is required",
                 "AUTH_TOKEN=q7.x2.k9 m4.p8.z1",

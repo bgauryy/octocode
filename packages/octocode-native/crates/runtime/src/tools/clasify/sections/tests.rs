@@ -30,6 +30,7 @@ pub(super) fn session() -> Session {
             units: vec![Unit {
                 metadata: json!({"id":"s0","kind":"text","target":{"bytes":[0,4],"lines":[1,1]},"context":[]}),
                 state: json!({"target":{"text":"text"}}),
+                source_target: [0, 4],
                 chars: 26,
                 cells: vec![Some(answered_cell(json!({"type":"noul","noul":0.9}))), None],
                 emitted: false,
@@ -38,6 +39,7 @@ pub(super) fn session() -> Session {
         github_identity: None,
         batches: Vec::new(),
         active: Vec::new(),
+        request: Value::Null,
     }
 }
 

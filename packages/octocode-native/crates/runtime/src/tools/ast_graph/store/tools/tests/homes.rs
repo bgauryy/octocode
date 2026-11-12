@@ -127,3 +127,35 @@ fn a_path_outside_the_workspace_names_a_route() {
         "{text}"
     );
 }
+
+/// A directory outside both the workspace and the allowed roots needs read
+/// access and a graph home: the first refusal names both, so following it
+/// once makes the call succeed.
+#[test]
+fn a_path_outside_the_allowed_roots_names_every_setting_a_build_needs() {
+    let dir = Fixture::new();
+    dir.write("app/a.ts", "export const a = 1;\n");
+    let elsewhere = Fixture::new();
+    elsewhere.write("lib/b.ts", "export const b = 1;\n");
+    let paths = policy(&dir.0.join("app"), &dir.0.join("app"));
+    let row = crate::contracts::validate_built_query(
+        ToolId::GraphBuild.as_str(),
+        json!({"path": elsewhere.0.join("lib").to_string_lossy()}),
+    )
+    .expect("input contract");
+    let query: GraphBuildQuery = serde_json::from_value(row).expect("typed query");
+    let refused = execute_build(
+        &query,
+        &paths,
+        &ContentSecurity::new(),
+        &context(),
+        None,
+        &Store::default(),
+    )
+    .expect("execute");
+    let text = refused.data.to_string();
+    assert!(
+        text.contains("OCTOCODE_GRAPH_HOME") && text.contains("ALLOWED_PATHS"),
+        "{text}"
+    );
+}

@@ -6,7 +6,7 @@ use crate::lsp::config::catalog::resolve_route;
 use crate::lsp::config::invocation::rustup::{RustupView, with_view};
 use crate::lsp::config::route::kept_route;
 use crate::lsp::config::{
-    LspDiscoveryOptions, default_server_for_file, default_server_for_workspace_root,
+    LspDiscoveryOptions, default_server_for_directory, default_server_for_file,
 };
 use crate::lsp::module_path::install_anchor;
 use crate::stamp::settle_written_so_far;
@@ -269,10 +269,8 @@ fn a_new_marker_changes_a_root_route() {
     let machine = machine();
     let root_route = || {
         with_view(machine.view.clone(), || {
-            default_server_for_workspace_root(
-                &machine.workspace.to_string_lossy(),
-                &machine.options,
-            )
+            let workspace = machine.workspace.to_string_lossy();
+            default_server_for_directory(&workspace, &workspace, &machine.options)
         })
         .and_then(|config| config.language_id)
     };

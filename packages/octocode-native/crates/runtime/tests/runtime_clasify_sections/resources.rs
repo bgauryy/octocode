@@ -362,3 +362,86 @@ async fn next_quiet_of_a_github_plan_checks_the_github_identity_first() {
     assert_eq!(provider_calls(&provider).await, calls, "nothing is billed");
     runtime.close().await;
 }
+
+/// A local resource is named by the text a read shows of it: its row states
+/// no digest, length or byte of the file's own text, so nothing shown tests a
+/// guess of the value a read hides. Two files that differ only in that value
+/// show the same digest and bytes; the plan's own pin still sees the change,
+/// so a saved cursor over it is stale, and an edit a read shows changes the
+/// digest.
+#[tokio::test]
+async fn a_local_resource_states_no_digest_or_byte_of_a_hidden_value() {
+    // Fabricated tokens of two lengths: secret-shaped, never real.
+    let short = "ghp_Fake0123456789abcdefFAKE0123456789ab";
+    let long = "ghp_Fake0123456789abcdefFAKE0123456789abFAKE0123456789xyz";
+    let file = |token: &str, mode: &str| {
+        format!("# settings\nGITHUB_TOKEN={token}\nmode = {mode}\nrestart = never\n")
+    };
+    let raw = |text: &str| octocode_engine::digest::sha256(text.as_bytes());
+    let provider = provider().await;
+    let workspace = Workspace::new();
+    workspace.write("notes.txt", file(short, "fast"));
+    let runtime = clasify_runtime(&workspace, &provider, &[]);
+    let row = |view: &str| {
+        json!({"operation":"sections","view":view,
+            "resources":{"file":{"tool":"localFetch","query":{"path":"notes.txt"}}},
+            "questions":{"q":{"type":"noul","instructions":"Does this section say to restart?"}}})
+    };
+    let run = |label: &'static str, input: Value| {
+        let runtime = &runtime;
+        async move {
+            runtime
+                .run(label.into(), "clasify".into(), input)
+                .await
+                .expect("clasify")
+                .structured_content
+                .into_value()
+        }
+    };
+    let shown = |out: &Value| {
+        let resource = &out["results"][0]["data"]["resources"]["file"];
+        assert_eq!(resource["status"], "ready", "{out:#}");
+        let bytes = resource["sections"]
+            .as_array()
+            .expect("sections")
+            .iter()
+            .map(|section| section["target"]["bytes"].clone())
+            .collect::<Vec<_>>();
+        assert!(bytes.iter().all(Value::is_array), "{out:#}");
+        (resource["sourceDigest"].clone(), bytes)
+    };
+    let first = run("first", json!({"queries":[row("details")]})).await;
+    let text = first.to_string();
+    assert!(!text.contains(short), "{text}");
+    assert!(
+        !text.contains(&raw(&file(short, "fast"))),
+        "no digest of the file's bytes: {text}"
+    );
+    let (digest, bytes) = shown(&first);
+    assert_eq!(digest.as_str().map(str::len), Some(64), "{first:#}");
+    // The summary view offers a saved replay pinned to the judged file.
+    let summary = run("summary", json!({"queries":[row("summary")]})).await;
+    let replay = summary["results"][0]["data"]["next"]["details"]["input"].clone();
+    crate::support::assert_cursor_only(&replay);
+
+    // Only the hidden value changes, to one of another length.
+    workspace.write("notes.txt", file(long, "fast"));
+    let other = run("other", json!({"queries":[row("details")]})).await;
+    assert!(!other.to_string().contains(long), "{other:#}");
+    assert!(!other.to_string().contains(&raw(&file(long, "fast"))), "{other:#}");
+    assert_eq!(
+        shown(&other),
+        (digest.clone(), bytes),
+        "the shown text is the same, so is all it states"
+    );
+    let stale = run("stale", replay).await;
+    assert_eq!(
+        stale["results"][0]["data"]["errorCode"], "staleSnapshot",
+        "the pin sees what the shown digest does not: {stale:#}"
+    );
+
+    // An edit a read shows changes the digest.
+    workspace.write("notes.txt", file(long, "slow"));
+    let edited = run("edited", json!({"queries":[row("details")]})).await;
+    assert_ne!(shown(&edited).0, digest, "{edited:#}");
+}

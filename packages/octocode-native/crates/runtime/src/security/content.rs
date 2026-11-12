@@ -92,6 +92,41 @@ pub(crate) fn private_key_blocks_hidden(
     }
 }
 
+/// [`private_key_blocks_hidden`] for a leaf, a piece of a text (a match, a
+/// hover, a window): every line of a block its END closes is hidden as a
+/// read hides it, one placeholder per line; in a block the piece never
+/// closes, only a line shaped as key text is, so a word the piece shows past
+/// a body it cut reads as written (as [`split_private_key_hidden`] reads it).
+fn leaf_key_blocks_hidden(
+    content: &str,
+) -> (std::borrow::Cow<'_, str>, octocode_engine::security::Edits) {
+    if !may_hold_key_marker(content) {
+        return (content.into(), octocode_engine::security::Edits::default());
+    }
+    let last_end = content
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| line_markers(line.as_bytes()).ends)
+        .map(|(index, _)| index)
+        .last();
+    let mut block = KeyBlockState::default();
+    let mut at = 0_usize;
+    match hide_lines(content, |line| {
+        let closed = last_end.is_some_and(|end| at <= end);
+        at += 1;
+        let in_block = block.push_line(line);
+        let keyed = closed
+            || is_private_key_boundary(line)
+            || is_key_body_line(line)
+            || opens_with_body_run(line)
+            || holds_body_run(line);
+        (in_block && keyed).then(|| hidden_key(line)).flatten()
+    }) {
+        Some((text, edits)) => (text.into(), edits),
+        None => (content.into(), octocode_engine::security::Edits::default()),
+    }
+}
+
 /// The key's bytes of a line of a key block, and what replaces them; `None`
 /// for a line that holds no key text (an armor line alone).
 fn hidden_key(line: &str) -> Option<(std::ops::Range<usize>, String)> {
@@ -242,7 +277,7 @@ fn split_private_key_hidden(
 }
 
 /// A leaf judged as a read judges its text: its key blocks hidden line by
-/// line first ([`private_key_blocks_hidden`]), so every view shows a key in
+/// line first ([`leaf_key_blocks_hidden`]), so every view shows a key in
 /// the one form a read does; then the detector's `scan` of that text (a
 /// failure fails closed to the placeholder), then the split-key guard of
 /// [`ContentSecurity::guard_native`] over the leaf as the detector left it.
@@ -250,7 +285,7 @@ fn guard_leaf(
     content: &str,
     scan: impl FnOnce(&str) -> octocode_engine::error::Result<Option<String>>,
 ) -> Option<String> {
-    let (keyed, keys) = private_key_blocks_hidden(content);
+    let (keyed, keys) = leaf_key_blocks_hidden(content);
     let redacted = scan(&keyed)
         .unwrap_or_else(|_| {
             Some(octocode_engine::security::SANITIZER_FAILURE_PLACEHOLDER.to_owned())
@@ -429,7 +464,7 @@ impl ContentSecurity {
             return self.sanitize_leaf(content, source_path);
         }
         // Key blocks first, line by line, as every view hides them.
-        let (keyed, keys) = private_key_blocks_hidden(content);
+        let (keyed, keys) = leaf_key_blocks_hidden(content);
         let Ok(scanned) =
             octocode_engine::security::sanitizer::sanitize_leaf_edits(&keyed, source_path)
         else {
@@ -473,7 +508,7 @@ impl ContentSecurity {
         content: &str,
         source_path: Option<&str>,
     ) -> Option<String> {
-        let (keyed, keys) = private_key_blocks_hidden(content);
+        let (keyed, keys) = leaf_key_blocks_hidden(content);
         let redacted =
             octocode_engine::security::sanitizer::sanitize_stored_leaf(&keyed, source_path)
                 .unwrap_or_else(|_| {

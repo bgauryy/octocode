@@ -11,19 +11,16 @@ const USAGE = `Usage: node node-break.mjs [options] -- <script | node flags and 
   --exceptions <all|uncaught>      Also pause where an exception is thrown. Prefer all: Node itself catches throws
                                    in ES modules and async code, so uncaught misses them. Node-internal throws are skipped.
   --steps <n>                      After each breakpoint hit, step over n lines and report each one.
-  --max-hits <n>                   Stop pausing after n pauses and let the program finish (default 20).
-  --timeout <seconds>              Then pause every thread, print its stack and kill the program (default 30).
+  --max-hits <n>                   Stop pausing after n pauses and let the program finish. Default: every pause.
+  --timeout <seconds>              Then pause every thread, print its stack and kill the program. Default: none.
 A \`debugger;\` statement in the source also pauses, in transformed code (vitest, tsx) too.
 Prints one JSON object per line on stdout: hit, step, exception, timeout, max-hits, unbound, exit.
+Values and stacks are printed whole; redirect stdout to a file when a loop pauses many times.
 unbound names a --break that matched no loaded code: a wrong path or line, or code that never loaded.
 Exits with the program's exit code.`;
 
 const INSPECTOR_NOISE =
 	/^(Debugger listening on|For help, see|Debugger attached|Waiting for the debugger to disconnect|Debugger ending on)/;
-const MAX_PROPERTIES = 25;
-const MAX_TEXT = 200;
-const STACK_DEPTH = 15;
-
 /** Each flag's effect on the options, given its value. */
 const FLAGS = {
 	"--break": (options, value) => {
@@ -40,21 +37,26 @@ const FLAGS = {
 		if (value !== "all" && value !== "uncaught") fail("--exceptions: all or uncaught");
 		options.exceptions = value;
 	},
-	"--steps": (options, value) => (options.steps = count("--steps", value)),
-	"--max-hits": (options, value) => (options.maxHits = count("--max-hits", value)),
-	"--timeout": (options, value) => (options.timeout = count("--timeout", value)),
+	"--steps": (options, value) => (options.steps = count("--steps", value, { positive: false })),
+	"--max-hits": (options, value) => (options.maxHits = count("--max-hits", value, { positive: true })),
+	"--timeout": (options, value) => (options.timeout = count("--timeout", value, { positive: true })),
 };
 
-function count(flag, value) {
+function count(flag, value, { positive }) {
 	const number = Number(value);
-	if (!Number.isFinite(number) || number < 0) fail(`${flag}: a non-negative number`);
+	if (!Number.isFinite(number) || number < 0 || (positive && number === 0))
+		fail(`${flag}: a ${positive ? "positive" : "non-negative"} number`);
 	return number;
 }
 
 function parseArgs(argv) {
-	const options = { breaks: [], evals: [], exceptions: "none", steps: 0, maxHits: 20, timeout: 30, command: [] };
+	const options = { breaks: [], evals: [], exceptions: "none", steps: 0, maxHits: Infinity, timeout: 0, command: [] };
 	const split = argv.indexOf("--");
-	if (split < 0 || split === argv.length - 1 || argv.includes("--help")) {
+	if (argv.slice(0, split < 0 ? argv.length : split).includes("--help")) {
+		console.log(USAGE);
+		process.exit(0);
+	}
+	if (split < 0 || split === argv.length - 1) {
 		console.error(USAGE);
 		process.exit(2);
 	}
@@ -77,7 +79,6 @@ function fail(message) {
 }
 
 const print = (event) => console.log(JSON.stringify(event));
-const clip = (text) => (text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT)}…` : text);
 const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 function displayPath(url) {
@@ -93,23 +94,24 @@ const internal = (target, frame) => scriptUrl(target, frame).startsWith("node:")
 const where = (target, frame) =>
 	`${frame.functionName || "<anonymous>"} ${displayPath(scriptUrl(target, frame))}:${frame.location.lineNumber + 1}`;
 
-/** A Runtime.RemoteObject as a short value: primitives as themselves, objects as their preview or description. */
+/**
+ * A Runtime.RemoteObject as a value: primitives whole, objects as V8's preview (which marks omitted properties
+ * with "…"; --eval a property to read it) or their description.
+ */
 function render(object) {
 	if (!object) return undefined;
 	if (object.type === "undefined") return "undefined";
-	if ("value" in object) return typeof object.value === "string" ? clip(object.value) : object.value;
+	if ("value" in object) return object.value;
 	if (object.unserializableValue) return object.unserializableValue;
 	const preview = object.preview;
 	if (preview?.properties) {
 		const inner = preview.properties.map((p) => (preview.subtype === "array" ? p.value : `${p.name}: ${p.value}`));
 		const body = `${inner.join(", ")}${preview.overflow ? ", …" : ""}`;
-		return clip(
-			preview.subtype === "array"
-				? `${object.description ?? "Array"} [${body}]`
-				: `${object.description ?? "Object"} {${body}}`,
-		);
+		return preview.subtype === "array"
+			? `${object.description ?? "Array"} [${body}]`
+			: `${object.description ?? "Object"} {${body}}`;
 	}
-	return clip(object.description ?? object.type);
+	return object.description ?? object.type;
 }
 
 /** One inspector session: the main thread over the WebSocket, or a worker thread through NodeWorker messages. */
@@ -250,7 +252,7 @@ async function values(target, frame) {
 			ownProperties: true,
 			generatePreview: true,
 		});
-		for (const property of result.slice(0, MAX_PROPERTIES))
+		for (const property of result)
 			if (!(property.name in locals)) locals[property.name] = render(property.value);
 	}
 	return locals;
@@ -259,7 +261,6 @@ async function values(target, frame) {
 async function onPause(target, { reason, callFrames, data }) {
 	const stack = callFrames
 		.filter((frame) => !internal(target, frame))
-		.slice(0, STACK_DEPTH)
 		.map((frame) => where(target, frame));
 	if (state.timedOut) return print({ event: "timeout", thread: target.name, stack });
 	// --inspect-brk stops before the first line, and an uncaught exception stops again in Node's own frames as it

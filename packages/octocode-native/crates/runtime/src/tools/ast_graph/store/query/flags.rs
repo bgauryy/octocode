@@ -9,6 +9,7 @@ pub(super) struct Flags {
     pub(super) kind: Option<NodeKind>,
     pub(super) edge_kinds: Vec<EdgeKind>,
     pub(super) direction: Option<Direction>,
+    pub(super) rank_by: RankBy,
     pub(super) weakest: Confidence,
     pub(super) depth: Option<u32>,
 }
@@ -48,6 +49,20 @@ impl Flags {
                 )));
             }
         };
+        let rank_by = match options.rank_by.as_deref() {
+            None | Some("degree") => RankBy::Degree,
+            Some("pageRank") => RankBy::PageRank,
+            Some(other) => {
+                return Err(invalid(format!(
+                    "unknown rankBy {other:?}; expected degree or pageRank"
+                )));
+            }
+        };
+        if rank_by == RankBy::PageRank && direction == Some(Direction::Both) {
+            return Err(invalid(
+                "rankBy pageRank ranks one direction; expected direction in or out".to_owned(),
+            ));
+        }
         let weakest = match options.confidence.as_deref() {
             Some("low") => Confidence::Low,
             Some("medium") => Confidence::Medium,
@@ -98,6 +113,7 @@ impl Flags {
             kind,
             edge_kinds,
             direction,
+            rank_by,
             weakest,
             depth: options.depth,
         })

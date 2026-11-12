@@ -3,6 +3,10 @@
 //! of opened files, a file reaches it only as its diagnostics are published
 //! (an outline may answer sooner), `definition` toggles to the declaration and
 //! guesses from the word where the AST has nothing, and `hover` reads the AST.
+//! With a `header-alone` file in the project, a header opened alone is parsed
+//! as another language: its declaration is another identity, which no
+//! references answer lists and whose own definition is itself; only the
+//! anchor unit's `declaration` names it.
 
 use super::*;
 
@@ -20,6 +24,7 @@ const inIndex = () => require('fs').existsSync(root + '/.cache/clangd/index')
   ? require('fs').readdirSync(root).filter((name) => /^c\d+\.c$/.test(name)).map(uri)
   : [];
 const known = () => [...new Set([...indexed, ...inIndex()])];
+const headerAlone = () => require('fs').existsSync(root + '/header-alone');
 let buf = Buffer.alloc(0);
 function send(m) {
   const s = JSON.stringify(m);
@@ -29,11 +34,16 @@ function result(msg) {
   const p = msg.params || {};
   switch (msg.method) {
     case 'initialize':
-      return { capabilities: { textDocumentSync: 1, definitionProvider: true, referencesProvider: true, callHierarchyProvider: true, documentSymbolProvider: true, hoverProvider: true } };
+      return { capabilities: { textDocumentSync: 1, definitionProvider: true, declarationProvider: true, referencesProvider: true, callHierarchyProvider: true, documentSymbolProvider: true, hoverProvider: true } };
     case 'textDocument/definition':
+      if (headerAlone() && p.textDocument.uri === decl.uri) return [decl];
       return p.textDocument.uri === def.uri ? [decl] : [def];
+    case 'textDocument/declaration':
+      return [decl];
     case 'textDocument/references': {
-      const found = p.context && p.context.includeDeclaration ? [def, decl] : [];
+      // The header's own identity lists only itself.
+      if (headerAlone() && p.textDocument.uri === decl.uri) return p.context && p.context.includeDeclaration ? [decl] : [];
+      const found = p.context && p.context.includeDeclaration ? (headerAlone() ? [def] : [def, decl]) : [];
       if (indexed.has(callSite.uri)) found.push(callSite);
       for (const file of known()) if (/\/c\d+\.c$/.test(file)) found.push({ uri: file, range: callSite.range });
       return found;
@@ -41,7 +51,8 @@ function result(msg) {
     case 'textDocument/hover':
       // Another symbol of the same name is in the AST; disabled code is not.
       // A real call is in the AST too, listed or not.
-      return p.textDocument.uri === uri('other.c') || /\/c\d+\.c$/.test(p.textDocument.uri) ? { contents: 'int helper(void)' } : null;
+      return p.textDocument.uri === uri('other.c') || /\/c\d+\.c$/.test(p.textDocument.uri)
+        || (headerAlone() && p.textDocument.uri === decl.uri) ? { contents: 'int helper(void)' } : null;
     case 'textDocument/prepareCallHierarchy':
       return [item];
     case 'callHierarchy/incomingCalls':

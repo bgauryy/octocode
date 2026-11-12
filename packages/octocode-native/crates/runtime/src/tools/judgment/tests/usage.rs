@@ -32,6 +32,7 @@ async fn failed_split_evaluation_counts_all_completed_usage() {
                 questions: &questions,
                 assets: None,
                 long_context: crate::tools::judgment::LongContext::Never,
+                companions: 0,
             },
             None,
             &evaluation_budget(&evaluator),
@@ -74,6 +75,7 @@ async fn concurrent_failed_evaluations_count_each_independent_attempt() {
         questions: &questions,
         assets: Some(&assets),
         long_context: crate::tools::judgment::LongContext::Never,
+        companions: 0,
     };
     let (first, second) = tokio::join!(
         evaluator.evaluate_prepared(input, None, &budget, &gate),
@@ -197,6 +199,7 @@ fn the_long_context_notice_counts_only_retries_and_never_reports_unknown_usage_a
         known_usage_calls,
         long_context_retry: long_context_retry.then_some(LongContextRetry {
             unreported_calls: 1 - known_usage_calls,
+            refused_calls: 1,
         }),
     };
     let notice = |evaluations: &[Judged]| {
@@ -249,6 +252,7 @@ fn a_replayed_long_context_notice_attributes_the_billing_to_the_original_read() 
             known_usage_calls,
             long_context_retry: Some(LongContextRetry {
                 unreported_calls: 1 - known_usage_calls,
+                refused_calls: 1,
             }),
         }));
         let original = usage.long_context_notice().expect("original notice");

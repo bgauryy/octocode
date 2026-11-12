@@ -1,8 +1,7 @@
 //! Reads a file too large to hold whole through the mention tokenizer, one
 //! window at a time: a window ends on a byte no token holds, and the next one
 //! keeps that byte so a quote around a token stays beside it.
-use super::mention_tokens::{Keys, is_token_byte, scan_text};
-use std::collections::BTreeMap;
+use super::mention_tokens::{Found, Keys, is_token_byte, scan_text};
 use std::io::Read;
 
 /// Bytes read before a window is scanned; a token longer than this extends
@@ -10,14 +9,16 @@ use std::io::Read;
 pub(super) const WINDOW: usize = 1 << 20;
 
 /// [`scan_text`] of `source`, stopping when `stopped` says or at binary
-/// content. Lines are the file's: a later window continues the count.
+/// content. Lines are the file's: a later window continues the count. The
+/// flag is whether a read failed, leaving the rest of the file unscanned.
 pub(super) fn scan_stream<'k>(
     mut source: impl Read,
     code: bool,
     keys: &Keys<'k>,
     stopped: &(dyn Fn() -> bool + Sync),
-) -> [BTreeMap<&'k str, usize>; 3] {
-    let mut found: [BTreeMap<&'k str, usize>; 3] = Default::default();
+) -> (Found<'k>, bool) {
+    let mut found: Found<'k> = Default::default();
+    let mut failed = false;
     let mut held = Vec::with_capacity(2 * WINDOW);
     let mut lines_before = 0;
     // The kept byte that starts `held`, which no token holds.
@@ -27,7 +28,10 @@ pub(super) fn scan_stream<'k>(
         let read = match source.read(&mut chunk) {
             Ok(read) => read,
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(_) => 0,
+            Err(_) => {
+                failed = true;
+                0
+            }
         };
         held.extend_from_slice(&chunk[..read]);
         let end = if read == 0 {
@@ -55,5 +59,5 @@ pub(super) fn scan_stream<'k>(
         kept = usize::from(held[end - 1] != b'\n');
         held.drain(..end - kept);
     }
-    found
+    (found, failed)
 }

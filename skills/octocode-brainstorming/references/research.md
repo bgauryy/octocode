@@ -45,4 +45,4 @@ A trend surface alone earns `low`; `medium` or `high` needs an independent sourc
 
 Listings are leads; corroborate on the primary source (repository, package, paper, release). Thin evidence: change the question or source, use `octocode-research` for code gaps, report what stays uncovered.
 
-Next: [decide](../SKILL.md#4-decide).
+Next: [decide](phases.md#4-decide).

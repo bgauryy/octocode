@@ -99,6 +99,41 @@ pub(super) fn annotate_allowed_fields(
     }
 }
 
+/// A value that chooses none of the forms `forms` names (each its required
+/// fields, sharing none): the fields the scored form lacks are a guess, so
+/// its missing-field issues give way to the forms themselves, stated on each
+/// unknown field directly in the value, or once on the value when it sent
+/// none (`{}`).
+pub(super) fn name_forms(
+    issues: &mut Vec<ValidationIssue>,
+    forms: &[Vec<String>],
+    path: &[String],
+) {
+    let depth = path.len();
+    let direct =
+        |item: &ValidationIssue| item.path.len() == depth + 1 && item.path.starts_with(path);
+    issues.retain(|item| !(item.rule_id == "schema.required" && direct(item)));
+    let forms = serde_json::json!(forms);
+    let mut named = false;
+    for item in issues
+        .iter_mut()
+        .filter(|item| item.rule_id == "schema.unknown-field" && direct(item))
+    {
+        if let Some(schema) = item.schema.as_mut().and_then(Value::as_object_mut) {
+            schema.insert("forms".into(), forms.clone());
+            named = true;
+        }
+    }
+    if !named {
+        let mut missing =
+            super::super::issue("schema.union", path.to_vec(), "Missing required fields").issues;
+        for item in &mut missing {
+            item.schema = Some(serde_json::json!({ "forms": forms }));
+        }
+        issues.splice(0..0, missing);
+    }
+}
+
 /// The required fields each declaring branch still lacks, one alternative per
 /// branch (`pattern or rule` for an astSearch match field), so the projector
 /// names every form that accepts the field, not only the first.

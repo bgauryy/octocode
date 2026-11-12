@@ -134,3 +134,57 @@ fn an_unknown_field_is_never_corrected_to_a_field_already_sent() {
     );
     assert!(!row.contains("use 'path'"), "{row}");
 }
+
+/// A value that sends no field of its union's forms has chosen none: the
+/// error names every form (`tool and query, or url`) with an example value,
+/// never the one form scoring picked ("Allowed fields: url", "Missing
+/// required field: url"), wherever the union sits; `{}` names them too.
+#[test]
+fn a_value_choosing_no_form_names_every_form_with_an_example() {
+    let questions = json!({"q":{"type":"noul","instructions":"Is it ok?"}});
+    let shown = |row: Value| {
+        let error =
+            prepare_many_and_validate("clasify", json!({ "queries": [row] })).expect_err("no form");
+        crate::contracts::validate::format_input_error("clasify", &error, &[], &Value::Null)
+            .to_string()
+    };
+    for (row, at) in [
+        (
+            json!({"operation":"evaluate","source":{"file":"x.ts"},"questions":questions}),
+            "Unknown field 'file' in queries[0].source;",
+        ),
+        (
+            json!({"operation":"sections","resources":{"a":{"file":"x.ts"}},"questions":questions}),
+            "Unknown field 'file' in queries[0].resources.a;",
+        ),
+        (
+            json!({"operation":"evaluate","content":"Screenshot a.","questions":questions,
+                "assets":{"a":{"source":{"file":"a.png"}}}}),
+            "Unknown field 'file' in queries[0].assets.a.source;",
+        ),
+        (
+            json!({"operation":"evaluate","source":{},"questions":questions}),
+            "queries.0.source: Missing required fields;",
+        ),
+    ] {
+        let message = shown(row.clone());
+        assert!(message.contains(at), "{row}: {message}");
+        assert!(
+            message.contains("it takes tool and query, or url, e.g. {")
+                && message.contains(r#"\"tool\":\"localFetch\""#),
+            "{row}: {message}"
+        );
+        assert!(
+            !message.contains("Allowed fields: url") && !message.contains("required field: url"),
+            "{row}: {message}"
+        );
+    }
+    // Forms that share a required field (`type`) are chosen by that field:
+    // an unknown field lists the fields of every form.
+    let message =
+        shown(json!({"operation":"evaluate","content":"x","questions":{"q":{"prompt":"x"}}}));
+    assert!(
+        message.contains("Allowed fields: criteria, instructions, type"),
+        "{message}"
+    );
+}

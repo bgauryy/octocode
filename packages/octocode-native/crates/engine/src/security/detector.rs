@@ -407,10 +407,10 @@ impl<'a> Judge<'a> {
     /// Where a plain scalar ([`ValueTest::Scalar`], no quote opening it)
     /// read from `start` to `end` ends when its first word, up to a blank or
     /// a `;`, is one opaque word ([`named_values::is_opaque_word`]) and a
-    /// credential alone (`credential`): the value is that token and the words
-    /// that continue it ([`named_values::value_words_end`]), and what follows
-    /// (`<token>  note`, `<token>; more`) is the line's own text. A scalar of
-    /// words (`correct horse 9`) is one value.
+    /// credential alone (`credential`): the value is that token, ending at
+    /// its first blank, and what follows (`<token> release1`, `<token>; more`)
+    /// is the line's own text. A scalar of words (`correct horse 9`) is one
+    /// value.
     fn opaque_word_end(
         &self,
         text: &str,
@@ -431,7 +431,7 @@ impl<'a> Judge<'a> {
         (cut > 0
             && value.get(..cut).is_some_and(named_values::is_opaque_word)
             && credential(&token))
-        .then(|| named_values::value_words_end(text, token.end))
+        .then_some(token.end)
     }
 
     /// Where a plain scalar ([`ValueTest::Scalar`], no quote opening it) read
@@ -594,10 +594,11 @@ impl<'a> Judge<'a> {
     /// of their own ([`is_value_of_its_own`]), each judged alone as the
     /// rule judges a value: a literal's value ends at its closing quote, so
     /// a piece joined after it (`"<key>" + "-suffix"`) or a hole it
-    /// interpolates (`` `<key>${id}` ``) is the program's text. `None` when
-    /// the value is one: no part of it is a value alone, and the pieces
-    /// joined are judged as one ([`ValueTest::Quoted`]). A part an earlier
-    /// pass replaced stays as it is.
+    /// interpolates (`` `<key>${id}` ``) is the program's text. When no part
+    /// of it is a value alone, the pieces joined are judged as one value
+    /// ([`ValueTest::Quoted`]) and each piece goes on its own, what joins
+    /// them staying (`"…" \⏎ "…"`). `None` when the value is one piece. A
+    /// part an earlier pass replaced stays as it is.
     #[cfg_attr(
         octocode_clippy_ratchet,
         expect(
@@ -632,8 +633,22 @@ impl<'a> Judge<'a> {
                     || (is_value_of_its_own(key, part) && self.redacts(text, key, &at, &at))
             })
         };
-        if !parts.iter().any(alone) {
-            return None;
+        // The pieces joined are the value when none is one alone, or when
+        // together they spell a token a shape names (`"ghp_" \⏎ "…"`): each
+        // piece goes, and what joins them (quotes, blanks, a line's
+        // continuation, a hole an interpolation writes) stays as written.
+        let joined: String = parts.iter().filter_map(|part| value.get(part.clone())).collect();
+        if !parts.iter().any(alone) || shape_of(&joined).is_some() {
+            return Some(
+                parts
+                    .iter()
+                    .map(shift)
+                    .filter(|at| {
+                        text.get(at.clone())
+                            .is_some_and(|part| !part.is_empty() && !is_redaction_marker(part))
+                    })
+                    .collect(),
+            );
         }
         Some(
             parts
@@ -857,6 +872,44 @@ fn replacement_for(idx: usize) -> &'static str {
     &REPLACEMENTS[idx]
 }
 
+/// The placeholder pattern `idx` writes for `value`, a secret it found: one
+/// kind per value, the most specific detector's, in every view. A value
+/// that a pattern knowing its shape alone ([`ValueTest::Every`]: a GitHub
+/// token, a cloud key) finds whole goes under that pattern's kind, as the
+/// same value read alone (a hover, a search row) does; a value no shape
+/// names goes under `idx`'s own (a name's, a place's).
+fn kind_for(idx: usize, value: &str) -> &'static str {
+    if VALUE_TESTS[idx] == ValueTest::Every || value.contains('\n') {
+        return replacement_for(idx);
+    }
+    shape_of(value).map_or_else(|| replacement_for(idx), replacement_for)
+}
+
+/// The pattern that knows `value` by its shape alone and finds all of it,
+/// read as a text of its own; `None` when none does. The read of `value`
+/// names its own finds by their patterns: a value is asked once.
+fn shape_of(value: &str) -> Option<usize> {
+    thread_local! {
+        static ASKING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+    if ASKING.with(|asking| asking.replace(true)) {
+        return None;
+    }
+    let result = redact(value, Scope::Pathless);
+    ASKING.with(|asking| asking.set(false));
+    let result = result?;
+    let mut runs = result.edits.redacted();
+    if runs.next()? != (0..value.len()) || runs.next().is_some() {
+        return None;
+    }
+    let name = result.secrets_detected.first()?;
+    let idx = PATTERNS.iter().position(|pattern| pattern.name == name)?;
+    (VALUE_TESTS[idx] == ValueTest::Every
+        && PATTERNS[idx].file_context.is_none()
+        && document::Form::of(idx).is_none())
+    .then_some(idx)
+}
+
 /// Candidates that apply to `scope` ([`should_apply`]), checked before any
 /// pattern regex compiles: a pattern its file context rules out is never built
 /// for that text, so a process pays only for the detectors its output reaches.
@@ -993,14 +1046,32 @@ fn break_len(text: &str) -> Option<usize> {
     }
 }
 
-/// The line breaks a redacted `secret` spanned, each as it was, so its
-/// replacement keeps the source's lines and line ends.
+/// The line breaks a redacted `secret` spanned, each as it was and with the
+/// blanks that indent the line it starts, so its replacement keeps the
+/// source's lines, line ends and indentation: an indented block (a key body
+/// in a YAML literal or a string) hides its text, not its layout.
+#[cfg_attr(
+    octocode_clippy_ratchet,
+    expect(
+        clippy::string_slice,
+        reason = "offsets are the ends of `line_breaks` slices and ASCII blank runs"
+    )
+)]
 fn kept_line_breaks(secret: &str) -> String {
     // Most secrets sit on one line and keep none.
     if memchr::memchr2(b'\n', b'\r', secret.as_bytes()).is_none() {
         return String::new();
     }
-    line_breaks(secret).collect()
+    let base = secret.as_ptr() as usize;
+    let mut kept = String::new();
+    for line_break in line_breaks(secret) {
+        let after = line_break.as_ptr() as usize - base + line_break.len();
+        let rest = &secret[after..];
+        let blanks = rest.len() - rest.trim_start_matches([' ', '\t']).len();
+        kept.push_str(line_break);
+        kept.push_str(&rest[..blanks]);
+    }
+    kept
 }
 
 /// The end of the value a secret ending at `end` continues into. A secret
@@ -1248,9 +1319,9 @@ pub(super) fn anchored_match(
     octocode_clippy_ratchet,
     expect(clippy::string_slice, reason = "offsets are regex match bounds")
 )]
-fn replace_judged(
+fn replace_judged<'r>(
     content: &str,
-    replacement: &str,
+    replacement: impl Fn(&str) -> &'r str,
     scan: impl FnOnce(&mut dyn FnMut(std::ops::Range<usize>, std::ops::Range<usize>)),
 ) -> (String, Vec<(std::ops::Range<usize>, usize)>) {
     let mut text = String::with_capacity(content.len());
@@ -1258,6 +1329,7 @@ fn replace_judged(
     let mut from = 0;
     scan(&mut |_, secret| {
         let line_breaks = kept_line_breaks(&content[secret.clone()]);
+        let replacement = replacement(&content[secret.clone()]);
         text.push_str(&content[from..secret.start]);
         text.push_str(replacement);
         text.push_str(&line_breaks);
@@ -1276,7 +1348,7 @@ fn replace_secrets(
     replacement: &str,
     redacts: impl Fn(&str, &str, &std::ops::Range<usize>) -> bool,
 ) -> (String, Vec<(std::ops::Range<usize>, usize)>) {
-    replace_judged(content, replacement, |found| {
+    replace_judged(content, |_| replacement, |found| {
         accepted_secrets(
             regex,
             content,
@@ -1447,7 +1519,7 @@ fn redact_text(content: &str, scope: Scope<'_>, limit: usize) -> Option<DetectRe
                     edits: &edits,
                 }),
             );
-            replace_judged(current, replacement_for(idx), |found| {
+            replace_judged(current, |value| kind_for(idx, value), |found| {
                 judge.secrets(regex, current, found);
             })
         };

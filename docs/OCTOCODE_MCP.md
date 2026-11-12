@@ -31,7 +31,9 @@ The contract has 17 tools. MCP lists 12 by default. Graph tools, cloning, adviso
 | `tools/call` | One text content block containing the JSON result. Check each indexed row for errors, empty results or remaining evidence. |
 | `resources/list` and `resources/read` | Research guides such as `octocode://research/tool-flow`, and output-field definitions at `octocode://contract/output/<tool>` for listed tools. |
 
-For example, call `localFetch` with these **arguments**. The CLI accepts the identical JSON after the tool name.
+### Example: a localFetch call
+
+Call `localFetch` with these **arguments**. The CLI accepts the identical JSON after the tool name.
 
 ```json
 {"queries":[{"path":"README.md","ranges":[{"startLine":1,"endLine":1}]}]}

@@ -14,6 +14,7 @@ fn input<'a>(state: &'a Value, questions: &'a [Value]) -> EvaluationInput<'a> {
         questions,
         assets: None,
         long_context: crate::tools::judgment::LongContext::Never,
+        companions: 0,
     }
 }
 

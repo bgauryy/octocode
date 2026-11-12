@@ -273,12 +273,32 @@ pub(super) async fn verify_by_references(
     {
         return listed.map(|_| verified);
     }
-    let Ok(listed) = listed else {
+    let Ok(mut listed) = listed else {
         verified
             .unverified
             .extend(parsed.into_iter().map(|(file, _)| file));
         return Ok(verified);
     };
+    // The declaration the anchor's own translation unit resolves names the
+    // symbol too: without an index that unit lists uses in its own file only,
+    // and a header opened alone (parsed as another language with no compile
+    // command) spells the declaration under another identity, so no
+    // references answer lists it.
+    match get_locations(
+        client,
+        snippet_policy,
+        cancel,
+        LocationRequest::Declaration,
+        anchor.path,
+        anchor.line,
+        anchor.character,
+    )
+    .await
+    {
+        Ok(declared) => listed.extend(declared),
+        Err(failure) if failure.is_cancelled() => return Err(failure),
+        Err(_) => {}
+    }
     let has_database = compile_database_found(client, anchor.path);
     for (file, spots) in parsed {
         cancel.check().map_err(LspFailure::cancelled)?;

@@ -120,6 +120,10 @@ pub(crate) struct ProgressTracker {
     /// status): a change between two reads means the server said something
     /// about its work in between, which an open token alone does not.
     reports: AtomicU64,
+    /// Messages of any kind the server has sent (notifications, requests,
+    /// responses): a change between two reads means it was alive and
+    /// talking in between, whatever it said.
+    messages: AtomicU64,
     count_tx: watch::Sender<usize>,
     count_rx: watch::Receiver<usize>,
 }
@@ -150,6 +154,7 @@ impl ProgressTracker {
             ever_active: AtomicBool::new(false),
             begins: AtomicU64::new(0),
             reports: AtomicU64::new(0),
+            messages: AtomicU64::new(0),
             count_tx,
             count_rx,
         })
@@ -189,6 +194,17 @@ impl ProgressTracker {
     /// [`Self::on_report`].
     pub(crate) fn reports(&self) -> u64 {
         self.reports.load(Ordering::Acquire)
+    }
+
+    /// One message of any kind from the server; see [`Self::messages`].
+    pub(crate) fn on_message(&self) {
+        self.messages.fetch_add(1, Ordering::AcqRel);
+    }
+
+    /// How many messages the server has sent so far: a log line, a status,
+    /// diagnostics or another request's answer all say it is alive.
+    pub(crate) fn messages(&self) -> u64 {
+        self.messages.load(Ordering::Acquire)
     }
 
     /// How many tokens have begun so far: a change between two reads means

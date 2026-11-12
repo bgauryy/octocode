@@ -53,6 +53,32 @@ pub(super) fn empty_match_leads(
     ]
 }
 
+/// A first page's lead to when the file last changed at the read commit and
+/// who changed it: that commit, its date and author, by the file's history
+/// (one commit). A read never asks it itself: the read answers what the file
+/// says, and its history is one call away.
+pub(super) fn attach_last_change(
+    file: &mut super::GhGetFileContentFile,
+    query: &GhGetFileContentQuery,
+) {
+    let last_change = json!({
+        "operation": "commit",
+        "owner": access::owner(query),
+        "repo": access::repo(query),
+        "path": access::path(query),
+        "ref": file.commit_sha,
+        "limit": 1,
+        "fields": ["committedAt", "author"],
+    });
+    let calls = file.calls.get_or_insert_with(|| json!({}));
+    if let Some(calls) = calls.as_object_mut() {
+        calls.insert(
+            "lastChange".into(),
+            Continuation::related(ToolId::GhSearchHistory, last_change).build(),
+        );
+    }
+}
+
 /// The runnable repair of a `ranges` read whose every range starts past the
 /// file end: the same read of the file's last window, as wide as the widest
 /// requested range, at the read commit. `None` when any range reaches into

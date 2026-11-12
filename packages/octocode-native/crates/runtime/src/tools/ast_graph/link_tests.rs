@@ -17,6 +17,7 @@ mod go;
 mod imports;
 mod java;
 mod languages;
+mod local_bindings;
 mod markup;
 mod module_roots;
 mod parser_fallback;

@@ -100,6 +100,58 @@ fn split_literals_are_redacted_as_their_joined_value() {
     ]);
 }
 
+/// D2 (bin16 retest): a credential's name split from its value by an
+/// interpolation or a `+` of literals still holds that value. The value after
+/// the interpolation goes; the interpolation, the name and the quotes stay,
+/// in a template on one line or on a line of a multi-line one.
+#[test]
+fn a_value_after_an_interpolation_or_a_seam_is_the_named_value() {
+    const VALUE: &str = "DvR8R8i4INNejI81pSk6GW";
+    const KEY: &str = "Qm7Hx2LpT9vRk4Wn8sZcYb";
+    for (content, kept) in [
+        (format!("const a = `password=${{x}}{VALUE}`;\n"), ["const a = `password=${x}", "`;\n"]),
+        (format!("const b = `API_KEY=${{env}}{KEY}`;\n"), ["const b = `API_KEY=${env}", "`;\n"]),
+        (
+            format!("const d = `password=${{\"x\"}}{VALUE}`;\n"),
+            ["const d = `password=${\"x\"}", "`;\n"],
+        ),
+        (
+            format!("const e = `\nline\npassword=${{\"x\"}}{VALUE}\n`;\n"),
+            ["const e = `\nline\npassword=${\"x\"}", "\n`;\n"],
+        ),
+        (
+            format!("const c = \"password=\" + \"{VALUE}\";\n"),
+            ["const c = \"password=\" + \"", "\";\n"],
+        ),
+    ] {
+        for path in [Some("src/app.ts"), Some("notes.txt"), None] {
+            let shown = detect(&content, path).sanitized;
+            assert!(!shown.contains(VALUE) && !shown.contains(KEY), "{path:?}: {shown:?}");
+            let [head, tail] = kept;
+            assert!(shown.starts_with(head), "{path:?}: {shown:?}");
+            assert!(shown.ends_with(tail), "{path:?}: {shown:?}");
+            let placeholder = &shown[head.len()..shown.len() - tail.len()];
+            assert!(
+                placeholder.starts_with("[REDACTED-") && placeholder.ends_with(']')
+                    && placeholder.matches('[').count() == 1,
+                "{path:?}: {shown:?}"
+            );
+        }
+        assert!(holds_credential_as_request(&content), "ran {content:?}");
+    }
+    // Readable text around an interpolation stays.
+    for content in [
+        "const u = `https://api.example.com/v1/users/${id}/tokens/${tokenId}`;\n",
+        "const h = `Bearer ${token}`;\n",
+        "const q = `password=${pw}&user=${user}`;\n",
+        "const l = \"Enter \" + \"your password\";\n",
+    ] {
+        for path in [Some("src/app.ts"), None] {
+            assert_eq!(detect(content, path).sanitized, content, "{path:?}");
+        }
+    }
+}
+
 /// Pieces of one literal may use any quote type, and Python joins literals
 /// that only sit side by side (`"a" "b"`).
 #[test]
@@ -851,5 +903,53 @@ fn rv_an_escaped_backslash_before_n_and_a_bytes_literal_stay_hidden() {
             scope,
             &["Zq7xK2mPlanted9xx"],
         );
+    }
+}
+
+/// Item 8 (bin16 retest): a value Python writes as literals side by side is
+/// hidden piece by piece. Each piece's quotes, the blanks, the line
+/// continuation and the indentation between them stay.
+#[test]
+fn implicitly_joined_literals_hide_only_their_pieces() {
+    for (content, expected) in [
+        (
+            "password = \"Qm7Hx2LpT9vRk4Wn8sZcYb\" \\\n    \"DvR8R8i4INNejI81pSk6GW\"\nx = 1\n",
+            "password = \"[P]\" \\\n    \"[P]\"\nx = 1\n",
+        ),
+        (
+            "secret = \"Qm7Hx2LpT9\" \"vRk4Wn8sZcYb\"\nx = 1\n",
+            "secret = \"[P]\" \"[P]\"\nx = 1\n",
+        ),
+    ] {
+        let shown = detect(content, Some("src/conf.py")).sanitized;
+        let placeholder = shown
+            .split('"')
+            .find(|piece| piece.starts_with("[REDACTED-"))
+            .unwrap_or_else(|| panic!("{shown:?}"));
+        assert_eq!(shown.replace(placeholder, "[P]"), expected, "{shown:?}");
+    }
+}
+
+/// Item 8 (bin16 retest): a key in a YAML block scalar keeps its armor, as
+/// a read of the key shows it anywhere else; its body goes.
+#[test]
+fn a_key_in_a_yaml_block_scalar_keeps_its_armor() {
+    let body = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7Zq8Rm4Lx2Vt9Wp";
+    for (head, path) in [
+        ("stringData:\n", Some("tls.yaml")),
+        ("stringData:\n", None),
+        ("apiVersion: v1\nkind: Secret\nstringData:\n", Some("tls.yaml")),
+    ] {
+        let content = format!(
+            "{head}  tls.key: |\n    -----BEGIN PRIVATE KEY-----\n    {body}\n    -----END PRIVATE KEY-----\n  other: plain\n"
+        );
+        let shown = detect(&content, path).sanitized;
+        assert!(!shown.contains(body), "{path:?}: {shown:?}");
+        assert!(
+            shown.contains("  tls.key: |\n    -----BEGIN PRIVATE KEY-----\n"),
+            "{path:?}: {shown:?}"
+        );
+        assert!(shown.contains("]\n    -----END PRIVATE KEY-----\n"), "{path:?}: {shown:?}");
+        assert!(shown.contains("\n  other: "), "{path:?}: {shown:?}");
     }
 }

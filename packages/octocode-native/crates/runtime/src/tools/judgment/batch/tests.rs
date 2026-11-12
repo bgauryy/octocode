@@ -11,6 +11,7 @@ fn text_input<'a>(state: &'a Value, questions: &'a [Value]) -> EvaluationInput<'
         questions,
         assets: None,
         long_context: crate::tools::judgment::LongContext::Never,
+        companions: 0,
     }
 }
 
@@ -77,7 +78,7 @@ fn grouped_partial_answers_preserve_siblings_and_count_the_post_once() {
             response["answers"]["answer_1"]["noul"] = json!(2);
         }
         let outcomes =
-            grouped_outcomes(&request, &response, 3, jev()).expect("valid global response");
+            grouped_outcomes(&request, &response, 3, jev(), 0).expect("valid global response");
         assert_eq!(outcomes.answers.len(), 12);
         assert!(outcomes.answers[1].is_err());
         for (index, answer) in outcomes
@@ -110,10 +111,10 @@ fn grouped_partial_answers_preserve_siblings_and_count_the_post_once() {
     }
     let mut unexpected = complete.clone();
     unexpected["answers"]["other"] = json!({"type":"noul","noul":0.2});
-    assert!(grouped_outcomes(&request, &unexpected, 1, jev()).is_err());
+    assert!(grouped_outcomes(&request, &unexpected, 1, jev(), 0).is_err());
     let mut invalid_model = complete;
     invalid_model["model"] = json!("");
-    assert!(grouped_outcomes(&request, &invalid_model, 1, jev()).is_err());
+    assert!(grouped_outcomes(&request, &invalid_model, 1, jev(), 0).is_err());
 }
 
 #[test]

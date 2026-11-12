@@ -126,7 +126,7 @@ async fn scan_visible(
             },
         )
         .await
-        .map_err(|failure| crashed(query, &target.uri, &session.config, failure))?;
+        .map_err(|failure| session_failed(query, target, session, failure))?;
         scope.answer(checked.rejected);
     }
     Ok(())

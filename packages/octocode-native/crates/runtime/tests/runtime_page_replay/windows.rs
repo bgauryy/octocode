@@ -68,8 +68,13 @@ async fn assert_complete(runtime: &octocode_native::runtime::ToolRuntime, tool: 
                 // Per-call provider metadata rides outside the page measure.
                 let chars =
                     octocode_native::response::pager::budgeted_chars(&output).expect("page");
-                assert!(
-                    chars <= budget || output["oversized"] == true,
+                assert_eq!(
+                    output.get("oversized") == Some(&json!(true)),
+                    octocode_native::response::pager::holds_value_over(
+                        output.as_object().expect("envelope"),
+                        tool.parse().expect("tool"),
+                        budget
+                    ),
                     "oversize must be explicit: {chars}/{budget} {output}"
                 );
                 walker.accept(support::checks::Page {
@@ -90,11 +95,12 @@ async fn assert_complete(runtime: &octocode_native::runtime::ToolRuntime, tool: 
 }
 
 /// B105 (i): a fresh first page drops the fields that echo its query after
-/// the cut. A page the cut flagged only for those fields fits once they go,
-/// so `oversized` holds exactly when the delivered page is wider than its
-/// budget. A long echoed `path` puts the flag's edge inside the scan: the
-/// scan runs from below the whole file's delivered page, where pages are
-/// wider than their budget, to past that page plus the echo the cut counts.
+/// the cut. A page the cut flagged only for those fields (a long echoed
+/// `path`, the one value longer than these budgets) states no flag once they
+/// go: `oversized` holds exactly when the delivered page holds a value
+/// longer than its budget. The scan runs from below the whole file's
+/// delivered page, where pages are wider than their budget, to past that
+/// page plus the echo the cut counts.
 #[tokio::test]
 async fn a_fresh_first_page_is_oversized_only_when_what_it_delivers_is() {
     let workspace = Workspace::new();
@@ -133,21 +139,25 @@ async fn a_fresh_first_page_is_oversized_only_when_what_it_delivers_is() {
     let echo = serde_json::to_string(&json!({ "path": file }))
         .expect("echo")
         .len();
-    let mut flagged = 0;
+    assert!(
+        whole / 2 < file.len(),
+        "the scan starts below the echoed path"
+    );
+    let mut over = 0;
     for budget in (whole / 2..=whole + 2 * echo).step_by(5) {
         let output = read(Some(budget)).await;
         let chars = octocode_native::response::pager::budgeted_chars(&output).expect("page");
-        flagged += usize::from(output.get("oversized").is_some());
-        assert_eq!(
-            output.get("oversized").is_some(),
-            chars > budget,
-            "{chars}/{budget}: {output}"
+        over += usize::from(chars > budget);
+        assert!(
+            output["results"][0]["data"].get("path").is_none(),
+            "{output}"
+        );
+        assert!(
+            output.get("oversized").is_none(),
+            "{chars}/{budget}: no value it delivers outgrows the budget: {output}"
         );
     }
-    assert!(
-        flagged > 0,
-        "the scan reaches pages wider than their budget"
-    );
+    assert!(over > 0, "the scan reaches pages wider than their budget");
     runtime.close().await;
 }
 
@@ -175,8 +185,13 @@ async fn content_parts(
                 .structured_content
                 .into_value();
             let chars = octocode_native::response::pager::budgeted_chars(&output).expect("page");
-            assert!(
-                chars <= budget || output["oversized"] == true,
+            assert_eq!(
+                output.get("oversized") == Some(&json!(true)),
+                octocode_native::response::pager::holds_value_over(
+                    output.as_object().expect("envelope"),
+                    octocode_native::id::ToolId::LocalFetch,
+                    budget
+                ),
                 "oversize must be explicit: {chars}/{budget} {output}"
             );
             let rows = output["results"].as_array().cloned().unwrap_or_default();
@@ -236,7 +251,7 @@ async fn a_long_path_row_delivers_each_content_line_once_across_its_parts() {
     runtime.close().await;
 }
 
-/// A single `content` line over three pages long still pages in windows
+/// A single `content` line longer than a byte window pages in byte windows
 /// whose concatenation is the line.
 #[tokio::test]
 async fn a_single_huge_content_line_pages_in_windows() {
@@ -245,10 +260,36 @@ async fn a_single_huge_content_line_pages_in_windows() {
     workspace.write("huge.txt", format!("{line}\n"));
     let runtime = workspace.runtime(&[]);
     let budget = 800;
-    assert!(line.encode_utf16().count() > 3 * budget);
+    assert!(line.len() > FLOOR);
     for (parts, _) in content_parts(&runtime, "huge.txt", budget).await {
-        assert!(parts.len() > 3, "windows: {}", parts.len());
+        assert!(parts.len() > 1, "windows: {}", parts.len());
         assert!(parts.concat().contains(&line));
+    }
+    runtime.close().await;
+}
+
+/// The byte-window floor `docs/TOOL_DATA_CONTRACT.md` states.
+const FLOOR: usize = 4_096;
+
+/// A long line read at a narrow budget walks in byte windows of the
+/// documented floor, each served whole on one page and never `oversized`
+/// ([`content_parts`] checks the flag on every page): a 40 KB line at 300
+/// chars takes a call per floor window, not one per budget-sized sliver.
+#[tokio::test]
+async fn a_long_line_at_a_narrow_budget_takes_a_call_per_floor_window() {
+    let workspace = Workspace::new();
+    let line = "abcdefghij".repeat(4_000);
+    let text = format!("{line}\n");
+    workspace.write("long.txt", &text);
+    let runtime = workspace.runtime(&[]);
+    for (parts, _) in content_parts(&runtime, "long.txt", 300).await {
+        assert!(
+            parts.len() <= text.len().div_ceil(FLOOR) + 1,
+            "{} calls for {} bytes",
+            parts.len(),
+            text.len()
+        );
+        assert_eq!(parts.concat(), text, "every byte once, in order");
     }
     runtime.close().await;
 }

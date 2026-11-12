@@ -186,6 +186,7 @@ pub(crate) fn query_row(options: &QueryOptions, id: &str) -> Map<String, Value> 
         ("kind", options.kind.as_ref().map(|kind| json!(kind))),
         ("view", options.view.as_ref().map(|view| json!(view))),
         ("direction", options.direction.as_ref().map(|d| json!(d))),
+        ("rankBy", options.rank_by.as_ref().map(|rank| json!(rank))),
         ("depth", options.depth.map(|depth| json!(depth))),
         ("confidence", options.confidence.as_ref().map(|c| json!(c))),
         ("list", options.list.as_ref().map(|list| json!(list))),

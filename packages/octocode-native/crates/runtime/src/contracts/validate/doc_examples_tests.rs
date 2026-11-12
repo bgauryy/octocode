@@ -3,7 +3,7 @@
 //! schema MCP lists, embedded through the presentation). An example agents
 //! copy that either rejects teaches a call that fails.
 //!
-//! Requests are found three ways: an `octocode <tool> '<json>'` command, a
+//! Requests are found three ways: an `octocode <tool> '<json>'` command (or `octocode.js <tool> …`), a
 //! `{"tool":"<tool>","input":{…}}` call, and a fenced `json` block under a
 //! heading (its own or an enclosing one) that names exactly one tool.
 use super::validate_input_schema;
@@ -71,7 +71,8 @@ fn is_request(value: &Value) -> bool {
 }
 
 fn examples_in(file: &Path, text: &str, out: &mut Vec<Example>, unattributed: &mut Vec<String>) {
-    let command = regex::Regex::new(r"octocode ([A-Za-z<>]+) '(\{[^']*\})'").expect("regex");
+    let command =
+        regex::Regex::new(r"octocode(?:\.js)? ([A-Za-z<>]+) '(\{[^']*\})'").expect("regex");
     let name = file
         .strip_prefix(repository_root())
         .unwrap_or(file)

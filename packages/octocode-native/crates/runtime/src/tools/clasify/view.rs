@@ -90,11 +90,14 @@ pub(super) fn summarize(row: &mut Value) {
     }
 }
 
-fn answer(answer: &mut Value) {
+/// One answer's summary. `sectioned`: the row combined sections, so a
+/// choice's probabilities are the sections' shares, not the provider's.
+fn answer(answer: &mut Value, sectioned: bool) {
     if let Some(fields) = answer.as_object_mut() {
         // Sections that disagreed on a choice: the minority's share is the
         // one sign that the majority label is not the whole answer.
-        let split = fields.contains_key("lines")
+        let split = sectioned
+            && fields.contains_key("lines")
             && fields.contains_key("choice")
             && fields["probabilities"].as_object().is_some_and(|shares| {
                 shares
@@ -123,6 +126,7 @@ fn usage(fields: &mut Map<String, Value>) {
 
 /// An answered evaluation: `answers` over one source, content or images.
 fn evaluation(fields: &mut Map<String, Value>) {
+    let sectioned = fields.contains_key("coverage");
     let mut boxed = false;
     for value in fields
         .get_mut("answers")
@@ -131,7 +135,7 @@ fn evaluation(fields: &mut Map<String, Value>) {
         .flat_map(|answers| answers.values_mut())
     {
         boxed |= value.get("box").is_some();
-        answer(value);
+        answer(value, sectioned);
     }
     usage(fields);
     // A box is a fraction of an image: its pixels need the image's size.
@@ -174,7 +178,7 @@ fn short_source_leads(fields: &mut Map<String, Value>) {
 fn cell(cell: &mut Value) {
     if cell["status"] == "answered" {
         let mut inner = cell["answer"].take();
-        answer(&mut inner);
+        answer(&mut inner, false);
         *cell = inner;
     }
 }

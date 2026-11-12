@@ -40,6 +40,8 @@ pub struct QueryOptions {
     pub kind: Option<String>,
     /// `out`, `in`, or `both`.
     pub direction: Option<String>,
+    /// `hubs`: `degree` (the default) or `pageRank`.
+    pub rank_by: Option<String>,
     pub depth: Option<u32>,
     /// Weakest call-edge confidence to follow (`high`, `medium`, `low`).
     pub confidence: Option<String>,

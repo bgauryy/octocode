@@ -126,7 +126,7 @@ async fn request_stops_at_the_ceiling_while_progress_never_ends() {
         .expect_err("the ceiling is terminal");
     assert_eq!(error.kind(), &ErrorKind::Timeout);
     assert!(
-        error.reason.contains("timed out after 2000ms"),
+        error.reason.contains("timed out after 2000ms") && error.reason.contains("still working"),
         "{}",
         error.reason
     );
@@ -381,3 +381,5 @@ async fn dropping_an_extended_request_still_sends_cancel() {
     assert_eq!(cancel["params"]["id"], 1);
     assert_eq!(pending_len(&connection), Some(0));
 }
+
+mod activity;

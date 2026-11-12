@@ -2,7 +2,7 @@
 # requires-python = ">=3.10"
 # dependencies = ["mcp>=1.26,<2"]
 # ///
-"""Session-scoped MCP access to the official A2A client and operator-selected peers."""
+"""Use when exposing operator-approved A2A peers to a messaging proxy."""
 from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
 import json
@@ -33,7 +33,7 @@ def call(peer, *argv):
 
 @server.tool()
 def discover() -> dict:
-    """Fetch the Agent Card of every configured peer. Preserve per-peer failures."""
+    """Use when resolving configured peers before sending. Returns every Agent Card or its failure."""
     def card(peer):
         try:
             return call(peer, "card", "get")
@@ -45,7 +45,7 @@ def discover() -> dict:
 
 
 def send(peer: str, text: str, context_id: str | None = None, task_id: str | None = None) -> dict:
-    """Send one exact text message. Continue a known task/context using its returned IDs."""
+    """Use when sending authorized text or continuing a returned task/context. Inspect uncertain delivery before retrying."""
     if not text.strip():
         raise ValueError("Supply the message text.")
     message = {"role": "ROLE_USER", "messageId": str(uuid4()), "parts": [{"text": text}]}
@@ -70,7 +70,7 @@ def fixed_delivery(peer, filename, digest):
     result = None
 
     def deliver() -> dict:
-        """Deliver the operator's pre-addressed text unchanged and return the peer's response."""
+        """Use when sending the operator's fixed message once. Preserves file text; repeated calls return the original response."""
         nonlocal attempted, result
         with lock:
             if result is not None:
@@ -95,7 +95,7 @@ else:
 
 @server.tool()
 def get_task(peer: str, task_id: str) -> dict:
-    """Read the existing task and its artifacts after an asynchronous or uncertain send."""
+    """Use when checking an asynchronous or uncertain task. Returns its state and artifacts; use the returned task ID."""
     if not task_id or task_id.startswith("-"):
         raise ValueError("Supply a returned task ID.")
     return call(peer, "task", "get", task_id)

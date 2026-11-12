@@ -77,7 +77,7 @@ For database index types, B-tree is the default and fits most equality and range
 | O(2ⁿ) | Exhaustive subset search | Impractical for large n |
 | O(n!) | Brute-force permutations | Impractical beyond about a dozen items |
 
-These are asymptotic models, not latency guarantees. Cache locality, I/O, contention, skew, allocation and network round trips often dominate real performance; see [memory and performance](memory-and-performance.md#memory-hierarchy-and-latency).
+These are asymptotic models, not latency guarantees: skew and the hardware costs in [memory and performance](memory-and-performance.md#memory-hierarchy-and-latency) often dominate ([claims](review-method.md#when-making-a-claim)).
 
 ## Reverse lookup pattern
 

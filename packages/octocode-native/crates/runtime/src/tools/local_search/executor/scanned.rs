@@ -2,9 +2,9 @@
 //! reused once it is proved to answer the query.
 mod options;
 
-pub(crate) use options::search_options;
 #[cfg(test)]
 pub(crate) use options::test_held_limit;
+pub(crate) use options::{judge, search_options};
 
 use super::super::cursor::{fingerprint, malformed_snapshot, query_key, stale_snapshot};
 use super::super::manifest::StoredValue;
@@ -59,17 +59,23 @@ pub(crate) fn scan_query(
     cancel: &impl CancellationCheck,
     (response_window, terms): (Option<usize>, Option<Vec<String>>),
 ) -> Result<Scanned, ToolError> {
-    scan_resumed(query, paths, cancel, (response_window, terms), None)
+    scan_resumed(
+        query,
+        (paths, crate::security::SourceLimits::REAL),
+        cancel,
+        (response_window, terms),
+        None,
+    )
 }
 
 /// Plan and run the walk (or reuse its stored scan) and prove a cursor
-/// still answers this query. `terms` are the `matchString` entries a
+/// still answers this query, judging each file at `limits`. `terms` are the `matchString` entries a
 /// normalized query joined (see [`local_search_query::term_patterns`]):
 /// a count view counts each. `resumed` is where a PCRE2 search paused by an
 /// earlier window resumes ([`super::super::window::resumed`]).
 pub(crate) fn scan_resumed(
     query: &LocalSearchQuery,
-    paths: &PathPolicy,
+    (paths, limits): (&PathPolicy, crate::security::SourceLimits),
     cancel: &impl CancellationCheck,
     (response_window, terms): (Option<usize>, Option<Vec<String>>),
     resumed: Option<super::super::window::Resumed>,
@@ -85,6 +91,8 @@ pub(crate) fn scan_resumed(
         test_code: keep
             .zip(verdicts.clone())
             .map(|(keep, index)| crate::tools::test_code::text_scope(keep, index)),
+        // Each file is judged at the sizes a read of it is.
+        judge: Some(judge(limits)),
         ..search_options(query, &validated.canonical)
     };
     check_pattern(query)?;

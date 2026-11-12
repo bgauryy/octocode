@@ -12,6 +12,7 @@ mod lookup;
 mod records;
 #[cfg(test)]
 mod validation;
+mod witness_records;
 use lookup::Degrees;
 pub(super) use lookup::{encode_lookup, validate_indexes, validate_lookup};
 #[cfg(test)]

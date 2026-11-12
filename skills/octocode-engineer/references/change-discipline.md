@@ -32,8 +32,8 @@ flowchart LR
 
 ## Delete junk and unify
 
-- Within authorized cleanup scope, use `octocode-clean-agentic-code` for the [removal bars](../../octocode-clean-agentic-code/references/code-smells.md); this skill still owns boundary choice, dependency direction, and verification. A request to review alone does not authorize broad deletion.
-- **Prove removal.** Start with AST or graph candidates, resolve identity and consumers with LSP, then check exports, registries, configuration, scripts, generated consumers, persisted protocols, and external use. Unused imports, stale wrappers, unreachable branches, debug leftovers, and obsolete dependencies are candidates, not automatic deletions. Keep useful diagnostics, compatibility required by a live contract, and tests that expose a failure.
+- Use the removal proof below within authorized cleanup scope. `octocode-clean-agentic-code`, when installed, adds cleanup guidance; this skill owns boundary choice and verification. A review alone does not authorize broad deletion.
+- **Prove removal.** Start with AST or graph candidates found from explicit entry roots, resolve identity and consumers with LSP references excluding the declaration (`includeDeclaration: false`), follow the export and re-export chain, then check registries, configuration, scripts, generated consumers, persisted protocols, and external use; finish with tests and the build. Unused imports, stale wrappers, unreachable branches, debug leftovers, and obsolete dependencies are candidates, not automatic deletions. Keep useful diagnostics, compatibility required by a live contract, and tests that expose a failure.
 - **Prove unification.** Compare semantics, invariants, defaults, errors, lifetime, and change pressure across every site. Similar syntax, names, or type shapes do not prove one responsibility. Preserve distinct domain identities and version boundaries when their meaning differs.
 - **Choose one owner.** Put shared policy in the layer that owns it and direct callers there. Update the existing source of truth and regenerate derived forms; do not introduce a second canonical schema, a generic dumping ground, forwarding aliases, or a permanent parallel implementation.
 - **Complete the migration.** Move consumers in verifiable slices, check each path, then remove redundant code, imports, dependencies, configuration, and links that are proven obsolete. Re-resolve references and inspect the resulting graph for new cycles or widened coupling.
@@ -41,14 +41,14 @@ flowchart LR
 
 ## Verify the slice
 
-- In a selected workflow, use [shared verification](../../octocode-workflows/references/verification.md) to assert loaded artifact identity, update the coverage ledger, and diagnose failures before another change.
+- For runtime checks, verify loaded artifact identity, record coverage and diagnose failures before another change. A selected `octocode-workflows` procedure, when installed, supplies detailed verification and recovery.
 - The first failing assertion fails for the intended reason.
 - Never stub the dependency the test claims to prove.
 - Run the narrowest checks, widen with affected scope, compare with the baseline.
 - Passing assertion text in a non-zero process is a failure.
 - Release acquired resources; preserve generated-code ownership.
 - Optimization: record the metric.
-- Remove dead imports and obsolete code the change created or exposed; fix affected formatting, stale comments, naming drift. Broader cleanup and bookkeeping: [gates](../SKILL.md#gates).
+- Remove dead imports and obsolete code the change created or exposed; fix affected formatting, stale comments, naming drift. Broader cleanup and bookkeeping: [gates](review-method.md#gates).
 
 ## Done
 

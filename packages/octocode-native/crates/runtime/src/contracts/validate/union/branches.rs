@@ -117,7 +117,11 @@ pub(super) fn compatible_fields(
         .keys()
         .filter(|name| forms.iter().any(|(_, maps)| declares(maps, name)))
         .collect::<Vec<_>>();
-    let fit = forms.iter().filter(|(fits, _)| *fits).collect::<Vec<_>>();
+    // A value sending no declared field has chosen no form: each one fits.
+    let fit = forms
+        .iter()
+        .filter(|(fits, _)| *fits || sent.is_empty())
+        .collect::<Vec<_>>();
     let fitting = fit
         .iter()
         .copied()
@@ -136,6 +140,70 @@ pub(super) fn compatible_fields(
     fields.sort();
     fields.dedup();
     Some(fields)
+}
+
+/// Whether `value` is an object that sends no field any form of `branches`
+/// declares: nothing in it chooses a form, so a form that scoring picks
+/// (the one lacking fewest fields) is a guess, not the value's form.
+pub(super) fn chooses_no_form(root: &Value, branches: &[Value], value: &Value) -> bool {
+    value.as_object().is_some_and(|object| {
+        let maps = branches
+            .iter()
+            .flat_map(|branch| alternatives(root, branch))
+            .flat_map(|form| declared(root, form))
+            .collect::<Vec<_>>();
+        !object
+            .keys()
+            .any(|name| maps.iter().any(|declared| declared.contains_key(name)))
+    })
+}
+
+/// The fields each form of `branches` requires, when the forms share none
+/// (`tool` and `query`, or `url`): which of them a value sends is what
+/// chooses its form. A set holding another one is that form plus more, so
+/// only the smaller is named. `None` with fewer than two such sets, a form
+/// requiring nothing, or two sets sharing a field.
+pub(super) fn disjoint_forms(root: &Value, branches: &[Value]) -> Option<Vec<Vec<String>>> {
+    let mut sets: Vec<Vec<String>> = Vec::new();
+    for form in branches
+        .iter()
+        .flat_map(|branch| alternatives(root, branch))
+    {
+        let mut needed = Vec::new();
+        required(root, form, &mut needed);
+        // Declaration order, the order the fields are named in.
+        let mut set: Vec<String> = Vec::new();
+        for field in needed {
+            if !set.iter().any(|known| known == field) {
+                set.push(field.to_owned());
+            }
+        }
+        if set.is_empty() {
+            return None;
+        }
+        if !sets
+            .iter()
+            .any(|known| known.len() == set.len() && known.iter().all(|f| set.contains(f)))
+        {
+            sets.push(set);
+        }
+    }
+    let contains = |outer: &[String], inner: &[String]| inner.iter().all(|f| outer.contains(f));
+    let minimal = sets
+        .iter()
+        .filter(|set| {
+            !sets
+                .iter()
+                .any(|other| other != *set && contains(set, other))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let shared = minimal.iter().enumerate().any(|(index, set)| {
+        minimal[index + 1..]
+            .iter()
+            .any(|other| other.iter().any(|field| set.contains(field)))
+    });
+    (minimal.len() > 1 && !shared).then_some(minimal)
 }
 
 /// The fields that select among `branches`: forms pin each to literals

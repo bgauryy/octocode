@@ -22,6 +22,7 @@ fn a_long_context_retry_is_disclosed_on_the_sections_row() {
             questions: &questions,
             assets: None,
             long_context: LongContext::OnRefusal,
+            companions: 0,
         },
         None,
         &budget,

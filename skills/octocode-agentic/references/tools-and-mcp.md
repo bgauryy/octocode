@@ -5,13 +5,10 @@ Load when designing or auditing a tool, MCP server instructions, tool names, des
 ## Contents
 
 - [Capabilities and triggers](#capabilities-and-triggers)
+- [MCP server design](#mcp-server-design)
 - [Layer owners](#layer-owners)
 - [Instructions, descriptions, names](#instructions-descriptions-names)
 - [Schema and result](#schema-and-result)
-- [Efficient MCP context](#efficient-mcp-context)
-- [MCP wire](#mcp-wire)
-- [Set audit](#set-audit)
-- [MCP server design](#mcp-server-design)
 - [Tool output design](#tool-output-design)
 - [Reference-first responses](#reference-first-responses)
 - [Pagination contract](#pagination-contract)
@@ -19,6 +16,9 @@ Load when designing or auditing a tool, MCP server instructions, tool names, des
 - [Reason-aware invocation](#reason-aware-invocation)
 - [Unified tool contract](#unified-tool-contract)
 - [Skills and progressive disclosure](#skills-and-progressive-disclosure)
+- [Efficient MCP context](#efficient-mcp-context)
+- [MCP wire](#mcp-wire)
+- [Set audit](#set-audit)
 - [Sources](#sources)
 
 ## Capabilities and triggers
@@ -223,7 +223,7 @@ An error should tell the agent whether to retry, change the request, inspect ano
 }
 ```
 
-Separate the **error** (what failed), **cause** (the observable condition), **hint** (a valid next step), **retryability** (is repeating the same call safe) and **evidence** (partial result or diagnostic artifact). Hints are suggestions: a tool must not override the agent's security or task constraints.
+Separate the **error** (what failed), **cause** (the observable condition), **hint** (a valid next step), **retryability** (is repeating the same call safe) and **evidence** (partial result or diagnostic artifact). Hints are suggestions, never authorization ([security](security.md#risks-and-mitigations)): a tool must not override the agent's security or task constraints.
 
 ## Reason-aware invocation
 
@@ -254,7 +254,7 @@ Give each important call a short, structured operational reason: the information
 | `resultStatus` | Success or failure |
 | `nextDecision` | Resulting workflow transition |
 
-- A model-written reason proves neither authorization nor usefulness; enforce authorization independently.
+- A model-written reason proves neither authorization nor usefulness; enforce authorization at execution ([security](security.md#risks-and-mitigations)).
 - Do not demand long rationales for trivial calls: short intent labels suffice, and child calls can inherit the parent task's purpose.
 
 ## Unified tool contract

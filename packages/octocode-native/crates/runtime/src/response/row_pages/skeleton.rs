@@ -83,3 +83,66 @@ pub(super) fn lean_later_context(
         at = format!("{at}/{segment}");
     }
 }
+
+/// Take the walks (`next`) of the objects a split at `pointer` runs through,
+/// below the row's `data` (whose guidance the plan sets aside as a whole),
+/// as (pointer, walk): each such object repeats on every part of the split,
+/// and its walk rides only the last ([`put_walks`]), as the row's own does.
+pub(super) fn take_enclosing_walks(row: &mut Value, pointer: &str) -> Vec<(String, Value)> {
+    let segments = pointer
+        .trim_start_matches('/')
+        .split('/')
+        .collect::<Vec<_>>();
+    let holders = &segments[..segments.len().saturating_sub(1)];
+    let mut walks = Vec::new();
+    let mut at = String::new();
+    let mut node = Some(row);
+    for segment in holders {
+        let Some(current) = node else {
+            break;
+        };
+        let key = crate::json_pointer::unescape(segment);
+        node = match current {
+            Value::Object(map) => map.get_mut(&key),
+            Value::Array(items) => key.parse::<usize>().ok().and_then(|i| items.get_mut(i)),
+            _ => None,
+        };
+        at = format!("{at}/{segment}");
+        if at != "/data"
+            && let Some(map) = node.as_deref_mut().and_then(Value::as_object_mut)
+            && let Some(walk) = map.shift_remove(PAGES_KEY)
+        {
+            walks.push((at.clone(), walk));
+        }
+    }
+    walks
+}
+
+/// Put `walks` back at their pointers in `value` (a part, or the row kept
+/// whole after all). A later string window keeps, of each array on its way,
+/// only the element on the way, so an index past such a one-element array
+/// names that element.
+pub(super) fn put_walks(value: &mut Value, walks: &[(String, Value)]) {
+    for (pointer, walk) in walks {
+        let mut node = Some(&mut *value);
+        for segment in pointer.trim_start_matches('/').split('/') {
+            let key = crate::json_pointer::unescape(segment);
+            node = match node {
+                Some(Value::Object(map)) => map.get_mut(&key),
+                Some(Value::Array(items)) => {
+                    let single = items.len() == 1;
+                    let index = key.parse::<usize>().ok();
+                    match index {
+                        Some(index) if index < items.len() => items.get_mut(index),
+                        Some(_) if single => items.first_mut(),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            };
+        }
+        if let Some(map) = node.and_then(Value::as_object_mut) {
+            map.insert(PAGES_KEY.to_owned(), walk.clone());
+        }
+    }
+}

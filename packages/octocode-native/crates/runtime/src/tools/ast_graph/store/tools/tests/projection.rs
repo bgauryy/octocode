@@ -32,10 +32,16 @@ fn assert_same_evidence(compact: &Value, full: &Value, symbol_file: Option<&Valu
         row.remove("id");
     }
     if plain {
+        // A site row (no node id) keeps its observed span: one line can hold
+        // several sites.
+        if compact.get("id").is_none() && row.get("sourceRange").is_some_and(Value::is_object) {
+            assert_eq!(compact["sourceRange"], row["sourceRange"], "{compact}");
+        } else {
+            row.remove("sourceRange");
+        }
         for field in [
             "occurrenceId",
             "sourceDigest",
-            "sourceRange",
             "sourceOrigin",
             "selectionByteRange",
             "selectionOrigin",

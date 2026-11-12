@@ -66,11 +66,12 @@ fn run_syntax(
             None,
         ));
     };
-    // Node rows expose grammar labels and coordinates, never source text.
-    // Redacting before parsing would move those coordinates and hide source edits.
+    // Node rows expose grammar labels and coordinates, never source text:
+    // the coordinates of the text a read shows, as every view states them,
+    // so no node's extent tells a hidden value's length.
     let cancelled = || cancel.check().is_err();
     let mut maps = super::source::mapping_budget(cancel, &cancelled);
-    let admitted = super::source::admitted(&p.canonical, &bytes, &mut maps)?;
+    let (admitted, _) = super::source::admitted_for_match(&p.canonical, &bytes, &mut maps)?;
     let content = admitted.text();
     let source_snapshot = crate::digest::json_sha256(&json!([
         // Node-row shape version (1-based columns).

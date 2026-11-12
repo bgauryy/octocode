@@ -278,6 +278,7 @@ fn tool_input_reads_a_file_and_rejects_bad_json() {
     let args = super::commands::ToolArgs {
         args: Vec::new(),
         input: Some(path),
+        content_stdin: false,
     };
     assert_eq!(
         super::tool_call::tool_input("localSearch", &args),
@@ -286,6 +287,7 @@ fn tool_input_reads_a_file_and_rejects_bad_json() {
     let bad = super::commands::ToolArgs {
         args: vec!["{".into()],
         input: None,
+        content_stdin: false,
     };
     assert!(
         super::tool_call::tool_input("localSearch", &bad)
@@ -294,11 +296,88 @@ fn tool_input_reads_a_file_and_rejects_bad_json() {
     let missing = super::commands::ToolArgs {
         args: Vec::new(),
         input: None,
+        content_stdin: false,
     };
     assert!(
         super::tool_call::tool_input("localSearch", &missing)
             .is_err_and(|e| e.starts_with("Missing query"))
     );
+}
+
+/// `clasify --content -`: stdin becomes the one row's `content`, byte for
+/// byte; a batch, a cursor, or a row that names its own input is refused
+/// with the conflict named, and stdin cannot carry both the JSON and the text.
+#[test]
+fn content_from_stdin_fills_exactly_one_row_that_names_no_input() {
+    use super::tool_call::{stdin_text, tool_input, with_content};
+    let row = json!({"operation":"evaluate","questions":{"q":{"type":"noul","instructions":"Does a test fail?"}}});
+    let text = "test a ... ok\ntest b ... FAILED\n\u{e9}\n".to_owned();
+    let filled =
+        with_content("clasify", json!({"queries":[row.clone()]}), text.clone()).expect("one row");
+    assert_eq!(filled["queries"][0]["content"], json!(text));
+    assert_eq!(filled["queries"][0]["questions"], row["questions"]);
+    let error = |query: serde_json::Value| {
+        with_content("clasify", query, String::new()).expect_err("refused")
+    };
+    assert!(error(json!({"cursor":"c"})).contains("no queries"));
+    assert!(error(json!({"queries":[row.clone(), row.clone()]})).contains("has 2 rows"));
+    assert!(error(json!({"queries":[]})).contains("has 0 rows"));
+    for field in ["content", "source", "resources"] {
+        let mut named = row.clone();
+        named[field] = json!("x");
+        let message = error(json!({"queries":[named]}));
+        assert!(
+            message.contains(&format!("drop its `{field}`")),
+            "{message}"
+        );
+    }
+    assert_eq!(stdin_text(text.as_bytes()), Ok(text));
+    assert!(stdin_text(&[0xff, 0xfe][..]).is_err_and(|e| e.contains("not UTF-8")));
+    let both = super::commands::ToolArgs {
+        args: Vec::new(),
+        input: Some("-".into()),
+        content_stdin: true,
+    };
+    assert!(tool_input("clasify", &both).is_err_and(|e| e.contains("both read stdin")));
+}
+
+/// The query's own size bound holds once stdin is in it.
+#[test]
+fn content_from_stdin_keeps_the_query_size_bound() {
+    let row = json!({"operation":"evaluate","questions":{"q":{"type":"noul","instructions":"Q?"}}});
+    let limit = usize::try_from(super::commands::MAX_QUERY_BYTES).expect("usize");
+    let refused =
+        super::tool_call::with_content("clasify", json!({"queries":[row]}), "a".repeat(limit));
+    assert!(refused.is_err_and(|e| e.contains("exceeds 8 MiB")));
+}
+
+/// Only clasify takes `--content`, and only `-`; it combines with a JSON
+/// argument or `--input FILE`.
+#[test]
+fn only_clasify_takes_content_from_stdin() {
+    use clap::CommandFactory;
+    let parse = |argv: &[&str]| super::Args::command().try_get_matches_from(argv);
+    let json = r#"{"queries":[{}]}"#;
+    assert!(parse(&["octocode", "clasify", "--content", "-", json]).is_ok());
+    assert!(parse(&["octocode", "clasify", "--content", "-", "--input", "q.json"]).is_ok());
+    assert!(parse(&["octocode", "clasify", "--content", "file.txt", json]).is_err());
+    assert!(parse(&["octocode", "localSearch", "--content", "-", json]).is_err());
+    let Ok(super::Args {
+        command: Command::Tool(tool),
+        ..
+    }) = parse_args_from(["octocode", "clasify", "--content", "-", json])
+    else {
+        panic!("clasify call");
+    };
+    assert!(tool.args.content_stdin);
+    let Ok(super::Args {
+        command: Command::Tool(tool),
+        ..
+    }) = parse_args_from(["octocode", "clasify", json])
+    else {
+        panic!("clasify call");
+    };
+    assert!(!tool.args.content_stdin);
 }
 
 /// B75: no surface sets a request budget, so a cold language-server request

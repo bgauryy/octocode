@@ -21,6 +21,11 @@ struct Binding {
     /// name by keyword: no text outside `scope` can name it
     /// ([`Bindings::local_scope`]).
     local: bool,
+    /// A bare call of the name, where this binding is the innermost visible
+    /// one, calls this binding's value: a parameter, or a variable bound
+    /// inside a callable ([`Bindings::calls_local`]). A C/C++ declarator that
+    /// declares a function (a block-scope prototype) binds no value.
+    called_value: bool,
 }
 
 #[derive(Default)]
@@ -80,12 +85,14 @@ impl Bindings {
             }
             if let Some((fields, parameter)) = binding_fields(adapter, node.kind()) {
                 let scope = binding_scope(node, adapter, parameter, scopes);
-                let local = !(parameter && adapter.keyword_arguments()) && is_local(scope, scopes);
+                let in_callable = is_local(scope, scopes);
+                let local = !(parameter && adapter.keyword_arguments()) && in_callable;
                 for field in fields {
                     let mut children = node.walk();
                     for pattern in node.children_by_field_name(field, &mut children) {
-                        let mut patterns = vec![pattern];
-                        while let Some(part) = patterns.pop() {
+                        // Each part, and whether a function declarator names it.
+                        let mut patterns = vec![(pattern, false)];
+                        while let Some((part, declares_function)) = patterns.pop() {
                             if Instant::now() >= deadline || crate::deep_stack::job_cancelled() {
                                 return result;
                             }
@@ -103,6 +110,8 @@ impl Bindings {
                                                 node, part, scope, adapter, parameter,
                                             ),
                                             local,
+                                            called_value: (parameter || in_callable)
+                                                && !declares_function,
                                         },
                                     );
                                 }
@@ -119,10 +128,26 @@ impl Bindings {
                                     .or_else(|| part.child_by_field_name("declarator"))
                                     .or_else(|| part.child_by_field_name("name"))
                                 {
-                                    patterns.push(left);
+                                    // `int f(void);` declares a function `f`;
+                                    // `int (*f)(void)` a pointer to one.
+                                    let function = part.kind() == "function_declarator"
+                                        && left.kind() != "parenthesized_declarator";
+                                    patterns.push((left, declares_function || function));
                                 } else {
+                                    // A pattern's written type (`x: T` in a
+                                    // Python parameter, `Wrapper(x)` in a Rust
+                                    // tuple-struct pattern) binds no name.
                                     let mut pattern_cursor = part.walk();
-                                    patterns.extend(part.named_children(&mut pattern_cursor));
+                                    patterns.extend(
+                                        part.named_children(&mut pattern_cursor)
+                                            .enumerate()
+                                            .filter(|(index, _)| {
+                                                part.field_name_for_named_child(saturating_u32(
+                                                    *index,
+                                                )) != Some("type")
+                                            })
+                                            .map(|(_, child)| (child, declares_function)),
+                                    );
                                 }
                             }
                         }
@@ -182,6 +207,14 @@ impl Bindings {
             Resolved::Bound(binding) if binding.local => Some(binding.scope.clone()),
             _ => None,
         }
+    }
+
+    /// Whether a bare call of `name` at byte `at` calls a binding in scope (a
+    /// parameter, or a variable bound inside a callable) rather than a
+    /// declaration of that name: `false` when the name is unbound there, the
+    /// innermost binding declares a function, or this reading cannot tell.
+    pub(crate) fn calls_local(&self, name: &str, at: usize) -> bool {
+        matches!(self.resolved(name, at), Resolved::Bound(binding) if binding.called_value)
     }
 
     pub(crate) fn assess(&self, root_name: &str, at: usize) -> GraphArgumentBinding {

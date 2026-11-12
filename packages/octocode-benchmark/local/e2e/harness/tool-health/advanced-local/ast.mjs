@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { captureText, declarations } from '../../responses.mjs';
+import { captureText, declarations, sourceView } from '../../responses.mjs';
 import { equal, orderedEqual, files, fixturePath, matches, relative, scenario, sourceText } from './helpers.mjs';
 
 const model = fixturePath('code/model.ts');
@@ -87,10 +87,15 @@ async function treeSourceCoordinates(ctx, surface, checks) {
       && plainNodes.every(row => Object.keys(row).join() === 'node')
       && plain.data.every(data => !Object.hasOwn(data, 'sourceEvidence')), JSON.stringify(plainNodes)]);
     checks.push([`ast.tree-plain.no-source-token.${surface}`, !JSON.stringify(plain.responses).includes(token), 'Syntax rows expose grammar labels and coordinates only.']);
+    // The file holds a hidden value: astSearch matches, numbers and digests the
+    // text a read shows (placeholders as themselves), so coordinates count that text.
+    const read = await scenario(ctx, 'localFetch', surface, { label: 'ast.tree-source-shown', query: { path: relativePath }, checks });
+    const shown = read.data.map(data => sourceView(data).text).join('');
+    checks.push([`ast.tree-source-coordinates.hidden-value.${surface}`, shown !== source && !shown.includes(token) && shown.includes(declaration), shown]);
     const functions = nodes.filter(row => row.node?.split(' ')[1].split(':').at(-1) === 'function_declaration');
-    const startByte = Buffer.byteLength(source.slice(0, source.indexOf(declaration)));
+    const startByte = Buffer.byteLength(shown.slice(0, shown.indexOf(declaration)));
     equal(checks, `ast.tree-source-coordinates.function.${surface}`, functions.map(row => row.sourceRange), [{ startByte, endByte: startByte + Buffer.byteLength(declaration) }]);
-    checks.push([`ast.tree-source-coordinates.all-nodes.${surface}`, nodes.length > 0 && nodes.every(row => nodeRangeMatchesSource(row, source.split('\n'))), JSON.stringify(nodes)]);
+    checks.push([`ast.tree-source-coordinates.all-nodes.${surface}`, nodes.length > 0 && nodes.every(row => nodeRangeMatchesSource(row, shown.split('\n'))), JSON.stringify(nodes)]);
     checks.push([`ast.tree-source-coordinates.no-source-token.${surface}`, !JSON.stringify(tree.responses).includes(token), 'Syntax rows expose grammar labels and coordinates only.']);
   } finally {
     fs.rmSync(file);

@@ -33,6 +33,12 @@ pub(crate) struct EvaluationInput<'a> {
     pub questions: &'a [Value],
     pub assets: Option<&'a Value>,
     pub(crate) long_context: LongContext,
+    /// The last `companions` of `questions` ride only in a grouped request:
+    /// when the provider's window splits the questions into single requests,
+    /// they are dropped instead of sent alone, so they never add a request.
+    /// A dropped or malformed companion has no answer (`null`); it never
+    /// fails the evaluation.
+    pub(crate) companions: usize,
 }
 
 /// The provider's long-context window, which it documents as slower and less
@@ -58,6 +64,11 @@ impl LongContext {
 }
 
 impl EvaluationInput<'_> {
+    /// The questions the caller asked, without the companions.
+    pub(super) fn asked(&self) -> &[Value] {
+        &self.questions[..self.questions.len().saturating_sub(self.companions)]
+    }
+
     pub(super) fn images(&self) -> bool {
         self.assets.is_some()
             || self
@@ -136,6 +147,9 @@ pub(crate) struct LongContextRetry {
     /// The long window's requests that reported no usage: their tokens are
     /// unknown, not zero.
     pub unreported_calls: u64,
+    /// Of the evaluation's requests (`provider_calls`), those the default
+    /// window refused as too large before the retry.
+    pub refused_calls: u64,
 }
 
 /// Per-question results retain successful siblings when another request fails.
@@ -298,7 +312,7 @@ impl Evaluator {
     ) -> QuestionOutcomes {
         match self.evaluate_shared(input, model, budget, gate).await {
             Ok(outcomes) => outcomes,
-            Err(error) => QuestionOutcomes::from_complete(Err(error), input.questions.len()),
+            Err(error) => QuestionOutcomes::from_complete(Err(error), input.asked().len()),
         }
     }
 

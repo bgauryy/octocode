@@ -22,6 +22,23 @@ fn graphql_bot_authors_get_the_rest_bot_suffix() {
     );
 }
 
+/// One comment rule on both paths: a GraphQL discussion comment states
+/// when it was edited as a REST one does (`updatedAt` only when it differs
+/// from `createdAt`).
+#[test]
+fn graphql_comments_state_an_edit_as_rest_ones_do() {
+    let pr = serde_json::json!({"commentsConn": {"nodes": [
+        {"databaseId": 1, "author": {"login": "dev"}, "body": "edited",
+            "createdAt": "2024-01-01T00:00:00Z", "updatedAt": "2024-01-02T00:00:00Z"},
+        {"databaseId": 2, "author": {"login": "dev"}, "body": "as written",
+            "createdAt": "2024-01-01T00:00:00Z", "updatedAt": "2024-01-01T00:00:00Z"}
+    ]}});
+    let rows =
+        crate::tools::gh_get_history_item::util::map_comments(super::map_graphql_comments(&pr));
+    assert_eq!(rows[0]["updatedAt"], "2024-01-02T00:00:00Z", "{rows:?}");
+    assert!(rows[1].get("updatedAt").is_none(), "{rows:?}");
+}
+
 use super::*;
 
 /// Fields and arguments `document` selects that the GitHub schema

@@ -39,6 +39,9 @@ impl<M: Matcher> CollectSink<'_, M> {
         let mut windows: Vec<Window> = Vec::new();
         self.matcher
             .find_iter(bytes, |found| {
+                if super::past_block_end(bytes, found) {
+                    return true;
+                }
                 let start = columns.lossy(found.start()).min(text.len());
                 let end = columns.lossy(found.end()).min(text.len());
                 let from = text.floor_char_boundary(start.saturating_sub(margin));

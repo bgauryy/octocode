@@ -17,7 +17,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         regex: concat!(
             r###"-----BEGIN\s+(?:(?:RSA|DSA|EC|OPENSSH|ENCRYPTED)\s+)?PRIVATE\s+KEY(?:\s+BLOCK)?-----[ \t]*(?:\r?\n)?"###,
             armor_headers!(),
-            r###"(?P<secret>(?:-{0,4}[^-])*?)(?:\r?\n)?[ \t]*-----END\s+(?:(?:RSA|DSA|EC|OPENSSH|ENCRYPTED)\s+)?PRIVATE\s+KEY(?:\s+BLOCK)?-----"###,
+            r###"[ \t]*(?P<secret>(?:-{0,4}[^-])*?)(?:\r?\n)?[ \t]*-----END\s+(?:(?:RSA|DSA|EC|OPENSSH|ENCRYPTED)\s+)?PRIVATE\s+KEY(?:\s+BLOCK)?-----"###,
         ),
     },
     SecretPattern {
@@ -30,7 +30,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         regex: concat!(
             r###"-----BEGIN\s+PGP\s+PRIVATE\s+KEY\s+BLOCK-----[ \t]*(?:\r?\n)?"###,
             armor_headers!(),
-            r###"(?P<secret>(?:-{0,4}[^-])*?)(?:\r?\n)?[ \t]*-----END\s+PGP\s+PRIVATE\s+KEY\s+BLOCK-----"###,
+            r###"[ \t]*(?P<secret>(?:-{0,4}[^-])*?)(?:\r?\n)?[ \t]*-----END\s+PGP\s+PRIVATE\s+KEY\s+BLOCK-----"###,
         ),
     },
     SecretPattern {

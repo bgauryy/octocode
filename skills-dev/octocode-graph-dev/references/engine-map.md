@@ -51,6 +51,6 @@ Bump the one whose cached data the change makes wrong; a bump forces a rebuild, 
 - the interpreter's `sys.stdlib_module_names`: the script refuses a `python3` off the `PINNED_PYTHON` line (`--python PATH` picks another interpreter);
 - typeshed `stdlib/VERSIONS` at the commit `TYPESHED_REF`, never `main`.
 
-To move a pin, change the constant, run the script, and commit the regenerated file. `node --test scripts/gen-python-stdlib.test.mjs` covers the header and the refusal.
+To move a pin, change the constant, run the script, and include the regenerated file in the reviewable change. `node --test scripts/gen-python-stdlib.test.mjs` covers the header and the refusal.
 
 Tests compare against these constants, never a copied number, so a bump needs no test edits; a test that pins a literal version is a defect.

@@ -300,8 +300,9 @@ fn plan_4_typed_this_field_calls_are_member_calls_not_local_matches() {
     );
 }
 
-/// A function taken as a value has no call site, so a ratio of 1.0 over the
-/// sites there are says nothing of it. graphQuery's description states
+/// A function taken as a value (other than as an argument, which yields a
+/// `passes` edge) has no call site, so a ratio of 1.0 over the sites there
+/// are says nothing of it. graphQuery's description states
 /// that once; graphBuild, stats and coverage do not repeat it.
 #[test]
 fn a_full_ratio_caveat_lives_in_the_description_not_in_every_answer() {
@@ -323,7 +324,7 @@ fn a_full_ratio_caveat_lives_in_the_description_not_in_every_answer() {
         .map(|tool| tool["mcp"]["description"].to_string())
         .unwrap_or_default();
     assert!(
-        description.contains("a function used as a value has no edge"),
+        description.contains("other value uses, such as assignment or return, yield none"),
         "{description}"
     );
     let built = ingest_fixture(dir.0.as_path(), None);

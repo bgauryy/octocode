@@ -3,8 +3,11 @@ use super::*;
 
 mod health;
 mod liveness;
+mod mention_tiers;
 mod module_roots;
+mod ranking;
 mod scope_notes;
+mod scores;
 
 /// One fixture per edge class a cycle can run through: a runtime import
 /// loop, a type-only one, one closed by a dynamic `import()`, one closed by

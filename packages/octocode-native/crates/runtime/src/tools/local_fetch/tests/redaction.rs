@@ -246,7 +246,9 @@ fn security_limit_is_terminal_but_offers_a_bounded_line_read() {
 }
 
 /// A Secret's block spans lines, and its placeholder sits on the first: a range
-/// inside the block shows blank lines the source has content on, and says so.
+/// inside the block shows only the indentation of lines the source has
+/// content on (a redaction keeps its lines' layout, never their text), and
+/// says so.
 #[test]
 fn a_range_of_blanked_lines_warns_once() {
     let t = Fixture::new();
@@ -278,7 +280,19 @@ fn a_range_of_blanked_lines_warns_once() {
             .count()
     };
     let blanked = read(5, 6);
-    assert_eq!(blanked.content.as_deref(), Some("\n\n"), "{blanked:?}");
+    assert_eq!(
+        blanked.content.as_deref(),
+        Some("    \n    \n"),
+        "{blanked:?}"
+    );
+    assert!(
+        !blanked
+            .content
+            .as_deref()
+            .unwrap_or_default()
+            .contains(fake),
+        "{blanked:?}"
+    );
     assert_eq!(noted(&blanked.warnings), 1, "{:?}", blanked.warnings);
     // A range around the block's end, with text kept beside the blank lines.
     assert_eq!(noted(&read(6, 8).warnings), 1);

@@ -188,6 +188,27 @@ impl JudgedText {
         }
     }
 
+    /// This source as a read shows it, judged as itself: its text is the text
+    /// the pass made (each replaced run its placeholder, line breaks kept),
+    /// positions count that text, and each placeholder is a run the pass
+    /// replaced, shown as itself. What a tool whose positions count the shown
+    /// text (astSearch, which matches it) cuts its rows from.
+    pub(crate) fn as_shown(&self) -> Self {
+        let Some((clean, edits, _)) = &self.redacted else {
+            return Self::judged_as(&self.raw, &self.path, None);
+        };
+        let placeholders = Edits::of_pass(edits.outputs().map(|at| {
+            let len = at.len();
+            (at, len)
+        }));
+        Self {
+            path: self.path.clone(),
+            raw_lines: LineStarts::of(clean),
+            raw: clean.clone(),
+            redacted: Some((clean.clone(), placeholders, Some(LineStarts::of(clean)))),
+        }
+    }
+
     /// Bytes this judgment holds, for a store that keeps it.
     pub(crate) fn weight(&self) -> usize {
         let starts = |lines: &LineStarts| lines.0.len() * std::mem::size_of::<usize>();
@@ -392,9 +413,20 @@ impl JudgedText {
         let on_line = self.line_span(line, 1)?;
         let head = self.raw.get(on_line.clone())?;
         if let Some(column) = column {
+            // The bytes there are the fragment, or differ from it only in
+            // bytes the pass replaced (a name matched as a placeholder's
+            // letters): the cut shows those as the placeholder.
             let held = |start: usize| {
                 let at = on_line.start + start..on_line.start + start + text.len();
-                (self.raw.get(at.clone()) == Some(text)).then_some(at)
+                let own = self.raw.get(at.clone())?;
+                let hidden_only = || {
+                    own.bytes()
+                        .zip(text.bytes())
+                        .enumerate()
+                        .filter(|(_, (own, shown))| own != shown)
+                        .all(|(index, _)| self.exposes(&(at.start + index..at.start + index + 1)))
+                };
+                (own == text || hidden_only()).then_some(at)
             };
             return column_starts(head, column)
                 .into_iter()
@@ -461,46 +493,55 @@ impl JudgedText {
     }
 }
 
-/// What a text search matches of a file whose bytes are `bytes`, judged
-/// whole at `path` as a read of it is: `None` when the pass replaced
-/// nothing, so the bytes are searched as they are. Otherwise every line the
-/// pass replaced any byte of is the line as a read serves it, and every
-/// other line keeps its own bytes and terminator, so a hit's line, and its
-/// column on a line the pass left whole, are the file's. A hit is then never
-/// made by bytes a read withholds, nor by what is around them (a lookaround,
-/// a word boundary), and a search for a placeholder finds it where a read
-/// shows it. A search reads a file up to its first NUL: only that text is
-/// judged, and the bytes from it on follow unchanged.
+/// What a text search matches of a file whose bytes are `bytes`: `None`
+/// when `judge` replaced nothing of its text, so the bytes are searched as
+/// they are. `judge` judges the source's text whole, as a read of it is, and
+/// is given that text as a row's whole-source check reads it (each line
+/// decoded alone, its line break dropped, the lines joined by `\n`), so one
+/// kept pass of that text serves both. Otherwise every line the pass
+/// replaced any byte of is the line as a read serves it, and every other
+/// line keeps its own bytes and terminator, so a hit's line, and its column
+/// on a line the pass left whole, are the file's. A hit is then never made by
+/// bytes a read withholds, nor by what is around them (a lookaround, a word
+/// boundary), and a search for a placeholder finds it where a read shows it.
+/// A search reads a file up to its first NUL: only that text is judged, and
+/// the bytes from it on follow unchanged.
 pub(crate) fn searched_text(
     bytes: &[u8],
-    path: &Path,
-    security: &ContentSecurity,
+    judge: impl FnOnce(&str) -> JudgedText,
 ) -> Option<Vec<u8>> {
     let end = memchr::memchr(0, bytes).unwrap_or(bytes.len());
     let (head, tail) = bytes.split_at(end);
-    let decoded = octocode_engine::text::decode(head);
-    let pass = JudgedText::pass(&decoded.text, path, security)?;
-    let judged = JudgedText::judged_as(&decoded.text, path, Some((&pass.clean, &pass.edits)));
-    let raw = judged.raw();
-    // A line's own bytes are its decoded text's when decoding kept the line
-    // breaks byte for byte (not UTF-16); a UTF-8 byte-order mark is no text.
-    let breaks = |text: &[u8]| memchr::memchr_iter(b'\n', text).count();
-    let own = &head[octocode_engine::text::bom_len(head)..];
-    let own = if octocode_engine::text::has_utf16_bom(head) || breaks(own) != breaks(raw.as_bytes())
-    {
-        raw.as_bytes()
-    } else {
-        own
+    // Each source line's own bytes, and its text: a UTF-16 source's lines are
+    // its decoded text's.
+    let decoded = octocode_engine::text::has_utf16_bom(head)
+        .then(|| octocode_engine::text::decode(head).text.into_owned());
+    let own: Vec<&[u8]> = match &decoded {
+        Some(text) => text.as_bytes().split_inclusive(|byte| *byte == b'\n').collect(),
+        None => head.split_inclusive(|byte| *byte == b'\n').collect(),
     };
-    let mut out = Vec::with_capacity(own.len() + tail.len());
+    let lines: Vec<std::borrow::Cow<'_, str>> = own
+        .iter()
+        .map(|line| match octocode_engine::text::Decoded::interior(line).text {
+            std::borrow::Cow::Borrowed(text) => {
+                std::borrow::Cow::Borrowed(text.trim_end_matches(['\n', '\r']))
+            }
+            std::borrow::Cow::Owned(text) => {
+                std::borrow::Cow::Owned(text.trim_end_matches(['\n', '\r']).to_owned())
+            }
+        })
+        .collect();
+    let judged = judge(&lines.join("\n"));
+    if !judged.is_redacted() {
+        return None;
+    }
+    let mut out = Vec::with_capacity(head.len() + tail.len());
     let mut at = 0;
-    for ((index, line), own_line) in raw
-        .split_inclusive('\n')
-        .enumerate()
-        .zip(own.split_inclusive(|byte| *byte == b'\n'))
-    {
-        let range = at..at + line.len();
-        at = range.end;
+    for (index, (line, own_line)) in lines.iter().zip(&own).enumerate() {
+        // A line and the break after it: a pass that replaced only the break
+        // changed the line too.
+        let range = at..(at + line.len() + 1).min(judged.raw().len());
+        at += line.len() + 1;
         if !judged.exposes(&range) {
             out.extend_from_slice(own_line);
             continue;

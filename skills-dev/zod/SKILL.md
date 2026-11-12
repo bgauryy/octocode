@@ -35,6 +35,7 @@ Decide which unknown keys to strip (`object`), reject (`strictObject`) or preser
 | Placement or evolution | [Boundary architecture](references/boundary-architecture.md); [parsing](rules/arch-boundary-parsing.md), [organization](rules/arch-schema-organization.md), [versioning](rules/arch-schema-versioning.md) | One boundary owner |
 | Composition or bundle cost | [Shape spread](rules/perf-extend-spread.md), [reuse](rules/perf-reuse-schemas.md), [Mini](rules/perf-zod-mini.md) | Measure the relevant cost |
 | Recurring mistakes or v3 migration | [Anti-patterns](references/anti-patterns.md) | Symptom → repair |
-| Enforcement or tests | [Lint/CI](references/linter-and-ci.md), [testing](references/testing.md) | Assertions, fixtures and integration |
+| Enforcement or test design | [Lint/CI](references/linter-and-ci.md), [testing](references/testing.md) | Pipeline gates or case selection |
+| Assertion/fixture examples or weak-test review | [Test API](references/testing-api.md), [test anti-patterns](references/testing-anti-patterns.md) | Read only the matching example or failure pattern |
 
 Use `octocode-research` for unresolved source behavior, `octocode-engineer` for boundary design, and `octocode-dev` for Octocode’s generated contracts and checks. Follow [output.md](output.md) for delivery.

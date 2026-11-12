@@ -1,81 +1,47 @@
-Load when you design a struct/enum/trait, choose a primitive or smart pointer, port an OO object model, or need a named pattern. Why: the type shape fixes which states are representable and what every caller pays. Layout in memory: `references/performance-and-memory.md`. JS side of a napi type: `references/napi.md`.
+# Types, traits and representations
 
-# Types and patterns
+Load for structs, enums, smart pointers, generics or API patterns. Start from the states and operations callers actually need; avoid translating an object model mechanically.
 
-## Objects
-- Object = `struct` + `impl` + traits. Compose structs; share behavior with traits and default methods. `Deref` is not an inheritance tool (anti-patterns below).
-- Constructors are functions: `new` (infallible), `try_new`/`parse` → `Result`, `with_capacity`/`from_x`, `Default` (over a hand-written `new()` when fields have obvious zeros). Big optional config → `Config { a, ..Default::default() }`.
-- Private fields + validating constructor keep the invariant ("parse, don't validate"). Public fields only for plain data with no invariant; then skip getter/setter pairs.
-- Getters take the field name (`fn name(&self) -> &str`), no `get_`.
-- Weakest receiver: `&self` read, `&mut self` mutate, `self` consume (builders, `into_*`).
+## Choose the representation
 
-## Pick the shape
-| Modeling | Use | Not |
+| Need | Candidate | Tradeoff to check |
 |---|---|---|
-| One of several states with own data | `enum` with data + `match` | struct of `Option`s + `kind: String` |
-| An ambiguous yes/no argument at a call site | two-variant `enum` (`Overwrite::Yes`) | positional `bool` such as `f(true, false)`; a clearly named setter can keep `bool` |
-| Id, unit, validated string | newtype `struct UserId(NonZeroU32)` / `struct Email(String)` | bare `u32`/`String` |
-| Maybe absent | `Option<T>` | sentinel `-1`/`""`; undocumented `Option<Option<T>>` |
-| Tri-state | 3-variant enum | `Option<bool>` |
-| Growable public type | `#[non_exhaustive]` | exhaustive type you must extend later |
+| Mutually exclusive states with distinct data | Enum with data and exhaustive matching | Avoid invalid combinations of flags/optional fields. |
+| An identifier, unit or validated value | Newtype with private fields and a validating constructor | Do not imply validation that the constructor does not perform. |
+| Absence | `Option<T>` | Model distinct absence reasons explicitly when callers need them. |
+| Tri-state or an ambiguous positional flag | Purpose-named enum | A clearly named boolean field/setter may already be sufficient. |
+| Fixed behavior chosen at compile time | Concrete type, generic or `impl Trait` | Monomorphization can increase compile time and code size. |
+| Runtime heterogeneity or open extension | Dyn-compatible trait object | Dispatch/ownership costs versus extension needs. |
+| Closed set of behaviors | Enum dispatch | Adding variants can break exhaustive downstream code. |
+| Complex construction with optional inputs | Config struct or builder | Use typestate only when compile-time transitions justify complexity. |
+| Public type expected to grow | Consider `#[non_exhaustive]` before publication | This changes how downstream users construct and match it. |
 
-## Primitives
-- Index/length `usize`; stored ids/offsets in big collections `u32`. Money: integer minor units or `rust_decimal`, never `f64`.
-- Floats: sort with `f64::total_cmp`; no `Eq`/`Hash` on float fields.
-- Paths `PathBuf`/`&Path`; OS text `OsString`; bytes `Vec<u8>`/`&[u8]`; time `Duration`/`Instant`, wall clock via `jiff`/`time`.
-- `From` when lossless and infallible, else `TryFrom`. Never `as` to narrow untrusted values (`u32::try_from(x)?`).
+Keep fields private when methods enforce invariants. Plain data may have public fields. Constructors may return `Result`; do not invent a meaningless `Default` merely to derive it. Select receivers by semantics: `&self` reads, `&mut self` mutates and `self` consumes.
 
-## Generics, `impl Trait`, `dyn`
-- Argument: `impl AsRef<Path>` / `impl Into<String>`; generic `<T: Trait>` when the type is named twice or stored.
-- Return: `impl Iterator<Item = T>`; `Box<dyn Trait>` only for a runtime-chosen or heterogeneous value.
-- An `async fn` in a trait is not dyn-compatible on stable. Use it on a generic or `impl Trait` bound. `Box<dyn Trait>` stays a sync plugin slot. Native async-fn trait objects are an unshipped language goal ([traits](https://doc.rust-lang.org/reference/items/traits.html), [goal](https://rust-lang.github.io/goals/2026/afidt-box.html)).
-- Associated type when one natural choice per impl (`Iterator::Item`); generic param when many impls per type (`From<T>`).
-- Small, purpose-named traits. Extension trait instead of growing a foreign trait. Blanket impls only on traits you own.
-- Derive `Debug` on nearly everything; where valid also `Clone, Copy (small, no heap), PartialEq, Eq, Hash, PartialOrd, Ord, Default`; serde derives behind a feature in libraries.
+## Primitive choices
 
-## Smart pointers & interior mutability
-| Need | Use |
+- Use `usize` for in-memory indexing. For persistent or wire values, follow the contract's width/range and convert with `TryFrom`; do not assume a collection fits `u32` without enforcing that invariant.
+- Use `Path`/`PathBuf` and `OsStr`/`OsString` for OS paths/text. Use byte slices for bytes and convert to text only with a defined encoding policy.
+- Use `Instant` for elapsed time, `Duration` for intervals and a wall-clock type for timestamps. Money needs defined units, rounding and overflow behavior; binary floats are rarely an appropriate exact representation.
+- For floats, choose NaN and equality semantics explicitly. `total_cmp` provides total sorting; approximate equality requires an application-specific tolerance. `Eq`/`Hash` wrappers need a compatible documented policy.
+- Derive traits only when their semantics fit. `Copy` is a public commitment and can be expensive for large values. Preserve equality/hash consistency and keep secrets out of `Debug`.
+
+## Traits and pointers
+
+- Keep traits cohesive. Use associated types for one natural choice per implementation and type parameters when multiple implementations are intended. Respect coherence/orphan rules; prefer extension traits for foreign types.
+- Native `async fn` trait methods are not dyn-compatible on the documented stable baseline. A dyn-compatible method returning a boxed future, or an established macro, can support async dynamic dispatch. Check its allocation, `Send` and lifetime contract; do not conclude that async plugin APIs are impossible.
+- Seal a public trait only when downstream implementations must be forbidden. Exposing a dependency type is a deliberate compatibility coupling, not automatically a defect.
+
+| Ownership/access | Starting point |
 |---|---|
-| Heap/recursive/large, single owner | `Box<T>` |
-| Shared read-only, one / many threads | `Rc<T>` / `Arc<T>` (`Arc<str>`, `Arc<[T]>`) |
-| Mutate through `&`, one thread | `Cell<T>` (Copy) / `RefCell<T>` (runtime check, panics on misuse) |
-| Shared mutable across threads | `Mutex<T>` / `RwLock<T>` / atomics, or a channel |
-| Init once | `OnceLock<T>` / `LazyLock<T>`, not `static mut` (edition 2024 denies references to it) |
+| One owner, recursive or heap-resident data | `Box<T>` |
+| Shared ownership on one thread | `Rc<T>` |
+| Shared ownership across threads | `Arc<T>` when `T` satisfies the required auto traits |
+| Interior mutation on one thread | `Cell` or `RefCell`; dynamic borrow conflicts can panic |
+| Shared mutable state | Mutex, RwLock, channel or atomics according to the access invariant |
+| Initialization once | `OnceLock`/`LazyLock` if available at the MSRV |
+| Non-owning back-edge | `Weak`, or an index/handle with invalidation rules |
 
-Lifetimes in structs (`struct View<'a> { s: &'a str }`) suit short-lived views and parsers; long-lived owners hold owned data or `Arc`.
+Prefer composition. `Deref` is for pointer-like behavior, not simulated inheritance. Avoid adding traits, generic parameters or wrappers with no demonstrated caller need. Tie cleanup to an owned guard where possible; async cleanup still needs explicit completion.
 
-## Named patterns (Rust-native, not GoF-transliterated)
-| Intent | Pattern | Replaces |
-|--------|---------|----------|
-| Illegal states fail to compile | **Typestate** (state as a type param) | runtime `is_open` flags |
-| Complex/optional-field value | **Builder** (`#[must_use]`, `build() -> Result<T>`) | telescoping constructors, many `Option` params |
-| Cleanup tied to scope | **RAII guard** (work in `Drop`) | manual `close()`/defer |
-| Closed set of behaviors | **Enum dispatch** + `match` | `Box<dyn Trait>` for a fixed set |
-| Open, plugin-style set | **Trait objects** `Box<dyn Trait>` / generics | inheritance |
-| Public trait you may extend | **Sealed trait** (private supertrait) | unversioned public trait |
-| Borrow-or-own return | **`Cow<'_, T>`** | always allocate |
-
-- Typestate: `Request<Draft>` vs `Request<Sent>`; methods exist only on the allowed state. Costs type params; use it when transitions are safety-critical.
-- Enum dispatch: no vtable, exhaustive `match`, inlinable. `enum_dispatch` gives trait ergonomics with enum performance.
-- RAII: return the guard so the resource lives as long as the binding. `Drop` is not `async`; use explicit shutdown for critical async cleanup.
-- Also: functional core, imperative shell; parse, don't validate; extension traits for foreign types.
-
-| Classic (GoF/OO) | Rust form |
-|---|---|
-| Strategy | generic `<S: Strategy>` or `impl Fn(..)`; `Box<dyn Fn>` if chosen at runtime |
-| State | typestate (compile time) or `enum` + `match` (runtime) |
-| Command | `enum Command { … }` + one `apply` fn |
-| Visitor | `match` over an enum; a `Visit` trait with default methods for big ASTs (oxc/syn) |
-| Observer / event bus | channels (`mpsc`, `broadcast`), not stored callbacks with shared borrows |
-| Actor | task + handle + bounded channel (`references/idioms.md`) | an actor framework |
-| Singleton, global mutable state | pass a context struct (globals defeat test isolation); `OnceLock`/`LazyLock` only for global immutable state |
-| Decorator / middleware | wrapper implementing the same trait (tower `Layer`/`Service`) |
-| Dependency injection | constructor takes `impl Trait`/generic; tests pass a fake |
-| Factory / template method | associated fn or `FromStr` / trait with default methods |
-
-## Anti-patterns
-- `Rc<RefCell<T>>` graphs (often from an OO port) → index storage (`Vec<Node>` + `u32` ids, `slotmap`, `petgraph`) or `Arc` + message passing. `Rc` cycles leak; break back-edges with `Weak`.
-- God struct with all-`pub` fields plus accessors → split by responsibility.
-- Traits with one impl, generic params nobody varies → concrete until a second use.
-- **Deref polymorphism.** `Deref` and `DerefMut` are for pointer types (`Box`, `Rc`, `Arc`, a smart-pointer newtype). Implementing them so one struct inherits another's methods makes the conversion implicit, traits do not follow, and method resolution changes `self`'s type. Compose, or write the forwarding method. [Deref polymorphism](https://rust-unofficial.github.io/patterns/anti_patterns/deref.html).
-- **`#![deny(warnings)]` at the crate root.** A later rustc warning then fails the build. The manifest floor replaces it (`references/workspace.md`).
+Sources: [API Guidelines: type safety](https://rust-lang.github.io/api-guidelines/type-safety.html), [future proofing](https://rust-lang.github.io/api-guidelines/future-proofing.html), [Reference: dyn compatibility](https://doc.rust-lang.org/reference/items/traits.html#dyn-compatibility), [Arc](https://doc.rust-lang.org/std/sync/struct.Arc.html).

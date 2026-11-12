@@ -78,6 +78,7 @@ impl FragmentArena {
                             end: index,
                         },
                         evidence,
+                        walks: Vec::new(),
                     },
                     chars,
                 ));
@@ -122,6 +123,7 @@ impl FragmentArena {
                         end: sizes.len(),
                     },
                     evidence,
+                    walks: Vec::new(),
                 },
                 chars,
             ));

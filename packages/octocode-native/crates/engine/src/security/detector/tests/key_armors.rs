@@ -164,3 +164,50 @@ fn a_keys_header_lines_and_public_half_read_as_written() {
         assert!(shown.ends_with(&format!("{close}\n")), "{shown}");
     }
 }
+
+/// An indented armored block (a YAML literal, a heredoc, a string in code)
+/// keeps its indentation: only the key text is hidden, so the placeholder
+/// sits where the body's first characters did, never at column 0.
+#[test]
+fn an_indented_armor_body_keeps_its_indentation() {
+    for (open, close) in [
+        ("-----BEGIN RSA PRIVATE KEY-----", "-----END RSA PRIVATE KEY-----"),
+        ("-----BEGIN EC PRIVATE KEY-----", "-----END EC PRIVATE KEY-----"),
+        ("-----BEGIN PRIVATE KEY-----", "-----END PRIVATE KEY-----"),
+        (
+            "-----BEGIN OPENSSH PRIVATE KEY-----",
+            "-----END OPENSSH PRIVATE KEY-----",
+        ),
+        (
+            "-----BEGIN PGP PRIVATE KEY BLOCK-----",
+            "-----END PGP PRIVATE KEY BLOCK-----",
+        ),
+        (
+            "-----BEGIN PGP SECRET KEY BLOCK-----",
+            "-----END PGP SECRET KEY BLOCK-----",
+        ),
+        (
+            "---- BEGIN SSH2 PRIVATE KEY ----",
+            "---- END SSH2 PRIVATE KEY ----",
+        ),
+    ] {
+        for indent in ["    ", "\t", "  \t "] {
+            for eol in ["\n", "\r\n"] {
+                let key = format!(
+                    "note: |{eol}{indent}{open}{eol}{indent}{BODY}{eol}{indent}{BODY}{eol}{indent}{close}{eol}next: 1{eol}"
+                );
+                let shown = detect(&key, None).sanitized;
+                assert!(!shown.contains(BODY), "{shown:?}");
+                assert!(
+                    shown.contains(&format!("{open}{eol}{indent}[REDACTED-")),
+                    "the placeholder keeps the body's indentation: {shown:?}"
+                );
+                assert!(
+                    shown.contains(&format!("{eol}{indent}{close}{eol}next: 1")),
+                    "{shown:?}"
+                );
+                assert_eq!(shown.lines().count(), key.lines().count(), "{shown:?}");
+            }
+        }
+    }
+}

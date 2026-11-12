@@ -123,7 +123,7 @@ pub(super) fn exact_miss(
             };
             let line = first_line(file.matches.held()).or_else(|| {
                 let bytes = super::super::source::read_parse_source(&path).ok()??;
-                let source = super::super::source::parse_text(&path, &bytes).ok()?;
+                let source = super::super::source::matched_text(&path, &bytes).ok()?;
                 let parser = Some(file.parser.as_str()).filter(|parser| !parser.is_empty());
                 let found = octocode_engine::structural::search_detailed(
                     &source,

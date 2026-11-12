@@ -36,6 +36,7 @@ pub(super) fn push_call(
         kind: kind.to_owned(),
         receiver_type,
         term_binding: false,
+        bound_declaration: None,
         self_template: None,
         macros: Vec::new(),
         receiver_call: None,

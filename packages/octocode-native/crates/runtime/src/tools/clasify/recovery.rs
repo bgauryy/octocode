@@ -34,9 +34,11 @@ pub(super) fn disclose_paged_read(row: &mut Value, captured: &Captured) {
 /// when repeating it can succeed (not for a missing path or a refusal). A
 /// refused input (an `invalidInput`-class code) was never judged either: it
 /// keeps only its own input-fix hints. A selection too large to judge offers
-/// no read of itself: its hints say how to judge it.
+/// no read of itself: its hints say how to judge it. A plan's cursor over a
+/// changed source judged nothing and failed nothing: its restart is all.
 pub(super) fn add(row: &Row, captured: Option<&Captured>, failure: &mut Value, can_resume: bool) {
-    if matches!(row.input, Input::Models) {
+    let stale = crate::id::error_code_of(failure) == Some(ErrorCode::StaleSnapshot);
+    if matches!(row.input, Input::Models) || (stale && matches!(row.input, Input::Sections(_))) {
         return;
     }
     let acquisition = captured.is_none() && matches!(row.input, Input::Judge(Target::Source(_)));
@@ -307,6 +309,7 @@ mod tests {
                 Some(snapshot.as_str()),
             ),
             source: None,
+            pin: None,
         };
         let mut failure =
             json!({"errorCode":"classificationProviderError","hints":["Provider guidance."]});

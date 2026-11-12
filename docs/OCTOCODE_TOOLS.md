@@ -71,7 +71,7 @@ Build or reuse a syntax graph of the smallest directory containing both ends of 
 
 ### `graphQuery`
 
-Query the same path as the build to find importers, cycles, paths or change impact. Check freshness and examine the source for the reported edges. For symbol-level impact or unused-code claims, verify the candidates with references and source reads. [Graph queries and recipes](../packages/octocode-native/docs/engine/CODE_GRAPH.md#choosing-a-query)
+Query the same path as the build to find importers, hubs, cycles, paths, change impact or Git co-change. Check freshness and examine the source for the reported edges. For symbol-level impact or unused-code claims, verify the candidates with references and source reads. [Code graph guide](OCTOCODE_GRAPH.md)
 
 ### `lspSearch`
 

@@ -173,6 +173,50 @@ fn issues_baseline_reports_new_and_resolved_findings() {
     assert!(new.contains(&"app/src/orphan2.ts"), "{new:?}");
 }
 
+/// `resolved` means gone from the head snapshot, never hidden by the view:
+/// a finding `minTier` hides is still present. Against itself a snapshot
+/// resolves nothing at any view, and its hidden findings stay out of
+/// `resolvedFindings`.
+#[test]
+fn a_baseline_never_resolves_a_finding_the_view_hides() {
+    let dir = git_app(&[
+        ("package.json", r#"{"name":"app","main":"src/main.ts"}"#),
+        ("src/main.ts", "export const worker = 'src/worker.ts';\n"),
+        ("src/worker.ts", "export const work = () => 1;\n"),
+    ]);
+    let root = dir.0.as_path();
+    let built = ingest_fixture(root, None);
+    assert_eq!(built.class, ExitClass::Success, "{}", built.value);
+    let id = built.value["id"].as_str().expect("id").to_owned();
+    for min_tier in [None, Some(60), Some(100)] {
+        let out = ask(root, "issues", None, |o| {
+            o.baseline = Some(id.clone());
+            o.min_tier = min_tier;
+        });
+        let baseline = &out.value["baseline"];
+        assert_eq!(baseline["resolved"], 0, "{min_tier:?}: {}", out.value);
+        assert_eq!(baseline["resolvedFindings"], json!([]), "{baseline}");
+        assert_eq!(baseline["new"], 0, "{baseline}");
+        let listed = out.value["pagination"]["total"].as_u64().unwrap_or(0);
+        let hidden = out.value["summary"]["hiddenBelowTier"]
+            .as_u64()
+            .unwrap_or(0);
+        assert_eq!(
+            baseline["existing"].as_u64(),
+            Some(listed + hidden),
+            "every head finding, listed or hidden, is existing: {}",
+            out.value
+        );
+        if min_tier.is_none() {
+            assert!(
+                hidden > 0,
+                "the default view hides the mentioned worker: {}",
+                out.value
+            );
+        }
+    }
+}
+
 /// The pages of an `issues` listing slice one listing: page 1 is truncated
 /// and the next page states the same total.
 #[test]

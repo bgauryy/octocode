@@ -96,8 +96,11 @@ pub(crate) struct Call {
     /// from the engine fact; `None` when the parser could not read it.
     pub receiver_type: Option<String>,
     /// The callee's head is a term bound in scope that no declaration or
-    /// type stands for (a Scala parameter or pattern variable).
+    /// type stands for (see `GraphFactCall::term_binding`).
     pub term_binding: bool,
+    /// The declaration a bare callee binds (see
+    /// `GraphFactCall::bound_declaration`).
+    pub bound_declaration: Option<String>,
     /// The receiver is a Scala self alias declared by the enclosing template
     /// of this name (see `GraphFactCall::self_template`).
     pub self_template: Option<String>,

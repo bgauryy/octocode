@@ -30,7 +30,14 @@ pub(crate) struct Runtime<'a> {
 
 #[derive(Clone, Serialize, Deserialize)]
 struct Unit {
+    /// What the output shows of the section: its id, kind, name, and its
+    /// target and context located in the text a read shows of the source.
     metadata: Value,
+    /// The target's bytes `[start, end)` in the captured source text, where
+    /// a plan is cut: planning state, never shown (a hidden value's length
+    /// would show in it).
+    #[serde(default)]
+    source_target: [usize; 2],
     state: Value,
     /// The state's serialized Unicode scalars, counted once at capture.
     chars: usize,
@@ -51,6 +58,21 @@ struct Resource {
     shown: Option<Value>,
 }
 
+impl Resource {
+    /// What a read of this resource is pinned to: a local source's snapshot
+    /// (kept for the staleness check, never shown), else the commit or
+    /// capture digest its row shows.
+    fn pin(&self) -> Option<&str> {
+        self.local_check
+            .as_ref()
+            .map_or(
+                &self.metadata["sourceDigest"],
+                |check| &check["query"]["snapshot"],
+            )
+            .as_str()
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 struct Session {
     id: String,
@@ -67,6 +89,11 @@ struct Session {
     github_identity: Option<String>,
     batches: Vec<Value>,
     active: Vec<[usize; 2]>,
+    /// The request the plan was made from, without private progress or the
+    /// caller's brief ([`crate::response::result::fresh_query_row`]): the
+    /// restart a cursor of the plan offers once its source changed.
+    #[serde(default)]
+    request: Value,
 }
 
 pub(super) struct Outcome {
@@ -191,6 +218,9 @@ pub(super) fn run(
         let mut session = runtime.sessions.current(&key, context)?.ok_or_else(|| unavailable("The frozen assessment plan is missing, expired, or belongs to another access context; no source or provider was called."))?;
         dispatcher
             .validate_retained_github_identity(session.github_identity.as_deref(), context)?;
+        // Every cursor of the plan, a replay included, answers only from the
+        // text it judged.
+        current_sources(&session, dispatcher, context)?;
         let Some(ordinal) = ordinal else {
             return Ok(Outcome {
                 output: emit::quiet_replay(&session),
@@ -220,7 +250,6 @@ pub(super) fn run(
             runtime.sessions.remove(&key, context);
             return Err(withheld);
         }
-        validate_sources(&session, dispatcher, context)?;
         return assess_and_save(&mut session, ordinal, dispatcher, context, runtime, shared);
     } else {
         capture::create(
@@ -234,6 +263,7 @@ pub(super) fn run(
         )?
     };
     session.github_identity = dispatcher.retained_github_identity(context)?;
+    session.request = crate::response::result::fresh_query_row(crate::id::ToolId::Clasify, input);
     // The batch saves the whole frozen plan before any provider request
     // (and after it), so a fresh plan needs no save of its own.
     let key = runtime.sessions.key(&runtime.access, &session.id);
@@ -279,14 +309,27 @@ fn interrupted(session: &mut Session, runtime: Runtime<'_>, context: &ExecutionC
     )
 }
 
-fn validate_sources(
+/// The one check before any cursor of a plan answers (its next batch, a
+/// saved batch's replay, `next.details`, `next.quiet`): every local source
+/// still holds the text the plan judged. One that changed is
+/// `staleSnapshot`, whose `next.restart` is the plan's own request.
+fn current_sources(
     session: &Session,
     dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
 ) -> Result<(), ClassificationError> {
     for resource in &session.resources {
         if let Some(source) = &resource.local_check {
-            capture::validate_local(source, dispatcher, context)?;
+            capture::validate_local(source, dispatcher, context).map_err(|mut error| {
+                if error.code == ErrorCode::StaleSnapshot && session.request.is_object() {
+                    let restart = crate::response::result::Continuation::continued(
+                        crate::id::ToolId::Clasify,
+                        session.request.clone(),
+                    );
+                    error.leads = vec![("restart".into(), restart.build())];
+                }
+                error
+            })?;
         }
     }
     Ok(())
@@ -329,6 +372,8 @@ pub(super) struct JudgedSection {
 pub(super) struct Whole {
     /// The resource row a `sections` call shows for it: status, sourceDigest.
     pub metadata: Value,
+    /// What a read of the judged source is pinned to ([`Resource::pin`]).
+    pub pin: Option<String>,
     pub sections: Vec<JudgedSection>,
     pub usage: ClassificationUsage,
     pub model: Option<String>,
@@ -377,10 +422,10 @@ pub(super) fn whole(
     };
     let first = fit();
     let mut session = plan(first.bytes, 0..usize::MAX)?;
-    let Some(metadata) = session
+    let Some((metadata, pin)) = session
         .resources
         .first()
-        .map(|resource| resource.metadata.clone())
+        .map(|resource| (resource.metadata.clone(), resource.pin().map(str::to_owned)))
     else {
         return Err(unavailable("The source named no resource to judge."));
     };
@@ -439,6 +484,7 @@ pub(super) fn whole(
     judged.sort_by_key(|unit| target_bytes(unit).start);
     Ok(Whole {
         metadata,
+        pin,
         sections: judged
             .into_iter()
             .map(|unit| JudgedSection {
@@ -453,13 +499,8 @@ pub(super) fn whole(
 
 /// The source bytes a unit's target covers.
 fn target_bytes(unit: &Unit) -> std::ops::Range<usize> {
-    let at = |index: usize| {
-        unit.metadata["target"]["bytes"][index]
-            .as_u64()
-            .and_then(|byte| usize::try_from(byte).ok())
-            .unwrap_or_default()
-    };
-    at(0)..at(1)
+    let [start, end] = unit.source_target;
+    start..end
 }
 
 /// Whether the provider's window refused a question of this unit.

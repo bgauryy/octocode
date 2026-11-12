@@ -9,7 +9,7 @@ fn reference_scan<'k>(
     code: bool,
     stems: &'k BTreeSet<String>,
     names: &'k BTreeSet<String>,
-) -> [BTreeMap<&'k str, usize>; 3] {
+) -> Found<'k> {
     fn tokens(line: &str) -> impl Iterator<Item = (usize, &str)> {
         let mut start = None;
         line.char_indices()
@@ -28,20 +28,35 @@ fn reference_scan<'k>(
         let after = line[offset + token.len()..].chars().next();
         matches!(before, Some('\'' | '"' | '`')) && before == after
     }
+    // A path names its file's directory unless that is `.`, `..`, none or a
+    // build output's.
+    fn path_key(token: &str) -> String {
+        let segments = token.split('/').collect::<Vec<_>>();
+        let last = segments[segments.len() - 1];
+        let stem = last.split('.').next().unwrap_or(last);
+        match segments.len().checked_sub(2).map(|at| segments[at]) {
+            Some(dir)
+                if !["", ".", ".."].contains(&dir)
+                    && !crate::tools::ast_graph::store::workspace::BUILD_OUTPUT_DIRS
+                        .contains(&dir) =>
+            {
+                format!("{dir}/{stem}")
+            }
+            _ => stem.to_owned(),
+        }
+    }
     let key = |set: &'k BTreeSet<String>, text: &str| set.get(text).map(String::as_str);
-    let mut local: [BTreeMap<&str, usize>; 3] = Default::default();
+    let mut local: Found<'k> = Default::default();
     for (index, line) in text.lines().enumerate() {
         for (offset, token) in tokens(line) {
             if token.contains(['/', '.']) {
-                let last = token.rsplit('/').next().unwrap_or(token);
-                let stem = last.split('.').next().unwrap_or(last);
-                if let Some(stem) = key(stems, stem) {
-                    local[0].entry(stem).or_insert(index + 1);
+                if let Some(stem) = key(stems, &path_key(token)) {
+                    local[STEMS].entry(stem).or_insert(index + 1);
                 }
             } else if let Some(stem) = key(stems, token)
                 && is_quoted(line, offset, token)
             {
-                local[0].entry(stem).or_insert(index + 1);
+                local[STEMS].entry(stem).or_insert(index + 1);
             }
             let mut at = 0;
             for part in token.split(['.', '/', '-', '@']) {
@@ -53,7 +68,13 @@ fn reference_scan<'k>(
                 let qualified = token[..start].strip_suffix(['.', '/']).is_some_and(|head| {
                     head.ends_with(|c: char| c.is_alphanumeric() || "_$".contains(c))
                 });
-                let kind = if code || qualified { 1 } else { 2 };
+                let kind = if qualified {
+                    QUALIFIED
+                } else if code {
+                    BARE_CODE
+                } else {
+                    WORDS
+                };
                 local[kind].entry(name).or_insert(index + 1);
             }
         }
@@ -63,6 +84,50 @@ fn reference_scan<'k>(
 
 fn set(items: &[&str]) -> BTreeSet<String> {
     items.iter().map(|item| (*item).to_owned()).collect()
+}
+
+/// The code references of `name` (qualified anywhere, bare in code), in
+/// path order.
+fn references(hits: &MentionHits, name: &str) -> Option<Vec<String>> {
+    let mut all = [&hits.qualified, &hits.bare]
+        .into_iter()
+        .filter_map(|kind| kind.get(name))
+        .flatten()
+        .cloned()
+        .collect::<Vec<_>>();
+    all.sort_by(|a, b| {
+        a.rsplit_once(':')
+            .map(|(f, _)| f)
+            .cmp(&b.rsplit_once(':').map(|(f, _)| f))
+    });
+    (!all.is_empty()).then_some(all)
+}
+
+/// A path names the directory it is in: `./elsewhere/index` hits only the
+/// key `elsewhere/index`, while `./index`, `../index`, `index.ts` and a
+/// build-output path (`dist/index.js`) hit the bare stem.
+#[test]
+fn a_path_token_keys_the_directory_it_names() {
+    let stems = set(&["index", "elsewhere/index", "legacy/index"]);
+    let names = BTreeSet::new();
+    let keys = Keys::new(&stems, &names);
+    let hits = |text: &str| {
+        scan_text(text, true, &keys)[STEMS]
+            .keys()
+            .map(|key| (*key).to_owned())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(hits("x = \"./elsewhere/index\""), ["elsewhere/index"]);
+    assert_eq!(hits("x = 'src/legacy/index.ts'"), ["legacy/index"]);
+    for parentless in [
+        "'./index'",
+        "'../index'",
+        "'index.ts'",
+        "'dist/index.js'",
+        "'../dist/index.js'",
+    ] {
+        assert_eq!(hits(parentless), ["index"], "{parentless}");
+    }
 }
 
 /// The edges of the old line-and-char scan: CRLF and lone CR, Unicode letters
@@ -173,11 +238,11 @@ fn the_mention_memo_covers_every_file_it_read() {
     let names = set(&["run"]);
     let stems = BTreeSet::new();
     let settle = octocode_engine::stamp::settle_written_so_far;
-    let references = |scan: &MentionHits| scan.references.get("run").cloned();
+    let run = |scan: &MentionHits| references(scan, "run");
 
     settle();
     let first = memoized_mentions(root, &stems, &names, &|| false).expect("scan");
-    assert_eq!(references(&first), Some(vec!["a.ts:1".to_owned()]));
+    assert_eq!(run(&first), Some(vec!["a.ts:1".to_owned()]));
     let again = memoized_mentions(root, &stems, &names, &|| false).expect("scan");
     assert!(Arc::ptr_eq(&first, &again), "an unchanged tree is one scan");
 
@@ -207,7 +272,7 @@ fn the_mention_memo_covers_every_file_it_read() {
     settle();
     let added = memoized_mentions(root, &stems, &names, &|| false).expect("scan");
     assert_eq!(
-        references(&added),
+        run(&added),
         Some(vec!["a.ts:1".to_owned(), "c.ts:1".to_owned()])
     );
 
@@ -215,12 +280,12 @@ fn the_mention_memo_covers_every_file_it_read() {
     std::fs::create_dir_all(root.join(".git")).expect("git marker");
     settle();
     let ignored = memoized_mentions(root, &stems, &names, &|| false).expect("scan");
-    assert_eq!(references(&ignored), Some(vec!["a.ts:1".to_owned()]));
+    assert_eq!(run(&ignored), Some(vec!["a.ts:1".to_owned()]));
 
     std::fs::remove_file(root.join("a.ts")).expect("remove");
     settle();
     let removed = memoized_mentions(root, &stems, &names, &|| false).expect("scan");
-    assert_eq!(references(&removed), None);
+    assert_eq!(run(&removed), None);
 }
 
 /// A file written inside the settle window has a stamp a later write in the
@@ -234,7 +299,7 @@ fn the_mention_memo_keeps_no_unsettled_scan() {
     let first = memoized_mentions(dir.path(), &stems, &names, &|| false).expect("scan");
     let second = memoized_mentions(dir.path(), &stems, &names, &|| false).expect("scan");
     assert!(!Arc::ptr_eq(&first, &second));
-    assert_eq!(first.references.get("run"), second.references.get("run"));
+    assert_eq!(references(&first, "run"), references(&second, "run"));
 }
 
 /// The scan reads past any amount of earlier text: a name in a file that sorts
@@ -259,7 +324,7 @@ fn a_mention_after_much_text_is_still_found() {
     )
     .expect("scan");
     assert_eq!(
-        hits.references.get("zzOnlyTextMention"),
+        hits.qualified.get("zzOnlyTextMention"),
         Some(&vec!["zz_late.ts:1".to_owned()])
     );
 }
@@ -290,8 +355,8 @@ fn a_mention_in_a_large_file_is_found_at_its_line() {
     let scanned =
         scan_mentions(dir.path(), &BTreeSet::new(), &set(&["run"]), &|| false).expect("scan");
     assert_eq!(
-        scanned.references.get("run"),
-        Some(&vec![
+        references(&scanned, "run"),
+        Some(vec![
             format!("lines.txt:{}", lines + 1),
             "one_line.js:1".to_owned(),
             "token.txt:1".to_owned(),
@@ -332,8 +397,5 @@ fn a_stopped_mention_scan_keeps_nothing() {
     let (stems, names) = (BTreeSet::new(), set(&["run"]));
     assert!(memoized_mentions(dir.path(), &stems, &names, &|| true).is_none());
     let scanned = memoized_mentions(dir.path(), &stems, &names, &|| false).expect("scan");
-    assert_eq!(
-        scanned.references.get("run"),
-        Some(&vec!["a.ts:1".to_owned()])
-    );
+    assert_eq!(references(&scanned, "run"), Some(vec!["a.ts:1".to_owned()]));
 }

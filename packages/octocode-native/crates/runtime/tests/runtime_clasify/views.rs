@@ -99,11 +99,12 @@ async fn a_text_answer_is_its_values_and_tokens_by_default() {
 
 /// A source row keeps what the next call needs: how much was judged and the
 /// read of it. On a source shorter than a `sections` lead, that lead goes.
+/// The source is one line, so its yes names no lines and the lead is offered.
 #[tokio::test]
 async fn a_source_summary_keeps_its_read_and_drops_a_lead_longer_than_the_source() {
     let server = provider().await;
     let workspace = Workspace::new();
-    workspace.write("tiny.rs", "fn a() {}\nfn b() { planted() }\nfn c() {}\n");
+    workspace.write("tiny.rs", "fn a() {} fn b() { planted() } fn c() {}\n");
     let runtime = clasify_runtime(&workspace, &server, &[]);
     let row = |view: &str| {
         json!({"operation":"evaluate","view":view,

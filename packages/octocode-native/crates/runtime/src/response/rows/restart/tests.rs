@@ -14,6 +14,12 @@ fn a_stale_row_of_any_tool_requires_its_restart() {
         json!({"path": "src/lib.rs"}),
         "private progress never restarts: {data}"
     );
+    // A tool's own required restart (a saved plan's request) stands.
+    let plan = json!({"kind": "continue", "tool": "clasify", "input": {"queries": [{"operation": "sections"}]}});
+    let mut named =
+        json!({"errorCode": "staleSnapshot", "error": "stale", "next": {"restart": plan.clone()}});
+    require_restart(ToolId::Clasify, &mut named, &json!({"assessment": "token"}));
+    assert_eq!(named["next"]["restart"], plan, "{named}");
     let mut other = json!({"errorCode": "notFound", "error": "missing"});
     require_restart(ToolId::LocalFetch, &mut other, &query);
     assert!(other.get("next").is_none());

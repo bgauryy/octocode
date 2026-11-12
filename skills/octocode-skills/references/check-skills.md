@@ -21,6 +21,13 @@ Inventory every reference, script, asset and generated dependency. Classify it a
 
 Count prerequisite reads from the lobby to the deciding instruction, not directory nesting. A direct reference is one hop; a reference that only sends the agent elsewhere is a detour. Keep one decision per owner. Fix proven detours without flattening unrelated optional detail into the lobby.
 
+### Check repetition and lobby placement
+
+1. Inventory authored entry, reference and output text separately from generated copies. Compare repeated paragraphs, table rules, diagrams and examples by the decision they govern; a text match is only a lead.
+2. Walk a common request and a conditional branch. Record what the agent must read before its first useful action, including constraints hidden behind references. Apply the [placement rules](../SKILL.md#decide-placement).
+3. Merge repeated decisions at their first needed owner. Keep useful short links and examples with distinct purposes. Move only branch-specific detail out; promote only deciding rules in. Do not replace concise prose with a larger table or decorative diagram.
+4. Rewalk both tasks after editing. Check that conditions, permissions, exact commands, evidence distinctions, recovery and completion still reach the same decisions. Report entry size and required branch reads separately; moving text is not deleting it or proving an efficiency gain.
+
 | Content signal | Repair | Preserve |
 |---|---|---|
 | Repeated rule or explanation | Keep one reachable owner; link from other readers. | Scope, permissions, identifiers and exceptions. |

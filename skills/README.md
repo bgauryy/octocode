@@ -17,13 +17,15 @@ Saved skill output lives under the project's `.octocode/` folder: reports and au
 |---|---|
 | [Get started](octocode-get-started/) | Understand Octocode, install CLI/MCP and skills, configure scope and credentials, and verify a first task. |
 | [Research](octocode-research/SKILL.md) | A factual code, repository, dependency or change-impact question needs source evidence. |
-| [Debugging](octocode-debugging/SKILL.md) | Investigate runtime behavior or interpret an existing profile, trace or failure. |
+| [Debugging](octocode-debugging/SKILL.md) | Observe a runtime failure, hang, leak or slowdown with debuggers, profilers and traces, interpret an existing traceback, dump, profile or trace, and verify a fix. |
 | [PR Review](octocode-pr-review/SKILL.md) | A pull request, branch, or local diff needs a merge verdict with proven findings. |
+| [Test Plan](octocode-test-plan/SKILL.md) | A feature, change, PR or bug fix needs a test plan another agent will run: mapped code, runnable cases with oracles, and success criteria. |
 | [Messages proxy](octocode-messages-proxy/SKILL.md) | Use Claude and Codex native messaging, coordinate mixed-vendor peers through Octocode, or relay to A2A agents with a small model. |
 | [Workflows](octocode-workflows/) | Select, design or resume an explicit workflow across agents, tools, services or artifacts; define handoffs and acceptance. |
 | [Scraping](octocode-scraping/) | Public pages need fetching or a reusable source corpus. |
 | [Chrome DevTools](octocode-chrome-devtools/) | A live browser is needed for rendering, interaction, or diagnostics. |
 | [Brainstorming](octocode-brainstorming/) | An open problem, idea or comparison needs checked sources and an evidence-based recommendation. |
+| [Graph](octocode-graph/SKILL.md) | Build a code graph and read its hubs, importers, callers, cycles, issues, impact or Git co-change, then prove the rows. |
 | [Graph View](octocode-graph-view/) | Map repository structure, retain graph evidence, and optionally render an interactive viewer. |
 | [Engineer](octocode-engineer/) | A technical choice or architecture needs trade-offs, failure modes and a check: data structures, storage, concurrency, memory, performance, reliability, APIs, security, testing, boundaries or refactors. |
 | [RFC Generator](octocode-rfc-generator/SKILL.md) | A consequential technical choice needs its decision, design, and plan in one RFC. |

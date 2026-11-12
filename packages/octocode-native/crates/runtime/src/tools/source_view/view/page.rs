@@ -113,9 +113,8 @@ pub(super) fn cut_page<'a>(
         }
         _ => None,
     };
-    let long_lines = raw.then(|| {
-        super::super::pagination::LongLines::of(ext, classified, placement.as_ref())
-    });
+    let long_lines =
+        raw.then(|| super::super::pagination::LongLines::of(ext, classified, placement.as_ref()));
     let window = PageWindow {
         query: page_q,
         view: &view.text,

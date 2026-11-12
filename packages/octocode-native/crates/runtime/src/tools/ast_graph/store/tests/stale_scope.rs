@@ -161,3 +161,69 @@ fn a_withheld_source_under_a_lifted_walk_is_fresh() {
     .expect("write manifest");
     assert_eq!(stale_rows(dir.0.as_path()), json!([]));
 }
+
+/// The stale check walks the build's scope: a directory a caller `exclude`
+/// names (a bare name at any depth, an anchored path, a `!` glob the build
+/// reads as the plain glob) holds nothing a re-ingest would scan. A snapshot
+/// of an unchanged tree is fresh, walked or proven, and a build reuses it.
+#[test]
+fn sources_under_excluded_directories_are_not_added() {
+    let dir = fixture();
+    let root = dir.0.as_path();
+    for file in [
+        "app/vendor/v.ts",
+        "app/src/vendor/w.ts",
+        "app/gen/out/g.ts",
+        "app/keep/k.ts",
+    ] {
+        dir.write(file, "export const x = 1;\n");
+    }
+    std::fs::create_dir_all(root.join(".octocode/graph")).expect("graph home");
+    octocode_engine::stamp::settle_written_so_far();
+    let build = || {
+        ingest(
+            &IngestOptions {
+                path: root.join("app"),
+                workspace: Some(root.to_path_buf()),
+                exclude: vec!["vendor".into(), "/gen/out".into(), "!keep/".into()],
+                refresh: false,
+                ..Default::default()
+            },
+            &workspace_policy(root),
+            &ContentSecurity::new(),
+            &NeverCancel,
+            None,
+        )
+    };
+    let built = build();
+    assert_fresh_build(&built);
+    assert_eq!(built.value["scan"]["filesScanned"], 4, "{}", built.value);
+    assert_eq!(stale_rows(root), json!([]));
+    let stats = ask(root, "stats", None, |o| o.check_freshness = true);
+    assert_eq!(stats.value["freshness"]["fresh"], true, "{}", stats.value);
+    assert_eq!(
+        build().value["id"],
+        built.value["id"],
+        "an unchanged scope is reused"
+    );
+    // The proof stands in for the walk; without it the walk must agree too.
+    let graph_dir = PathBuf::from(built.value["dir"].as_str().expect("dir"));
+    let mut manifest = read_manifest(&graph_dir).expect("manifest");
+    assert!(manifest["scopeProof"]["stamps"].is_string(), "{manifest}");
+    manifest
+        .as_object_mut()
+        .expect("manifest")
+        .remove("scopeProof");
+    std::fs::write(
+        graph_dir.join(MANIFEST_FILE),
+        serde_json::to_vec(&manifest).expect("manifest json"),
+    )
+    .expect("write manifest");
+    assert_eq!(stale_rows(root), json!([]));
+    dir.write("app/vendor/more.ts", "export const m = 1;\n");
+    dir.write("app/src/z.ts", "export const z = 1;\n");
+    assert_eq!(
+        stale_rows(root),
+        json!([{"path": "app/src/z.ts", "status": "added"}])
+    );
+}

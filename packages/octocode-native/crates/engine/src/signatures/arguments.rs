@@ -64,6 +64,13 @@ impl ArgumentAdapter {
         }
     }
 
+    /// Whether a bare call looks its name up among the same bindings a
+    /// variable reference does, so a parameter or local in scope is what it
+    /// calls. A bare Java call names a method only: no variable shadows one.
+    pub(super) fn calls_read_variables(self) -> bool {
+        !matches!(self, Self::Java)
+    }
+
     pub(super) fn binding_visible_after_name(self) -> bool {
         self.is_c_family() || self.implicit_members()
     }

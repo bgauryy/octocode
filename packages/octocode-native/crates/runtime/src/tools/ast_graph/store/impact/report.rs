@@ -11,22 +11,28 @@ pub(super) struct Step {
 }
 
 /// Affected files as rows, sorted by distance (each carries its `depth` and
-/// `risk`; `byDepth` counts them), plus the summary lists.
+/// `risk`; `byDepth` counts them), plus the summary lists. The tests to run
+/// are every test the change reaches, listed row or not.
 pub(super) fn report(
     t: &GraphTables,
-    reach: &[Option<Reach>],
+    reached: &Reached<'_>,
     seeds: &[u32],
     global: &[(String, String)],
     symbol_mode: bool,
     depth_limited: bool,
 ) -> Impact {
     let key = |id: u32| t.str(t.nodes[id as usize].key);
-    let mut files = t
-        .node_ids()
-        .filter(|id| t.nodes[*id as usize].kind == NodeKind::File)
-        .filter_map(|id| reach[id as usize].map(|r| (id, r)))
-        .collect::<Vec<_>>();
-    files.sort_by(|a, b| (a.1.depth, key(a.0)).cmp(&(b.1.depth, key(b.0))));
+    let reached_files = |reach: &[Option<Reach>]| {
+        let mut files = t
+            .node_ids()
+            .filter(|id| t.nodes[*id as usize].kind == NodeKind::File)
+            .filter_map(|id| reach[id as usize].map(|r| (id, r)))
+            .collect::<Vec<_>>();
+        files.sort_by(|a, b| (a.1.depth, key(a.0)).cmp(&(b.1.depth, key(b.0))));
+        files
+    };
+    let files = reached_files(reached.listed);
+    let reach = reached.tests;
     let component_of = t
         .components
         .iter()
@@ -43,13 +49,15 @@ pub(super) fn report(
         if flags & ROLE_ENTRY != 0 {
             entries.push(key(*id));
         }
-        if flags & ROLE_TEST != 0 {
-            tests.push(key(*id));
-        }
         if let Some(name) = component_of.get(id) {
             components.insert(*name);
         }
         rows.push(impact_row(t, *id, r));
+    }
+    for (id, _) in reached_files(reach) {
+        if t.nodes[id as usize].flags & ROLE_TEST != 0 {
+            tests.push(key(id));
+        }
     }
     // Test functions reached (inline Rust test modules, pytest functions,
     // functions in test files): the precise tests to run.
@@ -90,7 +98,8 @@ pub(super) fn report(
 pub(super) fn impact_row(t: &GraphTables, id: u32, r: &Reach) -> Value {
     let key = |id: u32| t.str(t.nodes[id as usize].key);
     let flags = t.nodes[id as usize].flags;
-    // GitNexus-style buckets: d1 will break, d2 likely affected, d3+ test;
+    // GitNexus-style buckets: d1 depends directly (inspect first; not proof of
+    // breakage), d2 likely affected, d3+ test;
     // a module-level candidate binds no linked changed name, so it is no
     // breakage until a reference proves it.
     let risk = match r.depth {

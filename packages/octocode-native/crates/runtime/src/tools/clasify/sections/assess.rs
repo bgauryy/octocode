@@ -232,6 +232,7 @@ pub(super) fn judge_units(
                             questions: &remaining,
                             assets: None,
                             long_context: session.long_context,
+                            companions: 0,
                         },
                         session.model.as_deref(),
                         &budget,

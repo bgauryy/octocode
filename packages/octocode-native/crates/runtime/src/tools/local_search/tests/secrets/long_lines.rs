@@ -64,8 +64,8 @@ fn a_secret_on_a_long_line_hides_only_its_own_bytes() {
     assert!(value.contains("[REDACTED-"), "{value:.400}");
 }
 
-/// A span mode's rows, on a line far over the limit: only the row whose bytes are
-/// a secret's says so.
+/// A span mode's rows, on a line far over the limit: the text a read shows is a
+/// row, and the secret's bytes are none.
 #[test]
 fn spans_on_a_long_line_hide_only_what_a_secret_holds() {
     let found = rows(
@@ -78,10 +78,7 @@ fn spans_on_a_long_line_hide_only_what_a_secret_holds() {
         .iter()
         .map(|row| row["value"].as_str().expect("value").to_owned())
         .collect::<Vec<_>>();
-    assert_eq!(values.len(), 3, "{found}");
-    assert_eq!(values[0], "needle", "{found}");
-    assert!(!values[1].contains("ghp_aB3d"), "{found}");
-    assert_eq!(values[2], "needle", "{found}");
+    assert_eq!(values, ["needle", "needle"], "{found}");
 }
 
 /// Below the limit a row of a line too long for it is the line's own text

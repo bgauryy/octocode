@@ -284,3 +284,37 @@ fn non_utf8_lines_decode_like_every_reader_and_name_their_file() {
     assert_eq!(named.len(), 1, "{named:?}");
     assert!(named[0].ends_with("latin.txt"), "{named:?}");
 }
+
+/// D6 (bin16 retest): empty matches follow rg's rule. A line's matches end
+/// with the line (an empty one at its end included); an empty match after
+/// its line break starts a line the block does not hold and is no match, so
+/// no row sits past the end of the file and no count holds one.
+#[test]
+fn empty_matches_end_with_their_line() {
+    let t = TmpDir::new();
+    t.write("clean.txt", "nothing secret here\njust words\n");
+    let spans = |pattern: &str, output: SearchOutput| {
+        let mut options = opts(t.path(), pattern);
+        options.output = output;
+        search(options).expect("search ok")
+    };
+    let result = spans("^.*$", SearchOutput::Spans(SpanValues::Every));
+    let rows: Vec<(u32, String)> = result.files[0]
+        .matches
+        .iter()
+        .map(|m| (m.line, m.value.clone()))
+        .collect();
+    assert_eq!(
+        rows,
+        [(1, "nothing secret here".to_owned()), (2, "just words".to_owned())]
+    );
+    assert_eq!(result.stats.match_count, Some(2));
+    // `x*` matches empty at each of a line's characters and at its end:
+    // 20 on a 19-character line, 11 on a 10-character one, as rg -o counts.
+    let result = spans("x*", SearchOutput::Spans(SpanValues::Every));
+    assert_eq!(result.files[0].matches.len(), 31);
+    assert!(result.files[0].matches.iter().all(|m| m.line <= 2));
+    assert_eq!(result.stats.match_count, Some(31));
+    let counted = spans("x*", SearchOutput::CountMatches);
+    assert_eq!(counted.stats.match_count, Some(31));
+}

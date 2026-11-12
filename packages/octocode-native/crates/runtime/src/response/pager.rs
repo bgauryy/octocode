@@ -4,10 +4,12 @@
 
 mod cut;
 mod handles;
+mod oversized;
 mod telemetry;
 mod window;
 pub use cut::budgeted_chars;
-pub(crate) use cut::unflag_fitting;
+pub use oversized::holds_value_over;
+pub(crate) use oversized::unflag_fitting;
 use cut::{cut_rows, pagination_block_chars};
 use octocode_io::cancellation::Cancellation;
 use serde_json::{Map, Value};

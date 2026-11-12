@@ -274,6 +274,7 @@ impl ChannelRun {
                     // states the page delivered (before rejected rows join).
                     crate::response::pager::unflag_fitting(
                         output,
+                        self.id,
                         self.options
                             .response_chars
                             .unwrap_or(self.output.auto_page_chars),

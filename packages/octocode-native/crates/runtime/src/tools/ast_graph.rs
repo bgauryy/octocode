@@ -42,7 +42,16 @@ use crate::tools::import_resolution::{aliases, js_paths, paths};
 /// texts extracted from it.
 /// 31: a named re-export links its file to each declaration it re-exports
 /// (`uses`, detail `reexported-name`), so the public API is known per name.
-const ANALYSIS_VERSION: u32 = 31;
+/// 32: a snapshot's `linkage` states its `sites` total (eligible + excluded),
+/// which reused snapshots answer from their manifest.
+/// 33: a TypeScript value import its file uses only as a type is a
+/// `type-use-import` edge of unknown load, so a cycle only such edges close
+/// is `runtime: "unknown"`.
+/// 34: a bare call of a term bound in scope (`term_binding`: a parameter, a
+/// local variable, a closure) links nothing and stays unresolved as
+/// `local-binding`, in every language that records the fact; a JS/TS call
+/// bound to a declaration (`bound_declaration`) links that one, high.
+const ANALYSIS_VERSION: u32 = 34;
 
 /// graphBuild's and graphQuery's recovery for the shared response stages.
 pub(crate) struct Output;

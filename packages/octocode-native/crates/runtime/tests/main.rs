@@ -36,7 +36,7 @@ mod runtime_empty_error_rows;
 mod runtime_flow_edge_replay;
 mod runtime_generic_walk;
 mod runtime_gh_default_branch;
-mod runtime_gh_last_commit_batch;
+mod runtime_gh_file_ref_batch;
 mod runtime_gh_structure;
 mod runtime_github;
 mod runtime_github_cache;

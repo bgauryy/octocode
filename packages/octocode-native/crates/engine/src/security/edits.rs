@@ -70,6 +70,11 @@ impl Edits {
         })
     }
 
+    /// The output ranges the replacements left, ascending and disjoint.
+    pub fn outputs(&self) -> impl Iterator<Item = Range<usize>> + '_ {
+        self.0.iter().map(|edit| edit.output.clone())
+    }
+
     /// Where output byte `at` came from in the input: its own place outside
     /// every replacement, the start of what a replacement took inside one.
     #[must_use]

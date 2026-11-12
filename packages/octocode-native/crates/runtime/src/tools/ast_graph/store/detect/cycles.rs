@@ -105,7 +105,7 @@ pub(super) fn detect_cycles(c: &mut Ctx) {
                 "Import cycle of unknown load",
                 0.5,
                 vec![
-                    "it closes through a file oxc could not parse: that edge's load is unknown (see parser-fallback diagnostics)",
+                    "it closes through an import of unknown load: one in a file oxc could not parse (see parser-fallback diagnostics), or a TypeScript import used only as a type, which the project's emit settings keep or elide",
                 ],
             ),
             CycleLoad::NoLoad => (
@@ -246,9 +246,16 @@ pub(super) fn detect_dir_cycles(c: &mut Ctx) {
             .iter()
             .map(|m| names[*m as usize])
             .collect::<Vec<_>>();
-        found.push((keys.clone(), hops, rust));
+        // The highest PageRank percentile among the member directories' files.
+        let impact = v
+            .files
+            .iter()
+            .filter(|file| unit_of(**file).is_some_and(|unit| keys.contains(&unit)))
+            .map(|file| v.impact(*file))
+            .fold(0.0, f64::max);
+        found.push((keys.clone(), hops, rust, impact));
     }
-    for (keys, hops, rust) in found {
+    for (keys, hops, rust, impact) in found {
         let mut controls = vec!["directory projection of runtime file imports"];
         if rust {
             controls.push("rust module directories within one crate may legally cycle");
@@ -265,7 +272,7 @@ pub(super) fn detect_dir_cycles(c: &mut Ctx) {
                 ),
                 severity: 0.5 * magnitude(keys.len()),
                 confidence: if rust { 0.3 } else { 0.7 },
-                impact: 0.5,
+                impact,
                 evidence: json!({"dirs": keys, "witness": hops}),
                 controls,
             },

@@ -19,6 +19,7 @@ use octocode_contract_types::ErrorCode;
 mod build_scripts_gate;
 mod call_counts;
 mod call_rows;
+mod caller_names;
 mod caller_pages;
 mod continuations;
 mod diagnostics;

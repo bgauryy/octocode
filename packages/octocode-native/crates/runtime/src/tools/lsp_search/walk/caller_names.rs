@@ -86,40 +86,114 @@ pub(in crate::tools::lsp_search) fn split_module_callers(
     split
 }
 
-/// [`split_module_callers`] over a walk's incoming edges, with one
-/// `documentSymbol` request per module file (a failed request keeps the
-/// module caller).
+/// Whether the server's caller item marks a call site instead of the
+/// caller's name: its `selectionRange` is one of the edge's call sites
+/// (jdtls selects the first call in the caller's body).
+fn selects_a_site(edge: &HierarchyEdge) -> bool {
+    edge.node
+        .get("selectionRange")
+        .is_some_and(|selection| edge.sites.contains(selection))
+}
+
+/// The caller `node` with its `selectionRange` moved to the name of the
+/// innermost callable of `symbols` (the file's `documentSymbol` answer)
+/// around its current selection, the call site [`selects_a_site`] found;
+/// `None` when no callable holds that site. The rest of the server's item
+/// is kept.
+fn named_at_declaration(node: &Value, symbols: &Value) -> Option<Value> {
+    let start = node.pointer("/selectionRange/start")?;
+    let point = |field: &str| {
+        start
+            .get(field)
+            .and_then(Value::as_u64)
+            .and_then(|value| u32::try_from(value).ok())
+    };
+    let mut flat = Vec::new();
+    flatten_symbols(symbols, &mut flat);
+    let symbol = enclosing_callable(&flat, point("line")?, point("character")?)?;
+    let mut named = node.clone();
+    named["selectionRange"] = symbol["selectionRange"].clone();
+    Some(named)
+}
+
+/// Whether `edge` is a caller [`name_callers`] renames from its file's
+/// outline: a module caller, or one whose item selects a call site.
+fn needs_outline(edge: &HierarchyEdge) -> bool {
+    !edge.sites.is_empty() && (is_module(edge) || selects_a_site(edge))
+}
+
+/// Whether the server reports `edge`'s caller as a whole module or file.
+fn is_module(edge: &HierarchyEdge) -> bool {
+    edge.node
+        .get("kind")
+        .and_then(Value::as_u64)
+        .is_some_and(|kind| MODULE_KINDS.contains(&kind))
+}
+
+/// Callers named from each file's `documentSymbol` answer (`outlines`, by
+/// URI; a file without one keeps the server's items): a module caller split
+/// by [`split_module_callers`], and a caller whose item selects a call site
+/// instead of its name ([`selects_a_site`]) moved to that name, the same
+/// move applied where that caller is another edge's parent (`via`).
+pub(in crate::tools::lsp_search) fn name_callers(
+    edges: Vec<HierarchyEdge>,
+    outlines: &HashMap<String, std::sync::Arc<Value>>,
+) -> Vec<HierarchyEdge> {
+    let mut named = Vec::with_capacity(edges.len());
+    // The server's node → the node named at its declaration.
+    let mut renamed: Vec<(Value, Value)> = Vec::new();
+    for mut edge in edges {
+        let outline = edge
+            .node
+            .get("uri")
+            .and_then(Value::as_str)
+            .filter(|_| needs_outline(&edge))
+            .and_then(|uri| outlines.get(uri));
+        let Some(outline) = outline else {
+            named.push(edge);
+            continue;
+        };
+        if is_module(&edge) {
+            named.extend(split_module_callers(&edge, outline));
+            continue;
+        }
+        if let Some(node) = named_at_declaration(&edge.node, outline) {
+            renamed.push((edge.node.clone(), node.clone()));
+            edge.node = node;
+        }
+        named.push(edge);
+    }
+    for edge in &mut named {
+        if let Some(parent) = edge.parent.as_mut()
+            && let Some((_, node)) = renamed.iter().find(|(server, _)| server == parent)
+        {
+            *parent = node.clone();
+        }
+    }
+    named
+}
+
+/// [`name_callers`] over a walk's incoming edges, with one `documentSymbol`
+/// request per file that needs one (a failed request keeps the server's
+/// items).
 pub(super) async fn name_module_callers(
     client: &NativeLspClient,
     edges: Vec<HierarchyEdge>,
     cancel: &dyn CancellationCheck,
 ) -> Result<Vec<HierarchyEdge>, LspFailure> {
-    let mut symbols: HashMap<String, std::sync::Arc<Value>> = HashMap::new();
-    let mut named = Vec::with_capacity(edges.len());
-    for edge in edges {
-        let module = edge
-            .node
-            .get("kind")
-            .and_then(Value::as_u64)
-            .is_some_and(|kind| MODULE_KINDS.contains(&kind));
-        let Some(uri) = edge
-            .node
-            .get("uri")
-            .and_then(Value::as_str)
-            .filter(|_| module && !edge.sites.is_empty())
-        else {
-            named.push(edge);
+    let mut outlines: HashMap<String, std::sync::Arc<Value>> = HashMap::new();
+    for edge in edges.iter().filter(|edge| needs_outline(edge)) {
+        let Some(uri) = edge.node.get("uri").and_then(Value::as_str) else {
             continue;
         };
-        if !symbols.contains_key(uri) {
+        if !outlines.contains_key(uri) {
             let found = cancellable(cancel, client.get_document_symbols(uri_to_path(uri)))
                 .await?
                 .unwrap_or_default();
-            symbols.insert(uri.to_owned(), found);
+            outlines.insert(uri.to_owned(), found);
         }
-        named.extend(split_module_callers(&edge, &symbols[uri]));
     }
-    Ok(named)
+    Ok(name_callers(edges, &outlines))
 }
 
 /// Largest source parsed to narrow a class caller.

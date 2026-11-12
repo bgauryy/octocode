@@ -13,20 +13,21 @@ pub(super) struct Ctx<'a> {
 }
 
 /// A finding prepared while the view was borrowed: detector, subject, title,
-/// severity, confidence, evidence, controls.
+/// severity, confidence, impact, evidence, controls.
 pub(super) type Pending = (
     &'static str,
     String,
     String,
     f64,
     f64,
+    f64,
     Value,
     Vec<&'static str>,
 );
 
-/// Push prepared findings at the default impact, with no extra id parts.
+/// Push prepared findings, with no extra id parts.
 pub(super) fn push_pending(out: &mut Vec<Finding>, pending: Vec<Pending>) {
-    for (detector, subject, title, severity, confidence, evidence, controls) in pending {
+    for (detector, subject, title, severity, confidence, impact, evidence, controls) in pending {
         push(
             out,
             Draft {
@@ -36,7 +37,7 @@ pub(super) fn push_pending(out: &mut Vec<Finding>, pending: Vec<Pending>) {
                 title,
                 severity,
                 confidence,
-                impact: 0.5,
+                impact,
                 evidence,
                 controls,
             },
@@ -44,7 +45,10 @@ pub(super) fn push_pending(out: &mut Vec<Finding>, pending: Vec<Pending>) {
     }
 }
 
-/// A finding before its id and score are derived.
+/// A finding before its id and score are derived. Its score is
+/// `severity × confidence × (0.5 + 0.5 × impact)`, where impact is the
+/// highest PageRank percentile among the subject's files
+/// ([`View::impact`]).
 pub(super) struct Draft<'a> {
     pub(super) detector: &'static str,
     pub(super) subject: String,

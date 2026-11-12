@@ -4,6 +4,7 @@
 use super::frames::{ALIVE, PROGRESS};
 use super::identity::{call_identity, exe_identity, served_env, server_key, workspace_of};
 use super::sockets::socket_in;
+use super::startup::{Unstarted, start};
 use super::{read_line_bounded, same_dir_form};
 use crate::cli::output::Printed;
 use octocode_contract_types::ErrorCode;
@@ -67,8 +68,21 @@ pub(in crate::cli) async fn call(
     let mut stream = match connect(&target.socket).await {
         Some(stream) => stream,
         None => {
-            spawn_server(&target.socket, &target.workspace)?;
-            wait_for(&target.socket).await?
+            let cancel = async {
+                if tokio::signal::ctrl_c().await.is_err() {
+                    std::future::pending::<()>().await;
+                }
+            };
+            match start(&target.socket, &target.workspace, cancel).await {
+                Ok(stream) => stream,
+                Err(Unstarted::Cancelled) => return Some(130),
+                Err(Unstarted::Unavailable(reason)) => {
+                    eprintln!(
+                        "# octocode: warm server did not start ({reason}); running {tool} in process."
+                    );
+                    return None;
+                }
+            }
         }
     };
     let request = Request {
@@ -333,41 +347,4 @@ pub(super) async fn exchange(
 
 pub(super) async fn connect(socket: &Path) -> Option<tokio::net::UnixStream> {
     tokio::net::UnixStream::connect(socket).await.ok()
-}
-
-/// Wait up to two seconds for a just-started server to bind its socket.
-pub(super) async fn wait_for(socket: &Path) -> Option<tokio::net::UnixStream> {
-    for _ in 0..400 {
-        if let Some(stream) = connect(socket).await {
-            return Some(stream);
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-    }
-    None
-}
-
-/// Start `octocode serve --socket <path>` in `workspace`, detached from this
-/// process: its own session, no inherited stdio (a caller capturing our
-/// output must not wait for the server). It inherits this process's
-/// environment, as the in-process call would have run with.
-pub(super) fn spawn_server(socket: &Path, workspace: &Path) -> Option<()> {
-    use std::os::unix::process::CommandExt;
-    let exe = std::env::current_exe().ok()?;
-    let mut command = std::process::Command::new(exe);
-    command
-        .arg("serve")
-        .arg("--socket")
-        .arg(socket)
-        .current_dir(workspace)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    // SAFETY: setsid is async-signal-safe and touches only the child.
-    unsafe {
-        command.pre_exec(|| {
-            libc::setsid();
-            Ok(())
-        });
-    }
-    command.spawn().ok().map(|_| ())
 }

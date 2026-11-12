@@ -254,7 +254,7 @@ pub(super) fn anchor_line(q: MatchQuery<'_>, file: &std::path::Path) -> Option<u
     let source = super::super::source::read_parse_source(file)
         .ok()
         .flatten()?;
-    super::super::source::parse_text(file, &source)
+    super::super::source::matched_text(file, &source)
         .ok()?
         .lines()
         .position(|line| {

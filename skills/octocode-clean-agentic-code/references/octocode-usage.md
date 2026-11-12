@@ -9,7 +9,7 @@ Load when using Octocode research tools through MCP or CLI. Source: `skills/comm
 | This checkout | `node packages/octocode/out/octocode.js` |
 | Another workspace | Absolute checkout CLI path; keep task cwd so relative inputs target that project. |
 
-The CLI serves every public tool regardless of MCP exposure gates; path/content security still applies. Examples use `npx`; substitute the selected CLI. Never switch versions to hide a failing call.
+The CLI serves every public tool regardless of MCP exposure gates; path/content security still applies. Examples use this checkout's CLI; substitute the selected CLI. Never switch versions to hide a failing call.
 
 Research, Chrome DevTools and agents-communication are different executables. Their skills (agents-communication: `octocode-agentic`) own their command envelopes and mutation rules.
 
@@ -18,16 +18,18 @@ Research, Chrome DevTools and agents-communication are different executables. Th
 Discover the least you need: `--help` lists when to use each tool; `--view variants` gives operations, required fields and an example (about 1 KB); `--view query` every field (6–10 KB); `--view full` every tool (about 23 KB).
 
 ```bash
-npx -y octocode --help
-npx -y octocode schema localSearch --view variants
-npx -y octocode schema localSearch --view query
-npx -y octocode schema --view full
-npx -y octocode localFetch '{"queries":[{"path":"src/index.ts","ranges":[{"startLine":1,"endLine":40}]}]}'
+node packages/octocode/out/octocode.js --help
+node packages/octocode/out/octocode.js schema localSearch --view variants
+node packages/octocode/out/octocode.js schema localSearch --view query
+node packages/octocode/out/octocode.js schema --view full
+node packages/octocode/out/octocode.js localFetch '{"queries":[{"path":"src/index.ts","ranges":[{"startLine":1,"endLine":40}]}]}'
 ```
 
 New requests contain `queries` and optional `responseChars`; each query takes `mainGoal` (the task) and `reasoning` (why this query). Use one tool per batch and respect its schema's maximum row count (at most five). Resume only with an emitted `{cursor}` input. CLI and MCP use the same envelope. For long requests, save JSON under the active skill's scratch directory and use CLI `--input <file>`.
 
-Use observed paths, lines, refs and identifiers. Shared fields have one form: `matchString` string arrays, `contextLines:{before,after}`, `ranges:[{startLine,endLine}]`, numeric `{min,max}`, dates `{from,to}`, `sort:{by,order}`. Live schemas own exact fields and limits. There are no input aliases, bare queries or guessed repairs.
+Long command output (test runs, builds, CI and service logs, `git log`, `ps`) goes to clasify as a file, not into your context: `set -o pipefail; <cmd> > .octocode/<skill-folder>/out.log 2>&1`, then `clasify` with `source:{tool:"localFetch",query:{path:".octocode/<skill-folder>/out.log"}}` and a typed question: a yes names its deciding `lines` and `next.read` reads them (`sections` when you need every place or the order). A scratch path outside the workspace, such as `/tmp`, is refused (`outsideAllowedRoots`). A known marker (`FAILED`, `error[`, `##[error]`) is cheaper with `localSearch` on the same file. Output you will not reread can go straight from the pipe as the row's `content`: `set -o pipefail; <cmd> 2>&1 | <cli> clasify --content - '{"queries":[{"operation":"evaluate","questions":{…}}]}'` (or the JSON from `--input <file>`); its `lines` count lines of that output.
+
+Use observed paths, lines, refs and identifiers. Shared fields have one form: `matchString` string arrays, `contextLines:{before,after}`, `ranges:[{startLine,endLine}]`, numeric `{min,max}`, dates `{from,to}`, `sort:{by,order}`. Live schemas own exact fields and limits. Send declared fields: a known misspelled field runs repaired with a hint naming the real one; bare queries are refused.
 
 ## Availability
 

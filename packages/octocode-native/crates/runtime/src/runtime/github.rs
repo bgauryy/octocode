@@ -145,7 +145,7 @@ impl GitHubServices {
         let request_context =
             self.request_context(context, handle, access)
                 .map(|request| match warm {
-                    Some(warm) => request.with_last_commits(warm.memo.clone()),
+                    Some(warm) => request.with_ref_memo(warm.memo.clone()),
                     None => request,
                 });
         context.check()?;

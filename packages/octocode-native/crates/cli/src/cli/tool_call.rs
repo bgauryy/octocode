@@ -64,14 +64,80 @@ pub(in crate::cli) fn stderr_is_terminal() -> bool {
     std::io::stderr().is_terminal()
 }
 
-/// The JSON input of a tool command, supplied inline or through --input.
+/// The JSON input of a tool command, supplied inline or through --input;
+/// with `--content -`, stdin is its one row's `content`.
 pub(super) fn tool_input(tool: &str, args: &ToolArgs) -> Result<Value, String> {
     if args.input.is_some() && !args.args.is_empty() {
         return Err(format!(
             "--input reads the query; drop the other arguments. Usage: octocode {tool} --help"
         ));
     }
-    parse_json_query(tool, args.query_text()?)
+    if args.content_stdin
+        && args
+            .input
+            .as_deref()
+            .is_some_and(|path| path.as_os_str() == "-")
+    {
+        return Err(format!(
+            "--content - and --input - both read stdin: pass the JSON as an argument or with --input FILE. Usage: octocode {tool} --content - '<json>'"
+        ));
+    }
+    let query = parse_json_query(tool, args.query_text()?)?;
+    if !args.content_stdin {
+        return Ok(query);
+    }
+    with_content(tool, query, stdin_text(std::io::stdin())?)
+}
+
+/// Text read from stdin for `--content -`: UTF-8, within the query's size.
+pub(super) fn stdin_text(stdin: impl std::io::Read) -> Result<String, String> {
+    let bytes = octocode_io::read::read_limited(stdin, commands::MAX_QUERY_BYTES)
+        .map_err(|error| format!("Cannot read the content from stdin: {error}"))?
+        .ok_or_else(content_too_large)?;
+    String::from_utf8(bytes)
+        .map_err(|_| "The content from stdin is not UTF-8 text; clasify judges text.".to_owned())
+}
+
+fn content_too_large() -> String {
+    format!(
+        "The query with its stdin content exceeds {} MiB.",
+        commands::MAX_QUERY_BYTES >> 20
+    )
+}
+
+/// `query` with `content` as its one row's `content`. The row must leave the
+/// input to stdin: a row judges one of `content`, `source` or `resources`.
+pub(super) fn with_content(tool: &str, mut query: Value, content: String) -> Result<Value, String> {
+    let usage = format!("Usage: octocode {tool} --content - '{{\"queries\":[{{…}}]}}'");
+    let rows = query
+        .get_mut("queries")
+        .and_then(Value::as_array_mut)
+        .ok_or_else(|| {
+            format!("--content - fills a query row's content; the JSON has no queries. {usage}")
+        })?;
+    let [row] = rows.as_mut_slice() else {
+        return Err(format!(
+            "--content - fills exactly one query row's content; the JSON has {} rows. {usage}",
+            rows.len()
+        ));
+    };
+    let row = row.as_object_mut().ok_or_else(|| {
+        format!("--content - fills a query row's content; the row is not an object. {usage}")
+    })?;
+    if let Some(field) = ["content", "source", "resources"]
+        .into_iter()
+        .find(|field| row.contains_key(*field))
+    {
+        return Err(format!(
+            "--content - supplies the row's content; drop its `{field}`: a row judges one input."
+        ));
+    }
+    row.insert("content".into(), Value::String(content));
+    let bytes = serde_json::to_vec(&query).map_or(usize::MAX, |json| json.len());
+    if !u64::try_from(bytes).is_ok_and(|bytes| bytes <= commands::MAX_QUERY_BYTES) {
+        return Err(content_too_large());
+    }
+    Ok(query)
 }
 
 /// The JSON form's query text, parsed.

@@ -20,7 +20,16 @@ async function collections(ctx, surface, out, repo) {
   const expectedCommits = ctx.mock.model.commits.slice(1).map(commit => [commit.oid, commit.message.split('\n')[0]]);
   for (const responseChars of [50000, 300]) {
     const report = await ctx.explore('ghGetHistoryItem', { queries: [{ ...repo, operation: 'compare', baseRef: ctx.mock.model.commits[0].oid, headRef: 'main', sections: ['commits'] }], responseChars }, surface);
-    const observed = report.responses.filter(row => row.tool === 'ghGetHistoryItem').flatMap(row => row.result.json?.results?.flatMap(item => (item.data?.commits ?? []).map(commit => [commit.commitSha, commit.messageHeadline])) ?? []);
+    // A long headline is windowed across row parts: a part whose `rowPart.text` resumes a commit's
+    // string starts with that commit, whose text goes on the one read before it.
+    const observed = [];
+    for (const item of report.responses.filter(row => row.tool === 'ghGetHistoryItem').flatMap(row => row.result.json?.results ?? [])) {
+      const resumes = /^\/data\/commits\/\d+\//.test(item.rowPart?.text ?? '');
+      (item.data?.commits ?? []).forEach((commit, at) => {
+        if (at === 0 && resumes) observed.at(-1)[1] += commit.messageHeadline ?? '';
+        else observed.push([commit.commitSha, commit.messageHeadline]);
+      });
+    }
     out.push([`advanced.compare.commits.exactOnce.${responseChars}.${surface}`, !report.failures.length && isDeepStrictEqual(observed, expectedCommits)
       && (responseChars !== 300 || report.responses.length > 1),
     `${observed.length} comparison commits, ${report.responses.length} calls; ${JSON.stringify(report.failures)}`]);

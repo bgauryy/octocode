@@ -53,14 +53,17 @@ fn workspace_root_infers_its_server_from_project_markers() {
             std::fs::write(root.join(marker), content).expect("marker");
         }
         let root = root.to_string_lossy().into_owned();
-        let config = default_server_for_workspace_root(&root, &options)
+        let config = default_server_for_directory(&root, &root, &options)
             .unwrap_or_else(|| panic!("{name}: no server inferred"));
         assert_eq!(config.language_id.as_deref(), Some(expected), "{name}");
         assert_eq!(config.workspace_root, root, "{name}");
     }
     let empty = base.join("empty");
     std::fs::create_dir_all(&empty).expect("empty root");
-    assert!(default_server_for_workspace_root(&empty.to_string_lossy(), &options).is_none());
+    assert!(
+        default_server_for_directory(&empty.to_string_lossy(), &empty.to_string_lossy(), &options)
+            .is_none()
+    );
 }
 
 #[test]
@@ -152,4 +155,80 @@ fn workspace_root_representative_source_matches_the_full_include_glob() {
     let found = workspace_root_representative_source(&root.to_string_lossy())
         .expect("a fallback TypeScript source");
     assert!(found.ends_with("vitest.config.ts"), "{found}");
+}
+
+/// A directory routes by its own markers, else by the languages of its
+/// files (most files first, at the first level that holds any), else by the
+/// workspace root's markers: a folder of Python scripts under a TypeScript
+/// root is Python's, and a Go package with no manifest of its own is Go's.
+#[test]
+fn a_directory_routes_by_the_languages_of_its_files() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path();
+    let text = |path: &std::path::Path| path.to_string_lossy().into_owned();
+    let write = |relative: &str| {
+        let path = root.join(relative);
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("dir");
+        std::fs::write(path, "").expect("file");
+    };
+    write("tsconfig.json");
+    write("scripts/flows.py");
+    write("scripts/walk.py");
+    write("scripts/stub.mjs");
+    write("pkg/csv/reader.go");
+    write("pkg/csv/writer.go");
+    write("pkg/csv/README.md");
+    write("cgo/gcc_a.c");
+    write("cgo/gcc_b.c");
+    write("cgo/abi.h");
+    write("cgo/a.go");
+    write("tree/x/deep.rs");
+    write("docs/guide.md");
+    let options = LspDiscoveryOptions::default();
+    let workspace = text(root);
+    let route = |relative: &str| {
+        let directory = text(&root.join(relative));
+        (
+            directory_languages(&directory, &workspace),
+            default_server_for_directory(&directory, &workspace, &options)
+                .and_then(|config| config.language_id),
+        )
+    };
+    assert_eq!(
+        route("scripts"),
+        (vec![".py", ".ts"], Some("python".to_owned()))
+    );
+    assert_eq!(route("pkg/csv"), (vec![".go"], Some("go".to_owned())));
+    assert_eq!(route("cgo").0, vec![".cpp", ".go"]);
+    // A directory with sources only below it routes by the first level
+    // that holds any.
+    assert_eq!(route("tree"), (vec![".rs"], Some("rust".to_owned())));
+    // No source file: the workspace root's markers.
+    assert_eq!(route("docs").0, vec![".ts"]);
+    // Its own markers first: the directory is a project root.
+    write("scripts/package.json");
+    assert_eq!(route("scripts").0, vec![".ts"]);
+    // Nothing anywhere: no route.
+    let empty = tempfile::tempdir().expect("empty");
+    assert!(directory_languages(&text(empty.path()), &text(empty.path())).is_empty());
+    assert!(
+        default_server_for_directory(&text(empty.path()), &text(empty.path()), &options).is_none()
+    );
+}
+
+/// A C-family directory opens a translation unit, not a header: clangd
+/// parses a header opened alone without its includer's context.
+#[test]
+fn a_c_family_representative_is_a_translation_unit() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path();
+    for name in ["abi_amd64.h", "gcc_libinit.c", "libcgo.h"] {
+        std::fs::write(root.join(name), "").expect("file");
+    }
+    let text = root.to_string_lossy().into_owned();
+    let found = directory_representative(&text, &text).expect("a C source");
+    assert!(found.ends_with("gcc_libinit.c"), "{found}");
+    std::fs::remove_file(root.join("gcc_libinit.c")).expect("remove");
+    let found = directory_representative(&text, &text).expect("a header when nothing else");
+    assert!(found.ends_with("abi_amd64.h"), "{found}");
 }

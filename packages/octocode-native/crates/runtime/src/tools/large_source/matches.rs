@@ -60,17 +60,55 @@ pub(super) fn fetch_matches<S: ContentScan>(
     let kept = source
         .proven
         .and_then(|_| super::kept::hits::<S>(q, source.path));
+    // A fresh scan's streamed judgment, when it proved and kept the source:
+    // the page's windows are read from it, as from the scan's own proof.
+    let mut judged_kept = None;
     let mut found = match kept {
         Some(hits) => hits.replay(q, resume),
-        None => match scan(q, source.file, source.path, resume, source.scan, cancel) {
-            Ok(found) => found,
+        None => match super::changed_lines(source.path, source.file, source.meta, security, cancel)
+            .map_err(|error| ExtractionError::new(ErrorCode::FileReadFailed, error))
+            .and_then(|judged| {
+                let (changed, judged_digest) = judged.unzip();
+                let judged_digest = judged_digest.flatten();
+                let kept = judged_digest
+                    .as_deref()
+                    .and_then(|digest| super::kept::of_digest(digest, source.path, source.meta));
+                let found = scan(
+                    q,
+                    super::scan::Judged {
+                        file: source.file,
+                        changed: changed.as_ref(),
+                        kept: judged_digest.as_deref().filter(|_| kept.is_some()),
+                    },
+                    source.path,
+                    resume,
+                    source.scan,
+                    cancel,
+                )?;
+                // The lines replaced are of the bytes the scan read.
+                match (&judged_digest, &found.digest) {
+                    (Some(judged), Some(read)) if judged != read => Err(ExtractionError::new(
+                        ErrorCode::FileReadFailed,
+                        "The source changed while it was read.".to_owned(),
+                    )),
+                    _ => Ok((found, kept)),
+                }
+            }) {
+            Ok((found, kept)) => {
+                judged_kept = kept;
+                found
+            }
             Err(error) => return prepare::extraction_error(q, error, 0),
         },
     };
     // Before any answer: a changed file with no hit past the cursor would
     // otherwise read as the old read's empty last page.
-    if let (Some(expected), Some(proven)) = (local_fetch_query::snapshot(q), &found.proven)
-        && expected != proven.digest
+    let read = found
+        .digest
+        .as_deref()
+        .or(found.proven.as_ref().map(|proven| proven.digest.as_str()));
+    if let (Some(expected), Some(read)) = (local_fetch_query::snapshot(q), read)
+        && expected != read
     {
         return stale_snapshot(q);
     }
@@ -110,6 +148,9 @@ pub(super) fn fetch_matches<S: ContentScan>(
                         .proven
                         .as_ref()
                         .map(|proven| (proven, found.total_lines))
+                        .or(judged_kept
+                            .as_deref()
+                            .map(|kept| (&kept.proven, kept.total_lines)))
                         .or(source.proven),
                     ..*source
                 };
@@ -134,7 +175,7 @@ pub(super) fn fetch_matches<S: ContentScan>(
             .as_ref()
             .is_some_and(|next| next.continue_window.is_some())
         {
-            keep_scan::<S>(q, source, &mut found);
+            keep_scan::<S>(q, source, &mut found, judged_kept.is_some());
         }
         result
     };
@@ -155,7 +196,23 @@ pub(super) fn fetch_matches<S: ContentScan>(
 }
 
 /// Keep a fresh scan for the later pages of its read.
-fn keep_scan<S: ContentScan>(q: &LocalFetchQuery, source: &Opened<'_>, found: &mut Scan) {
+fn keep_scan<S: ContentScan>(
+    q: &LocalFetchQuery,
+    source: &Opened<'_>,
+    found: &mut Scan,
+    judged_kept: bool,
+) {
+    // A scan whose streamed judgment proved and kept the source keeps only
+    // its hits, under that judgment's digest.
+    if judged_kept
+        && !found.nul
+        && let Some(digest) = found.digest.clone()
+    {
+        if let Some(hits) = KeptHits::of(found) {
+            super::kept::keep_hits::<S>(q, source.path, &digest, hits);
+        }
+        return;
+    }
     let Some(proven) = found.proven.take().filter(|_| !found.nul) else {
         return;
     };

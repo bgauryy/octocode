@@ -150,8 +150,11 @@ fn a_plain_miss_nowhere_in_the_workspace_offers_no_wider_search() {
 #[test]
 fn a_plain_miss_beside_a_skipped_binary_still_leads_to_the_match() {
     let root = workspace();
-    fs::write(root.path().join("narrow/icon.png"), b"\x89PNG\r\n\x1a\n\0\0needle")
-        .expect("fixture");
+    fs::write(
+        root.path().join("narrow/icon.png"),
+        b"\x89PNG\r\n\x1a\n\0\0needle",
+    )
+    .expect("fixture");
     let narrow = root.path().join("narrow").to_string_lossy().into_owned();
     let row = search(root.path(), &narrow, serde_json::json!({}));
     assert_eq!(row["files"], serde_json::json!([]), "{row}");
@@ -213,7 +216,10 @@ fn a_plain_miss_in_a_clone_leads_to_the_match_in_its_checkout_only() {
         test_dir.to_string_lossy().as_ref(),
         "{row}"
     );
-    assert!(row["hints"].to_string().contains("1 file(s) under"), "{row}");
+    assert!(
+        row["hints"].to_string().contains("1 file(s) under"),
+        "{row}"
+    );
     // A term only another checkout holds is nowhere in this one.
     let row = run(&lib, "unique-to-other");
     assert!(

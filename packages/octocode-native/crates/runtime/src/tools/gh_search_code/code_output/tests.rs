@@ -96,19 +96,12 @@ fn unsearched_ref_guidance_distinguishes_named_files_and_scopes() {
     }))
     .expect("query");
     assert!(empty_hints(&plain, None).is_empty());
-    // A requested ref plus a path scope are two hints, never one composed
-    // sentence.
+    // A path scope adds no hint: `path` names a file or a folder.
     let mut both = query.clone();
     both.path = Some("crates/x".parse().expect("path"));
-    let hints = empty_hints(&both, None);
-    assert_eq!(hints.len(), 2, "{hints:?}");
-    assert!(
-        hints[0].starts_with("Code search indexes only"),
-        "{hints:?}"
-    );
-    assert!(
-        hints[1].starts_with("`path:\"crates/x\"` is a directory scope"),
-        "{hints:?}"
+    assert_eq!(
+        empty_hints(&both, None),
+        ["Code search indexes only the default branch; `dev` was not searched."]
     );
 }
 

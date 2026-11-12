@@ -61,7 +61,7 @@ static COMMA_AT: LazyLock<Regex> =
 
 /// A literal a template writes in a hole of its own (`` `ghp_${"…"}` ``):
 /// the program holds the template's text with the literal's in the hole's
-/// place.
+/// place ([`holes`]).
 #[expect(clippy::expect_used, reason = "static pattern, valid by construction")]
 static HOLE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"\$\{[ \t]*(?:"(?P<dq>[^"\\\r\n]*)"|'(?P<sq>[^'\\\r\n]*)')[ \t]*\}"#)
@@ -93,6 +93,9 @@ pub(super) fn redact_pieces(content: &str) -> Option<Pieces> {
     let mut patterns = Vec::new();
     if HINT.is_match(content) {
         chains(content, &mut found, &mut patterns);
+    }
+    if content.contains("${") {
+        holes(content, &mut found, &mut patterns);
     }
     lists(content, &mut found, &mut patterns);
     if found.is_empty() {
@@ -140,35 +143,11 @@ fn chains(
             judge_chain(content, &chain, found, patterns);
             chain.clear();
         }
-        let template = piece.as_str().starts_with('`');
-        push_parts(
-            content,
-            piece.start() + 1..piece.end() - 1,
-            template,
-            &mut chain,
-        );
+        // A template's holes are the line pass's ([`holes`]).
+        chain.push(piece.start() + 1..piece.end() - 1);
         chain_end = piece.end();
     }
     judge_chain(content, &chain, found, patterns);
-}
-
-/// Adds to `chain` the parts of the piece whose body is `body`: all of it, or
-/// for a template (`template`) with literals in holes of its own ([`HOLE`])
-/// the text around each hole and the literal in it, in order.
-fn push_parts(content: &str, body: Range<usize>, template: bool, chain: &mut Vec<Range<usize>>) {
-    let text = content.get(body.clone()).filter(|_| template);
-    let mut from = body.start;
-    for hole in text.into_iter().flat_map(|text| HOLE.captures_iter(text)) {
-        let (Some(whole), Some(literal)) =
-            (hole.get(0), hole.name("dq").or_else(|| hole.name("sq")))
-        else {
-            continue;
-        };
-        chain.push(from..body.start + whole.start());
-        chain.push(body.start + literal.start()..body.start + literal.end());
-        from = body.start + whole.end();
-    }
-    chain.push(from..body.end);
 }
 
 /// Judges every list in `content` whose items, from one that opens with a
@@ -269,17 +248,37 @@ fn items_at(content: &str, open: usize) -> Vec<Range<usize>> {
 }
 
 /// Judges the pieces of one literal (`chain`: each piece's body in
-/// `content`, in order): their text joined is read as a text of its own, and
-/// each secret found across a seam adds, to `found`, the part of every piece
-/// it covers with the placeholder of the pattern that found it.
+/// `content`, in order) ([`chain_finds`]): each find adds, to `found`, the
+/// part of every piece it covers with the placeholder of the pattern that
+/// found it.
 fn judge_chain(
     content: &str,
     chain: &[Range<usize>],
     found: &mut Vec<(Range<usize>, &'static str)>,
     patterns: &mut Vec<&'static str>,
 ) {
-    if chain.len() < 2 {
+    let Some((index, finds)) = chain_finds(content, chain) else {
         return;
+    };
+    found.extend(finds.into_iter().flatten());
+    if !patterns.contains(&PATTERNS[index].name) {
+        patterns.push(PATTERNS[index].name);
+    }
+}
+
+/// One secret a chain spells: the part of each piece it covers, with its
+/// placeholder.
+type ChainFind = Vec<(Range<usize>, &'static str)>;
+
+/// The secrets the pieces of one literal spell (`chain`: each piece's body in
+/// `content`, in order), and the pattern that found them: their text joined
+/// is read as a text of its own, and a secret is the join's when it crosses a
+/// seam, or lies in one piece that alone holds none there (the name that
+/// makes it a credential is another piece's: `"password=" + "…"`). `None`
+/// when they spell none.
+fn chain_finds(content: &str, chain: &[Range<usize>]) -> Option<(usize, Vec<ChainFind>)> {
+    if chain.len() < 2 {
+        return None;
     }
     let mut joined = String::new();
     // Where each piece starts in the joined text.
@@ -288,40 +287,130 @@ fn judge_chain(
         starts.push(joined.len());
         joined.push_str(content.get(piece.clone()).unwrap_or_default());
     }
-    let Some(result) = super::redact(&joined, Scope::Pathless) else {
-        return;
-    };
-    let Some(index) = result
+    let result = super::redact(&joined, Scope::Pathless)?;
+    let index = result
         .secrets_detected
         .first()
-        .and_then(|name| PATTERNS.iter().position(|pattern| pattern.name == name))
-    else {
-        return;
-    };
+        .and_then(|name| PATTERNS.iter().position(|pattern| pattern.name == name))?;
     let piece_of = |at: usize| {
         starts
             .partition_point(|start| *start <= at)
             .saturating_sub(1)
     };
-    let mut crossed = false;
+    let mut finds = Vec::new();
     for secret in result.edits.redacted() {
         let (first, last) = (
             piece_of(secret.start),
             piece_of(secret.end.saturating_sub(1)),
         );
         if first == last {
-            continue;
+            // The piece's own text: the patterns read it where it is written.
+            let piece = content.get(chain[first].clone()).unwrap_or_default();
+            let own = secret.start - starts[first]..secret.end - starts[first];
+            let alone = super::redact(piece, Scope::Pathless);
+            if alone.is_some_and(|alone| alone.edits.overlaps(&own)) {
+                continue;
+            }
         }
-        crossed = true;
+        let mut find = Vec::new();
         for (piece, start) in chain.iter().zip(&starts).take(last + 1).skip(first) {
             let from = secret.start.max(*start) - start;
             let to = secret.end.min(start + piece.len()) - start;
             if from < to {
-                found.push((piece.start + from..piece.start + to, replacement_for(index)));
+                find.push((piece.start + from..piece.start + to, replacement_for(index)));
             }
         }
+        finds.push(find);
     }
-    if crossed && !patterns.contains(&PATTERNS[index].name) {
-        patterns.push(PATTERNS[index].name);
+    (!finds.is_empty()).then_some((index, finds))
+}
+
+/// One interpolation a template or an interpolated string writes on one
+/// line (`${expr}`, `${"…"}`), no braces nested in it.
+#[expect(clippy::expect_used, reason = "static pattern, valid by construction")]
+static ANY_HOLE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\$\{[^{}\r\n]*\}").expect("any hole"));
+
+/// Judges the text each line writes around its interpolations ([`ANY_HOLE`],
+/// in a template, an interpolated string, a template's line inside a
+/// multi-line one): the text between them, from the quote before the first
+/// (or the line's start) to the quote after the last (or the line's end),
+/// joined is what the program holds there. The value after an
+/// interpolation is the value a credential's name before it holds
+/// (`` `password=${x}…` ``), and the interpolation stays as written. A
+/// literal a hole writes is joined too only where the text around it alone
+/// spells nothing (`` `ghp_${"…"}` ``): then it is part of the secret.
+fn holes(
+    content: &str,
+    found: &mut Vec<(Range<usize>, &'static str)>,
+    patterns: &mut Vec<&'static str>,
+) {
+    let mut line_start = 0;
+    for line in content.split_inclusive('\n') {
+        let start = line_start;
+        line_start += line.len();
+        if !line.contains("${") {
+            continue;
+        }
+        let holes: Vec<_> = ANY_HOLE.captures_iter(line).filter_map(|hole| hole.get(0)).collect();
+        let (Some(first), Some(last)) = (holes.first(), holes.last()) else {
+            continue;
+        };
+        let quote = |c: char| matches!(c, '"' | '\'' | '`');
+        let open = line
+            .get(..first.start())
+            .and_then(|head| head.rfind(quote))
+            .map_or(0, |at| at + 1);
+        let body = line.trim_end_matches(['\n', '\r']);
+        let close = body
+            .get(last.end()..)
+            .and_then(|rest| rest.find(quote))
+            .map_or(body.len(), |at| last.end() + at);
+        // The text around the holes, and the literals the holes write.
+        let mut around = Vec::with_capacity(holes.len() + 1);
+        let mut with_literals = Vec::with_capacity(2 * holes.len() + 1);
+        let mut from = open;
+        for hole in &holes {
+            around.push(start + from..start + hole.start());
+            with_literals.push(start + from..start + hole.start());
+            if let Some(literal) = HOLE.captures(hole.as_str()).and_then(|literal| {
+                literal.name("dq").or_else(|| literal.name("sq"))
+            }) {
+                let at = start + hole.start();
+                with_literals.push(at + literal.start()..at + literal.end());
+            }
+            from = hole.end();
+        }
+        around.push(start + from..start + close.max(from));
+        with_literals.push(start + from..start + close.max(from));
+        let plain = chain_finds(content, &around);
+        let covered: Vec<Range<usize>> = plain
+            .iter()
+            .flat_map(|(_, finds)| finds.iter().flatten().map(|(range, _)| range.clone()))
+            .collect();
+        let literal = (with_literals.len() > around.len())
+            .then(|| chain_finds(content, &with_literals))
+            .flatten();
+        for (index, finds) in plain.into_iter().chain(literal) {
+            let mut any = false;
+            for find in finds {
+                // A find the text around the holes already makes leaves the
+                // hole's literal shown.
+                let overlaps = |range: &Range<usize>| {
+                    covered
+                        .iter()
+                        .any(|seen| seen.start < range.end && range.start < seen.end)
+                };
+                let own = find.iter().all(|(range, _)| covered.contains(range));
+                if !own && find.iter().any(|(range, _)| overlaps(range)) {
+                    continue;
+                }
+                any = true;
+                found.extend(find);
+            }
+            if any && !patterns.contains(&PATTERNS[index].name) {
+                patterns.push(PATTERNS[index].name);
+            }
+        }
     }
 }

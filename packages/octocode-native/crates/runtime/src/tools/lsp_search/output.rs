@@ -5,10 +5,12 @@ use serde_json::Value;
 
 pub(crate) struct Output;
 
-/// What to try after an lspSearch call timed out: the retry is the row's own
-/// query (the server keeps loading between calls); the rest works without
-/// the server. The one Timeout tip, on a row and on a request-level failure.
-pub(super) const TIMEOUT_TIP: &str = "Retry once: the first call initialises the language server (~60 s cold start); else astSearch/localSearch + localFetch.";
+/// What to try after an lspSearch call timed out: the error says whether the
+/// server was still working (a retry continues its load) or idle on the
+/// request (a retry asks the same server the same thing); the rest works
+/// without the server. The one Timeout tip, on a row and on a request-level
+/// failure.
+pub(super) const TIMEOUT_TIP: &str = "Retry once if the error says the server was still working; if it was idle, a retry asks it again: use astSearch/localSearch + localFetch.";
 
 /// The query's `operation` and whether it names a `path`: the two facts the
 /// tips depend on.

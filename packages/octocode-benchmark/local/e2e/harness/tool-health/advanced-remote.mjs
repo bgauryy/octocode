@@ -284,9 +284,8 @@ async function readerPinned(ctx, surface, out, sources) {
 }
 
 /**
- * One file read split into several `rowPart` parts of one row: a match read whose lines are wider than the window,
- * an eighth of the whole unsplit response, measured first (a third only pages: the provider pager cuts at lines). Walking every part rebuilds the file's lines exactly once,
- * each split row's parts number 1..of, and every later part repeats the page context the contract declares.
+ * A match read whose lines are wider than the window (an eighth of the unsplit response): each byte window is served
+ * whole (no `rowPart`). The pages rebuild the lines once; a split row numbers its parts 1..of with the declared context.
  */
 // A window of this fraction of the whole answer is narrower than one line of the generated `flow-wide.txt`.
 const SPLIT_WINDOWS = 8;
@@ -299,13 +298,14 @@ async function readerSplitRow(ctx, surface, out, sources) {
   const rows = rawRows(report);
   const runs = rows.reduce((all, row) => { if (!row.rowPart || row.rowPart.part === 1) all.push([]); all.at(-1).push(row); return all; }, []);
   const split = runs.filter(run => run[0].rowPart);
-  const numbered = split.length > 0 && split.every(run => run.every((row, at) => row.rowPart.part === at + 1 && row.rowPart.of === run.length));
+  const bytesWhole = rows.every(row => row.data?.pagination?.unit !== 'bytes' || !row.rowPart);
+  const numbered = bytesWhole && split.every(run => run.every((row, at) => row.rowPart.part === at + 1 && row.rowPart.of === run.length));
   const context = split.every(([first, ...later]) => later.every(row => row.rowPart.text === '/data/content'
     && laterPartContext('ghGetFileContent', ['data'], { row: row.data, original: { ...first.data, owner: query.owner, repo: query.repo }, skip: key => key === 'content' })
     && row.data.commitSha === first.data.commitSha && row.data.owner === query.owner && row.data.repo === query.repo));
   const text = readText(joinTextParts(rows));
   out.push([`advanced.flow.splitRow.${surface}`, !report.failures.length && numbered && context && text === sources['flow-wide.txt'],
-    `window ${window} of ${size}; ${split.length} split rows; ${Buffer.byteLength(text)}/${Buffer.byteLength(sources['flow-wide.txt'])} bytes; numbered ${numbered}, context ${context}; ${JSON.stringify(report.failures)}`]);
+    `window ${window} of ${size}; ${split.length} split rows; byte windows whole ${bytesWhole}; ${Buffer.byteLength(text)}/${Buffer.byteLength(sources['flow-wide.txt'])} bytes; numbered ${numbered}, context ${context}; ${JSON.stringify(report.failures)}`]);
 }
 
 async function readerFlows(ctx) {

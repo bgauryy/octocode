@@ -367,17 +367,17 @@ pub(crate) fn key_line_bytes(line: &str) -> Option<std::ops::Range<usize>> {
 /// Whether `piece`, text beside a line's armor, is key text: base64 alone in
 /// a key line's quoting ([`LineShape::Body`]), or a run only a key's body is
 /// that long. A concatenation's `+` or an escape's letter (`\n" +`) is
-/// quoting, no base64: key text holds a run of a few base64 characters.
+/// quoting, no base64: key text holds a run of a few base64 characters, a
+/// letter among them. A number alone is no key's text: the label a numbered
+/// view writes before the armor (`124169\t-----END …`) reads as written.
 fn holds_key_text(piece: &[u8]) -> bool {
     const KEY_TEXT_RUN: usize = 4;
     let mut scan = LineShapeScan::default();
     scan.feed(piece);
-    let longest = piece
+    let keyed = piece
         .split(|byte| !(byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'=')))
-        .map(<[u8]>::len)
-        .max()
-        .unwrap_or(0);
-    scan.finish(piece).shape == LineShape::Body && longest >= KEY_TEXT_RUN
+        .any(|run| run.len() >= KEY_TEXT_RUN && run.iter().any(u8::is_ascii_alphabetic));
+    scan.finish(piece).shape == LineShape::Body && keyed
 }
 
 /// The armor edges of `line`, in order, each with whether it is a BEGIN:

@@ -323,13 +323,13 @@ pub(crate) fn suggested(
     picked.sort_by(|left, right| {
         (order.cmp)(right, left).unwrap_or(std::cmp::Ordering::Equal)
     });
-    let fewer = (error.nearest_ranked && !picked.is_empty() && picked.len() < limit).then(|| {
+    let hint = (error.nearest_ranked && !picked.is_empty() && picked.len() < limit).then(|| {
         format!(
             "Only {} published version(s) to suggest; the lead reads every one.",
             picked.len()
         )
     });
-    (picked, fewer)
+    (picked, hint)
 }
 
 /// The published versions `order` reads, nearest a missing `requested` one

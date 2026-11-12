@@ -49,7 +49,7 @@ pub(in crate::tools::lsp_search) async fn sync_document(
     // sync just leaves the server to answer (or error) as before.
     if target.root_only
         && let Some(representative) =
-            root_representative(&target.path, &target.config.workspace_root)
+            directory_representative(&target.path, &target.config.workspace_root)
         && let Some(source) = sources.get(&representative).await
         && let Ok(readiness) = reporting(
             "Indexing with",
@@ -64,21 +64,4 @@ pub(in crate::tools::lsp_search) async fn sync_document(
         return Ok(readiness);
     }
     Ok(None)
-}
-
-/// The source file a `workspaceRoot`-only query opens so the server loads a
-/// project: the directory's own representative, else (a source directory
-/// such as `src` has no project marker) one in the workspace root's
-/// language, inside the directory when it has one.
-pub(in crate::tools::lsp_search) fn root_representative(
-    directory: &str,
-    workspace_root: &str,
-) -> Option<String> {
-    workspace_root_representative_source(directory).or_else(|| {
-        let extension = workspace_root_languages(workspace_root)
-            .into_iter()
-            .next()?;
-        representative_source_for(directory, extension)
-            .or_else(|| representative_source_for(workspace_root, extension))
-    })
 }

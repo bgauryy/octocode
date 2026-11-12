@@ -119,12 +119,56 @@ async fn a_captured_source_reaches_the_provider_as_its_reader_shows_it() {
             .find(|(read, _)| read.ends_with(path) || path.ends_with(read.as_str()))
             .map(|(_, view)| view)
             .unwrap_or_else(|| panic!("no read for {path}: {body}"));
-        let sent_text = body["state"]["text"].as_str().unwrap_or_default();
+        // The text judged whole carries a marker line before each part
+        // (`[p1]`, …); the lines between them are the reader's view.
+        let sent_text = body["state"]["text"]
+            .as_str()
+            .unwrap_or_default()
+            .split_inclusive('\n')
+            .filter(|line| {
+                !line
+                    .trim_end()
+                    .strip_prefix("[p")
+                    .and_then(|rest| rest.strip_suffix(']'))
+                    .is_some_and(|number| number.parse::<usize>().is_ok())
+            })
+            .collect::<String>();
         assert_eq!(
             sent_text.trim_end_matches('\n'),
             view.trim_end_matches('\n'),
             "{name}: the provider's text is not the reader's view"
         );
+    }
+    runtime.close().await;
+}
+
+/// Item 9 (bin16 retest): a captured local source reaches the provider
+/// named as a result row names it, by its path in the workspace: never the
+/// absolute path, so no home directory or user name leaves the host.
+#[tokio::test]
+async fn a_captured_source_names_its_workspace_path_to_the_provider() {
+    let workspace = crate::support::Workspace::new();
+    let server = provider(2).await;
+    let runtime = crate::support::clasify_runtime(&workspace, &server, &[]);
+    let path = workspace.write("src/deep/notes.txt", "plain line\nsecond line\n");
+    for named in [path.to_string_lossy().into_owned(), "src/deep/notes.txt".to_owned()] {
+        let result = clasify(
+            &runtime,
+            vec![json!({
+                "operation":"evaluate",
+                "source":{"tool":"localFetch","query":{"path": named}},
+                "questions":{"a":noul("Is a credential set?")}
+            })],
+        )
+        .await;
+        assert!(result["results"][0]["data"]["answers"]["a"].is_object(), "{result}");
+    }
+    let bodies = sent(&server).await;
+    assert!(!bodies.is_empty());
+    let root = workspace.workspace.to_string_lossy().into_owned();
+    for body in &bodies {
+        assert_eq!(body["state"]["source"]["path"], "src/deep/notes.txt", "{body}");
+        assert!(!body.to_string().contains(&root), "{body}");
     }
     runtime.close().await;
 }

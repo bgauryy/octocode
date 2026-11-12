@@ -291,6 +291,7 @@ fn only_an_explicit_max_files_caps_the_file_walk() {
         max_files,
         skip_files: None,
         max_file_bytes: None,
+        judge: None,
     };
     let capped = search_files_detailed(options(Some(4))).expect("search");
     assert!(capped.scan_truncated);

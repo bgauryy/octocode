@@ -2,7 +2,7 @@
 //! terminal outcome that settles every remaining cell. A resource row is
 //! repeated on a later batch only when it gains sections or its coverage or
 //! status changed: unchanged rows are duplicate metadata, not evidence.
-use super::{Outcome, Runtime, Session};
+use super::{Outcome, Resource, Runtime, Session};
 use crate::execution::ExecutionContext;
 use crate::response::result::{Continuation, insert_next};
 use crate::tools::judgment::stats::ClassificationUsage;
@@ -97,7 +97,7 @@ fn restore_all_quiet(output: &mut Value, session: &Session) {
 pub(super) fn attach_continuations(output: &mut Value, session: &Session, last: bool) -> Held {
     // Reads first, over every section this batch emitted: `hit_reads` skips a
     // resource whose sections all said yes, which only the full list shows.
-    attach_hit_reads(output);
+    attach_hit_reads(output, session);
     let held = hold_back_quiet(output, session);
     let quiet = session
         .resources
@@ -354,10 +354,17 @@ fn is_hit(section: &Value) -> bool {
 /// Adds `next.read`, `next.read2`, … to a batch that a later call can run: the
 /// read is a saved continuation, which a command that exits after one call
 /// cannot publish.
-fn attach_hit_reads(output: &mut Value) {
+fn attach_hit_reads(output: &mut Value, session: &Session) {
+    let pin = |key: &str| {
+        session
+            .resources
+            .iter()
+            .find(|resource| resource.key == key)
+            .and_then(Resource::pin)
+    };
     let reads = output["resources"]
         .as_object()
-        .map(hit_reads)
+        .map(|resources| hit_reads(resources, pin))
         .unwrap_or_default();
     for (index, read) in reads.into_iter().enumerate() {
         let name = if index == 0 {
@@ -372,12 +379,16 @@ fn attach_hit_reads(output: &mut Value) {
 /// One read per resource of exactly the lines of its yes-sections in this
 /// batch (adjacent or overlapping ones merged), pinned to the judged snapshot:
 /// confirming an answer costs the lines it names, not the whole source the
-/// resource's own `read` returns. A URL capture has no line read.
-fn hit_reads(resources: &serde_json::Map<String, Value>) -> Vec<Value> {
+/// resource's own `read` returns. A URL capture has no line read. `pin`
+/// names the snapshot or commit each resource key was judged at.
+fn hit_reads<'a>(
+    resources: &serde_json::Map<String, Value>,
+    pin: impl Fn(&str) -> Option<&'a str>,
+) -> Vec<Value> {
     resources
-        .values()
-        .filter(|resource| resource["status"] == "ready")
-        .filter_map(|resource| {
+        .iter()
+        .filter(|(_, resource)| resource["status"] == "ready")
+        .filter_map(|(key, resource)| {
             let tool = resource["source"]["tool"]
                 .as_str()
                 .and_then(crate::id::ToolId::from_name)
@@ -425,7 +436,7 @@ fn hit_reads(resources: &serde_json::Map<String, Value>) -> Vec<Value> {
             Some(crate::tools::source_capture::read_lead(
                 tool,
                 &query,
-                resource["sourceDigest"].as_str(),
+                pin(key),
             ))
         })
         .collect()

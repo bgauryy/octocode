@@ -101,7 +101,10 @@ fn a_priced_scan_pages_exactly_as_a_held_scan() {
                             q.pattern_text().as_deref(),
                             None,
                             &digest,
-                            crate::security::SourceLimits::REAL.whole_source as u64,
+                            (
+                                crate::security::SourceLimits::REAL.whole_source as u64,
+                                Some(&super::super::source::judge()),
+                            ),
                             &|| false,
                         )
                         .expect("rebuild")

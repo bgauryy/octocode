@@ -1,13 +1,15 @@
 //! `find`: ranked node search over names and keys.
 //!
 //! Three tiers, strongest first: the whole text equals a key or name
-//! (`exact`); its identifier words start words of a name or key (`words`);
-//! the whole text sits inside a name or key (`prefix`, `contains`, `path`).
-//! Text and names split into identifier words at case changes and at every
-//! separator (`snapshot reader` finds `SnapshotReader`, `parse_config` finds
-//! `parseConfig`). Word matches keep the nodes that match the most query
-//! words: every word is required whenever some node has them all, and
-//! otherwise rows name the words they matched.
+//! (`exact`); its identifier words start words of a name or key (`words`,
+//! stated `prefix` when the name also starts with the whole text); the whole
+//! text sits inside a name or key (`prefix`, `contains`, `path`). Text and names split into
+//! identifier words at case changes and at every separator (`snapshot
+//! reader` finds `SnapshotReader`, `parse_config` finds `parseConfig`). Word
+//! matches keep the nodes that match the most query words, counted over
+//! names and keys and over names alone, so words of a file path never
+//! outvote a name; more matched words rank first, and a row that misses a
+//! query word names the words it matched.
 use super::*;
 use octocode_engine::text::identifier_words;
 use std::collections::HashMap;
@@ -41,6 +43,11 @@ impl Tier {
 pub(super) struct Hit {
     pub(super) id: u32,
     tier: Tier,
+    /// The `match` a row states: its tier, or `prefix` for a word match
+    /// whose name starts with the whole text.
+    label: Tier,
+    /// Query words a word match matches; more rank first.
+    count: usize,
     strength: u32,
     unmatched: usize,
     centrality: f64,
@@ -52,6 +59,8 @@ pub(super) struct Hit {
 /// whole alphanumeric run (`snapshotreader`), so joined spellings match too.
 struct Terms {
     name_words: Vec<String>,
+    /// The name's words and runs.
+    name_parts: Vec<String>,
     words: Vec<String>,
 }
 
@@ -65,16 +74,26 @@ impl Terms {
                 .collect::<Vec<_>>()
         };
         let name_words = identifier_words(name);
-        let mut words = name_words.clone();
-        words.extend(runs(name));
+        let mut name_parts = name_words.clone();
+        name_parts.extend(runs(name));
+        let mut words = name_parts.clone();
         words.extend(identifier_words(key));
         words.extend(runs(key));
-        Self { name_words, words }
+        Self {
+            name_words,
+            name_parts,
+            words,
+        }
     }
 
     /// A query word hits when it starts one of this node's words.
     fn hits(&self, word: &str) -> bool {
         self.words.iter().any(|part| part.starts_with(word))
+    }
+
+    /// A query word hits the name when it starts one of the name's words.
+    fn hits_name(&self, word: &str) -> bool {
+        self.name_parts.iter().any(|part| part.starts_with(word))
     }
 
     /// Each query word scores its strongest hit: a name word equal (6), a
@@ -126,17 +145,21 @@ pub(super) fn ranked(
         let name = g.t.str(g.t.nodes[id as usize].name).to_lowercase();
         let key = g.key(id).to_lowercase();
         if name == lower || key == lower {
-            found.push((id, Some(Tier::Exact), words.len(), u32::from(key == lower)));
+            let all = words.len();
+            found.push((id, Some(Tier::Exact), (all, all), u32::from(key == lower)));
             continue;
         }
         let substring = words
             .iter()
             .any(|word| name.contains(word.as_str()) || key.contains(word.as_str()));
+        // Query words the node matches: over its name and key, and over its
+        // name alone.
         let count = if substring {
             let terms = Terms::new(g, id);
-            words.iter().filter(|word| terms.hits(word)).count()
+            let hits = |hit: &dyn Fn(&str) -> bool| words.iter().filter(|w| hit(w)).count();
+            (hits(&|w| terms.hits(w)), hits(&|w| terms.hits_name(w)))
         } else {
-            0
+            (0, 0)
         };
         let whole = if name.starts_with(&lower) {
             Some(Tier::Prefix)
@@ -145,29 +168,38 @@ pub(super) fn ranked(
         } else {
             key.contains(&lower).then_some(Tier::Path)
         };
-        if count > 0 || whole.is_some() {
+        if count.0 > 0 || whole.is_some() {
             found.push((id, whole, count, 0));
         }
     }
-    let quorum = found
-        .iter()
-        .map(|(_, _, count, _)| *count)
-        .max()
-        .unwrap_or(0);
+    let quorum = |of: fn(&(usize, usize)) -> usize| {
+        found
+            .iter()
+            .map(|(_, _, count, _)| of(count))
+            .max()
+            .unwrap_or(0)
+    };
+    let (overall, by_name) = (quorum(|count| count.0), quorum(|count| count.1));
     let mut generic = HashMap::new();
     let mut hits = Vec::new();
-    for (id, whole, count, exact_key) in found {
+    for (id, whole, (count, name_count), exact_key) in found {
         check(cancel)?;
+        let in_quorum = (overall > 0 && count == overall) || (by_name > 0 && name_count == by_name);
         let tier = match whole {
             Some(Tier::Exact) => Tier::Exact,
-            _ if quorum > 0 && count == quorum => Tier::Words,
+            _ if in_quorum => Tier::Words,
             Some(tier) => tier,
             None => continue,
         };
-        let (strength, unmatched, matched) = if tier == Tier::Words {
+        let label = match whole {
+            Some(Tier::Prefix) => Tier::Prefix,
+            _ => tier,
+        };
+        let words_tier = tier == Tier::Words;
+        let (strength, unmatched, matched) = if words_tier {
             let terms = Terms::new(g, id);
             let (strength, unmatched) = terms.strength(&words);
-            let matched = (quorum < words.len())
+            let matched = (count < words.len())
                 .then(|| words.iter().filter(|w| terms.hits(w)).cloned().collect());
             (strength, unmatched, matched)
         } else {
@@ -176,6 +208,8 @@ pub(super) fn ranked(
         hits.push(Hit {
             id,
             tier,
+            label,
+            count: if words_tier { count } else { 0 },
             strength,
             unmatched,
             centrality: g.centrality(id, &mut generic),
@@ -185,6 +219,7 @@ pub(super) fn ranked(
     hits.sort_by(|a, b| {
         a.tier
             .cmp(&b.tier)
+            .then(b.count.cmp(&a.count))
             .then(b.strength.cmp(&a.strength))
             .then(a.unmatched.cmp(&b.unmatched))
             .then(b.centrality.total_cmp(&a.centrality))
@@ -251,7 +286,7 @@ pub(super) fn find(
     for hit in ranked(g, text, kind, cancel)? {
         window.try_push(|| {
             let mut row = g.node_json(hit.id, cancel)?;
-            row.insert("match".into(), json!(hit.tier.as_str()));
+            row.insert("match".into(), json!(hit.label.as_str()));
             if let Some(matched) = hit.matched {
                 row.insert("matchedWords".into(), json!(matched));
             }

@@ -41,6 +41,8 @@ pub(super) struct FileScan<'a> {
     pub(super) demand: StructuralDemand<'a>,
     /// Which matches a scope keeps, by file and 1-based start line.
     pub(super) keep_line: Option<&'a crate::structural::types::KeepLine<'a>>,
+    /// What each source is matched as ([`crate::structural::JudgeText`]).
+    pub(super) judge: Option<&'a crate::structural::TextJudge>,
 }
 
 impl FileScan<'_> {
@@ -145,6 +147,7 @@ impl FileScan<'_> {
             }
             Err(error) => return Err(error.into()),
         };
+        let (source, shown) = judged(source, self.judge, file_path);
         let mut source_error = None;
         let (tally, mut file) = self.match_source(
             path_string,
@@ -156,6 +159,9 @@ impl FileScan<'_> {
         );
         if let Some(error) = source_error {
             return Err(error.into());
+        }
+        if let (Some(shown), FileMatches::Held(matches)) = (&shown, &mut file.matches) {
+            crate::structural::restore_texts(matches, source.text(), shown);
         }
         file.source_sha256 = Some(crate::digest::sha256(&bytes));
         Ok(Some((tally, file)))
@@ -351,6 +357,26 @@ fn source_skipped(
     };
     let diagnostic = diagnostic.with_path(path_string.clone());
     (tally, skipped_file(path_string, status, reason, diagnostic))
+}
+
+/// `source`, the admitted text of the file at `path`, as `judge` has it
+/// matched ([`crate::structural::JudgeText`]): the text a read shows, with
+/// that shown text when the judge hid any of it, the text a match's texts
+/// are restated from ([`crate::structural::restore_texts`]).
+pub(super) fn judged<'a>(
+    source: AdmittedSource<'a>,
+    judge: Option<&crate::structural::TextJudge>,
+    path: &Path,
+) -> (AdmittedSource<'a>, Option<String>) {
+    let Some(judge) = judge else {
+        return (source, None);
+    };
+    let hidden = (judge.0)(path, source.text());
+    if hidden.is_empty() {
+        return (source, None);
+    }
+    let (matched, shown) = source.judged(&hidden);
+    (matched, Some(shown))
 }
 
 /// Why a candidate's source was not read.

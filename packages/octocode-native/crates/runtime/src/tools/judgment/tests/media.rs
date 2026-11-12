@@ -28,6 +28,7 @@ async fn prepared_media_batches_headers_and_fresh_reads_without_exposing_assets(
         questions: &questions,
         assets: Some(&assets),
         long_context: crate::tools::judgment::LongContext::Never,
+        companions: 0,
     };
     let (first, concurrent) = tokio::join!(
         evaluator.evaluate_prepared(input, None, &budget, &gate),
@@ -165,6 +166,7 @@ async fn split_media_requests_keep_only_assets_referenced_by_each_question() {
                     questions: &questions,
                     assets: Some(&assets),
                     long_context: crate::tools::judgment::LongContext::Never,
+                    companions: 0,
                 },
                 None,
                 &evaluation_budget(&evaluator),
@@ -200,6 +202,7 @@ async fn invalid_box_is_not_cached_and_retries_preserve_media_payload() {
         questions: &questions,
         assets: Some(&assets),
         long_context: crate::tools::judgment::LongContext::Always,
+        companions: 0,
     };
     for calls in [2, 1] {
         let error = evaluator
@@ -268,6 +271,7 @@ async fn a_media_group_the_provider_window_rejects_is_split_until_each_part_fits
                     questions: &questions,
                     assets: Some(&assets),
                     long_context: crate::tools::judgment::LongContext::Never,
+                    companions: 0,
                 },
                 None,
                 &budget,
@@ -307,6 +311,7 @@ async fn a_media_group_the_provider_window_rejects_is_split_until_each_part_fits
                 questions: &questions,
                 assets: Some(&assets),
                 long_context: crate::tools::judgment::LongContext::Never,
+                companions: 0,
             },
             None,
             &budget,
@@ -362,6 +367,7 @@ async fn a_refused_image_group_is_answered_per_question_in_the_default_window() 
                 questions: &questions,
                 assets: Some(&assets),
                 long_context: crate::tools::judgment::LongContext::OnRefusal,
+                companions: 0,
             },
             None,
             &budget,

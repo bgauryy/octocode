@@ -360,3 +360,84 @@ fn dynamic_import_is_a_dependency() {
     let deps = ask(root, "deps", Some("src/main.ts"));
     assert_eq!(files(&deps), ["src/lazy.ts"], "{deps}");
 }
+
+/// Each `cycles` row's `runtime` and each file's import `via` to `target`.
+fn cycle_load(root: &Path) -> Vec<Value> {
+    ask(root, "cycles", None)["rows"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(|row| row["runtime"].clone())
+        .collect()
+}
+
+fn via(root: &Path, file: &str) -> Vec<String> {
+    ask(root, "deps", Some(file))["rows"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(|row| row["via"].as_str().unwrap_or_default().to_owned())
+        .collect()
+}
+
+/// A value import the file reads only as a type: TypeScript's emit elides it
+/// unless the project keeps value imports, so the cycle it closes is not a
+/// proven module-load cycle (`tsc` 6.0.3 drops `./b` from `a.js`).
+#[test]
+fn a_cycle_through_an_import_used_only_as_a_type_has_unknown_runtime() {
+    let temp = fixture(&[
+        (
+            "src/a.ts",
+            "import { B } from './b';\nexport const A = 1;\nexport function describe(b: B): string { return String(b); }\n",
+        ),
+        (
+            "src/b.ts",
+            "import { A } from './a';\nexport class B { value = A; }\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    assert_eq!(via(root, "src/a.ts"), ["type-use-import"]);
+    assert_eq!(via(root, "src/b.ts"), ["static-import"]);
+    assert_eq!(cycle_load(root), [json!("unknown")]);
+}
+
+/// A component rendered as a JSX tag is read as a value: the emitted call
+/// keeps the import, so two components rendering each other close a
+/// module-load cycle.
+#[test]
+fn a_cycle_through_jsx_tags_stays_runtime() {
+    let temp = fixture(&[
+        (
+            "src/c.tsx",
+            "import { D } from './d';\nexport function C() { return <D />; }\n",
+        ),
+        (
+            "src/d.tsx",
+            "import { C } from './c';\nexport function D() { return <div><C /></div>; }\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    assert_eq!(via(root, "src/c.tsx"), ["static-import"]);
+    assert_eq!(cycle_load(root), [json!(true)]);
+}
+
+/// One binding read as a value keeps the import, whatever its siblings do.
+#[test]
+fn a_value_read_beside_a_type_use_keeps_the_load() {
+    let temp = fixture(&[
+        (
+            "src/a.ts",
+            "import { B, make } from './b';\nexport const A = 1;\nexport function build(): B { return make(); }\n",
+        ),
+        (
+            "src/b.ts",
+            "import { A } from './a';\nexport class B { value = A; }\nexport function make() { return new B(); }\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    // `deps` states one edge per target file; the eager edge beside the
+    // type-use one still closes the cycle.
+    assert_eq!(cycle_load(root), [json!(true)]);
+}

@@ -39,6 +39,14 @@
 //!   time (`touch`) on each request it reads.
 //!   Windows has no server (every call runs in process), so no count or
 //!   expiry applies there.
+//! - A call no server answers starts one and waits for the outcome it
+//!   announces on a private startup channel (`unix/startup.rs`): ready,
+//!   another server answering, or why it cannot serve. A child that exits
+//!   or closes the channel first ends the wait at once with its exit status
+//!   and stderr; no interval abandons a start that is alive, and Ctrl-C
+//!   ends the wait. The socket directory's lock makes one of the servers
+//!   starting at once the owner. A start that fails is named on stderr and
+//!   the call, not yet sent, runs in process.
 //! - A failed exchange falls back to an in-process call and says so. The
 //!   client waits for the reply as long as the server's request budget
 //!   allows (`reply_deadline`; the CLI sets none) and the server keeps
@@ -50,7 +58,7 @@
 //!
 //! The Unix machinery lives in `unix`: `client` (the call side),
 //! `frames` (progress lines on the socket), `identity` (what keys a
-//! server), `sockets` (the socket directory) and
+//! server), `sockets` (the socket directory), `startup` (starting one) and
 //! `daemon` (the server). Elsewhere every call runs in process.
 //!
 //! [`PROCESS_ENV`]: octocode_engine::process_env::PROCESS_ENV

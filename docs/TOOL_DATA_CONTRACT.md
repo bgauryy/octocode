@@ -6,6 +6,8 @@ Octocode uses the same JSON input and indexed results on the CLI and MCP. Use `-
 
 Send `queries` for new work. Each row is independent and belongs to the same tool. Most tools accept up to five rows. Check the tool's schema for its batch limit and fields.
 
+### Example: a localFetch request
+
 ```json
 {"queries":[{"path":"README.md","ranges":[{"startLine":1,"endLine":1}]}]}
 ```
@@ -15,6 +17,8 @@ For a two-line README starting with `# Example project`, the response is
 ```json
 {"results":[{"index":0,"data":{"content":"1\t# Example project\n","totalLines":2}}]}
 ```
+
+### Result rows
 
 | Result | Meaning |
 |---|---|
@@ -71,7 +75,7 @@ Cursors are bound to the tool, configuration, access context and saved state. Re
 
 ## Paging
 
-`responseChars` is an optional per-call page-size target. Large responses split at row boundaries where possible. If an indivisible value makes a page larger than the target, the response can mark it `oversized: true`. Provider metadata and rejected input rows can also add to the first page.
+`responseChars` is an optional per-call page-size target. Large responses split at row boundaries where possible, then inside long strings (`rowPart`). A long line is read in byte windows of at least 4,096 bytes whatever the target, each served whole on its own page, so a narrow target never takes thousands of calls per line. A page can exceed the target by its fixed parts: the envelope, the `responsePagination` block and the context each row part repeats. Provider metadata and rejected input rows can also add to the first page. A page states `oversized: true` only when it holds one value longer than the target that no page can split: an identity such as a path, a bounded value or a ready call. Other free text longer than a page is split into parts instead.
 
 | Field | How to consume it |
 |---|---|

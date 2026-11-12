@@ -57,8 +57,9 @@ Use exact tools for literal facts, counts, identity and absence. Narrow by path,
 | Which files in a set | `clasify evaluate` + `resources` | One answer set per file, then source reads |
 | Relevant regions across files | `clasify sections` + `resources` | Page until no `remainingSections`; read selected spans |
 | Images | `clasify evaluate` + assets | Presence before `box`; inspect the image for layout claims |
+| Long command output: tests, builds, CI or service logs, `git log`, `ps` | Save it under the workspace; `clasify evaluate` with that path as `source` for whether, why and where (the answer's `lines`), `sections` for every place or the order | A known marker: `localSearch` on the saved file; else the answer's `next.read` of its `lines` |
 
-- Ask one observable fact per question, with enough context and a clear exclusion for near misses. The provider has no conversation history or sibling answers. Include an unknown choice; confidence is not correctness.
+- Ask one observable fact per question, with enough context and a clear exclusion for near misses. The provider has no conversation history or sibling answers. Include an unknown choice and use it for absence: over a sectioned source a `none` label from a section without the fact can outrank the section with it. Confidence is not correctness.
 - Inline predicates judge captured evidence, not hidden whole files. Listing predicates can see paths only. Match context must include the condition being judged; `responseChars` changes output pages, not provider context.
 - `evaluate` uses typed `questions` (`noul`, `choice`, `score`, `box`); use the live schema for mutually exclusive source/content/assets shapes. A path inside literal `content` is not fetched. A box alone does not establish target presence.
 - Finish response pages first, then candidate/section pages needed for the claim. `classificationUnknown`, `unassessed`, `error` and excluded candidates are not negative proof. Use emitted `next.unfilteredUnknown` for unresolved candidates and `next.unfiltered` before counts or absence claims.

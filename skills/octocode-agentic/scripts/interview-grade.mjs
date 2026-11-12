@@ -11,23 +11,25 @@ Usage:
   node scripts/interview-grade.mjs <round-dir> --cmd '<runner with {tool} and {input}>' [options]
 
 Options:
-  --cmd <template>    Runner; {tool} and {input} are replaced with shell-quoted values
+  --cmd <template>    Runner run by sh; {tool} and {input} are replaced with shell-quoted values
   --cwd <dir>         Working directory for the runner (default: current)
   --reject <regex>    Output that means the input was rejected (schema/validation)
   --error <regex>     Output that means the call failed; checked before --empty
                       (with no pattern match, a non-zero exit counts as error)
   --empty <regex>     Output that means a valid call with no results
   --exclude <regex>   GROUP:SCENARIO ids that are expected to fail (e.g. "G1:S8|G6:S5")
-  --timeout <ms>      Per-call timeout (default 90000)
+  --timeout <ms>      Per-call timeout; omit to let every call finish
   --json              Print the summary as JSON
 
 Outcomes: ok, empty, rejected, error, crash, placeholder, excluded, badLine.
+placeholder: a string value in input is wholly "<...>" (e.g. "<path>"); such steps are skipped.
 Valid cold rate = (ok + empty) / (all - placeholder - excluded - badLine).
-Writes <round-dir>/graded.json. Requires at least one gradable call; exits 2 when none
-remain or a line is malformed. The runner template must contain {tool} and {input}.`;
+GROUP is the file name before "-calls.jsonl". Writes <round-dir>/graded.json with the full
+runner output of every rejected, error or crash row. Requires at least one gradable call; exits 2
+when none remain or a line is malformed. The runner template must contain {tool} and {input}.`;
 
 function parseArgs(argv) {
-  const args = { _: [], timeout: 90000 };
+  const args = { _: [] };
   const values = new Set(['--cmd', '--cwd', '--reject', '--error', '--empty', '--exclude', '--timeout']);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -46,6 +48,10 @@ function parseArgs(argv) {
 
 const quote = (value) => `'${String(value).replaceAll("'", `'\\''`)}'`;
 const regex = (source) => (source ? new RegExp(source) : null);
+// A placeholder is a whole string value such as "<path>"; code like "Vec<u8>" is real input.
+const hasPlaceholder = (value) => typeof value === 'string'
+  ? /^<[^<>]+>$/.test(value.trim())
+  : Boolean(value) && typeof value === 'object' && Object.values(value).some(hasPlaceholder);
 
 function classify(result, patterns) {
   if (result.error || result.status === null) return 'crash';
@@ -68,23 +74,40 @@ function parseCall(line, index, group) {
 const validCall = (call) => typeof call.tool === 'string' && Boolean(call.tool.trim()) &&
   Boolean(call.input) && typeof call.input === 'object' && !Array.isArray(call.input);
 
+// The outcome a call that never runs gets, or undefined when it runs.
+function skippedOutcome(call, group, exclude) {
+  if (!validCall(call)) return 'badLine';
+  if (hasPlaceholder(call.input)) return 'placeholder';
+  if (exclude?.test(`${group}:${call.scenario}`)) return 'excluded';
+  return undefined;
+}
+
+function runCall(call, args) {
+  const input = JSON.stringify(call.input ?? null);
+  const command = args.cmd.replace(/\{(tool|input)\}/g, (_, key) => quote(key === 'tool' ? call.tool : input));
+  return spawnSync('sh', ['-c', command], {
+    cwd: args.cwd ?? process.cwd(), encoding: 'utf8', maxBuffer: Infinity,
+    ...(args.timeout === undefined ? {} : { timeout: args.timeout }),
+  });
+}
+
+// What a failed call printed, or why it printed nothing.
+function failureDetail(result) {
+  return `${result.stdout ?? ''}${result.stderr ?? ''}`.trim() || String(result.error ?? `exit ${result.status ?? result.signal}`);
+}
+
 function gradeLine(line, index, group, settings) {
   const parsed = parseCall(line, index, group);
   if (parsed.error) return parsed.error;
   const { call } = parsed;
   const { args, patterns, exclude } = settings;
   const base = { group, scenario: call.scenario, step: call.step, tool: call.tool };
-  const input = JSON.stringify(call.input ?? null);
-  if (!validCall(call)) return { ...base, outcome: 'badLine' };
-  if (/<[^<>]+>/.test(input)) return { ...base, outcome: 'placeholder' };
-  if (exclude?.test(`${group}:${call.scenario}`)) return { ...base, outcome: 'excluded' };
-  const command = args.cmd.replace(/\{(tool|input)\}/g, (_, key) => quote(key === 'tool' ? call.tool : input));
-  const result = spawnSync('sh', ['-c', command], {
-    cwd: args.cwd ?? process.cwd(), encoding: 'utf8', timeout: args.timeout, maxBuffer: 64 * 1024 * 1024,
-  });
+  const skipped = skippedOutcome(call, group, exclude);
+  if (skipped) return { ...base, outcome: skipped };
+  const result = runCall(call, args);
   const outcome = classify(result, patterns);
-  const detail = outcome === 'ok' || outcome === 'empty' ? undefined : `${result.stdout}${result.stderr}`.trim().slice(0, 240);
-  return { ...base, outcome, bytes: result.stdout?.length ?? 0, ...(detail ? { detail } : {}) };
+  const detail = outcome === 'ok' || outcome === 'empty' ? undefined : failureDetail(result);
+  return { ...base, outcome, bytes: Buffer.byteLength(result.stdout ?? ''), ...(detail ? { detail } : {}) };
 }
 
 function gradeFiles(dir, settings) {
@@ -92,7 +115,7 @@ function gradeFiles(dir, settings) {
   if (!files.length) throw new Error(`No *-calls.jsonl files in ${dir}`);
   const rows = [];
   for (const file of files) {
-    const group = file.slice(0, file.indexOf('-'));
+    const group = file.slice(0, -'-calls.jsonl'.length);
     const lines = fs.readFileSync(path.join(dir, file), 'utf8').split('\n');
     lines.forEach((line, index) => { if (line.trim()) rows.push(gradeLine(line, index, group, settings)); });
   }
@@ -118,7 +141,9 @@ function reportRows(rows, args) {
   }
   console.log(`valid cold ${valid}/${gradable}${gradable ? ` (${Math.round((100 * valid) / gradable)}%)` : ''}, rejected ${total.rejected}`);
   for (const [group, s] of Object.entries(summary)) console.log(`${group}: ${JSON.stringify(s)}`);
-  for (const f of failures) console.log(`${f.group} ${f.scenario} step ${f.step} ${f.tool}: ${f.outcome} :: ${f.detail ?? ''}`);
+  // One line per failure; graded.json keeps each full output.
+  for (const f of failures) console.log(`${f.group} ${f.scenario} step ${f.step} ${f.tool}: ${f.outcome} :: ${(f.detail ?? '').split('\n')[0]}`);
+  if (failures.length) console.log(`Full runner output per failure: ${path.join(args._[0], 'graded.json')}`);
 }
 
 function main() {
@@ -129,8 +154,9 @@ function main() {
     process.exitCode = args.help ? 0 : 1;
     return;
   }
-  if (args._.length !== 1 || !args.cmd.includes('{tool}') || !args.cmd.includes('{input}') || !Number.isSafeInteger(args.timeout) || args.timeout < 1) {
-    throw new Error('Use one round directory, a --cmd containing {tool} and {input}, and a positive integer --timeout');
+  const badTimeout = args.timeout !== undefined && (!Number.isSafeInteger(args.timeout) || args.timeout < 1);
+  if (args._.length !== 1 || !args.cmd.includes('{tool}') || !args.cmd.includes('{input}') || badTimeout) {
+    throw new Error('Use one round directory, a --cmd containing {tool} and {input}, and a positive integer --timeout when set');
   }
   const patterns = { reject: regex(args.reject), error: regex(args.error), empty: regex(args.empty) };
   const exclude = regex(args.exclude);

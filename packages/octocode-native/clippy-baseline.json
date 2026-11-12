@@ -13,7 +13,6 @@
   "clippy::disallowed_methods(alloc::vec::Vec::truncate)": {
     "engine": {
       "crates/engine/src/lsp/transport/push_diagnostics.rs": 2,
-      "crates/engine/src/search/text_search/file_search/held_whole.rs": 1,
       "crates/engine/src/security/detector/yaml_secret.rs": 1,
       "crates/engine/src/signatures/graph_facts/receiver.rs": 1,
       "crates/engine/src/signatures/graph_facts/walk.rs": 1,
@@ -33,7 +32,6 @@
   "clippy::disallowed_methods(core::time::Duration::from_millis)": {
     "cli": {
       "crates/cli/src/cli/lsp_provision.rs": 1,
-      "crates/cli/src/cli/serve/unix/client.rs": 1,
       "crates/cli/src/cli/serve/unix/daemon.rs": 1
     },
     "engine": {
@@ -262,7 +260,6 @@
     "cli": {
       "crates/cli/src/cli/config_view/backend.rs": 1,
       "crates/cli/src/cli/config_view/lifecycle.rs": 1,
-      "crates/cli/src/cli/serve/unix/client.rs": 1,
       "crates/cli/src/cli/serve/unix/daemon.rs": 1
     },
     "engine": {
@@ -384,7 +381,6 @@
       "crates/runtime/src/tools/ast_graph/packages.rs": 1,
       "crates/runtime/src/tools/ast_graph/store/detect.rs": 1,
       "crates/runtime/src/tools/ast_graph/store/detect/cycles.rs": 1,
-      "crates/runtime/src/tools/ast_graph/store/detect/mention_tokens.rs": 4,
       "crates/runtime/src/tools/ast_graph/store/snapshots.rs": 1,
       "crates/runtime/src/tools/ast_graph/store/tables/naming.rs": 2,
       "crates/runtime/src/tools/ast_graph/store/tables/resolve/scala/imports.rs": 2,

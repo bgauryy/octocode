@@ -201,7 +201,8 @@ fn a_match_read_states_the_file_bytes_a_plain_read_states() {
     let source = format!("{banner}{line}\n");
     let path = fixture.write("bundle.min.js", &source);
     let paths = Paths(fixture.0.clone());
-    let wire = |read: &LocalFetchResult| serde_json::to_value(read).expect("row")["pagination"].clone();
+    let wire =
+        |read: &LocalFetchResult| serde_json::to_value(read).expect("row")["pagination"].clone();
     let plain = wire(&fetch(&q(&path), &paths));
     assert_eq!(plain["unit"], "bytes", "{plain}");
     assert_eq!(plain["total"], source.len(), "{plain}");
@@ -215,7 +216,11 @@ fn a_match_read_states_the_file_bytes_a_plain_read_states() {
     let pieces = crate::tools::source_view::pagination::placed_pieces(at, text);
     assert!(pieces.len() > 1, "the hits share page one: {pieces:?}");
     for (at, piece) in pieces {
-        assert_eq!(source.get(at..at + piece.len()), Some(piece), "the file's bytes at {at}");
+        assert_eq!(
+            source.get(at..at + piece.len()),
+            Some(piece),
+            "the file's bytes at {at}"
+        );
     }
     // The walk is the selection exactly once, as before.
     walk_exactly_once(&query, &paths, None, &format!("{line}\n"));
@@ -440,6 +445,31 @@ fn required_pages_reconstruct_long_unicode_matched_lines_exactly_once() {
                 "{name}, response window {window}: {:?}",
                 pages[0]
             );
+        }
+    }
+}
+
+/// D1: a selection (`ranges` or `matchString`) that ends on a long line
+/// which is not the file's last walks that line to its end: the walk is the
+/// selection exactly once, its last page states `hasMore:false`, and every
+/// page that states `hasMore:true` carries its next call
+/// ([`walk_exactly_once`] checks the wire of each page).
+#[test]
+fn a_selection_ending_on_a_long_line_ends_its_walk() {
+    let fixture = Fixture::new();
+    let filler = positional(40_000);
+    let line = format!("{}NEEDLE_HIT{}", &filler[..20_000], &filler[20_000..]);
+    let source = format!("{line}\nshort two\nshort three\n");
+    let path = fixture.write("longascii.txt", &source);
+    let paths = Paths(fixture.0.clone());
+    for selector in [
+        serde_json::json!({"ranges":[{"startLine":1,"endLine":1}]}),
+        serde_json::json!({"matchString":["NEEDLE_HIT"],"contextLines":{"before":0,"after":0}}),
+    ] {
+        let query = qj(&path, selector.clone());
+        for window in [Some(300), Some(2_500), None] {
+            let pages = walk_exactly_once(&query, &paths, window, &format!("{line}\n"));
+            assert!(pages.len() > 1, "{selector} at {window:?}: a byte walk");
         }
     }
 }

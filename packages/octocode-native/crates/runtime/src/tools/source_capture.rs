@@ -103,6 +103,10 @@ pub(crate) struct Captured {
     pub read_pages: bool,
     /// Provenance a read lead cannot carry (a URL capture).
     pub source: Option<Value>,
+    /// The snapshot or commit the text was captured at, which a narrower read
+    /// of the same selection pins to; none for a URL capture, whose read is
+    /// its saved file.
+    pub pin: Option<String>,
 }
 
 /// How a source selection too large for one state is judged in parts.
@@ -209,13 +213,14 @@ pub(crate) fn capture(
     Ok(Captured {
         read_chars,
         read_pages: !resumable && read_chars > dispatcher.limits().auto_page_chars,
-        state: json!({ "source": identity(id, &source["query"], pin.as_deref()), "text": text }),
+        state: json!({ "source": identity(id, &source["query"], pin.as_deref(), dispatcher), "text": text }),
         read: if resumable {
             read_lead(id, &source["query"], pin.as_deref())
         } else {
             fresh_read(id, &source["query"], pin.as_deref())
         },
         source: None,
+        pin,
     })
 }
 
@@ -310,9 +315,26 @@ pub(super) fn prepare_source(
         })
 }
 
-/// The selection the state names: path, ranges or whole file, and pin.
-fn identity(id: ToolId, query: &Value, pin: Option<&str>) -> Value {
-    let mut source = json!({ "path": query["path"] });
+/// The selection the state names: path, ranges or whole file, and pin. A
+/// local file is named as a result row names it, by its path in the
+/// workspace, or by its file name outside it: the provider never reads the
+/// host's layout (a home directory, a user name).
+fn identity(id: ToolId, query: &Value, pin: Option<&str>, dispatcher: &dyn SourceReader) -> Value {
+    let path = match (id, query["path"].as_str()) {
+        (ToolId::LocalFetch, Some(path)) => {
+            let paths = dispatcher.paths();
+            let file = paths
+                .validate_read(std::path::Path::new(path))
+                .map_or_else(|_| std::path::PathBuf::from(path), |valid| valid.canonical);
+            let shown = paths.workspace_relative(&file).or_else(|| {
+                file.file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+            });
+            json!(shown)
+        }
+        _ => query["path"].clone(),
+    };
+    let mut source = json!({ "path": path });
     if id == ToolId::GhGetFileContent {
         source["repository"] = json!(format!(
             "{}/{}",

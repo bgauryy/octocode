@@ -163,14 +163,7 @@ pub(super) fn request_key(spec: &RequestSpec) -> String {
         .as_deref()
         .map(|file| format!("\n{file}"))
         .unwrap_or_default();
-    // A read that never follows `Link` keeps an answer with no next page:
-    // it must not answer a read that does.
-    let first_page = if spec.is_first_page_only() {
-        " first-page-only"
-    } else {
-        ""
-    };
-    format!("{method} {}{first_page}\n{accept}\n{body}{file}", spec.url)
+    format!("{method} {}\n{accept}\n{body}{file}", spec.url)
 }
 
 /// The file a request reads when its URL names none, from its [`request_key`].

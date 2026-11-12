@@ -12,7 +12,8 @@ mod slicer;
 use arena::{Fragment, FragmentArena, Planned, mark_continuations};
 use collections::{
     collection_pointer, delivered_collections, drop_delivered_elsewhere,
-    drop_empty_declared_siblings, empty_declared_siblings, lean_declared_skeleton,
+    drop_empty_declared_siblings, drop_filled_elsewhere, empty_declared_siblings,
+    filled_collections, lean_declared_skeleton,
 };
 use octocode_engine::digest::JsonFingerprint;
 use octocode_io::cancellation::Cancellation;
@@ -21,7 +22,9 @@ use plan::{PageBudget, PreparedRows, RowPlan};
 use serde_json::json;
 use serde_json::{Map, Value};
 use shares::{PartShare, keep_row_next, row_next_chars, row_part_chars};
-use skeleton::{continues_chars, enclosing_element, lean_later_context};
+use skeleton::{
+    continues_chars, enclosing_element, lean_later_context, put_walks, take_enclosing_walks,
+};
 use slicer::{Open, Slicer};
 
 use super::page_model::{ResponsePageOptions, ResponsePagination};
@@ -92,6 +95,8 @@ pub(super) fn paginate_rows(
 /// smaller finished envelope; earlier rows retain the ordinary allowance.
 /// The envelope key of every tool's result rows.
 const ROWS_KEY: &str = "results";
+/// The envelope members that note the whole answer, stated by its first page.
+const ENVELOPE_NOTICES: [&str; 2] = ["warnings", "hints"];
 const RESPONSE_PAGINATION: &str = "responsePagination";
 
 pub(super) struct RowSource {
@@ -137,6 +142,7 @@ impl RowSource {
             #[cfg(test)]
             total_pages: 1,
             has_more: more_pages || onward.is_some(),
+            #[cfg(test)]
             returned_chars: total,
             snapshot: snapshot.clone(),
             next_offset: more_pages.then_some(total),
@@ -185,18 +191,25 @@ impl RowSource {
             return Err(super::pager::ResponseError::InvalidPage);
         }
         let selected = plan.build_page(requested, &self.volatile, cancelled)?;
+        // The answer's notices (an input repair, a call-wide warning) are
+        // stated once, by its first page; a later page carries its rows.
+        if requested > 0 {
+            for notice in ENVELOPE_NOTICES {
+                structured.shift_remove(notice);
+            }
+        }
         structured.insert(ROWS_KEY.into(), Value::Array(selected));
         let more_pages = requested + 1 < plan.total_pages;
-        let char_length = octocode_engine::json_size::utf16_units(&structured).unwrap_or(0)
-            - super::pager::volatile_chars(&structured);
-        // A page wider than the budget (one fragment could not be divided
-        // further) is measured and stated where it is served
-        // ([`super::pager::budgeted_chars`]'s rule).
+        // A page holding a value wider than the budget alone (one fragment
+        // could not be divided further) is stated where it is served
+        // (`pager::oversized`).
         let pagination = ResponsePagination {
             #[cfg(test)]
             total_pages: plan.total_pages,
             has_more: more_pages || self.onward.is_some(),
-            returned_chars: char_length,
+            #[cfg(test)]
+            returned_chars: octocode_engine::json_size::utf16_units(&structured).unwrap_or(0)
+                - super::pager::volatile_chars(&structured),
             snapshot: self.snapshot.clone(),
             next_offset: more_pages.then_some(requested + 1),
             next: self.onward.clone().filter(|_| !more_pages),
