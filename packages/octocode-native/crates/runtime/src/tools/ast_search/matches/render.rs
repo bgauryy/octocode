@@ -376,8 +376,9 @@ fn push_census<const N: usize>(
 /// response window and `limit` decide, as they cut every page) names its
 /// size and how to narrow it before every page is read.
 fn narrowing_notice(matches: u64, files: usize, page: &StreamPage) -> Option<String> {
-    // A page over the budget states no page count, so neither does this.
-    let pages = page.pagination.get("totalPages").map(|_| page.pages)?;
+    // A page over the budget is split into parts: its page count is not
+    // the walk's number of calls, so none is stated.
+    let pages = (!page.oversized).then_some(page.pages)?;
     (page.more && pages > 1).then(|| {
         format!(
             "{matches} matches in {} fill {pages} pages; to read fewer, narrow the rule (pattern, has, inside, not) or the scope (include, exclude, a deeper path).",

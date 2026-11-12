@@ -14,7 +14,7 @@ use crate::id::ToolId;
 use crate::providers::artifact::ArtifactError;
 use crate::response::paging;
 use crate::response::result::Continuation;
-use octocode_contract_types::ErrorCode;
+use octocode_contract_types::{ErrorCode, SecurityCheckView};
 use octocode_github::{RefHolders, RefKind};
 use serde_json::{Map, Value, json};
 use std::{future::Future, pin::Pin};
@@ -367,6 +367,7 @@ pub(super) fn apply(
     (owner, repo, sha): (&str, &str, &str),
     github: &Github,
     brief: &Map<String, Value>,
+    view: SecurityCheckView,
 ) -> Result<(), ArtifactError> {
     let contract =
         security_contract().map_err(|why| ArtifactError::new(ErrorCode::ProviderError, why))?;
@@ -396,8 +397,12 @@ pub(super) fn apply(
         }
         _ => {}
     }
-    let answer = data["answer"].as_str().unwrap_or_default().to_owned();
-    data["answer"] = json!(format!("{answer}{}", clause(owner, repo, read)));
+    // What GitHub holds of the commit is detail: the summary states it only
+    // through a caution or an unread source, which the clause repeats.
+    if view == SecurityCheckView::Details {
+        let answer = data["answer"].as_str().unwrap_or_default().to_owned();
+        data["answer"] = json!(format!("{answer}{}", clause(owner, repo, read)));
+    }
     if let RepoRead::Found(facts) | RepoRead::Moved(facts) = &read.repository {
         data["repository"] = repository::repository_block(facts, &today);
     }

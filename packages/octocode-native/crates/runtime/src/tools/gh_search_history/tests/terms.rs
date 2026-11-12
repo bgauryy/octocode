@@ -15,7 +15,10 @@ fn every_typed_history_filter_reaches_the_provider_query() {
             json!({"labels":["bug","needs work"],"notLabels":["blocked"]}),
             "label:bug label:\"needs work\" -label:blocked",
         ),
-        (json!({"commentCount":{"min":0,"max":10}}), "comments:0..10"),
+        (
+            json!({"commentsCount":{"min":0,"max":10}}),
+            "comments:0..10",
+        ),
         (json!({"notReactionCount":[{"max":2}]}), "-reactions:<=2"),
         (
             json!({"createdAt":{"from":"2024-01-01T00:00:00Z"}}),
@@ -164,7 +167,7 @@ fn a_field_and_its_not_field_both_reach_the_provider_query() {
             ],
         ),
         (
-            json!({"commentCount":{"min":1},"notCommentCount":[{"max":5}]}),
+            json!({"commentsCount":{"min":1},"notCommentsCount":[{"max":5}]}),
             vec!["comments:>=1", "-comments:<=5"],
         ),
     ];

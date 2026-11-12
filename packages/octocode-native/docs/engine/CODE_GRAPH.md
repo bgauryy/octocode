@@ -52,14 +52,12 @@ decoded graph snapshots are not retained across queries. `graphBuild`
 writes, so it runs in the calling process and prints its progress (`graphBuild:
 scanning …`, `parsed N/M files`, `linked …`, `encoding snapshot`, `published`)
 on stderr while stdout keeps the result. MCP `graphBuild` reports no
-progress. A bulk walk sends `responseChars: 50000` (the contract maximum) so each
-page carries as many rows as fit.
+progress. For a bulk walk, a larger `responseChars` requests more evidence per page.
 Inspect `octocode schema graphBuild --view query` or the query schema above for
 the contract embedded in the installed binary. Query alternatives reject
 missing required inputs and options that do not apply to the chosen operation.
 
-A build writes only under the current workspace's `.octocode/graph`, refusing
-scopes or storage symlinks that escape it. A build of an unchanged scope answers with
+By default a build scans within the workspace and writes to `.octocode/graph`. Set `local.graphHome` to keep snapshots under its `octocode-graph/` directory and scan another authorized path, such as a clone. Choose a graph home outside the scanned path. [Graph settings](../../../../docs/CONFIGURATION.md#all-settings-and-defaults) A build of an unchanged scope answers with
 its newest snapshot instead of rebuilding (`store/ingest/unchanged.rs`): the snapshot
 must carry the same build identity (format, fact schema and analysis versions, package
 version, parser registry, `exclude`, the walk flags, language globs and Cargo setting), and the
@@ -137,7 +135,7 @@ is required for snapshot creation.
 | `witnesses` | Optional source `target` (one or a list), destination `to`, edge filters | Occurrences supporting linked relations; a file target includes its symbols |
 | `unresolved` | Optional source `target` (one or a list), edge filters, `reasons` | Unlinked call or argument references and unsupported argument forms; a file target includes its symbols; `reasons` filters before paging, so `total` counts kept rows |
 | `stale` | None | Source and linking-input changes since the snapshot |
-| `issues` | Optional `detectors`, `entries`, `baseline`, `minScore`, `minTier` (default 90) | Ranked possible problems with `evidence`, `controls` and `verify` tool calls; see [`issues`](#issues-ranked-hypotheses) |
+| `issues` | Optional `detectors`, `entries`, `baseline`, `minScore`, `minTier` (default 90) | Ranked possible problems with `evidence` and `controls`; see [`issues`](#issues-ranked-hypotheses) |
 | `impact` | At least one of `target`, `changed`, `since`; optional `kind`, `depth` | Combined change seeds, three hops by default; see [`impact`](#impact-blast-radius) |
 | `drift` | Required `baseline` snapshot ID | Structural changes from baseline to selected snapshot; use matching scopes |
 
@@ -193,12 +191,13 @@ path. `view: "files"` counts the walked edges per file they reach;
 importing or calling side, `to` the imported or called one, a package being
 its own module). Both count every walked edge, also several edges into one
 node, so their counts sum to the edges walked and can exceed the plain
-answer's `totalItems`, which counts reached nodes. Both group before paging,
+answer's `pagination.total`, which counts reached nodes. Both group before paging,
 and the grouped rows page. `witnesses` states
 `filteredByConfidence`, the matching call witnesses below the query's
-confidence, when there are any. Every listed symbol row carries `verify`: an
-`lspSearch` references call at its declaration line, its path
-workspace-relative, to confirm the syntax candidate.
+confidence, when there are any. A symbol row states its `symbolName`, its
+declaration `kind`, its `path` (root-relative, like every key) and `line`:
+an `lspSearch` references call there, its path joined to `graph.root`,
+confirms the syntax candidate.
 
 `find` ranks every node whose name or key matches, in three tiers. `exact`: the
 whole text equals a key or name, key first. `words`: the text and every name and
@@ -257,12 +256,11 @@ and core parser contract, so Octocode Code needs no grammar-specific change.
 
 ### `issues`: ranked hypotheses
 
-Each finding carries `evidence`, the false-positive `controls` applied, `verify`
-steps, and a `score` (severity × confidence × (0.5 + 0.5 × PageRank percentile)).
-A `verify` step is a tool name and its query row, such as `graphQuery
-{"operation":"path","target":"b.ts","to":"a.ts","path":"app","graph":"<id>"}`;
-graphQuery steps are pinned to the snapshot and scope that produced them, and
-lspSearch steps name workspace-relative paths.
+Each finding carries `evidence`, the false-positive `controls` applied, and a
+`score` (severity × confidence × (0.5 + 0.5 × PageRank percentile)). A
+finding's subject and evidence are what to check before acting: a cycle by a
+`path` query between two members, an unused export by `lspSearch` references
+at its `exportLine`, a critical file by `dependents` to its `farthestDepth`.
 
 | Group | Detectors |
 |---|---|

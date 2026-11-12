@@ -20,7 +20,7 @@ export async function rustContexts(ctx, surface, checks) {
     const query = { workspaceRoot, path, operation: 'references', symbolName: 'target', line: 1, includeDeclaration: false, ...(rustContext === undefined ? {} : { rustContext }) };
     const result = await scenario(ctx, 'lspSearch', surface, { label: `lsp.rust.${label}`, query, checks });
     const found = result.data.flatMap(data => lspLocations({ sc: { results: [{ data }] } }))
-      .map(item => [relative(ctx, item.path), item.displayRange.startLine]);
+      .map(item => [relative(ctx, item.path), item.line]);
     equal(checks, `lsp.rust.references.${label}.${surface}`, found, expected.map(module => [`rust/src/${module}.rs`, 1]));
   }
 }

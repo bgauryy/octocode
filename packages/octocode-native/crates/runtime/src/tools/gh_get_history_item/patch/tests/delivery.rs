@@ -130,6 +130,38 @@ fn missing_patches_name_why_github_sent_none() {
     );
 }
 
+/// An empty file GitHub sends with no patch and 0/0 (vitejs/vite#12165's
+/// `placeholder.txt` and `placeholder.png`) is its whole change: its blob is
+/// git's empty blob, so the row is complete, with its 0/0 and no flag.
+#[test]
+fn an_empty_file_is_a_complete_change() {
+    let empty = |name: &str| json!({"filename":name,"status":"added","additions":0,"deletions":0,"changes":0,"sha":"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"});
+    for name in [
+        "fixtures/assets/placeholder.txt",
+        "fixtures/assets/placeholder.png",
+    ] {
+        assert_eq!(missing_patch_reason(&empty(name)), None, "{name}");
+    }
+    let page = shape_patch_page(
+        vec![empty("fixtures/assets/placeholder.txt")],
+        &window(json!({})),
+    )
+    .compact();
+    let row = &page.rows[0];
+    assert_eq!(
+        (row["additions"].clone(), row["deletions"].clone()),
+        (json!(0), json!(0)),
+        "{row}"
+    );
+    for flag in ["isPartial", "terminalLimit", "patchUnavailable"] {
+        assert!(row.get(flag).is_none(), "{flag}: {row}");
+    }
+    assert!(page.unfinished.is_empty());
+    // Any other blob with neither patch nor counts stays unexplained.
+    let other = json!({"filename":"src/core.ts","status":"added","additions":0,"deletions":0,"sha":"0123456789abcdef0123456789abcdef01234567"});
+    assert_eq!(missing_patch_reason(&other), Some("omitted"));
+}
+
 /// Code hunks are never minified: a PR patch page returns every context
 /// line, so no row is marked for a re-read.
 #[test]
@@ -181,12 +213,12 @@ fn patch_pages_emit_no_placeholder_rows_and_compact_headers() {
     // page whole instead of as a cut placeholder.
     assert_eq!(
         row["files"],
-        json!([{"path":"a.rs","stat":"M +2 -1","patch":"AAAAAAAAAA"}])
+        json!([{"path":"a.rs","status":"modified","additions":2,"deletions":1,"patch":"AAAAAAAAAA"}])
     );
     assert_eq!(pagination["patches"]["nextOffset"], 10);
 }
 
-/// Commit rows use the PR header (`path` + `stat`), and a
+/// Commit rows use the PR header (`path`, `status`, `additions`, `deletions`), and a
 /// commit's `files` scope takes paths and globs like a PR's.
 #[test]
 fn commit_rows_are_compact_and_files_scope_them() {
@@ -200,7 +232,7 @@ fn commit_rows_are_compact_and_files_scope_them() {
     .rows;
     assert_eq!(
         rows,
-        vec![json!({"path":"src/a.rs","stat":"A +3 -0","patch":"+a"})]
+        vec![json!({"path":"src/a.rs","status":"added","additions":3,"deletions":0,"patch":"+a"})]
     );
     let scoped = HistoryItemRequest::from_row(json!({
         "operation":"commit","owner":"o","repo":"r",

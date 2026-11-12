@@ -95,7 +95,7 @@ fn materialization_page_boundary_and_pages_past_the_former_ceiling_continue() {
     let query = tree(true);
     let mut value = json!({
         "files": [{"dir": ".", "files": ["a.rs"]}],
-        "location": {"localPath": "/t"}
+        "location": {"path": "/t"}
     });
     let page = |current| ListingPage {
         current,
@@ -114,7 +114,7 @@ fn materialization_page_boundary_and_pages_past_the_former_ceiling_continue() {
         resume,
     )
     .expect("continuation");
-    assert_eq!(value["location"], json!({"localPath": "/t"}));
+    assert_eq!(value["location"], json!({"path": "/t"}));
     assert_eq!(value["isPartial"], true);
     assert_eq!(value["partialReasons"], json!(["materializeIncomplete"]));
     let resumed = &value["calls"]["continueMaterialize"]["input"]["queries"][0];

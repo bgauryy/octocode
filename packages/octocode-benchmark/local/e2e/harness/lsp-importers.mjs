@@ -58,8 +58,8 @@ try {
   );
   check(
     'call after five comment mentions is included',
-    // A hit row is an object `{line, column, value}`, not a packed "7:…" string.
-    consumer?.lines?.includes(7),
+    // A files-view row lists its hit lines in `matchedLines`.
+    consumer?.matchedLines?.includes(7),
     JSON.stringify(data)
   );
   if (consumer) {

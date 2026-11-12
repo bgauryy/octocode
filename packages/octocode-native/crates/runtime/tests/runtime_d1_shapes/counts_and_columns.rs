@@ -25,7 +25,7 @@ async fn local_search_counts_are_match_line_and_file_counts() {
     )
     .await;
     // The totals are flat on the row (no `stats` object, no `fileCount`: the
-    // file count is `pagination.totalItems`).
+    // file count is `pagination.total`).
     let totals = paged.data();
     assert_eq!(totals["matchCount"], 6, "{}", paged.structured_content);
     assert_eq!(

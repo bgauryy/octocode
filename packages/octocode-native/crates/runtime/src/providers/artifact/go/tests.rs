@@ -207,7 +207,7 @@ async fn go_pinned_versions_resolve_the_pinned_release() {
     let missing = go(&lookup(Some("v0.69.9")), &state, &client)
         .await
         .expect_err("unpublished");
-    assert_eq!(missing.code, ErrorCode::VersionNotFound);
+    assert_eq!(missing.code, ErrorCode::NotFound);
     assert!(
         missing.nearest.iter().any(|version| version == "0.70.0"),
         "{missing:?}"

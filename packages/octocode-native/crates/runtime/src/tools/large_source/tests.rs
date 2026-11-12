@@ -189,8 +189,12 @@ fn unterminated_key_redacts_its_body_run_and_leaves_later_code_readable() {
     );
     let streamed = stream_one(file.path(), 1, 8);
     let window = String::from_utf8(streamed.window).expect("utf8");
+    // The armor lines read as written (a literal's closing quote too); the
+    // unterminated block's body lines are hidden.
+    assert!(!window.contains("SECRET"), "{window}");
     assert!(
-        !window.contains("SECRET") && !window.contains("BEGIN"),
+        window.contains("const PEM = \"-----BEGIN RSA PRIVATE KEY-----\";\n")
+            && window.contains("\n-----BEGIN OPENSSH PRIVATE KEY-----\n"),
         "{window}"
     );
     assert!(window.contains("let b = compute(a);"), "{window}");
@@ -198,7 +202,7 @@ fn unterminated_key_redacts_its_body_run_and_leaves_later_code_readable() {
         window.contains("fn main() {}") && window.contains("fn tail() {}"),
         "{window}"
     );
-    assert_eq!(streamed.key_lines, 4);
+    assert_eq!(streamed.key_lines, 2);
 }
 
 /// A key block the pass replaces line by line is no key marker left in the
@@ -264,8 +268,9 @@ fn every_streamed_request_reads_and_proves_its_source() {
     let held = String::from_utf8(again[0].window.clone()).expect("utf8");
     assert!(!held.contains("SECRET"), "{held}");
     assert!(held.contains("line 4112\n"), "{held}");
-    // The body lines in the window and the END marker.
-    assert_eq!(again[0].key_lines, 12);
+    // The body lines in the window; the END armor reads as written.
+    assert!(held.contains("-----END RSA PRIVATE KEY-----\n"), "{held}");
+    assert_eq!(again[0].key_lines, 11);
     // There is no metadata-keyed result to reuse: a third request reads again.
     let third = Blocks(Default::default());
     stream(&source, &spans, &third).expect("third");

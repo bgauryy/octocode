@@ -26,14 +26,14 @@ async fn inventory_cursors_keep_identity_and_reach_each_file_once() {
         let result = support::run(&runtime, "ghGetHistoryItem", input).await;
         let data = result.data();
         let row = &data["pullRequests"][0];
-        if row.get("headSha").is_some() {
-            assert_eq!(row["headSha"], SHA);
+        if row.get("headCommitSha").is_some() {
+            assert_eq!(row["headCommitSha"], SHA);
         }
         seen.extend(inventory_paths(&row["files"]));
         let next = result
             .structured_content
             .pointer("/responsePagination/next")
-            .or_else(|| data.pointer("/pullRequests/0/contentPagination/files/next/nextPage"));
+            .or_else(|| data.pointer("/pullRequests/0/next/files"));
         let Some(next) = next else { break };
         assert_eq!(next["kind"], "continue");
         assert!(next["input"]["cursor"].is_string());
@@ -69,14 +69,14 @@ async fn patch_window_does_not_repeat_the_file_cursor_in_content_pagination() {
     let row = &data["pullRequests"][0];
     let file = &row["files"][0];
     assert_eq!(file["patchPagination"]["hasMore"], true, "{row}");
-    let pages = &row["contentPagination"];
+    let pages = &row["sectionPagination"];
     // The finished single-page file list states no block (one page holds
     // its complete result), and the cursor copy adds nothing.
     assert!(pages.get("files").is_none(), "{pages}");
     assert_eq!(pages["patches"]["offset"], 0, "{pages}");
     assert!(pages["patches"].get("totalChars").is_none(), "{pages}");
     assert!(
-        data["pullRequests"][0]["contentPagination"]["patches"]["next"]["nextPage"].is_object(),
+        data["pullRequests"][0]["next"]["patches"].is_object(),
         "{data}"
     );
 }
@@ -184,7 +184,7 @@ async fn merged_pr_rows_keep_merge_state_on_every_read() {
     }
 }
 
-/// A file page pins the head it read (`headSha` on `contentPagination.files.next.nextPage`);
+/// A file page pins the head it read (`headSha` in the row's `next.files` call);
 /// replayed after the head moved, the page is a stale snapshot whose
 /// restart is the first page without the pin, never a mix of two heads.
 #[tokio::test]
@@ -207,13 +207,11 @@ async fn inventory_cursor_replay_returns_the_same_pinned_file_page() {
         json!({"operation":"pullRequest","owner":"a","repo":"b","number":9,"sections":["files"]}),
     )
     .await;
-    let next =
-        first.data()["pullRequests"][0]["contentPagination"]["files"]["next"]["nextPage"]["input"]
-            .clone();
+    let next = first.data()["pullRequests"][0]["next"]["files"]["input"].clone();
     assert!(next["cursor"].is_string());
     let second = support::run(&runtime, "ghGetHistoryItem", next.clone()).await;
     let replay = support::run(&runtime, "ghGetHistoryItem", next).await;
-    assert_eq!(second.data()["pullRequests"][0]["headSha"], SHA);
+    assert_eq!(second.data()["pullRequests"][0]["headCommitSha"], SHA);
     let paths = inventory_paths(&second.data()["pullRequests"][0]["files"]);
     assert!(!paths.is_empty());
     assert_eq!(
@@ -254,7 +252,7 @@ fn inventory_paths(files: &Value) -> Vec<String> {
         .collect()
 }
 
-/// A budget-sized file page pins its grid: `contentPagination.files.next.nextPage`, copied
+/// A budget-sized file page pins its grid: `sectionPagination.files.next.nextPage`, copied
 /// unchanged, continues the same file list whether it runs alone or batched
 /// with other rows (a different budget share), so every walk lists each
 /// changed file exactly once.
@@ -300,7 +298,7 @@ async fn file_page_continuations_continue_the_same_grid_in_any_batch() {
             seen.extend(inventory_paths(&data["pullRequests"][0]["files"]));
             let next = content
                 .pointer("/responsePagination/next")
-                .or_else(|| data.pointer("/pullRequests/0/contentPagination/files/next/nextPage"));
+                .or_else(|| data.pointer("/pullRequests/0/next/files"));
             let Some(next) = next else { break };
             assert!(next["input"]["cursor"].is_string(), "{next}");
             input = next["input"].clone();

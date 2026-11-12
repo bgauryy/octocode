@@ -2,7 +2,6 @@
 //! gitignored candidates.
 
 use super::*;
-use octocode_contract_types::LocalSearchQuery;
 
 /// A verified importer whose references request fails is a gap in the
 /// answer: the row is partial with `importerRequestFailed`, the error, and an
@@ -175,7 +174,7 @@ fn symlinked_twins_list_each_site_once_under_its_real_path() {
             let path = path.strip_prefix(&root).unwrap_or(path);
             sites.push((
                 path.to_string_lossy().into_owned(),
-                site["displayRange"]["startLine"].as_u64().expect("line"),
+                site["line"].as_u64().expect("line"),
             ));
         }
         sites.sort();
@@ -194,8 +193,8 @@ fn symlinked_twins_list_each_site_once_under_its_real_path() {
 }
 
 /// A gitignored file that spells the name is never an importer candidate,
-/// and the row says so: partial, with the deciding ignore rule, and a lead
-/// whose localSearch rows (ignored files included) reach that file.
+/// and the row says so: partial, with the deciding ignore rule, and no lead
+/// into the ignored file.
 #[test]
 fn importer_recovery_names_gitignored_files_it_skipped() {
     if !require_node() {
@@ -262,33 +261,9 @@ fn importer_recovery_names_gitignored_files_it_skipped() {
         row["coverage"]["importerScan"], "skippedFiles",
         "a scan that skipped an importer is not complete: {row}"
     );
-    let lead = &crate::tools::test_support::checks::related_call(&row, "localSearch", |_| true);
-    assert_eq!(lead["tool"], "localSearch", "{row}");
-    let rows = lead["input"]["queries"].as_array().expect("lead rows");
-    let policy = crate::tools::test_support::workspace_policy(&root);
-    let found = rows
-        .iter()
-        .flat_map(|search| {
-            assert_eq!(search["includeIgnored"], true, "{search}");
-            let query: LocalSearchQuery =
-                serde_json::from_value(search.clone()).expect("lead row is a localSearch query");
-            crate::tools::local_search::execute_local_search(
-                &query,
-                &policy,
-                &crate::security::ContentSecurity::new(),
-                &crate::execution::cancel::NeverCancel,
-                None,
-                None,
-            )
-            .expect("lead runs")
-            .files
-            .into_iter()
-            .map(|file| file.path)
-        })
-        .collect::<Vec<_>>();
     assert!(
-        found.iter().any(|path| path.ends_with("g000.ts")),
-        "{found:?}"
+        ignored_leads(&row).is_empty(),
+        "no lead points into ignored files: {row}"
     );
 }
 
@@ -322,45 +297,29 @@ fn references_row(prepare: impl FnOnce(&Path)) -> (Fixture, PathBuf, serde_json:
     (dir, root, row)
 }
 
-/// The files the row's ignored-files lead finds when each of its localSearch
-/// rows is run.
-fn ignored_lead_files(root: &Path, row: &serde_json::Value) -> Vec<String> {
-    let lead = &crate::tools::test_support::checks::related_call(row, "localSearch", |_| true);
-    let policy = crate::tools::test_support::workspace_policy(root);
-    lead["input"]["queries"]
+/// The row's localSearch leads: none points into ignored files, which are
+/// scratch, output or copies outside the project.
+fn ignored_leads(row: &serde_json::Value) -> Vec<serde_json::Value> {
+    row["related"]
         .as_array()
-        .expect("lead rows")
-        .iter()
-        .flat_map(|search| {
-            let query: LocalSearchQuery =
-                serde_json::from_value(search.clone()).expect("lead row is a localSearch query");
-            crate::tools::local_search::execute_local_search(
-                &query,
-                &policy,
-                &crate::security::ContentSecurity::new(),
-                &crate::execution::cancel::NeverCancel,
-                None,
-                None,
-            )
-            .expect("lead runs")
-            .files
-            .into_iter()
-            .map(|file| file.path)
-        })
+        .into_iter()
+        .flatten()
+        .filter(|call| call["tool"] == "localSearch")
+        .cloned()
         .collect()
 }
 
 /// A file under a hidden directory is outside the candidate scan as a
 /// gitignored one is, whether or not an ignore rule names the directory too:
-/// one that imports the name makes the row partial, counted and led to, and
-/// its importer scan is not `complete`.
+/// one that imports the name makes the row partial and counted, with no lead
+/// into it, and its importer scan is not `complete`.
 #[test]
 fn importer_recovery_names_hidden_files_it_skipped() {
     if !require_node() {
         return;
     }
     for ignored in [false, true] {
-        let (_dir, root, row) = references_row(|root| {
+        let (_dir, _root, row) = references_row(|root| {
             if ignored {
                 std::fs::write(root.join(".gitignore"), ".state/\n").expect("gitignore");
             }
@@ -385,11 +344,7 @@ fn importer_recovery_names_hidden_files_it_skipped() {
             "{row}"
         );
         assert_eq!(warned.contains(".gitignore:1 '.state/'"), ignored, "{row}");
-        let found = ignored_lead_files(&root, &row);
-        assert!(
-            found.iter().any(|path| path.ends_with("h000.ts")),
-            "{found:?} {row}"
-        );
+        assert!(ignored_leads(&row).is_empty(), "{row}");
     }
 }
 

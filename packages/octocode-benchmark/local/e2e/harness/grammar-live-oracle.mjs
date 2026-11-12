@@ -12,8 +12,8 @@ export function semanticLocationEvidence(locations, ranges, file, base) {
   const observed = locations
     .map(row => [
       path.resolve(base, row.path),
-      row.displayRange.startLine,
-      row.displayRange.startCharacter,
+      row.line,
+      row.column,
     ])
     .toSorted((a, b) => a[0].localeCompare(b[0]) || a[1] - b[1] || a[2] - b[2]);
   const expected = ranges

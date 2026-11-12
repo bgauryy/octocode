@@ -17,6 +17,11 @@ pub(in crate::tools::large_source) struct WindowLines {
     head: Vec<u8>,
     /// The private-key markers of the current line, over all of it.
     markers: MarkerScan,
+    /// The current line's bytes while it is no longer than a key's line
+    /// (`KEY_LINE_BYTES`) and read from its start, so an armor line shows
+    /// what a whole-file read shows of it ([`crate::security::key_line_bytes`]).
+    line: Vec<u8>,
+    line_whole: bool,
     /// Private-key block state over the lines closed so far.
     pub(in crate::tools::large_source) block: KeyBlockState,
     /// The current line's shape, scanned only while a block is open.
@@ -61,6 +66,8 @@ impl WindowLines {
             held: wants.iter().map(|&want| Held::new(want)).collect(),
             head: Vec::new(),
             markers: MarkerScan::default(),
+            line: Vec::new(),
+            line_whole: true,
             block,
             shape: LineShapeScan::default(),
             at: 0,
@@ -95,6 +102,8 @@ impl WindowLines {
         self.at = point.offset;
         self.line_at = point.line_at;
         self.head.clone_from(&point.head);
+        self.line.clear();
+        self.line_whole = false;
         self.markers = point.markers;
         self.block = point.block;
         self.shape = point.shape;
@@ -123,6 +132,8 @@ impl WindowLines {
             held.finish(line, false, &[]);
         }
         self.head.clear();
+        self.line.clear();
+        self.line_whole = true;
     }
 
     /// Whether no window can take more bytes.
@@ -151,6 +162,8 @@ impl WindowLines {
         self.line_at = self.at;
         self.block = block;
         self.head.clear();
+        self.line.clear();
+        self.line_whole = true;
         self.markers = MarkerScan::default();
         self.shape = LineShapeScan::default();
     }
@@ -160,6 +173,14 @@ impl WindowLines {
         if self.head.len() < MARKER_PREFIX_BYTES {
             let take = (MARKER_PREFIX_BYTES - self.head.len()).min(piece.len());
             self.head.extend_from_slice(&piece[..take]);
+        }
+        if self.line_whole {
+            if self.line.len() + piece.len() <= super::super::KEY_LINE_BYTES {
+                self.line.extend_from_slice(piece);
+            } else {
+                self.line.clear();
+                self.line_whole = false;
+            }
         }
         self.markers.feed(piece);
         if self.block.is_open() {
@@ -178,12 +199,22 @@ impl WindowLines {
     pub(in crate::tools::large_source) fn finish(&mut self, line: usize) -> bool {
         let markers = self.markers.finish(&self.head);
         let (head, shape) = (&self.head, self.shape);
-        let inside = self.block.advance(markers, || shape.finish(head))
+        let in_block = self.block.advance(markers, || shape.finish(head))
             && (!markers.any() || self.at - self.line_at <= super::super::KEY_LINE_BYTES);
-        let lead = if inside {
-            crate::security::key_line_lead(&self.head, &shape)
-        } else {
-            &[]
+        // An armor line read whole shows its armor: only key text written
+        // beside it is hidden, from where that starts to the line's end (a
+        // window's line is its lead and a placeholder). One the pass entered
+        // midway is hidden from its lead.
+        let whole = (markers.any() && self.line_whole)
+            .then(|| std::str::from_utf8(&self.line).ok())
+            .flatten()
+            .map(|line| line.trim_end_matches(['\n', '\r']));
+        let key = whole.map(crate::security::key_line_bytes);
+        let inside = in_block && key.as_ref().is_none_or(Option::is_some);
+        let lead = match (key.flatten(), whole) {
+            (Some(key), Some(line)) if inside => &line.as_bytes()[..key.start],
+            _ if inside => crate::security::key_line_lead(&self.head, &shape),
+            _ => &[],
         };
         self.replaced = inside.then(|| {
             String::from_utf8_lossy(lead).len()
@@ -195,6 +226,8 @@ impl WindowLines {
         }
         self.line_at = self.at;
         self.head.clear();
+        self.line.clear();
+        self.line_whole = true;
         self.markers = MarkerScan::default();
         self.shape = LineShapeScan::default();
         inside

@@ -207,11 +207,7 @@ fn a_filter_verdict_before_the_cut_that_changed_restarts_the_walk() {
         root.write(&format!("f{index}.rs"), "x".repeat(200));
     }
     root.write("a.rs", "x");
-    let row = query(
-        "files",
-        &root,
-        &json!({"view":"paths","sizeBytes":{"min":100}}),
-    );
+    let row = query("files", &root, &json!({"view":"paths","bytes":{"min":100}}));
     let (first, next) = cut(&root, row, STEP * 6);
     std::thread::sleep(Duration::from_millis(20));
     std::fs::write(root.0.join("a.rs"), "x".repeat(300)).expect("grow");

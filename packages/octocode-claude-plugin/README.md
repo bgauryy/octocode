@@ -13,7 +13,7 @@ claude plugin install octocode@octocode
 
 Restart your Claude Code session, then run `/octocode:octocode-get-started`. The marketplace fetches `@octocodeai/claude-plugin` from npm. Installing that package with `npm install` alone does not enable a Claude plugin.
 
-Use a current Claude Code release, Node.js compatible with the pinned Octocode runtime, and npm on your PATH. The setup skill reports the exact Node.js requirement. GitHub research needs a GitHub credential (onboarding uses GitHub CLI, `gh`) and access to the repositories you request. This distribution targets local Claude Code sessions; local MCP support on other Claude surfaces is not verified.
+Use a current Claude Code release, Node.js compatible with the pinned Octocode runtime, and npm on your PATH. The setup skill reports the exact Node.js requirement. Sign in for GitHub code search or private repositories. Onboarding uses GitHub CLI (`gh`). This distribution targets local Claude Code sessions; local MCP support on other Claude surfaces is not verified.
 
 ## GitHub sign-in
 

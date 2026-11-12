@@ -1,6 +1,6 @@
-Load when debugging a Python program or test.
+# Python debugging
 
-# Python
+For CPU, wall time, asynchronous waits or memory, see [Python profiling](python-profiling.md).
 
 ## Break and inspect
 
@@ -27,7 +27,7 @@ An uncaught exception puts pdb into post-mortem at the failing frame, and the re
 python3 -m pdb -c c -c "p done, total" -c up -c "p row" -c q app/report.py </dev/null
 ```
 
-List comprehensions and generators are their own frames; when `p` reports a name as undefined, move `up` or `down`.
+Use `w` to see which frames exist on this Python version and select the frame that owns the variable.
 
 ## pytest
 
@@ -37,9 +37,7 @@ List comprehensions and generators are their own frames; when `p` reports a name
 
 ## Hang
 
-- Add `faulthandler.dump_traceback_later(10, exit=True)` near the start, or run `python3 -X faulthandler` and send `SIGABRT`: every thread's stack prints to stderr.
-- With py-spy installed: `py-spy dump --pid <pid>` prints the live stacks, local variables with `--locals`. On macOS it needs `sudo`.
-- `pytest --timeout=30` (pytest-timeout) dumps the stacks when a test hangs.
+On an existing process use `python3 -m profiling.sampling dump "$pid"` where supported, or `py-spy dump --pid "$pid"`. Take two snapshots during the stall and look for the thread or task expected to release the waiter. For a controlled launch, schedule `faulthandler.dump_traceback_later(seconds, exit=False)` and cancel it after the operation. SIGABRT can terminate the interpreter. [Python faulthandler](https://docs.python.org/3/library/faulthandler.html)
 
 ## Imports and environment
 

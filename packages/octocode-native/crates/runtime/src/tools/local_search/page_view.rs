@@ -292,13 +292,17 @@ pub(super) fn encode_pages(
     let mut windows = vec![None; files.len()];
     let mut out = FrameWriter::new(files.len(), max_raw);
     let mut ranges = Vec::with_capacity(pages.len());
+    let mut starts = Vec::with_capacity(pages.len());
+    let mut rows_before = 0usize;
     for page in pages {
         let first = out.len();
+        starts.push(saturating_u32(rows_before));
         for (index, rows) in page {
             let file = &files[*index];
             let end = rows.end.min(file.matches.len());
             let start = rows.start.min(end);
             let shown = &file.matches[start..end];
+            rows_before += shown.len();
             let merged = layout.merge_context.map(|context| {
                 &*windows[*index].get_or_insert_with(|| {
                     let rows = windows_of(&file.matches, context);
@@ -332,6 +336,7 @@ pub(super) fn encode_pages(
     }
     let index = PageIndex {
         pages: ranges,
+        starts,
         total_files: saturating_u32(files.len()),
         total_rows: saturating_u32(files.iter().map(|file| file.matches.len()).sum::<usize>()),
         matches_per: layout.matches_per,

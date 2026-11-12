@@ -1,40 +1,33 @@
-# The Octocode protocol
+# How an agent researches a code question
 
-Octocode exposes text, file structure, syntax, semantic locations, history, packages and classification through one tool contract. Each tool supplies evidence and typed next steps so an agent can move from discovery to an exact source claim.
-
-## One contract for every surface
-
-Core authors schemas, descriptions, defaults and limits. Config generates the embedded contract and types. Native validates and executes every tool; CLI and MCP launchers carry no tool logic. Tool names are stable across surfaces. [Tool reference](OCTOCODE_TOOLS.md).
-
-New calls contain `queries` and an optional `responseChars`; resumed calls contain only an emitted `cursor`. Shared concepts use the same types: matcher arrays, before/after context, inclusive line-range objects, typed filter bounds, and by/order sorting. Unknown fields and incompatible variants fail before execution; a shape or value with one lossless reading is repaired, and anything ambiguous is rejected.
+Start with where the evidence lives. A search gives the agent a candidate. A source read gives it something to cite. The same sequence works through an [MCP client](OCTOCODE_MCP.md) or the [CLI](OCTOCODE_CLI.md).
 
 ## Research loop
 
-1. Choose the evidence dimension and a bounded scope.
-2. Discover candidates, then read source or verify semantic locations.
-3. Follow the continuations needed for the claim and inspect coverage disclosures.
-4. Cite the evidence; identify what remains unknown.
+```mermaid
+flowchart TD
+    accTitle: Research routes from question to evidence
+    B{"Where is the evidence?"}
+    B -->|Local checkout| L["Find the file or symbol"]
+    B -->|GitHub| G["Find the revision or change"]
+    B -->|Package| P["Resolve the version to its source ref"]
+    P --> G
+    G --> V["Read the pinned file or patch"]
+    L --> S["Read the lines and verify the symbol"]
+    V --> C["Check remaining pages and coverage"]
+    S --> C
+    C --> D["Cite the source and identify any gaps"]
+```
 
-Batch independent queries of one tool. Build dependent calls from observed identities. [Routing and examples](../skills/octocode-research/references/tool-flow.md).
+| Ask your agent | How it gets an answer |
+|---|---|
+| “Who calls this function?” | Find its declaration with `localSearch` or `astSearch`. Give `lspSearch` the path, symbol and line. Check whether the locations are semantic results or syntax candidates, then read the call sites with `localFetch`. |
+| “Why did this GitHub change land?” | Use `ghSearchHistory` to find a pull request or commit. Read the matching item with `ghGetHistoryItem`. Use the patch to show what changed and the discussion or commit message to attribute a reason. |
+| “Does the version in our lockfile support this option?” | Read the locked version locally. Use `artifactSearch` to resolve that version, then browse and read the matching upstream revision. Report a missing source ref if the registry cannot identify it. |
+| “Which of these long documents discuss retries?” | With a classification key, ask `clasify` a focused question about the unread sources. Follow the source-read calls for likely matches. Inspect the unfiltered set before claiming every document was covered. |
 
-## Evidence and views
+## What a result proves
 
-Default outputs carry evidence and facts needed to understand its scope. Source reads preserve line coordinates. Compact and symbols views are explicit transformations. A match or declaration owns its evidence fields; callers need no shared-field inheritance or cross-row shorthand to interpret a page.
+Use the view that answers the question. A text hit establishes spelling, an AST match establishes syntax, and a language server can resolve symbol identity within its indexed scope. A graph or a classification answer can narrow the next read. For a quote, read the source lines. For a claim about every result, walk the pages and check for skipped files, index limits and partial answers.
 
-Search-index gaps, ignored files, provider limits, classification uncertainty and unavailable LSP capabilities remain visible. Source redaction happens before projection. A smaller response may remove redundant metadata, never silently lose evidence.
-
-## Continuations and related work
-
-A `continue` call carries a saved cursor and reaches remaining or recoverable evidence. A `related` call carries public query input and starts optional new work. Hints are prose only. Whole-response pages precede tool-level pages; independent collections each have their own continuations. Saved work is bound to tool, configuration and access context. [Data contract](TOOL_DATA_CONTRACT.md).
-
-## Precision and classification
-
-Text search finds spelling; AST finds syntax; LSP verifies semantic locations using a real server. Graph edges and syntax matches need confirmation before claims about callers or unused code.
-
-Inline `classification` selects candidates on the search, read and listing tools listed in [Context selection](OCTOCODE_TOOLS.md#context-selection), with one predicates/context policy. Public clasify evaluates content or unread sources, assesses sections, and discovers models. Both preserve provider usage and source provenance while keeping unassessed evidence distinct from negative judgments. [Classification guide](OCTOCODE_CLASIFY.md).
-
-## Runtime boundaries
-
-Local reads enforce the configured workspace and path policy. Native sanitizes input and output and binds saved evidence to access policy. GitHub and registry transports respect provider limits, report terminal caps and cache eligible data. Memory storage cannot resume after its runtime closes; persistent storage supports eligible later-process continuations.
-
-Some semantic operations need installed language servers. Cold startup, incomplete indexes and provider caps constrain what a tool can prove. Measure quality with actual evidence walks and provider effects, not schema snapshots or output length alone. [Tool quality](../skills-dev/octocode-dev/docs/TOOL_QUALITY.md) defines acceptance; [benchmarks](../packages/octocode-benchmark/README.md) measure broader outcomes.
+Independent searches of the same tool can share a batch. If one call needs a path, symbol, pull request number or commit from another, wait for the first result and use its returned identity. [Tool reference](OCTOCODE_TOOLS.md) · [Paging and evidence boundaries](TOOL_DATA_CONTRACT.md) · [Tool routing guide](../skills/octocode-research/references/tool-flow.md)

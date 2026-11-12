@@ -102,8 +102,9 @@ pub(super) const PATTERNS: &[SecretPattern] = &[SecretPattern {
     // (`tag`): the detector's `named_values` walks those, and judges every
     // name and value. An assignment may instead hold an expression whose
     // operands are literals (`cond ? "…" : "…"`, `env.X || "…"`): `expr`
-    // starts it, and the detector judges each literal of it as the named
-    // value. A sentence may state the value after `is` or `was`, a colon
+    // starts it at its first literal on the name's line (`below` when the
+    // line holds none), and the detector judges each literal of it as the
+    // named value. A sentence may state the value after `is` or `was`, a colon
     // after them or not, or after a bare `:` or `=` (`stated`), a word of
     // any characters.
     regex: concat!(
@@ -119,6 +120,12 @@ pub(super) const PATTERNS: &[SecretPattern] = &[SecretPattern {
         ")|",
         name_gap!(),
         wrapped_run!("secret_after_gap"),
+        // An assignment whose line holds no literal: the expression may go
+        // on below (`const apiKey =\n  cond\n    ? "…"`), and its first word
+        // may state the value (`then password = hunter2-…`). `below` starts
+        // it. After every other layout, so a run or a literal on the line
+        // reads first.
+        r###"|[ \t]*(?:[!=]==?|=>|:=|\|\|=|\?\?=|=)[ \t]*(?P<below>[^"'`;\r\n]*?\r?\n)"###,
         // A sentence that states the name's value (`the password is …`,
         // `my password was: …`) with no run of those characters after it:
         // the word itself, which the detector judges as a request judges it.

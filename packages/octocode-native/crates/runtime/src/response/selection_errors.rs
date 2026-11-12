@@ -147,7 +147,7 @@ mod tests {
     #[test]
     fn classified_source_failure_gets_reconciled_unavailable_receipt() {
         let mut structured = json!({"results":[{"index":0,"status":"error","data":{
-            "path":"missing.rs","errorCode":"pathNotFound","error":"missing"
+            "path":"missing.rs","errorCode":"notFound","error":"missing"
         }}]});
         decorate(
             ToolId::LocalFetch,

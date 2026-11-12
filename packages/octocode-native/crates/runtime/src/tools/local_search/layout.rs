@@ -99,11 +99,17 @@ pub(super) struct Layout {
     pub(super) list: bool,
     pub(super) shown: PageRows,
     pub(super) total_pages: u32,
-    pub(super) files_per_page: Option<u32>,
     /// What the pages walk: hit rows on default content pages (a file rides
     /// several), files on list and grid pages.
     pub(super) total_items: u32,
+    /// Where this page starts among `total_items`, from 0, and how many of
+    /// them it holds.
+    pub(super) offset: usize,
+    pub(super) length: usize,
     pub(super) matches_per: u32,
+    /// What one hit row is: a matched line on content pages, an occurrence
+    /// on matchOnly pages. Hit-row pagination states it as its `unit`.
+    pub(super) row_unit: &'static str,
     pub(super) out_of_range: bool,
     /// Resolved context around each row (empty for matchOnly).
     pub(super) context: SearchContext,
@@ -113,6 +119,12 @@ pub(super) struct Layout {
     /// Every page of a streamed cut, when this call cut it (a fresh page
     /// stores the scan by them, see [`super::page_view::encode_pages`]).
     pub(super) pages: Option<std::sync::Arc<Vec<PageRows>>>,
+}
+
+/// The unit of one hit row: an occurrence on matchOnly pages, a matched line
+/// (its occurrences on one row) otherwise.
+fn row_unit(match_only: bool) -> &'static str {
+    if match_only { "matches" } else { "lines" }
 }
 
 impl Layout {
@@ -181,7 +193,7 @@ impl Layout {
         }
         let streamed = streamed_layout(query);
         let mut pages = None;
-        let (shown, total_pages, files_per_page, total_items) = if streamed && list {
+        let (shown, total_pages, total_items, offset) = if streamed && list {
             Self::list_stream(query, &parsed.files, page_budget, &costs)
         } else if streamed {
             let pricing = priced_names.then_some(pricing);
@@ -198,6 +210,11 @@ impl Layout {
             Self::grid(query, parsed.files.len(), matches_per)
         };
         let total_files = saturating_u32(parsed.files.len());
+        let length = if list || !streamed {
+            shown.len()
+        } else {
+            shown_rows(&shown, &parsed.files)
+        };
         // Content views emit a resolved context window per match row; windows of
         // nearby rows overlap, so merge them into one block per run of lines.
         // matchOnly carries exact spans, so it has no windows. A multiline
@@ -208,9 +225,11 @@ impl Layout {
             out_of_range: total_files > 0 && local_search_query::page(query).max(1) > total_pages,
             shown,
             total_pages,
-            files_per_page,
             total_items,
+            offset,
+            length,
             matches_per,
+            row_unit: row_unit(match_only),
             context: if match_only {
                 SearchContext::default()
             } else {
@@ -238,15 +257,23 @@ impl Layout {
             local_search_query::context(query)
         };
         let total_pages = saturating_u32(index.pages.len()).max(1);
+        let page = local_search_query::page(query).max(1) as usize;
+        let offset = index
+            .starts
+            .get(page - 1)
+            .map_or(index.total_rows as usize, |start| *start as usize);
+        let length = shown.iter().map(|(_, rows)| rows.len()).sum();
         Self {
             list: false,
             out_of_range: index.total_files > 0
                 && local_search_query::page(query).max(1) > total_pages,
             shown,
             total_pages,
-            files_per_page: None,
             total_items: index.total_rows,
+            offset,
+            length,
             matches_per: index.matches_per,
+            row_unit: row_unit(match_only),
             merge_context: (!match_only && !context.is_empty()).then_some(context),
             context,
             streamed: true,
@@ -271,7 +298,7 @@ impl Layout {
         costs: &mut PageCosts,
         (pricing, cuts): (Option<&mut NamePricing<'_>>, Option<&StreamCuts>),
         cut_pages: &mut Option<std::sync::Arc<Vec<PageRows>>>,
-    ) -> Result<(PageRows, u32, Option<u32>, u32), ToolError> {
+    ) -> Result<(PageRows, u32, u32, usize), ToolError> {
         // `through`: the cut stops after that page, every reserved name
         // costing nothing (see below).
         let cut = |costs: &PageCosts, through: Option<usize>| {
@@ -332,8 +359,13 @@ impl Layout {
         let page = local_search_query::page(query).max(1) as usize;
         let shown = pages.get(page - 1).cloned().unwrap_or_default();
         let rows: usize = files.iter().map(|file| file.matches.len()).sum();
+        let offset = pages
+            .iter()
+            .take(page - 1)
+            .map(|before| shown_rows(before, files))
+            .sum();
         *cut_pages = Some(pages);
-        Ok((shown, total_pages, None, saturating_u32(rows)))
+        Ok((shown, total_pages, saturating_u32(rows), offset))
     }
 
     fn list_stream(
@@ -341,7 +373,7 @@ impl Layout {
         files: &[octocode_engine::types::TextSearchFile],
         page_budget: usize,
         costs: &PageCosts,
-    ) -> (PageRows, u32, Option<u32>, u32) {
+    ) -> (PageRows, u32, u32, usize) {
         let sizes = files
             .iter()
             .map(|file| {
@@ -357,10 +389,10 @@ impl Layout {
             local_search_query::page(query) as usize,
         );
         (
-            cut.range.map(|index| (index, 0..0)).collect(),
+            cut.range.clone().map(|index| (index, 0..0)).collect(),
             saturating_u32(cut.pages),
-            None,
             saturating_u32(files.len()),
+            cut.range.start,
         )
     }
 
@@ -369,7 +401,7 @@ impl Layout {
         query: &LocalSearchQuery,
         file_count: usize,
         matches_per: u32,
-    ) -> (PageRows, u32, Option<u32>, u32) {
+    ) -> (PageRows, u32, u32, usize) {
         let page_size = default_page_size(local_search_query::view(query)).max(1);
         let page = local_search_query::page(query).max(1);
         let window = crate::response::page_windows::count_window(
@@ -379,6 +411,7 @@ impl Layout {
         );
         let skip =
             (local_search_query::match_page(query).max(1) - 1).saturating_mul(matches_per) as usize;
+        let offset = window.start;
         let shown = window
             .map(|index| (index, skip..skip.saturating_add(matches_per as usize)))
             .collect::<PageRows>();
@@ -389,10 +422,20 @@ impl Layout {
                 file_count,
                 octocode_engine::num::saturating_usize(page_size),
             )),
-            Some(page_size),
             total_files,
+            offset,
         )
     }
+}
+
+/// The hit rows `page` shows of `files`.
+fn shown_rows(page: &PageRows, files: &[octocode_engine::types::TextSearchFile]) -> usize {
+    page.iter()
+        .map(|(index, rows)| {
+            let total = files.get(*index).map_or(0, |file| file.matches.len());
+            rows.end.min(total).saturating_sub(rows.start.min(total))
+        })
+        .sum()
 }
 
 #[cfg(test)]

@@ -82,13 +82,16 @@ fn help_lists_only_the_minimal_command_surface() {
         "skill",
         "install",
         "mcp",
+        // Maintenance commands the CLI docs name are discoverable here.
+        "cache",
+        "lsp-server",
     ] {
         assert!(
             text.contains(&format!("\n  {tool}")),
             "missing {tool}: {text}"
         );
     }
-    // Retired wrappers and hidden maintenance commands stay out of the surface.
+    // Retired wrappers and hidden internal commands stay out of the surface.
     for removed in [
         "\n  search",
         "\n  read",
@@ -108,8 +111,6 @@ fn help_lists_only_the_minimal_command_surface() {
         "\n  status",
         "\n  login",
         "\n  logout",
-        "\n  cache",
-        "\n  lsp-server",
         "\n  jev",
         "\n  scheme",
         "\n  showConfig",
@@ -131,7 +132,15 @@ fn tool_help_states_each_contract_tools_trigger() {
     // The tool commands are exactly the contract tools: a tool dropped from
     // the contract must not linger as a command, and none may be missing.
     let system = [
-        "schema", "config", "auth", "skill", "install", "mcp", "help",
+        "schema",
+        "config",
+        "cache",
+        "auth",
+        "skill",
+        "install",
+        "mcp",
+        "lsp-server",
+        "help",
     ];
     let mut listed_tools = stdout(&root)
         .split("Commands:")

@@ -189,7 +189,7 @@ async fn npm_versions_resolve_exact_range_and_tag() {
     )
     .await
     .expect_err("missing version");
-    assert_eq!(missing.code, ErrorCode::VersionNotFound);
+    assert_eq!(missing.code, ErrorCode::NotFound);
     assert_eq!(missing.status, Some(404));
     assert!(
         missing.nearest.iter().any(|version| version == "3.22.0"),
@@ -201,14 +201,14 @@ async fn npm_versions_resolve_exact_range_and_tag() {
     )
     .await
     .expect_err("no match");
-    assert_eq!(unmatched.code, ErrorCode::VersionNotFound);
+    assert_eq!(unmatched.code, ErrorCode::NotFound);
     let beyond = lookup(
         &http,
         json!({"operation":"resolve","packageName": "zod", "version": "99.0.0"}),
     )
     .await
     .expect_err("beyond every release");
-    assert_eq!(beyond.code, ErrorCode::VersionNotFound);
+    assert_eq!(beyond.code, ErrorCode::NotFound);
     assert_eq!(beyond.nearest, ["4.6.5", "3.25.76", "3.22.0"], "{beyond:?}");
     let seen = http
         .seen()

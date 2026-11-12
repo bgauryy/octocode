@@ -25,7 +25,7 @@ The default build registers **13 grammar entries covering 30 extensions in 12 la
 | JavaScript | `js` `jsx` `mjs` `cjs` | Yes | ESM and binding-safe CommonJS | `typescript-language-server` |
 | TypeScript | `ts` `tsx` `mts` `cts` | Yes | ESM and binding-safe CommonJS | `tsgo`, else `typescript-language-server` |
 
-Cross-file graph links feed the CLI's `octocode graph`; the matrix lists engine support. A grammar does not install or guarantee a language server. Tree-sitter owns structural matching for every language, JS/TS included; OXC adds JS/TS symbols, in-file references, calls, and graph facts. Uppercase `.S` normalizes to `.s`.
+Cross-file links from `graphBuild` are available through `graphQuery`. A grammar does not install or guarantee a language server. Tree-sitter owns structural matching for every language, JS/TS included; OXC adds JS/TS symbols, in-file references, calls, and graph facts. Uppercase `.S` normalizes to `.s`.
 
 Languages with no native grammar (Kotlin, PHP, CSS, HTML, JSON, TOML, YAML, Ruby, Swift, Shell, SQL, Lua, Zig, Vue, Svelte, Dart, and others) cannot be selected as native parsers. Grammar-dependent operations report unsupported input where an explicit parser or file is required; directory graph discovery skips extensions outside the registry. A successful graph with `filesScanned:0` does not prove those files contain no declarations. Text search, reads, GitHub/history and package lookup do not require a native grammar; minification and custom LSP routes have their own support boundaries.
 
@@ -63,7 +63,7 @@ Markdown, YAML, TOML and JSON (`md`, `markdown`, `mdx`, `yaml`, `yml`, `toml`, `
 
 ## Language servers
 
-Routing order, trust, provisioning, pooling, and memory caps are in [LSP_SERVER_LIFECYCLE.md](LSP_SERVER_LIFECYCLE.md). Managed installs (`npx octocode lsp-server install`) cover `rust-analyzer` and `clangd`; every other built-in route uses an installed executable. A custom `lsp-servers.json` entry adds or replaces a route for any extension. Every `lspSearch` operation needs a running server with the matching capability. Use `localFetch view:"symbols"` for syntax outlines or Markdown headings without a server; Markdown LSP needs a custom server route.
+Routing order, trust, provisioning, pooling, and memory caps are in [LSP_SERVER_LIFECYCLE.md](LSP_SERVER_LIFECYCLE.md). Managed installs (`npx octocode lsp-server install`) cover `rust-analyzer` and `clangd`; every other built-in route uses an installed executable. A custom `lsp-servers.json` entry adds or replaces a route for any extension. An IDE provider or language server supplies semantic results. If a server is unavailable, a supported file can return labeled syntax candidates. [Result levels](../../../../docs/OCTOCODE_TOOLS.md#lspsearch) Use `localFetch view:"symbols"` for syntax outlines or Markdown headings without a server; Markdown LSP needs a custom server route.
 
 ## Verify a build
 

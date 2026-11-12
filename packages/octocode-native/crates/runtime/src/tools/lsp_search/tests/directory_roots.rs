@@ -17,7 +17,7 @@ fn symbol_root(
     paths: &crate::policy::path::PathPolicy,
 ) -> String {
     let mut row = serde_json::json!({
-        "operation": "workspaceSymbol", "symbolQuery": "f",
+        "operation": "workspaceSymbol", "symbolFuzzy": "f",
         "path": directory.to_string_lossy()
     });
     row.as_object_mut()

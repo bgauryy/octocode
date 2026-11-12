@@ -26,9 +26,9 @@ fn payload_and_tool_errors_share_failure_classification() {
 
 #[test]
 fn tool_error_rows_take_their_failure_kind_from_the_error_code() {
-    let unresolved = value_result(json!({"status":"error","errorCode":"anchorUnresolved"}));
+    let unresolved = value_result(json!({"status":"error","errorCode":"notFound"}));
     assert_eq!(unresolved.failure, Some(FailureKind::NotFound));
-    let missing = value_result(json!({"status":"error","errorCode":"pathNotFound"}));
+    let missing = value_result(json!({"status":"error","errorCode":"notFound"}));
     assert_eq!(missing.failure, Some(FailureKind::NotFound));
     let other = value_result(json!({"status":"error","errorCode":"serverUnavailable"}));
     assert_eq!(other.failure, Some(FailureKind::Execution));
@@ -50,7 +50,7 @@ fn typed_parse_failure_is_a_row_error_not_a_worker_failure() {
 fn every_error_row_has_one_shape() {
     let next = json!({"retry": {"tool": "localSearch", "query": {"path": "/r"}}});
     let row = DomainResult::failure(
-        ErrorCode::PathNotFound,
+        ErrorCode::NotFound,
         "Path does not exist: /r",
         vec!["Verify the path exists.".into()],
         Some(next.clone()),
@@ -242,28 +242,19 @@ fn provider_rows_have_one_shape() {
 }
 
 /// B233: the calling tool's own recovery decides a shared code. A
-/// securityCheck miss names every source it asked, so it carries no hint;
-/// an artifactSearch miss keeps the shared one.
+/// ghGetFileContent bad pattern names its repair in the message, so it
+/// carries no hint; a `notFound` follows the one rule, the same shared hint
+/// on securityCheck and artifactSearch.
 #[test]
 fn the_calling_tools_own_recovery_decides_the_hint() {
-    let security = provider_failure(
-        ToolId::SecurityCheck,
-        "OSV has no record GHSA-0000-0000-0000".into(),
-        ErrorCode::NotFound,
-        vec![],
-        Some(404),
-        None,
-    );
-    assert!(security.data.get("hints").is_none(), "{}", security.data);
-    let artifact = provider_failure(
-        ToolId::ArtifactSearch,
-        "no such package".into(),
-        ErrorCode::NotFound,
-        vec![],
-        Some(404),
-        None,
-    );
-    assert!(artifact.data["hints"][0].is_string(), "{}", artifact.data);
+    let failure =
+        |tool, code| provider_failure(tool, "miss".into(), code, vec![], Some(404), None).data;
+    let pattern = failure(ToolId::GhGetFileContent, ErrorCode::InvalidPattern);
+    assert!(pattern.get("hints").is_none(), "{pattern}");
+    let security = failure(ToolId::SecurityCheck, ErrorCode::NotFound);
+    let artifact = failure(ToolId::ArtifactSearch, ErrorCode::NotFound);
+    assert!(artifact["hints"][0].is_string(), "{artifact}");
+    assert_eq!(security["hints"], artifact["hints"], "{security}");
 }
 
 #[test]

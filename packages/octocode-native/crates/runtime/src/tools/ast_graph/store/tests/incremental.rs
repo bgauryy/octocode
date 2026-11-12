@@ -63,7 +63,7 @@ fn fresh_extraction_relinks_add_edit_delete_rename_and_negative_dependencies() {
         added.value["scan"]["filesScanned"]
     );
     assert_eq!(
-        ask(&dir.0, "callees", Some("main.ts#run"), |_| {}).value["pagination"]["totalItems"],
+        ask(&dir.0, "callees", Some("main.ts#run"), |_| {}).value["pagination"]["total"],
         1
     );
     assert_clean_equivalent(&dir.0);
@@ -78,7 +78,7 @@ fn fresh_extraction_relinks_add_edit_delete_rename_and_negative_dependencies() {
     std::fs::remove_file(root.join("renamed.ts")).unwrap();
     assert_clean_equivalent(&dir.0);
     assert_eq!(
-        ask(&dir.0, "callees", Some("main.ts#run"), |_| {}).value["pagination"]["totalItems"],
+        ask(&dir.0, "callees", Some("main.ts#run"), |_| {}).value["pagination"]["total"],
         0
     );
 }

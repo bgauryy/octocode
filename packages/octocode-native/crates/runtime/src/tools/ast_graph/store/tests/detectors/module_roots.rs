@@ -54,7 +54,10 @@ fn a_module_root_file_counts_in_its_own_folder() {
     groups.sort();
     assert_eq!(
         groups,
-        [vec!["src/hosts".to_owned(), "src/hosts/shared".to_owned()]],
+        [vec![
+            "app/src/hosts".to_owned(),
+            "app/src/hosts/shared".to_owned()
+        ]],
         "{}",
         issues.value
     );

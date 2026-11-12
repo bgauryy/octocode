@@ -76,7 +76,8 @@ fn a_near_miss_marker_leaves_its_lines_searchable() {
 }
 
 /// A span inside a key block shows the placeholder a read of its line shows,
-/// in every span view; base64 outside the block shows as written.
+/// in every span view, and the body a read hides makes no base64 hit; base64
+/// outside the block shows as written.
 #[test]
 fn a_span_in_a_key_block_shows_the_placeholder_a_read_shows() {
     let body = "WzHvuy3fEWJr5musirUr5JYe5CMpm8DI2mKvqGsxgG5oDTudHZGh0Z7tcHL5kVeqJy";
@@ -97,15 +98,40 @@ fn a_span_in_a_key_block_shows_the_placeholder_a_read_shows() {
         );
         let rows = found["files"][0]["matches"]
             .as_array()
-            .expect("rows")
-            .clone();
+            .cloned()
+            .unwrap_or_default();
         let in_block: Vec<_> = rows
             .iter()
             .filter(|row| (3..=6).contains(&row["line"].as_u64().expect("line")))
             .collect();
-        assert!(!in_block.is_empty(), "{query}: {found}");
+        // A body a read hides is no base64 run: only a pattern that matches
+        // the read's own text of the block (its armor, its placeholders) has
+        // a row there.
+        assert_eq!(
+            !in_block.is_empty(),
+            query["multiline"] == "on",
+            "{query}: {found}"
+        );
+        // A row's lines in the block show the placeholder, an armor line
+        // shows what a read of it shows, and a line past the block reads as
+        // written.
+        let armor = |line: &str| {
+            !line.is_empty()
+                && [
+                    "-----BEGIN OPENSSH PRIVATE KEY-----",
+                    "-----END OPENSSH PRIVATE KEY-----",
+                ]
+                .iter()
+                .any(|marker| marker.ends_with(line))
+        };
         for row in in_block {
-            assert_eq!(row["value"], placeholder.as_str(), "{query}: {found}");
+            let value = row["value"].as_str().expect("value");
+            assert!(
+                value
+                    .lines()
+                    .all(|line| line == placeholder || armor(line) || line == "ordinary tail text"),
+                "{query}: {found}"
+            );
         }
         for row in rows.iter().filter(|row| row["line"] == 1) {
             assert_eq!(row["value"], png, "{query}: {found}");

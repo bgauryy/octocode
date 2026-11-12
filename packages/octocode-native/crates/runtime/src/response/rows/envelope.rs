@@ -6,14 +6,30 @@ pub fn envelope(_tool: ToolId, rows: Vec<Value>) -> Value {
     json!({"results":rows})
 }
 
-/// Redaction placeholders in each row's `data` (string leaves and keys), in
-/// row order: what the output gate's count is compared against.
+/// Redaction placeholders in each row's `data` (string leaves and keys)
+/// outside the row's own messages, in row order: what the output gate's
+/// count is compared against. A message only repeats a value hidden in the
+/// row's text ([`crate::contracts::envelope::message_paths`]), so a
+/// placeholder there says nothing the row's text does not.
 pub(crate) fn placeholders_per_row(envelope: &Value) -> Vec<usize> {
+    let messages = crate::contracts::envelope::message_paths(envelope);
     envelope["results"]
         .as_array()
         .map(|rows| {
             rows.iter()
-                .map(|row| crate::security::placeholders_in(&row["data"]))
+                .enumerate()
+                .map(|(index, row)| {
+                    let index = index.to_string();
+                    let said: usize = messages
+                        .iter()
+                        .filter(|path| {
+                            matches!(path.as_slice(), [rows, at, data, ..] if rows == "results" && *at == index && data == "data")
+                        })
+                        .filter_map(|path| envelope.pointer(&crate::json_pointer::of(path))?.as_str())
+                        .map(crate::security::placeholders)
+                        .sum();
+                    crate::security::placeholders_in(&row["data"]).saturating_sub(said)
+                })
                 .collect()
         })
         .unwrap_or_default()
@@ -37,7 +53,7 @@ pub(crate) fn warn_redacted_rows(envelope: &mut Value, before: &[usize]) {
             warnings
                 .iter()
                 .filter_map(Value::as_str)
-                .any(|warning| warning.starts_with("redacted"))
+                .any(crate::security::states_a_redaction)
         });
         if !stated {
             crate::response::paging::push_warnings(

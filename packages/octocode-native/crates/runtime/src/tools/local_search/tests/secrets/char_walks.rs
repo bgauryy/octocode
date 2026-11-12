@@ -1,7 +1,7 @@
-//! A walk of short matchOnly spans over a line with a secret: every span that
-//! overlaps the secret's bytes is masked, even when its text occurs elsewhere
-//! on the line, and the rest of the line comes back once, exactly. Every value
-//! below is fake.
+//! A walk of short matchOnly spans over a line with a secret: the walk runs
+//! over the line a read serves, so no span holds a byte of the secret, even
+//! when its text occurs elsewhere on the line, and the rest of the line comes
+//! back once, exactly. Every value below is fake.
 use super::*;
 
 const TOKEN: &str = "ghp_Z9Q8W7E6R5T4Y3U2I1O0P9L8K7J6H5G4F3D2";
@@ -73,55 +73,50 @@ fn spans(line: &str, width: usize) -> Vec<std::ops::Range<usize>> {
         .collect()
 }
 
-/// Walk `.{width}` over a line whose other text repeats `repeated`, and check
-/// each row by its position: one that overlaps the token shows only its bytes
-/// outside it, and the rows join to the walked text without the token.
+/// `line` as a read serves it: the token is its placeholder.
+fn served(line: &str) -> String {
+    let security = crate::security::ContentSecurity::new();
+    let served = security
+        .sanitize_text(line, Some(std::path::Path::new("one.txt")))
+        .content
+        .into_owned();
+    assert!(!served.contains(TOKEN) && served != line, "{served}");
+    served
+}
+
+/// Walk `.{width}` over a line whose other text repeats `repeated`: the walk
+/// runs over the line a read serves, so its rows are that line's spans, one
+/// per span; a span that is not the placeholder's shows its text exactly,
+/// and no row shows any part of the token.
 fn check_walk(width: usize, repeated: &str) {
     let line = line(repeated);
+    let served = served(&line);
     let pattern = if width == 1 {
         ".".to_owned()
     } else {
         format!(".{{{width}}}")
     };
     let rows = walked(&line, &pattern);
-    let spans = spans(&line, width);
-    assert_eq!(rows.len(), spans.len(), "one row per span");
-    let token = line.find(TOKEN).expect("token");
-    let token = token..token + TOKEN.len();
-    let mut secret_rows = 0;
-    for ((column, value), span) in rows.iter().zip(&spans) {
-        if span.start >= token.end || span.end <= token.start {
-            assert_eq!(value, &line[span.clone()], "column {column}");
-            continue;
-        }
-        secret_rows += 1;
-        let outside = format!(
-            "{}{}",
-            &line[span.start..span.start.max(token.start).min(span.end)],
-            &line[span.end.min(token.end).max(span.start)..span.end]
-        );
-        assert_eq!(unmasked(value), outside, "column {column} shows {value:?}");
-        assert_ne!(value, &outside, "column {column} is masked");
-    }
-    assert!(
-        secret_rows >= TOKEN.len() / width,
-        "{secret_rows} rows overlap the token"
+    let spans = spans(&served, width);
+    assert_eq!(
+        rows.len(),
+        spans.len(),
+        "one row per span of the read's line"
     );
-    let secret: String = rows
-        .iter()
-        .zip(&spans)
-        .filter(|(_, span)| span.start < token.end && span.end > token.start)
-        .map(|((_, value), _)| unmasked(value))
-        .collect();
-    assert_no_token_fragment(&secret);
-    let whole = &line[..spans.last().expect("a span").end];
-    let shown: String = rows.iter().map(|(_, value)| unmasked(value)).collect();
-    assert_eq!(shown, whole.replacen(TOKEN, "", 1));
+    let at = served.find("[REDACTED").expect("placeholder");
+    let placeholder = at..at + served[at..].find(']').expect("closed") + 1;
+    for ((column, value), span) in rows.iter().zip(&spans) {
+        if span.start >= placeholder.end || span.end <= placeholder.start {
+            assert_eq!(value, &served[span.clone()], "column {column}");
+        } else {
+            assert_no_token_fragment(value);
+        }
+    }
 }
 
-/// One character per span: each of the secret's characters comes back masked,
-/// though each also occurs raw elsewhere on the line; joined, the walk shows
-/// no two of the secret's characters in a row.
+/// One character per span: none of the secret's characters comes back, though
+/// each also occurs raw elsewhere on the line; joined, the walk shows no two
+/// of the secret's characters in a row.
 #[test]
 fn a_one_character_walk_masks_every_character_of_a_secret() {
     let repeated = TOKEN.chars().map(|c| format!("{c} ")).collect::<String>();

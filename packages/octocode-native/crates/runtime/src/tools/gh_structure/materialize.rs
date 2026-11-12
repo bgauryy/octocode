@@ -9,7 +9,7 @@ mod tests;
 mod writer;
 pub(super) use writer::{Acquired, MaterializeSkips, MaterializeWriter, write_error};
 
-/// Write the selection's files under `location.localPath` (the listed
+/// Write the selection's files under `location.path` (the listed
 /// directory) and return where a continuation resumes, if anywhere. The whole
 /// selection, not the listing page shown: only the call's own time stops it.
 pub(super) async fn materialize_page(
@@ -57,7 +57,7 @@ pub(super) async fn materialize_page(
     // it wrote, read from the copy.
     if offset == 0
         && page.current == 1
-        && let Some(local) = location["localPath"].as_str()
+        && let Some(local) = location["path"].as_str()
     {
         let skipped = location["skipped"]
             .as_array()
@@ -175,6 +175,10 @@ pub(super) struct Snapshot<'a> {
 /// a layout change never shares a path with another writer's files.
 pub(super) const MATERIALIZE_LAYOUT: [&str; 3] = ["tmp", "materialize", "v3"];
 
+/// How deep each snapshot sits under [`materialize_root`]:
+/// `owner/repo/commit`.
+pub(crate) const SNAPSHOT_DEPTH: usize = 3;
+
 /// Root of every materialized checkout under the cache home; local tools may
 /// read it.
 pub(crate) fn materialize_root(home: &Path) -> PathBuf {
@@ -188,7 +192,7 @@ pub(crate) fn materialize_root(home: &Path) -> PathBuf {
 /// order. The call's own limits stop the walk, never a count of files or bytes:
 /// past three quarters of its time, or at a rate limit or deadline, it resumes
 /// from that entry with what it wrote kept, so the row still reaches its
-/// caller. `location.localPath` is the listed directory.
+/// caller. `location.path` is the listed directory.
 pub(super) async fn materialize_tree(
     provider: &GitHubProvider,
     snapshot: &Snapshot<'_>,
@@ -280,10 +284,10 @@ pub(super) async fn materialize_tree(
     } else {
         root.join(listed)
     };
-    // The snapshot is the commit segment of `localPath`; `coverage` (set
+    // The snapshot is the commit segment of `location.path`; `coverage` (set
     // by the page) is the only coverage flag.
     let mut location = json!({
-        "localPath": local.to_string_lossy(),
+        "path": local.to_string_lossy(),
         "coverage": {"state": if has_more { "partial" } else { "complete" }}});
     let mut warnings = writer.skips.warnings();
     warnings.extend(writer.stopped.take());

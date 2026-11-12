@@ -47,7 +47,18 @@ fn detect_large_redacts_long_secret_spanning_chunk_boundary() {
         result.sanitized.contains("[REDACTED-"),
         "must redact a >1 KB secret straddling the chunk boundary"
     );
-    assert!(!result.sanitized.contains("-----BEGIN RSA PRIVATE KEY-----"));
+    // The armor names the block and holds none of it: only the body goes.
+    assert!(!result.sanitized.contains("MIIBODEFGH"));
+    assert!(
+        result
+            .sanitized
+            .contains("-----BEGIN RSA PRIVATE KEY-----\n[REDACTED-")
+    );
+    assert!(
+        result
+            .sanitized
+            .contains("-----END RSA PRIVATE KEY-----\n tail")
+    );
     assert!(!result.secrets_detected.is_empty());
 }
 
@@ -122,8 +133,13 @@ fn detect_large_redacts_oversized_secret_straddling_boundary() {
     let result = detect(&input, None);
 
     assert!(
-        !result.sanitized.contains("-----BEGIN RSA PRIVATE KEY-----"),
+        !result.sanitized.contains("MIIBODEFGH"),
         "oversized straddling key must be redacted"
+    );
+    assert!(
+        result
+            .sanitized
+            .contains("-----BEGIN RSA PRIVATE KEY-----\n[REDACTED-")
     );
     assert!(result.sanitized.contains("[REDACTED-RSAPRIVATEKEY]"));
     assert!(
@@ -152,8 +168,16 @@ fn detect_large_redacts_both_in_chunk_and_straddling_matches() {
     let result = detect(&input, None);
 
     assert!(
-        !result.sanitized.contains("-----BEGIN RSA PRIVATE KEY-----"),
+        !result.sanitized.contains("MIIBODEFGH"),
         "both the in-chunk and straddling keys must be redacted"
+    );
+    assert_eq!(
+        result
+            .sanitized
+            .matches("-----BEGIN RSA PRIVATE KEY-----\n[REDACTED-")
+            .count(),
+        2,
+        "each block keeps its armor"
     );
     assert_eq!(
         result.sanitized.matches("[REDACTED-RSAPRIVATEKEY]").count(),

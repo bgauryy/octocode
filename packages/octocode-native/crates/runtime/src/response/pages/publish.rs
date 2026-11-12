@@ -5,22 +5,13 @@
 use serde_json::{Map, Value};
 
 /// Keys a list or window block states about a complete page and nothing else.
-const COMPLETE_KEYS: [&str; 8] = [
-    "page",
-    "totalPages",
-    "totalItems",
-    "hasMore",
-    "unit",
-    "offset",
-    "length",
-    "total",
-];
+const COMPLETE_KEYS: [&str; 6] = ["unit", "offset", "length", "total", "countScope", "hasMore"];
 /// A block on a row or nested row: `pagination`, or one file's patch window.
 const BLOCKS: [&str; 2] = ["pagination", "patchPagination"];
 /// A map of named blocks: one collection's page each.
-const BLOCK_MAP: &str = "contentPagination";
+const BLOCK_MAP: &str = "sectionPagination";
 /// What shaping stages read back from a block; `next.*` carries the cursor.
-const SHAPING_ONLY: [&str; 2] = ["pageSize", "nextOffset"];
+const SHAPING_ONLY: [&str; 1] = ["nextOffset"];
 /// Row keys that carry calls, not evidence: their inputs are never rewritten.
 const CALLS: [&str; 2] = ["next", "related"];
 
@@ -80,20 +71,51 @@ fn published_block_is_complete(block: &mut Map<String, Value>) -> bool {
     complete(block)
 }
 
-/// One first page with nothing after it, stating only its own size. A
-/// `countScope:"complete"` adds nothing to one page of one (`totalPages:1`):
-/// the page lists the whole count. Without `totalPages` it is kept, as its
-/// `totalItems` may count more than the page lists.
+/// One first page with nothing after it, stating only its own size: it
+/// starts at 0, holds the whole `total` (when stated), and counts all of it
+/// (`countScope` absent or `complete`). A total larger than the page, or a
+/// floor (`loaded`, `partial`, `capped`), keeps the block.
 fn complete(block: &Map<String, Value>) -> bool {
     block.get("hasMore") == Some(&Value::Bool(false))
-        && block.get("page").is_none_or(|page| page == 1)
         && block.get("offset").is_none_or(|offset| offset == 0)
-        && block.get("countScope").is_none_or(|scope| {
-            scope == "complete" && block.get("totalPages").is_some_and(|pages| pages == 1)
-        })
         && block
-            .keys()
-            .all(|key| key == "countScope" || COMPLETE_KEYS.contains(&key.as_str()))
+            .get("total")
+            .is_none_or(|total| Some(total) == block.get("length"))
+        && block
+            .get("countScope")
+            .is_none_or(|scope| scope == "complete")
+        && block.keys().all(|key| COMPLETE_KEYS.contains(&key.as_str()))
+}
+
+/// A row whose page lies past the end of its list or body states it as the
+/// row's `status:"outOfRange"`; its `pagination` keeps the size (`total`).
+/// The one place a page's `outOfRange` fact becomes the row status, run
+/// before notices are placed (an `outOfRange` row states guidance in hints).
+pub(crate) fn state_out_of_range(structured: &mut Value) {
+    let Some(rows) = structured.get_mut("results").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for row in rows {
+        let Some(data) = row.get_mut("data").and_then(Value::as_object_mut) else {
+            continue;
+        };
+        // A section past its end leaves the row's other sections standing:
+        // its block's offset at its total says so, and the row keeps its
+        // status.
+        if let Some(Value::Object(sections)) = data.get_mut(BLOCK_MAP) {
+            for block in sections.values_mut().filter_map(Value::as_object_mut) {
+                block.remove("outOfRange");
+            }
+        }
+        let past_end = data
+            .get_mut("pagination")
+            .and_then(Value::as_object_mut)
+            .and_then(|block| block.remove("outOfRange"))
+            == Some(Value::Bool(true));
+        if past_end && row.get("status").is_none_or(|status| status == "empty") {
+            row["status"] = Value::String("outOfRange".into());
+        }
+    }
 }
 
 /// A fact that says nothing happened is absent; the row states it when it did.
@@ -164,41 +186,32 @@ mod tests {
     #[test]
     fn a_complete_first_page_states_no_block_and_every_other_page_does() {
         let mut output = json!({"results":[{"index":0,"data":{
-            "pagination":{"page":1,"totalPages":1,"pageSize":9,"totalItems":3,"hasMore":false},
+            "pagination":{"unit":"items","offset":0,"length":3,"total":3,"hasMore":false},
             "files":[{"path":"a","pagination":{"unit":"lines","offset":0,"length":2,"hasMore":false}}],
         }},{"index":1,"data":{
-            "pagination":{"page":2,"totalPages":2,"pageSize":9,"totalItems":12,"hasMore":false},
+            "pagination":{"unit":"items","offset":9,"length":3,"total":12,"hasMore":false},
         }},{"index":2,"data":{
-            "pagination":{"page":1,"pageSize":9,"hasMore":true},
+            "pagination":{"unit":"items","offset":0,"length":9,"hasMore":true},
         }},{"index":3,"data":{
             "pagination":{"unit":"lines","offset":4,"length":2,"hasMore":false},
-        }},{"index":4,"data":{
-            "pagination":{"page":1,"hasMore":false,"providerLimit":{"reason":"cap"}},
         }}]});
         publish_rows(&mut output);
         let rows = output["results"].as_array().expect("rows");
         assert_eq!(rows[0]["data"], json!({"files":[{"path":"a"}]}));
         assert_eq!(
             rows[1]["data"]["pagination"],
-            json!({"page":2,"totalPages":2,"totalItems":12,"hasMore":false})
+            json!({"unit":"items","offset":9,"length":3,"total":12,"hasMore":false})
         );
-        assert_eq!(
-            rows[2]["data"]["pagination"],
-            json!({"page":1,"hasMore":true})
-        );
+        assert_eq!(rows[2]["data"]["pagination"]["hasMore"], true);
         assert_eq!(rows[3]["data"]["pagination"]["offset"], 4);
-        assert_eq!(
-            rows[4]["data"]["pagination"]["providerLimit"]["reason"],
-            "cap"
-        );
     }
 
     #[test]
     fn section_maps_keep_only_the_blocks_with_more_to_read() {
         let mut output = json!({"results":[{"index":0,"data":{
-            "contentPagination":{
-                "files":{"page":1,"pageSize":9,"totalItems":1,"hasMore":false},
-                "comments":{"unshown":true,"pageSize":9,"totalItems":4,"hasMore":true},
+            "sectionPagination":{
+                "files":{"unit":"items","offset":0,"length":1,"total":1,"hasMore":false},
+                "comments":{"unit":"items","offset":0,"length":0,"total":4,"hasMore":true},
                 "patches":{"unit":"chars","offset":0,"length":3,"total":9,"hasMore":true,"nextOffset":3},
             },
         }},{"index":1,"data":{
@@ -206,9 +219,9 @@ mod tests {
         }}]});
         publish_rows(&mut output);
         assert_eq!(
-            output["results"][0]["data"]["contentPagination"],
+            output["results"][0]["data"]["sectionPagination"],
             json!({
-                "comments":{"unshown":true,"totalItems":4,"hasMore":true},
+                "comments":{"unit":"items","offset":0,"length":0,"total":4,"hasMore":true},
                 "patches":{"unit":"chars","offset":0,"length":3,"total":9,"hasMore":true},
             })
         );
@@ -218,33 +231,45 @@ mod tests {
         );
     }
 
-    /// C3eK B-R5: a section read on one complete page (`countScope:
-    /// "complete"`, page 1 of 1) states no block, as any complete first
-    /// page; a complete count over a list cut short of it (no
-    /// `totalPages`), or a loaded floor, keeps its block.
+    /// A section read on one complete page states no block, as any complete
+    /// first page; a total larger than the page, or a loaded floor, keeps
+    /// its block.
     #[test]
     fn a_complete_count_on_its_one_page_states_no_block() {
         let mut output = json!({"results":[{"index":0,"data":{
             "files":["M +3 -1 a.md"],
-            "contentPagination":{"files":{"page":1,"totalPages":1,"countScope":"complete","totalItems":1,"hasMore":false}},
+            "sectionPagination":{"files":{"unit":"files","offset":0,"length":1,"total":1,"countScope":"complete","hasMore":false}},
         }},{"index":1,"data":{
-            "pagination":{"page":1,"countScope":"complete","hasMore":false,"totalItems":500},
+            "pagination":{"unit":"items","offset":0,"length":30,"total":500,"countScope":"complete","hasMore":false},
         }},{"index":2,"data":{
-            "pagination":{"page":1,"totalPages":1,"countScope":"loaded","hasMore":false,"totalItems":2},
+            "pagination":{"unit":"items","offset":0,"length":2,"total":2,"countScope":"loaded","hasMore":false},
         }}]});
         publish_rows(&mut output);
         assert_eq!(
             output["results"][0]["data"],
             json!({"files":["M +3 -1 a.md"]})
         );
-        assert_eq!(
-            output["results"][1]["data"]["pagination"]["totalItems"],
-            500
-        );
+        assert_eq!(output["results"][1]["data"]["pagination"]["total"], 500);
         assert_eq!(
             output["results"][2]["data"]["pagination"]["countScope"],
             "loaded"
         );
+    }
+
+    #[test]
+    fn a_page_past_the_end_is_the_rows_out_of_range_status() {
+        let mut output = json!({"results":[{"index":0,"status":"empty","data":{
+            "pagination":{"unit":"items","offset":25,"length":0,"total":25,"hasMore":false,"outOfRange":true},
+        }},{"index":1,"data":{
+            "pagination":{"unit":"items","offset":0,"length":5,"total":25,"hasMore":true},
+        }}]});
+        state_out_of_range(&mut output);
+        assert_eq!(output["results"][0]["status"], "outOfRange");
+        assert_eq!(
+            output["results"][0]["data"]["pagination"],
+            json!({"unit":"items","offset":25,"length":0,"total":25,"hasMore":false})
+        );
+        assert!(output["results"][1].get("status").is_none());
     }
 
     #[test]

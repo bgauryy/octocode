@@ -253,6 +253,7 @@ fn listed_file_chars_match_the_rendered_entry() {
                     total_matched_lines: (view == View::CountLines).then_some(count),
                     term_counts: (counted && !terms.is_empty()).then(|| terms.clone()),
                     pagination: None,
+                    next: None,
                 };
                 assert_eq!(
                     listed_file_chars(&file, view),

@@ -57,7 +57,7 @@ fn every_graph_evidence_fragment_preserves_capabilities_and_validates() {
         .map(|index| {
             json!({
                 "id":format!("site-{index}"), "from":"source#owner", "targetName":"callback",
-                "edge":"calls", "file":"source", "line":index+1, "reason":"other",
+                "edge":"calls", "path":"source", "line":index+1, "reason":"other",
                 "sourceDigest":"a".repeat(64), "sourceRange":{"startByte":index,"endByte":index+1},
                 "sourceOrigin":source_origin(index),
                 "derivation":{"rule":"resolve:other","version":"test"}, "evidence":"syntax"
@@ -67,7 +67,7 @@ fn every_graph_evidence_fragment_preserves_capabilities_and_validates() {
     let expected = coverage();
     let descriptors = source_evidence();
     let data = json!({"operation":"unresolved","graph":{"id":"snapshot","root":"/scope","createdAt":"now"},
-        "rows":results,"pagination":{"page":1,"totalItems":40,"hasMore":false},"argumentCoverage":expected,"edges":["calls","passes"],
+        "rows":results,"pagination":{"unit":"items","offset":0,"length":40,"total":40,"hasMore":false},"argumentCoverage":expected,"edges":["calls","passes"],
         "scan":{"exclude":["vendor","generated"]},"sourceEvidence":descriptors});
     let mut seen = Vec::new();
     let mut described = Vec::new();

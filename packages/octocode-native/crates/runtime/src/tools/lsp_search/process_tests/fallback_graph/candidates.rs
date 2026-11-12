@@ -94,7 +94,11 @@ fn subtype_candidates_pipeline_only_on_a_concurrent_server_with_the_same_answer(
             .map(|matched| {
                 (
                     matched["symbolName"].clone(),
-                    matched["displayRange"].clone(),
+                    (
+                        matched["line"].clone(),
+                        matched["column"].clone(),
+                        matched["endLine"].clone(),
+                    ),
                 )
             })
             .collect::<Vec<_>>()

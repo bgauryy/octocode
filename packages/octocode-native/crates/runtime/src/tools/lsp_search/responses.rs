@@ -243,6 +243,7 @@ pub(super) fn annotate(
         scope,
     );
     if let Some(reason) = &session.fell_back_from {
+        let reason = crate::security::quoted(reason);
         crate::response::paging::push_warnings(
             result,
             [format!(

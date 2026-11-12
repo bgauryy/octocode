@@ -98,7 +98,7 @@ fn cfg_test_module_edges_are_test_edges() {
         .as_array()
         .into_iter()
         .flatten()
-        .find(|row| row["id"] == "src/contracts.rs");
+        .find(|row| row["id"] == "app/src/contracts.rs");
     assert!(
         contracts.is_none(),
         "only test code imports contracts.rs: {}",
@@ -109,7 +109,7 @@ fn cfg_test_module_edges_are_test_edges() {
         .as_array()
         .into_iter()
         .flatten()
-        .find(|row| row["id"] == "src/contracts.rs")
+        .find(|row| row["id"] == "app/src/contracts.rs")
         .unwrap_or_else(|| panic!("the test edge stays queryable: {}", deps.value));
     assert_eq!(row["test"], true, "{row}");
     assert_eq!(row["edgeLine"], 9, "{row}");
@@ -184,7 +184,12 @@ fn rust_module_and_its_children_are_no_dir_cycle() {
         .iter()
         .map(|row| row["evidence"]["dirs"].clone())
         .collect::<Vec<_>>();
-    assert_eq!(groups, [json!(["src/a", "src/b"])], "{}", issues.value);
+    assert_eq!(
+        groups,
+        [json!(["app/src/a", "app/src/b"])],
+        "{}",
+        issues.value
+    );
 }
 
 /// Detectors that do not judge a language say so for the files they skip,
@@ -304,7 +309,7 @@ fn imports_past_the_snapshot_root_are_reported_as_outside() {
     let rows = detector(&issues, "unresolved-import");
     let titled = |subject: &str| {
         rows.iter()
-            .find(|row| row["subject"] == subject)
+            .find(|row| row["subject"] == format!("app/{subject}"))
             .map(|row| {
                 (
                     row["title"].as_str().unwrap_or_default().to_owned(),

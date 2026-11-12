@@ -14,7 +14,7 @@ export async function clone(ctx) {
   const first = await call({ paths: ['src'], historyDepth: 1 });
   const second = await call({ paths: ['docs'], historyDepth: 1 });
   const deep = await call({ paths: ['src'], historyDepth: 2 });
-  const a = first.location?.localPath, b = second.location?.localPath, c = deep.location?.localPath;
+  const a = first.location?.path, b = second.location?.path, c = deep.location?.path;
   const out = [
     ['advanced.clone.sparseIdentity', a !== b && sparseFiles(a, 'src/greeter.ts', 'docs/notes.md') && sparseFiles(b, 'docs/notes.md', 'src/greeter.ts'), JSON.stringify({ first, second })],
     ['advanced.clone.depthIdentity', !!a && !!c && a !== c && count(a) === 1 && count(c) === 2, JSON.stringify(deep)],

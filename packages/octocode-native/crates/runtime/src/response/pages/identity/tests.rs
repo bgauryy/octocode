@@ -17,7 +17,7 @@ fn declared(pointer: &str) -> Option<PageContext> {
 }
 
 fn file(owner: &str, repo: &str, sha: &str, path: &str) -> Value {
-    json!({"owner":owner,"repo":repo,"path":path,"commitSha":sha,"lines":["1\tx"]})
+    json!({"owner":owner,"repo":repo,"path":path,"commitSha":sha,"matches":[{"line":1,"value":"x"}]})
 }
 
 /// Each row's repository as an agent rebuilds it: its own fields, else the
@@ -95,7 +95,7 @@ fn a_mixed_page_keeps_each_rows_own_repository() {
 
 #[test]
 fn a_required_identity_and_a_differing_page_value_stay_on_the_rows() {
-    let commit = |sha: &str| json!({"owner":"o","repo":"r","commitSha":sha,"date":"d"});
+    let commit = |sha: &str| json!({"owner":"o","repo":"r","commitSha":sha,"committedAt":"d"});
     let mut data = json!({"commits":[commit("c1")]})
         .as_object()
         .expect("data")
@@ -161,23 +161,16 @@ fn the_embedded_contract_decides_what_moves() {
     assert_eq!(repos, before);
 }
 
-/// The `verify` a `callers` row states: the lspSearch call that confirms the
-/// edge into the queried symbol, the same on every row of one target.
-fn references_call(symbol: &str) -> Value {
-    json!([{"kind":"related","tool":"lspSearch","input":{"queries":[
-        {"operation":"references","path":"a.ts","symbolName":symbol,"line":3}]}}])
-}
-
-/// A graphQuery `callers`/`callees` response of `rows` listed rows: each row
-/// states the traversal's `from` and `edge` and its own `verify` as the
-/// engine builds them. `verify` names the symbol a row's call confirms.
-fn traversal(operation: &str, rows: usize, verify: &dyn Fn(usize) -> String) -> Value {
+/// A graphQuery `callers`/`callees` response of `rows` listed rows, as the
+/// engine builds them: each row states the traversal node it was reached
+/// `from` and its `edge`. `from` names that node for row `n`.
+fn traversal(operation: &str, rows: usize, from: &dyn Fn(usize) -> String) -> Value {
     let rows = (0..rows)
         .map(|n| {
-            json!({"id":format!("f{n}.ts#caller{n}"),"kind":"symbol","from":"a.ts#target",
-                "edge":"calls","verify":references_call(&verify(n)),"confidence":"high",
-                "edgeLine":n + 1,"via":"local","depth":1,"name":format!("caller{n}"),
-                "symbolKind":"function","file":format!("f{n}.ts"),"line":n + 1,"endLine":n + 2})
+            json!({"id":format!("f{n}.ts#caller{n}"),"kind":"function","from":from(n),
+                "edge":"calls","confidence":"high","edgeLine":n + 1,"via":"local","depth":1,
+                "symbolName":format!("caller{n}"),"path":format!("f{n}.ts"),"line":n + 1,
+                "endLine":n + 2})
         })
         .collect::<Vec<_>>();
     json!({"results":[{"index":0,"data":{
@@ -186,8 +179,8 @@ fn traversal(operation: &str, rows: usize, verify: &dyn Fn(usize) -> String) -> 
         "freshness":{"fresh":true,"analysisCurrent":true}}}]})
 }
 
-/// Each row's `from`, `edge` and `verify` as a reader of one page rebuilds
-/// them: the row's own, else the page's.
+/// Each row's `from` as a reader of one page rebuilds it: the row's own,
+/// else the page's.
 fn rebuilt_traversal(data: &Value) -> Vec<Value> {
     data["rows"]
         .as_array()
@@ -195,34 +188,30 @@ fn rebuilt_traversal(data: &Value) -> Vec<Value> {
         .iter()
         .map(|row| {
             let mut full = row.clone();
-            for field in ["from", "verify"] {
-                if full.get(field).is_none()
-                    && let Some(stated) = data.get(field)
-                {
-                    full[field] = stated.clone();
-                }
+            if full.get("from").is_none()
+                && let Some(stated) = data.get("from")
+            {
+                full["from"] = stated.clone();
             }
             full
         })
         .collect()
 }
 
-/// A `callers` page states the `from` and `verify` every row shares once, as the
-/// output contract declares them, and the contract still accepts the page.
+/// A `callers` page states the `from` every row shares once, as the output
+/// contract declares it, and the contract still accepts the page.
 #[test]
 fn a_callers_page_states_what_its_rows_share_once() {
-    let original = traversal("callers", 6, &|_| "target".into());
+    let original = traversal("callers", 6, &|_| "a.ts#target".into());
     let mut page = original.clone();
     state_shared_identity(ToolId::GraphQuery, &mut page);
     let data = &page["results"][0]["data"];
     let rows = original["results"][0]["data"]["rows"]
         .as_array()
         .expect("rows");
-    for field in ["from", "verify"] {
-        assert_eq!(data[field], rows[0][field], "{field} stated once: {page}");
-        for row in data["rows"].as_array().expect("rows") {
-            assert!(row.get(field).is_none(), "{field} repeated: {row}");
-        }
+    assert_eq!(data["from"], rows[0]["from"], "from stated once: {page}");
+    for row in data["rows"].as_array().expect("rows") {
+        assert!(row.get("from").is_none(), "from repeated: {row}");
     }
     assert_eq!(rebuilt_traversal(data), rows.to_vec(), "every row rebuilds");
     crate::tools::test_support::assert_row_contract(ToolId::GraphQuery, data);
@@ -232,22 +221,21 @@ fn a_callers_page_states_what_its_rows_share_once() {
     );
 }
 
-/// Rows whose `verify` differ (the calls a `callees` row confirms name each
-/// callee) keep it; `from` still moves, and `edge` stays on every row.
+/// Rows reached from different nodes (a deeper walk) keep their own `from`,
+/// and `edge` stays on every row.
 #[test]
 fn a_traversal_field_that_differs_between_rows_stays_on_the_rows() {
-    let original = traversal("callees", 4, &|n| format!("callee{n}"));
+    let original = traversal("callees", 4, &|n| format!("a.ts#target{n}"));
     let mut page = original.clone();
     state_shared_identity(ToolId::GraphQuery, &mut page);
     let data = &page["results"][0]["data"];
-    assert_eq!(data["from"], "a.ts#target", "{page}");
+    assert!(data.get("from").is_none(), "{page}");
     assert!(
         data.get("edge").is_none(),
         "an edge stays on its rows: {page}"
     );
-    assert!(data.get("verify").is_none(), "{page}");
     for row in data["rows"].as_array().expect("rows") {
-        assert!(row["verify"].is_array(), "{row}");
+        assert!(row["from"].is_string(), "{row}");
     }
     assert_eq!(
         rebuilt_traversal(data),
@@ -264,7 +252,7 @@ fn a_traversal_field_that_differs_between_rows_stays_on_the_rows() {
 #[test]
 fn every_page_of_a_tiny_budget_walk_reads_alone() {
     use crate::response::page_model::ResponsePageOptions;
-    let original = traversal("callers", 12, &|_| "target".into());
+    let original = traversal("callers", 12, &|_| "a.ts#target".into());
     let expected = original["results"][0]["data"]["rows"]
         .as_array()
         .expect("rows")

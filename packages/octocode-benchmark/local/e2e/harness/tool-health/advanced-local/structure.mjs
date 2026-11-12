@@ -18,7 +18,7 @@ async function filters(ctx, surface, checks) {
     { label: 'depth', query: { ...base, minDepth: 2, maxDepth: 2 }, expected: ['structure/sub/deep.txt'] },
     { label: 'extension-name', query: { ...base, extensions: ['txt'], nameRegex: '^(a|large)\\.txt$' }, expected: ['structure/a.txt', 'structure/large.txt'] },
     { label: 'empty', query: { ...base, empty: true }, expected: ['structure/empty.txt'] },
-    { label: 'size', query: { ...base, sizeBytes: { min: stat.size, max: stat.size } }, expected: ['structure/large.txt'] },
+    { label: 'size', query: { ...base, bytes: { min: stat.size, max: stat.size } }, expected: ['structure/large.txt'] },
     { label: 'time', query: { ...base, include: ['large.txt'], modifiedAt: { from: new Date(stat.mtimeMs - 1000).toISOString(), to: new Date(stat.mtimeMs + 1000).toISOString() } }, expected: ['structure/large.txt'] },
     { label: 'time-excluded', query: { ...base, include: ['large.txt'], modifiedAt: { to: new Date(stat.mtimeMs - 1000).toISOString() } }, expected: [] },
     { label: 'hidden', query: { ...base, includeHidden: true, include: ['.*'] }, expected: ['structure/.hidden.txt'] },

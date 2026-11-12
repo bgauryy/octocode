@@ -78,7 +78,7 @@ fn a_capture_is_saved_immutably_and_its_lead_reads_exactly_those_bytes() {
     );
     let source = captured.source.as_ref().unwrap();
     assert_eq!(source["url"], "https://docs.example.org/guide#rotation");
-    assert_eq!(source["snapshot"], snapshot.as_str());
+    assert_eq!(source["sourceDigest"], snapshot.as_str());
     assert_eq!(captured.read["tool"], "localFetch");
     let row = &captured.read["input"]["queries"][0];
     assert_eq!(

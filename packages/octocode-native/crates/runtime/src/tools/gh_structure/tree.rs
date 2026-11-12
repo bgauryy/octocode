@@ -47,11 +47,11 @@ pub(super) async fn execute_tree(
         },
         "summary": summary(&traversal.entries),
     });
-    // `commitSha` is the listed commit on every page; `resolvedRef` names the
-    // branch or tag that resolved to it, never the commit itself, so a later
-    // page (its cursor pins the commit) renames nothing.
+    // `commitSha` is the listed commit on every page; `ref` names the branch
+    // or tag that resolved to it, never the commit itself, so a later page
+    // (its cursor pins the commit) renames nothing.
     if !resolved_branch.eq_ignore_ascii_case(&commit_sha) {
-        value["resolvedRef"] = json!(resolved_branch);
+        value["ref"] = json!(resolved_branch);
     }
     value["commitSha"] = json!(commit_sha);
     page.paginate(&mut value);
@@ -77,8 +77,10 @@ pub(super) async fn execute_tree(
     if ranked && (traversal.contents_limit || traversal.failed_subtrees > 0) {
         crate::response::paging::push_warnings(
             &mut value,
-            ["sort ranks only the entries this listing read; an unread entry may rank higher."
-                .to_owned()],
+            [
+                "sort ranks only the entries this listing read; an unread entry may rank higher."
+                    .to_owned(),
+            ],
         );
     }
     // A walk that missed entries wrote what it saw: never a complete checkout.
@@ -142,9 +144,9 @@ pub(super) async fn execute_tree(
                 );
             }
         }
-    } else if value.pointer("/location/localPath").is_some() {
+    } else if value.pointer("/location/path").is_some() {
         // A materialized listing continues with the local tools at
-        // `location.localPath`; re-listing the tree it just returned adds
+        // `location.path`; re-listing the tree it just returned adds
         // nothing.
     } else if page.current == 1
         && let Some(read) = if ranks_by_size(query) {

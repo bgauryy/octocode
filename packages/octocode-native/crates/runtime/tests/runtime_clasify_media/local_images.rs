@@ -26,7 +26,7 @@ async fn unread_local_image_is_byte_exact_hidden_and_saved_with_box() {
         std::fs::read(asset["path"].as_str().unwrap()).unwrap(),
         bytes
     );
-    assert!(asset["snapshot"].as_str().unwrap().len() == 64);
+    assert!(asset["sourceDigest"].as_str().unwrap().len() == 64);
     assert!(
         result.get("hints").is_none(),
         "images do not advertise localFetch of binary"
@@ -94,8 +94,8 @@ async fn image_mutation_changes_the_snapshot_and_old_evidence_survives() {
     std::fs::write(&path, &changed).unwrap();
     let newer = clasify(&runtime, vec![row("one.png")]).await;
     assert_ne!(
-        newer["results"][0]["data"]["assets"]["image_a"]["snapshot"],
-        old["snapshot"]
+        newer["results"][0]["data"]["assets"]["image_a"]["sourceDigest"],
+        old["sourceDigest"]
     );
     assert_eq!(std::fs::read(old["path"].as_str().unwrap()).unwrap(), png());
     assert_eq!(
@@ -194,7 +194,7 @@ async fn invalid_missing_oversized_and_private_images_never_reach_provider() {
 }
 
 /// A missing image fails as the missing path every local reader reports
-/// (`pathNotFound`, with the reader's recovery), and one outside the
+/// (`notFound`, with the reader's recovery), and one outside the
 /// allowed roots as the shared `outsideAllowedRoots`: never as a security
 /// validation failure that tells the caller to "read an allowed file".
 #[tokio::test]
@@ -211,7 +211,7 @@ async fn a_missing_or_outside_local_image_fails_with_the_shared_path_code() {
     )
     .await;
     let missing = &out["results"][0]["data"];
-    assert_eq!(missing["errorCode"], "pathNotFound", "{out}");
+    assert_eq!(missing["errorCode"], "notFound", "{out}");
     assert!(
         missing["next"].is_object() || missing["related"].is_array(),
         "a missing image carries the reader's recovery: {missing}"

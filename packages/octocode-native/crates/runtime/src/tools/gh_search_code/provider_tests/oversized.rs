@@ -92,7 +92,7 @@ fn assert_bound_named(out: &crate::response::result::ToolData, bound: usize) {
         out.data
     );
     assert!(
-        file("small.txt")["lines"].to_string().contains("needle"),
+        file("small.txt")["matches"].to_string().contains("needle"),
         "{}",
         out.data
     );

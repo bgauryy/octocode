@@ -348,8 +348,8 @@ fn verification_stops_when_cancelled() {
     assert_eq!(reason, "Cancelled");
 }
 
-/// Context lines beside a key block stay readable; only the lines
-/// inside the block are redacted.
+/// Context lines beside a key block stay readable, and so does its armor;
+/// only the key text inside the block is redacted.
 #[test]
 fn key_block_redaction_is_line_precise() {
     let source = [
@@ -364,9 +364,11 @@ fn key_block_redaction_is_line_precise() {
     let placeholder = crate::security::key_fragment_placeholder();
     // Match on line 2 with one context line each side (lines 1-3).
     let value = format!("{}\n{}\n{}", source[0], source[1], source[2]);
+    assert_eq!(redact_key_block_lines(2, &value, &ranges, at), value);
+    let value = format!("{}\n{}\n{}", source[2], source[3], source[4]);
     assert_eq!(
-        redact_key_block_lines(2, &value, &ranges, at),
-        format!("{}\n{}\n{placeholder}", source[0], source[1])
+        redact_key_block_lines(4, &value, &ranges, at),
+        format!("{}\n{placeholder}\n{}", source[2], source[4])
     );
     // An already-redacted value still aligns.
     let redacted = format!("{}\n{placeholder}\n{placeholder}", source[1]);

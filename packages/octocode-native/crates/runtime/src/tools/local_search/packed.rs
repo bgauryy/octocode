@@ -56,6 +56,8 @@ use write::Writer;
 pub(super) struct PageIndex {
     /// Page `p` is the frames `pages[p - 1]`.
     pub(super) pages: Vec<std::ops::Range<u32>>,
+    /// Page `p` starts at row `starts[p - 1]` of every file's rows.
+    pub(super) starts: Vec<u32>,
     /// Files the scan matched.
     pub(super) total_files: u32,
     /// Rows of every file.
@@ -68,7 +70,9 @@ pub(super) struct PageIndex {
 
 impl PageIndex {
     fn weight(&self) -> usize {
-        std::mem::size_of::<Self>() + self.pages.len() * std::mem::size_of::<std::ops::Range<u32>>()
+        std::mem::size_of::<Self>()
+            + self.pages.len() * std::mem::size_of::<std::ops::Range<u32>>()
+            + self.starts.len() * std::mem::size_of::<u32>()
     }
 }
 

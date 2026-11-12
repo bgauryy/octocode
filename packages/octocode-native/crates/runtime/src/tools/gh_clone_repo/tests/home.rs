@@ -123,7 +123,7 @@ fn creates_a_new_configured_home_before_authorizing_the_clone_target() {
     let result = clone_pinned(&fixture, &query(), &context).expect("new home clone");
     assert!(home.is_dir());
     assert_eq!(result.location.commit_sha, fixture.first_commit);
-    assert!(Path::new(&result.location.local_path).starts_with(home));
+    assert!(Path::new(&result.location.path).starts_with(home));
 }
 
 /// The runtime allows only the checkout trees under the Octocode home
@@ -147,9 +147,9 @@ fn clones_with_only_the_clones_root_allowed_under_an_existing_home() {
     let result = clone_pinned(&fixture, &query(), &context).expect("clone under the clones root");
     assert_eq!(result.location.commit_sha, fixture.first_commit);
     assert!(
-        Path::new(&result.location.local_path).starts_with(storage::clones_root(&home)),
+        Path::new(&result.location.path).starts_with(storage::clones_root(&home)),
         "{}",
-        result.location.local_path
+        result.location.path
     );
 }
 
@@ -175,7 +175,7 @@ fn policy_denials_use_the_codes_the_local_tools_share() {
     use crate::policy::PolicyErrorCode;
     for (code, expected) in [
         (PolicyErrorCode::IgnoredPath, ErrorCode::PathPolicyDenied),
-        (PolicyErrorCode::NotFound, ErrorCode::PathNotFound),
+        (PolicyErrorCode::NotFound, ErrorCode::NotFound),
         (PolicyErrorCode::InputTooLarge, ErrorCode::FileTooLarge),
         (
             PolicyErrorCode::OutsideAllowedRoots,
@@ -277,9 +277,7 @@ fn directories_a_clone_creates_are_owner_only() {
     let config = CloneConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let clone = clone_pinned(&fixture, &query(), &context).expect("clone");
-    let mut directory = Path::new(&clone.location.local_path)
-        .parent()
-        .expect("parent");
+    let mut directory = Path::new(&clone.location.path).parent().expect("parent");
     while directory != home {
         let mode = fs::metadata(directory)
             .expect("metadata")

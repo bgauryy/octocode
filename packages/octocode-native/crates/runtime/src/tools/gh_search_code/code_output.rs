@@ -40,7 +40,7 @@ fn reads_lines(query: &GhSearchCodeQuery) -> bool {
         .contains(&GhSearchCodeQueryMatchInItem::Content)
         && (query.classification.is_some()
             || query.fields.is_empty()
-            || picks(query, "lines")
+            || picks(query, "matches")
             || picks(query, "matchCount"))
 }
 
@@ -62,6 +62,23 @@ fn withheld_row(query: &GhSearchCodeQuery, withholds: Withholds<'_>, row: &Value
 /// A `fields` pick names `field`.
 fn picks(query: &GhSearchCodeQuery, field: &str) -> bool {
     query.fields.iter().any(|picked| picked.as_str() == field)
+}
+
+/// The provider's index fragments of a row: they rank rows and feed the
+/// fallback read lead, and [`shape_files`] removes them before any row is
+/// listed.
+pub(super) const FRAGMENTS: &str = "fragments";
+
+/// A resolved listing (`<line>\t<text>` entries) as the row's `matches`:
+/// one `{line, value}` per listed line.
+fn numbered_matches(lines: &[String]) -> Vec<Value> {
+    lines
+        .iter()
+        .filter_map(|entry| {
+            let (line, value) = entry.split_once('\t')?;
+            Some(json!({"line": line.parse::<u64>().ok()?, "value": value}))
+        })
+        .collect()
 }
 
 pub(super) fn shape_files(
@@ -119,7 +136,7 @@ pub(super) fn shape_files(
                     redacted: shown_redacted,
                 } => {
                     redacted += shown_redacted;
-                    row.insert("lines".into(), json!(lines));
+                    row.insert("matches".into(), Value::Array(numbered_matches(lines)));
                     // Only a listing with context needs to say which lines are hits.
                     if lines.len() > matched.len() {
                         row.insert("matchedLines".into(), json!(matched));
@@ -165,7 +182,7 @@ pub(super) fn shape_files(
     }
     // The index fragments only feed the fallback lead below; no row lists them.
     for row in items.iter_mut().filter_map(Value::as_object_mut) {
-        row.shift_remove("matches");
+        row.shift_remove(FRAGMENTS);
     }
     let top = top
         .flatten()
@@ -189,7 +206,7 @@ pub(super) fn merge_identical(items: &mut Vec<Value>) {
     for item in items.drain(..) {
         let evidence = item
             .as_object()
-            .filter(|row| row.contains_key("lines") && row.contains_key("path"))
+            .filter(|row| row.contains_key("matches") && row.contains_key("path"))
             .and_then(|row| serde_json::to_string(&Evidence(row)).ok());
         let Some(evidence) = evidence else {
             kept.push(item);
@@ -295,7 +312,7 @@ pub(super) fn files(
             if let Some(&index) = indices.get(&key) {
                 if let Some(existing) = files
                     .get_mut(index)
-                    .and_then(|v: &mut Value| v["matches"].as_array_mut())
+                    .and_then(|v: &mut Value| v[FRAGMENTS].as_array_mut())
                 {
                     existing.extend(values);
                 }
@@ -304,7 +321,7 @@ pub(super) fn files(
                 let mut row = json!({"owner":owner,"repo":repo,"path":matched.path});
                 // Path matches carry no snippets.
                 if !path_only {
-                    row["matches"] = json!(values);
+                    row[FRAGMENTS] = json!(values);
                 }
                 files.push(row);
             }

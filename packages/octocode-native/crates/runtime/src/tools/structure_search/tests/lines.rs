@@ -57,7 +57,7 @@ fn line_sort_counts_above_two_thousand_entries() {
     }
     std::fs::write(root.0.join("largest.rs"), "line\n".repeat(7)).expect("largest");
     let out = run(&root.0, json!({"operation":"files","path":root.0,"entryType": "file","sort":{"by":"lineCount","order":"desc"}})).expect("files");
-    assert_eq!(out["pagination"]["totalItems"], 2002);
+    assert_eq!(out["pagination"]["total"], 2002);
     assert!(
         listed(&out)[0]["path"]
             .as_str()
@@ -160,7 +160,7 @@ fn descendant_policy_precedes_discovery_totals_and_line_reads() {
         json!({"operation":"files","path":root.0,"sort":{"by":"lineCount","order":"desc"},"entryType": "file"}),
     )
     .expect("files");
-    assert_eq!(files["pagination"]["totalItems"], 1);
+    assert_eq!(files["pagination"]["total"], 1);
     assert_eq!(listed(&files)[0]["totalLines"], 2);
     crate::tools::test_support::checks::assert_absent(&files, "credentials");
     crate::tools::test_support::checks::assert_absent(&files, "tfstate");
@@ -205,7 +205,7 @@ fn escaped_links_are_pruned_before_line_counting() {
         &NeverCancel,
     )
     .expect("files");
-    assert_eq!(files["pagination"]["totalItems"], 0);
+    assert_eq!(files["pagination"]["total"], 0);
 }
 
 #[test]

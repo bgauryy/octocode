@@ -97,6 +97,7 @@ fn replace_searching_back(
             .rfind(LINE_END_CHARS)
             .map_or(0, |at| at + 1);
         if secret.end() <= from
+            || secret.as_str().is_empty()
             || diff_lines.outside_hunk(diff_lines.prefixed(&captures), line_start)
             || !redacts(
                 &content[line_start..secret.start()],

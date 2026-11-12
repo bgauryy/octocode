@@ -145,7 +145,11 @@ fn crate_paths_link_inside_a_subdirectory_scan() {
     let root = temp.0.as_path();
     ingest(root, &root.join("src/tools"));
     let deps = ask(root, "deps", Some("a.rs"));
-    assert_eq!(files(&deps), ["b.rs", "mod.rs"], "{deps}");
+    assert_eq!(
+        files(&deps),
+        ["src/tools/b.rs", "src/tools/mod.rs"],
+        "{deps}"
+    );
     assert_eq!(unresolved_internal(root), 1);
 }
 
@@ -167,7 +171,7 @@ fn rust_super_past_an_inline_module_climbs_from_the_enclosing_module() {
     let root = temp.0.as_path();
     ingest(root, &root.join("src"));
     let deps = ask(root, "deps", Some("x/y.rs"));
-    assert_eq!(files(&deps), ["x/z.rs"], "{deps}");
+    assert_eq!(files(&deps), ["src/x/z.rs"], "{deps}");
 }
 
 /// A file's dependents include the modules that use its items through a

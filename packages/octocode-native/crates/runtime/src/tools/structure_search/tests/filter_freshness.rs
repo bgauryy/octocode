@@ -94,7 +94,7 @@ fn every_edit_restarts(
 #[test]
 fn a_size_filter_restarts_when_an_entry_moves_across_it() {
     every_edit_restarts(
-        &json!({"sizeBytes":{"min":100}}),
+        &json!({"bytes":{"min":100}}),
         &|| fixture(&"x".repeat(200), "x"),
         // On a later page, whatever the sort: every kept file ties.
         &|root| std::fs::write(root.join("g.txt"), "x").expect("shrink"),
@@ -198,7 +198,7 @@ fn an_access_time_filter_decides_each_page_by_walking() {
 fn a_row_past_the_window_that_left_the_filter_restarts_the_walk() {
     for operation_sort in [json!({}), json!({"sort":{"by":"path","order":"asc"}})] {
         let root = fixture(&"x".repeat(200), "x");
-        let start = query(&root.0, &json!({"sizeBytes":{"min":100}}), &operation_sort);
+        let start = query(&root.0, &json!({"bytes":{"min":100}}), &operation_sort);
         let mut start = start;
         start["view"] = json!("paths");
         start.as_object_mut().expect("row").remove("limit");
@@ -216,7 +216,7 @@ fn a_row_past_the_window_that_left_the_filter_restarts_the_walk() {
 fn an_unchanged_filtered_walk_keeps_its_rows_and_its_walk() {
     for shape in shapes() {
         let root = fixture(&"x".repeat(200), "x");
-        let start = query(&root.0, &json!({"sizeBytes":{"min":100}}), &shape);
+        let start = query(&root.0, &json!({"bytes":{"min":100}}), &shape);
         let walks = crate::tools::structure_search::listing::listing_walks();
         let pages = walk_pages(&root.0, start);
         let mut rows = pages.iter().flat_map(paths).collect::<Vec<_>>();

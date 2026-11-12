@@ -93,7 +93,7 @@ fn hunk_at_53() -> (String, String) {
 }
 
 /// contextLines past GitHub's hunk context: the read widens the run from
-/// the file at the PR head (`headSha`), so the default 10 lines are not
+/// the file at the PR head (`headCommitSha`), so the default 10 lines are not
 /// silently cut to the hunk's 3.
 #[tokio::test]
 async fn match_context_past_the_hunk_reads_the_head_text() {
@@ -294,7 +294,7 @@ async fn a_scoped_match_reads_only_its_selected_head_file() {
 }
 
 /// Without the head text (the read failed), the clip is explicit: the file
-/// is flagged and `next.expandContext` reads the wanted lines at headSha.
+/// is flagged and `next.expandContext` reads the wanted lines at headCommitSha.
 #[tokio::test]
 async fn match_context_clipped_by_the_hunk_is_flagged_with_a_head_read() {
     let server = MockServer::builder().start().await;
@@ -325,7 +325,7 @@ async fn match_context_clipped_by_the_hunk_is_flagged_with_a_head_read() {
 }
 
 /// A merged pull request's `matchString` read offers the hit
-/// file at the PR head (`readAtCommit` at `headSha`, where the gutter
+/// file at the PR head (`readAtCommit` at `headCommitSha`, where the gutter
 /// numbers hold) and no `readAtMerge` (a targeted answer already).
 #[tokio::test]
 async fn history_b_merged_match_string_read_offers_the_source_side_only() {

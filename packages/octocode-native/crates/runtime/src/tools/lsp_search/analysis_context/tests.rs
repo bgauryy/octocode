@@ -13,7 +13,7 @@ fn document_errors_are_not_limited_to_the_anchor_and_keep_context() {
     let mut row = json!({"status":"empty", "path":"/repo/src/main.rs"});
     let items = json!([
         {"severity":"error","message":"generated input unavailable",
-         "displayRange":{"startLine":1,"endLine":1}}
+         "line":1}
     ]);
     annotate_diagnostics(&mut row, &query(), Some((&items, false)), 20);
     assert_eq!(
@@ -81,4 +81,30 @@ fn successful_answers_retain_their_evidence_when_diagnostics_degrade_coverage() 
     let before = error.clone();
     annotate_diagnostics(&mut error, &query(), None, 20);
     assert_eq!(error, before);
+}
+
+/// Final round, item 4: a diagnostic's message and source are the server's
+/// text, quoted in the anchor-line warning as judged: a credential the
+/// server quotes from the source shows as the placeholder a read shows, and
+/// the server's words stay.
+#[test]
+fn an_anchor_errors_message_is_quoted_as_judged() {
+    let token = format!("ghp_{}", "a1B2".repeat(9));
+    let warning = |message: String| {
+        let mut row = json!({"status":"empty", "path":"/repo/src/main.rs"});
+        let items = json!([{"severity":"error", "message": message, "line": 20, "source": "rustc"}]);
+        annotate_diagnostics(&mut row, &query(), Some((&items, false)), 20);
+        row["warnings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .find(|warning| warning.contains("reports an error on line"))
+            .map(str::to_owned)
+            .unwrap_or_else(|| panic!("no anchor warning: {row}"))
+    };
+    let quoted = warning(format!("expected `;`, found `GITHUB_TOKEN = \"{token}\"`"));
+    assert!(!quoted.contains(&token) && quoted.contains("[REDACTED-"), "{quoted}");
+    let plain = warning("mismatched types".into());
+    assert!(plain.contains("line 20: mismatched types (rustc)."), "{plain}");
 }

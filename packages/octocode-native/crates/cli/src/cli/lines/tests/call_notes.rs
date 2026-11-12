@@ -4,12 +4,12 @@ use super::*;
 #[test]
 fn nested_file_fields_are_words() {
     let paged = json!({"results":[{"index":0,"data":{"files":[{"path":"a.rs","matches":[{"line":3,"value":"x"}],
-            "pagination":{"totalItems":471,"hasMore":true}}]}}]});
+            "pagination":{"unit":"matches","offset":0,"length":1,"total":471,"hasMore":true}}]}}]});
     let lines = render(ToolId::LocalSearch, &paged, &json!({}), None).expect("lines");
     // A file's own fields follow its path, on stdout with its hits.
     assert_eq!(
         lines.out,
-        "a.rs  [pagination (totalItems 471 hasMore)]\n3:x"
+        "a.rs  [pagination (unit matches offset 0 length 1 total 471 hasMore)]\n3:x"
     );
     assert_eq!(lines.notes, "");
 }
@@ -155,7 +155,7 @@ fn warnings_and_hints_print_in_the_stdout_trailer_of_every_row_shape() {
     const ADVICE: &str = "# warnings: 1 secret was redacted.\n# hints: Narrow the path.";
     // A line format.
     let hits = json!({"results":[{"index":0,"data":advice(json!({"matchCount":1,
-        "pagination":{"page":1,"hasMore":true},
+        "pagination":{"unit":"items","offset":0,"length":1,"hasMore":true},
         "next":{"nextPage":{"kind":"continue","tool":"localSearch","input":{"cursor":"c"}}},
         "files":[{"path":"a.rs","matches":[{"line":3,"value":"x"}]}]}))}],
         "warnings":["From the envelope."]});
@@ -163,7 +163,7 @@ fn warnings_and_hints_print_in_the_stdout_trailer_of_every_row_shape() {
     assert_eq!(
         lines.out,
         format!(
-            "a.rs:3:x\n# pagination: page 1 hasMore\n{ADVICE}\n# warnings: From the envelope.\n# next.nextPage: octocode localSearch '{{\"cursor\":\"c\"}}'"
+            "a.rs:3:x\n# pagination: unit items offset 0 length 1 hasMore\n{ADVICE}\n# warnings: From the envelope.\n# next.nextPage: octocode localSearch '{{\"cursor\":\"c\"}}'"
         )
     );
     assert_eq!(lines.notes, "# matchCount: 1");
@@ -174,11 +174,11 @@ fn warnings_and_hints_print_in_the_stdout_trailer_of_every_row_shape() {
     assert_eq!(lines.notes, "");
     // A failed row.
     let failed = json!({"results":[{"index":0,"status":"error",
-        "data":advice(json!({"errorCode":"anchorUnresolved","error":"No such symbol."}))}]});
+        "data":advice(json!({"errorCode":"notFound","error":"No such symbol."}))}]});
     let lines = render(ToolId::LspSearch, &failed, &json!({}), None).expect("lines");
     assert_eq!(
         lines.out,
-        format!("errorCode: anchorUnresolved\nerror: No such symbol.\n# status: error\n{ADVICE}")
+        format!("errorCode: notFound\nerror: No such symbol.\n# status: error\n{ADVICE}")
     );
     assert_eq!(lines.notes, "");
 }

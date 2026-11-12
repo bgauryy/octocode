@@ -261,6 +261,7 @@ fn a_match_first_walk_shows_windows_then_the_rest_exactly_once() {
     let runs = [windows[0], (windows[1].0, windows[2].1), windows[3]];
     let long_lines = Some(LongLines {
         match_windows: &windows,
+        placement: None,
     });
     let budget = LineBudget::bytes(LINE_PAGE_BYTES);
     let mut query: LocalFetchQuery =
@@ -331,6 +332,7 @@ fn only_a_line_longer_than_a_byte_page_is_walked_match_first_or_filled() {
         None,
         Some(LongLines {
             match_windows: &windows,
+            placement: None,
         }),
     );
     assert_eq!(page.text, short);
@@ -342,7 +344,10 @@ fn only_a_line_longer_than_a_byte_page_is_walked_match_first_or_filled() {
         &query,
         budget,
         None,
-        Some(LongLines { match_windows: &[] }),
+        Some(LongLines {
+            match_windows: &[],
+            placement: None,
+        }),
     );
     assert_eq!(filled.pagination.unit, ReadProgressUnit::Bytes);
     assert_eq!(filled.pagination.offset, 0);

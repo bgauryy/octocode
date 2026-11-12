@@ -105,10 +105,14 @@ pub(crate) fn process_fetched_content_selected<S: ContentScan>(
             std::mem::take(&mut source.text).into_owned(),
         ))
     } else {
-        // A pattern or range read reuses the offsets its preparation built.
-        let offsets = source.offsets.take().unwrap_or_else(|| {
-            std::sync::Arc::new(super::extraction::LineOffsets::new(&source.text))
-        });
+        // A pattern or range read reuses the offsets its preparation built,
+        // and keeps them: its byte pages are placed in the source by them.
+        let offsets = source
+            .offsets
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(super::extraction::LineOffsets::new(&source.text))
+            })
+            .clone();
         super::extraction::extract_indexed(q, &source.text, &offsets)
     };
     let mut ext = match extracted {

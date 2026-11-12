@@ -34,7 +34,7 @@ fn a_folder_of_crates_links_imports_between_them() {
     let root = dir.0.as_path();
     let built = ingest_root(root, &root.join("app/crates"), None, false);
     assert_eq!(built.class, ExitClass::Success, "{}", built.value);
-    assert_eq!(deps(root, "b/src/lib.rs"), vec!["a/src/lib.rs"]);
+    assert_eq!(deps(root, "b/src/lib.rs"), vec!["app/crates/a/src/lib.rs"]);
 }
 
 /// Two independent workspaces under one root, with no manifest at the root:
@@ -74,7 +74,7 @@ fn independent_workspaces_under_one_root_each_link() {
     for ws in ["one", "two"] {
         assert_eq!(
             deps(dir.0.as_path(), &format!("{ws}/crates/b/src/lib.rs")),
-            vec![format!("{ws}/crates/a/src/lib.rs")]
+            vec![format!("app/{ws}/crates/a/src/lib.rs")]
         );
     }
 }
@@ -92,7 +92,7 @@ fn rust_without_a_manifest_links_modules_and_says_so() {
     ]);
     let built = ingest_fixture(dir.0.as_path(), None);
     assert_eq!(built.class, ExitClass::Success, "{}", built.value);
-    assert_eq!(deps(dir.0.as_path(), "src/lib.rs"), vec!["src/util.rs"]);
+    assert_eq!(deps(dir.0.as_path(), "src/lib.rs"), vec!["app/src/util.rs"]);
     let diagnostics = ask(dir.0.as_path(), "diagnostics", None, |_| {});
     assert!(
         diagnostics.value["rows"]

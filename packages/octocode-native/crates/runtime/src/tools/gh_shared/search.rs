@@ -192,7 +192,7 @@ pub(crate) struct SearchCompleteness<'a> {
     pub(crate) tool: ToolId,
     /// GitHub's own match count (past the cap, more than `reachable`).
     pub(crate) matched: usize,
-    /// The results the search window reaches (`totalItems`).
+    /// The results the search window reaches (`total`).
     pub(crate) reachable: usize,
     /// GitHub's incomplete-results flag.
     pub(crate) incomplete: bool,
@@ -205,7 +205,7 @@ pub(crate) struct SearchCompleteness<'a> {
 /// Provider-side incompleteness of a search page: the 1,000-result cap and
 /// GitHub's own incomplete-results flag (with a `retry` of the same page).
 /// Past the cap the first page states GitHub's match count, since the
-/// reachable `totalItems` is not the count. Only the last reachable page of
+/// reachable `total` is not the count. Only the last reachable page of
 /// a capped search ends coverage (`terminalLimit`: no executable
 /// continuation remains).
 pub(crate) fn apply_partial(
@@ -232,7 +232,8 @@ pub(crate) fn apply_partial(
             "GitHub matched {matched} {subject} results; the first {reachable} are reachable."
         )];
         if let Some(pagination) = value.get_mut("pagination").and_then(Value::as_object_mut) {
-            pagination.insert("totalItemsCapped".into(), Value::Bool(true));
+            // The total stops at the reachable window: a floor.
+            pagination.insert("countScope".into(), Value::String("capped".into()));
         }
         if has_more {
             mark_partial(value, PartialReason::ProviderResultCap, &warnings);

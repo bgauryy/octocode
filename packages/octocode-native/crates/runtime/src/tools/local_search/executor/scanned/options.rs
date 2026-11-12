@@ -140,5 +140,29 @@ pub(crate) fn search_options(
             longer_than: crate::tools::source_view::pagination::MIN_BYTE_PAGE,
             margin: crate::tools::source_view::extraction::MATCH_MARGIN,
         }),
+        // Each file is matched as a read of it serves it: bytes a read
+        // withholds make no hit, count or listing (see `judge`).
+        judge: Some(judge()),
     }
+}
+
+/// The judge of every file a local search reads: a file judged whole is
+/// searched as the text its pass serves
+/// ([`crate::security::searched_text`]). A file past the whole-source size
+/// a read judges whole is searched as its bytes: its read streams it, and a
+/// read's own match scan of it matches the source text too.
+fn judge() -> octocode_engine::types::SourceJudge {
+    octocode_engine::types::SourceJudge(std::sync::Arc::new(|path, file| {
+        use std::io::{Read, Seek, SeekFrom};
+        let security = crate::security::ContentSecurity::new();
+        let limit = security.limits().whole_source_bytes();
+        if file.metadata()?.len() > limit {
+            return Ok(None);
+        }
+        let mut handle = file;
+        handle.seek(SeekFrom::Start(0))?;
+        let mut bytes = Vec::new();
+        handle.take(limit).read_to_end(&mut bytes)?;
+        Ok(crate::security::searched_text(&bytes, path, &security))
+    }))
 }

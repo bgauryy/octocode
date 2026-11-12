@@ -208,7 +208,7 @@ async fn confirm_commit_users(
             }
             Err(error) => warnings.push(format!(
                 "Could not confirm that user {login} exists ({}); GitHub does not report an unknown login for commits.",
-                error.message
+                crate::security::quoted(&error.message)
             )),
         }
     }

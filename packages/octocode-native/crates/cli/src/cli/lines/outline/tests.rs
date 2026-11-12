@@ -63,7 +63,7 @@ fn a_tool_without_a_line_format_prints_every_field_as_text() {
 fn every_tool_prints_text_and_loses_no_leaf() {
     let deep = json!({"results":[{"index":0,"data":{"repositories":[{"owner":"o","repo":"r",
         "topics":["a b","c"],"stars":3,"nested":{"list":[[1,2],["x\ny"]],"deep":{"k":"two words"}}}],
-        "pagination":{"page":1,"totalPages":2,"totalItems":4,"hasMore":true}}}]});
+        "pagination":{"unit":"items","offset":0,"length":1,"total":4,"hasMore":true}}}]});
     let mut expected = Vec::new();
     leaves(&deep["results"][0]["data"], &mut expected);
     for tool in ToolId::ALL {
@@ -85,7 +85,7 @@ fn a_batch_prints_each_row_under_its_heading_in_its_line_format() {
     let two = json!({"results":[
         {"index":0,"data":{"files":[{"path":"a.rs","matches":[{"line":3,"value":"fn a()"}]}],
             "next":{"nextPage":{"kind":"continue","tool":"localSearch","input":{"cursor":"cursor-row"}}}}},
-        {"index":1,"status":"error","data":{"errorCode":"pathNotFound","error":"No such path"}}],
+        {"index":1,"status":"error","data":{"errorCode":"notFound","error":"No such path"}}],
         "responsePagination":{"hasMore":true,"next":{"kind":"continue","tool":"localSearch","input":{"cursor":"cursor-envelope"}}}});
     let asked =
         json!({"queries":[{"path":".","matchString":["a"]},{"path":"nope","matchString":["a"]}]});
@@ -97,7 +97,7 @@ fn a_batch_prints_each_row_under_its_heading_in_its_line_format() {
             "a.rs:3:fn a()",
             "# next.nextPage: octocode localSearch '{\"cursor\":\"cursor-row\"}'",
             "## results[1]",
-            "errorCode: pathNotFound",
+            "errorCode: notFound",
             "error: No such path",
             "# status: error",
             "# responsePagination: hasMore",
@@ -150,13 +150,15 @@ fn flat_rows_print_as_one_table() {
     assert_eq!(lines.out, "rows[]: id fanIn\n  a.rs 2");
 }
 
-/// Two free-text fields, a nested value, a multi-line value or a value that
-/// reads as the absent mark keep the `key: value` layout, for every row.
+/// Two free-text fields (a list with free text is one), a nested value (a
+/// list of objects), a multi-line value or a value that reads as the absent
+/// mark keep the `key: value` layout, for every row.
 #[test]
 fn rows_a_table_cannot_hold_keep_their_fields() {
     for row in [
         json!({"number":1,"title":"two words","author":"Ada Lovelace"}),
-        json!({"number":1,"labels":["bug"]}),
+        json!({"number":1,"labels":[{"name":"bug"}]}),
+        json!({"number":1,"title":"two words","labels":["needs triage"]}),
         json!({"number":1,"body":"line\nnext"}),
         json!({"number":1,"state":"-"}),
     ] {
@@ -170,12 +172,12 @@ fn rows_a_table_cannot_hold_keep_their_fields() {
     }
 }
 
-/// A count that is only the rows loaded so far prints as a floor; an exact
-/// total keeps its name.
+/// A count is printed under the JSON's own names: `total` beside the
+/// `countScope` that says it is a floor, never a key the JSON lacks.
 #[test]
-fn a_loaded_count_prints_as_a_floor() {
+fn a_loaded_count_prints_under_the_json_names() {
     let page = |extra: Value| {
-        let mut pagination = json!({"page":1,"hasMore":true,"totalItems":2});
+        let mut pagination = json!({"unit":"items","offset":0,"length":2,"total":2,"hasMore":true});
         pagination
             .as_object_mut()
             .unwrap()
@@ -185,12 +187,43 @@ fn a_loaded_count_prints_as_a_floor() {
             .expect("text")
             .out
     };
-    let floor = page(json!({"countScope":"loaded"}));
-    assert!(floor.contains("totalItemsAtLeast 2"), "{floor}");
-    assert!(floor.contains("countScope loaded"), "{floor}");
+    for scope in ["loaded", "partial", "capped"] {
+        let floor = page(json!({"countScope":scope}));
+        assert!(floor.contains("total 2"), "{floor}");
+        assert!(floor.contains(&format!("countScope {scope}")), "{floor}");
+        assert!(!floor.contains("AtLeast"), "{floor}");
+    }
     let exact = page(json!({}));
     assert!(
-        exact.contains("totalItems 2") && !exact.contains("AtLeast"),
+        exact.contains("total 2") && !exact.contains("AtLeast"),
         "{exact}"
     );
+}
+
+/// N4: a search answer replayed from the provider cache states when it was
+/// observed once, as a trailer line that says it was cached, never as a
+/// field printed after the last row; a fresh answer carries no such line.
+#[test]
+fn a_replayed_answer_states_when_it_was_observed_in_the_trailer() {
+    let rows = json!([{"fullName":"vitejs/vite","stars":1},{"fullName":"vitejs/vite-plugin-react","stars":2}]);
+    let asked = json!({"queries":[{"operation":"search","keywords":["vite"]}]});
+    let replayed = json!({"results":[{"index":0,"data":{
+        "repositories": rows,
+        "observedAt":"2026-11-12T06:00:00Z",
+        "pagination":{"unit":"items","offset":0,"length":2,"total":9,"hasMore":true}}}]});
+    let out = render(ToolId::GhSearchRepo, &replayed, &asked, None)
+        .expect("text")
+        .out;
+    assert!(
+        out.contains("# observedAt 2026-11-12T06:00:00Z (cached)"),
+        "{out}"
+    );
+    assert!(!out.contains("\nobservedAt:"), "{out}");
+    let body_end = out.find("\n#").expect("a trailer");
+    assert!(!out[..body_end].contains("observedAt"), "{out}");
+    let fresh = json!({"results":[{"index":0,"data":{"repositories": rows}}]});
+    let out = render(ToolId::GhSearchRepo, &fresh, &asked, None)
+        .expect("text")
+        .out;
+    assert!(!out.contains("observedAt"), "{out}");
 }

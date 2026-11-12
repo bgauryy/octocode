@@ -124,7 +124,7 @@ export function leadsOf(sc) {
 }
 
 /** Evidence atoms of a result: every scalar outside pagination/hint metadata, keyed by its enclosing path. */
-const NOISE = new Set(['next', 'hints', 'pagination', 'contentPagination', 'matchPagination', 'warnings', 'summary', 'snapshot', 'root', 'index', 'status', 'terminalLimit', 'coverage', 'completeness', 'complete', 'isPartial', 'partialReasons', 'atLeast', 'truncated', 'filesScanned', 'matchCount', 'matchedLineCount', 'fileCount', 'totalFiles', 'moreLines', 'currentPage', 'totalPages', 'totalItems', 'hasMore', 'pageSize', 'extras', 'echo', 'receipts', 'stats', 'enclosing']);
+const NOISE = new Set(['next', 'hints', 'pagination', 'sectionPagination', 'matchPagination', 'warnings', 'summary', 'snapshot', 'root', 'index', 'status', 'terminalLimit', 'coverage', 'completeness', 'complete', 'isPartial', 'partialReasons', 'atLeast', 'truncated', 'filesScanned', 'matchCount', 'matchedLineCount', 'fileCount', 'totalFiles', 'moreLines', 'currentPage', 'totalItems', 'hasMore', 'pageSize', 'extras', 'echo', 'receipts', 'stats', 'enclosing']);
 export function atoms(sc) {
   const out = new Set();
   const walk = (node, ctx, key) => {

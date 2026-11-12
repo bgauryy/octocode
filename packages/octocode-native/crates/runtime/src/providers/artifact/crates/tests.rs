@@ -192,7 +192,7 @@ async fn crates_versions_resolve_from_the_crate_response() {
     let missing = lookup(versioned(ArtifactType::Crates, "serde", "1.0.101"))
         .await
         .expect_err("missing");
-    assert_eq!(missing.code, ErrorCode::VersionNotFound);
+    assert_eq!(missing.code, ErrorCode::NotFound);
     assert!(
         missing.nearest.iter().any(|version| version == "1.0.100"),
         "{missing:?}"

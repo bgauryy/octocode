@@ -93,8 +93,8 @@ async function publicSourceChecks({ ref, file, lines }) {
   const redirected = await exercise('clasify', sourceJudgment(`https://github.com/${repo.owner}/${repo.repo}/raw/${ref}/${encodedFile}`), inspect, { label: 'clasify.publicRedirect' });
   for (const surface of ['cli', 'mcp']) {
     const evidence = data(redirected[surface]);
-    check(`clasify.publicRedirect.${surface}.sameCapture`, typeof evidence?.source?.snapshot === 'string'
-      && evidence.source.snapshot === data(direct[surface])?.source?.snapshot);
+    check(`clasify.publicRedirect.${surface}.sameCapture`, typeof evidence?.source?.sourceDigest === 'string'
+      && evidence.source.sourceDigest === data(direct[surface])?.source?.sourceDigest);
     await checkCapturedRead(surface, evidence, lines);
   }
 }
@@ -127,7 +127,7 @@ try {
       publicSource = { ref, file, lines: sourceLines(data(remote.cli)) };
       const text = sourceLines(data(remote.cli)).map(([, content]) => content).join('\n');
       await exercise('ghSearchCode', { ...repo, keywords: ['Hello'], ref }, d => d?.files?.some(hit => hit.path === file));
-      await exercise('ghCloneRepo', { ...repo, ref, historyDepth: 1 }, d => d?.location?.commitSha === ref && fs.readFileSync(path.join(d.location.localPath, file), 'utf8').trimEnd() === text.trimEnd());
+      await exercise('ghCloneRepo', { ...repo, ref, historyDepth: 1 }, d => d?.location?.commitSha === ref && fs.readFileSync(path.join(d.location.path, file), 'utf8').trimEnd() === text.trimEnd());
     }
   }
   await exercise('artifactSearch', { operation: 'resolve', ecosystem: 'npm', packageName: 'is-number', version: '7.0.0' }, d => d?.artifacts?.some(a => a.packageName === 'is-number' && a.version === '7.0.0'));
@@ -138,7 +138,7 @@ try {
   await exercise('lspSearch', { path: localPath, operation: 'hover', symbolName: symbol, line }, d => JSON.stringify(d).includes(symbol));
   const built = await exercise('graphBuild', { path: 'packages/octocode-config/src' }, d => typeof d?.id === 'string' && d?.scan?.filesScanned > 0);
   const graph = data(built.cli)?.id;
-  if (graph) await exercise('graphQuery', { operation: 'find', path: data(built.cli).root, graph, target: symbol }, d => d?.rows?.some(row => row.name === symbol));
+  if (graph) await exercise('graphQuery', { operation: 'find', path: data(built.cli).root, graph, target: symbol }, d => d?.rows?.some(row => row.symbolName === symbol));
   await exercise('securityCheck', { operation: 'advisory', id: 'GHSA-29mw-wpgm-hmr9' }, d => d?.advisories?.some(row => row.id === 'GHSA-29mw-wpgm-hmr9'));
   if (noClasify) skip('clasify', noClasify);
   else await clasifyChecks();

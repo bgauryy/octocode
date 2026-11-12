@@ -5,7 +5,10 @@
 //!
 //! Sanitizing replaces secret text and nothing else: no evidence is dropped,
 //! and every key and string leaf of the envelope is scanned, error rows and
-//! continuation leads included.
+//! continuation leads included, except what the runtime authored itself: the
+//! state a continuation carries, which is never judged, and the envelope's
+//! messages (warnings, hints, notices), never judged as the row's file text:
+//! only by the pathless net and for the values the gate hid elsewhere.
 
 use std::ops::Deref;
 
@@ -142,7 +145,9 @@ impl ContentSecurity {
     /// on a GitHub tool). `check` runs before each pass so a cancelled call
     /// stops between them. A leaf whose source `path` is credential-named
     /// ([`crate::policy::discovery::is_sensitive_repository_file`]) marks the
-    /// envelope [`Sanitized::held`].
+    /// envelope [`Sanitized::held`]. Continuation state is not judged, and
+    /// the envelope's own messages not as file text
+    /// ([`super::walk::Messages::Authored`]).
     pub(crate) fn seal_output<E>(
         &self,
         value: Value,
@@ -184,13 +189,20 @@ impl ContentSecurity {
         #[cfg(not(test))]
         let honored = Vec::new();
         let mut held = false;
-        super::walk::sanitize_judged_json(&mut value, judged, own, &mut |text, path, source| {
-            held |= path.is_some_and(crate::policy::discovery::is_sensitive_repository_file);
-            Ok(match source {
-                Some(source) => self.sanitize_judged_leaf(text, path, source),
-                None => self.sanitize_response_leaf(text, path, own),
-            })
-        })?;
+        let messages = super::walk::Messages::Authored;
+        super::walk::sanitize_judged_json(
+            &mut value,
+            judged,
+            own,
+            messages,
+            &mut |text, path, source| {
+                held |= path.is_some_and(crate::policy::discovery::is_sensitive_repository_file);
+                Ok(match source {
+                    Some(source) => self.sanitize_judged_leaf(text, path, source),
+                    None => self.sanitize_response_leaf(text, path, own),
+                })
+            },
+        )?;
         if emails {
             check()?;
             sanitize_json(&mut value, &mut |text, _| Ok(self.redact_emails(text)))?;
@@ -220,6 +232,7 @@ fn assert_gate_fixed_point(value: &Value, judged: &[(String, String)], own: &Adm
         &mut again,
         &JudgedLeaves::default(),
         own,
+        super::walk::Messages::Authored,
         &mut |text, path, _| {
             let source = judged
                 .iter()
@@ -265,7 +278,7 @@ mod tests {
                     "confidence": "exact"
                 }
             },
-            "location": {"localPath": "/tmp/ghp_secretvalue12/repo"}
+            "location": {"path": "/tmp/ghp_secretvalue12/repo"}
         });
         value = seal(value, false);
         assert_eq!(
@@ -273,7 +286,7 @@ mod tests {
             Some(&json!("/repo/ghp_secretvalue12.rs"))
         );
         assert_eq!(
-            value.pointer("/location/localPath"),
+            value.pointer("/location/path"),
             Some(&json!("/tmp/ghp_secretvalue12/repo"))
         );
         // The executable tool identifier survives verbatim.
@@ -366,7 +379,7 @@ mod tests {
                     "query": {"queries":[{"path": format!("/repo/{token}.rs")}]}
                 }
             },
-            "location": {"localPath": format!("/tmp/{token}/repo")}
+            "location": {"path": format!("/tmp/{token}/repo")}
         });
         value = seal(value, false);
         // Tool preserved so the call is still routable.
@@ -380,10 +393,173 @@ mod tests {
             .expect("query path");
         assert!(!query_path.contains("ghp_"), "token leaked in query path");
         let local_path = value
-            .pointer("/location/localPath")
+            .pointer("/location/path")
             .and_then(Value::as_str)
-            .expect("localPath");
+            .expect("path");
         assert!(!local_path.contains("ghp_"), "token leaked in location");
+    }
+
+    /// Round 13: a continuation's runtime state was judged as text, so the
+    /// stored call lost its `snapshot` and the walk ended in
+    /// `outputContractViolation`. State the detector would hide (here a
+    /// token-shaped value in every kind of state field and a fresh handle)
+    /// passes unchanged; the call's path, a related call's `matchString` taken
+    /// from a hit, and the row's own text are judged as before.
+    #[test]
+    fn continuation_state_is_never_judged() {
+        use crate::response::cursor::issued;
+        let token = format!("ghp_{}", "a1B2".repeat(9));
+        let handle = issued::format(&issued::encode(&[7; 16]), &issued::encode(&[9; 16]));
+        let walk = |input: Value| json!({"kind": "continue", "tool": "localFetch", "input": input});
+        let response = json!({
+            "results": [{"index": 0, "data": {
+                "path": "vendor/lib.min.js",
+                "content": format!("const t = \"{token}\";"),
+                "next": {
+                    "nextPage": walk(json!({"queries": [{
+                        "path": format!("/repo/{token}.min.js"),
+                        "snapshot": token,
+                        "selection": token,
+                        "readProgress": {"unit": "bytes", "offset": 3},
+                    }]})),
+                    "quiet": {"kind": "continue", "tool": "clasify", "input": {"queries": [{"operation": "sections", "assessment": token}]}},
+                },
+                "related": [{"kind": "related", "tool": "localSearch", "input": {"queries": [{"path": "src", "matchString": token}]}}],
+            }}],
+            "responsePagination": {"hasMore": true, "next": walk(json!({"cursor": handle}))},
+        });
+        assert!(
+            ContentSecurity::new()
+                .sanitize_leaf(&token, Some("vendor/lib.min.js"))
+                .is_some(),
+            "the detector hides the state value"
+        );
+        let sealed = seal(response.clone(), false);
+        for pointer in [
+            "/results/0/data/next/nextPage/input/queries/0/snapshot",
+            "/results/0/data/next/nextPage/input/queries/0/selection",
+            "/results/0/data/next/nextPage/input/queries/0/readProgress",
+            "/results/0/data/next/quiet/input/queries/0/assessment",
+            "/responsePagination/next/input/cursor",
+        ] {
+            assert_eq!(
+                sealed.pointer(pointer),
+                response.pointer(pointer),
+                "{pointer}: {sealed}"
+            );
+        }
+        for judged in [
+            "/results/0/data/content",
+            "/results/0/data/next/nextPage/input/queries/0/path",
+            "/results/0/data/related/0/input/queries/0/matchString",
+        ] {
+            let text = sealed
+                .pointer(judged)
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            assert!(
+                !text.contains(&token) && text.contains("[REDACTED"),
+                "{judged}: {sealed}"
+            );
+        }
+    }
+
+    /// The tool's own messages are not text of the row's file: they stay
+    /// out of the structured pass and are judged by the pathless net alone,
+    /// so the tool's wording about secrets reads as written while a
+    /// credential a message quotes (a provider's error, quoted where it was
+    /// built, [`crate::security::quoted`], or not) is hidden, as is a value
+    /// the content's redaction hid. `redactedContent` is stated exactly where
+    /// the row's content holds a placeholder: a placeholder in a message
+    /// alone says nothing about the content.
+    #[test]
+    fn a_tools_own_messages_are_never_judged_as_file_text() {
+        let wordings = [
+            "The parser could not parse lines 5-6 of this file, where secret-shaped text was redacted, so this outline may miss declarations there.",
+            "compact view: 177 of 184 bytes the content view serves for the selected lines, all pages (96.19%).",
+            "Pass the password the server expects through ~/.octocode/.env; the token is never written to a file.",
+        ];
+        let secret = "Xq9vB7mKz2Lp8RtW4nYcQ";
+        let token = format!("ghp_{}", "a1B2".repeat(9));
+        let row = |content: String, quoted: &str| {
+            let mut warnings: Vec<Value> = wordings.iter().map(|wording| json!(wording)).collect();
+            if !quoted.is_empty() {
+                warnings.push(json!(quoted));
+            }
+            json!({"index": 0, "data": {
+                "path": "config/app.properties",
+                "content": content,
+                "warnings": warnings,
+                "hints": wordings,
+                "notices": wordings,
+                "timedNotices": [{"text": wordings[0], "seconds": 1.0}],
+            }, "meta": {"diagnostics": {"hints": wordings}}})
+        };
+        let envelope = json!({
+            "results": [
+                row("name=demo\n".into(), ""),
+                row(format!("db.password={secret}\n"), &format!("the line `db.password={secret}` was read")),
+                row(
+                    "name=demo\n".into(),
+                    &format!(
+                        "GitHub said: {}",
+                        crate::security::quoted(&format!("bad credentials {token}"))
+                    ),
+                ),
+            ],
+            "warnings": wordings,
+            "hints": wordings,
+        });
+        let before = crate::response::rows::placeholders_per_row(&envelope);
+        let mut sealed = seal(envelope.clone(), false);
+        crate::response::rows::warn_redacted_rows(&mut sealed, &before);
+        for (index, wording) in wordings.iter().enumerate() {
+            for at in ["/warnings", "/hints"]
+                .into_iter()
+                .map(str::to_owned)
+                .chain((0..3).flat_map(|row| {
+                    ["warnings", "hints", "notices"]
+                        .map(|key| format!("/results/{row}/data/{key}"))
+                        .into_iter()
+                        .chain([format!("/results/{row}/meta/diagnostics/hints")])
+                }))
+            {
+                let pointer = format!("{at}/{index}");
+                assert_eq!(
+                    sealed.pointer(&pointer),
+                    Some(&json!(wording)),
+                    "{pointer}: {sealed}"
+                );
+            }
+        }
+        let redaction_stated = |row: usize| {
+            sealed["results"][row]["data"]["warnings"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .any(|warning| warning.starts_with("redactedContent"))
+        };
+        for row in 0..3 {
+            let content = sealed["results"][row]["data"]["content"]
+                .as_str()
+                .unwrap_or_default();
+            assert_eq!(
+                redaction_stated(row),
+                content.contains("[REDACTED"),
+                "row {row}: {sealed}"
+            );
+        }
+        let text = sealed.to_string();
+        assert!(!text.contains(secret) && !text.contains(&token), "{sealed}");
+        // A message that quoted its outside text where it was built reads
+        // the same after the gate: the backstop finds nothing more.
+        let built = format!(
+            "GitHub said: {}",
+            crate::security::quoted(&format!("bad credentials {token}"))
+        );
+        let sealed = seal(json!({"hints": [built]}), false);
+        assert_eq!(sealed["hints"][0], json!(built), "{sealed}");
     }
 
     const ARMOR: &str = "-----BEGIN RSA PRIVATE KEY-----";
@@ -425,23 +601,42 @@ mod tests {
             });
             let row = json!({"path": "config/app.yaml", "matchString": own});
             assert_eq!(
-                seal_for(std::slice::from_ref(&row), response.clone(), &JudgedLeaves::default()),
+                seal_for(
+                    std::slice::from_ref(&row),
+                    response.clone(),
+                    &JudgedLeaves::default()
+                ),
                 response,
                 "{own}"
             );
         }
         // No request sent these: the gate judges them as any text. An armor
-        // line is hidden; a URL whose password is the word `password` holds a
-        // placeholder, which no view hides (D8), sent or not.
+        // line holds no key and a URL whose password is the word `password`
+        // holds a placeholder, so no view hides either (D8), sent or not; a
+        // body beside the armor is hidden either way.
         for own in [ARMOR, PLACEHOLDER_URL] {
             let response = json!({"related": [{"input": {"matchString": own}}]});
-            let sealed = seal_for(&[json!({"matchString": "other"})], response.clone(), &JudgedLeaves::default());
-            if own == ARMOR {
-                assert_ne!(sealed, response, "{own}");
-            } else {
-                assert_eq!(sealed, response, "{own}");
-            }
+            let sealed = seal_for(
+                &[json!({"matchString": "other"})],
+                response.clone(),
+                &JudgedLeaves::default(),
+            );
+            assert_eq!(sealed, response, "{own}");
             assert_eq!(sealed, seal(response, false), "{own}");
+        }
+        let body = "MIIEowIBAAKCAQEAxyzMIIEowIBAAKCAQEAxyzMIIEowIBAAKCAQEAxyzMIIEowIB";
+        let keyed = json!({"hit": format!("{ARMOR}\n{body}")});
+        for sent in [ARMOR, "other"] {
+            let sealed = seal_for(
+                &[json!({"matchString": sent})],
+                keyed.clone(),
+                &JudgedLeaves::default(),
+            );
+            let hit = sealed["hit"].as_str().expect("hit");
+            assert!(
+                hit.starts_with(&format!("{ARMOR}\n")) && !hit.contains(body),
+                "{sent}: {hit}"
+            );
         }
     }
 
@@ -452,7 +647,10 @@ mod tests {
     fn text_around_an_admitted_request_value_is_still_judged() {
         let token = format!("ghp_{}", "a".repeat(36));
         let body = "MIIEowIBAAKCAQEAxyzMIIEowIBAAKCAQEAxyzMIIEowIBAAKCAQEAxyzMIIEowIB";
-        let rows = [json!({"matchString": ARMOR, "path": "src"}), json!({"matchString": "ghp_aaaa"})];
+        let rows = [
+            json!({"matchString": ARMOR, "path": "src"}),
+            json!({"matchString": "ghp_aaaa"}),
+        ];
         let response = json!({
             "lead": format!("{ARMOR} was found beside {token}"),
             "window": format!("{ARMOR}\n{body}\n{body}"),
@@ -461,7 +659,10 @@ mod tests {
         });
         let sealed = seal_for(&rows, response.clone(), &JudgedLeaves::default());
         let text = sealed.to_string();
-        assert!(!text.contains(&token) && !text.contains(body) && !text.contains("hunter2"), "{text}");
+        assert!(
+            !text.contains(&token) && !text.contains(body) && !text.contains("hunter2"),
+            "{text}"
+        );
         assert_eq!(
             sealed["lead"],
             json!(format!("{ARMOR} was found beside [REDACTED-GITHUBTOKENS]"))
@@ -470,27 +671,67 @@ mod tests {
         let one_line = json!({"line": format!("{ARMOR} {body}")});
         let sealed_line = seal_for(&rows, one_line, &JudgedLeaves::default());
         assert!(!sealed_line.to_string().contains(body), "{sealed_line}");
-        assert!(sealed["window"].as_str().expect("window").starts_with(&format!("{ARMOR}\n")), "{sealed}");
-        assert!(sealed["prefix"].as_str().expect("prefix").starts_with("ghp_aaaa is the start of [REDACTED"), "{sealed}");
+        assert!(
+            sealed["window"]
+                .as_str()
+                .expect("window")
+                .starts_with(&format!("{ARMOR}\n")),
+            "{sealed}"
+        );
+        assert!(
+            sealed["prefix"]
+                .as_str()
+                .expect("prefix")
+                .starts_with("ghp_aaaa is the start of [REDACTED"),
+            "{sealed}"
+        );
         // Every leaf that repeats no request value is what the gate alone makes it.
         let alone = seal(response, false);
         assert_eq!(sealed["files"], alone["files"]);
     }
 
-    /// A value redacted in one leaf is redacted wherever it recurs, but not
-    /// inside the request value a lead repeats.
+    /// A value redacted in one leaf is redacted where a leaf about the same
+    /// source repeats it (a capture of that file), but not inside the request
+    /// value a lead repeats, not in a leaf of another source, which its own
+    /// rules judge, and not again in the leaf its own rules judged: one
+    /// placeholder per value, as a read of each source shows it.
     #[test]
     fn a_value_hidden_elsewhere_stays_in_the_echoed_request_value() {
         let rows = [json!({"matchString": "hunter2hunter2 login"})];
         let response = json!({
-            "files": [{"path": "config/app.yaml", "matches": [{"value": "password: hunter2hunter2"}]}],
-            "capture": "hunter2hunter2",
-            "related": [{"input": {"matchString": "hunter2hunter2 login"}}],
+            "files": [
+                {
+                    "path": "config/app.yaml",
+                    "matches": [{"value": "password: hunter2hunter2\nname: hunter2hunter2"}],
+                    "capture": "hunter2hunter2",
+                    "related": [{"input": {"matchString": "hunter2hunter2 login"}}],
+                },
+                {"path": "notes.txt", "matches": [{"value": "hunter2hunter2"}]},
+            ],
         });
         let sealed = seal_for(&rows, response, &JudgedLeaves::default());
-        assert_eq!(sealed["related"][0]["input"]["matchString"], json!("hunter2hunter2 login"));
-        assert!(!sealed["files"].to_string().contains("hunter2"), "{sealed}");
-        assert!(!sealed["capture"].to_string().contains("hunter2"), "{sealed}");
+        let file = &sealed["files"][0];
+        assert_eq!(
+            file["related"][0]["input"]["matchString"],
+            json!("hunter2hunter2 login")
+        );
+        assert_eq!(
+            file["capture"],
+            json!("[REDACTED-YAMLSECRETVALUE]"),
+            "{sealed}"
+        );
+        let read = ContentSecurity::new()
+            .sanitize_leaf(
+                "password: hunter2hunter2\nname: hunter2hunter2",
+                Some("config/app.yaml"),
+            )
+            .expect("the read hides the password");
+        assert_eq!(file["matches"][0]["value"], json!(read), "{sealed}");
+        assert_eq!(
+            sealed["files"][1]["matches"][0]["value"],
+            json!("hunter2hunter2"),
+            "{sealed}"
+        );
     }
 
     /// The gate refuses a credential, so no admitted text holds one: a
@@ -504,8 +745,10 @@ mod tests {
             "postgres://admin:Tr0ub4dor3xK9zQ@db.internal:5432/app".to_owned(),
             "the password is Tr0ub4dor&3xK9!zQ".to_owned(),
         ] {
-            let checked = ContentSecurity::new()
-                .check_input(json!({"matchString": refused}), crate::security::InputPolicy::Query);
+            let checked = ContentSecurity::new().check_input(
+                json!({"matchString": refused}),
+                crate::security::InputPolicy::Query,
+            );
             assert!(checked.is_err(), "{refused}");
         }
         // Clasify evidence is redacted, not admitted: it is no request text.
@@ -513,9 +756,16 @@ mod tests {
         let row = ContentSecurity::new()
             .check_input(
                 json!({"content": evidence, "context": "review"}),
-                crate::security::InputPolicy::ClasifyEvidence { content_limit: 32_000 },
+                crate::security::InputPolicy::ClasifyEvidence {
+                    content_limit: 32_000,
+                },
             )
             .expect("redacted in place");
-        assert_eq!(Admitted::of([&row]), Admitted::of([&crate::security::CheckedQuery::checked(json!({"context": "review"}))]));
+        assert_eq!(
+            Admitted::of([&row]),
+            Admitted::of([&crate::security::CheckedQuery::checked(
+                json!({"context": "review"})
+            )])
+        );
     }
 }

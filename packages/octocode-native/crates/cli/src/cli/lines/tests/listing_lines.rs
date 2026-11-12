@@ -57,7 +57,7 @@ fn declarations_and_listings_print_one_line_each() {
     }
     let listed = json!({"results":[{"index":0,"data":{"path":"src","files":[
             {"dir":"src","files":["a (1).rs (12)","b.rs (34, symlink)","sub/"]}],
-            "summary":{"files":2,"dirs":1,"bytes":46}}}]});
+            "summary":{"fileCount":2,"dirCount":1,"bytes":46}}}]});
     // Each `dir/` once, its entries under it exactly as the result spells
     // them, whichever tool, operation or page lists them.
     for (tool, asked) in [
@@ -77,7 +77,9 @@ fn declarations_and_listings_print_one_line_each() {
             "{tool:?} {asked}"
         );
         assert!(
-            lines.notes.contains("# summary: files 2 dirs 1 bytes 46"),
+            lines
+                .notes
+                .contains("# summary: fileCount 2 dirCount 1 bytes 46"),
             "{}",
             lines.notes
         );
@@ -128,17 +130,17 @@ fn lsp_results_print_as_lines() {
     // `view:"files"`: the path once, then every site's line; a count that
     // only repeats their number is not restated, any other is named.
     let grouped = json!({"results":[{"index":0,"data":{"matchCount":3,"files":[
-            {"path":"a.rs","matchCount":2,"lines":[14,275]},{"path":"b.rs","matchCount":1,"lines":[3]},
-            {"path":"c.rs","matchCount":4,"lines":[8]}]}}]});
+            {"path":"a.rs","matchCount":2,"matchedLines":[14,275]},{"path":"b.rs","matchCount":1,"matchedLines":[3]},
+            {"path":"c.rs","matchCount":4,"matchedLines":[8]}]}}]});
     let lines = render(ToolId::LspSearch, &grouped, &json!({}), None).expect("lines");
     assert_eq!(lines.out, "a.rs:14,275\nb.rs:3\nc.rs:8  [matchCount 4]");
     assert_eq!(lines.notes, "# matchCount: 3");
     // A declaration body prints as an `rg --heading` block; its
     // omission marker is a note.
     let definition = json!({"results":[{"index":0,"data":{"kind":"definition","matches":[
-            {"path":"w.rs","displayRange":{"startLine":73,"startCharacter":8,"endLine":73},
+            {"path":"w.rs","line":73,"column":8,
              "content":"72\t/// doc\n73\tpub fn f(\n74\t) {}\n… 40 more lines omitted (source lines 133-172)."},
-            {"path":"w.rs","displayRange":{"startLine":90,"startCharacter":4,"endLine":90},"content":"90\tf();\n"}]}}]});
+            {"path":"w.rs","line":90,"column":4,"content":"90\tf();\n"}]}}]});
     let lines = render(ToolId::LspSearch, &definition, &json!({}), None).expect("lines");
     assert_eq!(
         lines.out,
@@ -146,23 +148,63 @@ fn lsp_results_print_as_lines() {
     );
     // One-line locations print as hits; symbols as declarations.
     let single = json!({"results":[{"index":0,"data":{"matches":[
-            {"path":"w.rs","displayRange":{"startLine":23,"startCharacter":10,"endLine":23},"content":"23\t#[derive(Clone)]","isDefinition":true}]}}]});
+            {"path":"w.rs","line":23,"column":10,"content":"23\t#[derive(Clone)]","isDefinition":true}]}}]});
     let lines = render(ToolId::LspSearch, &single, &json!({}), None).expect("lines");
     assert_eq!(
         lines.out,
         "w.rs:23:#[derive(Clone)]  [column 10 isDefinition]"
     );
     let symbols = json!({"results":[{"index":0,"data":{"kind":"symbols","matches":[
-            {"symbolName":"walk","kind":"function","path":"m.rs","displayRange":{"startLine":79,"startCharacter":15,"endLine":79}}]}}]});
+            {"symbolName":"walk","kind":"function","path":"m.rs","line":79,"column":15}]}}]});
     let lines = render(ToolId::LspSearch, &symbols, &json!({}), None).expect("lines");
     assert_eq!(lines.out, "m.rs:79: function walk  [column 15]");
     // Content the line format cannot place prints as `key: value` text.
     let unavailable = json!({"results":[{"index":0,"data":{"matches":[
-            {"path":"w.rs","displayRange":{"startLine":3,"startCharacter":1,"endLine":3},"content":"[content unavailable: binary]"}]}}]});
+            {"path":"w.rs","line":3,"column":1,"content":"[content unavailable: binary]"}]}}]});
     let lines = render(ToolId::LspSearch, &unavailable, &json!({}), None).expect("text");
     assert!(
-        lines.out.contains("content: [content unavailable: binary]"),
+        lines.out.contains("[content unavailable: binary]") && !lines.out.starts_with("w.rs:3:"),
         "{}",
         lines.out
     );
+}
+
+/// A row's flat list (`labels`, `topics`) is one table cell, so each row
+/// stays one line: words joined by `,`, and a list with free text (a label
+/// `feat: ssr`) by `, ` as the row's one free-text cell, last. A list of
+/// objects keeps the block layout, which shows every field.
+#[test]
+fn flat_lists_print_inline_in_a_table_row() {
+    let render_out = |data: Value| {
+        render(
+            ToolId::GhSearchHistory,
+            &json!({"results":[{"index":0,"data":data}]}),
+            &json!({}),
+            None,
+        )
+        .expect("lines")
+        .out
+    };
+    let out = render_out(json!({"issues":[
+            {"number":11,"labels":["bug","p3-minor"],"state":"closed"},
+            {"number":12,"labels":[],"state":"closed"},
+            {"number":13,"labels":["docs"],"state":"closed"}]}));
+    assert!(
+        out.contains(
+            "issues[]: number labels  [state closed]\n  11 bug,p3-minor\n  12 []\n  13 docs"
+        ),
+        "{out}"
+    );
+    let out = render_out(json!({"issues":[
+            {"number":11,"labels":["p3-minor-bug","feat: ssr"],"state":"closed"},
+            {"number":12,"labels":["docs"],"state":"closed"}]}));
+    assert!(
+        out.contains(
+            "issues[]: number labels  [state closed]\n  11 p3-minor-bug, feat: ssr\n  12 docs"
+        ),
+        "{out}"
+    );
+    let nested = json!({"issues":[
+            {"number":11,"labels":[{"name":"bug"}]},{"number":12,"labels":[{"name":"docs"}]}]});
+    assert!(!render_out(nested).contains("issues[]:"));
 }

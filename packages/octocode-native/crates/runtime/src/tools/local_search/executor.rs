@@ -188,8 +188,8 @@ pub(super) fn page_of(
     let mut result = settle_row(&scope, &page, rows, next, continuation_missing)?;
     if let Some(call) = match_next {
         for file in &mut result.files {
-            if let Some(pagination) = file.pagination.as_mut().filter(|page| page.has_more) {
-                pagination.next = Some(json!({"nextPage":call.clone()}));
+            if file.pagination.as_ref().is_some_and(|page| page.has_more) {
+                file.next = Some(json!({"nextPage":call.clone()}));
             }
         }
     }

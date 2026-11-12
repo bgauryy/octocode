@@ -84,6 +84,12 @@ impl Listed {
         self.part
     }
 
+    /// How many files the walk's earlier pages listed: where this page
+    /// starts in the walk.
+    pub(super) fn earlier_count(&self) -> usize {
+        self.earlier.len() / 16
+    }
+
     /// Each merged search's match count as the walk last stated it; `None`
     /// when the walk carries none (a first page, or a page asked for directly).
     pub(super) fn totals(&self) -> Option<&[usize]> {

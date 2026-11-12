@@ -145,6 +145,12 @@ fn count_in(
         if (&file).take(heap).read_to_end(held).is_err() {
             return;
         }
+        // The text the search's judge serves is what every matcher sees.
+        match searchers[0].judged(&file, path) {
+            Ok(Some(text)) => *held = text,
+            Ok(None) => {}
+            Err(_) => return,
+        }
     }
     for (searcher, found) in searchers.iter_mut().zip(found) {
         if meta.len() > byte_ceiling(searcher.opts) {

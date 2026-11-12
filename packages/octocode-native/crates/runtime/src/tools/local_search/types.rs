@@ -52,23 +52,42 @@ pub struct SearchMatch {
     pub declaration: Option<bool>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ItemPagination {
-    /// Match-page position; a streamed page has no per-file match pages.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub page: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub total_pages: Option<u32>,
-    /// The file's rows on every page, so the rows past this page are
-    /// counted; the page cursor reaches them.
-    #[serde(rename = "totalItems", skip_serializing_if = "Option::is_none")]
-    pub total_matches: Option<u32>,
-    pub has_more: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub next: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub out_of_range: bool,
+/// A `pagination` block: one page's facts in the one pagination shape
+/// ([`crate::response::pages::PageFacts`]), and whether units are left
+/// after it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Paging {
+    facts: crate::response::pages::PageFacts,
+    pub(crate) has_more: bool,
+}
+
+impl Paging {
+    /// The page of `length` `unit`s from `offset` of `total`; `past_end`
+    /// when it was requested past the end.
+    pub(crate) fn of(
+        unit: &'static str,
+        (offset, length, total): (usize, usize, usize),
+        has_more: bool,
+        past_end: bool,
+    ) -> Self {
+        Self {
+            facts: crate::response::pages::PageFacts::open(offset, length, has_more)
+                .with_unit(unit)
+                .with_total(total)
+                .out_of_range(past_end),
+            has_more,
+        }
+    }
+
+    pub(crate) fn out_of_range(&self) -> bool {
+        self.facts.is_past_end()
+    }
+}
+
+impl Serialize for Paging {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.facts.to_value().serialize(serializer)
+    }
 }
 
 /// A declaration enclosing a hit, named like the inputs that take it
@@ -109,7 +128,10 @@ pub struct SearchFile {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub term_counts: Option<Vec<u32>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub pagination: Option<ItemPagination>,
+    pub(crate) pagination: Option<Paging>,
+    /// The page cursor that reads this file's rows past the shown ones.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next: Option<serde_json::Value>,
 }
 
 /// The response's totals. They serialize flat into the row (`matchCount`,
@@ -167,28 +189,6 @@ pub struct FileErrors {
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct FilePagination {
-    /// What `total_items` counts: files on list and grid pages, hit lines on
-    /// streamed line pages; absent (items) for matchOnly span rows.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub unit: Option<octocode_contract_types::OutputPaginationVariant0Unit>,
-    pub page: u32,
-    /// The match page this file page shows, past the first.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub match_page: Option<u32>,
-    pub total_pages: u32,
-    /// Grid pages only; streamed pages are cut by the response budget.
-    #[serde(rename = "pageSize", skip_serializing_if = "Option::is_none")]
-    pub files_per_page: Option<u32>,
-    /// In the pages' `unit`.
-    pub total_items: u32,
-    pub has_more: bool,
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub out_of_range: bool,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct LocalSearchResult {
     #[serde(skip)]
     pub status: SearchStatus,
@@ -197,7 +197,7 @@ pub struct LocalSearchResult {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<SearchFile>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub pagination: Option<FilePagination>,
+    pub(crate) pagination: Option<Paging>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selection: Option<octocode_contract_types::Selection>,
     #[serde(skip_serializing_if = "Vec::is_empty")]

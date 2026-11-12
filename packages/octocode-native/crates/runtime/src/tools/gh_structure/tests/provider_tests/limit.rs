@@ -52,8 +52,8 @@ async fn a_small_tree_limit_walk_lists_every_entry_once() {
 }
 
 /// The tree page holds `limit` entries, the contract default when omitted,
-/// materialized or not; any `limit` pages the held tree, and `page` and
-/// `totalPages` count the calls of the walk.
+/// materialized or not; any `limit` pages the held tree, and `offset`
+/// and `total` place each call of the walk.
 #[test]
 fn a_tree_page_holds_limit_entries() {
     // One entry more than a default page holds.

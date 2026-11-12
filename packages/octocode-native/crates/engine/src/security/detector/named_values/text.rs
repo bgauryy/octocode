@@ -36,6 +36,17 @@ pub(in crate::security::detector) fn field_end(value: &str) -> Option<usize> {
     })
 }
 
+/// Where the line of `value`, a string literal's text, ends at a
+/// control-character escape inside it ([`escaped_control`]): the program holds
+/// a line break or a field's separator there, so the escape ends a value as a
+/// real line break does, and the text before it is judged alone, as one line
+/// is (`"the password is required\n"`, `"{name}\n"`). `None` when no escape
+/// ends it, or when a word after the escape is opaque: one value written over
+/// lines (a key's base64 body, `<line>\n<line>`) is read whole.
+pub(in crate::security::detector) fn literal_line_end(value: &str) -> Option<usize> {
+    field_end_after(value, |_| true)
+}
+
 /// [`field_end`] for a value whose part before the escape `before` accepts.
 pub(in crate::security::detector) fn field_end_after(
     value: &str,
@@ -75,7 +86,36 @@ pub(super) fn string_end(bytes: &[u8], open: usize) -> usize {
         if byte == quote || (quote != b'`' && matches!(byte, b'\n' | b'\r')) {
             return at;
         }
+        // A template literal's hole is code: the strings it holds
+        // (`` `Basic ${f(`${u}:${p}`)}` ``) close inside it.
+        if quote == b'`' && byte == b'$' && bytes.get(at + 1) == Some(&b'{') {
+            at = hole_end(bytes, at + 2);
+            continue;
+        }
         at += if byte == b'\\' { 2 } else { 1 };
+    }
+    bytes.len()
+}
+
+/// Where the hole of a template literal whose code starts at `from` (past
+/// its `${`) ends: past the `}` that closes it, the brackets and strings of
+/// its code stepped over, or the text's end.
+pub(super) fn hole_end(bytes: &[u8], from: usize) -> usize {
+    let mut depth = 1_usize;
+    let mut at = from;
+    while let Some(&byte) = bytes.get(at) {
+        match byte {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return at + 1;
+                }
+            }
+            b'"' | b'\'' | b'`' => at = string_end(bytes, at),
+            _ => {}
+        }
+        at += 1;
     }
     bytes.len()
 }

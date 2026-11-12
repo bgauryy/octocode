@@ -57,7 +57,6 @@ pub(super) async fn owner_listing(
         },
         OwnerListing {
             last_page: provider_page,
-            pages_read,
             more,
             filtered_out,
         },
@@ -70,8 +69,6 @@ const MAX_OWNER_LISTING_PAGES: usize = 5;
 pub(super) struct OwnerListing {
     /// Last provider page listed; the next cursor is the page after it.
     pub(super) last_page: usize,
-    /// Provider pages this call read (a page left to the next call too).
-    pub(super) pages_read: usize,
     /// The last page carried a Link `rel="next"`.
     pub(super) more: bool,
     /// Repositories the archive filter left out on the provider pages read:

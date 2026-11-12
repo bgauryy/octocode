@@ -1,22 +1,13 @@
-# Output
+# Communicating a runtime finding
 
-A short report in task terms.
+Give the answer and the observation that supports it. Include the scope, units or uncertainty that affect how the user should interpret it. For a wrong-value diagnosis, the observed transition and writer’s frame can be enough. For a crash dump, distinguish the faulting frame from any inference about an earlier cause.
 
-- **Cause:** the file and line, the value or state observed there, what it should have been, and the command that showed it.
-- **Fix:** what changed, and the reproduction and tests rerun after it with their result.
-- **Profiling:** workload/input size, command/action, runtime/build, headless/visible mode, capture duration/sample count and artifact paths. Give CPU self/inclusive hotspots, memory trend and allocation/retention distinction, process/tree ownership, loop/GC timing and I/O/GPU evidence where measured. State units, profiler overhead and uncovered dimensions. If code changed, compare repeated identical uninstrumented runs; otherwise name the next experiment, not an invented speedup.
-- **Not established:** what the runs could not show (for example a race that did not reproduce, or a build without debug information).
+Choose the presentation for the question. A time series can show when memory grew. A trace can show which dependency held up a request. A stack profile can show which callers consumed CPU. For Node metrics, the bundled [timeline viewer](scripts/metrics-report.mjs) plots a capture and exposes its interval values.
 
-Save profiles, debugger logs and scratch programs to `<workspace>/.octocode/octocode-debugging/`, and remove temporary `debugger;` statements, `breakpoint()` calls and debug prints from the source.
+## Saved report
 
-## Visual evidence
+<!-- report-contract {"statuses":["Measured","Verified fix","Unresolved"],"required":[],"anyOf":[]} -->
 
-Lead with the established finding and confidence, then use a compact table:
+When a file serves the task, use the user's format and destination. Markdown, HTML, Word and PDF can all carry the same finding. Link the selected evidence or time range and check that the delivered artifact opens with its visuals and links intact.
 
-| Phase / request | Wall ms | CPU ms / % basis | RSS / live heap | Loop / queue / I/O | Evidence |
-|---|---|---|---|---|---|
-| Measured window | Value and count | Interval and process/thread scope | Units and lifecycle point | Measured or unknown | Artifact + selected range |
-
-For Node JSONL, generate the offline [metrics report](scripts/metrics-report.mjs). For CPU, link the raw profile plus top self/inclusive rows and flamegraph; for event ordering, use a timeline. For memory, plot equivalent work cycles and show allocation/retainer evidence. For full stack, align request/span lanes and disclose clock uncertainty. Use one observed request path rather than a decorative architecture graph. Never invent a chart, merge incompatible capture clocks, or label cumulative quantiles as interval values.
-
-Record each experiment's hypothesis, rival, prediction, observation and decision. Separate measured facts, causal inference and unknowns. Give repeated baseline/candidate results with sample count, spread and workload parity when claiming an improvement. End with one discriminating next experiment if the cause remains unresolved.
+For the Octocode report viewer, the default Markdown location is `<workspace>/.octocode/octocode-debugging/<YYYY-MM-DD>-<run>.md`. Its [report header and rendering instructions](references/report-output.md) apply to that format. Accepted `status` values: `Measured`, `Verified fix`, `Unresolved`.

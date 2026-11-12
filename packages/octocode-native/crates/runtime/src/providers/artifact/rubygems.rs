@@ -190,7 +190,12 @@ async fn exact_release(
         .iter()
         .filter_map(|row| string(row.get("number")))
         .collect::<Vec<_>>();
-    Err(super::versions::version_not_found(name, wanted, &published))
+    Err(super::versions::version_not_found(
+        ArtifactType::Rubygems,
+        name,
+        wanted,
+        &published,
+    ))
 }
 
 #[cfg(test)]

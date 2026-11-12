@@ -53,8 +53,13 @@ fn fetched(
 }
 
 /// Every row of `fields` searched in `path`, checked against the read of
-/// its lines; returns how many rows held a placeholder.
-fn rows_equal_the_read(path: &std::path::Path, fields: serde_json::Value, label: &str) -> usize {
+/// its lines; returns how many rows there were and how many held a
+/// placeholder.
+fn rows_equal_the_read(
+    path: &std::path::Path,
+    fields: serde_json::Value,
+    label: &str,
+) -> (usize, usize) {
     let root = path.parent().expect("root");
     let (policy, _) = policy_for(root);
     let security = ContentSecurity::with_limits(LIMITS);
@@ -85,8 +90,7 @@ fn rows_equal_the_read(path: &std::path::Path, fields: serde_json::Value, label:
             continue;
         }
     }
-    assert!(rows > 0, "{label}: no rows: {text}");
-    redacted
+    (rows, redacted)
 }
 
 /// A token split over lines, an array or a template is hidden in every view
@@ -120,8 +124,16 @@ fn a_row_of_a_source_past_the_whole_file_ceiling_is_the_reads_line() {
                 serde_json::json!({"matchString":[TAIL.get(..12).expect("piece")],"view":"matchOnly"}),
             ),
         ] {
-            let redacted = rows_equal_the_read(&path, fields, &format!("{name} {view}"));
-            assert!(redacted > 0, "{name} {view}: nothing redacted");
+            let label = format!("{name} {view}");
+            let (rows, redacted) = rows_equal_the_read(&path, fields, &label);
+            // A piece of the token is text a read withholds: no hit. Every
+            // other search shows rows, some of them redacted.
+            if view == "pieces" {
+                assert_eq!(rows, 0, "{label}: a hidden piece matched");
+            } else {
+                assert!(rows > 0, "{label}: no rows");
+                assert!(redacted > 0, "{label}: nothing redacted");
+            }
         }
     }
 }

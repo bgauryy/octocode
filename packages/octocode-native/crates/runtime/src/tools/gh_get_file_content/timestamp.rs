@@ -26,11 +26,11 @@ pub(super) async fn file_timestamp(
         .await
 }
 
-/// The row's note that `lastModified` is absent because its read failed: the
+/// The row's note that `modifiedAt` is absent because its read failed: the
 /// body stands, and the reason is the error's code, never silence.
 pub(super) fn unavailable_note(error: &ProviderError) -> String {
     format!(
-        "lastModified is absent: the last-change read failed ({})",
+        "modifiedAt is absent: the last-change read failed ({})",
         error.kind.code()
     )
 }

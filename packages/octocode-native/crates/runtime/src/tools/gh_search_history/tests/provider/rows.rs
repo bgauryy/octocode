@@ -39,9 +39,9 @@ async fn commit_search_read_targets_the_first_sha_without_a_candidate_list() {
     );
     assert!(read.get("candidates").is_none(), "{data}");
     assert_eq!(data["commits"].as_array().map(Vec::len), Some(3), "{data}");
-    // Commit search pages use the shared `page` key, so the
-    // default projection drops page one like every other history page.
-    assert_eq!(data["pagination"]["page"], 1, "{data}");
+    // Commit search pages use the shared pagination: the first page starts
+    // at offset 0.
+    assert_eq!(data["pagination"]["offset"], 0, "{data}");
 }
 
 /// A commit listing names its row kind like commit search: `type` is
@@ -144,14 +144,14 @@ async fn plain_issue_listing_pages_issue_search_without_pr_gaps() {
         Some((51..=100).map(|n| json!(n)).collect()),
         "{data}"
     );
-    assert_eq!(data["pagination"]["page"], 2, "{data}");
+    assert_eq!(data["pagination"]["offset"], 50, "{data}");
     // The cursor rides `next.nextPage` only, never the page block.
     assert_eq!(data.pointer("/pagination/nextPage"), None, "{data}");
     assert_eq!(
         data["next"]["nextPage"]["input"]["queries"][0]["page"], 3,
         "{data}"
     );
-    assert_eq!(data["pagination"]["totalItems"], 101, "{data}");
+    assert_eq!(data["pagination"]["total"], 101, "{data}");
     assert!(data.get("skippedPullRequestPages").is_none(), "{data}");
 
     let empty = run(json!({"operation":"issue","owner":"o","repo":"prs-only"})).await;
@@ -163,7 +163,7 @@ async fn plain_issue_listing_pages_issue_search_without_pr_gaps() {
 
 /// A path commit listing leads to the first `(#N)` row's PR
 /// scoped to that path, and the envelope neither echoes owner/repo nor
-/// restates totalPages.
+/// restates its page facts.
 #[tokio::test]
 async fn commit_listing_leads_to_the_squash_pull_request() {
     use wiremock::MockServer;
@@ -221,7 +221,6 @@ async fn commit_listing_leads_to_the_squash_pull_request() {
     );
     // A comment count is a `fields` pick, not a default row's.
     assert!(data["issues"][0].get("commentsCount").is_none(), "{data}");
-    assert!(data["pagination"].get("totalPages").is_none(), "{data}");
     let query = serde_json::from_value(json!({"operation":"issue","owner":"o","repo":"r",
         "keywords":["bug"],"fields":["commentsCount"]}))
     .expect("query");
@@ -301,8 +300,8 @@ async fn happy_path_rows_carry_the_next_hop_anchors() {
         // Who wrote it is a `fields` pick.
         assert!(row.get("author").is_none(), "{row}");
     }
-    let authors = run(json!({"operation":"pullRequest","owner":"o","repo":"r","fields":["author"]}))
-        .await;
+    let authors =
+        run(json!({"operation":"pullRequest","owner":"o","repo":"r","fields":["author"]})).await;
     for row in authors["pullRequests"].as_array().expect("pull requests") {
         assert_eq!(row["author"], "dev", "{row}");
     }
@@ -464,9 +463,10 @@ async fn a_sorted_history_search_states_the_field_it_is_ranked_by() {
                 .mount(&server)
                 .await;
             let provider = one_shot_provider(&server);
-            let query = serde_json::from_value(json!({"operation":operation,"owner":"o","repo":"r",
+            let query =
+                serde_json::from_value(json!({"operation":operation,"owner":"o","repo":"r",
                 "keywords":["cache"],"sort":{"by":by,"order":order}}))
-            .expect("query");
+                .expect("query");
             let data = execute(&provider, &query, &default_context(), &Passthrough)
                 .await
                 .expect("history search");
@@ -476,7 +476,10 @@ async fn a_sorted_history_search_states_the_field_it_is_ranked_by() {
                 assert!(row.get(stated).is_some(), "{operation} {by}: {data}");
                 // Nothing else a default row leaves to `fields` comes back.
                 for detail in ["author", "labels", "baseRef"] {
-                    assert!(row.get(detail).is_none(), "{operation} {by} {detail}: {data}");
+                    assert!(
+                        row.get(detail).is_none(),
+                        "{operation} {by} {detail}: {data}"
+                    );
                 }
             }
             if stated == "commentsCount" {

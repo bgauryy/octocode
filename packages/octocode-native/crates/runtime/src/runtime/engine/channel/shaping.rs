@@ -26,12 +26,12 @@ impl ChannelRun {
         for ((row, index), query) in rows.iter_mut().zip(&self.row_indices).zip(&self.queries) {
             if row["status"] == "error" {
                 rows::require_restart(self.id, &mut row["data"], query);
-                rows::attach_error_hint(self.id.output(), &mut row["data"], query);
+                rows::note_error_hint(self.id.output(), &mut row["data"], query);
             }
             row["index"] = json!(index);
         }
         for (_, row) in &mut rejected {
-            rows::attach_error_hint(self.id.output(), &mut row["data"], &Value::Null);
+            rows::note_error_hint(self.id.output(), &mut row["data"], &Value::Null);
         }
         rows.extend(rejected.into_iter().map(|(_, row)| row));
         rows.sort_by_key(|row| row["index"].as_u64());

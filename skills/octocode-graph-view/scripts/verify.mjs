@@ -17,7 +17,7 @@ async function staleFiles(chunks, datas, jobs) {
     const { id, root } = datas.get(c.id).snapshot;
     const r = await readGraph({ operation: 'stale', path: root, graph: id, limit: 1000 });
     for (const row of r.rows) {
-      const path = row.file ?? row.path ?? row.id;
+      const path = row.path ?? row.id;
       if (typeof path === 'string') stale.set(prefixOf(c.path) + path, row.status ?? row.reason ?? row.change ?? 'changed');
     }
   });

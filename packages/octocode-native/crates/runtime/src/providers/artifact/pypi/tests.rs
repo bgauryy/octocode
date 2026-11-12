@@ -86,7 +86,7 @@ async fn pypi_version_lookups_pin_exact_and_specifier_forms() {
     )
     .await
     .expect_err("missing version");
-    assert_eq!(missing.code, ErrorCode::VersionNotFound);
+    assert_eq!(missing.code, ErrorCode::NotFound);
     assert!(
         missing.nearest.iter().any(|version| version == "2.31.0"),
         "{missing:?}"
@@ -143,7 +143,7 @@ async fn pypi_pins_select_yanked_releases_and_ranges_name_them() {
     )
     .await
     .expect_err("only a yanked release matches");
-    assert_eq!(only_yanked.code, ErrorCode::VersionNotFound);
+    assert_eq!(only_yanked.code, ErrorCode::NotFound);
     assert!(
         only_yanked.message.contains("yanked 2.32.0"),
         "{only_yanked:?}"

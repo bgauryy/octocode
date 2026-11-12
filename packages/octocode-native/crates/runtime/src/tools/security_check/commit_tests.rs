@@ -34,6 +34,10 @@ fn signed(heads: &[&str], on_default: Option<bool>) -> CommitLookup {
 }
 
 async fn row(github: &Double) -> Value {
+    row_in(github, octocode_contract_types::SecurityCheckView::Details).await
+}
+
+async fn row_in(github: &Double, view: octocode_contract_types::SecurityCheckView) -> Value {
     let http = RouteHttp::new().post_sequence(vec![(200, json!({"results": [{}]}))]);
     let (budget, reused) = (test_budget(), ReusedSince::default());
     let config = crate::tools::security_check::tests::default_config();
@@ -42,7 +46,7 @@ async fn row(github: &Double) -> Value {
         Some("lodash/lodash"),
         None,
         Map::new(),
-        octocode_contract_types::SecurityCheckView::Details,
+        view,
         &net(&http, &budget, &reused, &config, github),
     )
     .await
@@ -96,6 +100,31 @@ async fn a_signed_commit_reads_as_its_facts_and_never_as_affected() {
         json!({"operation": "repository", "repo": "lodash/lodash"}),
         "{data}"
     );
+}
+
+/// The summary of a commit GitHub holds says only what OSV knows: where
+/// GitHub holds it is detail (`view:"details"`), and a commit it lacks still
+/// reads as its caution.
+#[tokio::test]
+async fn a_commit_summary_leaves_githubs_facts_to_the_details() {
+    use octocode_contract_types::SecurityCheckView;
+    let github = Double::repo(found())
+        .commit(signed(&["main"], Some(true)))
+        .page(None, Vec::new(), None);
+    let summary = row_in(&github, SecurityCheckView::Summary).await;
+    let answer = summary["answer"].as_str().unwrap_or_default();
+    assert!(answer.contains("None known to OSV"), "{summary}");
+    assert!(!answer.contains("GitHub"), "{summary}");
+    let details = row(&github).await;
+    assert!(
+        details["answer"].as_str().unwrap_or_default().contains("signed and verified"),
+        "{details}"
+    );
+    let missing = Double::repo(found())
+        .commit(CommitLookup::Missing)
+        .page(None, Vec::new(), None);
+    let summary = row_in(&missing, SecurityCheckView::Summary).await;
+    assert_eq!(rules(&summary), ["commitNotInRepository"], "{summary}");
 }
 
 #[tokio::test]

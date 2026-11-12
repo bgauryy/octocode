@@ -22,7 +22,7 @@ fn a_relative_path_that_leaves_and_reenters_the_scan_root_links_by_normalised_pa
     let dependents = ask(root, "dependents", Some("config/src/home.ts"));
     assert_eq!(
         files(&dependents),
-        ["agents/tests/native.test.mjs"],
+        ["packages/agents/tests/native.test.mjs"],
         "re-entering importer is a dependent: {dependents}"
     );
     // Only the path that never re-enters the root stays an unresolved gap.
@@ -74,7 +74,7 @@ fn import_counters_count_statements_like_the_diagnostics() {
     assert_eq!(imports["unresolvedInternal"], 2, "{imports}");
     assert_eq!(imports["resolved"], 1, "{imports}");
     let diagnostics = ask(root, "diagnostics", Some("unresolved-internal"));
-    assert_eq!(diagnostics["pagination"]["totalItems"], 2, "{diagnostics}");
+    assert_eq!(diagnostics["pagination"]["total"], 2, "{diagnostics}");
 }
 
 /// Relative JSON, style and asset imports are no linking gap.
@@ -107,7 +107,7 @@ fn syntax_basis_is_not_repeated_as_a_diagnostic_for_every_file() {
     ]);
     let root = ingested(&temp);
     let diagnostics = ask(root, "diagnostics", None);
-    assert_eq!(diagnostics["pagination"]["totalItems"], 0, "{diagnostics}");
+    assert_eq!(diagnostics["pagination"]["total"], 0, "{diagnostics}");
 }
 
 /// A file the scan could not read stays a node marked unparsed: an import
@@ -133,7 +133,7 @@ fn skipped_import_target_is_an_unparsed_node_not_a_resolved_import() {
     assert_eq!(imports["resolved"], 1, "{imports}");
     assert_eq!(imports["unresolvedInternal"], 0, "{imports}");
     let diagnostics = ask(root, "diagnostics", Some("unresolved-internal"));
-    assert_eq!(diagnostics["pagination"]["totalItems"], 0, "{diagnostics}");
+    assert_eq!(diagnostics["pagination"]["total"], 0, "{diagnostics}");
 }
 
 /// The tally and the diagnostics are one fact: a missing file stays
@@ -147,7 +147,7 @@ fn unresolved_internal_count_matches_its_diagnostics_beside_an_unparsed_target()
     assert_eq!(imports["unresolvedInternal"], 1, "{imports}");
     assert_eq!(imports["resolved"], 1, "{imports}");
     let diagnostics = ask(root, "diagnostics", Some("unresolved-internal"));
-    assert_eq!(diagnostics["pagination"]["totalItems"], 1, "{diagnostics}");
+    assert_eq!(diagnostics["pagination"]["total"], 1, "{diagnostics}");
 }
 
 #[test]
@@ -184,7 +184,7 @@ fn subtree_scan_resolves_package_imports_through_the_outer_manifest() {
     let root = temp.0.as_path();
     ingest(root, &root.join("pkg/src"));
     let dependents = ask(root, "dependents", Some("enums/flags.ts"));
-    assert_eq!(files(&dependents), ["main.ts"], "{dependents}");
+    assert_eq!(files(&dependents), ["pkg/src/main.ts"], "{dependents}");
     assert_eq!(unresolved_internal(root), 0);
 }
 
@@ -294,7 +294,7 @@ fn a_workspace_member_scanned_alone_names_itself() {
     let out = ingest(root, &member);
     assert_eq!(out.value.get("error"), None, "{}", out.value);
     let deps = ask(root, "deps", Some("lib/self.js"));
-    assert_eq!(files(&deps), ["index.js"], "{deps}");
+    assert_eq!(files(&deps), ["mono/packages/member/index.js"], "{deps}");
     // Only the member is readable, and nothing is installed.
     let out = ingest(&member, &member);
     assert_eq!(out.value.get("error"), None, "{}", out.value);

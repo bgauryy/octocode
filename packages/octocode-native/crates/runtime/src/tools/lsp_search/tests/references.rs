@@ -28,8 +28,8 @@ fn group_by_file_preserves_reference_counts_and_unique_site_lines() {
     assert_eq!(
         summaries,
         vec![
-            serde_json::json!({"path": absolute("src/a.ts"), "matchCount": 3, "lines": [5, 10]}),
-            serde_json::json!({"path": absolute("src/b.ts"), "matchCount": 1, "lines": [1]}),
+            serde_json::json!({"path": absolute("src/a.ts"), "matchCount": 3, "matchedLines": [5, 10]}),
+            serde_json::json!({"path": absolute("src/b.ts"), "matchCount": 1, "matchedLines": [1]}),
         ]
     );
 }
@@ -66,7 +66,7 @@ async fn grouped_references_replace_locations_with_file_summaries() {
     assert!(result.get("matches").is_none(), "{result}");
     assert_eq!(
         result["files"],
-        serde_json::json!([{"path": root.join("a.ts").to_string_lossy(), "matchCount": 2, "lines": [1, 2]}])
+        serde_json::json!([{"path": root.join("a.ts").to_string_lossy(), "matchCount": 2, "matchedLines": [1, 2]}])
     );
     assert_eq!(result["matchCount"], 2);
     crate::contracts::validate_output("lspSearch", &public_row(&result))
@@ -136,8 +136,8 @@ async fn default_references_preserve_full_location_geometry_and_content() {
     );
     let found = location_rows(&result);
     assert_eq!(found.len(), 1);
-    assert_eq!(found[0]["displayRange"]["startLine"], 1);
-    assert_eq!(found[0]["displayRange"]["endLine"], 2);
+    assert_eq!(found[0]["line"], 1);
+    assert_eq!(found[0]["endLine"], 2);
     assert!(found[0]["content"].as_str().unwrap().contains("foo"));
     crate::contracts::validate_output("lspSearch", &public_row(&result))
         .expect("full evidence contract");

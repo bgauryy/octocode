@@ -1,8 +1,11 @@
 //! Retained continuation state. Each store has one authoritative location:
 //! disk for persistent sessions, or process memory for memory-only sessions.
-//! Fresh tool requests never use this store to reuse computed results; the only
-//! fresh-request reader is [`crate::providers::saved_answers`], whose provider
-//! answers are revalidated or reused as their origin states.
+//! Fresh tool requests never use this store to reuse computed results; its
+//! only fresh-request reader is [`crate::providers::saved_answers`], whose
+//! provider answers are revalidated or reused as their origin states. The
+//! in-memory memos keyed by content digest ([`crate::tools::page_memo`]:
+//! outlines, parsed declarations, name mentions) are the other results a
+//! fresh request may reuse.
 mod disk;
 pub(crate) use disk::Disk;
 
@@ -31,11 +34,11 @@ pub(crate) enum Directory {
     ProviderAnswers,
 }
 impl Directory {
-    /// Store directories no code reads or writes any more, relative to the
-    /// home: the maintenance sweep and `cache clear` remove them. A layout
-    /// bump moves the old directory here.
-    pub(crate) const RETIRED: [&'static str; 2] =
-        ["cache/lexical-pages", "cache/provider-answers-v1"];
+    /// Store directories a published release wrote and no code reads or
+    /// writes any more, relative to the home: the maintenance sweep and
+    /// `cache clear` remove them. `tmp/response` is the result cache of
+    /// release 20.1.0. A layout bump that ships moves the old directory here.
+    pub(crate) const RETIRED: [&'static str; 1] = ["tmp/response"];
 
     /// [`Self::RETIRED`] under `home`.
     pub(crate) fn retired(home: &std::path::Path) -> impl Iterator<Item = PathBuf> {

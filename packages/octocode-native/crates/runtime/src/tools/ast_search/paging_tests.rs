@@ -151,7 +151,7 @@ fn symbol_pages_fill_the_window_and_walk_every_symbol_once() {
     assert_eq!(unique.len(), 1_500, "a symbol was repeated");
     let totals = outputs
         .iter()
-        .map(|out| out["pagination"]["totalItems"].as_u64())
+        .map(|out| out["pagination"]["total"].as_u64())
         .collect::<BTreeSet<_>>()
         .len();
     assert_eq!(totals, 1, "totals differ across pages");
@@ -269,7 +269,7 @@ fn many_files_page_by_bytes_with_one_total() {
     assert_eq!(cells.len(), 300);
     let totals = outputs
         .iter()
-        .filter_map(|out| out["pagination"]["totalItems"].as_u64())
+        .filter_map(|out| out["pagination"]["total"].as_u64())
         .collect::<BTreeSet<_>>();
     assert_eq!(totals.len(), 1, "{totals:?}");
     for out in &outputs[..outputs.len() - 1] {
@@ -302,9 +302,7 @@ fn a_syntax_tree_pages_by_bytes_and_reaches_every_node_once() {
                 .map(std::string::ToString::to_string),
         );
     }
-    let total = outputs[0]["pagination"]["totalItems"]
-        .as_u64()
-        .expect("total") as usize;
+    let total = outputs[0]["pagination"]["total"].as_u64().expect("total") as usize;
     assert_eq!(ids.len(), total);
     assert_eq!(ids.iter().collect::<BTreeSet<_>>().len(), total);
     for out in &outputs[..outputs.len() - 1] {
@@ -331,7 +329,12 @@ fn a_syntax_tree_page_reuses_its_walk_and_past_the_end_is_out_of_range() {
         execute_ast(&query, &paths, &security, &NeverCancel, Some(WINDOW)).expect("tree")
     };
     let first = run(json!({"operation":"syntaxTree","path":file}));
-    let pages = first["pagination"]["totalPages"].as_u64().expect("pages");
+    let total = first["pagination"]["total"].as_u64().expect("total");
+    let length = first["pagination"]["length"]
+        .as_u64()
+        .expect("length")
+        .max(1);
+    let pages = total.div_ceil(length);
     assert!(pages > 2, "{}", first["pagination"]);
     let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
     let inspected = super::syntax::inspections();
@@ -341,14 +344,14 @@ fn a_syntax_tree_page_reuses_its_walk_and_past_the_end_is_out_of_range() {
         inspected,
         "page 2 re-read the tree"
     );
-    assert_eq!(second["pagination"]["page"], 2, "{second}");
+    assert_eq!(second["pagination"]["offset"], length, "{second}");
     let mut past = next;
     past["page"] = json!(pages + 5);
     let out = run(past);
     assert!(out.get("errorCode").is_none(), "{out}");
     assert_eq!(out["nodes"], json!([]), "{out}");
     assert_eq!(out["pagination"]["outOfRange"], true, "{out}");
-    assert_eq!(out["pagination"]["totalPages"], pages, "{out}");
+    assert_eq!(out["pagination"]["total"], total, "{out}");
 }
 
 /// Every match row of a page, by file and line.

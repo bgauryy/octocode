@@ -9,7 +9,7 @@ fn unresolved_anchors_preserve_requested_spelling_and_offer_explicit_related_wor
     let mut row = failure(
         &q,
         "file:///repo/a.ts",
-        ErrorCode::AnchorUnresolved,
+        ErrorCode::NotFound,
         "no exact occurrence",
         true,
     );
@@ -29,7 +29,7 @@ fn unresolved_anchors_preserve_requested_spelling_and_offer_explicit_related_wor
         .iter()
         .find(|call| call["tool"] == "lspSearch")
         .expect("search")["input"]["queries"][0];
-    assert_eq!(search["symbolQuery"], "renderX");
+    assert_eq!(search["symbolFuzzy"], "renderX");
     assert!(search.get("occurrence").is_none());
     assert!(search.get("line").is_none());
 }

@@ -163,7 +163,7 @@ impl Request<'_> {
             }
             Op::Hover => Ok(self.hover(site, &name)),
             Op::WorkspaceSymbol => {
-                let wanted = lsp_search_query::symbol_query(query)
+                let wanted = lsp_search_query::symbol_fuzzy(query)
                     .unwrap_or_default()
                     .to_owned();
                 let files = self.spelling(site, &wanted).await?;

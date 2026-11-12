@@ -57,11 +57,15 @@ async fn github_reads_and_searches_judge_each_hit() {
     assert_eq!(data["selection"]["unit"], "hits", "{data}");
     assert_eq!(data["selection"]["totalItems"], 6, "{data}");
     assert_eq!(data["selection"]["selectedItems"], 3, "{data}");
-    let lines = data["files"][0]["lines"].as_array().expect("kept lines");
+    let matches = data["files"][0]["matches"]
+        .as_array()
+        .expect("kept matches");
+    assert_eq!(matches.len(), 3, "{data}");
     assert!(
-        lines
-            .iter()
-            .all(|line| line.as_str().is_some_and(|line| line.contains("KEEP"))),
+        matches.iter().all(|hit| hit["line"].is_u64()
+            && hit["value"]
+                .as_str()
+                .is_some_and(|value| value.contains("KEEP"))),
         "{data}"
     );
     runtime.close().await;

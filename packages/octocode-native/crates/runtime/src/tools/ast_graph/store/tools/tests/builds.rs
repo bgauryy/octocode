@@ -80,7 +80,7 @@ fn builds_pages_and_freshness_are_workspace_scoped() {
         match page.pointer("/next/nextPage/input/queries/0") {
             Some(next) => row = next.clone(),
             None => {
-                assert_eq!(keys.len() as u64, page["pagination"]["totalItems"]);
+                assert_eq!(keys.len() as u64, page["pagination"]["total"]);
                 break;
             }
         }

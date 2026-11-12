@@ -40,7 +40,7 @@ pub(super) async fn compare(
     let per = gh_get_history_item_query::collection_page_size(query);
     // Named sections read what they name. Omitted sections answer with the
     // range's files; its commits (counted by `aheadBy`) are paged apart, from
-    // their first page, by `contentPagination.commits` or `sections:
+    // their first page, by `sectionPagination.commits` or `sections:
     // ["commits"]`. A patch window continues one file page's patches only.
     let window = gh_get_history_item_query::char_offset(query).is_some_and(|offset| offset > 0);
     let sections = query.sections();
@@ -80,7 +80,7 @@ pub(super) async fn compare(
         .and_then(Value::as_array)
         .is_none_or(Vec::is_empty);
     let listed_files = raw.get_mut("files").map(Value::take);
-    let mut out = json!({"baseSha":base_sha,"headSha":head_sha,
+    let mut out = json!({"baseCommitSha":base_sha,"headCommitSha":head_sha,
         "aheadBy":usize_at(&raw,"/ahead_by"),"behindBy":usize_at(&raw,"/behind_by")});
     if more {
         crate::response::paging::set_partial(&mut out, true);
@@ -130,8 +130,8 @@ pub(super) async fn compare(
     // section states their count with none shown, and its page lists them
     // from the first. An empty file answer is the whole answer.
     if files_asked && !window && first_page(query) && total > 0 && out["status"] != "empty" {
-        out["contentPagination"][Axis::Commits.key()] =
-            crate::response::pages::PageFacts::unshown(per, total).to_value();
+        out["sectionPagination"][Axis::Commits.key()] =
+            crate::response::pages::PageFacts::unshown(total).to_value();
         cursors.commit_page = Some(1);
     }
     attach_diff_continuations(&mut out, &pinned, ItemOperation::Compare, None, cursors);
@@ -171,7 +171,7 @@ pub(super) async fn compare(
         push_warnings(
             &mut out,
             [format!(
-                "GitHub's compare lists {COMPARE_FILE_LIMIT} changed files; the rest come from the two commits' trees: no line counts or patches (each reads at headSha), and a rename shows as a removal plus an addition."
+                "GitHub's compare lists {COMPARE_FILE_LIMIT} changed files; the rest come from the two commits' trees: no line counts or patches (each reads at headCommitSha), and a rename shows as a removal plus an addition."
             )],
         );
     }

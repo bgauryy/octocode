@@ -169,7 +169,7 @@ async fn nuget_exact_version_reads_the_page_that_holds_it() {
     let missing = nuget(&lookup("13.0.2"), &state, &client)
         .await
         .expect_err("missing version");
-    assert_eq!(missing.code, ErrorCode::VersionNotFound, "{missing:?}");
+    assert_eq!(missing.code, ErrorCode::NotFound, "{missing:?}");
     assert!(
         missing.nearest.iter().any(|version| version == "13.0.3"),
         "{missing:?}"

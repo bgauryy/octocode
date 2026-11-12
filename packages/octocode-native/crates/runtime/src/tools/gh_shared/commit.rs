@@ -88,14 +88,14 @@ pub(crate) fn headline(commit: &Value) -> &str {
 }
 
 /// The one commit row of every history list (a search, a listing, a
-/// comparison's or pull request's commits): `commitSha`, `date`
+/// comparison's or pull request's commits): `commitSha`, `committedAt`
 /// ([`commit_date`]), `messageHeadline` and `author` (login, else git
 /// name). A field the commit lacks is absent; any row's `commitSha` reads
 /// the whole commit.
 pub(crate) fn row(commit: &Value) -> Value {
     let mut row = json!({
         "commitSha": commit["sha"],
-        "date": commit_date(commit),
+        "committedAt": commit_date(commit),
         "messageHeadline": headline(commit),
         "author": person(commit, "author"),
     });
@@ -138,13 +138,13 @@ mod tests {
         assert_eq!(
             row(&commit),
             json!({"commitSha":"c1","messageHeadline":"fix: parser","author":"octo",
-                "date":"2024-02-01T00:00:00Z"})
+                "committedAt":"2024-02-01T00:00:00Z"})
         );
         assert_eq!(message_body(&commit), Some("Long body.\nMore."));
         let bare = json!({"sha":"c2","commit":{"message":"one line"}});
         assert_eq!(
             row(&bare),
-            json!({"commitSha":"c2","messageHeadline":"one line","date":""})
+            json!({"commitSha":"c2","messageHeadline":"one line","committedAt":""})
         );
         assert_eq!(message_body(&bare), None);
     }

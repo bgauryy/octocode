@@ -102,6 +102,20 @@ pub(super) fn framework_rule(segments: &[&str], stem: &str) -> Option<&'static s
     }
 }
 
+/// The rule of a target a Cargo manifest builds, by declaration or Cargo's
+/// default paths.
+const CARGO_TARGET: &str = "cargo target";
+/// The rule of a file `package.json` names as its package's entry.
+const PACKAGE_ENTRY: &str = "package.json";
+
+/// Whether `rule` is a manifest's own declaration of a target it builds or
+/// exports: such a file is compiled or loaded as the package's code, so a
+/// role guessed from its spelling (a `build.rs` read as a build-tool
+/// config) does not hold.
+pub(in super::super) fn declared_target(rule: &str) -> bool {
+    matches!(rule, CARGO_TARGET | PACKAGE_ENTRY)
+}
+
 impl Workspace {
     pub(super) fn add_entry(&mut self, file: &str, rule: &'static str, known: &HashSet<&str>) {
         let file = file.trim_start_matches("./").to_owned();
@@ -154,7 +168,7 @@ impl Workspace {
             .iter()
             .filter(|t| !t.contains('*') && !super::super::super::js_paths::is_declaration(t))
         {
-            self.add_entry(&join(dir, target), "package.json", known);
+            self.add_entry(&join(dir, target), PACKAGE_ENTRY, known);
         }
         for script in manifest["scripts"]
             .as_object()
@@ -194,8 +208,20 @@ impl Workspace {
         files: &[&str],
         known: &HashSet<&str>,
     ) {
-        for file in ["src/main.rs", "src/lib.rs", "build.rs"] {
-            self.add_entry(&join(dir, file), "cargo target", known);
+        for file in ["src/main.rs", "src/lib.rs"] {
+            self.add_entry(&join(dir, file), CARGO_TARGET, known);
+        }
+        // The build script: `package.build` names it, `false` turns it off,
+        // else Cargo runs `build.rs` beside the manifest.
+        let build = manifest
+            .get("package")
+            .and_then(|package| package.get("build"));
+        match build {
+            Some(toml::Value::String(path)) => {
+                self.add_entry(&join(dir, path), CARGO_TARGET, known);
+            }
+            Some(toml::Value::Boolean(false)) => {}
+            _ => self.add_entry(&join(dir, "build.rs"), CARGO_TARGET, known),
         }
         for section in ["bin", "example", "test", "bench"] {
             for target in manifest
@@ -205,7 +231,7 @@ impl Workspace {
                 .flatten()
             {
                 if let Some(path) = target.get("path").and_then(|p| p.as_str()) {
-                    self.add_entry(&join(dir, path), "cargo target", known);
+                    self.add_entry(&join(dir, path), CARGO_TARGET, known);
                 }
             }
         }
@@ -214,7 +240,7 @@ impl Workspace {
             .and_then(|l| l.get("path"))
             .and_then(|p| p.as_str())
         {
-            self.add_entry(&join(dir, path), "cargo target", known);
+            self.add_entry(&join(dir, path), CARGO_TARGET, known);
         }
         let prefix = if dir.is_empty() {
             String::new()

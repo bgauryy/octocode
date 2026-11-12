@@ -40,23 +40,16 @@ fn not_public(visibility: &str, private: bool) -> Option<&str> {
 
 /// One repository row, whole: `owner` and `repo`, `defaultBranch`, stars,
 /// language, license, dates, the description, forks, `visibility` when not
-/// public, and its nonredundant topics (query matches first). What a default
+/// public, and its topics (query matches first). What a default
 /// row keeps of it, and what a `fields` pick names back, is the caller's
 /// ([`super::LISTED_DETAIL`], [`super::EXACT_DETAIL`]).
 pub(super) fn repository_row(
     item: octocode_github::RepositorySearchItem,
     wanted: &[String],
 ) -> Value {
+    // Every topic GitHub returns: a topic is a tag the owner chose, even
+    // when it spells the repository's name or language.
     let mut topics = item.topics;
-    // A topic equal to the repository's own name repeats `repo`; one equal
-    // to its language repeats `language`.
-    topics.retain(|topic| {
-        !topic.eq_ignore_ascii_case(&item.name)
-            && item
-                .language
-                .as_deref()
-                .is_none_or(|language| !topic.eq_ignore_ascii_case(language))
-    });
     // Stable: matching topics keep GitHub's order, then the rest.
     topics.sort_by_key(|topic| !wanted.contains(&topic.to_lowercase()));
     let (owner, repo) = item

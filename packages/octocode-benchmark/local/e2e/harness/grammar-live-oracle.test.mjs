@@ -16,8 +16,8 @@ const expected = [
   { start: { line: 5, character: 16 } },
 ];
 const locations = [
-  { path: 'build.sbt', displayRange: { startLine: 3, startCharacter: 5 } },
-  { path: 'build.sbt', displayRange: { startLine: 6, startCharacter: 17 } },
+  { path: 'build.sbt', line: 3, column: 5 },
+  { path: 'build.sbt', line: 6, column: 17 },
 ];
 const evidence = rows =>
   semanticLocationEvidence(rows, expected, '/fixture/build.sbt', '/fixture');
@@ -34,7 +34,7 @@ test('semantic oracle rejects duplicate, missing, wrong-file and wrong Unicode-c
   assert.equal(
     evidence([
       locations[0],
-      { ...locations[1], displayRange: { startLine: 6, startCharacter: 16 } },
+      { ...locations[1], line: 6, column: 16 },
     ]).ok,
     false
   );

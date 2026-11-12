@@ -62,8 +62,8 @@ async function staleOf(c, data) {
   if (data.frozen) return { files: [], reason: 'built from a frozen copy, whose snapshot cannot see later edits' };
   try {
     const r = await readGraph({ operation: 'stale', path: root, graph: id, limit: 1000 });
-    const rows = r.rows.filter((row) => typeof (row.file ?? row.path) === 'string');
-    const files = rows.map((row) => ({ file: prefixOf(c.path) + (row.file ?? row.path), status: row.status ?? 'changed' }));
+    const rows = r.rows.filter((row) => typeof row.path === 'string');
+    const files = rows.map((row) => ({ file: prefixOf(c.path) + row.path, status: row.status ?? 'changed' }));
     return { files, reason: r.freshness?.analysisCurrent === false ? 'the graph analysis changed since the snapshot' : '' };
   } catch (error) {
     return { files: [], reason: `stale check failed: ${String(error.message).split('\n')[0]}` };

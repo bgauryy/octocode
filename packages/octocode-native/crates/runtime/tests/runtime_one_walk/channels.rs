@@ -102,10 +102,7 @@ fn hits(pages: &[Value]) -> Vec<(u64, String, u64)> {
                 if std::mem::take(&mut continued) {
                     continue;
                 }
-                let line = hit["line"]
-                    .as_u64()
-                    .or_else(|| hit["displayRange"]["startLine"].as_u64())
-                    .expect("hit line");
+                let line = hit["line"].as_u64().expect("hit line");
                 found.push((
                     index,
                     file["path"].as_str().unwrap_or_default().to_owned(),

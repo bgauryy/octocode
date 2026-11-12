@@ -1,5 +1,7 @@
-//! A store of results kept for continuation pages, keyed by the result's
-//! snapshot and the path policy that produced it. A value lives as issued
+//! A store of results kept in memory, keyed by what proves them current: a
+//! continuation's snapshot and the path policy that produced it, or the
+//! digest of the content they were computed from (outlines, declarations,
+//! mentions), which a fresh request may reuse. A value lives as issued
 //! continuation state does ([`crate::cache::CONTINUATION_RETENTION`]): it
 //! expires [`CONTINUATION_IDLE`] after its last read. A hit is only a
 //! candidate: each owner re-validates what it reads before serving a page.

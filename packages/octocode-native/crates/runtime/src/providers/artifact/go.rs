@@ -86,6 +86,7 @@ async fn go_exact(
                     .collect::<Vec<_>>();
                 if !published.is_empty() {
                     return Err(super::versions::version_not_found(
+                        ArtifactType::Go,
                         name,
                         version.trim_start_matches('v'),
                         &published,

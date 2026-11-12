@@ -53,29 +53,106 @@ struct Capacity {
     scanned_at: u64,
 }
 
+/// The store's lock: its file lock, which other processes contend for, and
+/// this process's turn at the store, held as long (dropped after the file).
+pub(in crate::cache) struct StoreLock {
+    _file: LockedFile,
+    _turn: TurnHeld,
+}
+
+/// This process's turn at one store. The writes of one process (the rows of
+/// one call among them) take turns here before the file lock, so one never
+/// waits out its deadline behind another of the same process: only another
+/// process can find the store busy.
+#[derive(Default)]
+struct Turn {
+    taken: std::sync::Mutex<bool>,
+    freed: std::sync::Condvar,
+}
+
+/// A turn this thread holds until it drops.
+struct TurnHeld(&'static Turn);
+
+impl Drop for TurnHeld {
+    fn drop(&mut self) {
+        *self
+            .0
+            .taken
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = false;
+        self.0.freed.notify_one();
+    }
+}
+
+impl Turn {
+    /// The turn at the store in `dir`: one per store directory this process
+    /// writes, kept for the process's life.
+    fn of(dir: &Path) -> &'static Self {
+        static TURNS: std::sync::LazyLock<
+            std::sync::Mutex<std::collections::HashMap<PathBuf, &'static Turn>>,
+        > = std::sync::LazyLock::new(Default::default);
+        TURNS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .entry(dir.to_path_buf())
+            .or_insert_with(|| Box::leak(Box::default()))
+    }
+
+    /// Waits as long as the write before it holds the turn, waking for
+    /// `stopped` every [`CANCEL_SLICE`]: `None` once it says stop.
+    fn take(&'static self, stopped: impl Fn() -> bool) -> Option<TurnHeld> {
+        let mut taken = self
+            .taken
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        while *taken {
+            if stopped() {
+                return None;
+            }
+            taken = self
+                .freed
+                .wait_timeout(taken, CANCEL_SLICE)
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .0;
+        }
+        *taken = true;
+        Some(TurnHeld(self))
+    }
+}
+
 impl Disk {
-    /// The store's lock, waited for up to `deadline` or until the request
-    /// this thread works for is cancelled
-    /// ([`octocode_engine::deep_stack::current_stop`]), whichever comes first:
-    /// a cancelled request must not stay joined to a wait only the holder ends.
-    fn lock(&self, deadline: Instant) -> Result<LockedFile, NotLocked> {
+    /// The store's lock. This process's turn is waited for as long as the
+    /// write before it takes; the file lock up to `deadline`. Either wait ends
+    /// when the request this thread works for is cancelled
+    /// ([`octocode_engine::deep_stack::current_stop`]): a cancelled request
+    /// must not stay joined to a wait only the holder ends.
+    fn lock(&self, deadline: Instant) -> Result<StoreLock, NotLocked> {
         let unavailable = |_| NotLocked::Unavailable;
         octocode_io::atomic::create_private_dir_all(&self.dir).map_err(unavailable)?;
         let file =
             crate::private_file::open_no_follow(&self.dir.join(LOCK), true).map_err(unavailable)?;
         let stop = octocode_engine::deep_stack::current_stop();
-        loop {
-            if stop
-                .as_ref()
+        let stopped = || {
+            stop.as_ref()
                 .is_some_and(|stop| stop.load(std::sync::atomic::Ordering::Relaxed))
-            {
+        };
+        let turn = Turn::of(&self.dir)
+            .take(stopped)
+            .ok_or(NotLocked::Cancelled)?;
+        loop {
+            if stopped() {
                 return Err(NotLocked::Cancelled);
             }
             let wait = deadline
                 .saturating_duration_since(Instant::now())
                 .min(CANCEL_SLICE);
             match lock_within(file.try_clone().map_err(unavailable)?, wait, LOCK_POLL) {
-                Ok(lock) => return Ok(lock),
+                Ok(lock) => {
+                    return Ok(StoreLock {
+                        _file: lock,
+                        _turn: turn,
+                    });
+                }
                 Err(LockError::Busy) if Instant::now() < deadline => {}
                 Err(_) => return Err(NotLocked::Unavailable),
             }
@@ -86,7 +163,7 @@ impl Disk {
     /// the write was not kept (none for a cancelled request, whose answer
     /// nobody reads). The store is named by its folder: where the home is says
     /// nothing the agent acts on.
-    fn lock_to_write(&self, deadline: Instant) -> Option<LockedFile> {
+    fn lock_to_write(&self, deadline: Instant) -> Option<StoreLock> {
         let lock = self.lock(deadline);
         if matches!(lock, Err(NotLocked::Unavailable)) {
             let store = self.dir.file_name().unwrap_or(self.dir.as_os_str());
@@ -344,6 +421,13 @@ impl Disk {
         if let Ok(capacity) = self.trim(u64::MAX, None, now_unix(), None, usize::MAX) {
             let _ = self.save_capacity(&capacity);
         }
+    }
+
+    /// The store's lock as one of this process's writes holds it.
+    #[cfg(test)]
+    pub(in crate::cache) fn hold(&self) -> StoreLock {
+        self.lock(Instant::now() + REUSE_LOCK_WAIT)
+            .unwrap_or_else(|_| panic!("the store is free"))
     }
 
     #[cfg(test)]

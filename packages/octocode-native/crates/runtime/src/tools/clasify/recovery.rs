@@ -62,7 +62,7 @@ pub(super) fn add(row: &Row, captured: Option<&Captured>, failure: &mut Value, c
     // A localFetch source path with glob characters that names no file is a
     // glob: its files are read as resources.
     if acquisition
-        && crate::id::error_code_of(failure) == Some(ErrorCode::PathNotFound)
+        && crate::id::error_code_of(failure) == Some(ErrorCode::NotFound)
         && let Input::Judge(Target::Source(source)) = &row.input
         && source["tool"] == ToolId::LocalFetch.as_str()
         && source["query"]["path"]
@@ -358,7 +358,7 @@ mod tests {
         let mut one_shot = json!({"errorCode":"classificationContextTooLarge"});
         add(&asked, None, &mut one_shot, false);
         assert!(one_shot.get("related").is_none(), "{one_shot}");
-        for code in ["pathNotFound", "outsideAllowedRoots"] {
+        for code in ["notFound", "outsideAllowedRoots"] {
             let mut failure = json!({"errorCode":code});
             add(&row, None, &mut failure, true);
             assert!(failure.get("next").is_none(), "{failure}");
@@ -452,7 +452,7 @@ mod tests {
         row.input = Input::Judge(Target::Source(glob.clone()));
         let tree = json!({"tool":"structureSearch","kind":"related",
             "input":{"queries":[{"operation":"tree","path":"w"}]}});
-        let mut failure = json!({"errorCode":"pathNotFound","error":"Path does not exist: w/*.md",
+        let mut failure = json!({"errorCode":"notFound","error":"Path does not exist: w/*.md",
             "related":[tree]});
         add(&row, None, &mut failure, true);
         let hints = failure["hints"].as_array().cloned().unwrap_or_default();
@@ -471,7 +471,7 @@ mod tests {
         assert_eq!(query["resources"], json!({"source":glob}), "{call:#}");
         // A literal missing path is no glob: nothing points to resources.
         let mut plain =
-            json!({"errorCode":"pathNotFound","error":"Path does not exist: source.rs"});
+            json!({"errorCode":"notFound","error":"Path does not exist: source.rs"});
         add(&source_row(), None, &mut plain, true);
         assert!(!plain.to_string().contains("resources"), "{plain:#}");
     }

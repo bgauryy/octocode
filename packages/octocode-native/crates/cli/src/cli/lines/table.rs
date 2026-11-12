@@ -1,13 +1,14 @@
 //! A list of flat rows as a table: `key[]: col col text` names the columns
 //! once, then each row is one indented line of its values in that order.
-//! A row qualifies when every field is a scalar on one line and at most one
-//! field of the list holds free text (a value with a space, or empty); that
+//! A row qualifies when every field is a scalar on one line or a flat list
+//! (`labels`, `topics`) that one cell holds: its items joined by `,` when
+//! each is a word, by `, ` (free text) otherwise. At most one field of the
+//! list holds free text (a value with a space, or empty); that
 //! field is the last column, so it reads to the end of the line. Columns
 //! keep the rows' field order otherwise, which puts identity first. A field
 //! with the same single-word value on every row is stated once after the
 //! head in `[ … ]`, as a path's other fields are. A row without a field
 //! prints `-` in its column. Any other list keeps its `key: value` layout.
-use super::outline::floor_named;
 use super::words;
 use serde_json::{Map, Value};
 
@@ -23,6 +24,29 @@ pub(super) fn is_word(value: &Value) -> bool {
     }
 }
 
+/// A flat list as one cell, so its row stays one line: its words joined by
+/// `,` (a word itself), or by `, ` when an item holds a space (free text).
+/// `None` for a list no cell holds unambiguously: an item that is a list, an
+/// object, empty, on several lines or holding a comma.
+fn list_cell(items: &[Value]) -> Option<Value> {
+    let texts = items
+        .iter()
+        .map(|item| match item {
+            Value::String(text) if !text.is_empty() && !text.contains([',', '\n']) => {
+                Some(text.clone())
+            }
+            Value::Number(_) | Value::Bool(_) => Some(item.to_string()),
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let separator = if items.iter().all(is_word) { "," } else { ", " };
+    Some(Value::String(if texts.is_empty() {
+        "[]".to_owned()
+    } else {
+        texts.join(separator)
+    }))
+}
+
 /// `items` as table lines under `key` at `indent`; `None` when they are not
 /// flat rows with at most one free-text field.
 pub(super) fn table(key: &str, items: &[Value], indent: &str) -> Option<Vec<String>> {
@@ -33,7 +57,13 @@ pub(super) fn table(key: &str, items: &[Value], indent: &str) -> Option<Vec<Stri
         .iter()
         .map(|item| {
             let fields = item.as_object().filter(|fields| !fields.is_empty())?;
-            Some(floor_named(fields).unwrap_or_else(|| fields.clone()))
+            fields
+                .iter()
+                .map(|(name, value)| match value {
+                    Value::Array(items) => list_cell(items).map(|cell| (name.clone(), cell)),
+                    value => Some((name.clone(), value.clone())),
+                })
+                .collect::<Option<Map<_, _>>>()
         })
         .collect::<Option<_>>()?;
     let mut columns: Vec<&str> = Vec::new();

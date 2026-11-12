@@ -73,7 +73,7 @@ pub(super) fn report(
     let seed_keys = seeds.iter().map(|id| key(*id)).collect::<Vec<_>>();
     let summary = json!({
         "changed": seed_keys,
-        "configChanges": global.iter().map(|(dir, file)| json!({"file": file, "scope": if dir.is_empty() { "." } else { dir.as_str() }})).collect::<Vec<_>>(),
+        "configChanges": global.iter().map(|(dir, file)| json!({"path": file, "scope": if dir.is_empty() { "." } else { dir.as_str() }})).collect::<Vec<_>>(),
         "precision": if symbol_mode && global.is_empty() { "symbol" } else { "file" },
         "allAffected": global.iter().any(|(dir, _)| dir.is_empty()),
         "byDepth": by_depth,

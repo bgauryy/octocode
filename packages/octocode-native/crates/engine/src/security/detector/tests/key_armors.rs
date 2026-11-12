@@ -104,3 +104,63 @@ fn rules_headings_and_public_armor_are_not_private_keys() {
         assert!(result.sanitized.contains(BODY), "{}", result.sanitized);
     }
 }
+
+/// Retest R4: a key's header lines name it and hold none of it. A PuTTY file
+/// shows its header lines and public lines, hiding its private lines and its
+/// MAC's value; an armor shows its headers (PGP's `Version:`, PEM's
+/// `Proc-Type:`, RFC 4716's continued `Comment:`) and hides its body.
+#[test]
+fn a_keys_header_lines_and_public_half_read_as_written() {
+    const PUBLIC: &str = "AAAAB3NzaC1yc2EAAAADAQABAAABAQCfakepublicfakepublicfakepublic0";
+    for version in [2, 3] {
+        let derivation = if version == 3 {
+            "Key-Derivation: Argon2id\nArgon2-Memory: 8192\nArgon2-Salt: 0123456789abcdef\n"
+        } else {
+            ""
+        };
+        let header = format!(
+            "PuTTY-User-Key-File-{version}: ssh-rsa\nEncryption: none\nComment: rsa-key-20261112\nPublic-Lines: 2\n{PUBLIC}\nAAAA\n{derivation}Private-Lines: 2\n"
+        );
+        for eol in ["\n", "\r\n"] {
+            let key = format!("{header}{BODY}\nUvIm\nPrivate-MAC: 9f8e7d6c5b4a39281706\nafter\n")
+                .replace('\n', eol);
+            let shown = detect(&key, None).sanitized;
+            assert!(shown.starts_with(&header.replace('\n', eol)), "{shown}");
+            assert!(!shown.contains(BODY) && !shown.contains("UvIm"), "{shown}");
+            assert!(shown.contains("Private-MAC: [REDACTED-"), "{shown}");
+            assert!(!shown.contains("9f8e7d6c5b4a39281706"), "{shown}");
+            assert_eq!(shown.lines().count(), key.lines().count(), "{shown}");
+        }
+    }
+    for (open, headers, close) in [
+        (
+            "-----BEGIN PGP PRIVATE KEY BLOCK-----",
+            "Version: GnuPG v2\nComment: fabricated\n\n",
+            "-----END PGP PRIVATE KEY BLOCK-----",
+        ),
+        (
+            "-----BEGIN RSA PRIVATE KEY-----",
+            "Proc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,0123ABCD\n\n",
+            "-----END RSA PRIVATE KEY-----",
+        ),
+        (
+            "---- BEGIN SSH2 ENCRYPTED PRIVATE KEY ----",
+            "Comment: a long comment \\\nthat continues here\n",
+            "---- END SSH2 ENCRYPTED PRIVATE KEY ----",
+        ),
+        (
+            "-----BEGIN PGP SECRET KEY BLOCK-----",
+            "Version: GnuPG v1\n\n",
+            "-----END PGP SECRET KEY BLOCK-----",
+        ),
+    ] {
+        let key = format!("{open}\n{headers}{BODY}\n{BODY}\n{close}\n");
+        let shown = detect(&key, None).sanitized;
+        assert!(
+            shown.starts_with(&format!("{open}\n{headers}[REDACTED-")),
+            "{shown}"
+        );
+        assert!(!shown.contains(BODY), "{shown}");
+        assert!(shown.ends_with(&format!("{close}\n")), "{shown}");
+    }
+}

@@ -67,8 +67,8 @@ async fn explicit_response_page_sizes_patch_walk_windows() {
             }
             let next = content
                 .pointer("/responsePagination/next")
-                .or_else(|| data.pointer("/pullRequests/0/contentPagination/patches/next/nextPage"))
-                .or_else(|| data.pointer("/pullRequests/0/contentPagination/files/next/nextPage"));
+                .or_else(|| data.pointer("/pullRequests/0/next/patches"))
+                .or_else(|| data.pointer("/pullRequests/0/next/files"));
             let Some(next) = next else { break };
             assert!(next["input"]["cursor"].is_string());
             input = next["input"].clone();
@@ -181,14 +181,8 @@ async fn default_large_pr_patch_walk_reaches_every_patch_once() {
         }
         let next = content["responsePagination"]["next"]["input"]
             .as_object()
-            .or_else(|| {
-                data["pullRequests"][0]["contentPagination"]["patches"]["next"]["nextPage"]["input"]
-                    .as_object()
-            })
-            .or_else(|| {
-                data["pullRequests"][0]["contentPagination"]["files"]["next"]["nextPage"]["input"]
-                    .as_object()
-            });
+            .or_else(|| data["pullRequests"][0]["next"]["patches"]["input"].as_object())
+            .or_else(|| data["pullRequests"][0]["next"]["files"]["input"].as_object());
         match next {
             Some(next) => envelope = Value::Object(next.clone()),
             None => break,

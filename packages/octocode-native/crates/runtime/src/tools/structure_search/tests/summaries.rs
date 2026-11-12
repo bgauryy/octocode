@@ -27,7 +27,11 @@ fn summary_dirs_equals_the_stubs_plus_the_groups_the_listing_shows() {
         .filter(|entry| entry["type"] == "directory")
         .map(|entry| entry["path"].as_str().expect("path").to_owned())
         .collect();
-    assert_eq!(out["summary"]["dirs"], json!(directories.len()), "{out}");
+    assert_eq!(
+        out["summary"]["dirCount"],
+        json!(directories.len()),
+        "{out}"
+    );
     assert_eq!(directories.len(), 6, "{out}");
     assert!(directories.contains("./only/mid"), "{out}");
 }
@@ -55,7 +59,7 @@ fn files_summary_dirs_counts_every_walked_directory() {
                 .filter(|entry| entry.as_str().is_some_and(|entry| entry.ends_with('/')))
                 .count();
         }
-        assert_eq!(out["summary"]["dirs"], 5, "{operation}: {out}");
+        assert_eq!(out["summary"]["dirCount"], 5, "{operation}: {out}");
         assert_eq!(stubs, 5, "{operation}: every directory is one row: {out}");
     }
 }
@@ -84,8 +88,8 @@ fn files_and_tree_report_the_same_totals() {
     });
     let totals = |summary: &Value| {
         (
-            summary["files"].clone(),
-            summary["dirs"].clone(),
+            summary["fileCount"].clone(),
+            summary["dirCount"].clone(),
             summary["bytes"].clone(),
         )
     };
@@ -211,7 +215,11 @@ fn a_filtered_listing_names_the_links_it_does_not_follow() {
             "{operation}: {out}"
         );
         assert!(out.get("warnings").is_none(), "{operation}: {out}");
-        let plain = run(&root.0, json!({"operation":operation,"view":"details","path":links})).expect("listing");
+        let plain = run(
+            &root.0,
+            json!({"operation":operation,"view":"details","path":links}),
+        )
+        .expect("listing");
         assert!(plain.get("warnings").is_none(), "{operation}: {plain}");
         // The link row names its own length (the target path's), then `symlink`.
         let length = std::fs::symlink_metadata(links.join("skill"))
@@ -234,7 +242,7 @@ fn an_empty_listing_states_no_zero_summary() {
         root.write(&format!("f{n:02}.rs"), "x\n");
     }
     let listing = run(&root.0, json!({"operation":"files","path":root.0})).expect("listing");
-    assert_eq!(listing["summary"]["files"], 4, "{listing}");
+    assert_eq!(listing["summary"]["fileCount"], 4, "{listing}");
     let empty = run(
         &root.0,
         json!({"operation":"files","path":root.0,"nameRegex":"^zz_none$"}),

@@ -309,17 +309,24 @@ fn a_stored_many_file_content_walk_shows_each_hit_once() {
     assert_eq!(walk.rows.len(), 12 * 20);
 }
 
-/// Spans that cross a secret's edge, on the first page and on later pages
-/// whose windows the stored scan already judged, each show the secret's
-/// part masked; spans clear of it show their own bytes. Every span once.
+/// A walk of spans over a line with secrets, on the first page and on later
+/// pages whose windows the stored scan already judged, runs over the line a
+/// read serves: spans over a placeholder show no byte of the secret, spans
+/// clear of it show their own bytes. Every span once.
 #[test]
 fn spans_across_a_secret_edge_stay_masked_on_every_page() {
     let token = "ghp_00ABCDEFGHIJKLMNOPQRSTUVWXYZ01234567";
     let line = format!("aaa {token} {} {token} aaaa", "a".repeat(20_000));
-    let secrets = line
-        .match_indices(token)
-        .map(|(at, _)| at..at + token.len())
+    let served = crate::security::ContentSecurity::new()
+        .sanitize_text(&line, Some(std::path::Path::new("one.txt")))
+        .content
+        .into_owned();
+    assert!(!served.contains(token), "{served:.200}");
+    let placeholders = served
+        .match_indices("[REDACTED")
+        .map(|(at, _)| at..at + served[at..].find(']').expect("closed") + 1)
         .collect::<Vec<_>>();
+    assert_eq!(placeholders.len(), 2);
     let root = tempfile::tempdir().expect("fixture");
     fs::write(root.path().join("one.txt"), format!("{line}\n")).expect("file");
     settle();
@@ -328,22 +335,23 @@ fn spans_across_a_secret_edge_stay_masked_on_every_page() {
         serde_json::json!({"path":root.path(),"matchString":[".{5}"],"regexEngine":"rust","view":"matchOnly"}),
         Some(2500),
     );
-    assert_eq!(walk.rows.len(), line.len() / 5);
+    assert_eq!(walk.rows.len(), served.len() / 5);
     let mut masked_on = std::collections::BTreeSet::new();
     for (index, page) in pages.iter().enumerate() {
         for row in page["files"][0]["matches"].as_array().expect("matches") {
             let at = row["column"].as_u64().expect("column") as usize - 1;
-            let source = &line[at..at + 5];
             let value = row["value"].as_str().expect("value");
-            if secrets
+            assert!(
+                !value.contains("ghp_") && !value.contains("ABCDE"),
+                "page {index}: {value}"
+            );
+            if placeholders
                 .iter()
-                .any(|secret| secret.start < at + 5 && at < secret.end)
+                .any(|shown| shown.start < at + 5 && at < shown.end)
             {
-                assert_ne!(value, source, "page {index}: a secret's bytes shown");
-                assert!(!token.contains(value), "page {index}: {value}");
                 masked_on.insert(index);
             } else {
-                assert_eq!(value, source, "page {index}");
+                assert_eq!(value, &served[at..at + 5], "page {index}");
             }
         }
     }
@@ -458,7 +466,7 @@ fn match_pages_continue_from_their_file_pagination() {
     assert!(
         pages
             .iter()
-            .any(|page| { page["files"][0]["pagination"]["next"]["nextPage"].is_object() })
+            .any(|page| { page["files"][0]["next"]["nextPage"].is_object() })
     );
     assert!(pages.iter().all(|page| page["next"]["nextPage"].is_null()));
 }
@@ -485,7 +493,7 @@ fn a_continuing_file_reports_its_total_without_a_line_preview() {
     for page in &pages[..pages.len() - 1] {
         let pagination = &page["files"][0]["pagination"];
         assert_eq!(pagination["hasMore"], true, "{pagination}");
-        assert_eq!(pagination["totalItems"], rows, "{pagination}");
+        assert_eq!(pagination["total"], rows, "{pagination}");
         for key in ["moreLines", "moreLinesUnlisted"] {
             assert!(pagination.get(key).is_none(), "{key} in {pagination}");
         }
@@ -542,6 +550,7 @@ fn the_read_handoff_windows_hits_without_reading_the_file() {
         total_matched_lines: None,
         term_counts: None,
         pagination: None,
+        next: None,
     };
     let read = read_handoff(&query, root.path(), &file).expect("a read lead");
     let range = &read["input"]["queries"][0]["ranges"][0];

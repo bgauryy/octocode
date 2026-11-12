@@ -37,7 +37,12 @@ const FILES: &[(&str, &str)] = &[
 
 fn roles(root: &Path, file: &str) -> Vec<String> {
     let node = ask(root, "node", Some(file), |_| {});
-    assert_eq!(node.value["node"]["id"], *file, "{}", node.value);
+    assert_eq!(
+        node.value["node"]["id"],
+        format!("app/{file}"),
+        "{}",
+        node.value
+    );
     node.value["node"]["roles"]
         .as_array()
         .into_iter()
@@ -100,7 +105,7 @@ fn a_file_only_support_entries_reach_is_not_production_reachable() {
             .as_array()
             .into_iter()
             .flatten()
-            .filter(|row| row["subject"] == subject)
+            .filter(|row| row["subject"] == format!("app/{subject}"))
             .map(|row| row["detector"].as_str().unwrap_or_default().to_owned())
             .collect::<Vec<_>>()
     };

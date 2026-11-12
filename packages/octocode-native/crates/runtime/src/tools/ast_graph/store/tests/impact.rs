@@ -17,25 +17,25 @@ fn impact_is_symbol_precise_for_symbols_and_transitive_for_files() {
         symbol.value
     );
     let files = impacted(&symbol);
-    assert!(files.contains(&("src/lib.ts".into(), 0)), "{files:?}");
+    assert!(files.contains(&("app/src/lib.ts".into(), 0)), "{files:?}");
     assert!(
-        files.iter().any(|(f, _)| f == "src/main.ts"),
+        files.iter().any(|(f, _)| f == "app/src/main.ts"),
         "greet calls shout, main calls greet: {files:?}"
     );
     assert!(
-        !files.iter().any(|(f, _)| f == "src/fmt.ts"),
+        !files.iter().any(|(f, _)| f == "app/src/fmt.ts"),
         "fmt never touches lib: {files:?}"
     );
     assert_eq!(
         symbol.value["summary"]["testsToRun"],
-        json!(["src/main.test.ts"])
+        json!(["app/src/main.test.ts"])
     );
 
     // Box is exported but nobody binds it: symbol precision keeps main.ts out.
     let unused = ask(root, "impact", Some("src/lib.ts#Box"), |_| {});
     assert_eq!(
         impacted(&unused),
-        vec![("src/lib.ts".to_owned(), 0)],
+        vec![("app/src/lib.ts".to_owned(), 0)],
         "{}",
         unused.value
     );
@@ -43,11 +43,14 @@ fn impact_is_symbol_precise_for_symbols_and_transitive_for_files() {
     let file = ask(root, "impact", Some("src/lib.ts"), |_| {});
     assert_eq!(file.value["summary"]["precision"], "file");
     let files = impacted(&file);
-    assert!(files.contains(&("src/main.ts".into(), 1)), "{files:?}");
-    assert!(files.contains(&("src/main.test.ts".into(), 2)), "{files:?}");
+    assert!(files.contains(&("app/src/main.ts".into(), 1)), "{files:?}");
+    assert!(
+        files.contains(&("app/src/main.test.ts".into(), 2)),
+        "{files:?}"
+    );
     assert_eq!(
         file.value["summary"]["affectedEntrypoints"],
-        json!(["src/main.ts"])
+        json!(["app/src/main.ts"])
     );
 }
 
@@ -94,7 +97,10 @@ fn impact_lists_inline_rust_test_functions() {
         "transitively via twice: {}",
         out.value["summary"]
     );
-    assert_eq!(out.value["summary"]["testsToRun"], json!(["src/lib.rs"]));
+    assert_eq!(
+        out.value["summary"]["testsToRun"],
+        json!(["app/src/lib.rs"])
+    );
 }
 
 #[test]
@@ -137,9 +143,12 @@ fn plan_5_impact_defaults_to_depth_three_and_passes_through_barrels() {
     );
     let out = ask(dir.0.as_path(), "impact", Some("src/a.ts"), |_| {});
     let files = impacted(&out);
-    assert!(files.iter().any(|(f, _)| f == "src/useA.ts"), "{files:?}");
     assert!(
-        !files.iter().any(|(f, _)| f == "src/useB.ts"),
+        files.iter().any(|(f, _)| f == "app/src/useA.ts"),
+        "{files:?}"
+    );
+    assert!(
+        !files.iter().any(|(f, _)| f == "app/src/useB.ts"),
         "barrel passes through: {files:?}"
     );
     assert_eq!(
@@ -148,7 +157,7 @@ fn plan_5_impact_defaults_to_depth_three_and_passes_through_barrels() {
         out.value["summary"]
     );
     assert!(
-        !files.iter().any(|(f, _)| f == "src/c4.ts"),
+        !files.iter().any(|(f, _)| f == "app/src/c4.ts"),
         "depth 3 by default: {files:?}"
     );
     assert!(
@@ -159,7 +168,7 @@ fn plan_5_impact_defaults_to_depth_three_and_passes_through_barrels() {
     let deep = ask(dir.0.as_path(), "impact", Some("src/a.ts"), |o| {
         o.depth = Some(10);
     });
-    assert!(impacted(&deep).iter().any(|(f, _)| f == "src/c4.ts"));
+    assert!(impacted(&deep).iter().any(|(f, _)| f == "app/src/c4.ts"));
 }
 
 // ── Drift, explicit entries, re-export dependents, scan cuts, parsers ───────
@@ -193,7 +202,7 @@ fn dependents_include_importers_through_a_reexporting_module() {
     let out = ask(root, "dependents", Some("src/a.ts"), |_| {});
     assert_eq!(
         ids(&out),
-        vec!["src/index.ts", "src/main.ts"],
+        vec!["app/src/index.ts", "app/src/main.ts"],
         "{}",
         out.value
     );
@@ -206,7 +215,7 @@ fn dependents_include_importers_through_a_reexporting_module() {
     let imports = ask(root, "dependents", Some("src/a.ts"), |o| {
         o.edges = vec!["imports".into()];
     });
-    assert_eq!(ids(&imports), vec!["src/index.ts"], "{}", imports.value);
+    assert_eq!(ids(&imports), vec!["app/src/index.ts"], "{}", imports.value);
 }
 
 /// `impact` lists each affected file once, as a row with its depth and
@@ -294,7 +303,7 @@ fn symbol_impact_keeps_import_only_rows_as_unexpanded_candidates() {
     let rows = out.value["rows"].as_array().expect("rows");
     let risk = |file: &str| {
         rows.iter()
-            .find(|row| row["id"] == file)
+            .find(|row| row["id"] == format!("app/{file}"))
             .map(|row| row["risk"].as_str().unwrap_or_default().to_owned())
     };
     assert_eq!(
@@ -361,19 +370,19 @@ fn a_rust_module_change_reaches_its_crate_root_through_the_module_tree() {
         let out = ask(root, "impact", Some(target), |o| o.depth = Some(depth));
         assert_eq!(
             out.value["summary"]["affectedEntrypoints"],
-            json!(["src/lib.rs"]),
+            json!(["app/src/lib.rs"]),
             "{target}: {}",
             out.value
         );
         let rows = out.value["rows"].as_array().expect("rows");
         let lib = rows
             .iter()
-            .find(|row| row["id"] == "src/lib.rs")
+            .find(|row| row["id"] == "app/src/lib.rs")
             .unwrap_or_else(|| panic!("{target}: {}", out.value));
         assert_eq!(lib["via"], "contains:module", "{target}: {lib}");
         assert_eq!(lib["risk"], "candidate", "{target}: {lib}");
         assert!(
-            !rows.iter().any(|row| row["id"] == "src/other.rs"),
+            !rows.iter().any(|row| row["id"] == "app/src/other.rs"),
             "other.rs uses only helper: {target}: {}",
             out.value
         );

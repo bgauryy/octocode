@@ -11,7 +11,7 @@
 /// window would only be re-sliced into response `rowPart`s, more calls for
 /// the same patch text. A row that still outgrows its page is lossless:
 /// automatic paging splits it by whole rows, and the walk's
-/// `contentPagination.patches.next.nextPage` and the file page ride the row's last part
+/// `sectionPagination.patches.next.nextPage` and the file page ride the row's last part
 /// (`response::row_pages`' part shares), so following it never skips a part.
 /// A bigger window comes with a bigger response page (`responseChars`).
 const PATCH_DEFAULT_SHARE: (usize, usize) = (4, 5);

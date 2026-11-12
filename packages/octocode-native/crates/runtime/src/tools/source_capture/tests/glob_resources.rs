@@ -108,7 +108,7 @@ fn a_glob_matching_nothing_is_its_resources_error_and_a_literal_file_stays() {
     let (key, none) = &out.resources[0];
     assert_eq!(key, "none");
     let error = none.as_ref().expect_err("nothing matched");
-    assert_eq!(error.code, ErrorCode::PathNotFound);
+    assert_eq!(error.code, ErrorCode::NotFound);
     assert!(error.message.contains("app/*.txt"), "{}", error.message);
     assert_eq!(out.resources[1].0, "page");
     assert_eq!(
@@ -358,7 +358,7 @@ fn a_glob_under_a_missing_directory_says_the_directory_does_not_exist() {
         json!({"x":local("nothing/*.md"),"o":local("/definitely-outside-roots/*.md")}),
     );
     let missing = out.resources[0].1.as_ref().expect_err("no directory");
-    assert_eq!(missing.code, ErrorCode::PathNotFound, "{}", missing.message);
+    assert_eq!(missing.code, ErrorCode::NotFound, "{}", missing.message);
     assert!(
         missing
             .hints

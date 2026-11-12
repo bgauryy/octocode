@@ -27,9 +27,9 @@ const code = (dir) => list(dir).filter((p) => p.endsWith('.ts')).toSorted();
 const has = (dir, f, text) => existsSync(join(dir, f)) && readFileSync(join(dir, f), 'utf8').includes(text);
 function graph(dir) {
   const files = code(dir), W = [], S = [];
-  for (const f of files) S.push({ id: f + '#' + f[0], file: f, name: f[0], symbolKind: 'function', line: 1, endLine: 1, exported: true });
-  if (files.includes('a.ts') && files.includes('b.ts')) W.push({ edge: 'imports', from: 'a.ts', to: 'b.ts', file: 'a.ts', line: 1, confidence: 'high' }, { edge: 'calls', from: 'a.ts#a', to: 'b.ts#b', file: 'a.ts', line: 1, confidence: 'high' });
-  if (has(dir, 'b.ts', 'function h')) { S.push({ id: 'b.ts#h', file: 'b.ts', name: 'h', symbolKind: 'function', line: 2, endLine: 2, exported: true }); W.push({ edge: 'calls', from: 'b.ts#h', to: 'a.ts#a', file: 'b.ts', line: 2, confidence: 'high' }); }
+  for (const f of files) S.push({ id: f + '#' + f[0], path: f, symbolName: f[0], kind: 'function', line: 1, endLine: 1, exported: true });
+  if (files.includes('a.ts') && files.includes('b.ts')) W.push({ edge: 'imports', from: 'a.ts', to: 'b.ts', path: 'a.ts', line: 1, confidence: 'high' }, { edge: 'calls', from: 'a.ts#a', to: 'b.ts#b', path: 'a.ts', line: 1, confidence: 'high' });
+  if (has(dir, 'b.ts', 'function h')) { S.push({ id: 'b.ts#h', path: 'b.ts', symbolName: 'h', kind: 'function', line: 2, endLine: 2, exported: true }); W.push({ edge: 'calls', from: 'b.ts#h', to: 'a.ts#a', path: 'b.ts', line: 2, confidence: 'high' }); }
   return { files, W, S };
 }
 const page = (rows) => out({ graph: { id: row.graph }, rows });
@@ -43,7 +43,7 @@ else if (a[0] === 'graphBuild') {
   out({ id, root: row.path, counts: { nodes: 1, edges: 1 } });
 } else if (row.operation === 'stale') {
   const before = existsSync(snapFile(row.graph)) ? JSON.parse(readFileSync(snapFile(row.graph), 'utf8')) : {}, now = hashes(row.path);
-  const rows = [...Object.keys(before).filter((p) => now[p] !== before[p]).map((p) => ({ file: p, status: now[p] ? 'changed' : 'missing' })), ...Object.keys(now).filter((p) => !before[p]).map((p) => ({ file: p, status: 'added' }))];
+  const rows = [...Object.keys(before).filter((p) => now[p] !== before[p]).map((p) => ({ path: p, status: now[p] ? 'changed' : 'missing' })), ...Object.keys(now).filter((p) => !before[p]).map((p) => ({ path: p, status: 'added' }))];
   out({ graph: { id: row.graph }, rows, freshness: { fresh: rows.length === 0, analysisCurrent: true } });
 } else {
   const g = graph(row.path);

@@ -30,12 +30,24 @@ pub(crate) const LARGE_SOURCE_HINT: &str = "Locate a bounded region with localSe
 const TRANSIENT_HINT: &str = "Retry once only if retryable is true; if it persists, check provider availability and report the coverage gap.";
 
 /// Fill missing guidance without replacing producer-specific recovery or
-/// repeating it. Every failed row carries its own recovery: guidance is
-/// per-row evidence, so a batch never states it only on the first row. Call before the output security gate so query-derived facts
-/// and future tool-owned guidance share the normal redaction boundary.
+/// repeating it, in the row's `hints` now: for a row the stage places no
+/// notices on (one created after placement, a rejected call's envelope).
+/// Call before the output security gate so query-derived facts and future
+/// tool-owned guidance share the normal redaction boundary.
 pub(crate) fn attach_error_hint(tool: &dyn ToolOutput, data: &mut Value, query: &Value) {
     if let Some(hint) = missing_error_hint(tool, data, query) {
         crate::response::result::add_hints(data, [hint]);
+    }
+}
+
+/// [`attach_error_hint`] for a row the stage is still to shape: the shared
+/// recovery is a static note, so it is a notice, which the stage states
+/// once per response, on the first failed row that needs it
+/// ([`crate::response::notices::place`]). A producer's own hints stay on
+/// their row.
+pub(crate) fn note_error_hint(tool: &dyn ToolOutput, data: &mut Value, query: &Value) {
+    if let Some(hint) = missing_error_hint(tool, data, query) {
+        crate::response::paging::push_notice(data, hint);
     }
 }
 
@@ -49,16 +61,9 @@ fn missing_error_hint(tool: &dyn ToolOutput, data: &Value, query: &Value) -> Opt
         return None;
     }
     let code = crate::id::error_code_of(data)?;
-    // A missing path whose related[] already lists where to look is
-    // answered by that typed call: the hint would only restate it.
-    if code == ErrorCode::PathNotFound
-        && data
-            .get("related")
-            .and_then(Value::as_array)
-            .is_some_and(|related| !related.is_empty())
-    {
-        return None;
-    }
+    // A `notFound` row carries its recovery beside its leads: a lead is a
+    // call (a parent listing, a search), the hint says what to do with its
+    // answer (retry with the exact listed name).
     error_code_hint(tool, code, query).filter(|hint| !hint.is_empty())
 }
 
@@ -107,8 +112,6 @@ pub(crate) fn error_code_hint(
         ErrorCode::HttpStatus => {
             "Check httpStatus and the message; this status is not a network failure."
         }
-        // One code, one recovery on every tool.
-        ErrorCode::PathNotFound => crate::response::output::VERIFY_PATH_HINT,
         ErrorCode::PathPolicyDenied => crate::policy::discovery::WITHHELD_HINT,
         ErrorCode::InvalidGlob => "Correct the glob named in the error; globs select paths, while regexEngine selects text-pattern syntax. Do not change the intended scope.",
         code => {
@@ -168,13 +171,10 @@ fn execution_hint(code: ErrorCode) -> Option<&'static str> {
         | ErrorCode::LanguageUnsupported => {
             "Use localFetch for exact text or document outlines and localSearch for text candidates; these do not verify semantic identity."
         }
-        // One text for any resource: a tool whose message already names the
-        // resource, where it looked and its recovery answers with NO_HINT.
-        // That a miss is no absence elsewhere is in the server instructions.
-        ErrorCode::NotFound => "Check the exact name, where it was looked up, and access to it.",
-        ErrorCode::VersionNotFound => {
-            "Check the package name, registry and manifest/lockfile version; discover published versions before choosing another version."
-        }
+        // One text for any resource, on every tool's `notFound` row that does
+        // not state a recovery of its own. That a miss is no absence
+        // elsewhere is in the server instructions.
+        ErrorCode::NotFound => crate::response::output::NOT_FOUND_HINT,
         ErrorCode::Busy | ErrorCode::DuplicateRequest => {
             "Let the active request finish before retrying; avoid launching duplicate work."
         }
@@ -248,9 +248,6 @@ fn provider_hint(code: ErrorCode) -> Option<&'static str> {
         }
         ErrorCode::NoMatches => {
             "Inspect the requested scope, filters and coverage; no matches in this scope do not establish repository-wide absence."
-        }
-        ErrorCode::AnchorUnresolved => {
-            "Read the current source and locate the exact symbol and line before retrying; do not guess a different identity."
         }
         ErrorCode::InvalidGraphQuery => {
             "Inspect the graphQuery schema and correct the rejected operation or fields; do not retry the same query unchanged."

@@ -17,8 +17,8 @@ fn result_rows_require_stable_indices_and_preserve_optional_diagnostics() {
 #[test]
 fn equal_evidence_stays_on_its_rows_instead_of_moving_to_a_shared_alias() {
     let data = json!({"commits":[
-        {"commitSha":"abc123","date":"2026-01-01T00:00:00Z","messageHeadline":"first"},
-        {"commitSha":"def456","date":"2026-01-01T00:00:00Z","messageHeadline":"second"}
+        {"commitSha":"abc123","committedAt":"2026-01-01T00:00:00Z","messageHeadline":"first"},
+        {"commitSha":"def456","committedAt":"2026-01-01T00:00:00Z","messageHeadline":"second"}
     ]});
     let rows = vec![json!({"index":0,"data":data})];
     let output = crate::response::rows::envelope(crate::id::ToolId::GhSearchHistory, rows.clone());
@@ -92,12 +92,12 @@ fn heritage_scan_rows_keep_their_label_under_the_lsp_contract() {
         "operation": "implementation",
         "lsp": {"serverAvailable": true, "provider": "implementationProvider"},
         "matches": [
-            {"path": "src/calls.ts", "displayRange": {"startLine": 3, "startCharacter": 14, "endLine": 3},
+            {"path": "src/calls.ts", "line": 3, "column": 14,
              "content": "3\texport class SlowRunner implements Runner {\n"},
-            {"path": "src/other.ts", "displayRange": {"startLine": 5, "startCharacter": 14, "endLine": 5},
+            {"path": "src/other.ts", "line": 5, "column": 14,
              "content": "5\texport class Other implements Runner {\n", "source": "native-graph-facts"}
         ],
-        "pagination": {"page": 1, "totalPages": 1, "totalItems": 2, "hasMore": false}
+        "pagination": {"unit": "items", "offset": 0, "length": 2, "total": 2, "hasMore": false}
     });
     validate_output("lspSearch", &json!({"results":[{"index":0,"data":data}]}))
         .expect("a scan-labelled implementation row is valid output");

@@ -334,7 +334,7 @@ mod tests {
     fn image_provenance_stays_only_as_the_size_a_box_maps_to() {
         let asset = json!({
             "source":{"tool":"localFetch","query":{"path":"shot.png"}},
-            "snapshot":"ab","format":"png","bytes":10,"width":716,"height":1075,
+            "sourceDigest":"ab","format":"png","bytes":10,"width":716,"height":1075,
             "sourceWidth":1432,"sourceHeight":2150,"path":"/tmp/x.png","expiresAt":"2026",
         });
         let boxed = json!({
@@ -355,7 +355,7 @@ mod tests {
     fn a_section_is_its_lines_and_answers() {
         let details = json!({
             "model":"jev-1",
-            "resources":{"mid":{"status":"ready","snapshot":"d4","sections":[{
+            "resources":{"mid":{"status":"ready","sourceDigest":"d4","sections":[{
                 "id":"s12","kind":"declarations","name":"f_376 … f_406 (31 declarations)",
                 "target":{"bytes":[23784,25751],"lines":{"startLine":1876,"endLine":2027}},
                 "context":[{"bytes":[21784,23784],"lines":{"startLine":1717,"endLine":1875}}],

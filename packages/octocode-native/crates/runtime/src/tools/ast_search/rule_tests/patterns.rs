@@ -215,7 +215,7 @@ fn an_exact_declaration_miss_counts_the_kind_and_leads_to_its_rule() {
     crate::contracts::validate_query("astSearch", lead.clone()).expect("a valid lead row");
     let listed = run(&root.0, lead.clone()).expect("lead runs");
     assert!(
-        listed["totalItems"].as_u64() > Some(0)
+        listed["pagination"]["total"].as_u64() > Some(0)
             || listed["files"].as_array().is_some_and(|f| !f.is_empty()),
         "{listed}"
     );

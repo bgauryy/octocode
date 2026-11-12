@@ -14,7 +14,7 @@ fn queries_answer_imports_calls_cycles_and_packages() {
     let deps = ask(root, "deps", Some("src/main.ts"), |_| {});
     assert_eq!(
         ids(&deps),
-        vec!["src/lib.ts", "pkg:react"],
+        vec!["app/src/lib.ts", "pkg:react"],
         "{}",
         deps.value
     );
@@ -37,14 +37,10 @@ fn queries_answer_imports_calls_cycles_and_packages() {
     );
 
     let cycles = ask(root, "cycles", None, |_| {});
-    assert_eq!(
-        cycles.value["pagination"]["totalItems"], 1,
-        "{}",
-        cycles.value
-    );
+    assert_eq!(cycles.value["pagination"]["total"], 1, "{}", cycles.value);
     assert_eq!(
         cycles.value["rows"][0]["nodes"],
-        json!(["src/a.ts", "src/b.ts"])
+        json!(["app/src/a.ts", "app/src/b.ts"])
     );
 
     let path = ask(root, "path", Some("src/main.ts"), |o| {
@@ -54,7 +50,7 @@ fn queries_answer_imports_calls_cycles_and_packages() {
     assert_eq!(path.value["length"], 1);
 
     let react = ask(root, "dependents", Some("pkg:react"), |_| {});
-    assert_eq!(ids(&react), vec!["src/main.ts"]);
+    assert_eq!(ids(&react), vec!["app/src/main.ts"]);
 
     let outline = ask(root, "symbols", Some("src/lib.ts"), |_| {});
     assert_eq!(
@@ -71,7 +67,7 @@ fn queries_answer_imports_calls_cycles_and_packages() {
     let absolute = root.join("app/src/lib.ts");
     let by_path = ask(root, "node", Some(&absolute.to_string_lossy()), |_| {});
     assert_eq!(
-        by_path.value["node"]["id"], "src/lib.ts",
+        by_path.value["node"]["id"], "app/src/lib.ts",
         "{}",
         by_path.value
     );
@@ -221,7 +217,7 @@ fn out_of_range_flags_are_rejected_and_a_page_past_the_end_is_empty() {
     });
     assert_eq!(past.class, ExitClass::Empty, "{}", past.value);
     assert!(
-        past.value["pagination"]["totalItems"]
+        past.value["pagination"]["total"]
             .as_u64()
             .is_some_and(|total| total > 0)
     );
@@ -243,33 +239,22 @@ fn unknown_edge_kind_lists_every_kind() {
     }
 }
 
-/// Every lead runs against the snapshot that produced it: `node` hints and
-/// `issues` verify steps pin its id, like `next`, and verify steps are tool
-/// calls (a tool name and its query row), not prose.
+/// An `issues` finding carries its evidence and controls, never a lead of
+/// its own: what verifies it is the finding's subject and evidence.
 #[test]
-fn node_leads_and_verify_commands_are_pinned_to_the_snapshot() {
+fn issues_findings_carry_evidence_and_no_leads() {
     let dir = issues_fixture();
     let root = dir.0.as_path();
-    let ingested = ingest_fixture(root, None);
-    let id = ingested.value["id"].as_str().expect("id").to_owned();
+    ingest_fixture(root, None);
     let issues = ask(root, "issues", None, |o| o.limit = Some(200));
-    let steps = issues.value["rows"]
-        .as_array()
-        .expect("rows")
-        .iter()
-        .flat_map(|row| row["verify"].as_array().cloned().unwrap_or_default())
-        .collect::<Vec<_>>();
-    assert!(!steps.is_empty(), "{}", issues.value);
-    for step in &steps {
-        // Each step is a runnable related call, not text.
-        assert_eq!(step["kind"], "related", "{step}");
-        let row = &step["input"]["queries"][0];
-        if step["tool"] == "graphQuery" {
-            assert_eq!(row["graph"], id, "{step}");
-        } else {
-            assert_eq!(step["tool"], "lspSearch", "{step}");
-            assert!(row["path"].is_string(), "{step}");
-        }
+    let rows = issues.value["rows"].as_array().expect("rows");
+    assert!(!rows.is_empty(), "{}", issues.value);
+    for row in rows {
+        assert!(
+            row["subject"].is_string() && row.get("evidence").is_some(),
+            "{row}"
+        );
+        assert!(row.get("verify").is_none(), "{row}");
     }
 }
 
@@ -298,7 +283,7 @@ fn ambiguous_reference_pages_every_candidate() {
     let out = ask(root, "callers", Some("run"), |_| {});
     assert_eq!(out.class, ExitClass::InvalidInput, "{}", out.value);
     assert_eq!(out.value["candidates"].as_array().map(Vec::len), Some(20));
-    assert_eq!(out.value["pagination"]["totalItems"], 25);
+    assert_eq!(out.value["pagination"]["total"], 25);
     assert_eq!(out.value["pagination"]["hasMore"], true);
     let next = next_query(&out).expect("structured continuation");
     assert_eq!(
@@ -324,9 +309,5 @@ fn ambiguous_reference_pages_every_candidate() {
         .collect::<BTreeSet<_>>();
     assert_eq!(union.len(), 25);
     let found = ask(root, "find", Some("run"), |o| o.limit = Some(100));
-    assert_eq!(
-        found.value["pagination"]["totalItems"], 25,
-        "{}",
-        found.value
-    );
+    assert_eq!(found.value["pagination"]["total"], 25, "{}", found.value);
 }

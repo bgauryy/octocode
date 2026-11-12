@@ -323,13 +323,13 @@ fn keep_shown(
 /// Whether a file's evidence shows any text to judge: a non-blank line or
 /// matched value.
 fn has_text(item: &Value) -> bool {
-    let non_blank = |value: &Value| value.as_str().is_some_and(|text| !text.trim().is_empty());
-    item["lines"]
-        .as_array()
-        .is_some_and(|lines| lines.iter().any(non_blank))
-        || item["matches"]
-            .as_array()
-            .is_some_and(|matches| matches.iter().any(|matched| non_blank(&matched["value"])))
+    item["matches"].as_array().is_some_and(|matches| {
+        matches.iter().any(|matched| {
+            matched["value"]
+                .as_str()
+                .is_some_and(|text| !text.trim().is_empty())
+        })
+    })
 }
 
 /// Whether the classification egress withholds this candidate's file by name:
@@ -424,9 +424,9 @@ pub(super) fn strip_plan_from_tool_continuations(value: &mut Value, tool: ToolId
             scrub_lead(lead, tool, true);
         }
     }
-    // A collection's page cursor rides its `contentPagination` block.
+    // A collection's page cursor rides its `sectionPagination` block.
     if let Some(blocks) = fields
-        .get_mut("contentPagination")
+        .get_mut("sectionPagination")
         .and_then(Value::as_object_mut)
     {
         for block in blocks.values_mut() {

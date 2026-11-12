@@ -3,10 +3,10 @@
 //!
 //! Coordinate convention (one choke point, every emitted coordinate): lines
 //! are **one-based** and characters are **one-based UTF-16 code-unit
-//! columns** (LSP `character + 1`). `displayRange` is
-//! `{startLine, startCharacter, endLine}` and starts at the symbol itself;
-//! an emitted `startLine` feeds back unchanged as the one-based `line`
-//! input.
+//! columns** (LSP `character + 1`). A row states where it sits as `line`,
+//! `column` and `endLine` (absent on a one-line range), starting at the
+//! symbol itself; an emitted `line` feeds back unchanged as the one-based
+//! `line` input.
 
 use super::failure::{empty, no_answer, offer_next_page};
 use super::render::{
@@ -39,7 +39,8 @@ pub(super) use snapshots::{
     items_payload, salted_items_payload, snapshot_changed, snapshot_mismatch,
 };
 
-/// One-based public `displayRange` of a zero-based LSP range.
+/// The one-based place (`line`, `column`, `endLine`) of a zero-based LSP
+/// range: where every public row sits.
 pub(super) fn public_range(range: &Value) -> Option<Value> {
     let line = range.pointer("/start/line")?.as_u64()?;
     let character = range.pointer("/start/character")?.as_u64()?;
@@ -47,42 +48,47 @@ pub(super) fn public_range(range: &Value) -> Option<Value> {
         .pointer("/end/line")
         .and_then(Value::as_u64)
         .unwrap_or(line);
-    let mut display = json!({ "startLine": line + 1, "startCharacter": character + 1 });
-    display_end(&mut display, end + 1);
-    Some(display)
+    let mut place = json!({ "line": line + 1, "column": character + 1 });
+    place_end(&mut place, end + 1);
+    Some(place)
 }
 
-/// Set `display`'s `endLine`, absent when the range is one line (the
-/// declared form of every `displayRange`).
-pub(super) fn display_end(display: &mut Value, end: u64) {
-    if display.get("startLine").and_then(Value::as_u64) != Some(end) {
-        display["endLine"] = json!(end);
+/// Set `place`'s `endLine`, absent when it is the place's `line`.
+pub(super) fn place_end(place: &mut Value, end: u64) {
+    if place.get("line").and_then(Value::as_u64) != Some(end) {
+        place["endLine"] = json!(end);
     }
 }
 
-/// The last line a `displayRange` states: its `endLine`, else its
-/// `startLine` (a one-line range).
-pub(super) fn display_last_line(display: &Value) -> Option<u64> {
-    display
+/// The last line a place states: its `endLine`, else its `line`.
+pub(super) fn place_last_line(place: &Value) -> Option<u64> {
+    place
         .get("endLine")
-        .or_else(|| display.get("startLine"))
+        .or_else(|| place.get("line"))
         .and_then(Value::as_u64)
 }
 
+/// Put `place`'s `line`, `column` and `endLine` on `row`.
+pub(super) fn insert_place(row: &mut serde_json::Map<String, Value>, place: Value) {
+    if let Value::Object(place) = place {
+        row.extend(place);
+    }
+}
+
 /// Public hover: the server's zero-based `range` becomes the one-based
-/// `displayRange` every other emitted coordinate uses.
+/// place every other row states.
 pub(super) fn public_hover(mut hover: Value) -> Value {
     if let Some(object) = hover.as_object_mut()
         && let Some(range) = object.remove("range")
-        && let Some(display) = public_range(&range)
+        && let Some(place) = public_range(&range)
     {
-        object.insert("displayRange".into(), display);
+        insert_place(object, place);
     }
     hover
 }
 
 /// Public workspace symbol (`SymbolInformation`/`WorkspaceSymbol`): named
-/// kind, flattened `uri`, and the one-based `displayRange` locations use.
+/// kind, flattened `uri`, and the one-based place locations state.
 pub(super) fn public_workspace_symbol(symbol: &Value) -> Value {
     let mut public = serde_json::Map::new();
     if let Some(name) = symbol.get("name") {
@@ -99,13 +105,13 @@ pub(super) fn public_workspace_symbol(symbol: &Value) -> Value {
     if let Some(uri) = symbol.pointer("/location/uri").and_then(Value::as_str) {
         public.insert("path".into(), json!(uri_to_path(uri)));
     }
-    if let Some(mut display) = symbol.pointer("/location/range").and_then(public_range) {
+    if let Some(mut place) = symbol.pointer("/location/range").and_then(public_range) {
         // A `SymbolInformation` range starts at the declaration (`export`),
         // not at the name: no column, which would mislocate the symbol.
-        if let Some(display) = display.as_object_mut() {
-            display.remove("startCharacter");
+        if let Some(place) = place.as_object_mut() {
+            place.remove("column");
         }
-        public.insert("displayRange".into(), display);
+        insert_place(&mut public, place);
     }
     Value::Object(public)
 }

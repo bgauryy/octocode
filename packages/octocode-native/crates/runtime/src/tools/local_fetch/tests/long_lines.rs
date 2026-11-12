@@ -138,10 +138,13 @@ fn every_match_window_of_a_long_line_comes_before_the_rest() {
         // First the windows, on one page: the line's first bytes, the pair,
         // the hit after it, the line's last bytes.
         assert!(pages[0].1.contains("NEEDLE"), "{window:?}: {:?}", pages[0]);
+        // The gap markers name the file's bytes: the selection starts after
+        // `head\n`.
+        let shift = "head\n".len();
         let windows: Vec<(usize, String)> =
-            crate::tools::source_view::pagination::placed_pieces(pages[0].0, &pages[0].1)
+            crate::tools::source_view::pagination::placed_pieces(pages[0].0 + shift, &pages[0].1)
                 .into_iter()
-                .map(|(at, piece)| (at, piece.to_owned()))
+                .map(|(at, piece)| (at - shift, piece.to_owned()))
                 .collect();
         assert_eq!(
             windows.len(),
@@ -176,6 +179,46 @@ fn every_match_window_of_a_long_line_comes_before_the_rest() {
             "{window:?}: the rest holds no match"
         );
     }
+}
+
+/// N6: one file states one byte count. A match read of a long line after
+/// a banner line (jquery.min.js) names the file's bytes, as a plain read
+/// does: its `total` is the file's size, not its selection's (the banner and
+/// its line break were left out of 87,444 of 87,533), its `offset` and gap
+/// markers are the file's bytes, and each piece is the file's bytes there.
+#[test]
+fn a_match_read_states_the_file_bytes_a_plain_read_states() {
+    let fixture = Fixture::new();
+    let banner = "/*! bundle v1 | (c) contributors | example.org/license */\n";
+    let filler = positional(87_000);
+    let line = format!(
+        "{}NEEDLE{}NEEDLE{}NEEDLE{}",
+        &filler[..20_000],
+        &filler[20_000..60_000],
+        &filler[60_000..80_000],
+        &filler[80_000..]
+    );
+    let source = format!("{banner}{line}\n");
+    let path = fixture.write("bundle.min.js", &source);
+    let paths = Paths(fixture.0.clone());
+    let wire = |read: &LocalFetchResult| serde_json::to_value(read).expect("row")["pagination"].clone();
+    let plain = wire(&fetch(&q(&path), &paths));
+    assert_eq!(plain["unit"], "bytes", "{plain}");
+    assert_eq!(plain["total"], source.len(), "{plain}");
+    let query = qj(&path, serde_json::json!({"matchString":["NEEDLE"]}));
+    let read = fetch(&query, &paths);
+    let page = wire(&read);
+    assert_eq!(page["unit"], "bytes", "{page}");
+    assert_eq!(page["total"], plain["total"], "one total per unit: {page}");
+    let at = page["offset"].as_u64().expect("offset") as usize;
+    let text = read.content.as_deref().expect("content");
+    let pieces = crate::tools::source_view::pagination::placed_pieces(at, text);
+    assert!(pieces.len() > 1, "the hits share page one: {pieces:?}");
+    for (at, piece) in pieces {
+        assert_eq!(source.get(at..at + piece.len()), Some(piece), "the file's bytes at {at}");
+    }
+    // The walk is the selection exactly once, as before.
+    walk_exactly_once(&query, &paths, None, &format!("{line}\n"));
 }
 
 /// A match a line page reaches after short context lines: the short lines

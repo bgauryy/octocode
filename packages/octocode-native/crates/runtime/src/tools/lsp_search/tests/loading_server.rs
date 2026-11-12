@@ -195,7 +195,7 @@ fn assert_located(row: &Value) {
     assert_ne!(row["status"], "empty", "{row}");
     assert_ne!(row["isPartial"], true, "{row}");
     assert_eq!(
-        row.pointer("/files/0/matches/0/displayRange/startLine"),
+        row.pointer("/files/0/matches/0/line"),
         Some(&json!(1)),
         "{row}"
     );

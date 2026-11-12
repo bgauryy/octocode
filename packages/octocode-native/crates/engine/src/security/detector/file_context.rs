@@ -61,9 +61,16 @@ impl WholeSourcePatterns {
     const FOLDED_LITERALS: [&'static str; 1] = ["\"auths"];
 
     /// `None` when no such pattern applies to a file at `path`, as for most.
+    /// A pattern its document names by content (a Kubernetes Secret's
+    /// `kind`) applies to every file of text, source code aside, whose
+    /// strings a document never spans.
     pub fn for_path(path: &str) -> Option<Self> {
-        let applying = SPANS_LINES
-            .filter(|idx| file_context_regex(idx).is_some_and(|context| context.is_match(path)));
+        let applying = SPANS_LINES.filter(|idx| {
+            file_context_regex(idx).map_or_else(
+                || !super::is_source_code_path(path),
+                |context| context.is_match(path),
+            )
+        });
         (!applying.is_empty()).then_some(Self(applying))
     }
 

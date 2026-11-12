@@ -10,12 +10,28 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "privateKeyPem",
         file_context: None,
-        regex: r###"-----BEGIN\s+(?:(?:RSA|DSA|EC|OPENSSH|ENCRYPTED)\s+)?PRIVATE\s+KEY(?:\s+BLOCK)?-----[\s\S]*?-----END\s+(?:(?:RSA|DSA|EC|OPENSSH|ENCRYPTED)\s+)?PRIVATE\s+KEY(?:\s+BLOCK)?-----"###,
+        // The armor names the block and holds none of it: only the body
+        // (`secret`, without the line breaks that end the armor lines) is
+        // hidden. The body holds no run of the armor's dashes, so a match
+        // never runs from one armor across another (a quoted BEGIN above).
+        regex: concat!(
+            r###"-----BEGIN\s+(?:(?:RSA|DSA|EC|OPENSSH|ENCRYPTED)\s+)?PRIVATE\s+KEY(?:\s+BLOCK)?-----[ \t]*(?:\r?\n)?"###,
+            armor_headers!(),
+            r###"(?P<secret>(?:-{0,4}[^-])*?)(?:\r?\n)?[ \t]*-----END\s+(?:(?:RSA|DSA|EC|OPENSSH|ENCRYPTED)\s+)?PRIVATE\s+KEY(?:\s+BLOCK)?-----"###,
+        ),
     },
     SecretPattern {
         name: "pgpPrivateKeyBlock",
         file_context: None,
-        regex: r###"-----BEGIN\s+PGP\s+PRIVATE\s+KEY\s+BLOCK-----[\s\S]*?-----END\s+PGP\s+PRIVATE\s+KEY\s+BLOCK-----"###,
+        // The armor names the block and holds none of it: only the body
+        // (`secret`, without the line breaks that end the armor lines) is
+        // hidden. The body holds no run of the armor's dashes, so a match
+        // never runs from one armor across another (a quoted BEGIN above).
+        regex: concat!(
+            r###"-----BEGIN\s+PGP\s+PRIVATE\s+KEY\s+BLOCK-----[ \t]*(?:\r?\n)?"###,
+            armor_headers!(),
+            r###"(?P<secret>(?:-{0,4}[^-])*?)(?:\r?\n)?[ \t]*-----END\s+PGP\s+PRIVATE\s+KEY\s+BLOCK-----"###,
+        ),
     },
     SecretPattern {
         name: "shippoApiToken",

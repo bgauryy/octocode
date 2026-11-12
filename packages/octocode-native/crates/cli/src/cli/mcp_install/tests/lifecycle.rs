@@ -169,18 +169,10 @@ fn rollback_dry_run_preserves_destination_and_real_rollback_restores() {
     assert_eq!(std::fs::read_to_string(&path).expect("read"), "previous");
 }
 
+/// The rolling backup `.{name}.bak` restores `name`, the one hidden backup
+/// form an install writes.
 #[test]
-fn randomized_private_backup_restores_the_original_filename() {
-    let path = std::path::Path::new("/safe/.config.json-0123456789abcdef0123456789abcdef.bak");
-    assert_eq!(
-        super::super::rollback_destination(path),
-        std::path::Path::new("/safe/config.json")
-    );
-    let path = std::path::Path::new("/safe/..claude.json-0123456789abcdef0123456789abcdef.bak");
-    assert_eq!(
-        super::super::rollback_destination(path),
-        std::path::Path::new("/safe/.claude.json")
-    );
+fn a_rolling_backup_restores_the_original_filename() {
     for (rolling, original) in [
         ("/safe/.mcp.json.bak", "/safe/mcp.json"),
         ("/safe/..claude.json.bak", "/safe/.claude.json"),

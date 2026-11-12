@@ -179,8 +179,8 @@ async fn commit_and_compare_match_pages_are_pages_of_hits() {
             assert!(out.get("status").is_none(), "page {page}: {out}");
             let files = out["files"].as_array().cloned().unwrap_or_default();
             paths.extend(files.iter().map(|file| file["path"].clone()));
-            let pages = &out["contentPagination"]["files"];
-            assert_eq!(pages["totalItems"], 2, "page {page}: {out}");
+            let pages = &out["sectionPagination"]["files"];
+            assert_eq!(pages["total"], 2, "page {page}: {out}");
             assert_eq!(pages["hasMore"], page == 1, "page {page}: {out}");
         }
         assert_eq!(paths, [json!("src/b.rs"), json!("src/d.rs")], "{row}");
@@ -279,14 +279,17 @@ async fn commit_path_scope_keeps_the_unfiltered_observed_count_separate() {
     let data = read(&server, query.clone()).await;
     assert_history_page_contract(&data);
     assert_eq!(data["files"], json!(["M +1 -1 src/a.rs"]), "{data}");
-    assert_eq!(data["changedFilesCount"], 3, "unfiltered observed files");
-    assert!(data.get("changedFilesCountScope").is_none(), "{data}");
+    assert_eq!(data["changedFileCount"], 3, "unfiltered observed files");
     assert_eq!(
-        data["contentPagination"]["files"]["totalItems"], 1,
+        data["sectionPagination"]["files"]["countScope"], "complete",
+        "{data}"
+    );
+    assert_eq!(
+        data["sectionPagination"]["files"]["total"], 1,
         "scoped files"
     );
     assert_eq!(
-        data["contentPagination"]["files"]["countScope"], "complete",
+        data["sectionPagination"]["files"]["countScope"], "complete",
         "{data}"
     );
 }

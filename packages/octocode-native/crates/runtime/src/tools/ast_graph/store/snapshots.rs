@@ -235,8 +235,18 @@ pub(crate) fn list_snapshots(home: &Path) -> Vec<String> {
 /// no other entry, whatever its name or age).
 /// Snapshots are grouped by the root they scanned, never by their scope
 /// name: two roots that share a name keep their own snapshots.
-pub(super) fn prune(home: &Path, root: &Path, keep: usize) -> Vec<String> {
+pub(super) fn prune(home: &Path, root: &Path, keep: usize) -> Vec<Pruned> {
     prune_with(home, root, keep, &|_| {})
+}
+
+/// A snapshot [`prune`] removed, and why: an answer names both, since a
+/// snapshot another session built may be among them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Pruned {
+    pub(super) id: String,
+    /// It was in a format this build cannot read; else it was older than
+    /// the `keep` newest of its root.
+    pub(super) outdated: bool,
 }
 
 /// [`prune`] that runs `between` on a snapshot's directory after it is
@@ -247,7 +257,7 @@ pub(super) fn prune_with(
     root: &Path,
     keep: usize,
     between: &dyn Fn(&Path),
-) -> Vec<String> {
+) -> Vec<Pruned> {
     let mut removed = Vec::new();
     let root = root.to_string_lossy();
     let mut same_scope = Vec::new();
@@ -268,10 +278,11 @@ pub(super) fn prune_with(
     let excess = same_scope.len().saturating_sub(keep.max(1));
     let expired = outdated
         .into_iter()
-        .chain(same_scope.into_iter().take(excess));
-    for id in expired {
+        .map(|id| (id, true))
+        .chain(same_scope.into_iter().take(excess).map(|id| (id, false)));
+    for (id, outdated) in expired {
         if remove_unless_leased(home, &id, between) {
-            removed.push(id);
+            removed.push(Pruned { id, outdated });
         }
     }
     let stale_after = std::time::Duration::from_secs(3600);

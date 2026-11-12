@@ -3,10 +3,10 @@ use super::*;
 #[test]
 fn typed_filter_bounds_reject_invalid_input_before_execution() {
     for fields in [
-        json!({"sizeBytes": {}}),
-        json!({"sizeBytes":{"min":-1}}),
-        json!({"sizeBytes":{"min":2,"max":1}}),
-        json!({"sizeBytes":{"min":"1k"}}),
+        json!({"bytes": {}}),
+        json!({"bytes":{"min":-1}}),
+        json!({"bytes":{"min":2,"max":1}}),
+        json!({"bytes":{"min":"1k"}}),
         json!({"modifiedAt":{}}),
         json!({"modifiedAt":{"from":"yesterday"}}),
         json!({"accessedAt":{"from":"2026-10-24T10:00:00Z","to":"2026-10-23T10:00:00Z"}}),
@@ -28,7 +28,7 @@ fn typed_filter_bounds_reject_invalid_input_before_execution() {
         );
     }
     for fields in [
-        json!({"sizeBytes":{"min":0,"max":2}}),
+        json!({"bytes":{"min":0,"max":2}}),
         json!({"modifiedAt":{"from":"2026-10-24T10:00:00Z","to":"2026-10-24T10:00:00Z"}}),
         json!({"accessedAt":{"to":"2026-10-24T10:00:00Z"}}),
     ] {
@@ -49,7 +49,7 @@ fn missing_path_is_not_found() {
         json!({"operation":"tree","path":root.0.join("nope")}),
     )
     .expect_err("missing path");
-    assert_eq!(error.code, ErrorCode::PathNotFound, "{error:?}");
+    assert_eq!(error.code, ErrorCode::NotFound, "{error:?}");
 }
 
 /// A file passed as a tree root is named for what it is, workspace-relative
@@ -102,7 +102,7 @@ fn a_missing_path_leads_to_its_nearest_existing_parent() {
         json!({"operation":"files","path":root.0.join("src/gone/deeper")}),
     )
     .expect_err("missing path");
-    assert_eq!(error.code, ErrorCode::PathNotFound, "{error:?}");
+    assert_eq!(error.code, ErrorCode::NotFound, "{error:?}");
     let lead = &error.calls.as_ref().expect("lead")["viewTree"];
     assert_eq!(lead["tool"], "structureSearch", "{lead}");
     let query = lead["input"]["queries"][0].clone();

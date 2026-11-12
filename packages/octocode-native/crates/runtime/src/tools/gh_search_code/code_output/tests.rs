@@ -15,8 +15,8 @@ fn shaped_files_retain_repository_and_commit_identity() {
         for resolved in [false, true] {
             let sha = "a".repeat(40);
             let mut items = vec![
-                json!({"owner":"o","repo":"r","path":"a.rs","matches":[]}),
-                json!({"owner":"o","repo":"r","path":"b.rs","matches":[]}),
+                json!({"owner":"o","repo":"r","path":"a.rs","fragments":[]}),
+                json!({"owner":"o","repo":"r","path":"b.rs","fragments":[]}),
             ];
             let resolution = resolved.then(|| Resolution {
                 sha: Some(sha.clone()),
@@ -52,7 +52,7 @@ fn shaped_files_retain_repository_and_commit_identity() {
                 assert_eq!(row["path"], path);
                 if resolved {
                     assert_eq!(row["commitSha"], sha);
-                    assert_eq!(row["lines"], json!(["1\tneedle"]));
+                    assert_eq!(row["matches"], json!([{"line":1,"value":"needle"}]));
                 } else {
                     assert!(row.get("commitSha").is_none());
                 }
@@ -116,13 +116,13 @@ fn unsearched_ref_guidance_distinguishes_named_files_and_scopes() {
 /// every path that shares it; path-only rows and differing rows stay.
 #[test]
 fn identical_files_are_listed_once_with_every_path() {
-    let header = json!(["1\t# Octocode"]);
+    let header = json!([{"line":1,"value":"# Octocode"}]);
     let mut items = vec![
-        json!({"path": "a/README.md", "lines": header}),
-        json!({"path": "src/x.rs", "lines": ["3\tfn octocode()"]}),
-        json!({"path": "b/README.md", "lines": header}),
-        json!({"path": "c/README.md", "lines": header, "matchCount": 40}),
-        json!({"path": "d/README.md", "lines": header}),
+        json!({"path": "a/README.md", "matches": header}),
+        json!({"path": "src/x.rs", "matches": [{"line":3,"value":"fn octocode()"}]}),
+        json!({"path": "b/README.md", "matches": header}),
+        json!({"path": "c/README.md", "matches": header, "matchCount": 40}),
+        json!({"path": "d/README.md", "matches": header}),
         json!({"path": "p1"}),
         json!({"path": "p2"}),
     ];
@@ -130,9 +130,9 @@ fn identical_files_are_listed_once_with_every_path() {
     assert_eq!(
         items,
         vec![
-            json!({"path": "a/README.md", "alsoAt": ["b/README.md", "d/README.md"], "lines": header}),
-            json!({"path": "src/x.rs", "lines": ["3\tfn octocode()"]}),
-            json!({"path": "c/README.md", "lines": header, "matchCount": 40}),
+            json!({"path": "a/README.md", "alsoAt": ["b/README.md", "d/README.md"], "matches": header}),
+            json!({"path": "src/x.rs", "matches": [{"line":3,"value":"fn octocode()"}]}),
+            json!({"path": "c/README.md", "matches": header, "matchCount": 40}),
             json!({"path": "p1"}),
             json!({"path": "p2"}),
         ]
@@ -143,23 +143,23 @@ fn identical_files_are_listed_once_with_every_path() {
 /// in the row's order; a row without a `path` is never merged.
 #[test]
 fn identical_evidence_ignores_only_the_path_entry() {
-    let lines = json!(["1\tfn main()"]);
+    let lines = json!([{"line":1,"value":"fn main()"}]);
     let mut items = vec![
-        json!({"lines": lines, "path": "a.rs", "matchCount": 1}),
-        json!({"lines": lines, "path": "b.rs", "matchCount": 1}),
-        json!({"lines": lines, "matchCount": 1, "path": "c.rs"}),
-        json!({"matchCount": 1, "lines": lines, "path": "d.rs"}),
-        json!({"lines": lines, "matchCount": 1}),
-        json!({"lines": lines, "matchCount": 1}),
+        json!({"matches": lines, "path": "a.rs", "matchCount": 1}),
+        json!({"matches": lines, "path": "b.rs", "matchCount": 1}),
+        json!({"matches": lines, "matchCount": 1, "path": "c.rs"}),
+        json!({"matchCount": 1, "matches": lines, "path": "d.rs"}),
+        json!({"matches": lines, "matchCount": 1}),
+        json!({"matches": lines, "matchCount": 1}),
     ];
     merge_identical(&mut items);
     assert_eq!(
         items,
         vec![
-            json!({"path": "a.rs", "alsoAt": ["b.rs", "c.rs"], "lines": lines, "matchCount": 1}),
-            json!({"matchCount": 1, "lines": lines, "path": "d.rs"}),
-            json!({"lines": lines, "matchCount": 1}),
-            json!({"lines": lines, "matchCount": 1}),
+            json!({"path": "a.rs", "alsoAt": ["b.rs", "c.rs"], "matches": lines, "matchCount": 1}),
+            json!({"matchCount": 1, "matches": lines, "path": "d.rs"}),
+            json!({"matches": lines, "matchCount": 1}),
+            json!({"matches": lines, "matchCount": 1}),
         ]
     );
 }

@@ -14,7 +14,7 @@ pub(super) fn repositories(query: &GhSearchRepoQuery) -> String {
         }
         for (key, value) in [
             ("stars", &filters.stars),
-            ("forks", &filters.fork_count),
+            ("forks", &filters.forks),
             ("size", &filters.size_ki_b),
             ("good-first-issues", &filters.good_first_issue_count),
             ("help-wanted-issues", &filters.help_wanted_issue_count),

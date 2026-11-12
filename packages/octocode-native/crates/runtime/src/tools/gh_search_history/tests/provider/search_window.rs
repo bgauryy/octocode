@@ -361,8 +361,7 @@ async fn the_last_page_of_an_issue_search_keeps_its_pagination() {
     .await
     .expect("issue search");
     let pagination = &data["pagination"];
-    assert_eq!(pagination["page"], 2, "{data}");
-    assert_eq!(pagination["totalPages"], 2, "{data}");
-    assert_eq!(pagination["totalItems"], 61, "{data}");
+    assert_eq!(pagination["offset"], 50, "{data}");
+    assert_eq!(pagination["total"], 61, "{data}");
     assert_eq!(pagination["hasMore"], false, "{data}");
 }

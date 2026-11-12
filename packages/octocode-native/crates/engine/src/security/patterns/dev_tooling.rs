@@ -15,16 +15,18 @@ macro_rules! env_read {
 }
 
 /// The characters of a literal's body: an escape, or anything but its own
-/// closing quote.
+/// closing quote. A backslash before a line break continues the literal on
+/// the next line (`"Zq7X…\` then the rest): the program holds one string,
+/// so the body goes on there.
 macro_rules! body {
     (dq) => {
-        r###"(?:\\[^\r\n]|[^"\\\r\n])*"###
+        r###"(?:\\(?:\r?\n|[^\r\n])|[^"\\\r\n])*"###
     };
     (sq) => {
-        r###"(?:\\[^\r\n]|[^'\\\r\n])*"###
+        r###"(?:\\(?:\r?\n|[^\r\n])|[^'\\\r\n])*"###
     };
     (bt) => {
-        r###"(?:\\[^\r\n]|[^`\\\r\n])*"###
+        r###"(?:\\(?:\r?\n|[^\r\n])|[^`\\\r\n])*"###
     };
 }
 
@@ -159,9 +161,9 @@ macro_rules! literals {
             split_literal!("`", body!(bt), "`", "secret_split_bs", "'", body!(sq), "'"),
             "|",
             split_literal!("`", body!(bt), "`", "secret_split_bb", "`", body!(bt), "`"),
-            r###"|[A-Za-z@$]{0,2}#*"(?P<secret>(?:\\[^\r\n]|[^"\\\r\n]){8,})""###,
-            r###"|[A-Za-z]{0,2}'(?P<secret_single>(?:\\[^\r\n]|[^'\\\r\n]){8,})'"###,
-            r###"|`(?P<secret_backtick>(?:\\[^\r\n]|[^`\\\r\n]){8,})`"###,
+            r###"|[A-Za-z@$]{0,2}#*"(?P<secret>(?:\\(?:\r?\n|[^\r\n])|[^"\\\r\n]){8,})""###,
+            r###"|[A-Za-z]{0,2}'(?P<secret_single>(?:\\(?:\r?\n|[^\r\n])|[^'\\\r\n]){8,})'"###,
+            r###"|`(?P<secret_backtick>(?:\\(?:\r?\n|[^\r\n])|[^`\\\r\n]){8,})`"###,
             // The same literals read with no escape, after the reads above
             // found none that closes: a raw string (`r"…\"`, `@"…\"`), a Go
             // raw string or a shell single-quoted value holds a backslash as
@@ -169,6 +171,19 @@ macro_rules! literals {
             r###"|[A-Za-z@$]{0,2}#*"(?P<secret_raw>[^"\r\n]{8,})""###,
             r###"|[A-Za-z]{0,2}'(?P<secret_single_raw>[^'\r\n]{8,})'"###,
             r###"|`(?P<secret_backtick_raw>[^`\r\n]{8,})`"###,
+            // A literal its line ends inside (`token = "<value>` and the
+            // close on a later line), written with no other quote on its
+            // line: lines after it that are each one word with no blank,
+            // the last closing the literal, go on with the value (a key
+            // written over lines, `"<half>` then `<half>"`); otherwise the
+            // text before the break is a value of its own, as before a
+            // control escape.
+            r###"|[A-Za-z@$]{0,2}#*"(?P<secret_open>(?:\\[^\r\n]|[^"'`\\\r\n]){8,}(?:\r?\n[ \t]*(?:\\[^\r\n]|[^"'`\\\s])+)+)""###,
+            r###"|[A-Za-z@$]{0,2}#*"(?P<secret_open_line>(?:\\[^\r\n]|[^"'`\\\r\n]){8,})\r?\n"###,
+            r###"|[A-Za-z]{0,2}'(?P<secret_single_open>(?:\\[^\r\n]|[^"'`\\\r\n]){8,}(?:\r?\n[ \t]*(?:\\[^\r\n]|[^"'`\\\s])+)+)'"###,
+            r###"|[A-Za-z]{0,2}'(?P<secret_single_open_line>(?:\\[^\r\n]|[^"'`\\\r\n]){8,})\r?\n"###,
+            r###"|`(?P<secret_backtick_open>(?:\\[^\r\n]|[^"'`\\\r\n]){8,}(?:\r?\n[ \t]*(?:\\[^\r\n]|[^"'`\\\s])+)+)`"###,
+            r###"|`(?P<secret_backtick_open_line>(?:\\[^\r\n]|[^"'`\\\r\n]){8,})\r?\n"###,
             // A literal written inside another literal's text, its quotes
             // escaped (`"jwt_secret = \"…\";"`): the escaped quotes are its own.
             r###"|\\"(?P<secret_escaped>(?:[^\\\r\n]|\\[^"\r\n])+?)\\")"###
@@ -517,7 +532,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
             name_number!(),
             r###"(?:[_.-][A-Za-z0-9]+)*|[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)*(?:Secret|Password|Passwd|Passphrase|Token|ApiKey|AccessKey|PrivateKey|AuthKey|Credential)s?"###,
             name_number!(),
-            r###"(?:[A-Z][a-z0-9]*)*)[ \t]*:(?:[ \t]+(?:"(?P<secret>[^"\\\s$\{](?:\\[^\r\n]|[^"\\\r\n])*)"|'(?P<secret_single>[^'\s$\{][^'\r\n]*)'|(?P<secret_bare>[^\s"'#$&*!|>{}\[\]:%@`](?:[^\r\n:#]|:[^\s#])*?))"###,
+            r###"(?:[A-Z][a-z0-9]*)*)[ \t]*:(?:[ \t]+(?:"(?P<secret>[^"\\\s$\{](?:\\(?:\r?\n|[^\r\n])|[^"\\\r\n])*)"|'(?P<secret_single>[^'\s$\{][^'\r\n]*)'|(?P<secret_bare>[^\s"'#$&*!|>{}\[\]:%@`](?:[^\r\n:#]|:[^\s#])*?))"###,
             // A plain scalar may start on the line after its key, indented
             // under it: one word there (a list item, a nested key or a
             // sentence of a definition list is none).

@@ -365,12 +365,23 @@ pub struct ArtifactError {
     /// tool's repair lead reads them.
     #[serde(skip)]
     pub nearest: Vec<String>,
+    /// `nearest` ranks every version the registry publishes, so fewer than
+    /// one call reads means there are no more to suggest.
+    #[serde(skip)]
+    pub nearest_ranked: bool,
     /// The package name is no exact coordinate of the registry but a search
     /// term (a bare Maven artifact name): the tool's repair lead searches it
     /// as keywords.
     #[serde(skip)]
     pub searchable_name: bool,
+    /// The package exists and the requested version does not: a `notFound`
+    /// whose repair reads another version, never a search for the name.
+    #[serde(skip)]
+    pub missing_version: bool,
 }
+
+/// The recovery of a version a known package does not publish.
+const VERSION_NOT_FOUND_HINT: &str = "Version not found: check the registry and manifest/lockfile version; discover published versions before choosing another version.";
 
 impl ArtifactError {
     pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
@@ -381,7 +392,19 @@ impl ArtifactError {
             hints: vec![],
             calls: None,
             nearest: vec![],
+            nearest_ranked: false,
             searchable_name: false,
+            missing_version: false,
+        }
+    }
+
+    /// A known package without the requested version (`notFound`), with the
+    /// recovery the message alone does not state.
+    pub(crate) fn version_not_found(message: impl Into<String>) -> Self {
+        Self {
+            hints: vec![VERSION_NOT_FOUND_HINT.to_owned()],
+            missing_version: true,
+            ..Self::new(ErrorCode::NotFound, message).with_status(404)
         }
     }
 

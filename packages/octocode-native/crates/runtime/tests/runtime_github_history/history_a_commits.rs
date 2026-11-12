@@ -42,7 +42,7 @@ async fn history_a_commit_include_matching_nothing_warns_with_nearest_dirs() {
         .await
         .expect("commit");
     let data = row_data(&outcome);
-    assert_eq!(data["changedFilesCount"], 5, "{data}");
+    assert_eq!(data["changedFileCount"], 5, "{data}");
     assert_eq!(inventory_len(&data["files"]), 2, "{data}");
     assert!(data.get("commitTotals").is_none(), "{data}");
     assert!(
@@ -53,7 +53,7 @@ async fn history_a_commit_include_matching_nothing_warns_with_nearest_dirs() {
         .await
         .expect("commit");
     let data = row_data(&outcome);
-    assert_eq!(data["changedFilesCount"], 5, "{data}");
+    assert_eq!(data["changedFileCount"], 5, "{data}");
     let warnings = data["warnings"].to_string();
     assert!(
         warnings.contains("matched 0 of 5") && warnings.contains("packages/react/src/"),

@@ -38,7 +38,7 @@ pub(super) struct Room {
 /// Pages assigned in row order: a page takes fragments while they fit
 /// `row_budget`, and never two parts of one row, so the entry for a row on
 /// a page is all of that row the page holds. Each page is one call a reader
-/// makes, so the page count is the response's `totalPages`.
+/// makes.
 pub(super) struct Pages {
     row_budget: usize,
     placed: Vec<Placed>,

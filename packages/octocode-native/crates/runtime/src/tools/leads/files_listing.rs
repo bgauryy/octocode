@@ -35,6 +35,7 @@ pub(crate) fn files_listing(path: &str) -> Option<StructureSearchQueryFiles> {
     Some(StructureSearchQueryFiles {
         access: None,
         accessed_at: None,
+        bytes: None,
         classification: None,
         default_excludes: None,
         selection: None,
@@ -57,7 +58,6 @@ pub(crate) fn files_listing(path: &str) -> Option<StructureSearchQueryFiles> {
         permissions: None,
         reasoning: None,
         scan_offset: None,
-        size_bytes: None,
         snapshot: None,
         sort: StructureSearchSort::AnyOrder(StructureSearchSortAnyOrder {
             by: StructureSearchSortAnyOrderBy::Path,

@@ -195,7 +195,7 @@ pub(super) fn symbols(
                 window.try_push(|| {
                     let mut row = g.node_json(id, cancel)?;
                     if !g.compact_provenance {
-                        row.remove("file");
+                        row.remove("path");
                     }
                     row.insert("depth".into(), json!(depth));
                     Ok(Value::Object(row))

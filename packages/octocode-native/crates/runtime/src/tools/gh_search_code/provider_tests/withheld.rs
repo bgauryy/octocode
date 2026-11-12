@@ -84,7 +84,7 @@ async fn a_policy_that_opens_the_file_reads_its_lines() {
     mount(&server).await;
     let out = search(&server, &|_: &str| false).await;
     assert!(reads(&server).await > 0, "{out}");
-    assert!(out.contains("\"lines\""), "{out}");
+    assert!(out.contains("\"matches\""), "{out}");
     assert!(
         !out.contains("withheld by the security path policy"),
         "{out}"

@@ -201,7 +201,7 @@ async fn maven_parses_exact_xml_lookup() {
 
 /// An exact Maven version reads that version's POM and pins the
 /// upstream tag without the `-jre` classifier; an unlisted version is
-/// `versionNotFound` with the nearest published versions.
+/// `notFound` with the nearest published versions.
 #[tokio::test]
 async fn maven_exact_version_reads_that_release_and_its_tag() {
     let metadata = concat!(
@@ -246,7 +246,7 @@ async fn maven_exact_version_reads_that_release_and_its_tag() {
     )
     .await
     .expect_err("unlisted version");
-    assert_eq!(error.code, ErrorCode::VersionNotFound);
+    assert_eq!(error.code, ErrorCode::NotFound);
     assert!(
         error.nearest.iter().any(|version| version == "33.0.0-jre"),
         "{error:?}"

@@ -216,6 +216,7 @@ impl Graph {
             .map_err(|error| GraphOutput::error(error.code, error.message))
         })?;
         output.value["sourceEvidence"] = json!(descriptors);
+        self.rebase_paths(&mut output.value["sourceEvidence"]);
         Ok(())
     }
 }

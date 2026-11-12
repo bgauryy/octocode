@@ -26,10 +26,10 @@ pub(super) fn io_error(path: &str, error: std::io::Error) -> ToolError {
     }
 }
 
-/// `pathNotFound` with the path policy's message.
+/// `notFound` with the path policy's message.
 fn path_not_found(path: &str) -> ToolError {
     ToolError::new(
-        ErrorCode::PathNotFound,
+        ErrorCode::NotFound,
         format!("Path does not exist: {path}"),
     )
 }
@@ -42,7 +42,7 @@ pub(super) fn native_error(error: octocode_engine::error::Error) -> ToolError {
     let code = match error.kind() {
         ErrorKind::NotFound => {
             return ToolError::new(
-                ErrorCode::PathNotFound,
+                ErrorCode::NotFound,
                 format!("Path does not exist ({message})"),
             );
         }
@@ -89,19 +89,19 @@ mod tests {
         let policy = policy_error(PolicyError::new(PolicyErrorCode::SymlinkEscape, "escape"));
         assert_eq!(policy.code, ErrorCode::SymlinkEscape);
         let missing = policy_error(PolicyError::new(PolicyErrorCode::NotFound, "missing"));
-        assert_eq!(missing.code, ErrorCode::PathNotFound);
+        assert_eq!(missing.code, ErrorCode::NotFound);
         let gone = io_error(
             "src/gone.rs",
             std::io::Error::from(std::io::ErrorKind::NotFound),
         );
-        assert_eq!(gone.code, ErrorCode::PathNotFound);
+        assert_eq!(gone.code, ErrorCode::NotFound);
         assert_eq!(gone.message, "Path does not exist: src/gone.rs");
         use octocode_engine::error::{Error, ErrorKind};
         let engine = native_error(Error::with_kind(
             ErrorKind::NotFound,
             "Cannot access structural search path '/w/x'",
         ));
-        assert_eq!(engine.code, ErrorCode::PathNotFound);
+        assert_eq!(engine.code, ErrorCode::NotFound);
         assert_eq!(
             engine.message,
             "Path does not exist (Cannot access structural search path '/w/x')"

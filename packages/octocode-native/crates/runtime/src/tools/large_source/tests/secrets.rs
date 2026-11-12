@@ -316,3 +316,90 @@ fn a_later_page_stays_hidden_from_the_kept_pass() {
     assert!(!shown.contains(VALUE), "{later:?}");
     assert_eq!(later.source_sha256.as_deref(), Some(digest.as_str()));
 }
+
+/// Retest R6: a source past the whole-file ceiling (a long line, then key
+/// blocks), walked by every continuation from its start to its end. The note
+/// that key lines were replaced stands on the page that shows their
+/// placeholders, and only there; and each hidden line of a block shows the
+/// placeholder, never an empty line. A PGP armor's `Version:` and `Comment:`
+/// headers read as written.
+#[test]
+fn a_key_blocks_note_and_placeholders_stand_on_the_page_that_shows_them() {
+    const NOTE: &str = "inside private-key blocks were replaced";
+    let body: Vec<String> = (0..19)
+        .map(|at| {
+            format!(
+                "MIIEfake{at:02}{}",
+                "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVow".repeat(2)
+            )[..64]
+                .to_owned()
+        })
+        .collect();
+    let mut text = "word ".repeat(past_whole() / 5 + 1);
+    text.push('\n');
+    text.push_str("plain filler line\n".repeat(40).as_str());
+    text.push_str("-----BEGIN RSA PRIVATE KEY-----\n");
+    for line in &body {
+        text.push_str(line);
+        text.push('\n');
+    }
+    text.push_str("-----END RSA PRIVATE KEY-----\nfiller between\n");
+    text.push_str(
+        "-----BEGIN PGP PRIVATE KEY BLOCK-----\nVersion: GnuPG v2\nComment: fabricated\n\n",
+    );
+    for line in &body[..5] {
+        text.push_str(&line.replace("MIIE", "lQOY"));
+        text.push('\n');
+    }
+    text.push_str("-----END PGP PRIVATE KEY BLOCK-----\ntail line\n");
+    let file = temp(text.as_bytes());
+    let placeholder = crate::security::key_fragment_placeholder();
+    let mut next = query(serde_json::json!({"path": file.path()}));
+    let mut shown = String::new();
+    loop {
+        let page = fetch(&file, &next, None);
+        assert_eq!(page.status, ReadStatus::Success, "{page:?}");
+        let content = page.content.clone().expect("a page");
+        let noted = page.warnings.iter().any(|warning| warning.contains(NOTE));
+        assert_eq!(
+            noted,
+            content.contains(&placeholder),
+            "the note stands where the placeholders do: {:?} {:?}",
+            page.warnings,
+            content.get(..content.len().min(200))
+        );
+        shown.push_str(&content);
+        let Some(call) = page.next.and_then(|next| next.continue_window) else {
+            break;
+        };
+        next = call.query;
+    }
+    for line in &body {
+        assert!(!shown.contains(&line[8..40]), "a body line shows");
+    }
+    let lines: Vec<&str> = shown.lines().collect();
+    let begin = lines
+        .iter()
+        .position(|line| line.ends_with("-----BEGIN RSA PRIVATE KEY-----"))
+        .expect("the RSA armor shows");
+    for line in &lines[begin + 1..=begin + body.len()] {
+        assert!(line.ends_with(&placeholder), "{line:?}");
+    }
+    let pgp = lines
+        .iter()
+        .position(|line| line.ends_with("-----BEGIN PGP PRIVATE KEY BLOCK-----"))
+        .expect("the PGP armor shows");
+    assert!(
+        lines[pgp + 1].ends_with("Version: GnuPG v2"),
+        "{:?}",
+        &lines[pgp..]
+    );
+    assert!(
+        lines[pgp + 2].ends_with("Comment: fabricated"),
+        "{:?}",
+        &lines[pgp..]
+    );
+    for line in &lines[pgp + 4..pgp + 9] {
+        assert!(line.ends_with(&placeholder), "{:?}", &lines[pgp..]);
+    }
+}

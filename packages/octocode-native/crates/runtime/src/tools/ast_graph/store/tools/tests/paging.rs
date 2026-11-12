@@ -64,7 +64,7 @@ fn a_page_ends_at_limit_or_the_response_budget() {
         walked.extend(rows);
         match page.pointer("/next/nextPage/input/queries/0") {
             Some(next) => query = next.clone(),
-            None => break page["pagination"]["totalItems"].as_u64().expect("total"),
+            None => break page["pagination"]["total"].as_u64().expect("total"),
         }
     };
     assert!(pages > 1, "a 1000-row limit is cut by the budget");

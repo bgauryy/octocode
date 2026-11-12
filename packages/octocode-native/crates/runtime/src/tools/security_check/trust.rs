@@ -6,9 +6,7 @@ use super::Net;
 use super::advisories::{self, End};
 use super::answer::typed;
 use super::record::{SecurityAdvisory, Selection};
-use super::repository::{
-    self, RepoRead, caution, github_source, read_github, repository_block,
-};
+use super::repository::{self, RepoRead, caution, github_source, read_github, repository_block};
 use super::source::{Confirmed, Source, SourceResult};
 use super::update::Latest;
 use crate::contracts::security::{SecurityContract, security_contract};

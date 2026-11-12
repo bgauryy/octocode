@@ -120,7 +120,7 @@ pub(super) fn annotate_unanswered(
                 files.len()
             );
         }
-        flag_with_ignored(row, query, scope, name, note, ignored.as_ref());
+        flag_with_ignored(row, query, scope, note, ignored.as_ref());
         return;
     };
     let others = dependent_projects(scope, &files, root);
@@ -131,12 +131,12 @@ pub(super) fn annotate_unanswered(
 }
 
 /// The ignored files' share of a coverage note: counted, with the rules that
-/// hide them, and a lead that reads them.
+/// hide them. No lead reads them: an ignored file is scratch, output or a
+/// copy outside the project, never a place an answer sends the caller.
 fn flag_with_ignored(
     row: &mut Value,
     query: &LspSearchQuery,
     scope: &Scope,
-    name: &str,
     mut note: String,
     ignored: Option<&super::super::scope::IgnoredSpelling>,
 ) {
@@ -147,12 +147,6 @@ fn flag_with_ignored(
         note.push_str(&ignored_clause(found));
     }
     super::super::failure::flag_partial(row, query, UNANSWERED_REASON, Some(&note), scope);
-    if let Some(found) = ignored
-        && let Some(lead) =
-            super::super::failure::ignored_text_lead(name, scope, &found.files, found.unfinished)
-    {
-        crate::response::result::attach_related(row, lead);
-    }
 }
 
 /// Why files under ignore rules leave the answer open: the server's project
@@ -168,7 +162,7 @@ fn ignored_clause(found: &super::super::scope::IgnoredSpelling) -> String {
         ""
     };
     format!(
-        "{} gitignored or hidden file(s) ({rules}) spell this name in code, outside the project the server loaded; a localSearch with includeIgnored and includeHidden reads them.{more}",
+        "{} gitignored or hidden file(s) ({rules}) spell this name in code, outside the project the server loaded.{more}",
         found.files.len()
     )
 }
@@ -209,7 +203,7 @@ fn flag_other_projects(
             others.values().map(Vec::len).sum::<usize>()
         )
     };
-    flag_with_ignored(row, query, scope, name, note, ignored);
+    flag_with_ignored(row, query, scope, note, ignored);
     let roots = others
         .keys()
         .map(|root| root.to_string_lossy().into_owned())

@@ -4,18 +4,16 @@ use crate::tools::local_search::local_search_query::View;
 
 use super::super::coverage::Coverage;
 use super::super::layout::Layout;
-use super::super::leads::{Found, parent_folder_lead, restart_lead, scope_listing};
+use super::super::leads::{BINARY_LISTING, Found, parent_folder_lead, restart_lead, scope_listing};
 use super::super::probes::{Ancestor, matching_ancestor};
-use super::super::types::{
-    FileErrors, FilePagination, LocalSearchResult, SearchStats, SearchStatus,
-};
+use super::super::types::{FileErrors, LocalSearchResult, Paging, SearchStats, SearchStatus};
 use super::super::verify::PageScope;
 use super::projection::Annotated;
 
 use super::super::local_search_query;
 use crate::execution::cancel::CancellationCheck;
 use crate::response::result::ToolError;
-use octocode_contract_types::{LocalSearchQuery, OutputPaginationVariant0Unit};
+use octocode_contract_types::LocalSearchQuery;
 use octocode_engine::types::TextSearchOptions;
 use serde_json::{Value, json};
 
@@ -147,12 +145,15 @@ pub(super) fn settle_row(
     // A plain miss (nothing skipped, filtered or cut explains it) under a
     // narrower path: one probe finds the narrowest folder above it where the
     // same search matches, and the lead goes there; when the probe cannot
-    // tell, the same search one folder up is the step, said as such.
-    if status == SearchStatus::Empty && next.is_none() && coverage.plain_miss() {
+    // tell, the same search one folder up is the step, said as such. Skipped
+    // binaries hold no text the search could match, so their listing never
+    // stands in for this lead: it follows it.
+    if status == SearchStatus::Empty && only_binary_listing(next.as_ref()) && coverage.plain_miss()
+    {
         match matching_ancestor(page.search_options, query, paths, page.root, cancel) {
             Ancestor::Found { dir, files, floor } => {
                 let lead = restart_lead(query, json!({ "path": dir }))?;
-                next = Some(json!({ "broadenSearch": lead }));
+                lead_first(&mut next, "broadenSearch", lead);
                 let floor = if floor { "at least " } else { "" };
                 let what = if local_search_query::view(query) == View::FilesWithout {
                     "lack a match"
@@ -163,15 +164,20 @@ pub(super) fn settle_row(
                     "No match in this path; {floor}{files} file(s) under {dir} {what}: related[] searches there."
                 ));
             }
-            Ancestor::Nowhere => {
+            Ancestor::Nowhere { tree: None } => {
                 hints.push(
                     "No match in this path, nor anywhere else in the workspace under the same filters."
                         .to_owned(),
                 );
             }
+            Ancestor::Nowhere { tree: Some(tree) } => {
+                hints.push(format!(
+                    "No match in this path, nor anywhere else under {tree} under the same filters."
+                ));
+            }
             Ancestor::Unknown => {
                 if let Some(lead) = parent_folder_lead(query, paths, page.root)? {
-                    next = Some(json!({ "broadenSearch": lead }));
+                    lead_first(&mut next, "broadenSearch", lead);
                     hints.push(
                         "No match in this path; related[] searches one folder up.".to_owned(),
                     );
@@ -204,6 +210,22 @@ pub(super) fn settle_row(
     })
 }
 
+/// Whether `next` holds no lead, or only the listing of skipped binaries.
+fn only_binary_listing(next: Option<&Value>) -> bool {
+    next.and_then(Value::as_object)
+        .is_none_or(|calls| calls.keys().all(|name| name == BINARY_LISTING))
+}
+
+/// `lead` as `next`'s first call, before the ones already there.
+fn lead_first(next: &mut Option<Value>, name: &str, lead: Value) {
+    let mut calls = serde_json::Map::new();
+    calls.insert(name.to_owned(), lead);
+    if let Some(Value::Object(earlier)) = next.take() {
+        calls.extend(earlier);
+    }
+    *next = Some(Value::Object(calls));
+}
+
 /// The lead past the pages: a scope miss or an unproven empty result
 /// (`lists_scope`) leads to the scope's listing, with the search's globs
 /// when they matched files (`Some(true)`), without them when they matched
@@ -227,38 +249,31 @@ fn route_beyond_pages(
     }
 }
 
-/// File paging, reported only when it routes somewhere: more file pages,
-/// rows left in the shown files (`leftover_matches`), or a requested page
-/// past the end. Totals live once, in `stats` (occurrences and matched
-/// lines); the next page number and the snapshot live once, in
-/// `next.*.query`.
+/// File paging, reported only when it routes somewhere: more pages, rows
+/// left in the shown files (`leftover_matches`), or a requested page past
+/// the end. It counts files on list and grid pages and hit rows (lines, or
+/// matches on matchOnly pages) on streamed pages; the cursor that reads on lives in `next.*`.
 fn file_paging(
     query: &LocalSearchQuery,
     layout: &Layout,
     total_files: u32,
     leftover_matches: bool,
-) -> Option<FilePagination> {
+) -> Option<Paging> {
     let page = local_search_query::page(query).max(1);
-    let match_page = local_search_query::match_page(query).max(1);
     let has_more = page < layout.total_pages || leftover_matches;
     let unit = if layout.list || !layout.streamed {
-        Some(OutputPaginationVariant0Unit::Files)
+        "files"
     } else {
-        (local_search_query::view(query) != View::MatchOnly)
-            .then_some(OutputPaginationVariant0Unit::Lines)
+        layout.row_unit
     };
-    (total_files > 0 && (has_more || layout.total_pages > 1 || layout.out_of_range)).then_some(
-        FilePagination {
+    (total_files > 0 && (has_more || layout.total_pages > 1 || layout.out_of_range)).then(|| {
+        Paging::of(
             unit,
-            page,
-            match_page: (match_page > 1).then_some(match_page),
-            total_pages: layout.total_pages,
-            files_per_page: layout.files_per_page,
-            total_items: layout.total_items,
+            (layout.offset, layout.length, layout.total_items as usize),
             has_more,
-            out_of_range: layout.out_of_range,
-        },
-    )
+            layout.out_of_range,
+        )
+    })
 }
 
 /// The row's status, and whether it ends at a limit nothing continues.

@@ -65,13 +65,13 @@ async fn github_tree_materialize_is_accepted_and_emits_location() {
         outcome.structured_content
     );
     let data = row_data(&outcome);
-    assert!(data["location"]["localPath"].as_str().is_some(), "{}", data);
+    assert!(data["location"]["path"].as_str().is_some(), "{}", data);
     assert_eq!(data["location"]["coverage"]["state"], "complete", "{data}");
     assert!(
         data.pointer("/next/continueMaterialize").is_none(),
         "{data}"
     );
-    let local = std::path::PathBuf::from(data["location"]["localPath"].as_str().expect("checkout"));
+    let local = std::path::PathBuf::from(data["location"]["path"].as_str().expect("checkout"));
     for name in (0..60).map(|n| format!("f{n:02}.rs")) {
         assert_eq!(
             std::fs::read_to_string(local.join(name)).expect("materialized source"),
@@ -162,11 +162,7 @@ async fn github_tree_materialize_with_unwritten_folders_is_not_complete() {
         completed["location"]["coverage"]["state"], "complete",
         "{completed}"
     );
-    let local = std::path::Path::new(
-        completed["location"]["localPath"]
-            .as_str()
-            .expect("checkout"),
-    );
+    let local = std::path::Path::new(completed["location"]["path"].as_str().expect("checkout"));
     assert_eq!(
         std::fs::read_to_string(local.join("router/inside.rs")).expect("nested source"),
         "fn inside() {}\n"

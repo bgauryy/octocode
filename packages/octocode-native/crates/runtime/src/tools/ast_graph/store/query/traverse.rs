@@ -264,12 +264,12 @@ fn per_module(page: Page) -> Page {
 fn per_file(page: Page) -> Page {
     let mut files = BTreeMap::<String, u64>::new();
     for row in &page.rows {
-        let file = row["file"].as_str().unwrap_or_default();
+        let file = row["path"].as_str().unwrap_or_default();
         *files.entry(file.to_owned()).or_default() += 1;
     }
     let rows = files
         .into_iter()
-        .map(|(file, edges)| json!({"file": file, "edges": edges}))
+        .map(|(file, edges)| json!({"path": file, "edges": edges}))
         .collect::<Vec<_>>();
     Page {
         total: rows.len(),

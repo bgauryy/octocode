@@ -3,7 +3,7 @@
 use super::{Daemon, MAX_REQUEST_BYTES};
 use crate::cli::output::Printed;
 use crate::cli::serve::runs_on_server;
-use crate::cli::serve::unix::frames::{forward, progress_scope};
+use crate::cli::serve::unix::frames::{Backlog, Frames, Gone, progress_scope};
 use crate::cli::serve::unix::read_line_bounded;
 use crate::cli::serve::unix::served::Served;
 use crate::cli::serve::unix::sockets::touch;
@@ -13,23 +13,32 @@ use serde_json::json;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-/// Await `execution` unless the client leaves first: it never writes after
-/// its request, so a read that returns (end of stream on Ctrl-C or exit)
-/// means it left. Then `cancel` runs, the cancelled work drains, and the
-/// result is `None`.
-pub(in crate::cli::serve::unix) async fn unless_left<T>(
-    execution: impl std::future::Future<Output = T>,
+/// Await `work` while its progress and heartbeats go to the client as
+/// frames, unless the client leaves first: it never writes after its
+/// request, so a read that returns (end of stream on Ctrl-C or exit) means
+/// it left, as does a client that takes no byte for the frames' silence.
+/// Then the frames still queued are dropped, `cancel` runs, the cancelled
+/// work drains, and the result is `None`. A result is followed by the
+/// progress the client was not yet sent, so the caller's reply comes last.
+pub(in crate::cli::serve::unix) async fn attended<T>(
+    work: impl std::future::Future<Output = T>,
     client: &mut (impl tokio::io::AsyncRead + Unpin),
+    frames: &mut Frames<impl tokio::io::AsyncWrite + Unpin>,
+    backlog: &Backlog,
     cancel: impl FnOnce(),
 ) -> Option<T> {
     use tokio::io::AsyncReadExt;
-    tokio::pin!(execution);
+    tokio::pin!(work);
     let mut probe = [0u8; 1];
-    tokio::select! {
-        result = &mut execution => Some(result),
-        _ = client.read(&mut probe) => {
+    let ran = tokio::select! {
+        ran = frames.run(work.as_mut(), backlog) => ran,
+        _ = client.read(&mut probe) => Err(Gone),
+    };
+    match ran {
+        Ok(result) => frames.drain(backlog).await.ok().map(|()| result),
+        Err(Gone) => {
             cancel();
-            let _ = execution.await;
+            let _ = work.await;
             None
         }
     }
@@ -40,68 +49,106 @@ pub(in crate::cli::serve::unix) async fn unless_left<T>(
 /// write the printed call back. A request this server cannot answer as the
 /// client would run it gets a `fallback` reply, so the client runs it in
 /// process. A [`STOP`](super::sockets::STOP) request stops the server.
-/// Whether the client asked anything: `false` for a connection that closed
-/// without a request line.
+/// `asked` runs once the request line is read. Whether the client asked
+/// anything: `false` for a connection that closed without a request line,
+/// or sent none before the server began to leave.
 pub(in crate::cli::serve::unix) async fn handle(
     daemon: &Daemon,
     stream: tokio::net::UnixStream,
     id: String,
+    asked: impl FnOnce(),
 ) -> bool {
-    use tokio::io::{AsyncWriteExt, BufReader};
-    let (read, mut write) = stream.into_split();
+    use tokio::io::BufReader;
+    let (read, write) = stream.into_split();
     let mut reader = BufReader::new(read);
-    let Some(line) = read_line_bounded(&mut reader, MAX_REQUEST_BYTES).await else {
+    let line = tokio::select! {
+        line = read_line_bounded(&mut reader, MAX_REQUEST_BYTES) => line,
+        () = daemon.leaving() => None,
+    };
+    let Some(line) = line else {
         return false;
     };
+    asked();
     touch(&daemon.socket);
-    let reply = match serde_json::from_str::<Value>(&line) {
-        Ok(request) if request["stop"] == true => {
-            if request["drain"] == true {
-                daemon.stopped.borrow_mut().push(write);
-            }
-            daemon.stop.notify_one();
-            return true;
+    let request = serde_json::from_str::<Value>(&line);
+    if let Ok(request) = &request
+        && request["stop"] == true
+    {
+        if request["drain"] == true {
+            daemon.wait_for_stop(write);
         }
-        Ok(mut request) => match served(daemon, &mut request).await {
-            Ok((served, tool, json_out, input)) => {
-                let runtime = &served.runtime;
-                // Its progress goes to the client as frames while it runs;
-                // the other notices it raises, and only those, go in its reply.
-                let (notices, mut progress) = progress_scope();
-                let query = input.clone();
-                // The client's directory, which `served` read.
-                let cwd = request["cwd"].as_str().map(PathBuf::from);
-                let printed = match runtime.admit(id.clone()) {
-                    Err(error) => Printed::finish(&tool, Err(error), json_out, &query, None),
-                    Ok(admission) => {
-                        let call = notices.run(runtime.execute(
-                            admission,
-                            tool.clone(),
-                            input,
-                            octocode_native::runtime::Channel::Cli,
-                        ));
-                        let execution = forward(call, &mut progress, &mut write);
-                        let cancel = || {
-                            runtime.requests.cancel(&id);
-                        };
-                        let Some(result) = unless_left(execution, &mut reader, cancel).await else {
-                            return true;
-                        };
-                        Printed::finish(&tool, result, json_out, &query, cwd.as_deref())
-                    }
-                };
-                let mut reply = printed.to_json();
-                reply["notices"] = json!(notices.notices());
-                reply
-            }
-            Err(reason) => json!({ "fallback": reason }),
-        },
+        daemon.stop.notify_one();
+        return true;
+    }
+    let mut frames = Frames::new(write, daemon.pace);
+    let reply = match request {
+        Ok(mut request) => {
+            let answered = answer(daemon, &mut request, &id, &mut reader, &mut frames).await;
+            let Some(reply) = answered else {
+                return true;
+            };
+            reply
+        }
         Err(_) => json!({ "fallback": "the request was not JSON" }),
     };
-    let mut line = reply.to_string();
-    line.push('\n');
-    let _ = write.write_all(line.as_bytes()).await;
+    let _ = frames.send(&reply).await;
     true
+}
+
+/// The reply to `request`: the call as printed with the notices it raised,
+/// or a `fallback`; `None` when the client left before it.
+async fn answer(
+    daemon: &Daemon,
+    request: &mut Value,
+    id: &str,
+    client: &mut (impl tokio::io::AsyncRead + Unpin),
+    frames: &mut Frames<impl tokio::io::AsyncWrite + Unpin>,
+) -> Option<Value> {
+    // Its progress goes to the client as frames while it runs; the other
+    // notices it raises, and only those, go in its reply.
+    let (notices, backlog) = progress_scope();
+    let left = std::cell::Cell::new(false);
+    let running = std::cell::RefCell::new(None::<std::rc::Rc<Served>>);
+    let work = async {
+        let (served, tool, json_out, input) = match served(daemon, request).await {
+            Ok(served) => served,
+            Err(reason) => return Some(json!({ "fallback": reason })),
+        };
+        // A client that left while its runtime was built asked for nothing.
+        if left.get() {
+            return None;
+        }
+        let query = input.clone();
+        // The client's directory, which `served` read.
+        let cwd = request["cwd"].as_str().map(PathBuf::from);
+        let runtime = &served.runtime;
+        let printed = match runtime.admit(id.to_owned()) {
+            Err(error) => Printed::finish(&tool, Err(error), json_out, &query, None),
+            Ok(admission) => {
+                *running.borrow_mut() = Some(std::rc::Rc::clone(&served));
+                let call = runtime.execute(
+                    admission,
+                    tool.clone(),
+                    input,
+                    octocode_native::runtime::Channel::Cli,
+                );
+                let result = notices.run(call).await;
+                Printed::finish(&tool, result, json_out, &query, cwd.as_deref())
+            }
+        };
+        let mut reply = printed.to_json();
+        reply["notices"] = json!(notices.notices());
+        Some(reply)
+    };
+    let cancel = || {
+        left.set(true);
+        if let Some(served) = running.borrow().as_ref() {
+            served.runtime.requests.cancel(id);
+        }
+    };
+    attended(work, client, frames, &backlog, cancel)
+        .await
+        .flatten()
 }
 
 /// The runtime, tool, output mode and input of `request`, or why this

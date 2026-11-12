@@ -97,7 +97,7 @@ fn missing_path_offers_an_executable_listing_of_the_nearest_parent() {
         None,
     );
     let error = search_in(&q, &policy, &security, None).expect_err("missing");
-    assert_eq!(error.code, ErrorCode::PathNotFound);
+    assert_eq!(error.code, ErrorCode::NotFound);
     let calls = error.calls.expect("recovery");
     let listing = calls
         .as_object()

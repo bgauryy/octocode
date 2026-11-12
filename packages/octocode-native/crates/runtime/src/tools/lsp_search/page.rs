@@ -167,7 +167,7 @@ fn anchor_unresolved(
     let mut row = failure(
         query,
         &target.uri,
-        ErrorCode::AnchorUnresolved,
+        ErrorCode::NotFound,
         error,
         target.server_resolves(),
     );

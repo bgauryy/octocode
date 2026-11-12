@@ -1,10 +1,7 @@
 //! Change assessment: impact (optionally since a git revision), issues,
 //! drift and baselines.
 use super::*;
-use crate::id::ToolId;
-use crate::response::result::Continuation;
 use crate::tools::ast_graph::build_scope::BuildScope;
-use crate::tools::ast_graph::store::detect::VerifyStep;
 
 mod changed;
 
@@ -163,7 +160,7 @@ impl Query<'_> {
             && let Some(notes) = summary["notes"].as_array_mut()
         {
             // byDetector counts before this filter, so its sum is not the
-            // page's totalItems: say by how much and why.
+            // page's pagination.total: say by how much and why.
             let filters = options.min_score.map_or_else(
                 || format!("minTier {min_tier}"),
                 |score| format!("minTier {min_tier} and minScore {score}"),
@@ -172,7 +169,7 @@ impl Query<'_> {
                 "filter": "minTier",
                 "hidden": hidden,
                 "explanation": format!(
-                    "byDetector counts all {total_before} findings the detectors raised; {filters} hid {hidden}, so {} are listed (pagination.totalItems). Lower them to list the rest.",
+                    "byDetector counts all {total_before} findings the detectors raised; {filters} hid {hidden}, so {} are listed (pagination.total). Lower them to list the rest.",
                     findings.len()
                 ),
             }));
@@ -203,13 +200,6 @@ impl Query<'_> {
                 own_controls(&mut row, finding, &shared);
                 if let Some(state) = status.get(&finding.id) {
                     row["status"] = json!(state);
-                }
-                if !finding.verify.is_empty() {
-                    let calls = finding
-                        .verify
-                        .iter()
-                        .map(|step| verify_call(step, options, &g.id));
-                    row["verify"] = Value::Array(calls.collect());
                 }
                 row
             })
@@ -409,23 +399,6 @@ fn own_controls(
             fields.insert("controls".into(), json!(own));
         }
     }
-}
-
-/// A detector's verify step as a related call against this snapshot: a
-/// graphQuery step gains the snapshot pin; a step naming a root-relative
-/// file (lspSearch) gets the workspace-relative path the tool takes.
-fn verify_call(step: &VerifyStep, options: &QueryOptions, id: &str) -> Value {
-    let mut row = step.row.as_object().cloned().unwrap_or_default();
-    if step.tool == ToolId::GraphQuery {
-        super::paging::pin(&mut row, options, id);
-    } else if let (Some(scope), Some(file)) =
-        (&options.path, row.get("path").and_then(Value::as_str))
-        && scope != "."
-    {
-        let joined = format!("{}/{file}", scope.trim_end_matches('/'));
-        row.insert("path".into(), json!(joined));
-    }
-    Continuation::related(step.tool, Value::Object(row)).build()
 }
 
 #[cfg(test)]

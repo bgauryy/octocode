@@ -16,6 +16,10 @@ pub(crate) fn clones_root(home: &Path) -> PathBuf {
     home.join("clones")
 }
 
+/// How deep each checkout sits under [`clones_root`]: `owner/repo/checkout`
+/// ([`clone_dir`]).
+pub(crate) const CHECKOUT_DEPTH: usize = 3;
+
 /// Root of the shared object stores under the Octocode home. Never a read
 /// root: local tools see checkouts, not the object store behind them.
 pub(crate) fn store_root(home: &Path) -> PathBuf {

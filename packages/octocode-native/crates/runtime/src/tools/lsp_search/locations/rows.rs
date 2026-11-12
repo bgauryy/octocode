@@ -49,7 +49,7 @@ pub(in super::super) fn group_by_file(locations: &[Value]) -> Vec<Value> {
             let match_count = lines.len();
             lines.sort_unstable();
             lines.dedup();
-            json!({ "path": path, "matchCount": match_count, "lines": lines })
+            json!({ "path": path, "matchCount": match_count, "matchedLines": lines })
         })
         .collect()
 }

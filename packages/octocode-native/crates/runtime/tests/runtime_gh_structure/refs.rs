@@ -231,12 +231,21 @@ async fn every_not_found_row_of_a_batch_carries_its_own_recovery_hint() {
     for (at, row) in rows.iter().enumerate() {
         assert_eq!(row["data"]["errorCode"], "notFound", "{row}");
         // The row's message names its own ref and where it looked; its
-        // related[] leads (the refs listing) are the recovery. No hint
-        // restates them (C3eK B-D5: `NO_HINT` for ghStructure).
+        // related[] leads (the refs listing) are the calls, and the one
+        // `notFound` hint, on every row, says to retry with a listed name.
         let name = format!("nope-{}", at + 1);
         let error = row["data"]["error"].as_str().expect("row error");
         assert!(error.contains(&name), "{row}");
-        assert!(row["data"].get("hints").is_none(), "{row}");
+        assert_eq!(
+            row["data"]["hints"], rows[0]["data"]["hints"],
+            "each row its own: {row}"
+        );
+        assert!(
+            row["data"]["hints"][0]
+                .as_str()
+                .is_some_and(|hint| hint.contains("retry with the exact listed")),
+            "{row}"
+        );
         let related = row["data"]["related"].as_array().expect("row related");
         assert!(
             related

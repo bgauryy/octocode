@@ -1,5 +1,5 @@
 //! Happy-path anchors: each operation's row carries the values the next hop
-//! reads (`number`, `headSha`/`baseSha`/`mergeCommitSha`, `commitSha`,
+//! reads (`number`, `headCommitSha`/`baseCommitSha`/`mergeCommitSha`, `commitSha`,
 //! changed files as path+stat, patch lines numbered on their own side).
 use super::{HistoryItemRequest, execute};
 use crate::id::ToolId;

@@ -1,7 +1,7 @@
 //! `artifactSearch.version`: classify a requested version and resolve ranges
 //! against a registry's published versions.
 use super::ArtifactError;
-use octocode_contract_types::ErrorCode;
+use octocode_contract_types::ArtifactType;
 use semver::{Version, VersionReq};
 
 /// What a `version` string asks for.
@@ -149,122 +149,247 @@ fn highest<'a>(
         .map(|version| version.to_string())
 }
 
-/// The numeric release of a version (`2.31.0`, `2.31`), for ordering
-/// nearest-version hints across ecosystems; versions with any label
-/// (`1.0-rc.1`, `2.9.0.post0`) have none. Never a resolver: each
-/// ecosystem resolves ranges with its own semantics.
-fn release_numbers(value: &str) -> Option<Vec<u64>> {
-    let value = value.trim().trim_start_matches('v');
-    let parts = value
-        .split('.')
-        .map(|part| part.parse::<u64>().ok())
-        .collect::<Option<Vec<_>>>()?;
-    (!parts.is_empty()).then_some(parts)
+/// How one ecosystem orders its published versions: the precedence of two
+/// versions (`None` when either is not a version it reads) and which are
+/// prereleases. Nearest-version suggestions read only this, never a
+/// cross-ecosystem guess.
+#[derive(Clone, Copy)]
+pub(crate) struct VersionOrder {
+    pub(crate) cmp: fn(&str, &str) -> Option<std::cmp::Ordering>,
+    pub(crate) prerelease: fn(&str) -> bool,
 }
 
-/// Release numbers in order, missing trailing parts read as 0.
-fn cmp_release_numbers(left: &[u64], right: &[u64]) -> std::cmp::Ordering {
-    let length = left.len().max(right.len());
-    let at = |values: &[u64], index: usize| values.get(index).copied().unwrap_or(0);
-    (0..length)
-        .map(|index| at(left, index).cmp(&at(right, index)))
-        .find(|ordering| ordering.is_ne())
-        .unwrap_or(std::cmp::Ordering::Equal)
-}
-
-/// A known package without the requested version: typed, with the nearest
-/// published versions as the recovery.
-pub(crate) fn version_not_found(name: &str, requested: &str, versions: &[String]) -> ArtifactError {
-    let close = nearest(requested, versions.iter().map(String::as_str));
-    let error = ArtifactError::new(
-        ErrorCode::VersionNotFound,
-        format!("{name} has no published version matching \"{requested}\""),
-    )
-    .with_status(404);
-    ArtifactError {
-        nearest: close,
-        ..error
+impl VersionOrder {
+    fn readable(&self, version: &str) -> bool {
+        (self.cmp)(version, version).is_some()
     }
 }
 
-/// Up to five published versions closest to a missing `requested` one:
-/// those sharing the longest leading numeric prefix, newest first; with no
-/// shared prefix, the final releases just below and above it.
+fn semver_of(value: &str) -> Option<Version> {
+    Version::parse(value.trim().trim_start_matches('v')).ok()
+}
+
+/// Semantic Versioning precedence (npm, crates.io, Go modules): build
+/// metadata takes no part.
+pub(crate) const SEMVER: VersionOrder = VersionOrder {
+    cmp: |left, right| Some(semver_of(left)?.cmp_precedence(&semver_of(right)?)),
+    prerelease: |value| semver_of(value).is_some_and(|version| !version.pre.is_empty()),
+};
+
+/// A version read as its leading release numbers (`2.31.0`) and the label
+/// after them (`rc1`, `-beta.2`, `.Final`); `None` with no leading number.
+fn segments(value: &str) -> Option<(Vec<u64>, &str)> {
+    let value = value.trim().trim_start_matches(['v', 'V']);
+    let mut numbers = Vec::new();
+    let mut rest = value;
+    loop {
+        let digits = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+        let (number, after) = rest.split_at(digits);
+        // A part such as `1a` is a number followed by its label.
+        let Ok(number) = number.parse::<u64>() else {
+            break;
+        };
+        numbers.push(number);
+        rest = after;
+        match rest.strip_prefix('.') {
+            Some(next) if next.starts_with(|c: char| c.is_ascii_digit()) => rest = next,
+            _ => break,
+        }
+    }
+    (!numbers.is_empty()).then_some((numbers, rest))
+}
+
+/// Labels compared part by part, numbers as numbers (`rc10` after `rc9`).
+fn cmp_labels(left: &str, right: &str) -> std::cmp::Ordering {
+    let parts = |label: &str| {
+        let mut parts = Vec::new();
+        let mut current = String::new();
+        for c in label.chars() {
+            let boundary = current
+                .chars()
+                .last()
+                .is_some_and(|last| last.is_ascii_digit() != c.is_ascii_digit());
+            if !c.is_ascii_alphanumeric() || boundary {
+                if !current.is_empty() {
+                    parts.push(std::mem::take(&mut current));
+                }
+                if !c.is_ascii_alphanumeric() {
+                    continue;
+                }
+            }
+            current.push(c.to_ascii_lowercase());
+        }
+        if !current.is_empty() {
+            parts.push(current);
+        }
+        parts
+    };
+    let (left, right) = (parts(left), parts(right));
+    for (l, r) in left.iter().zip(&right) {
+        let ordering = match (l.parse::<u64>(), r.parse::<u64>()) {
+            (Ok(l), Ok(r)) => l.cmp(&r),
+            (Ok(_), Err(_)) => std::cmp::Ordering::Greater,
+            (Err(_), Ok(_)) => std::cmp::Ordering::Less,
+            (Err(_), Err(_)) => l.cmp(r),
+        };
+        if ordering.is_ne() {
+            return ordering;
+        }
+    }
+    left.len().cmp(&right.len())
+}
+
+/// The order of registries whose versions are release numbers and a label
+/// (Maven, RubyGems, Packagist): release numbers first (missing trailing
+/// parts read as 0), then a prerelease label before the bare release before
+/// any other label (`sp1`, `patch1`), labels part by part.
+pub(crate) fn cmp_segmented(
+    left: &str,
+    right: &str,
+    prerelease: fn(&str) -> bool,
+) -> Option<std::cmp::Ordering> {
+    let (left_numbers, left_label) = segments(left)?;
+    let (right_numbers, right_label) = segments(right)?;
+    let length = left_numbers.len().max(right_numbers.len());
+    let at = |values: &[u64], index: usize| values.get(index).copied().unwrap_or(0);
+    let rank = |version: &str, label: &str| match (label.is_empty(), prerelease(version)) {
+        (_, true) => 0,
+        (true, false) => 1,
+        (false, false) => 2,
+    };
+    Some(
+        (0..length)
+            .map(|index| at(&left_numbers, index).cmp(&at(&right_numbers, index)))
+            .find(|ordering| ordering.is_ne())
+            .unwrap_or_else(|| {
+                rank(left, left_label)
+                    .cmp(&rank(right, right_label))
+                    .then_with(|| cmp_labels(left_label, right_label))
+            }),
+    )
+}
+
+/// The order of `ecosystem`'s versions.
+pub(crate) fn order_of(ecosystem: ArtifactType) -> VersionOrder {
+    match ecosystem {
+        ArtifactType::Npm | ArtifactType::Crates | ArtifactType::Go => SEMVER,
+        ArtifactType::Pypi => super::pypi::ORDER,
+        ArtifactType::Nuget => super::nuget::ORDER,
+        ArtifactType::Maven => super::maven::ORDER,
+        ArtifactType::Packagist => super::packagist::ORDER,
+        ArtifactType::Rubygems => RUBYGEMS,
+    }
+}
+
+/// RubyGems: a version with a letter in it is a prerelease (`Gem::Version`).
+const RUBYGEMS: VersionOrder = VersionOrder {
+    cmp: |left, right| {
+        cmp_segmented(left, right, |value| {
+            value.chars().any(|c| c.is_ascii_alphabetic())
+        })
+    },
+    prerelease: |value| value.chars().any(|c| c.is_ascii_alphabetic()),
+};
+
+/// A known package without the requested version: typed, with every
+/// published version `ecosystem` orders ranked nearest first as the
+/// recovery ([`nearest`]); the tool's repair lead reads as many as one call
+/// carries ([`suggested`]).
+pub(crate) fn version_not_found(
+    ecosystem: ArtifactType,
+    name: &str,
+    requested: &str,
+    versions: &[String],
+) -> ArtifactError {
+    ArtifactError {
+        nearest: nearest(requested, versions.iter().map(String::as_str), &order_of(ecosystem)),
+        nearest_ranked: true,
+        ..ArtifactError::version_not_found(format!(
+            "{name} has no published version matching \"{requested}\""
+        ))
+    }
+}
+
+/// The versions a repair call reads of `error`'s nearest ones: the first
+/// `limit` (one call's batch), newest first on `ecosystem`'s order, and, when
+/// the registry has fewer to suggest, the hint that says so.
+pub(crate) fn suggested(
+    ecosystem: ArtifactType,
+    error: &ArtifactError,
+    limit: usize,
+) -> (Vec<String>, Option<String>) {
+    let order = order_of(ecosystem);
+    let mut picked = error.nearest.iter().take(limit).cloned().collect::<Vec<_>>();
+    picked.sort_by(|left, right| {
+        (order.cmp)(right, left).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let fewer = (error.nearest_ranked && !picked.is_empty() && picked.len() < limit).then(|| {
+        format!(
+            "Only {} published version(s) to suggest; the lead reads every one.",
+            picked.len()
+        )
+    });
+    (picked, fewer)
+}
+
+/// The published versions `order` reads, nearest a missing `requested` one
+/// first: final releases before prereleases (unless the request names a
+/// prerelease), then those sharing a longer leading part of the request
+/// (`5.4` of `5.4.99`), then the closest on `order` either side of it, a
+/// newer one first on a tie. Empty when the request shares no leading part
+/// with any version and `order` cannot place it.
 pub(crate) fn nearest<'a>(
     requested: &str,
     versions: impl IntoIterator<Item = &'a str>,
+    order: &VersionOrder,
 ) -> Vec<String> {
-    let versions = versions.into_iter().collect::<Vec<_>>();
+    use std::cmp::{Ordering, Reverse};
+    let mut sorted = versions
+        .into_iter()
+        .filter(|version| order.readable(version))
+        .collect::<Vec<_>>();
+    sorted.sort_by(|left, right| (order.cmp)(left, right).unwrap_or(Ordering::Equal));
+    sorted.dedup();
     let wanted: Vec<&str> = requested
         .trim_start_matches(|c: char| !c.is_ascii_digit())
         .split(['.', '-', '+'])
         .collect();
-    let mut scored = versions
-        .iter()
-        .map(|version| {
-            let shared = version
-                .split(['.', '-', '+'])
-                .zip(&wanted)
-                .take_while(|(have, want)| have == *want)
-                .count();
-            (shared, *version)
-        })
-        .filter(|(shared, _)| *shared > 0)
-        .collect::<Vec<_>>();
-    let Some(best) = scored.iter().map(|(shared, _)| *shared).max() else {
-        return bracketing(requested, &versions);
+    let shared = |version: &str| {
+        version
+            .trim_start_matches(|c: char| !c.is_ascii_digit())
+            .split(['.', '-', '+'])
+            .zip(&wanted)
+            .take_while(|(have, want)| have == *want)
+            .count()
     };
-    scored.retain(|(shared, _)| *shared == best);
-    let mut picked = scored
+    // Where the missing version would sit; unknown when `order` cannot read it.
+    let placed = order.readable(requested).then(|| {
+        sorted.partition_point(|version| {
+            (order.cmp)(version, requested).is_some_and(Ordering::is_lt)
+        })
+    });
+    if placed.is_none() && sorted.iter().all(|version| shared(version) == 0) {
+        return Vec::new();
+    }
+    let wants_prerelease = (order.prerelease)(requested);
+    let mut ranked = sorted
+        .iter()
+        .enumerate()
+        .map(|(index, version)| {
+            let distance = match placed {
+                Some(at) if index < at => at - 1 - index,
+                Some(at) => index - at,
+                None => sorted.len() - 1 - index,
+            };
+            let prerelease = !wants_prerelease && (order.prerelease)(version);
+            ((prerelease, Reverse(shared(version)), distance, Reverse(index)), *version)
+        })
+        .collect::<Vec<_>>();
+    ranked.sort_by_key(|(rank, _)| *rank);
+    ranked
         .into_iter()
         .map(|(_, version)| version.to_owned())
-        .collect::<Vec<_>>();
-    // Final releases first; a prerelease is a suggestion only when the
-    // request names one, or no final release is near.
-    let prerelease = |version: &str| version.contains('-');
-    if !prerelease(requested) && picked.iter().any(|version| !prerelease(version)) {
-        picked.retain(|version| !prerelease(version));
-    }
-    picked.sort_by(
-        |left, right| match (release_numbers(left), release_numbers(right)) {
-            (Some(l), Some(r)) => cmp_release_numbers(&r, &l),
-            _ => right.cmp(left),
-        },
-    );
-    picked.truncate(5);
-    picked
-}
-
-/// The final releases nearest a requested release number: up to three
-/// below it and two above it, newest first. Empty when the request names
-/// no release number.
-fn bracketing(requested: &str, versions: &[&str]) -> Vec<String> {
-    let release = requested
-        .trim_start_matches(|c: char| !c.is_ascii_digit())
-        .split(['-', '+'])
-        .next()
-        .and_then(release_numbers);
-    let Some(release) = release else {
-        return Vec::new();
-    };
-    let mut finals = versions
-        .iter()
-        .filter_map(|version| release_numbers(version).map(|parsed| (parsed, *version)))
-        .collect::<Vec<_>>();
-    finals.sort_by(|(left, _), (right, _)| cmp_release_numbers(left, right));
-    let split = finals.partition_point(|(parsed, _)| cmp_release_numbers(parsed, &release).is_lt());
-    let below = &finals[split.saturating_sub(3)..split];
-    let above = finals[split..]
-        .iter()
-        .filter(|(parsed, _)| cmp_release_numbers(parsed, &release).is_gt())
-        .take(2);
-    let mut picked = below
-        .iter()
-        .chain(above)
-        .map(|(_, version)| (*version).to_owned())
-        .collect::<Vec<_>>();
-    picked.reverse();
-    picked
+        .collect()
 }
 
 #[cfg(test)]

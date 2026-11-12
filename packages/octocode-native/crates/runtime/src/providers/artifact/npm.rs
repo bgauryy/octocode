@@ -81,7 +81,7 @@ async fn exact(
             && let Some(packument) = packument(&encoded, registry, client, dns_pin).await?
         {
             let (versions, _) = published_versions(&packument);
-            return Err(version_not_found(name, &spec, &versions));
+            return Err(version_not_found(ArtifactType::Npm, name, &spec, &versions));
         }
         return Ok(not_found_page(registry));
     };
@@ -198,7 +198,7 @@ async fn manifest_spec(
                 versions.iter().map(String::as_str),
                 latest.as_deref(),
             )
-            .ok_or_else(|| version_not_found(name, &range, &versions))?
+            .ok_or_else(|| version_not_found(ArtifactType::Npm, name, &range, &versions))?
         }
     }))
 }

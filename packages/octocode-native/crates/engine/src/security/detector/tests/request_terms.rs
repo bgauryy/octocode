@@ -95,8 +95,18 @@ fn the_literal_form_reads_only_elements_of_one_fixed_character() {
     assert_eq!(literal_form("a\\.b\\-c\\/d").as_deref(), Some("a.b-c/d"));
     assert_eq!(literal_form("ab[c]d[\\.]").as_deref(), Some("abcd."));
     assert_eq!(literal_form("ab(?:)cd").as_deref(), Some("abcd"));
-    assert_eq!(literal_form("a\\nb\\tc").as_deref(), Some("a\nb\tc"));
-    for own in ["plain text", "a\\wb\\d\\s", "[ab]c[^d]", "(?:x)[]", "x\\"] {
+    assert_eq!(literal_form("a\\nb\\tc\\.").as_deref(), Some("a\nb\tc."));
+    // A literal's own escapes (`\n`, `\"`) make no regex spelling: a line of
+    // code that writes them is read as written.
+    for own in [
+        "plain text",
+        "a\\wb\\d\\s",
+        "[ab]c[^d]",
+        "(?:x)[]",
+        "x\\",
+        "a\\nb\\tc",
+        "say \\\"hi\\\"\\n",
+    ] {
         assert_eq!(literal_form(own), None, "{own:?}");
     }
 }
@@ -164,7 +174,8 @@ fn an_openssh_body_with_no_armor_is_hidden_in_any_text() {
     }
 }
 
-/// A request string that is evidence keeps the text around a named secret.
+/// A sentence that names a secret loses only the secret to the file judge,
+/// the one a request is refused by.
 #[test]
 fn a_named_secret_is_hidden_alone_in_its_sentence() {
     let placeholder = "[REDACTED-CREDENTIALNAMEDVALUE]";
@@ -175,16 +186,20 @@ fn a_named_secret_is_hidden_alone_in_its_sentence() {
         ),
         (
             format!("find password={PASSWORD} in config, then token: \"{PASSWORD}\"."),
-            format!("find password={placeholder} in config, then token: \"{placeholder}\"."),
+            format!(
+                "find password={placeholder} in config, then token: \"[REDACTED-ENVVARSECRETS]\"."
+            ),
         ),
     ] {
-        assert_eq!(hide_named_values(&text).as_deref(), Some(hidden.as_str()));
+        assert_eq!(detect(&text, None).sanitized, hidden);
+        refused(&text);
     }
     for plain in [
         "locate password: str",
         "token: Token and api_key: str = None",
     ] {
-        assert_eq!(hide_named_values(plain), None, "{plain:?}");
+        assert_eq!(detect(plain, None).sanitized, plain, "{plain:?}");
+        runs(plain);
     }
 }
 
@@ -325,8 +340,18 @@ fn a_short_named_secret_is_refused_as_a_file_hides_it() {
         format!("the password is {short}"),
         format!("locate token: {token} in the client"),
         format!("Does the config hold password={short}?"),
+        // A config line's rule hides a password of letters and a digit at
+        // any length; a request holding it is refused as the file hides it.
+        "password: hunter2".to_owned(),
+        // Round 14: a phrase of open words may be a chosen password, in a
+        // block scalar's body too, and a diff's added body is its key's value.
+        "password: |\n  correct horse battery staple".to_owned(),
+        "@@ -1 +1,2 @@\n+  token: |-\n+    Hk3Lm9Pq2Rs7Tv5Wx1".to_owned(),
+        "@@ -0,0 +1,3 @@\n+kind: Secret\n+data:\n+  username: YWRtaW4=".to_owned(),
     ] {
         refused(&term);
+        let file = detect(&term, None).sanitized;
+        assert_ne!(file, term, "a file shows {term:?}");
     }
     for term in [
         "password: str",
@@ -336,12 +361,18 @@ fn a_short_named_secret_is_refused_as_a_file_hides_it() {
         "the password is required",
         "the token is expired",
         "postgres://user:password@localhost",
-        "password: hunter2",
         "token: v1alpha1",
         "key: utf8mb4",
         "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+        // Round 14: a sentence about the value is prose in a scalar and a
+        // block scalar alike; a dunder name's camelCase word is a word.
+        "password: must be at least 8 characters",
+        "password: |\n  must be at least 8 characters",
+        "ssrExportAllKey = `__vite_ssr_exportAll__`",
+        "@@ -1 +1,2 @@\n kind: ConfigMap\n+data:\n+  cacheKeyPrefix: app-cache",
     ] {
         runs(term);
+        assert_eq!(detect(term, None).sanitized, term, "a file hides {term:?}");
     }
 }
 

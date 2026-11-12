@@ -13,6 +13,12 @@ use serde_json::Value;
 
 mod pep440;
 
+/// PEP 440 ordering (`2.34.0.dev1` before `2.34.0`).
+pub(super) const ORDER: super::versions::VersionOrder = super::versions::VersionOrder {
+    cmp: |left, right| Some(pep440::Version::parse(left)?.cmp(&pep440::Version::parse(right)?)),
+    prerelease: |value| pep440::Version::parse(value).is_some_and(|version| version.is_prerelease()),
+};
+
 pub(crate) async fn pypi(
     query: &ArtifactSearchQuery,
     client: &RegistryClient<'_>,
@@ -240,6 +246,7 @@ async fn pypi_release_json(
                     .await?
             {
                 return Err(super::versions::version_not_found(
+                    ArtifactType::Pypi,
                     package_name,
                     version,
                     &pypi_releases(&project, true),
@@ -268,17 +275,14 @@ async fn pypi_release_json(
                 let all = pypi_releases(&project_json, true);
                 // Only yanked releases match: name the newest (a pin selects it).
                 if let Some(yanked) = specifiers.resolve(all.iter().map(String::as_str)) {
-                    let mut error = ArtifactError::new(
-                        ErrorCode::VersionNotFound,
-                        format!(
-                            "{package_name} has no unyanked version matching \"{specifier}\"; yanked {yanked} matches"
-                        ),
-                    )
-                    .with_status(404);
+                    let mut error = ArtifactError::version_not_found(format!(
+                        "{package_name} has no unyanked version matching \"{specifier}\"; yanked {yanked} matches"
+                    ));
                     error.nearest = vec![yanked.to_owned()];
                     return Err(error);
                 }
                 return Err(super::versions::version_not_found(
+                    ArtifactType::Pypi,
                     package_name,
                     specifier,
                     &all,

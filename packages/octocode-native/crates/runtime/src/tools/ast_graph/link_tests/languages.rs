@@ -73,7 +73,7 @@ fn go_subdirectory_roots_resolve_through_the_enclosing_go_mod() {
     let root = temp.0.as_path();
     ingest(root, &root.join("tsdb"));
     let dependents = ask(root, "dependents", Some("chunkenc/chunk.go"));
-    assert_eq!(files(&dependents), ["db.go"], "{dependents}");
+    assert_eq!(files(&dependents), ["tsdb/db.go"], "{dependents}");
 }
 
 /// A scan rooted at a Python package resolves absolute imports that name
@@ -92,7 +92,7 @@ fn python_package_roots_resolve_imports_through_their_package_name() {
     let root = temp.0.as_path();
     ingest(root, &root.join("pkg"));
     let dependents = ask(root, "dependents", Some("utils/text.py"));
-    assert_eq!(files(&dependents), ["admin.py"], "{dependents}");
+    assert_eq!(files(&dependents), ["pkg/admin.py"], "{dependents}");
 }
 
 /// Java classes of one package use each other without an import; the

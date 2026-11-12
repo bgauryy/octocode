@@ -27,8 +27,8 @@ async fn checkouts_are_keyed_by_the_commit_the_ref_names_now() {
     )
     .await
     .unwrap_or_else(|_| panic!("clone by SHA"));
-    assert_eq!(by_sha.location.local_path, before.location.local_path);
-    assert_eq!(by_sha.location.resolved_ref, first);
+    assert_eq!(by_sha.location.path, before.location.path);
+    assert_eq!(by_sha.location.ref_, first);
 
     let second = bench.fixture.push_second();
     server.reset().await;
@@ -37,7 +37,7 @@ async fn checkouts_are_keyed_by_the_commit_the_ref_names_now() {
         .await
         .unwrap_or_else(|_| panic!("moved branch"));
     assert_eq!(after.location.commit_sha, second);
-    assert_ne!(after.location.local_path, before.location.local_path);
+    assert_ne!(after.location.path, before.location.path);
 }
 
 /// An unbranched request pins the default branch the repository names, and
@@ -81,12 +81,9 @@ async fn the_default_branch_and_canonical_name_pin_the_checkout() {
     let cloned = clone_as(&bench, &provider, &renamed, ALICE)
         .await
         .unwrap_or_else(|failure| panic!("renamed clone: {failure:?}"));
-    assert_eq!(cloned.location.resolved_ref, "main");
+    assert_eq!(cloned.location.ref_, "main");
     assert_eq!(cloned.location.commit_sha, bench.fixture.first_commit);
-    assert!(
-        cloned.location.local_path.contains("fixture-owner"),
-        "{cloned:?}"
-    );
+    assert!(cloned.location.path.contains("fixture-owner"), "{cloned:?}");
     assert_eq!(
         cloned.warnings,
         [
@@ -128,6 +125,6 @@ async fn owner_and_repo_case_variants_share_one_checkout() {
     )
     .await
     .unwrap_or_else(|failure| panic!("case variant: {failure:?}"));
-    assert_eq!(upper.location.local_path, lower.location.local_path);
+    assert_eq!(upper.location.path, lower.location.path);
     assert!(upper.warnings.is_empty(), "{upper:?}");
 }

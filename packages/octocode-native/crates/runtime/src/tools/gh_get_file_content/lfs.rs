@@ -49,13 +49,22 @@ pub(super) fn parse(bytes: &[u8]) -> Option<Pointer> {
 }
 
 /// The row's warning for a pointer: what it is, the object's size and how to read it.
-#[expect(clippy::expect_used, reason = "static https URL, valid by construction")]
+#[expect(
+    clippy::expect_used,
+    reason = "static https URL, valid by construction"
+)]
 pub(super) fn warning(pointer: &Pointer, owner: &str, repo: &str, sha: &str, path: &str) -> String {
-    let mut media = url::Url::parse("https://media.githubusercontent.com/media").expect("fixed base");
+    let mut media =
+        url::Url::parse("https://media.githubusercontent.com/media").expect("fixed base");
     media
         .path_segments_mut()
         .expect("an https base has segments")
-        .extend([owner, repo].into_iter().chain(sha.split('/')).chain(path.split('/')));
+        .extend(
+            [owner, repo]
+                .into_iter()
+                .chain(sha.split('/'))
+                .chain(path.split('/')),
+        );
     format!(
         "This file is a Git LFS pointer, not the file: its object is {} bytes and ghGetFileContent cannot read LFS objects. \
          Download it from {media}",

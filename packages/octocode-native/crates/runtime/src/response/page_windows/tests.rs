@@ -211,7 +211,9 @@ fn select_cuts_counted_and_sized_pages_with_one_past_end_rule() {
             assert_eq!(cut.range, *range, "{paging:?} page {}", index + 1);
             assert_eq!(cut.pages, pages, "{paging:?}");
             assert_eq!(cut.more, index + 1 < pages, "{paging:?}");
-            assert!(cut.facts.past_end().is_none(), "{paging:?}");
+            assert!(!cut.facts.is_past_end(), "{paging:?}");
+            assert_eq!(cut.facts.to_value()["offset"], range.start, "{paging:?}");
+            assert_eq!(cut.facts.to_value()["length"], range.len(), "{paging:?}");
             assert!(cut.facts.to_value().get("outOfRange").is_none());
         }
         // Page 0 reads as the first page.
@@ -222,8 +224,8 @@ fn select_cuts_counted_and_sized_pages_with_one_past_end_rule() {
         let block = past.facts.to_value();
         assert_eq!(block["outOfRange"], true, "{block}");
         assert_eq!(block["hasMore"], false, "{block}");
-        assert_eq!(block["totalPages"], 3, "{block}");
-        assert_eq!(block["page"], 4, "{block}");
+        assert_eq!(block["total"], 5, "{block}");
+        assert_eq!((&block["offset"], &block["length"]), (&5.into(), &0.into()), "{block}");
     }
     for paging in [
         Paging::Rows {

@@ -64,7 +64,7 @@ fn inventory_rows_are_compact_and_group_directory_files() {
             "M !omitted docs/omitted.md"
         ])
     );
-    assert_eq!(pagination["files"]["totalItems"], 7);
+    assert_eq!(pagination["files"]["total"], 7);
 }
 
 /// A directory appears once in a page's inventory: files of one
@@ -89,7 +89,7 @@ fn inventory_merges_a_directory_split_by_a_deeper_directory() {
             "M +1 -1 tail.md"
         ])
     );
-    assert_eq!(pagination["files"]["totalItems"], 6);
+    assert_eq!(pagination["files"]["total"], 6);
 }
 
 /// `include`/`status`/`minChanges` narrow the inventory by status, path glob or prefix and
@@ -123,7 +123,7 @@ fn file_filter_narrows_by_status_path_and_change_count() {
                 _ => {}
             }
         }
-        assert_eq!(pagination["files"]["totalItems"], out.len());
+        assert_eq!(pagination["files"]["total"], out.len());
         out
     };
     // "**" spans zero or more directories; "*" stays in one segment.
@@ -210,17 +210,15 @@ fn review_selection_packs_source_files_by_churn() {
             "pyproject.toml"
         ]
     );
-    // A tight budget leads with the files that fit whole; the larger
-    // ones follow (read through the patch page continuation), never dropped.
+    // A tight budget names only the files whose patches fit whole: a lead
+    // says how to read more, and every other patch stays one plain
+    // `sections: ["patches"]` read away.
+    // The most-changed file leads whatever its size.
     assert_eq!(
         review_selection(&files, 2_000),
-        [
-            "pydantic/json_schema.py",
-            "pydantic/fields.py",
-            "pydantic/_known_annotated_metadata.py",
-            "pyproject.toml"
-        ]
+        ["pydantic/fields.py", "pydantic/json_schema.py"]
     );
+    assert_eq!(review_selection(&files, 100), ["pydantic/fields.py"]);
     assert!(review_selection(&[f("tests/a_test.py", 3)], 15_000).is_empty());
     // Tests named by their language's convention stay out of the review
     // pick wherever they live.

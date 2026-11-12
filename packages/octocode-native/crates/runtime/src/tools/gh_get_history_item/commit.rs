@@ -8,8 +8,7 @@ use super::inventory::file_page_size;
 use super::patch_hop::{attach_diff_continuations, commit_pull_request_lead, commit_query};
 use super::util::{str_at, string};
 use super::window::{
-    COMMIT_FILE_BATCH, MAX_COMMIT_FILE_BATCHES, WindowSpec, WindowState, commit_file_items,
-    load_window_with,
+    COMMIT_FILE_BATCH, MAX_COMMIT_FILE_BATCHES, WindowSpec, commit_file_items, load_window_with,
 };
 use super::{HistoryItemRequest, ItemOperation, validation};
 use crate::response::paging::push_warnings;
@@ -87,7 +86,7 @@ pub(super) async fn commit(
     let listed = state.skipped + loaded.items.len();
     let commit = CommitFacts::of(raw);
     let summary = query.sections().is_empty();
-    let mut out = commit_header(&commit, reference, summary, listed, state);
+    let mut out = commit_header(&commit, reference, summary, listed);
     // A filter that left no file is an empty answer, not a bare `files: []`:
     // the row says so and its leads show.
     let scope_removed_all = unmatched.is_some();
@@ -142,13 +141,7 @@ impl<'a> CommitFacts<'a> {
 /// names the commit by its SHA and headline and dates it (the author's login,
 /// else name, and date), and leaves the rest to the summary read its
 /// `readCommit` lead names.
-fn commit_header(
-    commit: &CommitFacts<'_>,
-    reference: &str,
-    summary: bool,
-    listed: usize,
-    state: WindowState,
-) -> Value {
+fn commit_header(commit: &CommitFacts<'_>, reference: &str, summary: bool, listed: usize) -> Value {
     let raw = commit.raw;
     let author = identity(raw, "author");
     let committer = committer(raw, &author);
@@ -163,17 +156,15 @@ fn commit_header(
         "ref":reference,"commitSha":commit.sha,
         "message":summary.then_some(commit.message),
         "messageHeadline":(!summary).then_some(commit.headline),
-        "author":if summary { author } else { dated(&author) },
-        "committer":committer.filter(|_| summary),
-        "parents":summary.then_some(parents),
+        "author":if summary { person(&author, AUTHORED_AT) } else { dated(&author) },
+        "committer":committer.filter(|_| summary).map(|committer| person(&committer, COMMITTED_AT)),
+        "parentCommitShas":summary.then_some(parents),
         // Top-level counts always describe the whole commit; a path scope's
-        // own count is `contentPagination.files.totalItems`.
+        // own count is `sectionPagination.files.total`, and the file
+        // page's `countScope` says when this count is a floor.
         "additions":raw.pointer("/stats/additions").filter(|_| summary),
         "deletions":raw.pointer("/stats/deletions").filter(|_| summary),
-        "changedFilesCount":listed,
-        // A scan stopped at the batch cap never saw the remaining files; a
-        // complete count states no scope.
-        "changedFilesCountScope":if state.capped {Some("partial")} else if state.exhausted {None} else {Some("loaded")}
+        "changedFileCount":listed,
     });
     // A caller-supplied SHA is not restated as the ref it already names.
     if reference.eq_ignore_ascii_case(&commit.sha)
@@ -184,16 +175,34 @@ fn commit_header(
     out
 }
 
-/// Who a section read's header names: the login, else the git name, and the
-/// date. The email and the name beside a login are the summary read's.
+/// Who a section read's header names: the login, else the git name, and
+/// when it was authored. The email and the name beside a login are the
+/// summary read's.
 fn dated(author: &Value) -> Value {
     let who = if author.get("login").is_some() {
         "login"
     } else {
         "name"
     };
-    let mut out = json!({ who: author.get(who), "date": author.get("date") });
+    let mut out = json!({ who: author.get(who), AUTHORED_AT: author.get(DATE) });
     remove_nulls(&mut out);
+    out
+}
+
+/// The key a person's date is read under, and the ones a row states it as:
+/// the author's `authoredAt`, the committer's `committedAt`.
+const DATE: &str = "date";
+const AUTHORED_AT: &str = "authoredAt";
+const COMMITTED_AT: &str = "committedAt";
+
+/// A person as the row states it: its date under `dated`.
+fn person(identity: &Value, dated: &str) -> Value {
+    let mut out = identity.clone();
+    if let Some(fields) = out.as_object_mut()
+        && let Some(date) = fields.remove(DATE)
+    {
+        fields.insert(dated.to_owned(), date);
+    }
     out
 }
 
@@ -215,7 +224,7 @@ fn commit_file_page(
         && gh_get_history_item_query::page(query).unwrap_or(1) == 1
         && files.page["hasMore"] != true;
     if whole && let Some(fields) = out.as_object_mut() {
-        fields.remove("changedFilesCount");
+        fields.remove("changedFileCount");
     }
     shape_file_page(
         out,

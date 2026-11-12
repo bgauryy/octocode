@@ -202,11 +202,11 @@ impl Question<'_, '_> {
 
     async fn workspace_symbol(&mut self) -> Result<Value, Fault> {
         let query = self.query;
-        let name = lsp_search_query::symbol_query(query)
+        let name = lsp_search_query::symbol_fuzzy(query)
             .map(str::to_owned)
             .ok_or_else(|| {
                 crate::tools::lsp_search::LspFailure::invalid_query(
-                    "workspaceSymbol requires symbolQuery",
+                    "workspaceSymbol requires symbolFuzzy",
                 )
             })?;
         // A workspace root is no document: with no `path` the editor opens

@@ -103,7 +103,7 @@ const PROVIDER_SHAPES = [
   scene('providerIncompleteResults', 'ghSearchRepo')({ operation: 'search', keywords: ['alpha'] }, { reasons: ['providerIncompleteResults'], channels: [] }, { github: searchAnswer({ total_count: 0, incomplete_results: true, items: [] }), allow: ['lead.repeat'] }),
   // Selecting another version changes the request: these are related reads.
   // The distinct required page repair is exercised by native page-state tests.
-  scene('repair.search', 'artifactSearch')(MISSING_VERSION, { codes: ['versionNotFound'] }, { run: readNearestVersions }),
+  scene('repair.search', 'artifactSearch')(MISSING_VERSION, { codes: ['notFound'] }, { run: readNearestVersions }),
   { id: 'lead.restart', tool: 'localFetch', files: { 'a.txt': Array.from({ length: 4000 }, (_, index) => `line ${index}\n`).join('') }, channels: ['restart'], codes: ['staleSnapshot'], run: async ({ call, dir }) => {
     const first = await call('localFetch', { queries: [{ path: '$DIR/a.txt' }], responseChars: 500 });
     const next = first.json?.responsePagination?.next ?? first.json?.results?.[0]?.data?.next?.nextPage;

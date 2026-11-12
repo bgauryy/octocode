@@ -124,7 +124,7 @@ impl FileFilter<'_> {
 /// The per-call count of changed files a `matchString` dropped: in scope,
 /// searched, and holding no hit.
 /// An `include` scope that kept some of the changed files: the item's
-/// `changedFilesCount` counts them all.
+/// `changedFileCount` counts them all.
 pub(super) fn include_kept_warning(kept: usize, loaded: usize) -> String {
     format!("include kept {kept} of {loaded} changed files.")
 }

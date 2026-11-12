@@ -17,7 +17,7 @@ use crate::tools::gh_shared::{
     GhFailure, Rerun, SearchWindow, add_next, lean_rows, pick_rows, rerun_renamed, search_failure,
     search_may_be_renamed, with_search_repair,
 };
-use octocode_contract_types::{ErrorCode, GhSearchRepoQuery, GitHubArchive};
+use octocode_contract_types::{GhSearchRepoQuery, GitHubArchive};
 use octocode_github::{
     GitHubProvider, ProviderError, RepositorySearchPage, RepositorySearchRequest, RequestContext,
 };
@@ -302,11 +302,4 @@ fn owner_only(query: &GhSearchRepoQuery) -> Option<&str> {
 
 /// This tool's output facts for the shared response stages.
 pub(crate) struct Output;
-impl crate::response::output::ToolOutput for Output {
-    /// A missing owner names the login and has no repair; an exact
-    /// repository that did not resolve carries its own `findRepository`
-    /// lead. Neither is helped by the search fallback.
-    fn error_hint(&self, code: ErrorCode, _query: &serde_json::Value) -> Option<&'static str> {
-        crate::response::output::not_found_is_the_answer(code)
-    }
-}
+impl crate::response::output::ToolOutput for Output {}

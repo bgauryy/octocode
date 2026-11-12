@@ -75,7 +75,7 @@ async fn a_repeated_npm_window_is_a_terminal_limit_with_the_reachable_count() {
         .expect("discovery succeeds");
     assert_eq!(data["artifacts"], json!([]), "{data}");
     assert_eq!(data["terminalLimit"], true, "{data}");
-    assert_eq!(data["pagination"]["totalItems"], 60, "{data}");
+    assert_eq!(data["pagination"]["total"], 60, "{data}");
     assert!(data["next"].get("nextPage").is_none(), "{data}");
     assert_eq!(
         data["partialReasons"],
@@ -115,7 +115,7 @@ async fn a_next_page_past_the_registry_reach_states_a_terminal_limit() {
     assert!(data["next"].get("nextPage").is_none(), "{data}");
     assert_eq!(data["pagination"]["hasMore"], false, "{data}");
     // The matched total, not the reach: the warning states the reach.
-    assert_eq!(data["pagination"]["totalItems"], 100_000, "{data}");
+    assert_eq!(data["pagination"]["total"], 100_000, "{data}");
     assert_eq!(data["terminalLimit"], true, "{data}");
     assert_eq!(
         data["partialReasons"],
@@ -159,7 +159,7 @@ async fn discovery_pagination_states_the_shared_page_facts() {
         .expect("discovery succeeds");
     assert_eq!(
         data["pagination"],
-        json!({"page": 1, "pageSize": 20, "totalItems": 29, "hasMore": true}),
+        json!({"unit": "items", "offset": 0, "length": 2, "total": 29, "hasMore": true}),
         "{data}"
     );
     assert_eq!(
@@ -182,7 +182,7 @@ async fn a_total_past_the_reach_states_the_reachable_window() {
         .await
         .expect("discovery succeeds");
     // The matched total whatever the page size; the notice states the reach.
-    assert_eq!(data["pagination"]["totalItems"], 146_295, "{data}");
+    assert_eq!(data["pagination"]["total"], 146_295, "{data}");
     assert!(data["next"]["nextPage"].is_object(), "{data}");
     assert!(data.get("terminalLimit").is_none(), "{data}");
     assert_eq!(data["isPartial"], true, "{data}");
@@ -193,7 +193,7 @@ async fn a_total_past_the_reach_states_the_reachable_window() {
     );
     assert!(data.get("warnings").is_none(), "{data}");
     assert_eq!(
-        data[crate::response::paging::NOTICES],
+        data[crate::contracts::envelope::NOTICES],
         json!([
             "npm matched 146295 results; paging reaches only the first 5020 (through page 251)."
         ]),
@@ -360,7 +360,7 @@ async fn npm_keywords_are_anded_and_a_window_without_a_match_is_not_absence() {
     assert!(first.get("status").is_none(), "{first}");
     assert_eq!(first["pagination"]["hasMore"], true, "{first}");
     assert!(first["next"]["nextPage"].is_object(), "{first}");
-    assert!(first["pagination"].get("totalItems").is_none(), "{first}");
+    assert!(first["pagination"].get("total").is_none(), "{first}");
     let (names, _) = npm_terms_walk(&server, 20).await;
     // 321 % 3 == 0: scoped name; 325 % 3 == 1: keywords; 545 % 3 == 2: description.
     assert_eq!(

@@ -161,7 +161,7 @@ fn a_missing_relative_path_leads_to_its_parent_without_an_absolute_root() {
             &crate::execution::cancel::NeverCancel,
         )
         .expect_err("missing path");
-        assert_eq!(error.code, ErrorCode::PathNotFound, "{row}");
+        assert_eq!(error.code, ErrorCode::NotFound, "{row}");
         assert!(
             !error
                 .message

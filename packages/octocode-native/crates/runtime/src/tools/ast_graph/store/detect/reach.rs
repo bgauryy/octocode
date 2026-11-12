@@ -134,10 +134,6 @@ pub(super) fn detect_reachability(c: &mut Ctx) {
                 impact: 0.2,
                 evidence: json!({"orphan": orphan, "entrypoints": entries.len(), "entryRules": rules}),
                 controls,
-                verify: vec![step(
-                    ToolId::GraphQuery,
-                    json!({"operation": "dependents", "target": key, "edges": ["imports", "uses", "calls"]}),
-                )],
             },
         );
     }
@@ -157,10 +153,6 @@ pub(super) fn detect_reachability(c: &mut Ctx) {
                 controls: vec![
                     "tests, configs and support code (examples, benches) treated as a separate entry class",
                 ],
-                verify: vec![step(
-                    ToolId::GraphQuery,
-                    json!({"operation": "dependents", "target": key, "edges": ["imports", "uses", "calls"]}),
-                )],
             },
         );
     }
@@ -313,14 +305,13 @@ pub(super) fn detect_unused_exports(c: &mut Ctx) {
                 impact: v.impact(file),
                 evidence: json!({"exports": names, "count": names.len()}),
                 controls: vec!["referenced within the file; not dead code"],
-                verify: Vec::new(),
             },
         );
         tier_tested(&mut c.findings, tested);
     }
     for ((file, tested), exports) in by_file {
         let names = exports.iter().map(|(name, ..)| *name).collect::<Vec<_>>();
-        let (first, line, _) = exports[0];
+        let (_, line, _) = exports[0];
         let key = v.key(file).to_owned();
         let lazy = dynamic.contains(&file);
         push(
@@ -337,16 +328,12 @@ pub(super) fn detect_unused_exports(c: &mut Ctx) {
                 severity: 0.4 * magnitude(names.len()),
                 confidence: if lazy { 0.3 } else { 0.6 },
                 impact: v.impact(file),
-                evidence: json!({"exports": names, "count": names.len(), "dynamicallyImported": lazy}),
+                evidence: json!({"exports": names, "exportLine": line, "count": names.len(), "dynamicallyImported": lazy}),
                 controls: vec![
                     "entry files and the names they re-export (all of an `export *`) treated as public API",
                     "namespace-imported files skipped",
                     "only languages with named-import linking (JS/TS/Python)",
                 ],
-                verify: vec![step(
-                    ToolId::LspSearch,
-                    json!({"operation": "references", "path": key, "symbolName": first, "line": line}),
-                )],
             },
         );
         tier_tested(&mut c.findings, tested);

@@ -57,10 +57,7 @@ fn constructor_boundaries_retain_sites_without_borrowing_unrelated_bindings() {
                 octocode_engine::digest::sha256(source.as_bytes())
             );
         }
-        assert_eq!(
-            rows(&dir.0, "witnesses", file)["pagination"]["totalItems"],
-            0
-        );
+        assert_eq!(rows(&dir.0, "witnesses", file)["pagination"]["total"], 0);
         original.push((file, out["rows"].clone()));
     }
     assert_eq!(
@@ -108,18 +105,18 @@ fn named_constructions_only_link_type_candidates_and_oxc_keeps_callable_construc
     );
     call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
     let named = rows(&dir.0, "witnesses", "named.cpp");
-    assert_eq!(named["pagination"]["totalItems"], 2, "{named}");
+    assert_eq!(named["pagination"]["total"], 2, "{named}");
     for row in named["rows"].as_array().unwrap() {
         let target = call(
             &dir.0,
             ToolId::GraphQuery,
             json!({"operation":"node","path":"app","target":row["to"]}),
         );
-        assert_eq!(target["node"]["symbolKind"], "struct", "{target}");
+        assert_eq!(target["node"]["kind"], "struct", "{target}");
         assert_eq!(row["detail"], "constructs:local");
     }
     let js = rows(&dir.0, "witnesses", "factory.js");
-    assert_eq!(js["pagination"]["totalItems"], 2, "{js}");
+    assert_eq!(js["pagination"]["total"], 2, "{js}");
     assert_eq!(
         js["rows"]
             .as_array()
@@ -143,10 +140,10 @@ fn recovered_constructor_stays_unresolved_while_healthy_neighbor_links() {
     assert_eq!(built["linkage"]["eligible"], 1);
     assert_eq!(built["linkage"]["excluded"], 1);
     let out = rows(&dir.0, "unresolved", "recovered.java");
-    assert_eq!(out["pagination"]["totalItems"], 1, "{out}");
+    assert_eq!(out["pagination"]["total"], 1, "{out}");
     assert_eq!(out["rows"][0]["reason"], "recovered-declaration");
     let healthy = rows(&dir.0, "witnesses", "recovered.java");
-    assert_eq!(healthy["pagination"]["totalItems"], 1, "{healthy}");
+    assert_eq!(healthy["pagination"]["total"], 1, "{healthy}");
     assert!(
         healthy["rows"][0]["from"]
             .as_str()
@@ -164,7 +161,7 @@ fn leading_global_constructor_does_not_bind_a_nested_type() {
     );
     call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
     let out = rows(&dir.0, "witnesses", "global.cpp");
-    assert_eq!(out["pagination"]["totalItems"], 1, "{out}");
+    assert_eq!(out["pagination"]["total"], 1, "{out}");
     assert_eq!(out["rows"][0]["to"], "global.cpp#Box");
     dir.write(
         "app/global.cpp",
@@ -172,11 +169,11 @@ fn leading_global_constructor_does_not_bind_a_nested_type() {
     );
     call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
     assert_eq!(
-        rows(&dir.0, "witnesses", "global.cpp")["pagination"]["totalItems"],
+        rows(&dir.0, "witnesses", "global.cpp")["pagination"]["total"],
         0
     );
     let unresolved = rows(&dir.0, "unresolved", "global.cpp");
-    assert_eq!(unresolved["pagination"]["totalItems"], 1, "{unresolved}");
+    assert_eq!(unresolved["pagination"]["total"], 1, "{unresolved}");
 }
 
 #[test]
@@ -195,12 +192,9 @@ fn constructors_require_the_full_written_container_and_lexical_visibility() {
         dir.write("app/scoped.cpp", source);
         call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
         let out = rows(&dir.0, "witnesses", "scoped.cpp");
-        assert_eq!(out["pagination"]["totalItems"], 0, "{source}: {out}");
+        assert_eq!(out["pagination"]["total"], 0, "{source}: {out}");
         let unresolved = rows(&dir.0, "unresolved", "scoped.cpp");
-        assert_eq!(
-            unresolved["pagination"]["totalItems"], expected,
-            "{unresolved}"
-        );
+        assert_eq!(unresolved["pagination"]["total"], expected, "{unresolved}");
         let mut ids = BTreeSet::new();
         for row in unresolved["rows"].as_array().unwrap() {
             assert!(ids.insert(row["id"].as_str().unwrap()));
@@ -216,7 +210,7 @@ fn constructors_require_the_full_written_container_and_lexical_visibility() {
     );
     call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
     let out = rows(&dir.0, "witnesses", "scoped.cpp");
-    assert_eq!(out["pagination"]["totalItems"], 2, "{out}");
+    assert_eq!(out["pagination"]["total"], 2, "{out}");
     assert!(
         out["rows"]
             .as_array()
@@ -232,7 +226,7 @@ fn exact_namespace_constructor_paths_preserve_ambiguity_without_casing_heuristic
     dir.write("app/namespaces.cpp","namespace lower { struct Box {}; } struct Root {}; void run(){ new lower::Box(); new ::lower::Box(); new ::Root(); }");
     call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
     let out = rows(&dir.0, "witnesses", "namespaces.cpp");
-    assert_eq!(out["pagination"]["totalItems"], 3, "{out}");
+    assert_eq!(out["pagination"]["total"], 3, "{out}");
     assert!(
         out["rows"]
             .as_array()
@@ -252,7 +246,7 @@ fn exact_namespace_constructor_paths_preserve_ambiguity_without_casing_heuristic
     dir.write("app/namespaces.cpp","namespace lower { struct Box {}; }\nnamespace lower { struct Box {}; }\nvoid run(){ new lower::Box(); }");
     call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
     let ambiguous = rows(&dir.0, "witnesses", "namespaces.cpp");
-    assert_eq!(ambiguous["pagination"]["totalItems"], 2, "{ambiguous}");
+    assert_eq!(ambiguous["pagination"]["total"], 2, "{ambiguous}");
     assert!(
         ambiguous["rows"]
             .as_array()
@@ -265,7 +259,7 @@ fn exact_namespace_constructor_paths_preserve_ambiguity_without_casing_heuristic
         ToolId::GraphQuery,
         json!({"operation":"witnesses","path":"app","target":"namespaces.cpp","edges":["calls"],"confidence":"high"}),
     );
-    assert_eq!(strong["pagination"]["totalItems"], 0);
+    assert_eq!(strong["pagination"]["total"], 0);
 }
 
 #[test]
@@ -279,7 +273,7 @@ fn anonymous_namespace_occurrences_remain_distinct_and_do_not_flatten_to_root() 
         ToolId::GraphQuery,
         json!({"operation":"candidates","path":"app","target":"(anonymous namespace)","kind":"symbol","includeProvenance":true}),
     );
-    assert_eq!(scopes["pagination"]["totalItems"], 2, "{scopes}");
+    assert_eq!(scopes["pagination"]["total"], 2, "{scopes}");
     assert_eq!(
         scopes["rows"]
             .as_array()
@@ -291,17 +285,17 @@ fn anonymous_namespace_occurrences_remain_distinct_and_do_not_flatten_to_root() 
         2
     );
     for row in scopes["rows"].as_array().unwrap() {
-        assert_eq!(row["symbolKind"], "namespace");
+        assert_eq!(row["kind"], "namespace");
         let start = row["sourceRange"]["startByte"].as_u64().unwrap() as usize;
         let end = row["sourceRange"]["endByte"].as_u64().unwrap() as usize;
         assert!(source[start..end].starts_with("namespace {"));
     }
     assert_eq!(
-        rows(&dir.0, "witnesses", "anonymous.cpp")["pagination"]["totalItems"],
+        rows(&dir.0, "witnesses", "anonymous.cpp")["pagination"]["total"],
         0
     );
     assert_eq!(
-        rows(&dir.0, "unresolved", "anonymous.cpp")["pagination"]["totalItems"],
+        rows(&dir.0, "unresolved", "anonymous.cpp")["pagination"]["total"],
         2
     );
 }
@@ -318,11 +312,11 @@ fn unproven_namespace_reopening_keeps_explicit_unassessed_sites_and_counts() {
         assert_eq!(built["linkage"]["eligible"], 0, "{built}");
         assert_eq!(built["linkage"]["excluded"], 1, "{built}");
         assert_eq!(
-            rows(&dir.0, "witnesses", "reopened.cpp")["pagination"]["totalItems"],
+            rows(&dir.0, "witnesses", "reopened.cpp")["pagination"]["total"],
             0
         );
         let out = rows(&dir.0, "unresolved", "reopened.cpp");
-        assert_eq!(out["pagination"]["totalItems"], 1, "{out}");
+        assert_eq!(out["pagination"]["total"], 1, "{out}");
         assert_eq!(out["rows"][0]["reason"], "constructor-binding-not-assessed");
         assert_eq!(out["rows"][0]["targetName"], "Box");
         assert!(out["rows"][0].get("candidates").is_none());

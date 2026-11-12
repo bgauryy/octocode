@@ -285,7 +285,7 @@ export function selfTest() {
   assert(maxLeadEntries(response) === 1, 'related calls counted independently of continuation pages');
   assert(leadBytes(response) === Buffer.byteLength(JSON.stringify({ related: [related] }), 'utf8') - 2, 'related bytes are UTF-8');
   assert(schemaErrors({ isError: true, text: 'Input validation error: bad input' }).count === 1, 'call input failure counted');
-  assert(schemaErrors({ raw: { results: [{ status: 'error', data: { errorCode: 'invalidInput' } }, { status: 'error', data: { errorCode: 'pathNotFound' } }] } }).count === 1, 'schema and runtime errors remain distinct');
+  assert(schemaErrors({ raw: { results: [{ status: 'error', data: { errorCode: 'invalidInput' } }, { status: 'error', data: { errorCode: 'notFound' } }] } }).count === 1, 'schema and runtime errors remain distinct');
   const rules = loadVerboseRules();
   assert(verboseFields({ args: { queries: [{}] }, raw: { responsePagination: { hasMore: false } } }, rules)['responsePagination-finished']?.count === 1, 'verbose completed response marker reported');
 

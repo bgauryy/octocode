@@ -315,6 +315,33 @@ fn operation_values(schema: &Value, defs: &Value, values: &mut Vec<String>) {
     }
 }
 
+/// A field another form of the row declares, sent at the default every such
+/// form gives it (`contextLines:{before:0,after:0}` beside
+/// `view:"matchOnly"`): it says what omitting it says, so it is left out.
+fn drop_default(input: &mut Value, issue: &ValidationIssue) -> bool {
+    let Some(default) = issue
+        .schema
+        .as_ref()
+        .and_then(|schema| schema.get("siblingDefault"))
+    else {
+        return false;
+    };
+    let Some((field, parent)) = issue.path.split_last() else {
+        return false;
+    };
+    let Some(row) = input
+        .pointer_mut(&crate::json_pointer::of(parent))
+        .and_then(Value::as_object_mut)
+    else {
+        return false;
+    };
+    if row.get(field) != Some(default) {
+        return false;
+    }
+    row.remove(field);
+    true
+}
+
 /// Apply each issue's repair at its path; whether any applied.
 fn repair_values(
     tool_name: &str,
@@ -326,6 +353,10 @@ fn repair_values(
     for issue in issues {
         if issue.rule_id == "schema.required" {
             applied |= repair_operation(tool_name, input, issue, operations);
+            continue;
+        }
+        if issue.rule_id == "schema.unknown-field" {
+            applied |= drop_default(input, issue);
             continue;
         }
         let (Some(schema), Some(received)) = (&issue.schema, &issue.received) else {

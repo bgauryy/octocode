@@ -57,7 +57,7 @@ pub(super) fn map_graphql_pr_metadata(pr: &Value) -> Value {
         "user": { "login": str_at(pr, "/author/login").unwrap_or("") },
         "labels": labels,
         "labels_truncated": labels_truncated,
-        // The target-branch tip GitHub recorded for the PR (`baseSha`).
+        // The target-branch tip GitHub recorded for the PR (`baseCommitSha`).
         "base": { "ref": pr.get("baseRefName"), "sha": pr.get("baseRefOid") },
         "head": { "ref": pr.get("headRefName"), "sha": pr.get("headRefOid") },
         "created_at": pr.get("createdAt"),

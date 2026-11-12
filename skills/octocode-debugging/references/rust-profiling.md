@@ -4,7 +4,7 @@ Load for Rust CPU, memory, threads, async stalls or server spikes. Use [native](
 
 ## Build and capture
 
-Keep the production features, optimization, allocator and workload. Add symbols at the workspace root:
+For a running binary, confirm its identity and start with the PID capture below. Match its build and symbols before attributing a frame to source. For a new run, keep the production features, optimization, allocator and workload. Add symbols at the workspace root:
 
 ```toml
 [profile.release]
@@ -29,11 +29,11 @@ Use full debug information for locals; line tables suffice for source locations.
 | Tokio task stalls | `tracing` spans, then Tokio Console if instrumented | Poll duration, scheduled/busy/idle states, resource waits |
 | Burst / spike | Continuous short-window metrics + a capture across the event | Request IDs, queue depth, workload phase, same-window stacks |
 
-Check installed tools and their `--help`. Do not install profilers or change host permissions implicitly. A capture window is an experiment parameter, not a timeout for normal application work.
+Set `skill` to the installed skill directory, `out` to an existing capture directory, and `pid` and `seconds` to the verified process and desired window. Check installed tools and their `--help`. Do not install profilers or change host permissions implicitly. A capture window is an experiment parameter, not a timeout for normal application work.
 
 ```bash
 # Attach to a verified, authorized PID. Script neither stops nor signals the target.
-bash <skill>/scripts/native-capture.sh <pid> <seconds> <new-capture-directory>
+bash "$skill/scripts/native-capture.sh" "$pid" "$seconds" "$out/stacks"
 
 # Linux, launched finite workload; no cargo/build cost in the recording.
 perf record --call-graph dwarf -o <capture>/perf.data -- target/release/<binary> <args>
@@ -43,7 +43,7 @@ perf report -i <capture>/perf.data --stdio --no-children
 cargo flamegraph --bin <binary> -o <capture>/flamegraph.svg -- <args>
 ```
 
-The capture script uses macOS `sample`, Linux `perf`; it records PID/PPID, command name, duration and diagnostics, and fails visibly on permission/tool errors. It captures one PID, not a process tree. `process.txt` RSS is KiB on these hosts; `%cpu` is OS-reported, not a capture-window measurement. PID reuse is possible: verify process identity before and after attachment; discard a capture if it changed or the process exited early. Use `perf report` thread filters or Instruments tracks before attributing one thread's hotspot to every task.
+The capture script uses macOS `sample`, Linux `perf`; it records PID/PPID, command name, duration and diagnostics, and fails visibly on permission/tool errors. It captures one PID, not a process tree. `process.txt` RSS is KiB on these hosts; `%cpu` is OS-reported, not a capture-window measurement. PID reuse is possible: verify process identity before and after attachment; discard a capture if it changed or the process exited early. macOS sample can include sleeping threads. Use process CPU deltas or Instruments Time Profiler for on-CPU attribution. Check thread filters or Instruments tracks before attributing a hotspot to an async task.
 
 On macOS, Instruments Time Profiler provides timeline/thread inspection; list installed templates with `xcrun xctrace list templates` and use its explicit time limit. Samply is an alternative native sampler with a browser-based Firefox Profiler viewer: follow installed help for headless recording and attachment, whose platform support varies. It is not Chrome DevTools.
 

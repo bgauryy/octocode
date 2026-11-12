@@ -31,7 +31,7 @@ fn code_page_selects_in_source_order_and_replays_without_a_second_judgment() {
     let (runtime, calls) = selecting_runtime(&executor);
     let query = json!({"owner":"a","repo":"b","keywords":["target"],"classification":{"predicates":["wanted evidence"]}});
     let baseline = json!({"results":[{"index":0,"data":{"files":[
-        {"path":"one.rs","lines":["source evidence"]},{"path":"two.rs","lines":["source evidence"]},{"path":"three.rs","lines":["source evidence"]}
+        {"path":"one.rs","matches":[{"line":1,"value":"source evidence"}]},{"path":"two.rs","matches":[{"line":1,"value":"source evidence"}]},{"path":"three.rs","matches":[{"line":1,"value":"source evidence"}]}
     ],"pagination":{"currentPage":1,"hasMore":true}}}]});
     let mut first = baseline.clone();
     let mut response_query = query.clone();
@@ -43,7 +43,7 @@ fn code_page_selects_in_source_order_and_replays_without_a_second_judgment() {
     );
     assert_eq!(
         first["results"][0]["data"]["files"],
-        json!([{"path":"one.rs","lines":["source evidence"]},{"path":"two.rs","lines":["source evidence"]},{"path":"three.rs","lines":["source evidence"]}])
+        json!([{"path":"one.rs","matches":[{"line":1,"value":"source evidence"}]},{"path":"two.rs","matches":[{"line":1,"value":"source evidence"}]},{"path":"three.rs","matches":[{"line":1,"value":"source evidence"}]}])
     );
     assert!(response_query.get("selection").is_some());
 
@@ -106,8 +106,8 @@ fn rejected_rows_do_not_misalign_goal_queries() {
     let goal = json!({"owner":"a","repo":"b","keywords":["target"],"classification":{"predicates":["wanted"]}});
     let mut structured = json!({"results":[
         {"index":0,"status":"error","data":{"errorCode":"invalidInput"}},
-        {"index":1,"data":{"files":[{"path":"one.rs","lines":["source evidence"]},{"path":"two.rs","lines":["source evidence"]}]}},
-        {"index":2,"data":{"files":[{"path":"three.rs","lines":["source evidence"]},{"path":"four.rs","lines":["source evidence"]}]}}
+        {"index":1,"data":{"files":[{"path":"one.rs","matches":[{"line":1,"value":"source evidence"}]},{"path":"two.rs","matches":[{"line":1,"value":"source evidence"}]}]}},
+        {"index":2,"data":{"files":[{"path":"three.rs","matches":[{"line":1,"value":"source evidence"}]},{"path":"four.rs","matches":[{"line":1,"value":"source evidence"}]}]}}
     ]});
     let mut response_query = json!({"queries":[plain.clone(),goal.clone()]});
     apply_sanitized_rows(
@@ -157,8 +157,8 @@ fn selected_page_rejects_null_evidence_drift_but_accepts_key_reordering() {
     let (runtime, calls) = selecting_runtime(&executor);
     let query = json!({"owner":"o","repo":"r","keywords":["queue"],"classification":{"predicates":["find queue"]}});
     let original = json!({"results":[{"index":0,"data":{"files":[
-        {"path":"a.rs","detail":null,"lines":["source evidence"]},
-        {"path":"b.rs","lines":["source evidence"]}
+        {"path":"a.rs","detail":null,"matches":[{"line":1,"value":"source evidence"}]},
+        {"path":"b.rs","matches":[{"line":1,"value":"source evidence"}]}
     ]}}]});
     let mut first = original.clone();
     let mut replay_query = query.clone();
@@ -171,8 +171,8 @@ fn selected_page_rejects_null_evidence_drift_but_accepts_key_reordering() {
     );
 
     let mut same_evidence = json!({"results":[{"index":0,"data":{"files":[
-        {"lines":["source evidence"],"detail":null,"path":"a.rs"},
-        {"path":"b.rs","lines":["source evidence"]}
+        {"matches":[{"line":1,"value":"source evidence"}],"detail":null,"path":"a.rs"},
+        {"path":"b.rs","matches":[{"line":1,"value":"source evidence"}]}
     ]}}]});
     let mut same_response = replay_query.clone();
     apply_code_rows(
@@ -189,7 +189,7 @@ fn selected_page_rejects_null_evidence_drift_but_accepts_key_reordering() {
     assert_eq!(calls.load(Ordering::SeqCst), 1, "replay does not rescore");
 
     let mut changed = original;
-    changed["results"][0]["data"]["files"][0]["lines"] = json!(["changed evidence"]);
+    changed["results"][0]["data"]["files"][0]["matches"] = json!([{"line":1,"value":"changed evidence"}]);
     let mut changed_response = replay_query.clone();
     apply_code_rows(&mut changed, replay_query, &mut changed_response, &runtime)
         .expect("changed source is reported in its row");

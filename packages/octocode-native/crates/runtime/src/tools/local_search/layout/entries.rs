@@ -3,49 +3,36 @@
 use crate::tools::local_search::local_search_query::View;
 
 use super::super::rows::project_shape;
-use super::super::types::ItemPagination;
+use super::super::types::Paging;
 use super::Layout;
 use super::costs::{PageCosts, RowName};
 use octocode_engine::json_size::string_body_units;
-use octocode_engine::num::saturating_u32;
 
 /// Per-file paging, reported only while it routes somewhere: more rows
-/// remain, or the requested match page is past the end. `total` counts
-/// every row of the file, so the rows on later pages are counted, not
-/// listed: the page cursor reaches them.
+/// remain, or the requested match page is past the end. It counts the
+/// file's hit rows (`matches`, in the layout's row unit): the shown ones from `start`, of every row
+/// the file has, so the rows on later pages are counted, not listed: the
+/// page cursor reaches them.
 pub(crate) fn file_pagination(
     layout: &Layout,
     total: u32,
     (start, end): (usize, usize),
     match_page: u32,
-) -> Option<ItemPagination> {
+) -> Option<Paging> {
     if layout.list {
         return None;
     }
+    let total = total as usize;
+    let (start, end) = (start.min(total), end.min(total));
+    let shown = (start, end - start, total);
     if layout.streamed {
-        return (end < total as usize).then_some(ItemPagination {
-            page: None,
-            total_pages: None,
-            total_matches: Some(total),
-            has_more: true,
-            next: None,
-            out_of_range: false,
-        });
+        return (end < total).then(|| Paging::of(layout.row_unit, shown, true, false));
     }
-    let total_pages = saturating_u32(crate::response::page_windows::count_pages(
-        total as usize,
-        layout.matches_per as usize,
-    ));
-    let has_more = match_page < total_pages;
-    let out_of_range = start >= total as usize && total > 0;
-    (has_more || out_of_range).then_some(ItemPagination {
-        page: Some(match_page),
-        total_pages: Some(total_pages),
-        total_matches: Some(total),
-        has_more,
-        next: None,
-        out_of_range,
-    })
+    let total_pages =
+        crate::response::page_windows::count_pages(total, layout.matches_per as usize);
+    let has_more = (match_page as usize) < total_pages;
+    let out_of_range = start >= total && total > 0;
+    (has_more || out_of_range).then(|| Paging::of(layout.row_unit, shown, has_more, out_of_range))
 }
 
 /// Serialized chars of one file entry around its rows and path.
@@ -102,18 +89,12 @@ pub(super) fn digits(n: impl Into<u64>) -> usize {
     n.into().checked_ilog10().map_or(1, |log| log as usize + 1)
 }
 
-/// Chars a streamed file entry's `pagination` takes: its row count and flag.
+/// Chars a streamed file entry's `pagination` takes at most: every count at
+/// the file's row total, the longer row unit (`matches`), and the flag.
 pub(super) fn pagination_chars(file: &octocode_engine::types::TextSearchFile) -> usize {
     let total = file.matches.len();
-    let empty = ItemPagination {
-        page: None,
-        total_pages: None,
-        total_matches: Some(saturating_u32(total)),
-        has_more: true,
-        next: None,
-        out_of_range: false,
-    };
-    ",\"pagination\":".len() + octocode_engine::json_size::utf16_units(&empty).unwrap_or(0)
+    let widest = Paging::of("matches", (total, total, total), true, false);
+    ",\"pagination\":".len() + octocode_engine::json_size::utf16_units(&widest).unwrap_or(0)
 }
 
 /// Whether every file entry, with all its rows and their names, fits

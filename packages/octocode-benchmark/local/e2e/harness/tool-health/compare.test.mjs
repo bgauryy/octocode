@@ -12,7 +12,7 @@ const graphBuildReceipt = (extra = {}) => ({ results: [{ index: 0, data: {
 } }] });
 const timingEvidence = totalMs => ({ results: [{ index: 0, data: { content: JSON.stringify({ totalMs }) } }] });
 const cloneReceipt = (clonedAt, commitSha = 'a'.repeat(40)) => ({ results: [{ index: 0, data: {
-  location: { kind: 'repo', localPath: '/checkout', commitSha, resolvedRef: commitSha, clonedAt },
+  location: { kind: 'repo', path: '/checkout', commitSha, ref: commitSha, clonedAt },
 } }] });
 const cloneTimingEvidence = clonedAt => ({ results: [{ index: 0, data: { content: JSON.stringify({ clonedAt }) } }] });
 const stats = id => ({ related: [{ kind: 'related', tool: 'graphQuery', input: { queries: [{ operation: 'stats', path: '.', graph: id }] } }] });

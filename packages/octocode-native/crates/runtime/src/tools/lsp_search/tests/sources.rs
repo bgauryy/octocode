@@ -86,7 +86,7 @@ async fn unreadable_in_policy_files_stay_authorized_and_keep_their_locations() {
         &crate::security::ContentSecurity::new(),
     )
     .await;
-    assert_eq!(result["pagination"]["totalItems"], 2, "{result}");
+    assert_eq!(result["pagination"]["total"], 2, "{result}");
     let rows = location_rows(&result);
     assert_eq!(rows.len(), 2, "{result}");
     assert!(

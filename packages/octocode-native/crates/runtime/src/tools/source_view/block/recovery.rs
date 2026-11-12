@@ -114,7 +114,8 @@ pub(in crate::tools::source_view) fn outline_recovery_warning(
                     | GraphFactCode::TraversalDeadline
             )
         })
-        .map(ToString::to_string);
+        // A parser's message may quote the source it stopped at.
+        .map(|note| crate::security::quoted(&note.to_string()).into_owned());
     let notes = unparsed_note(
         document,
         path,

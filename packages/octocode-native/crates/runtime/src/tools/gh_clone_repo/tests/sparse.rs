@@ -100,7 +100,7 @@ fn sparse_file_path_checks_out_only_that_file() {
                 &context,
             )
             .expect("sparse file clone");
-            let local = Path::new(&clone.location.local_path);
+            let local = Path::new(&clone.location.path);
             assert!(local.join(file).is_file(), "{file} missing ({branch:?})");
             for sibling in absent {
                 assert!(
@@ -127,7 +127,7 @@ fn multiple_sparse_paths_check_out_every_path() {
         &context,
     )
     .expect("multi-directory sparse clone");
-    let local = Path::new(&both.location.local_path);
+    let local = Path::new(&both.location.path);
     assert!(local.join("src/nested/data.txt").is_file());
     assert!(local.join("other/skip.txt").is_file());
     assert_eq!(
@@ -155,7 +155,7 @@ fn multiple_sparse_paths_check_out_every_path() {
     )
     .expect("same set, other order");
     assert_eq!(
-        reordered.location.local_path,
+        reordered.location.path,
         local.to_string_lossy(),
         "request order does not split the destination"
     );
@@ -169,7 +169,7 @@ fn multiple_sparse_paths_check_out_every_path() {
         &context,
     )
     .expect("file plus directory sparse clone");
-    let local = Path::new(&mixed.location.local_path);
+    let local = Path::new(&mixed.location.path);
     assert!(local.join("README.md").is_file());
     assert!(local.join("src/nested/data.txt").is_file());
     assert!(!local.join("src/lib.rs").exists());
@@ -184,7 +184,7 @@ fn multiple_sparse_paths_check_out_every_path() {
         &context,
     )
     .expect_err("one missing path fails the clone");
-    assert_eq!(missing.code, ErrorCode::PathNotFound);
+    assert_eq!(missing.code, ErrorCode::NotFound);
     assert!(missing.message.contains("\"nope\""), "{missing:?}");
     test_support::checks::assert_absent(&serde_json::json!(missing.message), "\"src\"");
 }
@@ -208,7 +208,7 @@ fn a_missing_sparse_path_leads_to_its_near_miss_or_its_nearest_directory() {
             &context,
         )
         .expect_err("missing sparse path");
-        assert_eq!(missing.code, ErrorCode::PathNotFound, "{missing:?}");
+        assert_eq!(missing.code, ErrorCode::NotFound, "{missing:?}");
         assert!(missing.hints.is_empty(), "{missing:?}");
         *missing.calls.expect("recovery lead")
     };
@@ -337,7 +337,7 @@ fn sparse_sets_of_one_commit_are_separate_worktrees_of_one_store() {
         .map(|row| clone_pinned(&fixture, row, &context).expect("clone"));
     let local = first
         .each_ref()
-        .map(|row| PathBuf::from(&row.location.local_path));
+        .map(|row| PathBuf::from(&row.location.path));
     let [src, readme, full] = &local;
 
     assert_eq!(store_dirs(&home).len(), 1, "{:?}", store_dirs(&home));
@@ -378,7 +378,7 @@ fn a_linked_worktree_is_no_bare_repository_beside_its_bare_store() {
         &context,
     )
     .expect("sparse clone");
-    let worktree = Path::new(&sparse.location.local_path);
+    let worktree = Path::new(&sparse.location.path);
     let flag = |dir: &Path, name: &str| git_output(dir, &["rev-parse", name]).trim().to_owned();
     assert_eq!(flag(worktree, "--is-bare-repository"), "false");
     assert_eq!(flag(worktree, "--is-inside-work-tree"), "true");

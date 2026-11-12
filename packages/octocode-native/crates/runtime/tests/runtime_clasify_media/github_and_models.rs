@@ -106,8 +106,8 @@ async fn github_image_resolves_the_commit_and_pins_its_capture() {
     let again = clasify(&runtime, vec![query.clone()]).await;
     assert!(again["results"][0]["data"].get("replayed").is_none());
     assert_eq!(
-        again["results"][0]["data"]["assets"]["image_a"]["snapshot"],
-        out["results"][0]["data"]["assets"]["image_a"]["snapshot"],
+        again["results"][0]["data"]["assets"]["image_a"]["sourceDigest"],
+        out["results"][0]["data"]["assets"]["image_a"]["sourceDigest"],
         "the same commit and path capture the same bytes"
     );
     let text = runtime
@@ -133,8 +133,8 @@ async fn github_image_resolves_the_commit_and_pins_its_capture() {
         "{other}"
     );
     assert_ne!(
-        other["results"][0]["data"]["assets"]["image_a"]["snapshot"],
-        out["results"][0]["data"]["assets"]["image_a"]["snapshot"]
+        other["results"][0]["data"]["assets"]["image_a"]["sourceDigest"],
+        out["results"][0]["data"]["assets"]["image_a"]["sourceDigest"]
     );
     assert_eq!(
         requests(&server).await.len(),

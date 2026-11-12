@@ -22,7 +22,7 @@ const ready = page({
   files: [
     {
       path: 'build.sbt',
-      matches: [{ displayRange: { startLine: 3, startCharacter: 5 } }],
+      matches: [{ line: 3, column: 5 }],
     },
   ],
 });

@@ -981,7 +981,11 @@ mod batch_walk {
             .expect("walk");
         assert_eq!(walked.read.len(), 1);
         assert_eq!(again.post_bodies().len(), 1, "the id list is asked again");
-        assert_eq!(gets(&again, "A"), 0, "an unchanged record is not read again");
+        assert_eq!(
+            gets(&again, "A"),
+            0,
+            "an unchanged record is not read again"
+        );
         assert_eq!(reused.get(), None, "a current list discloses no reuse");
     }
 

@@ -16,7 +16,7 @@ pub(super) use anchors::{anchor_recovery, attach_recovery_next, path_failure};
 use leads::symbol_search_lead;
 pub(super) use leads::{
     FILE_LEVEL_REASONS, LISTED_TEXT_FILES, TEXT_CHECK, flag_answer_gaps, flag_partial,
-    flagged_with, ignored_text_lead, record_text_only, shown_paths, term_search_lead,
+    flagged_with, record_text_only, shown_paths, term_search_lead,
     text_search_lead,
 };
 pub(super) use paging::{

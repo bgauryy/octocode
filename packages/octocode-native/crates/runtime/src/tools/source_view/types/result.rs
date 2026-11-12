@@ -215,12 +215,14 @@ impl Serialize for PaginationWire<'_> {
     /// `total` dropped when it repeats `totalLines` and `outOfRange` added.
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let page = self.page;
-        let (unit, total) = match page.unit {
-            ReadProgressUnit::Lines => ("lines", page.total_lines),
-            ReadProgressUnit::Bytes => ("bytes", page.total_bytes),
+        // A selection's byte page names its source's bytes (`placed`).
+        let (unit, offset, total) = match (page.unit, page.placed) {
+            (ReadProgressUnit::Lines, _) => ("lines", page.offset, page.total_lines),
+            (ReadProgressUnit::Bytes, Some((offset, total))) => ("bytes", offset, total),
+            (ReadProgressUnit::Bytes, None) => ("bytes", page.offset, page.total_bytes),
         };
         let mut facts =
-            crate::response::pages::SpanFacts::window(unit, page.offset, page.length, total)
+            crate::response::pages::SpanFacts::window(unit, offset, page.length, total)
                 .out_of_range(self.out_of_range);
         if page.unit == ReadProgressUnit::Lines && self.source_lines == Some(total) {
             facts = facts.without_total();

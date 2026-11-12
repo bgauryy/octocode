@@ -103,7 +103,7 @@ fn ingest_classifies_roles_entries_and_declared_dependencies() {
     let uses = ask(root, "dependents", Some("src/lib.ts#greet"), |o| {
         o.edges = vec!["uses".into()];
     });
-    assert_eq!(ids(&uses), vec!["src/main.ts"], "{}", uses.value);
+    assert_eq!(ids(&uses), vec!["app/src/main.ts"], "{}", uses.value);
 }
 
 /// Minified sources are graphed like any other (B135: no size cut of the
@@ -134,14 +134,14 @@ fn admitted_minified_evidence_is_preserved_and_oversize_is_explicit() {
     let deps = ask(dir.0.as_path(), "deps", Some("src/uses.ts"), |_| {});
     let rows = deps.value["rows"].as_array().expect("rows");
     assert!(
-        rows.iter().any(|r| r["id"] == "src/huge.min.js"),
+        rows.iter().any(|r| r["id"] == "app/src/huge.min.js"),
         "{}",
         deps.value
     );
     let symbols = ask(dir.0.as_path(), "symbols", Some("src/huge.min.js"), |o| {
         o.limit = Some(1);
     });
-    let graphed = symbols.value["pagination"]["totalItems"] == repeats;
+    let graphed = symbols.value["pagination"]["total"] == repeats;
     let diagnostics = ask(dir.0.as_path(), "diagnostics", None, |o| {
         o.limit = Some(100);
     });
@@ -150,7 +150,7 @@ fn admitted_minified_evidence_is_preserved_and_oversize_is_explicit() {
         .into_iter()
         .flatten()
         .any(|row| {
-            row["file"] == "src/huge.min.js"
+            row["path"] == "app/src/huge.min.js"
                 && row["message"]
                     .as_str()
                     .is_some_and(|message| message.contains("budget"))
@@ -163,7 +163,7 @@ fn admitted_minified_evidence_is_preserved_and_oversize_is_explicit() {
     );
     let outline = ask(dir.0.as_path(), "symbols", Some("src/small.min.js"), |_| {});
     assert_eq!(
-        outline.value["pagination"]["totalItems"], 400,
+        outline.value["pagination"]["total"], 400,
         "admitted minified declarations must remain queryable: {}",
         outline.value
     );
@@ -176,11 +176,7 @@ fn admitted_minified_evidence_is_preserved_and_oversize_is_explicit() {
             o.edges = vec!["calls".into()];
         },
     );
-    assert_eq!(
-        calls.value["pagination"]["totalItems"], 200,
-        "{}",
-        calls.value
-    );
+    assert_eq!(calls.value["pagination"]["total"], 200, "{}", calls.value);
 
     let issues = ask(dir.0.as_path(), "issues", None, |o| o.limit = Some(500));
     let subjects = issues.value["rows"]
@@ -198,7 +194,7 @@ fn admitted_minified_evidence_is_preserved_and_oversize_is_explicit() {
             .as_array()
             .expect("rows")
             .iter()
-            .any(|r| r["detector"] == "unresolved-import" && r["subject"] == "src/uses.ts"),
+            .any(|r| r["detector"] == "unresolved-import" && r["subject"] == "app/src/uses.ts"),
         "import of an unparsed file is linked, not unresolved"
     );
 }
@@ -327,7 +323,7 @@ fn ingest_language_globs_choose_the_parser() {
         let found = ask(root, "find", Some("Widget"), |o| {
             o.kind = Some("symbol".into());
         });
-        found.value["rows"][0]["symbolKind"].clone()
+        found.value["rows"][0]["kind"].clone()
     };
     let plain = with_globs(&[]);
     assert_eq!(plain.class, ExitClass::Success, "{}", plain.value);

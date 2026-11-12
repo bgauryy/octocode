@@ -101,7 +101,7 @@ pub(super) fn refuse_unprovable_permissions(
 
 impl CompiledQuery {
     pub(super) fn new(options: FileSystemQueryOptions) -> Result<Self, Error> {
-        ordered(options.size_min, options.size_max, "sizeBytes")?;
+        ordered(options.size_min, options.size_max, "bytes")?;
         ordered(options.modified_from, options.modified_to, "modifiedAt")?;
         ordered(options.accessed_from, options.accessed_to, "accessedAt")?;
         refuse_unprovable_permissions(&options, cfg!(unix))?;

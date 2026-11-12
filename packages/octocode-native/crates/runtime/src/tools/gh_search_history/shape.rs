@@ -26,6 +26,8 @@ pub(super) struct Paging {
     exact_list_total: Option<usize>,
     /// Rows a REST list has listed through this page.
     loaded: usize,
+    /// Rows this page shows.
+    shown: usize,
     listed: bool,
     incomplete: bool,
     /// The page lies past the last one: no rows, though the search has some
@@ -58,6 +60,7 @@ impl Paging {
                 .saturating_sub(1)
                 .saturating_mul(per)
                 .saturating_add(result.items.len()),
+            shown: result.items.len(),
             listed: result.listed,
             incomplete: result.incomplete_results,
             past_end: result.items.is_empty()
@@ -65,43 +68,43 @@ impl Paging {
                 && (result.listed || reach.past_last(page)),
         }
     }
-    /// The total a page reports: the search total, or an exact list count.
-    fn reported_total(&self) -> Option<usize> {
-        if self.listed {
-            self.exact_list_total
-        } else {
-            Some(self.total)
-        }
-    }
-    /// A REST list page with more pages has no total: the rows listed so far
-    /// (`countScope: loaded`, a floor) say how far the list reaches.
-    fn mark_loaded(&self, pagination: &mut Value) {
-        if self.listed && self.more && !self.past_end {
-            pagination["totalItems"] = json!(self.loaded);
-            pagination["countScope"] = json!("loaded");
-        }
-    }
-    /// The total when it is exact: an uncapped, complete search count or an
-    /// exact list count. A capped or incomplete count is no page count.
-    fn exact_total(&self) -> Option<usize> {
-        if self.listed {
-            self.exact_list_total
-        } else {
-            (!self.capped && !self.incomplete).then_some(self.total)
-        }
-    }
-    /// The page facts; `totalPages` only beside an exact total (a capped
-    /// one states `partialReasons:["providerResultCap"]` instead). The
-    /// cursor rides `next.nextPage`, bounded by the contract's `page`
-    /// maximum.
+    /// The page facts: where the page starts and the rows it shows, with
+    /// the total when one is known. A search total the provider caps is a
+    /// floor (`countScope:"capped"`), one it reported incomplete is
+    /// `partial`; a REST list page with more pages states the rows listed so
+    /// far (`loaded`). The cursor rides `next.nextPage`, bounded by the
+    /// contract's `page` maximum.
     fn pagination(&self) -> Value {
-        let facts = crate::response::pages::PageFacts::open(self.page, Some(self.per), self.more)
-            .out_of_range(self.past_end);
-        match self.exact_total() {
+        use crate::response::pages::PageFacts;
+        let facts = PageFacts::open(
+            PageFacts::start_of(self.page, self.per),
+            self.shown,
+            self.more,
+        )
+        .out_of_range(self.past_end);
+        let (total, scope) = if !self.listed {
+            let scope = if self.capped {
+                Some("capped")
+            } else {
+                self.incomplete.then_some("partial")
+            };
+            (Some(self.total), scope)
+        } else if let Some(total) = self.exact_list_total {
+            (Some(total), None)
+        } else if self.more && !self.past_end {
+            (Some(self.loaded), Some("loaded"))
+        } else {
+            (None, None)
+        };
+        let mut block = match total {
             Some(total) => facts.with_total(total),
             None => facts,
         }
-        .to_value()
+        .to_value();
+        if let Some(scope) = scope {
+            block["countScope"] = json!(scope);
+        }
+        block
     }
 }
 
@@ -227,7 +230,10 @@ const COMMIT_DETAIL: &[&str] = &["author", "committer"];
 
 /// `detail` less the field the rows are sorted by: a page ranked by comment
 /// count states each row's count, since the order is the answer.
-fn detail_unless_sorted(query: &HistorySearch, detail: &'static [&'static str]) -> Vec<&'static str> {
+fn detail_unless_sorted(
+    query: &HistorySearch,
+    detail: &'static [&'static str],
+) -> Vec<&'static str> {
     let sorted = match gh_search_history_query::sort(query).as_deref() {
         Some("comments") => Some("commentsCount"),
         _ => None,
@@ -288,14 +294,6 @@ fn pull_requests(query: &HistorySearch, items: &[Value], paging: &Paging, terms:
         &["number", "owner", "repo"],
         &fields,
     );
-    // An exact total states totalPages (see `Paging::pagination`); a capped
-    // total is `partialReasons:["providerResultCap"]`, not a second flag.
-    if !paging.listed {
-        v["pagination"]["totalItems"] = json!(paging.total);
-    } else if let Some(total) = paging.exact_list_total {
-        v["pagination"]["totalItems"] = json!(total);
-    }
-    paging.mark_loaded(&mut v["pagination"]);
     // The count call is the same on every page: offered once, on page 1.
     if paging.listed
         && paging.more
@@ -346,9 +344,6 @@ fn issues(query: &HistorySearch, items: &[Value], paging: &Paging, terms: String
         &fields,
     );
     pick_rows(&mut v, "issues", &["number", "owner", "repo"], &fields);
-    if let Some(total) = paging.reported_total() {
-        v["pagination"]["totalItems"] = json!(total);
-    }
     // List mode runs the REST endpoint, not the search terms.
     if paging.listed
         && let Some(map) = v.as_object_mut()
@@ -383,12 +378,8 @@ fn commits(query: &HistorySearch, items: Vec<Value>, paging: &Paging) -> Value {
         // `shape` adds the reachable `next.nextPage`. A complete list says
         // so too (`hasMore:false`): the REST list has no total, so a missing
         // block would leave the end of the history unstated.
-        v["pagination"] =
-            crate::response::pages::PageFacts::open(paging.page, Some(paging.per), paging.more)
-                .out_of_range(paging.past_end)
-                .to_value();
         // Commit search needs keywords: a commit list offers no count call.
-        paging.mark_loaded(&mut v["pagination"]);
+        v["pagination"] = paging.pagination();
         return v;
     }
     let commits = items
@@ -404,13 +395,7 @@ fn commits(query: &HistorySearch, items: Vec<Value>, paging: &Paging) -> Value {
             row
         })
         .collect::<Vec<_>>();
-    let mut facts =
-        crate::response::pages::PageFacts::open(paging.page, Some(paging.per), paging.more)
-            .out_of_range(paging.past_end);
-    if let Some(total) = paging.reported_total() {
-        facts = facts.with_items(total);
-    }
-    let mut v = json!({"commits":commits,"pagination":facts.to_value()});
+    let mut v = json!({"commits":commits,"pagination":paging.pagination()});
     lean_rows(&mut v, "commits", COMMIT_DETAIL, &fields);
     pick_rows(&mut v, "commits", &["commitSha", "owner", "repo"], &fields);
     v

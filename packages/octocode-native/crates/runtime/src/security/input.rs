@@ -192,8 +192,7 @@ pub(super) fn restore_within(
         let own = spans
             .iter()
             .any(|span| span.start <= taken.start && taken.end <= span.end);
-        let (Some(before), Some(original)) =
-            (text.get(from..taken.start), text.get(taken.clone()))
+        let (Some(before), Some(original)) = (text.get(from..taken.start), text.get(taken.clone()))
         else {
             return Some(clean.to_owned());
         };
@@ -344,10 +343,10 @@ impl ContentSecurity {
             };
         }
         let mut verdict = self.walk_object(&mut object, 0, MAX_STRING_LENGTH, content_limit);
-        // Text only some file's rules would hide (a manifest quoted in a
+        // The evidence is judged as text of no known file, in place. Text
+        // only some other file's rules would hide (a manifest quoted in a
         // question) is no credential the caller is known to have written:
-        // it is hidden in place and refuses nothing. In the caller's own
-        // words a value the request rules cleared above stays as written.
+        // it is hidden in place and refuses nothing.
         if content_limit.is_some() {
             verdict.has_secrets |= self.hide_provider_text(&mut object, EVIDENCE);
         }
@@ -403,7 +402,11 @@ impl ContentSecurity {
                         ));
                         return false;
                     }
-                    if holds_credential(text) {
+                    // The evidence under judgment is no request text: it is
+                    // judged as text of no known file is, in place
+                    // ([`ContentSecurity::hide_provider_text`]).
+                    let evidence = key == EVIDENCE && content_limit.is_some();
+                    if !evidence && holds_credential(text) {
                         let result = self.sanitize_text(text, None);
                         out.has_secrets = true;
                         out.secret_fields.push(key.clone());
@@ -470,8 +473,9 @@ impl ContentSecurity {
                 ));
                 false
             }
+            // An item of the evidence (`counted` false) is judged with it.
             Value::String(text) => {
-                if holds_credential(text) {
+                if counted && holds_credential(text) {
                     item_secrets = true;
                     *text = hidden(self.sanitize_text(text, None).content);
                 }
@@ -488,7 +492,7 @@ impl ContentSecurity {
             }
             // Nested arrays recurse, so string leaves at any array depth are
             // sanitized.
-            Value::Array(inner) => self.walk_array(key, inner, depth + 1, limit, true, out),
+            Value::Array(inner) => self.walk_array(key, inner, depth + 1, limit, counted, out),
             _ => true,
         });
         if item_secrets {
@@ -499,12 +503,12 @@ impl ContentSecurity {
     }
 }
 
-/// Whether a request string holds a credential. A request names what it
-/// looks for, so the name beside a value says nothing of the value
-/// (`password: str` is a declaration to find): only a value a pattern knows
-/// by its shape, or an opaque one, is a credential, and so is the body of a
-/// private key under its armor line ([`super::content::holds_private_key_body`]),
-/// as written or as a regex spells it. The armor line alone
+/// Whether a request string holds a credential: whatever a read of text of
+/// no known file would hide (the file judge itself, so nothing a read hides
+/// leaves the machine in a request, and a declaration a read shows,
+/// `password: str`, runs), and the body of a private key under its armor
+/// line ([`super::content::holds_private_key_body`]), as written or as a
+/// regex spells it. The armor line alone
 /// (`-----BEGIN RSA PRIVATE KEY-----`) is the same text in every key and no
 /// part of any: a search for it runs. A scan that fails counts as a
 /// credential.
@@ -517,14 +521,14 @@ fn holds_credential(text: &str) -> bool {
 }
 
 /// The text a string that holds a credential leaves in its place: `redacted`
-/// (what the scan made of it) with the values only a request's own rule
-/// finds hidden too, and the scan-failure placeholder when neither rewrote
-/// it, so such a value never stays as written.
+/// (what the file judge made of it, the judge the request was refused by),
+/// and the scan-failure placeholder when it rewrote nothing (a credential
+/// only a regex spelling of the string holds), so such a value never stays
+/// as written.
 fn hidden(redacted: std::borrow::Cow<'_, str>) -> String {
-    let named = octocode_engine::security::sanitizer::request_named_values_hidden(&redacted);
-    match (named, redacted) {
-        (Ok(Some(content)), _) | (Ok(None), std::borrow::Cow::Owned(content)) => content,
-        (Ok(None), std::borrow::Cow::Borrowed(_)) | (Err(_), _) => {
+    match redacted {
+        std::borrow::Cow::Owned(content) => content,
+        std::borrow::Cow::Borrowed(_) => {
             octocode_engine::security::SANITIZER_FAILURE_PLACEHOLDER.to_owned()
         }
     }
@@ -575,9 +579,84 @@ fn input_issues(checked: &ValidationResult, clasify: bool) -> Vec<ValidationIssu
                 issue(
                     "security.credential",
                     Some(field),
-                    "Value looks like a credential and was not run (its redacted form would match unrelated text); search a non-secret fragment instead, such as its prefix or the identifier that holds it".into(),
+                    format!(
+                        "Value looks like a credential and was not run; {}",
+                        credential_repair(field)
+                    ),
                 )
             }),
     );
     issues
+}
+
+/// The fields whose text is the caller's prose (a goal, a reasoning, a
+/// task's instructions, context or criteria, a question): nothing searches
+/// it, so its repair is the text without the credential.
+const PROSE_FIELDS: [&str; 6] = [
+    "mainGoal",
+    "reasoning",
+    "instructions",
+    "context",
+    "criteria",
+    "questions",
+];
+
+/// The repair a credential refusal names, fitted to the field that held it:
+/// a URL runs once its credentials are dropped, prose once the credential is
+/// removed from it; a search term or any other text names what to send in
+/// place of the secret.
+fn credential_repair(field: &str) -> &'static str {
+    let segments = || {
+        field
+            .split('.')
+            .map(|segment| segment.split('[').next().unwrap_or(segment))
+    };
+    let leaf = segments().next_back().unwrap_or(field);
+    if leaf.to_ascii_lowercase().ends_with("url") {
+        "drop the credentials from the URL (a user:password@ part or a token in its query) and send it without them"
+    } else if segments().any(|segment| PROSE_FIELDS.contains(&segment)) {
+        "remove the credential from the text and send the rest"
+    } else {
+        "its redacted form would match unrelated text: search a non-secret fragment instead, such as its prefix or the identifier that holds it"
+    }
+}
+
+#[cfg(test)]
+mod credential_repair_tests {
+    use super::credential_repair;
+
+    /// A URL's repair is to drop its credentials; a search term's is a
+    /// non-secret fragment.
+    #[test]
+    fn the_repair_fits_the_field_that_held_the_credential() {
+        for field in ["source.url", "resources.docs.url", "registryUrl"] {
+            assert!(
+                credential_repair(field).contains("drop the credentials from the URL"),
+                "{field}"
+            );
+        }
+        for field in ["matchString[]", "keywords[]", "symbolName"] {
+            assert!(
+                credential_repair(field).contains("non-secret fragment"),
+                "{field}"
+            );
+        }
+        // D8 (round 13): prose is searched by nothing; its repair is the text
+        // without the credential.
+        for field in [
+            "mainGoal",
+            "reasoning",
+            "instructions",
+            "context",
+            "criteria",
+            "questions.q1",
+        ] {
+            let repair = credential_repair(field);
+            assert!(
+                repair.contains("remove the credential from the text"),
+                "{field}"
+            );
+            assert!(!repair.contains("fragment"), "{field}");
+        }
+    }
 }

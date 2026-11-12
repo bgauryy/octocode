@@ -149,7 +149,14 @@ pub(super) async fn refs(
             .map(|named: &NamedRef| json!({ "name": named.name, "sha": named.sha }))
             .collect();
     }
-    let pages = crate::response::pages::PageFacts::open(page, Some(per_page), more && !past_end);
+    // The refs this page lists, tags and branches together, from the start
+    // of its provider page.
+    let shown = tags.names.len() + listed_branches;
+    let pages = crate::response::pages::PageFacts::open(
+        crate::response::pages::PageFacts::start_of(page, per_page),
+        shown,
+        more && !past_end,
+    );
     if past_end {
         value["pagination"] = pages.out_of_range(true).to_value();
     } else if more {

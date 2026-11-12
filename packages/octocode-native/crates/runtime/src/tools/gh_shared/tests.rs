@@ -75,9 +75,9 @@ fn incomplete_and_cap_are_losslessly_typed() {
     );
     assert_eq!(value["terminalLimit"], true);
     // The count the page states stops at the cap, and says so.
-    assert_eq!(value["pagination"]["totalItemsCapped"], true, "{value}");
-    // `partialReasons` names the cap and `pagination.totalItems` its
-    // size: no `providerLimit` restates them.
+    assert_eq!(value["pagination"]["countScope"], "capped", "{value}");
+    // `partialReasons` names the cap and `pagination.total` its size: no
+    // `providerLimit` restates them.
     assert!(value.get("providerLimit").is_none(), "{value}");
     assert_eq!(
         value["partialReasons"],

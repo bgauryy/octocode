@@ -43,7 +43,9 @@ const MUST_NAME = {
 
 const dataOf = pages => pages.flatMap(page => page.json?.results ?? []).map(row => row.data ?? {});
 const rowsOf = pages => dataOf(pages).flatMap(row => row.rows ?? []);
-const idOf = row => row.id ?? row.file ?? row.detector ?? JSON.stringify(row);
+const idOf = row => row.id ?? row.path ?? row.detector ?? JSON.stringify(row);
+/** The node kind a `kind` filter names: a symbol row's own `kind` is its declaration kind (function, class, …). */
+const nodeKind = row => (typeof row.symbolName === 'string' ? 'symbol' : row.kind);
 
 /** `kind` narrows what a target may name, so the target follows it. */
 function withKind(anchor, kind) {
@@ -63,7 +65,7 @@ function base(row, assignment) {
 const LIMITED = Object.fromEntries(Object.keys(ANCHORS).filter(name => !['stats', 'node', 'path'].includes(name)).map(name => [name, true]));
 
 const FILTERS = {
-  kind: (row, value) => row.kind === value,
+  kind: (row, value) => nodeKind(row) === value,
   detectors: (row, value) => row.detector === value[0],
   reasons: (row, value) => row.reason === value[0],
   minTier: (row, value) => row.tier >= value,
@@ -72,7 +74,7 @@ const TRAVERSALS = new Set(['deps', 'dependents', 'callers', 'callees', 'walk'])
 const CONFIDENCE = { high: 2, medium: 1, low: 0 };
 const FILTERS_ROWS = new Set(['find', 'candidates', 'hubs', 'deps', 'dependents', 'callers', 'callees', 'walk']);
 const filterOf = query => Object.keys(FILTERS).filter(name => query[name] !== undefined && (name !== 'kind' || FILTERS_ROWS.has(query.operation)));
-const groupOf = row => row.file ?? row.id;
+const groupOf = row => row.path ?? row.id;
 
 /** The same call with its filters removed: the population a filter must select from. */
 function unfilteredInput(query) {
@@ -112,7 +114,7 @@ function edgeProblem(query, listed, whole, names) {
   const population = new Set(whole.map(idOf));
   const wrong = listed.find(row => (row.edge !== undefined && row.edge !== query.edges[0]) || !population.has(idOf(row)));
   if (wrong) return `edges ${query.edges[0]}: row ${JSON.stringify(wrong).slice(0, 160)}`;
-  const leaked = names.includes('kind') && listed.find(row => row.kind !== query.kind);
+  const leaked = names.includes('kind') && listed.find(row => nodeKind(row) !== query.kind);
   return leaked ? `kind ${query.kind}: row ${JSON.stringify(leaked).slice(0, 160)}` : null;
 }
 
@@ -126,7 +128,7 @@ function confidenceProblem(query, listed, whole) {
 function exactProblem(query, listed, whole, names) {
   const expected = whole.filter(row => names.every(name => FILTERS[name](row, query[name]))
     && (!query.confidence || !Object.hasOwn(row, 'confidence') || CONFIDENCE[row.confidence] >= CONFIDENCE[query.confidence]));
-  const difference = query.view === 'files' ? firstDifference(fileCounts(expected), listed.map(row => [row.file, row.edges])) : firstDifference(canonicalIds(expected), canonicalIds(listed));
+  const difference = query.view === 'files' ? firstDifference(fileCounts(expected), listed.map(row => [row.path, row.edges])) : firstDifference(canonicalIds(expected), canonicalIds(listed));
   return difference ? `${names.join(',') || 'confidence'}: rows differ from the unfiltered rows that carry the value: ${JSON.stringify(difference)}` : null;
 }
 
@@ -158,7 +160,7 @@ function nameProblem(query, listed) {
 
 function filesViewProblem(query, listed) {
   if (query.view !== 'files') return null;
-  return listed.every(row => row.edges > 0 && typeof row.file === 'string') ? null : `view files: ${JSON.stringify(listed).slice(0, 200)}`;
+  return listed.every(row => row.edges > 0 && typeof row.path === 'string') ? null : `view files: ${JSON.stringify(listed).slice(0, 200)}`;
 }
 
 const CYCLE_MEMBERS = { imports: ['src/a.ts', 'src/b.ts', 'src/c.ts'], calls: ['src/a.ts#a', 'src/b.ts#b', 'src/c.ts#c'] };

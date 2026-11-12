@@ -180,7 +180,7 @@ pub(super) async fn run(package: &Package<'_>, net: &Net<'_>) -> Result<Value, A
             notes.release_named = named;
             None
         }
-        Err(error) => Some(error.message),
+        Err(error) => Some(crate::security::quoted(&error.message).into_owned()),
     };
     let finished = results.iter().all(|result| result.resume.is_none());
     // Each of these reads OSV's answer and none reads another's: the upgrade
@@ -593,7 +593,12 @@ async fn confirm(
         Ok(page) => page,
         // The package is public and this version is not: the source may hear
         // the name, never a version the registry does not list.
-        Err(error) if error.code == ErrorCode::VersionNotFound => {
+        Err(mut error) if error.missing_version => {
+            // The repair call reads as many nearest versions as one call carries.
+            let limit = crate::contracts::batch_limit(ToolId::SecurityCheck).unwrap_or(1);
+            let (nearest, fewer) = crate::providers::artifact::suggested(kind, &error, limit);
+            error.nearest = nearest;
+            error.hints.extend(fewer);
             return Ok((
                 Confirmed {
                     ecosystem: package.ecosystem,
@@ -978,6 +983,7 @@ fn respond(
         data["status"] = json!("error");
         data["errorCode"] = json!(absent.code);
         data["error"] = json!(sentence(&absent.message));
+        crate::response::result::add_hints(&mut data, absent.hints.iter().cloned());
         let nearest = absent
             .nearest
             .iter()

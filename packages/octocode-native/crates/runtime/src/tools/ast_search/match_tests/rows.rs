@@ -54,7 +54,11 @@ fn census_notices_are_static_and_a_caller_limit_draws_no_narrowing_advice() {
     let notices = out["notices"].to_string();
     assert!(notices.contains("absence there is unproven"), "{out}");
     assert!(!notices.contains("to read fewer"), "{out}");
-    assert_eq!(out["pagination"]["totalPages"], 2, "{out}");
+    assert_eq!(
+        (&out["pagination"]["length"], &out["pagination"]["total"]),
+        (&json!(1), &json!(2)),
+        "{out}"
+    );
     assert!(
         !out["warnings"].to_string().contains("no AST grammar"),
         "the census is a notice, said once by the response stage: {out}"

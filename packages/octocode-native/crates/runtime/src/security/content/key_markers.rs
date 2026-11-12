@@ -7,8 +7,9 @@
 //! optional blanks, `BEGIN` or `END`, then a label holding `PRIVATE KEY`,
 //! `SECRET KEY` or `Static key` (OpenVPN's shared key) before the next four dashes. The closing dashes may be cut off a line that ends
 //! right after the label. PuTTY's format has no armor, and its lines are named
-//! at their start instead: `PuTTY-User-Key-File-N:` and `Private-Lines:` open
-//! a block (the second holds the secret half), `Private-MAC:` closes it.
+//! at their start instead: `Private-Lines:` opens a block (the secret half;
+//! the header lines and public lines before it hold no private key), and
+//! `Private-MAC:` closes it.
 
 use std::sync::LazyLock;
 
@@ -248,7 +249,7 @@ impl MarkerScan {
             found.mark(edge);
         }
         let named = after_line_lead(head);
-        if named.starts_with(b"PuTTY-User-Key-File-") || named.starts_with(b"Private-Lines:") {
+        if named.starts_with(b"Private-Lines:") {
             found.mark(Edge::Begin);
         } else if named.starts_with(b"Private-MAC:") {
             found.mark(Edge::End);
@@ -270,7 +271,6 @@ pub(super) fn may_hold_key_marker(content: &str) -> bool {
         || content.contains("SECRET KEY")
         || content.contains("Static key")
         || content.contains("Private-Lines:")
-        || content.contains("PuTTY-User-Key-File-")
 }
 
 /// Quoting and punctuation a key's line can carry on either side of its text.

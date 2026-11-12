@@ -123,8 +123,6 @@ pub(super) fn detect_cycles(c: &mut Ctx) {
             confidence = f64::min(confidence, 0.35);
             controls.push("rust modules within one crate may legally cycle");
         }
-        let first = v.key(witness[0]);
-        let second = witness.get(1).map_or(first, |id| v.key(*id));
         found.push((
             member_keys[0].to_owned(),
             member_keys.join(","),
@@ -138,13 +136,9 @@ pub(super) fn detect_cycles(c: &mut Ctx) {
             impact,
             evidence,
             controls,
-            vec![step(
-                ToolId::GraphQuery,
-                json!({"operation": "path", "target": second, "to": first}),
-            )],
         ));
     }
-    for (subject, all, title, severity, confidence, impact, evidence, controls, verify) in found {
+    for (subject, all, title, severity, confidence, impact, evidence, controls) in found {
         push(
             &mut c.findings,
             Draft {
@@ -157,7 +151,6 @@ pub(super) fn detect_cycles(c: &mut Ctx) {
                 impact,
                 evidence,
                 controls,
-                verify,
             },
         );
     }
@@ -275,7 +268,6 @@ pub(super) fn detect_dir_cycles(c: &mut Ctx) {
                 impact: 0.5,
                 evidence: json!({"dirs": keys, "witness": hops}),
                 controls,
-                verify: Vec::new(),
             },
         );
     }

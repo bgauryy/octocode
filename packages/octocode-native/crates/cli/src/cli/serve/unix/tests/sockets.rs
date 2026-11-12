@@ -144,13 +144,20 @@ fn answering(socket: &std::path::Path, reply: &'static str) -> std::thread::Join
 fn stopping_and_waiting_needs_each_servers_drain_confirmation() {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
     let temp = tempfile::tempdir().expect("temp");
-    assert_eq!(stop_and_wait_in(temp.path()), Ok(()), "no servers");
+    assert_eq!(
+        stop_and_wait_in(temp.path(), octocode_io::http::READ_STALL),
+        Ok(()),
+        "no servers"
+    );
     let uid = std::fs::metadata(temp.path()).expect("meta").uid();
     let (dir, _) = socket_dir(temp.path());
     private_dir(&dir, uid).expect("private");
 
     let confirmed = answering(&dir.join("serve-a.sock"), "{\"stopped\":true}\n");
-    assert_eq!(stop_and_wait_in(temp.path()), Ok(()));
+    assert_eq!(
+        stop_and_wait_in(temp.path(), octocode_io::http::READ_STALL),
+        Ok(())
+    );
     let request: serde_json::Value =
         serde_json::from_str(&confirmed.join().expect("server")).expect("JSON request");
     assert_eq!(request, json!({"stop": true, "drain": true}));
@@ -162,19 +169,25 @@ fn stopping_and_waiting_needs_each_servers_drain_confirmation() {
         &dir.join("serve-c.sock"),
         "{\"draining\":2}\n{\"stopped\":true}\n",
     );
-    assert_eq!(stop_and_wait_in(temp.path()), Ok(()));
+    assert_eq!(
+        stop_and_wait_in(temp.path(), octocode_io::http::READ_STALL),
+        Ok(())
+    );
     announced.join().expect("server");
     std::fs::remove_file(dir.join("serve-c.sock")).expect("unbind");
     assert_eq!(draining("{\"draining\":2}\n"), Some(2));
     assert_eq!(draining("{\"stopped\":true}\n"), None);
 
     let unconfirmed = answering(&dir.join("serve-b.sock"), "{\"stopped\":false}\n");
-    assert!(stop_and_wait_in(temp.path()).is_err());
+    assert!(stop_and_wait_in(temp.path(), octocode_io::http::READ_STALL).is_err());
     unconfirmed.join().expect("server");
     std::fs::remove_file(dir.join("serve-b.sock")).expect("unbind");
 
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).expect("chmod");
-    assert!(stop_and_wait_in(temp.path()).is_err(), "a shared directory");
+    assert!(
+        stop_and_wait_in(temp.path(), octocode_io::http::READ_STALL).is_err(),
+        "a shared directory"
+    );
 }
 
 #[test]
@@ -185,6 +198,62 @@ fn a_socket_that_cannot_be_restricted_is_an_error() {
     assert!(restrict(&socket).is_err(), "no socket, no restriction");
     let _listener = std::os::unix::net::UnixListener::bind(&socket).expect("bind");
     restrict(&socket).expect("restrict");
-    let mode = std::fs::metadata(&socket).expect("meta").permissions().mode();
+    let mode = std::fs::metadata(&socket)
+        .expect("meta")
+        .permissions()
+        .mode();
     assert_eq!(mode & 0o777, 0o600);
+}
+
+/// A server that keeps sending heartbeats while it drains is waited for
+/// past the silence; one that goes silent mid-drain ends the wait after
+/// the silence with an error that says the cache was not cleared.
+#[test]
+fn a_drain_wait_ends_on_silence_but_not_while_heartbeats_arrive() {
+    use std::io::{BufRead as _, Write as _};
+    use std::os::unix::fs::MetadataExt;
+    let silence = Duration::from_millis(150);
+    let temp = tempfile::tempdir().expect("temp");
+    let uid = std::fs::metadata(temp.path()).expect("meta").uid();
+    let (dir, _) = socket_dir(temp.path());
+    private_dir(&dir, uid).expect("private");
+    let serve = |name: &str, beats: usize, then: &'static str| {
+        let listener = std::os::unix::net::UnixListener::bind(dir.join(name)).expect("bind");
+        std::thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("accept");
+            let mut request = String::new();
+            std::io::BufReader::new(&stream)
+                .read_line(&mut request)
+                .expect("request");
+            (&stream)
+                .write_all(b"{\"draining\":1}\n")
+                .expect("draining");
+            for _ in 0..beats {
+                std::thread::sleep(silence / 3);
+                (&stream).write_all(b"{\"alive\":true}\n").expect("beat");
+            }
+            match then {
+                "" => {
+                    // Silent but connected until the client gives up.
+                    let mut rest = String::new();
+                    let _ = std::io::BufReader::new(&stream).read_line(&mut rest);
+                }
+                line => (&stream).write_all(line.as_bytes()).expect("stopped"),
+            }
+        })
+    };
+
+    // Six beats: twice the silence, never silent for one.
+    let beating = serve("serve-beat.sock", 6, "{\"stopped\":true}\n");
+    assert_eq!(stop_and_wait_in(temp.path(), silence), Ok(()));
+    beating.join().expect("server");
+    std::fs::remove_file(dir.join("serve-beat.sock")).expect("unbind");
+
+    let silent = serve("serve-silent.sock", 1, "");
+    let started = std::time::Instant::now();
+    let failed = stop_and_wait_in(temp.path(), silence).expect_err("silence ends the wait");
+    assert!(started.elapsed() < Duration::from_secs(5));
+    assert!(failed.contains("sent nothing"), "{failed}");
+    assert!(failed.contains("not cleared"), "{failed}");
+    silent.join().expect("server");
 }

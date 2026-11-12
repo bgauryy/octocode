@@ -22,7 +22,7 @@ fn walk(dir: &Path, mut query: Value) -> (Vec<String>, u64) {
     loop {
         let page = call(dir, ToolId::GraphQuery, query);
         total.get_or_insert_with(|| {
-            page["pagination"]["totalItems"]
+            page["pagination"]["total"]
                 .as_u64()
                 .unwrap_or_else(|| panic!("total: {page}"))
         });

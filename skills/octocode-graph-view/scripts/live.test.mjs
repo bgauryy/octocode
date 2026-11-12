@@ -204,23 +204,23 @@ function fakeRepo() {
   const src = { 'a.ts': "import { g } from './b';\nexport function f() {\n  g();\n  g();\n}\n", 'b.ts': 'export function g() {\n  return 1;\n}\n', 'notes.md': '# notes\n' };
   for (const [name, text] of Object.entries(src)) writeFileSync(join(root, name), text);
   const witnesses = [
-    { edge: 'imports', from: 'a.ts', to: 'b.ts', file: 'a.ts', line: 1, confidence: 'high', detail: 'static-import' },
-    { edge: 'calls', from: 'a.ts#f', to: 'b.ts#g', file: 'a.ts', line: 3, confidence: 'high', detail: 'import' },
-    { edge: 'calls', from: 'a.ts#f', to: 'b.ts#g', file: 'a.ts', line: 4, confidence: 'high', detail: 'import' },
+    { edge: 'imports', from: 'a.ts', to: 'b.ts', path: 'a.ts', line: 1, confidence: 'high', detail: 'static-import' },
+    { edge: 'calls', from: 'a.ts#f', to: 'b.ts#g', path: 'a.ts', line: 3, confidence: 'high', detail: 'import' },
+    { edge: 'calls', from: 'a.ts#f', to: 'b.ts#g', path: 'a.ts', line: 4, confidence: 'high', detail: 'import' },
   ];
-  const nodes = { file: [{ id: 'a.ts', kind: 'file', language: 'typescript' }, { id: 'b.ts', kind: 'file', language: 'typescript' }], symbol: [{ id: 'a.ts#f', file: 'a.ts', name: 'f', symbolKind: 'function', line: 2, endLine: 5, exported: true }, { id: 'b.ts#g', file: 'b.ts', name: 'g', symbolKind: 'function', line: 1, endLine: 3, exported: true }] };
+  const nodes = { file: [{ id: 'a.ts', kind: 'file', language: 'typescript' }, { id: 'b.ts', kind: 'file', language: 'typescript' }], symbol: [{ id: 'a.ts#f', path: 'a.ts', symbolName: 'f', kind: 'function', line: 2, endLine: 5, exported: true }, { id: 'b.ts#g', path: 'b.ts', symbolName: 'g', kind: 'function', line: 1, endLine: 3, exported: true }] };
   const cli = join(base, 'cli.mjs');
   writeFileSync(cli, `const a = process.argv.slice(2), print = (v) => console.log(JSON.stringify(v));
 const out = (data) => print({ results: [{ index: 0, data }] });
 const W = ${JSON.stringify(witnesses)}, N = ${JSON.stringify(nodes)}, root = ${JSON.stringify(root)};
 const input = JSON.parse(a.find((x) => x.startsWith('{')) ?? '{}'), row = input.queries?.[0] ?? {};
 // One witness per page; a source-file target keeps the witnesses whose source is in that file. The cursor carries
-// the next offset and the target, as an issued cursor pins its query; pages state no offset (the live contract).
+// the next offset and the target, as an issued cursor pins its query.
 const witnessPage = (o, target) => {
   const list = target ? W.filter((w) => target.includes(w.from.split('#')[0])) : W;
   const more = o + 1 < list.length;
   const next = more ? { next: { nextPage: { kind: 'continue', tool: 'graphQuery', input: { cursor: 'w' + (o + 1) + '|' + (target ?? []).join(',') } } } } : {};
-  const pagination = more || o > 0 ? { pagination: { page: o + 1, totalItems: list.length, hasMore: more } } : {};
+  const pagination = more || o > 0 ? { pagination: { unit: "items", offset: o, length: list.slice(o, o + 1).length, total: list.length, hasMore: more } } : {};
   out({ graph: { id: 'snap' }, ...pagination, rows: list.slice(o, o + 1), ...next });
 };
 if (a[0] === 'schema') print({ querySchema: { properties: { target: { anyOf: [{ type: 'string' }, { type: 'array', maxItems: 100 }] } } } });

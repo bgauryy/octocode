@@ -290,9 +290,12 @@ impl KeyBlockState {
 }
 
 /// What a line of a key block shows with only its key's bytes
-/// ([`key_line_bytes`]) hidden.
+/// ([`key_line_bytes`]) hidden: an armor line that holds no key text reads
+/// as written.
 pub(crate) fn hide_key_line(line: &str) -> String {
-    let key = key_line_bytes(line);
+    let Some(key) = key_line_bytes(line) else {
+        return line.to_owned();
+    };
     format!(
         "{}{}{}",
         &line[..key.start],
@@ -306,30 +309,116 @@ pub(crate) fn hide_key_line(line: &str) -> String {
 /// so every reader of a source finds the same start.
 pub(crate) const KEY_LINE_HEAD_BYTES: usize = 256;
 
-/// The bytes of a line of a key block that are its key: what comes before a
-/// BEGIN or after an END is not the key, a body line keeps its indentation,
-/// and a line that only holds a key's run keeps what precedes the run. A
-/// line that holds a BEGIN keys from it wherever it stands: the values
-/// before it on the line (a minified document's other members, a run of
-/// their own among them) are no part of its block.
-pub(crate) fn key_line_bytes(line: &str) -> std::ops::Range<usize> {
-    let begin = line.find("-----BEGIN");
-    let end = line
-        .rfind("-----END")
-        .filter(|at| begin.is_none_or(|begin| begin < *at));
-    let close = end.and_then(|end| {
-        let name = end + "-----END".len();
-        line.get(name..)
-            .unwrap_or_default()
-            .find("-----")
-            .map(|at| name + at + "-----".len())
-    });
+/// The bytes of a line of a key block that are its key; `None` when the line
+/// holds none. A body line keeps its indentation, and a line that only holds
+/// a key's run keeps what precedes the run. An armor line (`-----BEGIN …
+/// PRIVATE KEY-----`, `---- END SSH2 … ----`, PuTTY's named lines) names the
+/// block and holds none of it: only key text written on the same line is
+/// (a block on one line, a body before its END), from its first byte to its
+/// last, any armor between them included. What stands beside the armor that
+/// is no key's text (a quote, code after a literal marker, a minified
+/// document's other members) reads as written, and so does the name of
+/// PuTTY's MAC, not its value.
+pub(crate) fn key_line_bytes(line: &str) -> Option<std::ops::Range<usize>> {
     let bytes = line.as_bytes();
-    let mut shape = LineShapeScan::default();
-    shape.feed(bytes);
-    let head = bytes.get(..KEY_LINE_HEAD_BYTES).unwrap_or(bytes);
-    let lead = begin.unwrap_or_else(|| key_line_lead(head, &shape).len());
-    lead..close.unwrap_or(line.len())
+    let named = after_line_lead(bytes);
+    if named.starts_with(b"PuTTY-User-Key-File-") || named.starts_with(b"Private-Lines:") {
+        return None;
+    }
+    if !line_markers(bytes).any() {
+        let mut shape = LineShapeScan::default();
+        shape.feed(bytes);
+        let head = bytes.get(..KEY_LINE_HEAD_BYTES).unwrap_or(bytes);
+        let lead = key_line_lead(head, &shape).len();
+        return (lead < line.len()).then_some(lead..line.len());
+    }
+    let named_at = bytes.len() - named.len();
+    if let Some(mac) = named.strip_prefix(b"Private-MAC:".as_slice()) {
+        let blanks = mac
+            .iter()
+            .take_while(|byte| matches!(byte, b' ' | b'\t'))
+            .count();
+        let start = named_at + "Private-MAC:".len() + blanks;
+        let end = line.trim_end().len();
+        return (start < end).then_some(start..end);
+    }
+    let edges = armor_edges(bytes);
+    let mut pieces = Vec::new();
+    if let Some((first, false)) = edges.first() {
+        let lead = bytes.len() - after_line_lead(bytes).len();
+        pieces.push(lead.min(first.start)..first.start);
+    }
+    for (index, (edge, begins)) in edges.iter().enumerate() {
+        if *begins {
+            let to = edges[index + 1..]
+                .iter()
+                .find(|(_, begins)| !begins)
+                .map_or(bytes.len(), |(end, _)| end.start);
+            pieces.push(edge.end..to.max(edge.end));
+        }
+    }
+    let keyed: Vec<_> = pieces
+        .into_iter()
+        .filter(|piece| holds_key_text(&bytes[piece.clone()]))
+        .collect();
+    Some(keyed.first()?.start..keyed.last()?.end)
+}
+
+/// Whether `piece`, text beside a line's armor, is key text: base64 alone in
+/// a key line's quoting ([`LineShape::Body`]), or a run only a key's body is
+/// that long. A concatenation's `+` or an escape's letter (`\n" +`) is
+/// quoting, no base64: key text holds a run of a few base64 characters.
+fn holds_key_text(piece: &[u8]) -> bool {
+    const KEY_TEXT_RUN: usize = 4;
+    let mut scan = LineShapeScan::default();
+    scan.feed(piece);
+    let longest = piece
+        .split(|byte| !(byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'=')))
+        .map(<[u8]>::len)
+        .max()
+        .unwrap_or(0);
+    scan.finish(piece).shape == LineShape::Body && longest >= KEY_TEXT_RUN
+}
+
+/// The armor edges of `line`, in order, each with whether it is a BEGIN:
+/// from an opening run of at least four dashes, blanks, `BEGIN` or `END` and
+/// the label, through the closing run of dashes (to the line's end when a
+/// cut line lost it).
+fn armor_edges(line: &[u8]) -> Vec<(std::ops::Range<usize>, bool)> {
+    let dashes = |from: usize| {
+        line.get(from..)
+            .unwrap_or_default()
+            .windows(4)
+            .position(|window| window == b"----")
+            .map(|at| from + at)
+    };
+    let run_end = |from: usize| {
+        from + line[from..]
+            .iter()
+            .take_while(|byte| **byte == b'-')
+            .count()
+    };
+    let mut edges = Vec::new();
+    let mut at = 0;
+    while let Some(start) = dashes(at) {
+        let opened = run_end(start);
+        let word = opened
+            + line[opened..]
+                .iter()
+                .take_while(|byte| matches!(byte, b' ' | b'\t'))
+                .count();
+        let rest = &line[word..];
+        let begins = rest.starts_with(b"BEGIN");
+        if !begins && !rest.starts_with(b"END") {
+            at = opened;
+            continue;
+        }
+        let label = word + if begins { "BEGIN".len() } else { "END".len() };
+        let close = dashes(label).map_or(line.len(), run_end);
+        edges.push((start..close, begins));
+        at = close;
+    }
+    edges
 }
 
 /// The bytes of a line of a key block before its key: all that precede a

@@ -239,9 +239,16 @@ fn unknown_field_message(
         .chain(row_fields.iter().map(String::as_str))
         .filter(|name| !sent.contains(name));
     // A known guess with more than one reading names its field (a guess with
-    // one reading never gets here: it was read as that field).
-    if issue.path.len() == 3
-        && let Some((meant, takes)) = crate::contracts::meant_field(tool_name, field)
+    // one reading never gets here: it was read as that field), in the row or
+    // in the row field's object that holds it.
+    if let ["queries", _, within @ .., _] = issue
+        .path
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .as_slice()
+        && let Some((meant, takes)) =
+            crate::contracts::meant_field(tool_name, &within.join("."), field)
     {
         return match takes {
             Some(takes) => format!("Unknown field '{field}' in {query}; use '{meant}': {takes}."),

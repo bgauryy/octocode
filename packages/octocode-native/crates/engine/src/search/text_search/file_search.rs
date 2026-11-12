@@ -253,13 +253,20 @@ impl<M: Matcher> FileSearcher<'_, M> {
     /// Search an opened file in one read through a [`SourceTap`]. When it
     /// is quit as binary, the searcher has dropped the whole buffer holding
     /// the NUL, so the NUL-free prefix is searched again from byte 0 and its
-    /// matches replace the first pass.
+    /// matches replace the first pass. A file its judge replaced bytes of
+    /// is searched as the text the judge serves ([`crate::types::SourceJudge`]).
     pub(super) fn search(
         &mut self,
         file: &std::fs::File,
         path: &Path,
     ) -> std::io::Result<FileOutcome> {
-        let mut outcome = self.search_read(file, path)?;
+        let mut outcome = match self.judged(file, path)? {
+            Some(text) => {
+                let work = self.work_for(file)?;
+                self.search_bytes(&text, path, work)?
+            }
+            None => self.search_read(file, path)?,
+        };
         // Only a matched file's values and positions are shown.
         if outcome.matched_lines > 0 {
             let prefix = read_prefix(file, 3)?;
@@ -269,8 +276,25 @@ impl<M: Matcher> FileSearcher<'_, M> {
         Ok(outcome)
     }
 
-    /// [`Self::search`]'s read of the file.
-    fn search_read(&mut self, file: &std::fs::File, path: &Path) -> std::io::Result<FileOutcome> {
+    /// The text the search's judge serves of `file` in place of its bytes
+    /// (`None`: no judge, or it replaced nothing); the file is read from its
+    /// start after.
+    pub(super) fn judged(
+        &self,
+        file: &std::fs::File,
+        path: &Path,
+    ) -> std::io::Result<Option<Vec<u8>>> {
+        let Some(judge) = &self.opts.judge else {
+            return Ok(None);
+        };
+        let judged = (judge.0)(path, file)?;
+        std::io::Seek::seek(&mut &*file, std::io::SeekFrom::Start(0))?;
+        Ok(judged)
+    }
+
+    /// The search's work for `file`: a UTF-16 file keeps its line values,
+    /// which no deferred re-read of its bytes restates.
+    fn work_for(&self, file: &std::fs::File) -> std::io::Result<MatchWork> {
         let mut work = self.work;
         if work.deferred_line {
             let prefix = read_prefix(file, 3)?;
@@ -279,6 +303,12 @@ impl<M: Matcher> FileSearcher<'_, M> {
             }
             std::io::Seek::seek(&mut &*file, std::io::SeekFrom::Start(0))?;
         }
+        Ok(work)
+    }
+
+    /// [`Self::search`]'s read of the file.
+    fn search_read(&mut self, file: &std::fs::File, path: &Path) -> std::io::Result<FileOutcome> {
+        let work = self.work_for(file)?;
         let mut tap = SourceTap::new(file, self.keep_head, self.copy);
         let mut sink = CollectSink::new(
             self.matcher,

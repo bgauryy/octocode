@@ -22,7 +22,7 @@ async fn literal_and_regex_matchers_have_explicit_distinct_semantics() {
 }
 
 #[tokio::test]
-async fn excluded_source_is_reachable_by_an_explicit_related_request() {
+async fn excluded_source_is_disclosed_and_reachable_by_an_explicit_request() {
     let workspace = Workspace::new();
     for name in [
         "src/core.c",
@@ -59,12 +59,24 @@ async fn excluded_source_is_reachable_by_an_explicit_related_request() {
             .expect("disclosure")
             .is_empty()
     );
-    let lead = checks::related_call(row_data(&found), "localSearch", |input| {
-        input["queries"][0]["defaultExcludes"] == false
-    });
-    let all = call(&runtime, "localSearch", lead["input"].clone())
-        .await
-        .expect("recovery executes");
+    // A page with hits answers: its skipped paths are disclosed, not
+    // re-offered as a lead; the request that lifts them is the caller's.
+    assert!(
+        !row_data(&found)["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|call| call["input"]["queries"][0]["defaultExcludes"] == false),
+        "{}",
+        row_data(&found)
+    );
+    let all = call(
+        &runtime,
+        "localSearch",
+        json!({"queries":[{"path":workspace.workspace,"matchString":["transport_free_cmd"],"view":"files","defaultExcludes":false}]}),
+    )
+    .await
+    .expect("the explicit request executes");
     assert_eq!(
         paths(row_data(&all)),
         [

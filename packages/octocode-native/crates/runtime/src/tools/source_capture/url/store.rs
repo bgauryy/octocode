@@ -85,7 +85,7 @@ impl<'a> Store<'a> {
     pub(super) fn save(&self, selection: Selection) -> Result<Captured, ClassificationError> {
         let bytes = selection.text.as_bytes();
         let saved = self.save_bytes(bytes, CAPTURE_FILE)?;
-        let snapshot = saved["snapshot"].as_str().unwrap_or_default();
+        let snapshot = saved["sourceDigest"].as_str().unwrap_or_default();
         let file = saved["path"].as_str().unwrap_or_default();
         let lines = selection.text.lines().count();
         let url = selection.url.as_str();
@@ -133,7 +133,7 @@ impl<'a> Store<'a> {
             }),
             read,
             source: Some(
-                json!({ "url": url, "snapshot": snapshot, "path": file, "expiresAt": saved["expiresAt"] }),
+                json!({ "url": url, "sourceDigest": snapshot, "path": file, "expiresAt": saved["expiresAt"] }),
             ),
         })
     }
@@ -165,6 +165,6 @@ impl<'a> Store<'a> {
             )
         })?;
         let expires_at = crate::civil_date::iso8601_millis_after(self.ttl);
-        Ok(json!({"path": readable.canonical, "snapshot": snapshot, "expiresAt": expires_at}))
+        Ok(json!({"path": readable.canonical, "sourceDigest": snapshot, "expiresAt": expires_at}))
     }
 }

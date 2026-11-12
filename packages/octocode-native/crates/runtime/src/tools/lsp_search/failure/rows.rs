@@ -305,12 +305,8 @@ pub(in super::super) fn mark_anchor_line_errors(row: &mut Value, diagnostics: &V
         .iter()
         .filter(|item| item.get("severity").and_then(Value::as_str) == Some("error"))
         .filter(|item| {
-            let start = item
-                .pointer("/displayRange/startLine")
-                .and_then(Value::as_u64);
-            let end = item
-                .get("displayRange")
-                .and_then(super::super::locations::display_last_line);
+            let start = item.get("line").and_then(Value::as_u64);
+            let end = super::super::locations::place_last_line(item);
             matches!((start, end), (Some(start), Some(end)) if start <= line && line <= end)
         })
         .collect::<Vec<_>>();
@@ -334,6 +330,10 @@ pub(in super::super) fn mark_anchor_line_errors(row: &mut Value, diagnostics: &V
         1 => ", plus 1 more error".to_owned(),
         n => format!(", plus {n} more errors"),
     };
+    let (message, source) = (
+        crate::security::quoted(message),
+        crate::security::quoted(&source),
+    );
     let warning = format!(
         "The language server reports an error on line {line}: {message}{source}{more}. Its analysis of this line is incomplete, so empty is not absence."
     );

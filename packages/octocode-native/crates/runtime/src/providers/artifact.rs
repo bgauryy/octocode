@@ -41,6 +41,9 @@ pub(crate) use util::{github_repository, github_slug, release_ref_in};
 
 use http::RegistryClient;
 use octocode_io::budget::RequestBudget;
+pub(crate) use versions::suggested;
+#[cfg(test)]
+pub(crate) use versions::version_not_found;
 use versions::is_range;
 
 pub struct ArtifactProviderContext<'a> {

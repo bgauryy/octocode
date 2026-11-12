@@ -224,7 +224,7 @@ async fn a_missing_path_gets_one_recovery_form_on_every_local_tool() {
             .pointer("/results/0/data")
             .cloned()
             .unwrap_or_default();
-        assert_eq!(data["errorCode"], "pathNotFound", "{tool}: {data}");
+        assert_eq!(data["errorCode"], "notFound", "{tool}: {data}");
         let leads = data["related"].as_array().expect("related recovery");
         let lead = leads
             .iter()

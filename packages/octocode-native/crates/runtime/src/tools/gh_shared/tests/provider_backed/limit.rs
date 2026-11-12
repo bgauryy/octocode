@@ -20,8 +20,8 @@ const LIMIT: usize = 2;
 /// first pages at `per`, then pages that double up to GitHub's largest.
 async fn mount_search(server: &MockServer, route: &str, per: usize, rows: &[Value]) {
     let largest = octocode_github::MAX_PER_PAGE;
-    let doubled = std::iter::successors(Some(per), |size| Some(size * 2))
-        .take_while(|size| *size < largest);
+    let doubled =
+        std::iter::successors(Some(per), |size| Some(size * 2)).take_while(|size| *size < largest);
     for size in doubled.chain([largest]) {
         Mock::given(method("GET"))
             .and(path(route))

@@ -7,6 +7,7 @@
 pub(crate) use octocode_contract_types::PartialReason;
 use serde_json::{Map, Value, json};
 
+use crate::contracts::envelope::{NOTICES, TIMED_NOTICES};
 use crate::id::ToolId;
 
 /// The continuation call that reads cursor `field` (a page number or a
@@ -161,9 +162,6 @@ pub(crate) fn terminal_limit(row: &mut impl RowFields, reason: PartialReason, wa
     }
 }
 
-/// The key a static notice rides until the response stage places it.
-pub(crate) const NOTICES: &str = "notices";
-
 /// The key naming the partial reasons whose meaning the row's own warning,
 /// note or hint already states: the response stage sends no glossary line
 /// for them (`response::notices::explain_codes`), and no such key reaches
@@ -192,9 +190,6 @@ pub(crate) fn push_notice(row: &mut impl RowFields, notice: impl Into<String>) {
     let notice = notice.into();
     append_once(object, NOTICES, [notice.as_str()]);
 }
-
-/// The key a measured wait rides until the response stage states it.
-pub(crate) const TIMED_NOTICES: &str = "timedNotices";
 
 /// Record a measured wait on `row`: `text` holds one `{}` where the stage
 /// writes the seconds, and a call that records the same `text` on several rows

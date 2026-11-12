@@ -47,9 +47,16 @@ fn impact_since_reads_git_and_widens_on_config_changes() {
         o.since = Some("HEAD".into());
     });
     let files = impacted(&out);
-    assert!(files.contains(&("src/fmt.ts".into(), 0)), "{}", out.value);
-    assert!(files.contains(&("src/main.test.ts".into(), 1)), "{files:?}");
-    assert!(!files.iter().any(|(f, _)| f == "src/lib.ts"));
+    assert!(
+        files.contains(&("app/src/fmt.ts".into(), 0)),
+        "{}",
+        out.value
+    );
+    assert!(
+        files.contains(&("app/src/main.test.ts".into(), 1)),
+        "{files:?}"
+    );
+    assert!(!files.iter().any(|(f, _)| f == "app/src/lib.ts"));
 
     std::fs::write(
         app.join("package.json"),
@@ -60,14 +67,14 @@ fn impact_since_reads_git_and_widens_on_config_changes() {
         o.since = Some("HEAD".into());
     });
     assert!(
-        widened.value["summary"]["configChanges"][0]["file"] == "package.json",
+        widened.value["summary"]["configChanges"][0]["path"] == "app/package.json",
         "{}",
         widened.value["summary"]
     );
     assert!(
         impacted(&widened)
             .iter()
-            .any(|(f, d)| f == "src/lib.ts" && *d == 0)
+            .any(|(f, d)| f == "app/src/lib.ts" && *d == 0)
     );
 }
 
@@ -116,7 +123,7 @@ fn impact_since_does_not_run_repository_fsmonitor_hooks() {
         o.since = Some("HEAD".into());
     });
     assert!(
-        impacted(&out).contains(&("src/fmt.ts".into(), 0)),
+        impacted(&out).contains(&("app/src/fmt.ts".into(), 0)),
         "{}",
         out.value
     );
@@ -151,7 +158,7 @@ fn impact_since_with_no_changes_is_empty() {
         o.since = Some("HEAD".into());
     });
     assert_eq!(out.class, ExitClass::Empty, "{}", out.value);
-    assert_eq!(out.value["pagination"]["totalItems"], 0, "{}", out.value);
+    assert_eq!(out.value["pagination"]["total"], 0, "{}", out.value);
     assert_eq!(
         out.value["summary"]["reason"], "no files changed since HEAD",
         "{}",

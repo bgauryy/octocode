@@ -64,7 +64,7 @@ fn explicit_snapshot_path_survives_ambiguous_candidate_continuation() {
     };
     let first = query(&options, &workspace_policy(root));
     assert_eq!(first.class, ExitClass::InvalidInput);
-    assert_eq!(first.value["pagination"]["totalItems"], 25);
+    assert_eq!(first.value["pagination"]["total"], 25);
     let next = next_query(&first).unwrap();
     assert_eq!(next.graph.as_deref(), Some(snapshot.to_str().unwrap()));
     assert!(next.workspace.is_none());

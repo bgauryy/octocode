@@ -1,9 +1,8 @@
 //! One source judged whole, and every fragment a tool shows of it.
 //!
 //! The rule: a source's redaction is decided once, over its whole text with
-//! its path (the pass localFetch serves:
-//! [`super::super::private_key_blocks_hidden`], then
-//! [`ContentSecurity::sanitize_text`]). A tool that returns text of that
+//! its path (the pass localFetch serves: [`ContentSecurity::sanitize_text`],
+//! which hides key blocks line by line first). A tool that returns text of that
 //! source (a search row, an AST node, an LSP snippet, a graph fact) cuts it
 //! from the [`JudgedText`] by position and never judges the fragment alone:
 //! alone, a value whose secrecy comes from a key on another line reads as
@@ -145,11 +144,12 @@ impl JudgedText {
     pub(crate) fn pass(raw: &str, path: &Path, security: &ContentSecurity) -> Option<WholePass> {
         #[cfg(test)]
         JUDGED_BYTES.with(|judged| judged.set(judged.get() + raw.len()));
-        let (keyed, keys) = super::super::private_key_blocks_hidden(raw);
-        let scanned = security.sanitize_text(&keyed, Some(path));
-        let changed = !keys.is_empty() || scanned.has_secrets || scanned.content != keyed;
+        // The read's judgment hides key blocks line by line first
+        // ([`ContentSecurity::sanitize_text`]).
+        let scanned = security.sanitize_text(raw, Some(path));
+        let changed = scanned.has_secrets || scanned.content != raw;
         changed.then(|| {
-            let edits = keys.then(&scanned.edits);
+            let edits = scanned.edits;
             if edits.is_empty() {
                 let clean = crate::security::scan::withheld_lines(raw);
                 let edits = Edits::of_pass([(0..raw.len(), clean.len())]);
@@ -459,6 +459,71 @@ impl JudgedText {
         };
         Some(self.cut(at))
     }
+}
+
+/// What a text search matches of a file whose bytes are `bytes`, judged
+/// whole at `path` as a read of it is: `None` when the pass replaced
+/// nothing, so the bytes are searched as they are. Otherwise every line the
+/// pass replaced any byte of is the line as a read serves it, and every
+/// other line keeps its own bytes and terminator, so a hit's line, and its
+/// column on a line the pass left whole, are the file's. A hit is then never
+/// made by bytes a read withholds, nor by what is around them (a lookaround,
+/// a word boundary), and a search for a placeholder finds it where a read
+/// shows it. A search reads a file up to its first NUL: only that text is
+/// judged, and the bytes from it on follow unchanged.
+pub(crate) fn searched_text(
+    bytes: &[u8],
+    path: &Path,
+    security: &ContentSecurity,
+) -> Option<Vec<u8>> {
+    let end = memchr::memchr(0, bytes).unwrap_or(bytes.len());
+    let (head, tail) = bytes.split_at(end);
+    let decoded = octocode_engine::text::decode(head);
+    let pass = JudgedText::pass(&decoded.text, path, security)?;
+    let judged = JudgedText::judged_as(&decoded.text, path, Some((&pass.clean, &pass.edits)));
+    let raw = judged.raw();
+    // A line's own bytes are its decoded text's when decoding kept the line
+    // breaks byte for byte (not UTF-16); a UTF-8 byte-order mark is no text.
+    let breaks = |text: &[u8]| memchr::memchr_iter(b'\n', text).count();
+    let own = &head[octocode_engine::text::bom_len(head)..];
+    let own = if octocode_engine::text::has_utf16_bom(head) || breaks(own) != breaks(raw.as_bytes())
+    {
+        raw.as_bytes()
+    } else {
+        own
+    };
+    let mut out = Vec::with_capacity(own.len() + tail.len());
+    let mut at = 0;
+    for ((index, line), own_line) in raw
+        .split_inclusive('\n')
+        .enumerate()
+        .zip(own.split_inclusive(|byte| *byte == b'\n'))
+    {
+        let range = at..at + line.len();
+        at = range.end;
+        if !judged.exposes(&range) {
+            out.extend_from_slice(own_line);
+            continue;
+        }
+        let served = judged.lines(index + 1, 1);
+        let served = served.as_deref().unwrap_or(REDACTED);
+        // One line stays one line.
+        out.extend(
+            served
+                .bytes()
+                .map(|byte| if byte == b'\n' { b' ' } else { byte }),
+        );
+        let terminator = if own_line.ends_with(b"\r\n") {
+            &b"\r\n"[..]
+        } else if own_line.ends_with(b"\n") {
+            &b"\n"[..]
+        } else {
+            &[]
+        };
+        out.extend_from_slice(terminator);
+    }
+    out.extend_from_slice(tail);
+    Some(out)
 }
 
 /// A kept judgment: the digest of the text judged, and the judgment.

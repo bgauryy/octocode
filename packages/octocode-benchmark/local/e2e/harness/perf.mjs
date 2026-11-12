@@ -29,7 +29,7 @@ const rows = [];
   const first = await timed('lspSearch', { path: file, symbolName: 'URI', line: line, operation: 'references', limit: 20 });
   const next = rowData(first.out)?.next?.nextPage;
   const second = next ? await timed('lspSearch', null, next) : null;
-  const refs = rowData(first.out)?.pagination?.totalItems;
+  const refs = rowData(first.out)?.pagination?.total;
   rows.push({ case: `lspSearch references URI (${refs} refs)`, page1: first.ms, page2: second?.ms ?? '-' });
   check('lspSearch: page 2 reuses page 1 (under 30%)', !!second && second.ms < first.ms * 0.3, `page1=${first.ms} page2=${second?.ms} refs=${refs}`);
 }
@@ -40,7 +40,7 @@ const rows = [];
   const first = await timed('astSearch', { operation: 'symbols', path: dir, limit: 100 });
   const next = rowData(first.out)?.next?.nextPage;
   const second = next ? await timed('astSearch', null, next) : null;
-  rows.push({ case: `astSearch symbols (${rowData(first.out)?.pagination?.totalItems} decls)`, page1: first.ms, page2: second?.ms ?? '-' });
+  rows.push({ case: `astSearch symbols (${rowData(first.out)?.pagination?.total} decls)`, page1: first.ms, page2: second?.ms ?? '-' });
 }
 
 // Graph tools (CLI): build, an unchanged rebuild (a fresh snapshot), then
@@ -52,7 +52,7 @@ const graph = (cwd, tool, query) => {
   try { data = JSON.parse(run.stdout).results?.[0]?.data; } catch {}
   return { data, status: run.status, ms: Math.round(performance.now() - started) };
 };
-const total = (data) => data?.pagination?.totalItems ?? data?.rows?.length;
+const total = (data) => data?.pagination?.total ?? data?.rows?.length;
 {
   const root = path.join(REPOS, 'rust');
   const build = graph(root, 'graphBuild', { path: root, exclude: ['target'] });

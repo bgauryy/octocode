@@ -56,9 +56,7 @@ async fn pr_commit_last_short_batch_discloses_the_unreachable_reported_total() {
                     .iter()
                     .map(|c| c["commitSha"].as_str().expect("sha").to_owned()),
             );
-            let Some(next) =
-                data.pointer("/pullRequests/0/contentPagination/commits/next/nextPage/input")
-            else {
+            let Some(next) = data.pointer("/pullRequests/0/next/commits/input") else {
                 break data;
             };
             let normalized = crate::contracts::validate_built("ghGetHistoryItem", next.clone())
@@ -73,12 +71,12 @@ async fn pr_commit_last_short_batch_discloses_the_unreachable_reported_total() {
             all.iter().collect::<std::collections::HashSet<_>>().len(),
             250
         );
-        let page = &last["pullRequests"][0]["contentPagination"]["commits"];
+        let page = &last["pullRequests"][0]["sectionPagination"]["commits"];
         assert_eq!(page["hasMore"], false);
         if total > 250 {
             assert_eq!(last["terminalLimit"], true, "{last}");
             assert_eq!(last["isPartial"], true, "{last}");
-            assert_eq!(last["pullRequests"][0]["commitsCount"], total, "{last}");
+            assert_eq!(last["pullRequests"][0]["commitCount"], total, "{last}");
             assert_eq!(page["countScope"], "partial", "{last}");
             assert_eq!(
                 last["providerLimit"]["reason"], "providerCommitListLimit",
@@ -155,7 +153,7 @@ async fn commit_file_boundary_is_a_lower_bound_with_or_without_a_final_link() {
                     .expect("path")
                     .to_owned()
             }));
-            let Some(next) = data.pointer("/contentPagination/files/next/nextPage/input") else {
+            let Some(next) = data.pointer("/next/files/input") else {
                 break data;
             };
             let normalized = crate::contracts::validate_built("ghGetHistoryItem", next.clone())
@@ -173,34 +171,28 @@ async fn commit_file_boundary_is_a_lower_bound_with_or_without_a_final_link() {
             listed
         );
         assert_eq!(
-            last["contentPagination"]["files"]["hasMore"], false,
+            last["sectionPagination"]["files"]["hasMore"], false,
             "{last}"
         );
         if bounded {
             assert_eq!(last["terminalLimit"], true, "{last}");
             assert_eq!(last["isPartial"], true, "{last}");
             assert_eq!(
-                last["contentPagination"]["files"]["countScope"], "partial",
+                last["sectionPagination"]["files"]["countScope"], "partial",
                 "{last}"
             );
-            assert_eq!(last["changedFilesCountScope"], "partial", "{last}");
             assert_eq!(
-                last["changedFilesCount"], 3000,
+                last["changedFileCount"], 3000,
                 "only observed files, never an invented total"
             );
         } else {
             assert_ne!(last["terminalLimit"], true, "{last}");
             assert_eq!(
-                last["contentPagination"]["files"]["countScope"], "complete",
+                last["sectionPagination"]["files"]["countScope"], "complete",
                 "{last}"
             );
         }
-        assert!(
-            last["contentPagination"]["files"]["next"]
-                .get("nextPage")
-                .is_none(),
-            "{last}"
-        );
+        assert!(last["next"].get("files").is_none(), "{last}");
     }
 }
 
@@ -226,10 +218,13 @@ async fn a_commit_under_the_commit_page_counts_every_file_on_a_small_page() {
         "sections":["files"],"pageSize":20});
     let data = read(&server, query.clone()).await;
     assert_history_page_contract(&data);
-    assert_eq!(data["changedFilesCount"], 113, "{data}");
-    assert!(data.get("changedFilesCountScope").is_none(), "{data}");
-    let page = &data["contentPagination"]["files"];
-    assert_eq!(page["totalItems"], 113, "{data}");
+    assert_eq!(data["changedFileCount"], 113, "{data}");
+    assert_eq!(
+        data["sectionPagination"]["files"]["countScope"], "complete",
+        "{data}"
+    );
+    let page = &data["sectionPagination"]["files"];
+    assert_eq!(page["total"], 113, "{data}");
     assert_eq!(page["hasMore"], true, "{data}");
     assert_eq!(data["files"].as_array().map(Vec::len), Some(20), "{data}");
 }

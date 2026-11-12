@@ -153,12 +153,12 @@ test('unchanged declared evidence collections never disappear as ancestor contex
 
 const locations = data => lspLocations({ sc: { results: [{ data }] } });
 test('lspLocations gives every location form its path and range, and leaves out call rows', () => {
-  const displayRange = { startLine: 3, startCharacter: 5, endLine: 3 };
-  const row = { path: 'a.ts', displayRange, content: '3\tx', role: 'call' };
+  const row = { path: 'a.ts', line: 3, column: 5, endLine: 3, content: '3\tx', role: 'call' };
   const { path: _path, ...grouped } = row;
   assert.deepEqual(locations({ files: [{ path: 'a.ts', matches: [grouped] }] }), [row]);
   assert.deepEqual(locations({ matches: [row] }), [row]);
-  assert.deepEqual(locations({ files: [{ path: 'a.ts', matches: [{ line: 3, column: 5, value: 'x' }] }] }), [{ path: 'a.ts', displayRange, content: 'x' }]);
+  assert.deepEqual(locations({ files: [{ path: 'a.ts', matches: [{ line: 3, column: 5, value: 'x' }] }] }), [{ path: 'a.ts', line: 3, column: 5, endLine: 3, content: 'x' }]);
+  assert.deepEqual(locations({ files: [{ path: 'a.ts', matches: [{ line: 3, endLine: 4, value: 'x' }] }] }), [{ path: 'a.ts', line: 3, endLine: 4, content: 'x' }], 'a row without a column keeps none');
   assert.deepEqual(locations({ files: [{ path: 'a.ts', matches: [{ symbolName: 'f', line: 1, sites: [{ line: 2 }] }] }] }), []);
-  assert.deepEqual(locations({ files: [{ path: 'a.ts', matchCount: 2, lines: [1, 2] }] }), []);
+  assert.deepEqual(locations({ files: [{ path: 'a.ts', matchCount: 2, matchedLines: [1, 2] }] }), []);
 });

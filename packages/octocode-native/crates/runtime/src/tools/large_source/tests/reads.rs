@@ -151,10 +151,18 @@ fn a_walk_across_a_giant_key_body_reconstructs_the_sanitized_source_once() {
     let expected: String = text
         .split_inclusive('\n')
         .map(|line| {
-            if keys.push_line(line.trim_end_matches(['\r', '\n'])) {
-                format!("{}\n", crate::security::key_fragment_placeholder())
-            } else {
-                line.to_owned()
+            let body = line.trim_end_matches(['\r', '\n']);
+            match keys
+                .push_line(body)
+                .then(|| crate::security::key_line_bytes(body))
+                .flatten()
+            {
+                Some(key) => format!(
+                    "{}{}\n",
+                    &body[..key.start],
+                    crate::security::key_fragment_placeholder()
+                ),
+                None => line.to_owned(),
             }
         })
         .collect();

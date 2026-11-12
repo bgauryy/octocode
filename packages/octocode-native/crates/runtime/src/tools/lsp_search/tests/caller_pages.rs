@@ -134,7 +134,7 @@ fn a_copied_continuation_reaches_every_row_once() {
         .map(|item| item["name"].as_str().expect("name").to_owned())
         .collect::<Vec<_>>();
     let q = query(serde_json::json!({
-        "operation": "workspaceSymbol", "path": "file:///repo", "symbolQuery": "s"
+        "operation": "workspaceSymbol", "path": "file:///repo", "symbolFuzzy": "s"
     }));
     for budget in [600, 900, 2_400] {
         let seen = walk_pages(&q, budget, |q, budget| {
@@ -172,7 +172,7 @@ fn a_page_past_the_end_or_of_another_answer_never_skips_rows() {
         .map(|index| serde_json::json!({"name": format!("s{index:02}"), "detail": "x".repeat(80)}))
         .collect::<Vec<_>>();
     let q = query(serde_json::json!({
-        "operation": "workspaceSymbol", "path": "file:///repo", "symbolQuery": "s"
+        "operation": "workspaceSymbol", "path": "file:///repo", "symbolFuzzy": "s"
     }));
     let first = with_next(
         &q,
@@ -201,7 +201,7 @@ fn a_forged_snapshot_is_a_stale_snapshot() {
         .map(|index| serde_json::json!({"name": format!("s{index:02}"), "detail": "x".repeat(80)}))
         .collect::<Vec<_>>();
     let q = query(serde_json::json!({
-        "operation": "workspaceSymbol", "path": "file:///repo", "symbolQuery": "s"
+        "operation": "workspaceSymbol", "path": "file:///repo", "symbolFuzzy": "s"
     }));
     let second: LspSearchQuery = serde_json::from_value(
         with_next(
@@ -232,8 +232,8 @@ fn caller_pages_fill_the_budget_with_compact_rows() {
             serde_json::json!({
                 "from": {"symbolName": format!("caller{n}"), "kind": "function",
                     "path": format!("/repo/src/module_{}/file.rs", n / 4),
-                    "displayRange": {"startLine": n + 10, "startCharacter": 8, "endLine": n + 30, "endCharacter": 1}},
-                "fromRanges": [{"startLine": n + 12, "startCharacter": 5, "endLine": n + 12, "endCharacter": 9}],
+                    "line": n + 10, "column": 8, "endLine": n + 30},
+                "fromRanges": [{"line": n + 12, "column": 5}],
                 "level": 1
             })
         })

@@ -58,7 +58,7 @@ fn missing_file_leads_to_files_by_stem() {
     let result = fetch(&req, &workspace_policy(&t.0));
     assert_eq!(
         result.error_code,
-        Some(ErrorCode::PathNotFound),
+        Some(ErrorCode::NotFound),
         "{result:?}"
     );
     let next = serde_json::to_value(result.next.as_ref().expect("next")).expect("json");
@@ -278,7 +278,7 @@ fn a_missing_file_leads_to_its_parents_tree() {
         &qj(&t.0.join("src/exector.rs"), serde_json::json!({})),
         &policy,
     );
-    assert_eq!(r.error_code, Some(ErrorCode::PathNotFound), "{r:?}");
+    assert_eq!(r.error_code, Some(ErrorCode::NotFound), "{r:?}");
     let next = serde_json::to_value(r.next.as_ref().expect("next")).expect("json");
     let tree = &next["viewTree"]["input"]["queries"][0];
     assert_eq!(tree["operation"], "tree", "{next}");

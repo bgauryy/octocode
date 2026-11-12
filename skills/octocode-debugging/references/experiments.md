@@ -1,61 +1,29 @@
-Load for intermittent bugs, uncertain causes, full-stack investigations or spike analysis.
+# Controlled experiments
 
-# Reason, act, observe
+When the same observation fits several explanations, look for a difference you can measure. A nearby working case can reveal which input, timing or concurrency condition matters.
 
-```mermaid
-flowchart TD
-  H["Reason: hypothesis and rival"] --> P["Predict different observations"]
-  P --> A["Act: one controlled probe"]
-  A --> O["Observe: values, stacks, timings"]
-  O --> D{"Prediction matched?"}
-  D -- no --> H
-  D -- yes --> V["Change cause, rerun reproduction"]
-  V --> C["Compare baseline and remove probes"]
-```
-
-For each iteration record: **hypothesis → rival → predicted difference → command/probe → observed artifact → decision**. Mark unmeasured fields unknown. Logs establish order/values; a profiler establishes sampled work; neither alone proves causation. Prefer a falsifying experiment over adding more probes.
-
-| Observation | Leading hypothesis | Rival | Discriminating action |
-|---|---|---|---|
-| Latency rises, one core busy | CPU work blocks progress | GC / native work | Same-window JS and native stacks + GC metrics |
-| Latency rises, CPU low | I/O wait | Queue, lock or CPU throttling | Queue/lock/request spans + container CPU throttling counters |
-| RSS rises, JS heap stable | Native/external allocation | Allocator retention / mappings | External bytes + native allocations + mapping evidence |
-| Heap rises then falls | Allocation churn | Retained objects | Repeat equal lifecycles; compare surviving objects/retainers |
-| Threads increase | Pool growth / blocked workers | Legitimate concurrency | Thread stacks, request concurrency, queue depth |
-| Spike absent under debugger | Timing-sensitive race | Different input/warmup | Capture original seed/order and low-overhead event probes |
-
-## Add useful probes
-
-Log structured records to stderr or the existing diagnostics sink. Include monotonic elapsed time, wall-clock anchor, PID/thread/task/request ID, phase, input size, expected/actual state, queue depth and duration. Use IDs/counters rather than whole objects or secrets. Log at boundaries; sample repetitive events and record the sampling policy. Avoid synchronous per-item logging in a hot path, and compare probe-off runs for perturbation.
-
-Node boundary probe (use your logger's error handling in real code):
-
-```js
-const started = performance.now();
-try { return await operation(); }
-finally {
-  console.error(JSON.stringify({ event: 'operation_end', pid: process.pid,
-    requestId, durationMs: performance.now() - started }));
-}
-```
-
-Use a counter for exact invocations, conditional breakpoints/logpoints for one failing input, and Rust `tracing` spans for async causality. A probe must not evaluate an expensive/mutating expression and change the failure. Remove temporary probes and rerun the original test.
-
-## Reproduction loops and spikes
-
-Choose an attempt count or wall-clock budget for the experiment. Save each attempt's seed, concurrency, input size, duration, exit status and request ID; preserve the first failing input and its output. Do not retry non-idempotent external writes. A failure disappearing after retries is not a fix. Keep a finite reproducer separate from the real application's workload limits.
-
-Use a repeatable schedule: idle → warmup → equal work cycles → cleanup → idle. Capture before, during and after the suspect phase. Choose sample resolution relative to the expected burst; 1-second interval averages cannot reveal the shape of a 10-ms spike. Faster sampling adds overhead. A blocked Node loop delays JavaScript metrics collection; use native sampling/OS measurements for the missing window. Cumulative histogram p99/max describe the whole recording, not a per-window spike. Do not difference quantiles; collect/reset a separate windowed histogram if needed, and state its semantics.
-
-## Full stack: join by request, not by guess
-
-Capture the browser interaction with `octocode-chrome-devtools`: Performance trace, network waterfall and selected requests. Attach a dedicated Node DevTools session to the backend; capture Rust separately with native stacks and request spans. Propagate a request/trace ID across browser → Node → Rust → storage; use existing OpenTelemetry instrumentation if available. Keep backend clocks/offsets explicit: monotonic clocks from separate processes do not share an origin. Request IDs and span parentage establish causality; matching chart shapes alone do not.
-
-| Lane | Evidence | Visual |
+| Observation | Rival explanations | Discriminating evidence |
 |---|---|---|
-| Browser | Input, long task, layout/paint, network request | Performance timeline + waterfall |
-| Node | Request/queue spans, loop/GC, V8 and native stacks | Dedicated Node Performance + metrics timeline |
-| Rust | Request spans, thread stacks, allocation stacks | Native flamegraph + Perfetto span lanes |
-| Storage / remote | Connection, query/remote-call timing, retries | Distributed trace / request timing table |
+| Tail latency rises with low process CPU | Downstream I/O, a contended local lock or a runnable worker starved of CPU | Same-request dependency span, lock owner/waiter or runnable-to-running scheduler delay |
+| RSS climbs, live managed heap stays flat | Native retention or allocator reserves | Outstanding native allocations and mappings after equivalent cleanup cycles |
+| Failure disappears at a breakpoint | Timing-sensitive race or changed input/order | Reuse the same input and concurrency. Collect low-overhead events around the first divergent handoff. |
 
-Compare the critical request path, not the sum of overlapping async spans. Separate queue wait, service work and response transfer. A CPU flamegraph aggregates stacks: its width is sample weight, not chronological order. Use a flame chart or span timeline when event order matters.
+## Narrow a reproducible failure
+
+If a large input fails, define a precise test for *this* failure, then try removing input chunks or operations. Preserve dependencies needed for the input to remain valid. A parse error introduced by reduction is a different outcome. A small reproducer exposes the conditions under which the failure occurs. It still takes a runtime observation to locate the responsible code. [Delta debugging](https://www.debuggingbook.org/html/DeltaDebugger.html)
+
+For a regression between a known good and bad revision, a repeatable test can drive `git bisect run` in a disposable checkout. Exit 0 for good, 1 for the reproduced failure and 125 for an untestable revision. Flaky outcomes can point bisect at the wrong commit. Recheck the boundary with the same input and environment. [Git bisect](https://git-scm.com/docs/git-bisect)
+
+## Catch a spike
+
+Record before, during and after the trigger. If the service already retains rolling telemetry, save the original window. Choose sampling resolution for the suspected burst, and record missed events, delayed samples and cumulative metrics. A one-second average cannot locate a ten-millisecond spike. Quantiles cannot be differenced across windows.
+
+Use boundary events with a monotonic duration, operation ID, input size and phase. Include a reason for a retry or queue transition when relevant. Avoid sensitive payloads and per-item synchronous logging in a hot path. For intermittent failures, preserve the first failing run, the number of attempts and their outcomes. Replaying an external write needs an idempotent or disposable target. When an experiment fails, keep its evidence and remove unsupported experimental edits.
+
+## Follow a full-stack request
+
+A trace ID, parent/child span IDs or span links can connect a slow interaction to its server, queue or downstream dependency. Request IDs can join logs when spans are unavailable. Retries may share a trace ID. Look for the attempt that delayed completion.
+
+A browser’s time to first byte includes transit and server work. To attribute that interval, use whichever boundary is visible, such as a connection-pool wait or a downstream span. Child spans can overlap. A hot stack shared by many concurrent requests establishes process activity. Per-request attribution requires a task/span association or an isolated replay.
+
+If a timeline would clarify the finding, a shared time axis requires aligned clocks or measured offsets. Local durations and causal links remain usable across independent clocks. [OpenTelemetry traces](https://opentelemetry.io/docs/concepts/signals/traces/) · [W3C Trace Context](https://www.w3.org/TR/trace-context/) · [Perfetto clock synchronization](https://perfetto.dev/docs/concepts/clock-sync)

@@ -3,7 +3,7 @@
 use super::compact::CALLER_PATH;
 use super::nodes::anchor_range;
 use super::{Expansion, HierarchyEdge};
-use crate::tools::lsp_search::locations::public_range;
+use crate::tools::lsp_search::locations::{insert_place, place_end, public_range};
 use crate::tools::lsp_search::render::{label_name, symbol_kind_name, uri_to_path};
 use serde_json::{Value, json};
 
@@ -21,8 +21,8 @@ pub(super) fn signed_detail(detail: Option<&str>, signature: Option<&str>) -> Op
 }
 
 /// Public hierarchy node (`CallHierarchyItem`/`TypeHierarchyItem`): named
-/// kind, `uri`, and a one-based `displayRange` that starts at the symbol
-/// name (usable as `line`) and ends with the full declaration. Opaque
+/// kind, `uri`, and a one-based place that starts at the symbol name
+/// (`line`, `column`) and ends with the full declaration (`endLine`). Opaque
 /// server `data` and empty `detail` are dropped.
 fn public_hierarchy_node(node: &Value) -> Value {
     let mut public = serde_json::Map::new();
@@ -53,17 +53,17 @@ fn public_hierarchy_node(node: &Value) -> Value {
         public.insert("path".into(), json!(uri_to_path(uri)));
     }
     let anchor = anchor_range(node);
-    if let Some(mut display) = anchor.and_then(public_range) {
+    if let Some(mut place) = anchor.and_then(public_range) {
         if let Some(end) = node.pointer("/range/end/line").and_then(Value::as_u64) {
-            display["endLine"] = json!(end + 1);
+            place_end(&mut place, end + 1);
         }
-        public.insert("displayRange".into(), display);
+        insert_place(&mut public, place);
     }
     Value::Object(public)
 }
 
-/// `via`: name and one-based `line`/`character` of the parent node an edge
-/// connects to (its symbol name, like `displayRange.start*`).
+/// `via`: name and one-based `line`/`column` of the parent node an edge
+/// connects to (its symbol name, like a node's own place).
 pub(super) fn public_via(node: &Value) -> Value {
     let anchor = anchor_range(node);
     let point = |field: &str| {
@@ -76,7 +76,7 @@ pub(super) fn public_via(node: &Value) -> Value {
         "symbolName": node.get("name").and_then(Value::as_str).map(|label| label_name(label).0),
         "path": node.get("uri").and_then(Value::as_str).map(uri_to_path),
         "line": point("line"),
-        "character": point("character")
+        "column": point("character")
     })
 }
 
@@ -103,8 +103,8 @@ pub(in crate::tools::lsp_search) fn public_edge(
             .collect::<Vec<_>>();
         ranges.sort_by_key(|range| {
             (
-                range["startLine"].as_u64().unwrap_or(0),
-                range["startCharacter"].as_u64().unwrap_or(0),
+                range["line"].as_u64().unwrap_or(0),
+                range["column"].as_u64().unwrap_or(0),
                 range["endLine"].as_u64().unwrap_or(0),
             )
         });

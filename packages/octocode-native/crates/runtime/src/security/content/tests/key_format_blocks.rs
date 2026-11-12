@@ -66,8 +66,8 @@ fn an_rfc4716_marker_with_no_end_ends_at_the_first_ordinary_line() {
     assert!(out.contains("fn main() {}"), "{out}");
 }
 
-/// A body can be double spaced. The blank lines show as blank, and the block
-/// goes on past them.
+/// A body can be double spaced. The blank lines show as blank, the block
+/// goes on past them, and its armor lines read as written.
 #[test]
 fn a_blank_line_inside_a_body_keeps_the_block_open_but_shows_as_blank() {
     let body = "MIIEpQIBAAKCAQEAdoubleSpacedKeyBodyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
@@ -79,7 +79,9 @@ fn a_blank_line_inside_a_body_keeps_the_block_open_but_shows_as_blank() {
     let placeholder = key_fragment_placeholder();
     assert_eq!(
         out,
-        format!("a\n{placeholder}\n{placeholder}\n\n{placeholder}\n\n{placeholder}\n\nb\n")
+        format!(
+            "a\n-----BEGIN RSA PRIVATE KEY-----\n{placeholder}\n\n{placeholder}\n\n-----END RSA PRIVATE KEY-----\n\nb\n"
+        )
     );
 }
 
@@ -150,7 +152,9 @@ fn secret_and_static_key_armors_open_a_block() {
 }
 
 /// Beside a marker that survives, a body line something cut off is still key
-/// text; a line that only holds a long run further along is not.
+/// text, and inside the block a line that only holds a long run further
+/// along keeps its label and hides the run, as a whole-file read hides it:
+/// one rule for every reader. The armor itself is shown.
 #[test]
 fn a_cut_body_line_is_hidden_and_a_line_quoting_a_long_value_is_not() {
     const BODY: &str = "MIIEpAIBAAKCAQEAfakebodylinefakebodylinefakebodyline00000";
@@ -160,5 +164,84 @@ fn a_cut_body_line_is_hidden_and_a_line_quoting_a_long_value_is_not() {
     assert!(!shown.contains(BODY), "{shown}");
     let quoted = format!("-----BEGIN RSA PRIVATE KEY-----\nconst sum = \"{BODY}\";\n");
     let shown = security.sanitize_leaf(&quoted, None).expect("redacted");
-    assert!(shown.contains(BODY), "{shown}");
+    let (whole, _) = super::redact_private_key_blocks(&quoted);
+    assert_eq!(shown, whole, "{quoted}");
+    assert!(
+        shown.starts_with("-----BEGIN RSA PRIVATE KEY-----\nconst sum = \"")
+            && !shown.contains(BODY),
+        "{shown}"
+    );
+}
+
+/// What a read of a key file shows: each line of key text holds the fragment
+/// placeholder in place of its key bytes, PuTTY's MAC its value; every other
+/// line (an armor, an armor header, PuTTY's named lines and its public lines,
+/// a blank) reads as written.
+fn read_form(format: &super::key_formats::KeyFormat) -> String {
+    let placeholder = key_fragment_placeholder();
+    format
+        .text
+        .split_inclusive('\n')
+        .map(|line| {
+            let body = line.trim_end_matches('\n');
+            let shown = if format.secrets.iter().any(|secret| secret == body) {
+                placeholder.clone()
+            } else if body.starts_with("Private-MAC: ") {
+                format!("Private-MAC: {placeholder}")
+            } else {
+                body.to_owned()
+            };
+            format!("{shown}{}", &line[body.len()..])
+        })
+        .collect()
+}
+
+/// Retest R4 and R5: a PuTTY key file shows its header lines (`Encryption:`,
+/// `Comment:`, `Public-Lines:`, a v3 file's key derivation) and its public
+/// lines as written, and hides only its private lines and its MAC's value;
+/// a PGP armor shows its `Version:` and `Comment:` headers. Every view of the
+/// file (the whole-file key pass, the read's judgment with or without a
+/// path, a leaf, clasify's inline content) shows that one form: one
+/// placeholder per hidden line, never another pattern's marker beside it.
+#[test]
+fn every_view_of_a_key_file_shows_the_reads_one_form() {
+    let security = ContentSecurity::new();
+    let mut checked = 0;
+    for format in formats() {
+        if !matches!(
+            format.name,
+            "ppk v2" | "ppk v3" | "pgp armor headers" | "rsa" | "openssh" | "pem armor headers"
+        ) {
+            continue;
+        }
+        checked += 1;
+        let expected = read_form(&format);
+        let name = format.name;
+        assert_eq!(
+            redact_private_key_blocks(&format.text).0,
+            expected,
+            "{name}"
+        );
+        for path in [Some(Path::new("key.txt")), Some(Path::new("id.ppk")), None] {
+            let read = security.sanitize_text(&format.text, path);
+            assert_eq!(read.content, expected, "{name} {path:?}");
+        }
+        let judged =
+            crate::security::JudgedText::judge(&format.text, Path::new("key.txt"), &security);
+        assert_eq!(
+            judged.redaction().map(|(clean, _)| clean),
+            Some(expected.as_str()),
+            "{name}"
+        );
+        assert_eq!(
+            security.sanitize_leaf(&format.text, None).as_deref(),
+            Some(expected.as_str()),
+            "{name}"
+        );
+        let mut row = serde_json::json!({ "content": format.text });
+        let row = row.as_object_mut().expect("object");
+        security.hide_provider_text(row, "content");
+        assert_eq!(row["content"], expected.as_str(), "{name}");
+    }
+    assert_eq!(checked, 6);
 }

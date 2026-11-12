@@ -20,11 +20,7 @@ fn clipped_counts_match_all_reachable_entries_without_counting_the_listing_root(
             let pages = with_window(1, || walk_pages(&root.0, query));
             // A walk that covered its scope counts every reachable entry
             // exactly, and a window cut only pages it: nothing is clipped.
-            assert_eq!(
-                pages[0]["pagination"]["totalItems"], expected,
-                "{}",
-                pages[0]
-            );
+            assert_eq!(pages[0]["pagination"]["total"], expected, "{}", pages[0]);
             assert_eq!(
                 pages[0]["pagination"]["countScope"], "complete",
                 "{}",
@@ -63,14 +59,14 @@ fn continuation_pages_reuse_the_walk_and_restart_on_change() {
     .expect("page 1");
     let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
     let second = run_budget(&root.0, next.clone(), 1).expect("page 2");
-    assert_eq!(second["pagination"]["page"], 2, "{second}");
+    assert_eq!(second["pagination"]["offset"], 1, "{second}");
     let third = run_budget(
         &root.0,
         second["next"]["nextPage"]["input"]["queries"][0].clone(),
         1,
     )
     .expect("page 3");
-    assert_eq!(third["pagination"]["page"], 3, "{third}");
+    assert_eq!(third["pagination"]["offset"], 2, "{third}");
     std::fs::write(root.0.join("f5.rs"), "changed size\n").expect("change");
     let stale = run_budget(&root.0, next, 1).expect("stale page");
     assert_eq!(stale["errorCode"], "staleSnapshot", "{stale}");
@@ -103,7 +99,7 @@ fn a_listing_field_at_its_default_continues_as_emitted() {
     assert!(next.get("sort").is_none(), "the default is dropped: {next}");
     let second = run_budget(&root.0, next, 1).expect("page 2");
     assert!(second.get("errorCode").is_none(), "{second}");
-    assert_eq!(second["pagination"]["page"], 2, "{second}");
+    assert_eq!(second["pagination"]["offset"], 1, "{second}");
 }
 
 /// `maxDepth` counts the same in both operations: 1 lists `path`'s
@@ -227,15 +223,14 @@ fn a_ranked_listing_continues_its_ranking_window_by_window() {
     assert!(pages.iter().all(|out| out.get("terminalLimit").is_none()));
     // Each window pages one complete ranking: its top rows are final, so no
     // page is partial or clipped, and the total is the ranking's, exactly,
-    // with no page count before the later windows are cut.
+    // stated before the later windows are cut.
     for out in &pages {
         assert!(out.get("isPartial").is_none(), "{out}");
         assert!(out.get("clipped").is_none(), "{out}");
     }
     let first = &pages[0]["pagination"];
-    assert_eq!(first["totalItems"], 30, "{}", pages[0]);
+    assert_eq!(first["total"], 30, "{}", pages[0]);
     assert_eq!(first["countScope"], "complete", "{}", pages[0]);
-    assert!(first.get("totalPages").is_none(), "{}", pages[0]);
 }
 
 /// A window's walk continues by one `nextPage` at most, on its last page:

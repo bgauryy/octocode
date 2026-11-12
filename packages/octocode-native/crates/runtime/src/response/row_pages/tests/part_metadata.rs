@@ -23,7 +23,7 @@ fn structure_row() -> Value {
     json!({"path":"pkg",
         "files":[{"dir":"pkg","files":entries("pkg", 6)},{"dir":"pkg/sub","files":entries("pkg/sub", 3)}],
         "snapshot":"d433cf050ed9b93a689aaaa99f3ab28c612abfe6e7feff221e23173827b6e6b2",
-        "summary":{"files":9,"dirs":2,"bytes":164_389}})
+        "summary":{"fileCount":9,"dirCount":2,"bytes":164_389}})
 }
 
 fn search_row() -> Value {
@@ -32,7 +32,7 @@ fn search_row() -> Value {
             .map(|line| json!({"line": line * 5, "value": format!("fn {name}_{line}() {{}}")}))
             .collect::<Vec<_>>()
     };
-    json!({"matchCount":6,"matchedLineCount":6,"filesScanned":2,"bytesSearched":3565,
+    json!({"matchCount":6,"matchedLineCount":6,"filesScanned":2,
         "files":[{"path":"src/a.rs","matches":matches("alpha")},{"path":"src/b.rs","matches":matches("beta")}]})
 }
 

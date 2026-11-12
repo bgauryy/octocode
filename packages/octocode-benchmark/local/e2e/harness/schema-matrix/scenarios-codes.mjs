@@ -15,7 +15,7 @@ const provider = (id, codes, answer, more = {}) => code(`provider.${id}`, 'clasi
 const local = [
   code('binary', 'localFetch')({ path: '$DIR/b.bin' }, 'binaryFileUnsupported', { files: { 'b.bin': Buffer.from([0, 1, 2, 0, 3]) } }),
   code('notAFile', 'localFetch')({ path: '$DIR' }, 'notAFile'),
-  code('notFound.path', 'localFetch')({ path: '$DIR/missing.txt' }, 'pathNotFound'),
+  code('notFound.path', 'localFetch')({ path: '$DIR/missing.txt' }, 'notFound'),
   code('notADirectory', 'structureSearch')({ path: '$DIR/a.txt', operation: 'tree' }, 'notADirectory', { files: { 'a.txt': 'x\n' } }),
   code('invalidPattern', 'structureSearch')({ path: '$DIR', operation: 'files', nameRegex: '(' }, 'invalidPattern'),
   code('invalidGlob', 'astSearch')({ path: '$DIR', operation: 'symbols', parserGlobs: { cpp: ['['] } }, 'invalidGlob', { files: { 'a.ts': 'export const a = 1;\n' } }),
@@ -43,12 +43,12 @@ const local = [
   { id: 'code.checkoutDirty', tool: 'ghCloneRepo', codes: ['checkoutDirty'], run: async ({ call }) => {
     const row = { owner: 'octo', repo: 'demo', paths: ['docs'], historyDepth: 1 };
     const location = dataOf(await call('ghCloneRepo', { queries: [row] })).location;
-    if (!location?.localPath) return 'no checkout';
-    write(location.localPath, 'docs/notes.md', 'local edit\n');
+    if (!location?.path) return 'no checkout';
+    write(location.path, 'docs/notes.md', 'local edit\n');
     await call('ghCloneRepo', { queries: [row] });
     return null;
   } },
-  code('pathNotFound.clone', 'ghCloneRepo')({ owner: 'octo', repo: 'demo', paths: ['nope'] }, 'pathNotFound'),
+  code('notFound.clone', 'ghCloneRepo')({ owner: 'octo', repo: 'demo', paths: ['nope'] }, 'notFound'),
   { ...code('persistentStorageDisabled', 'ghCloneRepo')({ owner: 'octo', repo: 'demo' }, 'persistentStorageDisabled'), env: () => ({ OCTOCODE_STORAGE_MODE: 'memory' }) },
   { ...code('gitUnavailable', 'ghCloneRepo')({ owner: 'octo', repo: 'demo' }, 'gitUnavailable'), env: ({ dir }) => ({ PATH: dir }) },
   { ...code('commitMismatch', 'ghCloneRepo')({ owner: 'octo', repo: 'demo' }, 'commitMismatch'), setup: ({ dir }) => fakeGit(dir, 'f'.repeat(40)), env: ({ dir }) => ({ PATH: `${dir}/bin:${process.env.PATH}` }) },
@@ -67,7 +67,7 @@ const providerSide = [
   code('github.redirectDenied', 'ghSearchRepo')({ operation: 'list', owner: 'octo', sort: { by: 'pushedAt', order: 'desc' }, filters: { archive: 'include' } }, 'redirectDenied', { github: request => (/^\/(users|orgs)\/octo\/repos$/.test(request.p) ? { status: 302, body: '', headers: { location: 'http://example.invalid/elsewhere' } } : null) }),
   { ...code('github.config', 'ghSearchRepo')(OP_GET, 'config'), env: () => ({ GITHUB_API_URL: 'http://example.com/api/v3' }) },
   { ...code('github.transport', 'ghSearchRepo')(OP_GET, 'transport'), allow: ['lead.execution'], env: () => ({ GITHUB_API_URL: 'http://127.0.0.1:9/api/v3' }) },
-  code('registry.versionNotFound', 'artifactSearch')({ operation: 'resolve', ecosystem: 'npm', packageName: 'tiny-health', version: '9.9.9', registryUrl: '$MOCK' }, 'versionNotFound'),
+  code('registry.notFound.version', 'artifactSearch')({ operation: 'resolve', ecosystem: 'npm', packageName: 'tiny-health', version: '9.9.9', registryUrl: '$MOCK' }, 'notFound'),
   provider('classificationProviderError', 'classificationProviderError', () => ({ status: 400, body: 'plain refusal' })),
   provider('classificationProviderUnavailable', 'classificationProviderUnavailable', () => ({ status: 500, body: { detail: 'down' } })),
   provider('classificationQuotaExhausted', 'classificationQuotaExhausted', () => ({ status: 402, body: { detail: 'quota' } })),

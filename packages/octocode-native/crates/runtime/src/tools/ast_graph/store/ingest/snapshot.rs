@@ -144,9 +144,43 @@ pub(super) fn publish_snapshot(
     progress::emit(|| format!("published {id} ({bytes} bytes)"));
     let mut receipt = receipt(&id, &dir, &manifest, started);
     if !pruned.is_empty() {
-        receipt["pruned"] = json!(pruned);
+        let warnings = pruned_warnings(&pruned, job.options.keep);
+        receipt["pruned"] = json!(pruned.into_iter().map(|pruned| pruned.id).collect::<Vec<_>>());
+        crate::response::paging::push_warnings(&mut receipt, warnings);
     }
     GraphOutput::ok(receipt)
+}
+
+/// What a build's prune removed and why, one sentence per reason: the
+/// snapshots of this root beyond `keep` (another session's among them, if it
+/// built this root) and those in a format this build cannot read. A
+/// pruned ID fails `notFound` from then on.
+fn pruned_warnings(pruned: &[super::super::snapshots::Pruned], keep: usize) -> Vec<String> {
+    let named = |outdated: bool| {
+        pruned
+            .iter()
+            .filter(|pruned| pruned.outdated == outdated)
+            .map(|pruned| pruned.id.as_str())
+            .collect::<Vec<_>>()
+    };
+    let mut warnings = Vec::new();
+    let older = named(false);
+    if !older.is_empty() {
+        warnings.push(format!(
+            "Pruned {} older snapshot(s) of this root beyond keep:{keep}, whichever session built them: {}. Their IDs now fail notFound; raise keep to retain more.",
+            older.len(),
+            older.join(", ")
+        ));
+    }
+    let outdated = named(true);
+    if !outdated.is_empty() {
+        warnings.push(format!(
+            "Pruned {} snapshot(s) in an older graph format this build cannot read: {}.",
+            outdated.len(),
+            outdated.join(", ")
+        ));
+    }
+    warnings
 }
 
 /// The receipt of the published snapshot `id` at `dir`, from its manifest:
@@ -171,4 +205,31 @@ pub(super) fn receipt(id: &str, dir: &Path, manifest: &Value, started: Instant) 
         receipt["diagnostics"] = manifest["diagnostics"]["byCode"].clone();
     }
     receipt
+}
+
+#[cfg(test)]
+mod pruned_tests {
+    use super::super::super::snapshots::Pruned;
+    use super::pruned_warnings;
+
+    /// A prune names every snapshot it removed and why it removed it.
+    #[test]
+    fn a_prune_names_each_removed_snapshot_and_its_reason() {
+        let pruned = [
+            Pruned { id: "20261109T163855Z-a".into(), outdated: false },
+            Pruned { id: "20261109T181915Z-a".into(), outdated: false },
+            Pruned { id: "20250101T000000Z-b".into(), outdated: true },
+        ];
+        let warnings = pruned_warnings(&pruned, 1);
+        assert_eq!(warnings.len(), 2, "{warnings:?}");
+        assert!(
+            warnings[0].contains("keep:1")
+                && warnings[0].contains("20261109T163855Z-a, 20261109T181915Z-a"),
+            "{warnings:?}"
+        );
+        assert!(
+            warnings[1].contains("older graph format") && warnings[1].contains("20250101T000000Z-b"),
+            "{warnings:?}"
+        );
+    }
 }

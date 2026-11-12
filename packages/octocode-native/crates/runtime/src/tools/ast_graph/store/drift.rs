@@ -110,7 +110,7 @@ pub(super) fn diff(base: &GraphTables, head: &GraphTables) -> Drift {
         rows.extend(
             files
                 .into_iter()
-                .map(|file| json!({"category": "file", "change": change, "file": file})),
+                .map(|file| json!({"category": "file", "change": change, "path": file})),
         );
     }
     let (before, after) = (cycles(base), cycles(head));

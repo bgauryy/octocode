@@ -95,11 +95,8 @@ async fn history_b_large_pr_lead_walk_is_lossless_at_the_first_page_size() {
             );
             text.push_str(patch);
         }
-        let pages = &data["pullRequests"][0]["contentPagination"];
-        let Some(lead) = ["patches", "files"]
-            .iter()
-            .find_map(|name| pages[*name]["next"].get("nextPage"))
-        else {
+        let next = &data["pullRequests"][0]["next"];
+        let Some(lead) = ["patches", "files"].iter().find_map(|name| next.get(*name)) else {
             break;
         };
         envelope = lead["input"].clone();
@@ -221,14 +218,8 @@ async fn overflowing_patch_hop_pages_by_rows_and_loses_nothing() {
         }
         let next = pagination["next"]["input"]
             .as_object()
-            .or_else(|| {
-                data["pullRequests"][0]["contentPagination"]["patches"]["next"]["nextPage"]["input"]
-                    .as_object()
-            })
-            .or_else(|| {
-                data["pullRequests"][0]["contentPagination"]["files"]["next"]["nextPage"]["input"]
-                    .as_object()
-            });
+            .or_else(|| data["pullRequests"][0]["next"]["patches"]["input"].as_object())
+            .or_else(|| data["pullRequests"][0]["next"]["files"]["input"].as_object());
         match next {
             Some(next) => envelope = Value::Object(next.clone()),
             None => break,

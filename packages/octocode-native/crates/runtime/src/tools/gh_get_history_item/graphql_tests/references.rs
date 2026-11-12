@@ -39,9 +39,7 @@ async fn an_issue_lists_its_closing_pull_requests_from_graphql() {
     let first = read(&server, issue(0)).await;
     assert_eq!(
         first.data.pointer("/issues/0/closedBy"),
-        Some(
-            &json!([{"number": 6, "state": "merged", "mergedAt": "2026-01-02T00:00:00Z"}])
-        ),
+        Some(&json!([{"number": 6, "state": "merged", "mergedAt": "2026-01-02T00:00:00Z"}])),
         "{}",
         first.data
     );

@@ -195,7 +195,7 @@ async fn refs_pages_continue_at_the_read_size_and_lead_from_page_one() {
     // Newest first: the 31st tag (the oldest) is page 2's one tag.
     assert_eq!(second.data["tags"], json!(["v1"]), "{}", second.data);
     assert!(second.data.get("warnings").is_none(), "{}", second.data);
-    assert_eq!(second.data["pagination"]["page"], 2, "{}", second.data);
+    assert_eq!(second.data["pagination"]["offset"], 30, "{}", second.data);
     assert_eq!(
         second.data["pagination"]["hasMore"], false,
         "{}",

@@ -183,28 +183,21 @@ impl Importers {
     /// Gitignored files and files under hidden directories are outside the
     /// candidate scan, and so outside the answer. One that imports the name
     /// from a module that may be the anchor's is evidence of a hidden
-    /// importer: the row is partial, counts those files, names the deciding
-    /// rules, and leads to them. Nothing else there is evidence. Files that
-    /// only spell the name were checked and import nothing of it: no lead.
-    /// Files the import check could not decide, and a scan that did not
-    /// finish, are said once ([`IGNORED_UNCHECKED_NOTICE`],
-    /// [`IGNORED_UNFINISHED_NOTICE`]) with the lead that reads them (the
-    /// undecided files; the scope, for a scan that did not finish), and
-    /// leave the row whole: absence is claimed over the scanned scope only.
-    /// Nested repositories the scan did not enter (only one holding the
-    /// anchor is kept, see `verified_anchors`) are counted, and the lead
-    /// reaches into each of them (a row with no name to search names them
-    /// instead); they never make the row partial either.
-    pub(super) fn disclose_ignored(&self, row: &mut Value, query: &LspSearchQuery, scope: &Scope) {
+    /// importer: the row is partial, counts those files and names the
+    /// deciding rules. Nothing else there is evidence. No lead points into
+    /// them: an ignored file is scratch, output or a copy outside the
+    /// project. Files the import check could not decide, and a scan that did
+    /// not finish, are said once ([`IGNORED_UNCHECKED_NOTICE`],
+    /// [`IGNORED_UNFINISHED_NOTICE`]) and leave the row whole: absence is
+    /// claimed over the scanned scope only. Nested repositories the scan did
+    /// not enter (only one holding the anchor is kept, see
+    /// `verified_anchors`) are counted and named; they never make the row
+    /// partial either.
+    pub(super) fn disclose_ignored(&self, row: &mut Value, query: &LspSearchQuery) {
         let ignored = &self.ignored;
         if !ignored.nested_repositories.is_empty() {
-            // The `includeSkipped` lead lists each one; without a name to
-            // search there is no lead, so the notice names them.
-            let listed = if lsp_search_query::symbol_name(query).is_some() {
-                String::new()
-            } else {
-                format!(": {}", ignored.nested_repositories.join(", "))
-            };
+            // No lead reads them: the notice names them.
+            let listed = format!(": {}", ignored.nested_repositories.join(", "));
             crate::response::paging::push_notice(
                 row,
                 format!(
@@ -216,31 +209,8 @@ impl Importers {
                 ),
             );
         }
-        let Some(name) = lsp_search_query::symbol_name(query).filter(|_| {
-            !ignored.files.is_empty()
-                || ignored.unfinished
-                || !ignored.nested_repositories.is_empty()
-        }) else {
+        if lsp_search_query::symbol_name(query).is_none() {
             return;
-        };
-        let nested = ignored.nested_repositories.iter().map(|repo| {
-            Path::new(&scope.root)
-                .join(repo)
-                .to_string_lossy()
-                .into_owned()
-        });
-        let listed = ignored
-            .importing
-            .iter()
-            .chain(&ignored.unchecked)
-            .cloned()
-            .chain(nested)
-            .collect::<Vec<_>>();
-        if listed.is_empty() && !ignored.unfinished {
-            return;
-        }
-        if let Some(lead) = ignored_text_lead(name, scope, &listed, ignored.unfinished) {
-            crate::response::result::attach_related(row, lead);
         }
         if !ignored.unchecked.is_empty() {
             crate::response::paging::push_notice(row, IGNORED_UNCHECKED_NOTICE);
@@ -258,7 +228,7 @@ impl Importers {
             rules => rules.join(", "),
         };
         let warning = format!(
-            "Of the gitignored or hidden files that spell this name ({rules}), {count}; importer recovery did not verify them, and a localSearch with includeIgnored and includeHidden reads their text."
+            "Of the gitignored or hidden files that spell this name ({rules}), {count}; importer recovery did not verify them."
         );
         crate::response::paging::mark_partial(row, IGNORED_REASON, &[warning]);
     }
@@ -311,7 +281,7 @@ impl Importers {
                 scope,
             );
         }
-        self.disclose_ignored(row, query, scope);
+        self.disclose_ignored(row, query);
         let Some(window) = self.window.as_ref().filter(|window| window.more()) else {
             return;
         };

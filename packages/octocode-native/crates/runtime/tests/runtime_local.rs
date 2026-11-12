@@ -1,4 +1,5 @@
 mod classified_pages;
+mod judged_matches;
 mod judged_sources;
 mod local_fetch;
 mod local_search;

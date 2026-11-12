@@ -83,7 +83,7 @@ pub(crate) fn expand(
         };
         if files.is_empty() {
             let mut error = ClassificationError::new(
-                ErrorCode::PathNotFound,
+                ErrorCode::NotFound,
                 format!("No file matches the glob '{pattern}'; nothing was judged."),
                 NO_MATCH_HINT,
             );

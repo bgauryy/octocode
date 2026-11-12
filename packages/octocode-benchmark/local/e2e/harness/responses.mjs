@@ -144,19 +144,21 @@ export function sourcePath(entry, location, fallback) {
 }
 
 /**
- * lspSearch location rows in one shape, {path, displayRange, content, ...}:
- * `data.files[].matches` rows grouped under their file, flat `data.matches`
- * rows (a row naming no path stays flat), or compact per-file reference rows
- * {line, column, endLine?, value?} expanded to that shape. Call rows (`sites`)
- * are not locations.
+ * lspSearch location rows in one flat shape, {path, line, column?, endLine, content, ...}
+ * (`column` 1-based UTF-16, absent when the row states none): flat `data.matches`
+ * rows pass through (a row naming no path stays flat); `data.files[].matches`
+ * rows {line, column?, endLine?, value?|content?, ...} take their file's path,
+ * `endLine` (absent on the wire when equal to `line`) and `content` (the
+ * row's `value`). Call rows (`sites`) are not locations.
  */
 export function lspLocations(entry, index = 0) {
   const payload = rowData(entry, index);
   if (Array.isArray(payload?.matches)) return payload.matches;
-  return (payload?.files ?? []).flatMap(file => (file.matches ?? []).filter(ref => ref && !ref.sites && (ref.displayRange || typeof ref.line === 'number')).map(ref => (ref.displayRange ? { path: file.path, ...ref } : {
+  return (payload?.files ?? []).flatMap(file => (file.matches ?? []).filter(ref => ref && !ref.sites && typeof ref.line === 'number').map(({ value, ...ref }) => ({
     path: file.path,
-    displayRange: { startLine: ref.line, startCharacter: ref.column, endLine: ref.endLine ?? ref.line },
-    content: ref.value ?? '',
+    ...ref,
+    endLine: ref.endLine ?? ref.line,
+    content: ref.content ?? value ?? '',
   })));
 }
 
@@ -244,7 +246,7 @@ export function lspCallers(entry, index = 0) {
   if (Array.isArray(payload?.matches)) {
     return payload.matches.filter(item => item.from).map(item => ({
       name: item.from.symbolName, kind: item.from.kind, detail: item.from.detail, path: item.from.path,
-      lines: (item.fromRanges ?? []).map(range => range.startLine), declLine: item.from.displayRange?.startLine,
+      lines: (item.fromRanges ?? []).map(range => range.line), declLine: item.from.line,
     }));
   }
   if (payload?.kind === 'callees') return [];

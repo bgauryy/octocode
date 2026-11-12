@@ -133,7 +133,7 @@ async function sourceChecks(ctx, surface, provider) {
 async function imageChecks(ctx, surface, provider) {
   const file = path.join(ctx.cwd, `image-${surface}.png`);
   fs.writeFileSync(file, PNG);
-  // Image provenance (snapshot, path, bytes) is a details field.
+  // Image provenance (sourceDigest, path, bytes) is a details field.
   const query = { operation: 'evaluate', view: 'details', model: 'jev-1.14.0', content: { image: 'screen' }, assets: { screen: { source: { tool: 'localFetch', query: { path: file } } } }, questions: { object: { type: 'box', instructions: 'Locate the object in screen.' }, visible: noul('Is screen visible?') } };
   const first = data(await ctx.call(ctx.q(query), surface));
   const asset = first?.assets?.screen, packet = provider.sent.at(-1);
@@ -142,10 +142,10 @@ async function imageChecks(ctx, surface, provider) {
     ['image.box', same(first.answers.object.box, { top: 0.1, bottom: 0.9, left: 0.2, right: 0.8 }) && first.answers.object.confidence === null && !JSON.stringify(first).includes(PNG.toString('base64')), first.answers]];
   const before = provider.sent.length;
   const repeated = data(await ctx.call(ctx.q(query), surface));
-  checks.push(['image.fresh', provider.sent.length === before + 1 && repeated.replayed !== true && repeated.assets.screen.snapshot === asset.snapshot, repeated.assets]);
+  checks.push(['image.fresh', provider.sent.length === before + 1 && repeated.replayed !== true && repeated.assets.screen.sourceDigest === asset.sourceDigest, repeated.assets]);
   fs.appendFileSync(file, Buffer.from([0]));
   const changed = data(await ctx.call(ctx.q(query), surface));
-  checks.push(['image.mutation', provider.sent.length === before + 2 && changed.assets.screen.snapshot !== asset.snapshot && fs.readFileSync(asset.path).equals(PNG), changed.assets]);
+  checks.push(['image.mutation', provider.sent.length === before + 2 && changed.assets.screen.sourceDigest !== asset.sourceDigest && fs.readFileSync(asset.path).equals(PNG), changed.assets]);
   fs.rmSync(file);
   return checks;
 }
@@ -215,7 +215,7 @@ async function batchChecks(ctx, surface, provider) {
 function batchEvidence(at) {
   const answer = index => at(index).flatMap(row => Object.entries(row.data.answers ?? {}));
   const failure = (index, code) => at(index).length === 1 && at(index)[0].data.errorCode === code;
-  return failure(0, 'invalidInput') && failure(3, 'pathNotFound')
+  return failure(0, 'invalidInput') && failure(3, 'notFound')
     && same(answer(1), [['sameKey', { noul: 0.1 }]])
     && same(answer(4), [['sameKey', { noul: 0.8 }]]);
 }

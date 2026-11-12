@@ -14,6 +14,12 @@ mod service;
 use entries::{catalog, compare_versions, is_prerelease, item, safety_facts, search_item};
 use service::{official_url, service_endpoint};
 
+/// NuGet's SemVer 2 ordering, four release numbers.
+pub(super) const ORDER: super::versions::VersionOrder = super::versions::VersionOrder {
+    cmp: |left, right| compare_versions(left, right).ok(),
+    prerelease: is_prerelease,
+};
+
 pub(crate) async fn nuget(
     query: &ArtifactSearchQuery,
     state: &ArtifactProviderState,
@@ -209,6 +215,7 @@ async fn exact(
                             .collect();
                     }
                     return Err(super::versions::version_not_found(
+                        ArtifactType::Nuget,
                         package_name,
                         wanted,
                         &seen,

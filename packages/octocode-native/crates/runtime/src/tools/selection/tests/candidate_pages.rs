@@ -251,7 +251,7 @@ fn a_provider_page_discloses_its_long_context_retries() {
     use crate::tools::selection::long_window_fake::{BILLED, LongWindow};
     let window = LongWindow::start();
     let files: Vec<Value> = (0..2)
-        .map(|i| json!({"path":format!("{i}.rs"),"lines":[format!("1\tfn candidate_{i}() {{}}")]}))
+        .map(|i| json!({"path":format!("{i}.rs"),"matches":[{"line":1,"value":format!("fn candidate_{i}() {{}}")}]}))
         .collect();
     let mut output = json!({"results":[{"index":0,"data":{"owner":"o","repo":"r","files":files}}]});
     let query = json!({"owner":"o","repo":"r","keywords":["fn"],
@@ -340,7 +340,7 @@ fn a_long_window_answer_without_usage_is_refused_not_billed_as_a_number() {
     use crate::tools::selection::long_window_fake::LongWindow;
     let window = LongWindow::start_without_usage();
     let files: Vec<Value> = (0..2)
-        .map(|i| json!({"path":format!("{i}.rs"),"lines":[format!("1\tfn candidate_{i}() {{}}")]}))
+        .map(|i| json!({"path":format!("{i}.rs"),"matches":[{"line":1,"value":format!("fn candidate_{i}() {{}}")}]}))
         .collect();
     let mut output = json!({"results":[{"index":0,"data":{"owner":"o","repo":"r","files":files}}]});
     let query = json!({"owner":"o","repo":"r","keywords":["fn"],
@@ -373,7 +373,7 @@ fn a_default_page_walk_follows_each_emitted_candidate_page() {
     let (mut runtime, calls) = selecting_runtime(&executor);
     runtime.limits.max_chars = 1;
     let files: Vec<Value> = (0..3)
-        .map(|i| json!({"path":format!("{i}.rs"),"lines":[format!("1\tfn candidate_{i}() {{}}")]}))
+        .map(|i| json!({"path":format!("{i}.rs"),"matches":[{"line":1,"value":format!("fn candidate_{i}() {{}}")}]}))
         .collect();
     let original = json!({"results":[{"index":0,"data":{"owner":"o","repo":"r","files":files}}]});
     let mut query = json!({"owner":"o","repo":"r","page":1,"keywords":["fn"],
@@ -408,9 +408,9 @@ fn provider_candidate_pages_cover_the_same_page_and_refuse_source_drift() {
     let (mut runtime, calls) = selecting_runtime(&executor);
     runtime.limits.max_chars = 1;
     let mut files: Vec<Value> = (0..5)
-        .map(|i| json!({"path":format!("{i}.rs"),"lines":[format!("1\tfn candidate_{i}() {{}}")]}))
+        .map(|i| json!({"path":format!("{i}.rs"),"matches":[{"line":1,"value":format!("fn candidate_{i}() {{}}")}]}))
         .collect();
-    files.push(json!({"path":"oversized.rs","lines":[format!("1\t{}", "x".repeat(2_000))]}));
+    files.push(json!({"path":"oversized.rs","matches":[{"line":1,"value":"x".repeat(2_000)}]}));
     let original = json!({"results":[{"index":0,"data":{
         "owner":"o","repo":"r","files":files,
         "next":{"nextPage":{"kind":"continue","tool":"ghSearchCode","input":{"queries":[{
@@ -454,7 +454,7 @@ fn provider_candidate_pages_cover_the_same_page_and_refuse_source_drift() {
     assert_eq!(calls.load(Ordering::SeqCst), 6);
     let query = first_next.expect("continuation");
     let mut changed = original;
-    changed["results"][0]["data"]["files"][0]["lines"] = json!(["1\tchanged"]);
+    changed["results"][0]["data"]["files"][0]["matches"] = json!([{"line":1,"value":"changed"}]);
     apply_code_rows(&mut changed, query.clone(), &mut query.clone(), &runtime)
         .expect("typed stale error");
     assert_eq!(changed["results"][0]["data"]["errorCode"], "staleSnapshot");

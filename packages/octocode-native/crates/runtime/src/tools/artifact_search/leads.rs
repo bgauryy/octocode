@@ -177,7 +177,7 @@ pub(super) fn retraction_warning(artifact: &ArtifactItem) -> Option<String> {
         .reason
         .as_deref()
         .map_or(String::new(), |reason| {
-            format!(": {}", reason.trim_end_matches('.'))
+            format!(": {}", crate::security::quoted(reason.trim_end_matches('.')))
         });
     Some(format!(
         "{} {} is retracted by its module's latest go.mod{reason}.",
@@ -307,7 +307,8 @@ pub(super) fn with_repair(mut error: ArtifactError, query: &ArtifactSearchQuery)
     let mut exact = copied(query);
     exact.insert("packageName".into(), json!(name));
     exact.remove("version");
-    let searchable = error.code == ErrorCode::NotFound || error.searchable_name;
+    let searchable =
+        (error.code == ErrorCode::NotFound && !error.missing_version) || error.searchable_name;
     let lead = match error.code {
         _ if searchable && artifact_search_query::artifact_type(query) != ArtifactType::Pypi => {
             exact.remove("packageName");
@@ -318,9 +319,15 @@ pub(super) fn with_repair(mut error: ArtifactError, query: &ArtifactSearchQuery)
                 Continuation::related(ToolId::ArtifactSearch, Value::Object(exact)).build(),
             ))
         }
-        ErrorCode::VersionNotFound if !error.nearest.is_empty() => {
-            let queries = error
-                .nearest
+        _ if error.missing_version && !error.nearest.is_empty() => {
+            let limit = crate::contracts::batch_limit(ToolId::ArtifactSearch).unwrap_or(1);
+            let (versions, fewer) = crate::providers::artifact::suggested(
+                artifact_search_query::artifact_type(query),
+                &error,
+                limit,
+            );
+            error.hints.extend(fewer);
+            let queries = versions
                 .iter()
                 .map(|version| {
                     let mut row = exact.clone();
@@ -334,8 +341,8 @@ pub(super) fn with_repair(mut error: ArtifactError, query: &ArtifactSearchQuery)
                     .build(),
             ))
         }
-        ErrorCode::VersionNotFound | ErrorCode::CapabilityUnavailable
-            if artifact_search_query::version(query).is_some() =>
+        _ if (error.missing_version || error.code == ErrorCode::CapabilityUnavailable)
+            && artifact_search_query::version(query).is_some() =>
         {
             Some((
                 "repair",
@@ -347,7 +354,10 @@ pub(super) fn with_repair(mut error: ArtifactError, query: &ArtifactSearchQuery)
     match lead {
         Some((name, lead)) => error.calls = Some(Box::new(json!({ name: lead }))),
         // PyPI has no keyword search to broaden an unknown name into.
-        None if error.code == ErrorCode::NotFound && error.hints.is_empty() => {
+        None if error.code == ErrorCode::NotFound
+            && !error.missing_version
+            && error.hints.is_empty() =>
+        {
             error.hints.push(format!(
                 "Check the exact packageName spelling; {} has no keyword search.",
                 artifact_search_query::artifact_type(query)

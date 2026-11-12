@@ -159,7 +159,7 @@ async fn huge_line_window(extra: serde_json::Value, anchor: &str) {
 }
 
 /// A contextLines window whose anchor sits on a later line than the first
-/// context line starts there: its row says so (`displayRange`, which the
+/// context line starts there: its row says so (the window, which the
 /// numbering and the line judging read) and numbers its text from that line.
 #[tokio::test(flavor = "current_thread")]
 async fn a_window_on_a_later_line_is_numbered_from_that_line() {
@@ -197,12 +197,9 @@ async fn a_window_on_a_later_line_is_numbered_from_that_line() {
         .collect::<Vec<_>>();
     assert_eq!(numbered.len(), 1, "{content}");
     assert!(numbered[0].starts_with("3\ttarget(a)"), "{content}");
-    assert_eq!(location["displayRange"]["startLine"], 3, "{location}");
+    assert_eq!(location["line"], 3, "{location}");
     // A one-line range states no end: `endLine` is absent.
-    assert!(
-        location["displayRange"].get("endLine").is_none(),
-        "{location}"
-    );
+    assert!(location.get("endLine").is_none(), "{location}");
 }
 
 /// Without contextLines (a request the contract did not default), a

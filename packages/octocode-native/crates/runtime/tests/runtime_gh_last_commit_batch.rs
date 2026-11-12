@@ -115,7 +115,7 @@ async fn three_rows_send_one_graphql_request_and_no_per_path_commit_lists() {
     for (index, file) in FILES.iter().enumerate() {
         let data = &out["results"][index]["data"];
         assert_eq!(
-            data["lastModified"],
+            data["modifiedAt"],
             format!("2026-01-01T00:00:00Z/{file}"),
             "{out}"
         );
@@ -145,7 +145,7 @@ async fn an_error_at_one_alias_falls_back_to_rest_for_that_path_only() {
     let data = |index: usize| &out["results"][index]["data"];
     assert_eq!(data(0)["lastModifiedBy"], "gql-a.txt", "{out}");
     assert_eq!(data(1)["lastModifiedBy"], "rest-user", "{out}");
-    assert_eq!(data(1)["lastModified"], "2025-05-05T00:00:00Z", "{out}");
+    assert_eq!(data(1)["modifiedAt"], "2025-05-05T00:00:00Z", "{out}");
     assert_eq!(data(2)["lastModifiedBy"], "gql-c.txt", "{out}");
 }
 
@@ -188,7 +188,7 @@ async fn requests_keep_the_rows_spelling_and_withheld_paths_send_nothing() {
     runtime.close().await;
     let out = outcome.structured_content.into_value();
     assert_eq!(
-        out["results"][0]["data"]["lastModified"], "2026-01-01T00:00:00Z",
+        out["results"][0]["data"]["modifiedAt"], "2026-01-01T00:00:00Z",
         "{out}"
     );
     let requests = server.received_requests().await.unwrap();
@@ -247,7 +247,7 @@ async fn missing_paths_add_no_graphql_request_to_the_batch() {
     assert_eq!(count(&server, "POST", "/api/graphql").await, 1, "{out}");
     assert_eq!(count(&server, "GET", "/api/v3/repos/a/b/commits").await, 0);
     assert_eq!(
-        out["results"][0]["data"]["lastModified"],
+        out["results"][0]["data"]["modifiedAt"],
         "2026-01-01T00:00:00Z"
     );
 }

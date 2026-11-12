@@ -121,7 +121,7 @@ fn split_rows_fill_pages_in_row_order() {
 
 /// Rows that fit a page are never split: pages cut at row boundaries, so
 /// twelve rows of 2,000 chars at 3,000 chars a page are twelve whole-row
-/// pages, and `totalPages` is the twelve calls a reader makes.
+/// pages: the twelve calls a reader makes.
 #[test]
 fn rows_that_fit_a_page_are_never_split() {
     let rows = (0..12)

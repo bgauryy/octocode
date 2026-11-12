@@ -157,12 +157,6 @@ fn assert_redacts_each(content: &str, path: Option<&str>, secrets: &[&str]) {
     );
 }
 
-impl DetectResult {
-    fn has_secrets_or(&self, other: &Self) -> bool {
-        !self.secrets_detected.is_empty() || !other.secrets_detected.is_empty()
-    }
-}
-
 /// The prescan candidates of `content`, in pattern order.
 fn candidate_pattern_indices(content: &str) -> Vec<usize> {
     prescan_candidates(content).iter().collect()
@@ -205,11 +199,14 @@ mod assignment_layouts;
 mod comment_tails;
 mod credential_files;
 mod credential_values;
+mod diff_views;
 mod document_forms;
 mod every_pattern;
+mod expressions_and_blocks;
 mod glued_tags;
 mod key_armors;
 mod large_input;
+mod literal_lines;
 mod long_line_every_value;
 mod markerless;
 mod named_values;

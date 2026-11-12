@@ -137,15 +137,13 @@ fn full_file_redaction_covers_unterminated_block_through_eof() {
 #[test]
 fn unterminated_marker_redacts_only_the_base64_run_after_it() {
     // A literal marker string in ordinary source opens a block that never
-    // closes: only the marker line is key material, not the code after it.
+    // closes: the marker line is the block's only line, and an armor holds no
+    // key text, so the source reads as written, the closing quote included.
     let literal = "let a = 1;\nconst PEM = \"-----BEGIN RSA PRIVATE KEY-----\";\nlet b = compute(a);\nfn main() {}\n";
     assert_eq!(private_key_block_line_ranges(literal), vec![(2, 2)]);
     let (out, changed) = redact_private_key_blocks(literal);
-    assert!(changed);
-    assert!(out.contains("let b = compute(a);"), "{out}");
-    assert!(out.contains("fn main() {}"), "{out}");
-    assert!(!out.contains("BEGIN RSA"), "{out}");
-    assert_eq!(out.lines().count(), literal.lines().count());
+    assert!(!changed, "{out}");
+    assert_eq!(out, literal);
     // A BEGIN literal and a far-away END literal do not make the code
     // between them a key body.
     let far = "a\n\"-----BEGIN X PRIVATE KEY-----\"\nlet x = 1;\nlet y = 2;\n\"-----END X PRIVATE KEY-----\"\n";
@@ -217,7 +215,7 @@ fn a_line_that_only_holds_a_key_run_keeps_its_label() {
     assert_eq!(
         hidden,
         format!(
-            "logo: {RUN}\n{placeholder}\n{placeholder}\n  {placeholder}\nordinary tail text\nlogo2: {placeholder}\n  k += b\"{placeholder}\nshort: abc123\nlast plain line\n"
+            "logo: {RUN}\n-----BEGIN OPENSSH PRIVATE KEY-----\n{placeholder}\n  {placeholder}\nordinary tail text\nlogo2: {placeholder}\n  k += b\"{placeholder}\nshort: abc123\nlast plain line\n"
         )
     );
     // One rule for every reader of a line: the row a search shows of it.
@@ -237,8 +235,8 @@ fn a_line_that_only_holds_a_key_run_keeps_its_label() {
 
 /// D3: a key block written inside one member of a minified document starts
 /// at its own `-----BEGIN`, wherever on the line that stands: the members
-/// before it (a run of their own among them) and the text after its END
-/// stay.
+/// before it (a run of their own among them), its armor and the text after
+/// its END stay; only the body between the armors goes.
 #[test]
 fn a_key_block_in_a_minified_document_starts_at_its_own_begin() {
     let before = format!(
@@ -254,9 +252,82 @@ fn a_key_block_in_a_minified_document_starts_at_its_own_begin() {
         assert!(changed, "{line}");
         assert_eq!(
             hidden,
-            format!("{lead}{before}{}{after}\n", key_fragment_placeholder()),
+            format!(
+                "{lead}{before}-----BEGIN PRIVATE KEY-----{}-----END PRIVATE KEY-----{after}\n",
+                key_fragment_placeholder()
+            ),
             "{} bytes before the block",
             lead.len() + before.len()
         );
     }
+}
+
+/// Owner rule: an armor line names its block and holds none of it. Only key
+/// text written beside an armor is a line's key: a body on the BEGIN line,
+/// before the END, or between the two of a block on one line; PuTTY's MAC
+/// value, not its name. A quote, a comment's tail or code beside the armor
+/// is no key text, and every format's armor reads whole.
+#[test]
+fn only_key_text_beside_an_armor_is_a_lines_key() {
+    const BODY: &str = "MIIEowIBAAKCAQEAxyzMIIEowIBAAKCAQEAxyzMIIEowIBAAKCAQEAxyz";
+    let placeholder = key_fragment_placeholder();
+    for armor in [
+        "-----BEGIN RSA PRIVATE KEY-----",
+        "-----END RSA PRIVATE KEY-----",
+        "  -----BEGIN OPENSSH PRIVATE KEY-----\r",
+        "---- BEGIN SSH2 ENCRYPTED PRIVATE KEY ----",
+        "-----BEGIN PGP PRIVATE KEY BLOCK-----",
+        "-----BEGIN OpenVPN Static key V1-----",
+        "-----BEGIN RSA PRIVATE KEY",
+        "private_key: \"-----BEGIN RSA PRIVATE KEY-----\"",
+        "/// Whether `secret` is one PEM armor line (`-----BEGIN RSA PRIVATE KEY-----`):",
+        "const k = \"-----BEGIN RSA PRIVATE KEY-----\\n\" +",
+        "-----END PRIVATE KEY----------BEGIN PRIVATE KEY-----",
+        "PuTTY-User-Key-File-3: ssh-ed25519",
+        "Private-Lines: 1",
+    ] {
+        assert_eq!(key_line_bytes(armor), None, "{armor}");
+        assert_eq!(hide_key_line(armor), armor);
+    }
+    for (line, shown) in [
+        (
+            format!("-----BEGIN RSA PRIVATE KEY-----{BODY}"),
+            format!("-----BEGIN RSA PRIVATE KEY-----{placeholder}"),
+        ),
+        (
+            format!("  {BODY}-----END RSA PRIVATE KEY-----"),
+            format!("  {placeholder}-----END RSA PRIVATE KEY-----"),
+        ),
+        (
+            format!("x=\"-----BEGIN PRIVATE KEY-----\\n{BODY}\\n-----END PRIVATE KEY-----\" y"),
+            format!("x=\"-----BEGIN PRIVATE KEY-----{placeholder}-----END PRIVATE KEY-----\" y"),
+        ),
+        (
+            "Private-MAC: 0123456789abcdef".to_owned(),
+            format!("Private-MAC: {placeholder}"),
+        ),
+        (format!("    {BODY}"), format!("    {placeholder}")),
+    ] {
+        assert_eq!(hide_key_line(&line), shown, "{line}");
+        assert!(!hide_key_line(&line).contains(&BODY[..16]), "{line}");
+    }
+    // A block on lines of its own: armor shown, body hidden, line for line,
+    // and one with no END still hides its body.
+    let block = format!(
+        "{}\n{BODY}\n{BODY}\n{}\n",
+        "-----BEGIN RSA PRIVATE KEY-----", "-----END RSA PRIVATE KEY-----"
+    );
+    let (hidden, _) = redact_private_key_blocks(&block);
+    assert_eq!(
+        hidden,
+        format!(
+            "-----BEGIN RSA PRIVATE KEY-----\n{placeholder}\n{placeholder}\n-----END RSA PRIVATE KEY-----\n"
+        )
+    );
+    let open = format!("-----BEGIN RSA PRIVATE KEY-----\n{BODY}\n{BODY}\n");
+    let (hidden, _) = redact_private_key_blocks(&open);
+    assert_eq!(
+        hidden,
+        format!("-----BEGIN RSA PRIVATE KEY-----\n{placeholder}\n{placeholder}\n")
+    );
 }

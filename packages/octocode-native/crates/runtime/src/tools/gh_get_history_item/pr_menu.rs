@@ -218,7 +218,7 @@ pub(super) fn pr_next_menu(query: &HistoryItemRequest, review: &[String], raw: &
 /// one distinctive added line per hunk (at most
 /// [`super::patch::locate::MERGE_MATCH_LINES`]), so
 /// the fix is checked in the code that shipped. The diff's line numbers
-/// belong to `headSha`; the target branch may have moved the lines by the
+/// belong to `headCommitSha`; the target branch may have moved the lines by the
 /// merge, so the read locates them by text, never by number. `files` is
 /// every loaded provider file (`filename`, `additions`, `deletions`,
 /// `patch`), not only the patch window shown. `None` for unmerged pull

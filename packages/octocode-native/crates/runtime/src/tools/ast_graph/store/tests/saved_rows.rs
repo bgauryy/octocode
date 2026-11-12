@@ -74,9 +74,9 @@ fn issues_pages_after_the_first_run_no_detectors() {
     // Exactly once, in order: the walk is the whole ordered set.
     let whole = ask(dir.0.as_path(), "issues", None, |o| o.limit = Some(500));
     assert_eq!(all_ids(&pages), ids(&whole));
-    let total = whole.value["pagination"]["totalItems"].clone();
+    let total = whole.value["pagination"]["total"].clone();
     for page in &pages {
-        assert_eq!(page.value["pagination"]["totalItems"], total);
+        assert_eq!(page.value["pagination"]["total"], total);
     }
     // The summary belongs to the run that made it.
     assert!(pages[0].value["summary"].is_object());
@@ -230,7 +230,7 @@ fn impact_and_drift_pages_reconstruct_their_rows_exactly_once() {
             tweak(o);
             o.limit = Some(500);
         });
-        let total = whole.value["pagination"]["totalItems"]
+        let total = whole.value["pagination"]["total"]
             .as_u64()
             .unwrap_or(0);
         assert!(total >= 2, "{op}: {}", whole.value);

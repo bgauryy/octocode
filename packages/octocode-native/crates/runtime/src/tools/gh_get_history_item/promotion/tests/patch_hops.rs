@@ -2,15 +2,15 @@
 use super::*;
 
 fn diff_page<'a>(out: &'a Value, axis: &str) -> &'a Value {
-    &out["contentPagination"][axis]["next"]["nextPage"]
+    &out["next"][axis]
 }
 
 fn pr_page<'a>(out: &'a Value, axis: &str) -> &'a Value {
-    &out["pullRequests"][0]["contentPagination"][axis]["next"]["nextPage"]
+    &out["pullRequests"][0]["sectionPagination"][axis]["next"]["nextPage"]
 }
 
 /// A commit's `patch continuation` copies the page-stream cursor named on
-/// `contentPagination.files`, never a file's own per-file `nextOffset`.
+/// `sectionPagination.files`, never a file's own per-file `nextOffset`.
 #[test]
 fn commit_continue_patch_copies_the_page_stream_cursor() {
     let query = HistoryItemRequest::from_row(json!({
@@ -21,9 +21,9 @@ fn commit_continue_patch_copies_the_page_stream_cursor() {
     let mut out = json!({
         "files":[{"filename":"a.rs","patch":"aaa"},{"filename":"b.rs","patch":"bbbbbbb",
             "patchPagination":{"unit":"chars","offset":0,"length":7,"total":20,"hasMore":true,"nextOffset":7}}],
-        "contentPagination":{"files":{"page":1,"hasMore":false}}
+        "sectionPagination":{"files":{"page":1,"hasMore":false}}
     });
-    let cursors = DiffCursors::of_file_page(&mut out["contentPagination"]["files"], Some(10), true);
+    let cursors = DiffCursors::of_file_page(&mut out["sectionPagination"]["files"], Some(10), true);
     attach_diff_continuations(
         &mut out,
         &query,
@@ -52,7 +52,7 @@ fn history_b_patch_walk_hops_carry_no_response_page_knobs() {
         }
         let mut query = HistoryItemRequest::from_row(row).expect("query");
         query.auto_page_chars = page;
-        let mut out = json!({"pullRequests":[{"contentPagination":{
+        let mut out = json!({"pullRequests":[{"sectionPagination":{
             "patches":{"hasMore":true,"nextOffset":900}
         }}]});
         promote_pr_continuations(&mut out, &query);
@@ -77,8 +77,8 @@ fn history_b_patch_walk_hops_carry_no_response_page_knobs() {
     }))
     .expect("commit query");
     commit.auto_page_chars = Some(20_000);
-    let mut out = json!({"contentPagination":{"files":{"page":1,"hasMore":false}}});
-    let cursors = DiffCursors::of_file_page(&mut out["contentPagination"]["files"], Some(10), true);
+    let mut out = json!({"sectionPagination":{"files":{"page":1,"hasMore":false}}});
+    let cursors = DiffCursors::of_file_page(&mut out["sectionPagination"]["files"], Some(10), true);
     attach_diff_continuations(
         &mut out,
         &commit,
@@ -100,7 +100,7 @@ fn history_b_patch_walk_hops_carry_no_response_page_knobs() {
         }
         let mut query = HistoryItemRequest::from_row(row).expect("query");
         query.auto_page_chars = Some(40_000);
-        let mut out = json!({"pullRequests":[{"contentPagination":{
+        let mut out = json!({"pullRequests":[{"sectionPagination":{
             "files":{"hasMore":true,"nextPage":2}
         }}]});
         promote_pr_continuations(&mut out, &query);
@@ -237,7 +237,7 @@ fn patch_hops_are_the_same_file_page_at_the_stream_cursor() {
         "page":2,"include":["src/**"]
     }))
     .expect("query");
-    let mut out = json!({"pullRequests":[{"contentPagination":{
+    let mut out = json!({"pullRequests":[{"sectionPagination":{
         "patches":{"hasMore":true,"nextOffset":900}
     }}]});
     promote_pr_continuations(&mut out, &query);
@@ -264,7 +264,7 @@ fn the_next_file_page_follows_the_last_patch_window() {
         "operation":"pullRequest","owner":"o","repo":"r","number":5,"sections":["patches"]
     }))
     .expect("query");
-    let mut open = json!({"pullRequests":[{"contentPagination":{
+    let mut open = json!({"pullRequests":[{"sectionPagination":{
         "patches":{"hasMore":true,"nextOffset":900},
         "files":{"hasMore":true,"nextPage":2}
     }}]});
@@ -277,7 +277,7 @@ fn the_next_file_page_follows_the_last_patch_window() {
         "offset":900
     }))
     .expect("hop");
-    let mut last = json!({"pullRequests":[{"contentPagination":{
+    let mut last = json!({"pullRequests":[{"sectionPagination":{
         "files":{"hasMore":true,"nextPage":2}
     }}]});
     promote_pr_continuations(&mut last, &hop);

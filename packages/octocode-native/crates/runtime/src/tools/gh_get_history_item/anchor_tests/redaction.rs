@@ -59,9 +59,9 @@ async fn walk_issue_body(server: &MockServer) -> Vec<String> {
                 .expect("body window")
                 .to_owned(),
         );
-        let page = out["issues"][0]["contentPagination"]["body"].clone();
+        let page = out["issues"][0]["sectionPagination"]["body"].clone();
         // The executable continuation, copied as the tool emits it.
-        let next = &page["next"]["nextPage"]["input"]["queries"][0];
+        let next = &out["issues"][0]["next"]["body"]["input"]["queries"][0];
         match next["offset"].as_u64() {
             Some(next) if page["hasMore"] == true => {
                 assert!(offset.is_none_or(|before| next > before), "advances: {out}");
@@ -242,9 +242,7 @@ async fn bodies_of_one_page_rejoin_exactly_once_when_a_marker_cuts_one() {
                     .push_str(comment["body"].as_str().unwrap_or(""));
             }
             // Body windows first, then the next comment page, as emitted.
-            let page = &issue["contentPagination"];
-            let continuation =
-                |axis: &str| page[axis]["next"]["nextPage"]["input"]["queries"][0].clone();
+            let continuation = |axis: &str| issue["next"][axis]["input"]["queries"][0].clone();
             let mut next = continuation("commentBody");
             if next.is_null() {
                 next = continuation("comments");
@@ -321,8 +319,7 @@ async fn pull_request_comment_and_review_bodies_rejoin_exactly_once() {
                 }
             }
             for axis in ["commentBody", "reviewBody"] {
-                let next =
-                    &pr["contentPagination"][axis]["next"]["nextPage"]["input"]["queries"][0];
+                let next = &pr["next"][axis]["input"]["queries"][0];
                 if !next.is_null() {
                     pending.push(next.clone());
                 }
@@ -508,5 +505,87 @@ async fn a_body_preview_shows_no_raw_token_and_no_partial_marker() {
                 != Some(false),
             "before {before}: the preview ends inside a marker: {preview}"
         );
+    }
+}
+
+/// Round 13 GitHub check: the redaction warning counts what the page shows.
+/// A patch a filter leaves out was redacted where it entered, and the page
+/// that shows only the other file states no redaction; the page that shows
+/// it states its own count.
+#[tokio::test]
+async fn the_redaction_warning_counts_what_the_page_shows() {
+    let server = MockServer::builder().start().await;
+    let mut raw = commit_raw(HEAD, "Rotate");
+    let mut leaked = changed_file("config/app.env");
+    leaked["patch"] = json!(format!(
+        "@@ -1,1 +1,1 @@\n-GITHUB_TOKEN=old\n+GITHUB_TOKEN={}",
+        secret()
+    ));
+    raw["files"] = json!([leaked, changed_file("src/lib.rs")]);
+    mount_json(
+        &server,
+        &format!("/api/v3/repos/o/r/commits/{HEAD}"),
+        200,
+        raw,
+    )
+    .await;
+    let read = |include: &str| {
+        json!({"operation":"commit","owner":"o","repo":"r","ref":HEAD,
+            "sections":["patches"],"include":[include]})
+    };
+    let plain = read_secure(&server, read("src/lib.rs")).await;
+    assert!(!plain.to_string().contains("[REDACTED"), "{plain}");
+    assert!(
+        !plain["warnings"].to_string().contains("redactedContent"),
+        "{plain}"
+    );
+    let shown = read_secure(&server, read("config/app.env")).await;
+    assert!(!leaks(&shown.to_string()), "{shown}");
+    let placeholders = crate::security::placeholders_in(&shown["files"]);
+    assert!(placeholders > 0, "{shown}");
+    assert!(
+        shown["warnings"]
+            .to_string()
+            .contains(&format!("redactedContent: {placeholders} ")),
+        "{shown}"
+    );
+}
+
+/// Round 14, B: a patch's hunks are judged as the text they change, so a
+/// YAML block scalar's body on `+` and context lines, and a Secret's data in
+/// its own `+---` document, are hidden in `sections:["patches"]`, each line
+/// keeping its marker; the ConfigMap's value beside them stays.
+#[tokio::test]
+async fn a_yaml_patch_hides_block_bodies_and_secret_data() {
+    let server = MockServer::builder().start().await;
+    let mut raw = commit_raw(HEAD, "Deploy");
+    let mut manifest = changed_file("deploy/app.yaml");
+    manifest["patch"] = json!(
+        "@@ -1,3 +1,11 @@\n config:\n   token: |-\n     Ab3Cd9Ef2Gh7Jk5Lm1\n+  token: |-\n+    Hk3Lm9Pq2Rs7Tv5Wx1\n+---\n+kind: ConfigMap\n+data:\n+  cacheKeyPrefix: app-cache\n+---\n+kind: Secret\n+data:\n+  username: YWRtaW4="
+    );
+    raw["files"] = json!([manifest]);
+    mount_json(
+        &server,
+        &format!("/api/v3/repos/o/r/commits/{HEAD}"),
+        200,
+        raw,
+    )
+    .await;
+    let out = read_secure(
+        &server,
+        json!({"operation":"commit","owner":"o","repo":"r","ref":HEAD,"sections":["patches"]}),
+    )
+    .await;
+    let text = out.to_string();
+    for secret in ["Ab3Cd9Ef2Gh7Jk5Lm1", "Hk3Lm9Pq2Rs7Tv5Wx1", "YWRtaW4="] {
+        assert!(!text.contains(secret), "{secret}: {out}");
+    }
+    for kept in [
+        "+  token: |-",
+        "+    [REDACTED-",
+        "+  cacheKeyPrefix: app-cache",
+        "+  username: [REDACTED-",
+    ] {
+        assert!(text.contains(kept), "{kept} lost: {out}");
     }
 }

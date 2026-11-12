@@ -53,11 +53,7 @@ fn rust_bare_calls_do_not_resolve_same_named_methods() {
         o.edges = vec!["calls".into()];
         o.confidence = Some("high".into());
     });
-    assert_eq!(
-        cycles.value["pagination"]["totalItems"], 0,
-        "{}",
-        cycles.value
-    );
+    assert_eq!(cycles.value["pagination"]["total"], 0, "{}", cycles.value);
 }
 
 #[test]
@@ -179,7 +175,7 @@ fn path_qualified_rust_edges_keep_their_evidence_line() {
     let rows = deps.value["rows"].as_array().expect("rows");
     let row = rows
         .iter()
-        .find(|r| r["id"] == "src/portable.rs")
+        .find(|r| r["id"] == "app/src/portable.rs")
         .unwrap_or_else(|| panic!("portable dep: {}", deps.value));
     assert_eq!(row["edgeLine"], json!(2), "{}", deps.value);
     // With a `use` and a later qualified path to one file, the row cites the
@@ -196,7 +192,7 @@ fn path_qualified_rust_edges_keep_their_evidence_line() {
     let rows = deps.value["rows"].as_array().expect("rows");
     let row = rows
         .iter()
-        .find(|r| r["id"] == "src/portable.rs")
+        .find(|r| r["id"] == "app/src/portable.rs")
         .unwrap_or_else(|| panic!("portable dep: {}", deps.value));
     assert_eq!(row["edgeLine"], json!(1), "{}", deps.value);
 }
@@ -223,7 +219,7 @@ fn rust_include_links_the_included_file() {
     );
     let deps = ask(dir.0.as_path(), "deps", Some("src/api.rs"), |_| {});
     assert!(
-        ids(&deps).contains(&"src/gen/types.rs".to_owned()),
+        ids(&deps).contains(&"app/src/gen/types.rs".to_owned()),
         "{}",
         deps.value
     );

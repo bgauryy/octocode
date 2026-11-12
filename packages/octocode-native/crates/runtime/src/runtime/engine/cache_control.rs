@@ -48,11 +48,7 @@ fn clear_disk(home: &Path, workspace: &Path, graph: &Path) -> std::io::Result<Ve
     let directories: Vec<_> = crate::cache::Directory::ALL
         .into_iter()
         .map(|dir| dir.path(home))
-        // Retired result stores have no readers or writers. Explicit clearing
-        // also removes artifacts left by an older installed binary.
-        .chain(
-            ["response", "outline", "artifact", "judgment"].map(|name| home.join("tmp").join(name)),
-        )
+        // Retired result stores have no readers or writers.
         .chain(crate::cache::Directory::retired(home))
         .chain([
             crate::tools::gh_structure::materialize::materialize_root(home),
@@ -102,10 +98,6 @@ mod tests {
         let cache_dirs: Vec<_> = crate::cache::Directory::ALL
             .into_iter()
             .map(|kind| kind.path(&home))
-            .chain(
-                ["response", "outline", "artifact", "judgment"]
-                    .map(|name| home.join("tmp").join(name)),
-            )
             .chain(crate::cache::Directory::retired(&home))
             .chain([
                 crate::tools::gh_structure::materialize::materialize_root(&home),

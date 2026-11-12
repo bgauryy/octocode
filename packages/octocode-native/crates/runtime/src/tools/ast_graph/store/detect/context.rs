@@ -1,12 +1,6 @@
 //! The detector run context and how findings are drafted into it.
 use super::*;
 
-/// A verify step: the tool and its query row. `issues` pins graphQuery
-/// steps to the snapshot it reads and states each as a related call.
-pub(super) fn step(tool: ToolId, row: Value) -> VerifyStep {
-    VerifyStep { tool, row }
-}
-
 // ── Detectors ───────────────────────────────────────────────────────────────
 
 /// `(timing label, detectors it produces, runner)`.
@@ -30,8 +24,7 @@ pub(super) type Pending = (
     Vec<&'static str>,
 );
 
-/// Push prepared findings at the default impact, with no extra id parts or
-/// verify steps.
+/// Push prepared findings at the default impact, with no extra id parts.
 pub(super) fn push_pending(out: &mut Vec<Finding>, pending: Vec<Pending>) {
     for (detector, subject, title, severity, confidence, evidence, controls) in pending {
         push(
@@ -46,7 +39,6 @@ pub(super) fn push_pending(out: &mut Vec<Finding>, pending: Vec<Pending>) {
                 impact: 0.5,
                 evidence,
                 controls,
-                verify: Vec::new(),
             },
         );
     }
@@ -64,7 +56,6 @@ pub(super) struct Draft<'a> {
     pub(super) impact: f64,
     pub(super) evidence: Value,
     pub(super) controls: Vec<&'static str>,
-    pub(super) verify: Vec<VerifyStep>,
 }
 
 pub(super) fn push(out: &mut Vec<Finding>, draft: Draft<'_>) {
@@ -78,7 +69,6 @@ pub(super) fn push(out: &mut Vec<Finding>, draft: Draft<'_>) {
         impact,
         evidence,
         controls,
-        verify,
     } = draft;
     let mut parts = vec![subject.as_str()];
     parts.extend(id_parts);
@@ -94,7 +84,6 @@ pub(super) fn push(out: &mut Vec<Finding>, draft: Draft<'_>) {
         score: severity * confidence * (0.5 + 0.5 * impact),
         evidence,
         controls,
-        verify,
         corroborated_by: Vec::new(),
         tier: 90,
     });

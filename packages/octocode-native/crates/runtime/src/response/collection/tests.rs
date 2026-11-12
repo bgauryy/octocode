@@ -18,8 +18,9 @@ fn declared() -> Vec<(ToolId, String)> {
         .collect()
 }
 
+/// A holder's walk reads on from its `next`, never from its `pagination`.
 #[test]
-fn every_declared_collection_pages_by_its_pagination_next_page() {
+fn every_declared_collection_pages_by_a_call_in_its_holders_next() {
     let declared = declared();
     assert!(!declared.is_empty(), "the registry declares collections");
     for (tool, collection) in declared {
@@ -28,24 +29,34 @@ fn every_declared_collection_pages_by_its_pagination_next_page() {
             "{} {collection}",
             tool.as_str()
         );
-        let mut pagination = json!({"page": 1, "hasMore": false});
+        let mut holder = json!({"pagination": {"offset": 0, "hasMore": false}});
         let row = crate::tools::test_support::accepted_row(tool, &json!({}));
         let expected = Continuation::continued(tool, row.clone()).build();
         let call = Continuation::continued(tool, row);
-        set_next_page(&mut pagination, tool, &collection, Some(call));
-        assert_eq!(pagination["hasMore"], true, "{pagination}");
-        let next = pagination["next"].as_object().expect("next");
-        assert_eq!(next.keys().collect::<Vec<_>>(), [NEXT_PAGE], "{pagination}");
-        assert_eq!(next[NEXT_PAGE], expected, "{pagination}");
+        set_next_page(&mut holder, tool, &collection, Some(call));
+        assert_eq!(holder["pagination"]["hasMore"], true, "{holder}");
+        assert!(holder["pagination"].get("next").is_none(), "{holder}");
+        let walk = walk_name(tool, &collection);
+        let next = holder["next"].as_object().expect("next");
+        assert_eq!(next.keys().collect::<Vec<_>>(), [walk], "{holder}");
+        assert_eq!(next[walk], expected, "{holder}");
     }
+}
+
+/// A collection the rows name as a linear channel walks by its own name.
+#[test]
+fn a_section_walks_by_its_own_name() {
+    assert_eq!(walk_name(ToolId::GhGetHistoryItem, "commits"), "commits");
+    assert_eq!(walk_name(ToolId::AstSearch, "files"), NEXT_PAGE);
 }
 
 #[test]
 fn the_last_page_of_a_collection_has_no_next() {
     let (tool, collection) = declared().remove(0);
-    let mut pagination = json!({"page": 2, "hasMore": true, "next": {NEXT_PAGE: {}}});
-    set_next_page(&mut pagination, tool, &collection, None);
-    assert_eq!(pagination, json!({"page": 2, "hasMore": false}));
+    let walk = walk_name(tool, &collection);
+    let mut holder = json!({"pagination": {"offset": 5, "hasMore": true}, "next": {walk: {}}});
+    set_next_page(&mut holder, tool, &collection, None);
+    assert_eq!(holder, json!({"pagination": {"offset": 5, "hasMore": false}}));
 }
 
 #[test]

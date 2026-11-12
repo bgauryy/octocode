@@ -13,6 +13,29 @@ fn accepted(tool: &str, sent: Value) -> Value {
     input
 }
 
+/// A field another form declares, sent at the default every such form
+/// gives it, says what omitting it says: the row runs without it. Any other
+/// value stays a refusal naming the form that takes it.
+#[test]
+fn a_field_at_its_default_beside_another_form_runs_without_it() {
+    let sent = json!({"queries":[{"path":".","matchString":["x"],"view":"matchOnly",
+        "contextLines":{"before":0,"after":0}}]});
+    let row = accepted("localSearch", sent)["queries"][0].clone();
+    assert!(row.get("contextLines").is_none(), "{row}");
+    assert_eq!(row["view"], "matchOnly", "{row}");
+    let wider = json!({"queries":[{"path":".","matchString":["x"],"view":"matchOnly",
+        "contextLines":{"before":1,"after":0}}]});
+    let (input, _) = normalized_input("localSearch", wider);
+    assert_eq!(input["queries"][0]["contextLines"], json!({"before":1,"after":0}));
+    let refused = match prepare_rows("localSearch", input) {
+        Err(error) => error,
+        Ok(mut rows) => rows.remove(0).expect_err("refused"),
+    };
+    let shown = crate::contracts::format_input_error("localSearch", &refused, &[], &Value::Null)
+        .to_string();
+    assert!(shown.contains("contextLines") && shown.contains("content"), "{shown}");
+}
+
 #[test]
 fn a_value_with_one_reading_runs() {
     let row = |input: &Value| input["queries"][0].clone();

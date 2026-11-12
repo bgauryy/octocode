@@ -57,8 +57,8 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
 });
 
 const firstPage = { results: [{ index: 0, data: { content: text } }, { index: 1, status: 'error', data: { errorCode: 'notFound', error: 'missing' } }],
-  responsePagination: { page: 1, totalPages: 2, hasMore: true, next: { kind: 'continue', tool: 'fixture', input: { cursor: 'emitted-cursor' } } } };
-const lastPage = { results: [{ index: 0, data: { content: 'remaining evidence' } }], responsePagination: { page: 2, totalPages: 2, hasMore: false } };
+  responsePagination: { hasMore: true, next: { kind: 'continue', tool: 'fixture', input: { cursor: 'emitted-cursor' } } } };
+const lastPage = { results: [{ index: 0, data: { content: 'remaining evidence' } }], responsePagination: { hasMore: false } };
 const rejected = { error: 'Invalid query', errorCode: 'invalidInput' };
 
 async function jsonTextServer(t) {

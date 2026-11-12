@@ -13,24 +13,12 @@ const WAVE_2: &[&str] = &[
     "B4 echo | ghGetHistoryItem | pullRequests[].number <- request number",
     "B4 echo | ghSearchRepo | repositories[].owner <- request owner",
     "B4 echo | ghSearchRepo | repositories[].repo <- request repo",
-    "B4 echo | ghStructure | resolvedRef <- request ref",
     "B4 echo | graphBuild | root <- request path",
-    "B4 echo | graphQuery | from <- request target",
     "B4 echo | graphQuery | graph.root <- request path",
-    "B4 echo | graphQuery | rows[].file <- request target",
     "B4 echo | graphQuery | rows[].kind <- request kind",
-    "B4 echo | graphQuery | target.id <- request target",
     "B4 echo | securityCheck | advisories[].id <- request id",
     "B5 stated once | graphQuery | rows[].kind",
     "B5 stated once | graphQuery | rows[].language",
-    "B5 stated once | graphQuery | rows[].symbolKind",
-];
-
-/// Wave 3 (location and symbol): graph rows carry `path`, `line` and
-/// `symbolName`, so the per-row `verify` lead goes.
-const WAVE_3: &[&str] = &[
-    "B3 lead | graphQuery | outside related: rows[].verify[] -> lspSearch",
-    "B3 lead | graphQuery | outside related: verify[] -> lspSearch",
 ];
 
 /// Wave 4 (listing, paging, continuation, status): one pagination type, every
@@ -39,29 +27,6 @@ const WAVE_3: &[&str] = &[
 const WAVE_4: &[&str] = &[
     "B1 state | localFetch | - outOfRange: error",
     "B2 continuation | clasify | outside next: resources.long.read",
-    "B2 pagination | astSearch | pagination without unit",
-    "B2 pagination | astSearch | pagination.page",
-    "B2 pagination | astSearch | pagination.totalItems",
-    "B2 pagination | astSearch | pagination.totalPages",
-    "B2 pagination | ghSearchHistory | pagination without unit",
-    "B2 pagination | ghSearchHistory | pagination.page",
-    "B2 pagination | ghSearchHistory | pagination.totalItems",
-    "B2 pagination | ghSearchHistory | pagination.totalPages",
-    "B2 pagination | graphQuery | pagination without unit",
-    "B2 pagination | graphQuery | pagination.page",
-    "B2 pagination | graphQuery | pagination.totalItems",
-    "B2 pagination | localSearch | pagination without unit",
-    "B2 pagination | localSearch | pagination.page",
-    "B2 pagination | localSearch | pagination.totalItems",
-    "B2 pagination | localSearch | pagination.totalPages",
-    "B2 pagination | lspSearch | pagination without unit",
-    "B2 pagination | lspSearch | pagination.page",
-    "B2 pagination | lspSearch | pagination.totalItems",
-    "B2 pagination | lspSearch | pagination.totalPages",
-    "B2 pagination | structureSearch | pagination without unit",
-    "B2 pagination | structureSearch | pagination.page",
-    "B2 pagination | structureSearch | pagination.totalItems",
-    "B2 pagination | structureSearch | pagination.totalPages",
     "B6 format | artifactSearch | timestamp artifacts[].publishedAt: date only",
     "B6 format | ghGetHistoryItem | timestamp responsePagination.expiresAt: fraction of a second",
     "B6 format | ghSearchHistory | timestamp responsePagination.expiresAt: fraction of a second",
@@ -69,7 +34,7 @@ const WAVE_4: &[&str] = &[
     "B6 format | localFetch | timestamp responsePagination.expiresAt: fraction of a second",
     "B6 format | securityCheck | number advisories[].epss.percentage: more than 3 fraction digits",
     "B6 format | securityCheck | number advisories[].epss.percentile: more than 3 fraction digits",
-    "B6 format | securityCheck | timestamp advisories[].modified: fraction of a second",
+    "B6 format | securityCheck | timestamp advisories[].modifiedAt: fraction of a second",
     "B6 format | securityCheck | timestamp responsePagination.expiresAt: fraction of a second",
 ];
 
@@ -89,15 +54,18 @@ const UNRANKED: &[&str] = &[
 /// Equal to a request value by design or by the fixture, and kept: a listing
 /// group's `dir` is the one split path form; the recorded repository's owner
 /// wrote its commits; the language-server double answers in the file asked
-/// about. An entry leaves only when its fixture or the listing shape changes.
+/// about, and a references answer lists the declaration at the anchor line
+/// (`displayRange.startLine` before, which this check did not read). An entry
+/// leaves only when its fixture or the listing shape changes.
 const KEPT: &[&str] = &[
     "B4 echo | structureSearch | files[].dir <- request path",
     "B4 echo | ghGetHistoryItem | author.login <- request owner",
     "B4 echo | lspSearch | files[].path <- request path",
+    "B4 echo | lspSearch | files[].matches[].line <- request line",
 ];
 
 pub fn all() -> impl Iterator<Item = &'static str> {
-    [WAVE_2, WAVE_3, WAVE_4, UNRANKED, KEPT]
+    [WAVE_2, WAVE_4, UNRANKED, KEPT]
         .into_iter()
         .flatten()
         .copied()

@@ -43,7 +43,7 @@ fn a_limit_bounds_each_page_and_the_walk_reaches_every_row_once() {
     let expected = (0..23)
         .map(|index| format!("s{index:02}"))
         .collect::<Vec<_>>();
-    let row = serde_json::json!({"operation": "workspaceSymbol", "path": "file:///repo", "symbolQuery": "s"});
+    let row = serde_json::json!({"operation": "workspaceSymbol", "path": "file:///repo", "symbolFuzzy": "s"});
     let unlimited = pages(&query(row.clone()), &items, TEST_BUDGET);
     assert_eq!(
         unlimited,

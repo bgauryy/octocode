@@ -24,20 +24,19 @@ fn fresh_replacements_preserve_sparse_refs_and_keep_tokens_out_of_argv() {
     let fresh = clone_pinned(&fixture, &query(), &context).expect("fresh clone");
     assert_eq!(fresh.location.commit_sha, fixture.first_commit);
     assert_eq!(
-        fs::read_to_string(Path::new(&fresh.location.local_path).join("README.md"))
-            .expect("read clone"),
+        fs::read_to_string(Path::new(&fresh.location.path).join("README.md")).expect("read clone"),
         "fixture\n"
     );
     assert!(fresh.bytes > 0);
     let replaced = clone_pinned(&fixture, &query(), &context).expect("replacement clone");
     assert!(
-        !Path::new(&replaced.location.local_path)
+        !Path::new(&replaced.location.path)
             .join(".octocode-clone-meta.json")
             .exists()
     );
-    assert_eq!(replaced.location.local_path, fresh.location.local_path);
+    assert_eq!(replaced.location.path, fresh.location.path);
     // Editing the existing working tree must not replace the user's bytes.
-    let readme = Path::new(&replaced.location.local_path).join("README.md");
+    let readme = Path::new(&replaced.location.path).join("README.md");
     fs::write(&readme, "tampered\n").expect("tamper existing checkout");
     let error = clone_pinned(&fixture, &query(), &context).expect_err("preserve dirty checkout");
     assert_eq!(error.code, ErrorCode::CheckoutDirty);
@@ -64,7 +63,7 @@ fn fresh_replacements_preserve_sparse_refs_and_keep_tokens_out_of_argv() {
         clone_pinned(&fixture, &GhCloneRepoQuery { ..query() }, &context).expect("refresh");
     assert_eq!(refreshed.location.commit_sha, second);
     assert_eq!(
-        fs::read_to_string(Path::new(&refreshed.location.local_path).join("README.md"))
+        fs::read_to_string(Path::new(&refreshed.location.path).join("README.md"))
             .expect("read refreshed clone"),
         "fixture two\n"
     );
@@ -80,12 +79,12 @@ fn fresh_replacements_preserve_sparse_refs_and_keep_tokens_out_of_argv() {
     .expect("sparse clone");
     assert_eq!(sparse.location.kind, "tree");
     assert!(
-        Path::new(&sparse.location.local_path)
+        Path::new(&sparse.location.path)
             .join("src/lib.rs")
             .is_file()
     );
     assert!(
-        !Path::new(&sparse.location.local_path)
+        !Path::new(&sparse.location.path)
             .join("other/skip.txt")
             .exists()
     );
@@ -114,12 +113,12 @@ fn fresh_replacements_preserve_sparse_refs_and_keep_tokens_out_of_argv() {
     .expect("pinned sparse clone");
     assert_eq!(pinned_sparse.location.commit_sha, fixture.first_commit);
     assert!(
-        Path::new(&pinned_sparse.location.local_path)
+        Path::new(&pinned_sparse.location.path)
             .join("src/lib.rs")
             .is_file()
     );
     assert!(
-        !Path::new(&pinned_sparse.location.local_path)
+        !Path::new(&pinned_sparse.location.path)
             .join("other/skip.txt")
             .exists()
     );
@@ -142,7 +141,7 @@ fn dirty_checkout_preserves_tracked_untracked_ignored_and_user_metadata_names() 
     let config = CloneConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let fresh = clone_pinned(&fixture, &query(), &context).expect("fresh clone");
-    let checkout = Path::new(&fresh.location.local_path);
+    let checkout = Path::new(&fresh.location.path);
     for (name, ignored) in [
         ("README.md", false),
         ("untracked.txt", false),
@@ -210,7 +209,7 @@ fn uppercase_commit_refs_replace_the_same_destination() {
         &context,
     )
     .expect("uppercase sha clone");
-    assert_eq!(upper.location.local_path, lower.location.local_path);
+    assert_eq!(upper.location.path, lower.location.path);
 }
 
 #[test]
@@ -219,7 +218,7 @@ fn local_commits_and_refs_are_preserved_before_replacement() {
         let bench = Bench::at(api_github_endpoint());
         let context = bench.context();
         let first = clone_pinned(&bench.fixture, &query(), &context).unwrap();
-        let path = Path::new(&first.location.local_path);
+        let path = Path::new(&first.location.path);
         assert!(git_output(path, &["for-each-ref"]).is_empty());
         match kind {
             "tag" => git(path, &["tag", "local-work"]),
@@ -318,7 +317,7 @@ fn checkout_appearing_at_the_destination_while_fetching_is_preserved() {
     let config = CloneConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let first = clone_pinned(&fixture, &query(), &context).expect("first clone");
-    let checkout = PathBuf::from(first.location.local_path);
+    let checkout = PathBuf::from(first.location.path);
 
     // The destination vanishes, so the next call fetches a stage, and the
     // user's checkout reappears there before it is published.
@@ -355,7 +354,7 @@ fn a_standalone_checkout_is_replaced_when_clean_and_kept_when_dirty() {
     let config = CloneConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let made = clone_pinned(&fixture, &query(), &context).expect("clone");
-    let path = PathBuf::from(&made.location.local_path);
+    let path = PathBuf::from(&made.location.path);
 
     fs::remove_dir_all(&path).expect("remove");
     standalone_checkout(&fixture, &path, &fixture.first_commit);

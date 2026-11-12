@@ -161,7 +161,7 @@ async fn a_boolean_operator_in_keywords_is_refused() {
 
 /// GitHub matched more repositories than search reaches (1,000): the
 /// first page states the provider's full count, not only the reachable
-/// `totalItems`, so an org count is never silently 1,000.
+/// `total`, so an org count is never silently 1,000.
 #[tokio::test]
 async fn capped_search_states_the_full_match_count() {
     let server = MockServer::builder().start().await;
@@ -178,12 +178,12 @@ async fn capped_search_states_the_full_match_count() {
     )
     .await;
     // The cap is stated once, as the warning that carries the full count;
-    // `isPartial` and `totalItemsCapped` stay as facts.
+    // `isPartial` and `countScope: "capped"` stay as facts.
     assert!(out.data.get("partialReasons").is_none(), "{}", out.data);
     assert_eq!(out.data["isPartial"], json!(true), "{}", out.data);
     assert_eq!(
-        out.data["pagination"]["totalItemsCapped"],
-        json!(true),
+        out.data["pagination"]["countScope"],
+        json!("capped"),
         "{}",
         out.data
     );
@@ -411,7 +411,12 @@ async fn a_sorted_search_sends_the_provider_key_and_states_the_sorted_field() {
         ("forks", "asc", Some("forks"), Some("forks")),
         ("updatedAt", "desc", Some("updated"), Some("updatedAt")),
         ("stars", "asc", Some("stars"), None),
-        ("helpWantedIssueCount", "desc", Some("help-wanted-issues"), None),
+        (
+            "helpWantedIssueCount",
+            "desc",
+            Some("help-wanted-issues"),
+            None,
+        ),
         ("relevance", "desc", None, None),
     ] {
         let server = MockServer::builder().start().await;
@@ -447,7 +452,12 @@ async fn a_sorted_search_sends_the_provider_key_and_states_the_sorted_field() {
         let rows = out.data["repositories"].as_array().expect("rows");
         assert_eq!(rows.len(), 2, "{}", out.data);
         for row in rows {
-            let keys = row.as_object().expect("row").keys().map(String::as_str).collect::<Vec<_>>();
+            let keys = row
+                .as_object()
+                .expect("row")
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>();
             let mut expected = vec!["owner", "repo", "stars"];
             expected.extend(stated);
             assert_eq!(keys, expected, "{by} {order}: {}", out.data);

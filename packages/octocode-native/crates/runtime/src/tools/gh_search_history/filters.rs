@@ -172,7 +172,7 @@ impl Filters {
             self.created = date("created", source.created_at.as_ref(), &source.not_created_at, denied);
             self.updated = date("updated", source.updated_at.as_ref(), &source.not_updated_at, denied);
             self.closed = date("closed", source.closed_at.as_ref(), &source.not_closed_at, denied);
-            self.comments = count("comments", source.comment_count.as_ref(), &source.not_comment_count, denied);
+            self.comments = count("comments", source.comments_count.as_ref(), &source.not_comments_count, denied);
             self.reactions = count("reactions", source.reaction_count.as_ref(), &source.not_reaction_count, denied);
             self.state = source.state.map(|value| value.to_string());
             self.archived = archive(source.archive);

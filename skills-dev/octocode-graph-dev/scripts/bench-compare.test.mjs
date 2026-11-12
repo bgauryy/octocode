@@ -125,8 +125,8 @@ test('non-code ranges are byte offsets past multibyte text', () => {
 test('a missed file carries its unresolved row for the probe at that line', () => {
   const sites = [{ file: 'Angle.tsx', line: 40 }, { file: 'Angle.tsx', line: 52 }, { file: 'found.ts', line: 3 }];
   const unresolved = [
-    { file: 'Angle.tsx', line: 40, targetName: 'scene.mutateElement', reason: 'member-unknown-receiver-in-repo' },
-    { file: 'Angle.tsx', line: 40, targetName: 'scene.getElement', reason: 'member-unknown-receiver-in-repo' },
+    { path: 'Angle.tsx', line: 40, targetName: 'scene.mutateElement', reason: 'member-unknown-receiver-in-repo' },
+    { path: 'Angle.tsx', line: 40, targetName: 'scene.getElement', reason: 'member-unknown-receiver-in-repo' },
   ];
   assert.deepEqual(missedSites({ missed: ['Angle.tsx'], sites, unresolved, probe: 'mutateElement' }), [
     { file: 'Angle.tsx', line: 40, reason: 'member-unknown-receiver-in-repo', targetName: 'scene.mutateElement' },

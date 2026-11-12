@@ -133,8 +133,6 @@ fn every_private_key_armor_is_a_boundary_and_near_misses_are_not() {
         "---- BEGIN\tRSA\tPRIVATE\tKEY ----",
         "-----BEGIN RSA PRIVATE KEY",
         "-----END RSA PRIVATE KEY  ",
-        "PuTTY-User-Key-File-2: ssh-rsa",
-        "PuTTY-User-Key-File-3: ssh-ed25519",
         "Private-Lines: 14",
         "Private-MAC: 0123abcd",
         "> Private-Lines: 14",
@@ -157,6 +155,10 @@ fn every_private_key_armor_is_a_boundary_and_near_misses_are_not() {
         "-----BEGIN RSA PRIVATE KEY\"",
         "Private-Line: 14",
         "the Private-Lines: field",
+        // A PuTTY file's header opens no block: its header and public lines
+        // hold no private key (retest R4).
+        "PuTTY-User-Key-File-2: ssh-rsa",
+        "PuTTY-User-Key-File-3: ssh-ed25519",
         "-----begin rsa private key-----",
         "---BEGIN RSA PRIVATE KEY---",
         "---- BEGIN SSH2 PUBLIC KEY ----",

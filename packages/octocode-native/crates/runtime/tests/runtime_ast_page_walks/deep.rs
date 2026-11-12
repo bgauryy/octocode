@@ -139,7 +139,7 @@ async fn a_deep_syntax_tree_walk_reaches_every_node_once_from_either_spelling() 
         node_ids,
     )
     .await;
-    let total = first.totals.iter().copied().max().expect("totalItems");
+    let total = first.totals.iter().copied().max().expect("pagination.total");
     let total = usize::try_from(total).expect("node count");
     let walked = walks_alike(&runtime, "syntaxTree", &deep.big, node_ids, total).await;
     // Node ids number the whole tree from 0, in order across pages.
@@ -175,7 +175,7 @@ async fn split_pages_read_through_their_row_parts_reach_every_row_once() {
                 let walked = super::walk_input(&runtime, mcp, first, page_rows).await;
                 assert!(walked.splits > 0, "{label}: pages split into row parts");
                 let rows = walked.rows();
-                let total = walked.totals.iter().copied().max().expect("totalItems");
+                let total = walked.totals.iter().copied().max().expect("pagination.total");
                 assert_eq!(walked.totals.len(), 1, "{label}: one total on every page");
                 assert_each_once(&rows, usize::try_from(total).expect("count"), &label);
                 assert_eq!(*seen.get_or_insert_with(|| rows.clone()), rows, "{label}");

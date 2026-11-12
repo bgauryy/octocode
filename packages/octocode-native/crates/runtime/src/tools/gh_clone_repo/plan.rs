@@ -63,9 +63,9 @@ impl Plan<'_> {
             warnings: Vec::new(),
             location: CloneLocation {
                 kind: if paths.is_some() { "tree" } else { "repo" },
-                local_path: clone_dir.to_string_lossy().into_owned(),
+                path: clone_dir.to_string_lossy().into_owned(),
                 commit_sha: checkout.commit_sha,
-                resolved_ref: commit.to_owned(),
+                ref_: commit.to_owned(),
                 requested_paths: paths.map(<[String]>::to_vec),
                 symlinks: (!checkout.symlinks.is_empty()).then_some(checkout.symlinks),
                 skipped: (!checkout.withheld.is_empty()).then_some(checkout.withheld),

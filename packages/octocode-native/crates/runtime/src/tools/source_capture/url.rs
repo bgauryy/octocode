@@ -46,6 +46,10 @@ pub(super) struct Reply {
     pub body: Vec<u8>,
 }
 
+/// How deep each capture sits under [`capture_root`]: one directory per
+/// snapshot.
+pub(crate) const CAPTURE_DEPTH: usize = 1;
+
 /// Shared immutable capture storage: text and explicitly named images.
 pub(crate) fn capture_root(home: &Path) -> PathBuf {
     home.join("tmp").join("capture").join("url")

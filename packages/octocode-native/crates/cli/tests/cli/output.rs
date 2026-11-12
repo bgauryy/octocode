@@ -41,8 +41,13 @@ fn text_mode_failed_rows_state_their_status_on_stdout() {
         serde_json::from_str::<serde_json::Value>(text.trim()).is_err(),
         "{text}"
     );
-    assert!(text.starts_with("errorCode: pathNotFound\n"), "{text}");
-    assert!(text.ends_with("# status: error\n"), "{text}");
+    assert!(text.starts_with("errorCode: notFound\n"), "{text}");
+    // The status follows the fields; only the row's hints follow it.
+    let (_, after) = text.split_once("# status: error\n").expect("status line");
+    assert!(
+        after.lines().all(|line| line.starts_with("# hints: ")),
+        "{text}"
+    );
     for note in stderr(&output).lines() {
         assert!(note.starts_with("# "), "an unprefixed stderr line: {note}");
     }
@@ -63,7 +68,7 @@ fn json_mode_errors_go_to_stdout_without_stderr() {
         .expect("missing read");
     assert_eq!(exit_code(&output), Some(3));
     let value: serde_json::Value = serde_json::from_str(stdout(&output)).expect("JSON error");
-    assert_eq!(value["results"][0]["data"]["errorCode"], "pathNotFound");
+    assert_eq!(value["results"][0]["data"]["errorCode"], "notFound");
     assert!(
         stderr(&output).is_empty(),
         "duplicate stderr: {}",

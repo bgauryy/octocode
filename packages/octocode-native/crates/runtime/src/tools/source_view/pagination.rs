@@ -4,7 +4,7 @@ use octocode_contract_types::{LocalFetchQuery, ReadProgressUnit};
 
 mod long_lines;
 mod source_lines;
-pub(super) use long_lines::LongLines;
+pub(super) use long_lines::{LongLines, Placement};
 #[cfg(test)]
 pub(crate) use long_lines::placed_pieces;
 use long_lines::{MatchFirst, filled_page, oversized_line_end};
@@ -151,6 +151,7 @@ fn raw_line_page(
         has_more,
         next_offset: has_more.then_some(next),
         resume_line: None,
+        placed: None,
     };
     page
 }
@@ -219,6 +220,7 @@ fn view_page_limited(
                     has_more: end < content.len(),
                     next_offset: (end < content.len()).then_some(end),
                     resume_line: resume.map(|(_, line)| line),
+                    placed: None,
                 },
                 view_lines: (first, last),
                 out_of_range,
@@ -302,6 +304,7 @@ fn view_page_limited(
                     has_more: end < total,
                     next_offset: (end < total).then_some(end),
                     resume_line: None,
+                    placed: None,
                 },
                 view_lines: (offset + 1, end),
                 out_of_range,
@@ -332,6 +335,7 @@ fn whole_line_page(mut page: Page, offset: usize) -> Page {
         has_more: next < total,
         next_offset: (next < total).then_some(next),
         resume_line: None,
+        placed: None,
     };
     page
 }

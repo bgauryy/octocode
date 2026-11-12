@@ -327,7 +327,7 @@ pub(super) struct JudgedSection {
 
 /// A source judged whole in sections within one call.
 pub(super) struct Whole {
-    /// The resource row a `sections` call shows for it: status, snapshot.
+    /// The resource row a `sections` call shows for it: status, sourceDigest.
     pub metadata: Value,
     pub sections: Vec<JudgedSection>,
     pub usage: ClassificationUsage,

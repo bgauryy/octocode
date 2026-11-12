@@ -153,12 +153,22 @@ impl ToolRuntime {
         // Local tools read the GitHub checkouts (clones, materialized trees)
         // and clasify URL captures under the cache home, never the rest of
         // it (credentials, logs).
+        // Each holds one tree per directory at its depth.
         let fetched_code_roots = [
-            crate::tools::gh_clone_repo::storage::clones_root(&octocode_home),
-            crate::tools::gh_structure::materialize::materialize_root(&octocode_home),
-            crate::tools::source_capture::url::capture_root(&octocode_home),
+            (
+                crate::tools::gh_clone_repo::storage::clones_root(&octocode_home),
+                crate::tools::gh_clone_repo::storage::CHECKOUT_DEPTH,
+            ),
+            (
+                crate::tools::gh_structure::materialize::materialize_root(&octocode_home),
+                crate::tools::gh_structure::materialize::SNAPSHOT_DEPTH,
+            ),
+            (
+                crate::tools::source_capture::url::capture_root(&octocode_home),
+                crate::tools::source_capture::url::CAPTURE_DEPTH,
+            ),
         ];
-        additional_roots.extend(fetched_code_roots.iter().cloned());
+        additional_roots.extend(fetched_code_roots.iter().map(|(root, _)| root.clone()));
         // `local.graphHome`: graph tools write their snapshots in their own
         // directory there. It is where they write, not a grant to read: the
         // local tools never read it.
@@ -180,6 +190,7 @@ impl ToolRuntime {
         let paths = PathPolicy::new(PathPolicyConfig {
             workspace_root: Some(workspace_root.clone()),
             additional_roots,
+            tree_stores: fetched_code_roots.to_vec(),
             output_roots,
             include_home: false,
             home_dir: Some(input.os_home.clone()),
@@ -213,7 +224,10 @@ impl ToolRuntime {
             fetched_code_roots: if config.resolved.lsp.trust_fetched_code {
                 Vec::new()
             } else {
-                fetched_code_roots.to_vec()
+                fetched_code_roots
+                    .iter()
+                    .map(|(root, _)| root.clone())
+                    .collect()
             },
             allow_build_scripts: config.resolved.lsp.allow_build_scripts,
             security: security.clone(),

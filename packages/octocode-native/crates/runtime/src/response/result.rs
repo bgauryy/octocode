@@ -201,16 +201,6 @@ pub(crate) fn continuation_row(call: &Value) -> Option<&Value> {
     call.get("input")?.get("queries")?.get(0)
 }
 
-/// Explicit executable calls are never inferred from a source identity object.
-#[must_use]
-pub(crate) fn is_call(value: &Value) -> bool {
-    matches!(
-        value.get("kind").and_then(Value::as_str),
-        Some("continue" | "related")
-    ) && value.get("tool").is_some_and(Value::is_string)
-        && value.get("input").is_some_and(Value::is_object)
-}
-
 /// Canonical public guidance keys.
 pub(crate) const PAGES_KEY: &str = "next";
 pub(crate) const HINTS_KEY: &str = "hints";

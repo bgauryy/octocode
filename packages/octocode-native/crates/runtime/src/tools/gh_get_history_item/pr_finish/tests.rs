@@ -56,9 +56,9 @@ fn a_merge_time_is_not_restated_as_the_close_time() {
 }
 
 /// The summary names the change's three commits: the head
-/// (`headSha`), the recorded target-branch tip (`baseSha`) and a
+/// (`headCommitSha`), the recorded target-branch tip (`baseCommitSha`) and a
 /// merged PR's merge commit. A section read keeps what names the PR
-/// (number, title, author) and the commits code is read at (`headSha`,
+/// (number, title, author) and the commits code is read at (`headCommitSha`,
 /// `mergeCommitSha`), nothing else.
 #[test]
 fn every_pr_view_keeps_source_target_and_merge_commits() {
@@ -69,11 +69,15 @@ fn every_pr_view_keeps_source_target_and_merge_commits() {
         "commits":4,"review_threads":2});
     let row = summary(raw.clone());
     assert_eq!(
-        (&row["headSha"], &row["baseSha"], &row["mergeCommitSha"]),
+        (
+            &row["headCommitSha"],
+            &row["baseCommitSha"],
+            &row["mergeCommitSha"]
+        ),
         (&json!("h1"), &json!("b1"), &json!("m1")),
         "{row}"
     );
-    assert_eq!(row["commitsCount"], 4, "{row}");
+    assert_eq!(row["commitCount"], 4, "{row}");
     assert_eq!(row["reviewThreadsCount"], 2, "{row}");
     for fields in [
         json!({"sections":["patches"]}),
@@ -87,16 +91,16 @@ fn every_pr_view_keeps_source_target_and_merge_commits() {
         .expect("query");
         let row = pr_metadata(&raw, &query);
         for (field, value) in [
-            ("headSha", "h1"),
-            ("baseSha", "b1"),
+            ("headCommitSha", "h1"),
+            ("baseCommitSha", "b1"),
             ("mergeCommitSha", "m1"),
         ] {
             assert_eq!(row[field], value, "{fields}: {row}");
         }
         // A file list states how many files the pull request changes; the
         // other totals and the rest of the header are the summary read's.
-        assert_eq!(row["changedFilesCount"], 3);
-        for summary_only in ["commitsCount", "title", "author", "createdAt", "additions"] {
+        assert_eq!(row["changedFileCount"], 3);
+        for summary_only in ["commitCount", "title", "author", "createdAt", "additions"] {
             assert!(row.get(summary_only).is_none(), "{fields}: {row}");
         }
     }
@@ -107,12 +111,12 @@ fn every_pr_view_keeps_source_target_and_merge_commits() {
     );
     assert!(open.get("mergeCommitSha").is_none(), "{open}");
     assert!(open.get("reviewThreadsCount").is_none(), "{open}");
-    assert_eq!(open["baseSha"], "b1", "{open}");
+    assert_eq!(open["baseCommitSha"], "b1", "{open}");
 }
 
 /// A later page (`page` past 1, or a char `offset`) continues a row whose
 /// first page already delivered the header: it names the pull request
-/// (`number`) and the state the contract requires (`state`, `headSha`), and
+/// (`number`) and the state the contract requires (`state`, `headCommitSha`), and
 /// carries no empty placeholder for the rest.
 #[test]
 fn a_later_page_restates_only_the_pull_request_identity() {
@@ -136,7 +140,11 @@ fn a_later_page_restates_only_the_pull_request_identity() {
             .cloned()
             .collect::<Vec<_>>();
         keys.sort();
-        assert_eq!(keys, ["headSha", "number", "state"], "{fields}: {row}");
+        assert_eq!(
+            keys,
+            ["headCommitSha", "number", "state"],
+            "{fields}: {row}"
+        );
         crate::tools::test_support::assert_row_contract(
             crate::id::ToolId::GhGetHistoryItem,
             &json!({"pullRequests": [row]}),

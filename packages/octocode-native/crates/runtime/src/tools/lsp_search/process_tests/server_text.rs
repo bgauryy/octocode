@@ -137,7 +137,7 @@ fn no_operation_shows_a_secret_the_server_returns() {
                 sealed(
                     &root,
                     &script,
-                    json!({"operation":"workspaceSymbol","path":path,"symbolQuery":"a"}),
+                    json!({"operation":"workspaceSymbol","path":path,"symbolFuzzy":"a"}),
                 ),
             ),
         ] {

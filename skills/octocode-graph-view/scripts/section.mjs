@@ -78,8 +78,8 @@ function symbolRows(symbolNodes, fileIds, calls) {
   const declarations = [];
   const symbols = new Map();
   for (const x of symbolNodes) {
-    if (!fileIds.has(x.file)) continue;
-    const d = { id: x.id, file: x.file, name: x.name, kind: x.symbolKind, line: x.line, endLine: x.endLine, exported: !!x.exported };
+    if (!fileIds.has(x.path)) continue;
+    const d = { id: x.id, file: x.path, name: x.symbolName, kind: x.kind, line: x.line, endLine: x.endLine, exported: !!x.exported };
     declarations.push(d);
     if (inCalls.has(x.id)) symbols.set(x.id, { ...d, calls: 0 });
   }
@@ -101,7 +101,7 @@ async function crossCallGaps(q, { outsideRoot, externals, crossPackages, jobs })
   const pages = await pool(groups, jobs, (target) => q(null, { operation: 'unresolved', target, edges: ['calls'], reasons: ['not-declared-in-repo', 'external-package'], limit: 1000 }));
   return pages.flatMap((p) => p.rows)
     .filter((u) => u.targetName)
-    .map((u) => ({ from: u.from, file: u.file, targetName: u.targetName, line: u.line, reason: u.reason }));
+    .map((u) => ({ from: u.from, file: u.path, targetName: u.targetName, line: u.line, reason: u.reason }));
 }
 
 function insightsOf(files, imports, cyc, iss) {
@@ -164,11 +164,13 @@ export async function buildSection(section, { out, jobs = 8, exclude = [], emit 
   const q = (stream, fields) => {
     const row = { ...fields, path, graph: snap.id };
     const file = join(evidence, `${createHash('sha256').update(JSON.stringify(row)).digest('hex')}.jsonl.gz`);
-    const save = (input, response) => {
+    // The call count of this walk: a page states where it starts (`pagination.offset`), not its number.
+    let pages = 0;
+    const save = (input, response, page) => {
+      pages += 1;
       // One gzip member per page: concatenated members are one valid gzip stream of JSON lines.
       appendFileSync(file, gzipSync(`${JSON.stringify({ input, response })}\n`));
-      const page = response?.results?.[0]?.data ?? {};
-      if (stream && STREAMED[row.operation] && page.rows?.length) emit(stream, page.rows, { page: page.pagination?.page ?? 1, total: totalOf(page) });
+      if (stream && STREAMED[row.operation] && page.rows?.length) emit(stream, page.rows, { page: pages, total: totalOf(page) });
     };
     return readGraph(row, { save });
   };
@@ -194,7 +196,7 @@ export async function buildSection(section, { out, jobs = 8, exclude = [], emit 
   const imports = importEdges.filter((e) => fileIds.has(e.source) && fileIds.has(e.target));
   const files = fileNodes(found.rows, imports);
   const externals = externalsOf(importEdges);
-  const outsideRoot = outside.rows.filter((d) => d.code === 'unresolved-internal').map((d) => ({ file: d.file, line: d.line, specifier: d.message.match(/"(.*)"/)?.[1] ?? null, message: d.message }));
+  const outsideRoot = outside.rows.filter((d) => d.code === 'unresolved-internal').map((d) => ({ file: d.path, line: d.line, specifier: d.message.match(/"(.*)"/)?.[1] ?? null, message: d.message }));
   const callEdges = foldEdges(rel.rows, 'calls');
   const calls = callEdges.filter((e) => fileIds.has(fileOf(e.source)) && fileIds.has(fileOf(e.target))).map((e) => ({ ...e, via: 'graph' }));
   const [[cyc, iss], sym, unresolvedCalls] = await Promise.all([independent, symbolWalk, crossCallGaps(q, { outsideRoot, externals, crossPackages, jobs })]);

@@ -1,305 +1,103 @@
 # Octocode CLI
 
-`octocode` exposes the research tools of the Rust engine used by MCP, plus setup and management commands. Tools use the same input contract on both interfaces. The npm package is a launcher; native owns validation, behavior, output and exit codes.
+Run research tools from your terminal or a script. The standalone `octocode` binary and the Node.js 22+ launcher `npx -y octocode` take the same arguments. Start in the project you want to research.
 
 ## Quick start
 
+In a project with a README, read its first line. The default output is text. Add `--json` to get a result a script can parse.
+
 ```bash
-npx -y octocode --help
-npx -y octocode schema localSearch --view query
-npx -y octocode localSearch '{"queries":[{"path":"src","matchString":["createServer"],"wholeWord":true}]}'
-npx -y octocode localFetch '{"queries":[{"path":"src/index.ts","ranges":[{"startLine":1,"endLine":40}]}]}'
+npx -y octocode localFetch '{"queries":[{"path":"README.md","ranges":[{"startLine":1,"endLine":1}]}]}'
+npx -y octocode --json localFetch '{"queries":[{"path":"README.md","ranges":[{"startLine":1,"endLine":1}]}]}'
 ```
+
+The examples below use `octocode`. Substitute `npx -y octocode` if you use the npm launcher.
 
 ## Commands
 
-### Tool commands
+| Task | Command |
+|---|---|
+| List research tools | `octocode schema` |
+| Choose a tool for a question | `octocode schema --view flow` |
+| See a tool's operations and example inputs | `octocode schema localFetch --view variants` |
+| Inspect every query field or narrow to an operation | `octocode schema localFetch` or `octocode schema ghStructure --select operation=tree` |
+| Interpret output fields or partial results | `octocode schema localSearch --view output` |
+| Run a saved request or read one from stdin | `octocode localFetch --input request.json` or `octocode localFetch --input -` |
+| Start a stdio MCP server | `octocode mcp` |
 
-Use `octocode <tool> '<JSON envelope>'`. The CLI lists 16 tools, including `ghCloneRepo`, `graphBuild`, `graphQuery` and `securityCheck`, plus `clasify` with a classification key. `securityCheck` needs no setting on the CLI ([where it is offered and what it sends](OCTOCODE_TOOLS.md#securitycheck)). MCP catalog filters and opt-ins do not remove CLI commands. Without the key, `octocode clasify` still answers, with `missingConfiguration` and where to get one, and `octocode schema clasify` names the variable to set. A call that needs a missing credential, provider or language server reports that failure at invocation; filesystem policy and storage requirements still apply. See [configuration and MCP availability](CONFIGURATION.md#tool-availability-cli-and-mcp), and the [tools reference](OCTOCODE_TOOLS.md) for each tool's behavior.
-
-Each CLI call starts a new process. For many repeated calls, one long-lived `octocode mcp` session runs the same tools without that per-call startup.
-
-### System commands
-
-`schema`, `config`, `auth`, `mcp`, `install`, `skill`, `cache` and `lsp-server` own their command-specific options. Run their help for available operations. These options do not create aliases for research-tool fields.
-
-### Clear tool caches
-
-Stop separate MCP processes and other tool calls, then run:
-
-```bash
-octocode cache clear --json
-```
-
-The command drains and stops warm CLI servers, then removes saved pages,
-continuations, section assessments, provider answers, materialized files and URL
-captures under the configured home. It also removes retired GitHub, registry, outline and
-judgment result-cache directories. It also removes
-the current workspace's `.octocode/graph/.facts` extraction checkpoints (with
-`local.graphHome` set, its `octocode-graph/.facts`). Repeat
-from each workspace whose graph checkpoints you want removed. The JSON receipt
-lists removed directories and `restartMcp: true`: separate MCP processes own their
-RAM and must restart to drop it. An active process can otherwise recreate files.
-
-Clones, published graph snapshots, credentials, settings, language-server installs,
-rate-limit coordination and unrelated home files stay. Saved continuation handles
-stop working. This explicit command can delete existing cache files even when
-`storage.mode` is `memory`; changing the setting alone never deletes them. A
-failure to drain a warm server or remove a directory reports an error.
-
-## Flags
-
-Research inputs are JSON envelopes. Use `--input <file>` for saved requests and `--json` for structured output. There are no positional query shorthands, field flags, short aliases or path-and-line mini-languages.
-
-### Schema discovery
-
-```bash
-octocode schema
-octocode schema localFetch --view query
-octocode schema localFetch --view variants
-octocode schema localFetch --view output   # what its output fields and partialReasons mean
-octocode schema --view flow                # which tool, how little to ask for, recovery
-```
-
-`octocode --help` names each available tool's required query fields (one form per tool); `octocode <tool> --help` names every form's required fields with an example and points to its output view. The CLI catalog lists the tools available here; the query view describes authored input; the full view includes variants and rules. MCP clients inspect their server's `tools/list` for its configured subset. Defaults are owned by the contract. Discovery never requires copying private progress state.
-
-### The JSON form
-
-```bash
-octocode localFetch '{"queries":[{"path":"src/index.ts"}],"responseChars":12000}'
-```
-
-Copy an emitted continuation's `input` as the entire next request:
-
-```bash
-octocode localFetch '{"cursor":"<issued cursor>"}'
-```
+The CLI lists 16 tools by default, including graph, clone and advisory tools. A classification key adds `clasify`. Each tool takes a JSON envelope with `queries`, or an issued `cursor` alone. MCP uses the same envelope and applies its own catalog filters. [Tool reference](OCTOCODE_TOOLS.md) · [Availability and opt-ins](CONFIGURATION.md#tool-availability-cli-and-mcp)
 
 ## Output
 
-### Text output
+| Stream or format | What to read |
+|---|---|
+| Text on stdout | Search hits and source lines with their paths. A line number refers to the source. A batch labels rows `## results[N]`. Lines starting with `#` report status, coverage, warnings, hints and commands for remaining pages. |
+| Notes on stderr | Counts, related leads, runtime notices and, on a terminal, progress. |
+| `--json` on stdout | A result envelope with one indexed row per query or a structured call error. Keep the request with the response when consuming JSON. |
 
-Text mode renders, on a terminal or a pipe and for every tool, the evidence, whether it is complete and how to read it on stdout, and counters and leads on stderr; progress goes to stderr only when it is a terminal.
-
-- **Content.** A search prints one line per hit, site or declaration: a lone one as `path:line:text` or `path:line: kind name`, a file with several under its path once, as `rg --heading` (`line:text`, a declaration note only where it changes; with context lines, `line:text` hits and `line-text` context, whether `contextLines` was sent as a number or as `{before, after}`). `path:N` is always a line: sites print as `path:5,32`, and a count is a named field (`path  [matchCount 2]`). `[ … ]` after a line or a path lists its other fields; a text field every hit of a file holds (`role call`) appears only where its value changes, and an `lspSearch` hit's `column` only where its line spells the symbol more than once (hits sharing a line print it once: `[column 19,88]`). A listing prints each `dir/` once with its entries indented under it, spelled as the JSON spells them. Any other result prints every field as indented `key: value` lines, a multi-line value as a `key: |` block, and a list of single-field items names the field once (`nodes[].node:`). A list of flat rows (every field a one-line scalar, at most one free-text field: a value with a space, or empty) prints as a table: the head names the columns once (`commits[]: commitSha date messageHeadline`), then each row is one indented line of its values in that order, the free-text field last. A field with the same one-word value on every row is stated once after the head (`pullRequests[]: number createdAt title  [state open]`), and `-` marks a field a row lacks; a list with two free-text fields or a nested value keeps `key: value` lines.
-- **Trailer.** After a row's content, as `# ` lines on stdout, the same for every tool: its `status` unless ok (`empty`, `error`, `outOfRange`; a failed row's `errorCode` and `error` are its content), each page state (`# pagination: … hasMore`, `# rowPart: part 1 of 3`), its warnings and hints (`# warnings: …`, `# hints: …`: what was redacted, why an answer is partial, what to ask instead), then the commands that continue the answer: `# responsePagination.next: octocode …` first, then `# next.nextPage: octocode …`, then any other. With stderr dropped, stdout still tells no hits, a failure and a first page apart, and carries every warning. A continuation page prints in the format of the request its cursor continues.
-- **Notes.** Every stderr line of a tool call starts with `# `: counters (`matchCount`, `filesScanned`) and `related[]` leads as `# key: value`, and what the call says while it runs (`# graphBuild: parsed 40/40 files`, a rate-limit wait, a notice such as an unusable credential store).
-- **Batch.** Each row prints under `## results[N]` exactly as it prints alone, with its own trailer; the envelope's page follows the last row. A row's stderr notes name it: `# results[N] key: value`.
-
-Nothing is clipped. A call the runtime rejects before it runs (invalid input, a timeout) prints on stdout as a failed row does, `errorCode: …` and `error: …` (with any `details`), then `# status: error`, and keeps its exit code: stdout always states the outcome. Emitted next steps use the same JSON input as MCP. Use JSON mode for programmatic reconstruction and exact row metadata.
-
-### Reading a JSON result
-
-`results[]` carries the original query `index`, `data` and an exceptional status when relevant. Paging state lives only in the issued cursor; no request sets a page. Run `responsePagination.next`, else a `next.nextPage`, until neither remains. `related[]` starts new work; `hints[]` contains prose. [Data and handoff contract](TOOL_DATA_CONTRACT.md) owns shapes, paths, evidence and continuation semantics.
-
-### Errors
-
-Input failures report `errorCode:"invalidInput"` and the invalid fields, then one request the tool accepts (`Example: {"queries":[…]}`) and the command that prints its schema (`Schema: octocode schema <tool>`). Correct those fields using the schema; the CLI does not guess an alternative query. JSON mode writes structured failures to stdout. A launcher that cannot start native reports the failure on stderr.
+When output includes a continuation command, run it unchanged. First follow `responsePagination.next`, then any remaining `next.nextPage`. Other `next` entries cover specific branches such as an exact read. For scripts, use the JSON form to reconstruct pages. [Tool data contract](TOOL_DATA_CONTRACT.md#executable-continuations)
 
 ### Exit codes
 
 | Code | Meaning |
 |---:|---|
-| 0 | Success, including more pages |
-| 1 | Every row empty or out of range |
-| 2 | Invalid input |
-| 3 | Not found |
-| 4 | Authentication or permission-denial failure (`permissionDenied`) |
-| 5 | Execution failure or unavailable saved state |
-| 7 | Rate limited |
-| 130 | Interrupted |
+| 0 | Success. A result may have more pages. |
+| 1 | All rows empty or out of range. |
+| 2 | Invalid input. Inspect the field error and the tool's schema. |
+| 3 | Target not found. |
+| 4 | Authentication or permission denied. |
+| 5 | Execution failure, unavailable saved state, or mixed failure codes. |
+| 7 | Rate limited. |
+| 130 | Interrupted. |
 
-A batch exits 2 if any row rejected its input, else with its failed rows' code (5 if they fail differently), else 1 only when every row is empty or out of range, else 0: a batch where one row answered and another found nothing exits 0, so inspect every row. Exit zero does not prove complete evidence coverage; follow required continuations before making an all-or-none claim.
+In a batch, an invalid input row takes priority (exit 2). Otherwise failures determine the code. A mix of successful and empty rows exits 0. Always inspect the individual rows.
 
-## `ghCloneRepo` — materialize a GitHub repository
-
-```bash
-octocode ghCloneRepo '{"queries":[{"owner":"bgauryy","repo":"octocode"}]}'
-```
-
-Use the returned path with local tools. Clone storage requires persistent mode; configuration owns [cache storage](STORAGE_AND_LIMITS.md#cache-storage-and-lifecycle).
-
-## Code graph: `graphBuild` and `graphQuery`
-
-The graph tools are ordinary tool commands with the standard envelope; the CLI and
-MCP take the same input and cut the same pages. CLI calls do not need beta.
+## Install the MCP server
 
 ```bash
-octocode graphBuild --json '{"queries":[{"path":"."}]}'      # build or reuse a snapshot
-octocode graphQuery --json '{"queries":[{"operation":"stats","path":"."}]}'
-octocode graphQuery --json '{"queries":[{"operation":"find","path":".","target":"create server"}]}'
-octocode graphQuery --json '{"queries":[{"operation":"impact","path":".","since":"origin/main"}]}'
-octocode graphQuery --json '{"queries":[{"operation":"issues","path":"."}]}'
-octocode graphQuery --json '{"queries":[{"operation":"unresolved","path":".","target":["src/a.ts","src/b.ts"],"reasons":["not-declared-in-repo"]}],"responseChars":50000}'
-```
-
-- `graphBuild` runs in the calling process and, on a terminal, prints its progress on stderr as `# ` notes;
-  `graphQuery` runs on the warm server, so later pages reuse the decoded snapshot.
-- Follow `responsePagination.next`, else `next.nextPage`, until neither remains, then
-  the other `next.*` continuations you need, passing each `input` back unchanged.
-- `octocode schema graphQuery --view variants` lists every operation's fields.
-  Operations, `issues` detectors and tiers, `impact` and recipes:
-  [code graph](../packages/octocode-native/docs/engine/CODE_GRAPH.md#agent-graph-tools-cli-and-beta-mcp).
-
----
-
-## `install` — MCP client setup
-
-```bash
-octocode install --list                              # every client: status and config path
+octocode install --list
+octocode install --ide cursor --dry-run
 octocode install --ide cursor
-octocode install --ide cursor --scope workspace      # this project's .cursor/mcp.json
-octocode install --ide claude-code --scope local     # this directory only, in ~/.claude.json
-octocode install --ide claude-code --check
-octocode install --ide claude-desktop --force
-octocode install --ide cursor --dry-run              # preview; --json for the entry
-octocode install --ide cursor --remove               # delete the entry (backup kept)
+octocode install --ide cursor --check
 ```
 
-Clients: Cursor, Claude Desktop, Claude Code, Windsurf, Trae, Antigravity, VS
-Code Cline/Roo/Continue, Zed, OpenCode, Gemini CLI, Kiro, Codex. Use an
-exact id; a partial id such as `claude` is rejected with the ids it could mean.
+The default scope is `home`. Use `--scope workspace` for a supported project config or `--scope local` for Claude Code's entry for the current directory. `--remove` deletes the entry, and `--rollback <backup>` restores a backup. A custom entry requires `--force` to overwrite. `--pass-env` copies the shell's `GITHUB_TOKEN` and `OCTOCODE_ENABLE_LOCAL` into the client config, where any copied token is plain text. [MCP setup](OCTOCODE_MCP.md)
 
-`install --list [--scope …]` shows each client's entry: `installed`, `disabled`,
-`custom` (an `octocode` entry install did not write), `absent`, `invalid`
-(unreadable config) or `unsupported` (no such scope), with the config path.
-`--scope` picks the file: `home` (default, the user config), `workspace` (the
-project file under the current directory: Cursor, Claude Code, Continue, Kiro,
-Codex) or `local` (Claude Code's per-directory section of `~/.claude.json`).
+## Settings and GitHub login
 
-`--remove` deletes the entry and keeps the previous file as a rolling backup;
-no entry is a successful no-op, and a `custom` entry needs `--force`. Other
-flags: `--method npx|bunx|pnpm`, `--enable-local true|false`, `--pass-env`
-(copies `GITHUB_TOKEN` and `OCTOCODE_ENABLE_LOCAL` from this shell into the
-entry, so the client config stores the token in plain text), `--rollback
-<file.bak>`. Without `--ide` on a terminal, the CLI lists clients with their
-status and asks for a number. Press Enter to cancel. Piped or JSON invocations
-require `--ide`.
-
----
-
-## `auth` — GitHub authentication
-
-```bash
-octocode auth status --json     # authenticated, username, tokenSource
-octocode auth login             # OAuth device flow (--hostname for GitHub Enterprise)
-octocode auth login --refresh   # exchange the stored refresh token
-octocode auth logout            # delete stored Octocode credentials
-```
-
-People run `auth login` once. Agents and CI set `GH_TOKEN` or `GITHUB_TOKEN`,
-which take priority over stored logins. Resolution order, storage, refresh and
-GitHub Enterprise: [authentication](AUTHENTICATION.md).
-
----
-
-## `config` — settings and keys
-
-```bash
-octocode config list                                  # every setting: value, source, default
-octocode config list --json                           # the same, plus its variable and workspace policy
-octocode config get lsp.prewarm                       # the value that applies, wherever it comes from
-octocode config check OCTOCODE_CLASSIFICATION_API     # exit 0 set, 1 unset; never prints the value
-octocode config set OCTOCODE_BETA true                # or a setting path: config set local.beta true
-octocode config set OCTOCODE_CLASSIFICATION_API --stdin
-octocode config unset OCTOCODE_BETA
-octocode config --json                                # paths, key names, warnings
-octocode config home                                  # Octocode home directory
-octocode config                                       # on a terminal: open the settings page
-octocode config view                                  # the same page, with --no-open and --idle-timeout
-```
-
-- `octocode config` opens the settings page on an interactive terminal with a display. Piped output, `--json`, SSH and display-less sessions print paths, key names and warnings instead, so scripts and agents see no change.
-- Every command takes an environment key or its setting path (`classification.api`).
-- `get` reports the value that applies from the environment, either `.env`, either `.octocoderc` or the default, and `--json` adds `setting`, `source`, `path` and `default`. It exits 1 only when nothing sets the key and its default has no literal value; stderr then names the default. It masks secrets as `[REDACTED-<KEY>]` and names where the value lives.
-- `check` exits 0 when any layer sets the key, 1 when the default applies. `check --json` on an unset GitHub token key adds `githubTokenSource`, the credential GitHub calls use instead.
-- `set` and `unset` edit the global `.env` only. They keep unrelated lines, lock and replace the file atomically, refuse a value the setting would reject, and never print values. A process variable or a workspace `.octocode/.env` still overrides what they write.
-- Where each value can live and what wins: [configuration](CONFIGURATION.md).
-
-### `config view`
-
-One local page with every key, setting, environment variable and agent entry, and a search box. **Save to** picks Home (`~/.octocode`, every project) or Workspace (`<project>/.octocode`, the directory where you ran the command). Keys go to `.env`, settings to `.octocoderc`; each save writes immediately. Save appears on a row once you change it, and **Reset** or **Remove** takes the value back out of that scope. Home-only values are locked in Workspace, and variables only the process may set are shown, not edited. A key shows as set and its value is never shown again.
-
-```bash
-octocode config view                    # private window, ends when you close it
-octocode config view --no-open          # print the link instead
-octocode config view --idle-timeout 300 # a printed link closes after this many idle seconds (default 900)
-```
-
-**The window:** Chrome, Edge, Brave or Chromium in full-screen kiosk mode on a throwaway profile, closed and deleted when the session ends. Extensions, sync and saved passwords are off, and it cannot resolve any host but this computer. The one-use link reaches the browser through a private file, not its command line. With no such browser it opens your default browser and warns that extensions there can read what you type.
-
-**The server:** `127.0.0.1` on a temporary port, with a one-use credential exchanged for a session token. It takes small JSON from its own page only: no `Access-Control-Allow-*` header, other origins and rebinding hosts refused, no file or form uploads, and a strict `Content-Security-Policy` with cross-origin isolation headers. Every asset is bundled; nothing loads from elsewhere.
-
-| Save error | Fix |
+| Goal | Command |
 |---|---|
-| *Configuration changed* / *Agent config changed* | Another process edited the file; the page reloaded it. Review and save again. |
-| *Invalid value for …* | Wrong type, or a URL with credentials, a query or a fragment. |
-| *may only be configured in home scope* / *cannot be loaded from this .env scope* | Select **Home**, or set the variable in the launching environment. |
-| *Values must be a single line* | Remove line breaks. |
+| Sign in and inspect the active account | `octocode auth login` then `octocode auth status --json` |
+| See every setting, default and effective source | `octocode config list` |
+| Inspect one value or check whether a key is configured | `octocode config get lsp.prewarm` or `octocode config check OCTOCODE_CLASSIFICATION_API` |
+| Open the settings page or print its one-use local URL | `octocode config view` or `octocode config view --no-open` |
+| Locate the Octocode home | `octocode config home` |
 
-Keys in `.env` and the credential setting `classification.api` are not encrypted; on Unix, new config files are owner-only. Octocode's own files are replaced without backup, so a removed secret leaves no copy. An agent client file keeps one rolling hidden backup beside it (`~/.cursor/.mcp.json.bak`), and `octocode install --rollback <backup>` restores it. Agent discovery checks supported client paths and the current workspace and reports configuration status, not a live connection; unsupported or malformed files are read only.
+The settings page can save to home or workspace where the setting permits it. Terminal `config set` and `config unset` edit the global `.env`. [Configuration and precedence](CONFIGURATION.md) · [Authentication and logout](AUTHENTICATION.md)
 
----
+## Language servers
 
-## `lsp-server` — language servers
+If a symbol lookup lacks semantic results, inspect the route for the actual file. Replace the example path with one from your project.
 
 ```bash
-octocode lsp-server list                 # managed downloads and install status
-octocode lsp-server status               # check lsp-servers.json and every route; exit 1 on a problem
-octocode lsp-server status src/main.rs   # one file's server, root and effective arguments
-octocode lsp-server status --live        # also start each server and complete initialize
+octocode lsp-server status src/main.rs
+octocode lsp-server list
 octocode lsp-server install rust-analyzer
-octocode lsp-server install --all
 ```
 
-Use it when `lspSearch` reports that a server is unavailable. Managed downloads
-cover `rust-analyzer` and `clangd`. Built-in routes and custom servers:
-[language servers](OCTOCODE_TOOLS.md#language-servers).
-
----
+Managed downloads cover `rust-analyzer` and `clangd`. Use `status --live` to start and initialize the configured servers as a check. [Other languages and custom servers](../packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md)
 
 ## `skill` — agent skills
-
-The native executable embeds the public skills from this repository's
-`skills/` directory. `install` copies a skill into the durable store
-`$OCTOCODE_HOME/skills/<name>` atomically, then links each selected platform's
-skill directory to that copy. Links never target an npm or `npx` cache.
 
 ```bash
 octocode skill list
 octocode skill info octocode-research
-octocode skill install octocode-research --platform pi --global
-octocode skill install --all --platform pi,cursor --global
-octocode skill install octocode-research --platform codex --project-dir "$PWD"
-octocode skill install --add ./skills/my-skill --platform claude --global
+octocode skill install octocode-research --platform codex --project-dir .
 octocode skill check --json
-octocode skill remove octocode-research --platform pi
 ```
 
-| Flag | Meaning |
-|---|---|
-| `--platform pi,cursor,claude,codex,opencode,copilot,gemini,all` | Agent skill directories (`codex` is the shared `.agents/skills` location). `all` selects all seven. |
-| `--global` / `--project-dir <dir>` | Link scope; use exactly one with `--platform`. |
-| `--add <path>` | Install a local skill directory (or its `SKILL.md`). Not combinable with `--all`. The skill name is the one `name: token` frontmatter line (bare or double-quoted) and must match the folder; no YAML parser runs, so any other form (block scalar, single quotes, trailing comment) needs a name override: `skill install --add <path> <name>`. |
-| `--path <dir>` | Use a custom store instead of `$OCTOCODE_HOME/skills`. Not combinable with `--platform`. |
-| `--mode symlink\|copy\|auto` | Install strategy; `symlink` is the default, `copy` a portability fallback. |
-| `--force` | install: replace differing content (kept by default). remove: also delete real directories. |
-| `--upgrade` | Refresh changed bundled content in the store. A copy refreshes only while it still matches the previous content; other drift stays a conflict. |
-| `--dry-run` | Preview `install`, `remove`, or `check --fix` without writing. |
-| `--fix` | `check`: refresh stale or broken installs in place; never adds platforms. A failed repair exits 1. |
-| `--workspace` | `check --fix`: also repair existing `<cwd>/.agents/skills` installations. |
-| `--no-env` | `check`: skip environment readiness. |
+Public skills are bundled with the binary. An install stores the skill under the Octocode home and links it into the selected agent's skills directory by default. Use `--global` for all projects, `--dry-run` to preview, and `skill install --help` for platforms, copy mode and upgrades. [Skill catalog](../skills/README.md)
 
-`skill list` marks installs that differ from the bundled copy `[stale]` and
-broken links `[broken]`. `skill check` reports `ok`, `stale`, `broken` or
-`not-installed`, plus readiness: `needs-config` (a required setting is missing)
-or `partial` (an optional setting would unlock more). A GitHub token from
-`auth login` or a `gh` login counts as set. `check` exits 1 on stale, broken or
-needs-config. Every skill command works from the native binary alone, without
-Node, npm, network access, or another `octocode` on `PATH`.
+## Clear tool caches
 
----
-
-## How the CLI aligns with MCP
-
-Core owns one schema and vocabulary; config generates it; native validates and executes it. Both transports accept the same JSON envelopes and return the same evidence. The CLI lists all tool commands; MCP applies the [configured availability controls](CONFIGURATION.md#tool-availability-cli-and-mcp). The launchers contain no tool logic.
+Use `octocode cache clear --json` to drain warm CLI servers and clear saved pages, provider results, materializations, URL captures and the current workspace's graph extraction checkpoints. Outstanding cursors become unusable. Stop other active tool calls and restart separate MCP servers to clear their in-memory state. Clones, published graph snapshots and credentials have separate lifecycles. [Storage and retention](STORAGE_AND_LIMITS.md)

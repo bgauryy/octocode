@@ -132,7 +132,7 @@ fn references_under(mode: &str) -> (Vec<String>, Vec<Site>) {
     // imports, `y()` is a call, and the declaration is a declaration.
     for site in location_rows(&row) {
         let file = site["path"].as_str().expect("path");
-        let line = site["displayRange"]["startLine"].as_u64().expect("line");
+        let line = site["line"].as_u64().expect("line");
         let expected = match (file.ends_with("b.ts"), line) {
             (true, 1) => "import",
             (true, _) => "call",
@@ -149,10 +149,8 @@ fn references_under(mode: &str) -> (Vec<String>, Vec<Site>) {
                     .expect("name")
                     .to_string_lossy()
                     .into_owned(),
-                site["displayRange"]["startLine"].as_u64().expect("line"),
-                site["displayRange"]["startCharacter"]
-                    .as_u64()
-                    .expect("column"),
+                site["line"].as_u64().expect("line"),
+                site["column"].as_u64().expect("column"),
                 site["source"] == "recoveredAlias",
             )
         })

@@ -21,10 +21,11 @@ fn values(name: &str, text: &str, needle: &str) -> Vec<String> {
         .expect("search")
         .to_row()
         .expect("serialize");
+    // No file row: nothing matched.
     found["files"][0]["matches"]
         .as_array()
-        .expect("rows")
-        .iter()
+        .into_iter()
+        .flatten()
         .map(|row| row["value"].as_str().expect("a value").to_owned())
         .collect()
 }
@@ -88,9 +89,9 @@ fn a_real_secret_hides_its_value_and_nothing_else() {
         format!("{{\n  \"kind\": \"Secret\",\n  \"data\": {{\n    \"blob\": \"{VALUE}\"\n  }}\n}}"),
     ] {
         let text = secret_beside_config_maps(&secret);
+        // The hidden value is no hit: a read withholds it.
         let hit = values("list.json", &text, "RmFrZTBWYWx1ZTlO");
-        assert_eq!(hit.len(), 1, "a hit is never dropped: {hit:?}");
-        assert!(!hit[0].contains(&VALUE[16..]), "{hit:?}");
+        assert!(hit.is_empty(), "{hit:?}");
         let harmless = values("list.json", &text, "ordinary words");
         assert_eq!(
             harmless[0], "    \"plain\": \"ordinary words\"",
@@ -106,8 +107,7 @@ fn a_large_yaml_hides_a_secret_s_block_and_nothing_else() {
     let filler = map.repeat(OVER_THE_SCANNER / map.len());
     let text = format!("apiVersion: v1\nstringData:\n  blob: {VALUE}\nkind: Secret\n---\n{filler}");
     let hit = values("all.yaml", &text, "RmFrZTBWYWx1ZTlO");
-    assert_eq!(hit.len(), 1, "a hit is never dropped: {hit:?}");
-    assert!(!hit[0].contains(&VALUE[16..]), "{hit:?}");
+    assert!(hit.is_empty(), "{hit:?}");
     let harmless = values("all.yaml", &text, "ordinary words");
     assert_eq!(harmless[0], "  plain: ordinary words", "{harmless:?}");
     // No Secret at all: every `kind:` of a large YAML leaves its rows readable.

@@ -37,7 +37,7 @@ async fn repo_scoped_hits_list_every_occurrence_with_line_numbers() {
         .find(|row| row["path"] == "src/routing.py")
         .expect("routing row");
     assert_eq!(
-        routing["lines"],
+        listing(routing),
         json!([
             "1\tfrom h import wrap_app",
             "4\t    await wrap_app(app)(scope)",
@@ -49,7 +49,7 @@ async fn repo_scoped_hits_list_every_occurrence_with_line_numbers() {
         assert_eq!(row["owner"], "a", "{row}");
         assert_eq!(row["repo"], "b", "{row}");
         assert_eq!(row["commitSha"], TREE_SHA, "{row}");
-        assert!(row.get("matches").is_none(), "{row}");
+        assert!(row.get("fragments").is_none(), "{row}");
     }
     let read = &crate::tools::test_support::checks::related_call(data, "ghGetFileContent", |_| {
         true
@@ -85,7 +85,11 @@ async fn complete_long_and_many_hits_need_no_recovery_read() {
     .expect("search");
     let items = out.data["files"].as_array().expect("files");
     let lines = |path: &str| {
-        items.iter().find(|row| row["path"] == path).expect("file")["lines"]
+        items
+            .iter()
+            .find(|row| row["path"] == path)
+            .map(listing)
+            .expect("file")
             .as_array()
             .expect("lines")
             .clone()
@@ -236,7 +240,7 @@ async fn context_lines_surround_hits_and_rows_carry_no_matches() {
         files
             .iter()
             .find(|row| row["path"] == path)
-            .map(|row| row["lines"].clone())
+            .map(listing)
             .expect("row")
     };
     assert_eq!(
@@ -259,7 +263,7 @@ async fn context_lines_surround_hits_and_rows_carry_no_matches() {
         "{data}"
     );
     for row in files {
-        assert!(row.get("matches").is_none(), "{row}");
+        assert!(row.get("fragments").is_none(), "{row}");
     }
     let read = &crate::tools::test_support::checks::related_call(data, "ghGetFileContent", |_| {
         true
@@ -352,7 +356,7 @@ async fn an_oversize_default_branch_hit_leads_to_a_read_of_its_lines() {
         .iter()
         .find(|row| row["path"] == "src/small.rs")
         .expect("small row");
-    assert!(small["lines"].is_array(), "{data}");
+    assert!(small["matches"].is_array(), "{data}");
     let reads = data["next"]
         .as_object()
         .expect("next")

@@ -126,7 +126,8 @@ pub(in crate::security::detector) fn names_a_user_agent_field(name: &str) -> boo
 /// (`Sec-WebSocket-Key: <a token>`) is held as under any credential's name
 /// ([`holds_more_than_a_nonce`]).
 pub(in crate::security::detector) fn is_user_agent_nonce(name: &str, value: &str) -> bool {
-    let name = name.trim_end_matches(|c: char| c.is_whitespace() || matches!(c, ':' | '=' | '"' | '\''));
+    let name =
+        name.trim_end_matches(|c: char| c.is_whitespace() || matches!(c, ':' | '=' | '"' | '\''));
     names_a_user_agent_field(name) && is_nonce_shape(value)
 }
 

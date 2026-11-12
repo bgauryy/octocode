@@ -172,7 +172,7 @@ fn every_query_identity_and_argument_page_carries_exact_descriptor_closure() {
             o.offset = Some(offset);
         });
         assert_eq!(page.class, ExitClass::Success, "{}", page.value);
-        assert_eq!(page.value["pagination"]["totalItems"], 2);
+        assert_eq!(page.value["pagination"]["total"], 2);
         let row = &page.value["rows"][0];
         for origin in [
             &row["sourceOrigin"],
@@ -220,8 +220,8 @@ fn registry_only_toml_provider_reaches_normal_ingest_store_find_and_stats() {
     assert_eq!(built.class, ExitClass::Success, "{}", built.value);
     let found = ask(&dir.0, "find", Some("設定"), |_| {});
     assert_eq!(found.class, ExitClass::Success, "{}", found.value);
-    assert_eq!(found.value["pagination"]["totalItems"], 1);
-    assert_eq!(found.value["rows"][0]["name"], "設定");
+    assert_eq!(found.value["pagination"]["total"], 1);
+    assert_eq!(found.value["rows"][0]["symbolName"], "設定");
     assert_closure(&found.value);
     assert_eq!(
         found.value["sourceEvidence"]["units"][0]["adapter"]["id"],
@@ -232,11 +232,7 @@ fn registry_only_toml_provider_reaches_normal_ingest_store_find_and_stats() {
     assert_eq!(stats.value["counts"]["nodesByKind"]["symbol"], 2);
     let stale = ask(&dir.0, "stale", None, |_| {});
     assert_eq!(stale.class, ExitClass::Success, "{}", stale.value);
-    assert_eq!(
-        stale.value["pagination"]["totalItems"], 0,
-        "{}",
-        stale.value
-    );
+    assert_eq!(stale.value["pagination"]["total"], 0, "{}", stale.value);
     let rebuilt = super::super::ingest::ingest_with_registry(
         &options,
         &workspace_policy(&dir.0),
@@ -261,7 +257,10 @@ fn nested_region_declarations_selections_and_blockers_keep_their_units() {
     assert_eq!(symbols.class, ExitClass::Success, "{}", symbols.value);
     assert_closure(&symbols.value);
     let rows = symbols.value["rows"].as_array().unwrap();
-    let generated = rows.iter().find(|row| row["name"] == "generated").unwrap();
+    let generated = rows
+        .iter()
+        .find(|row| row["symbolName"] == "generated")
+        .unwrap();
     let node = ask(&dir.0, "node", generated["id"].as_str(), |_| {});
     let parent = rows
         .iter()

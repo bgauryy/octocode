@@ -62,6 +62,7 @@ pub(super) async fn exchange_reply(
         client,
         request,
         deadline,
+        octocode_io::http::READ_STALL,
         std::future::pending(),
         std::future::pending::<()>(),
         || {},
@@ -182,6 +183,7 @@ async fn ctrl_c_closes_the_request_side_and_drains_the_server() {
         &mut client,
         &request,
         reply_deadline(),
+        octocode_io::http::READ_STALL,
         std::future::ready(()),
         std::future::pending::<()>(),
         || noticed.set(true),
@@ -203,6 +205,7 @@ async fn ctrl_c_closes_the_request_side_and_drains_the_server() {
         &mut client,
         &request,
         reply_deadline(),
+        octocode_io::http::READ_STALL,
         std::future::ready(()),
         std::future::ready(()),
         || {},
@@ -230,6 +233,7 @@ async fn ctrl_c_ends_a_reply_wait_that_has_no_deadline() {
             &mut client,
             &request,
             None,
+            octocode_io::http::READ_STALL,
             std::future::ready(()),
             tokio::time::sleep(Duration::from_millis(50)),
             || {},
@@ -244,29 +248,6 @@ async fn ctrl_c_ends_a_reply_wait_that_has_no_deadline() {
             crate::cli::tool_call::Interrupted::Forced
         ))
     );
-}
-
-/// The server cancels a call whose client left, waits for the cancelled
-/// work, and replies nothing; a client that stays gets the result.
-#[tokio::test]
-async fn a_client_that_leaves_cancels_its_call() {
-    let (cancel, cancelled) = tokio::sync::oneshot::channel::<()>();
-    let execution = async {
-        let _ = cancelled.await;
-        "drained"
-    };
-    let mut gone = &b""[..];
-    let mut cancel = Some(cancel);
-    let result = unless_left(execution, &mut gone, || {
-        let _ = cancel.take().expect("once").send(());
-    })
-    .await;
-    assert_eq!(result, None);
-    assert!(cancel.is_none(), "the call was cancelled");
-
-    let (_client, mut server) = tokio::io::duplex(8);
-    let result = unless_left(async { "done" }, &mut server, || panic!("not cancelled")).await;
-    assert_eq!(result, Some("done"));
 }
 
 /// A tool the MCP listing marks read-only runs on the warm server; one that
@@ -291,4 +272,70 @@ fn tool_transport_keeps_writing_tools_in_the_invoking_process() {
         writers += usize::from(!read_only);
     }
     assert!(writers > 0, "some tool writes the workspace");
+}
+
+/// With no reply deadline, a server that says nothing for the silence is
+/// gone and the call falls back; one that keeps sending heartbeat or
+/// progress frames for longer than the silence is waited for, and its
+/// heartbeats are not printed.
+#[tokio::test]
+async fn the_reply_wait_ends_on_silence_but_not_while_frames_arrive() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let silence = Duration::from_millis(100);
+    let input = json!({});
+    let request = &request(&input, Path::new("/w"));
+    let ask = |client| async move {
+        let mut client = client;
+        let mut heard = Vec::new();
+        let reply = exchange(
+            &mut client,
+            request,
+            None,
+            silence,
+            std::future::pending(),
+            std::future::pending::<()>(),
+            || {},
+            |line| heard.push(line.to_owned()),
+        )
+        .await;
+        (reply, heard)
+    };
+
+    let (client, _silent) = tokio::net::UnixStream::pair().expect("pair");
+    let (reply, _) = tokio::time::timeout(Duration::from_secs(5), ask(client))
+        .await
+        .expect("a silent server held the client");
+    assert!(
+        matches!(&reply, Err(Failed::Fallback(reason)) if reason.contains("sent nothing")),
+        "{reply:?}"
+    );
+
+    let (client, server) = tokio::net::UnixStream::pair().expect("pair");
+    let peer = async move {
+        let mut server = BufReader::new(server);
+        let mut line = String::new();
+        server.read_line(&mut line).await.expect("request");
+        // Four silences long, never silent for one.
+        for at in 0..16 {
+            tokio::time::sleep(silence / 4).await;
+            let frame = if at == 8 {
+                "{\"progress\":\"halfway\"}\n"
+            } else {
+                "{\"alive\":true}\n"
+            };
+            server
+                .get_mut()
+                .write_all(frame.as_bytes())
+                .await
+                .expect("frame");
+        }
+        server
+            .get_mut()
+            .write_all(b"{\"exit\":0,\"body\":\"{}\",\"json\":true}\n")
+            .await
+            .expect("reply");
+    };
+    let ((reply, heard), ()) = tokio::join!(ask(client), peer);
+    assert_eq!(reply.expect("the reply").printed.exit, 0);
+    assert_eq!(heard, ["halfway"]);
 }

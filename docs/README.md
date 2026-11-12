@@ -1,31 +1,24 @@
-# Octocode documentation
+# Octocode user guides
 
-Each topic has one owner doc; other docs link to it instead of repeating it. The root [README](../README.md) introduces the toolkit and its [install steps](../README.md#install).
+Run Octocode from a terminal or connect it to your coding agent over the Model Context Protocol (MCP). Both interfaces use the same research tools. [Install Octocode and try a local read](../README.md#install)
 
-For setup, start with [Configuration](CONFIGURATION.md): where to set a value, keys and hosts, what wins, CLI/MCP availability, and every setting with its default.
-
-| Doc | Owns |
+| I want to… | Open |
 |---|---|
-| [OCTOCODE_PROTOCOL.md](OCTOCODE_PROTOCOL.md) | The concept: evidence dimensions, the research loop, why each part exists, measured strengths and limits |
-| [Tool flow](../skills/octocode-research/references/tool-flow.md) | Research-tool routing: which tool, how little to ask for, when to judge instead of read, how to carry evidence across, recovery and measured cost |
-| [OCTOCODE_TOOLS.md](OCTOCODE_TOOLS.md) | Every tool's fields, defaults, limits, results, and continuations |
-| [TOOL_DATA_CONTRACT.md](TOOL_DATA_CONTRACT.md) | The shared request and result envelope: rows, result shapes, `next` continuations, `related` calls, and prose `hints` |
-| [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md) | Research with Jev: `classification` on search and fetch and the `clasify` tool; the research loop, routes, how each works, state, examples, main-agent token benchmarks, recovery and limits |
-| [OCTOCODE_MCP.md](OCTOCODE_MCP.md) | The MCP server: client setup, registered tools, instructions, lifecycle |
-| [OCTOCODE_CLI.md](OCTOCODE_CLI.md) | The CLI: commands, flags, output, exit codes |
-| [CONFIGURATION.md](CONFIGURATION.md) | Setup entrypoint: keys and hosts, where to set a value, precedence, CLI/MCP availability, every setting and default, troubleshooting |
-| [STORAGE_AND_LIMITS.md](STORAGE_AND_LIMITS.md) | The Octocode home folder, retained work and cache lifecycle, fixed internal limits |
-| [AUTHENTICATION.md](AUTHENTICATION.md) | GitHub tokens, OAuth, `gh` passthrough, Enterprise, the `clasify` key, npm credentials |
-| [SECURITY.md](SECURITY.md) | Input validation, secret redaction, filesystem policy, credentials, egress |
-| [SUPPORTED_LANGUAGES_AND_FEATURES.md](../packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md) | Languages, grammars, and what each feature supports |
-| [SOURCE_CORRESPONDENCE.md](../packages/octocode-native/docs/engine/SOURCE_CORRESPONDENCE.md) | Raw bytes, analyzer representations, source origins, descriptor closure and mapping limits |
-| [LSP_SERVER_LIFECYCLE.md](../packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md) | Language servers: discovery, install, lifecycle |
-| [CODE_GRAPH.md](../packages/octocode-native/docs/engine/CODE_GRAPH.md) | The persisted code graph behind `graphBuild` and `graphQuery` |
+| Connect my agent, check which tools it can use, or troubleshoot startup | [MCP setup](OCTOCODE_MCP.md) |
+| Run a tool, inspect its fields, or use the result in a script | [CLI guide](OCTOCODE_CLI.md) |
+| Sign in to GitHub, understand which token wins, or use GitHub Enterprise | [Authentication](AUTHENTICATION.md) |
+| Change a default, set a key, or enable an optional tool | [Configuration and defaults](CONFIGURATION.md) |
+| Choose among local, GitHub, package and classification tools | [Tool reference](OCTOCODE_TOOLS.md) |
+| See how an agent goes from a question to source evidence | [Research workflows](OCTOCODE_PROTOCOL.md) |
+| Select relevant results or ask questions about unread files | [Classification with `clasify`](OCTOCODE_CLASIFY.md) |
+| Follow a cursor, interpret a partial answer, or join result pages | [Tool data and continuations](TOOL_DATA_CONTRACT.md) |
+| Find cached data, change storage mode, or clear saved results | [Storage and limits](STORAGE_AND_LIMITS.md) |
+| Check which files Octocode can read and what leaves my machine | [Security](SECURITY.md) and [privacy](../PRIVACY.md) |
 
-Philosophy: [MANIFEST.md](../MANIFEST.md) (Research Driven Development). Legal: [PRIVACY.md](../PRIVACY.md) · [TERMS.md](../TERMS.md).
+## Language support and integrations
 
-Hosts and packages: [VS Code](../packages/octocode-vscode/README.md) · [Claude Code](../packages/octocode-claude-plugin/README.md) · [Codex](../packages/octocode-codex-plugin/README.md) · [Agents communication](../packages/octocode-agents-communication/README.md) · [Chrome DevTools](../packages/octocode-chrome-devtools/README.md) · [Benchmark](../packages/octocode-benchmark/README.md).
+- [Supported languages](../packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md), [language-server setup](../packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md), [code graphs](../packages/octocode-native/docs/engine/CODE_GRAPH.md) and [how locations map to source bytes](../packages/octocode-native/docs/engine/SOURCE_CORRESPONDENCE.md).
+- [VS Code extension](../packages/octocode-vscode/README.md), [Claude Code plugin](../packages/octocode-claude-plugin/README.md) and [Codex plugin](../packages/octocode-codex-plugin/README.md).
+- [Agent skills](../skills/README.md), [tool routing](../skills/octocode-research/references/tool-flow.md), [browser tools](../packages/octocode-chrome-devtools/README.md) and [agent communication](../packages/octocode-agents-communication/README.md).
 
-Skills: [skills/](../skills/README.md) (published, including [workflow orchestration](../skills/octocode-workflows/README.md)), [skills-dev/](../skills-dev/README.md) (repository-only helpers). [Tool flow](../skills/octocode-research/references/tool-flow.md) routes research tools; the public `octocode-workflows` skill selects and executes agent workflows. Install public skills with [`npx octocode skill`](OCTOCODE_CLI.md#skill--agent-skills).
-
-Working on this repository: [AGENTS.md](../AGENTS.md) and [DEVELOPMENT.md](../skills-dev/octocode-dev/docs/DEVELOPMENT.md), which links the dev docs and the package map.
+[Benchmarks](../packages/octocode-benchmark/README.md) · [Project philosophy](../MANIFEST.md) · [Development](../skills-dev/octocode-dev/docs/DEVELOPMENT.md) · [Terms](../TERMS.md)

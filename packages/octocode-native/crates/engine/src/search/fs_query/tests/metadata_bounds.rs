@@ -63,25 +63,36 @@ fn metadata_dates_use_fixed_inclusive_instants() {
     }
 }
 
+/// A reversed range fails before the walk, naming the input field it came
+/// from (structureSearch `bytes`, `modifiedAt`, `accessedAt`).
 #[test]
 fn reversed_metadata_bounds_fail_before_the_walk() {
     let at = UNIX_EPOCH + Duration::from_secs(1_700_000_000);
-    for bounds in [
-        FileSystemQueryOptions {
-            size_min: Some(6),
-            size_max: Some(5),
-            ..Default::default()
-        },
-        FileSystemQueryOptions {
-            modified_from: Some(at + Duration::from_secs(1)),
-            modified_to: Some(at),
-            ..Default::default()
-        },
-        FileSystemQueryOptions {
-            accessed_from: Some(at + Duration::from_secs(1)),
-            accessed_to: Some(at),
-            ..Default::default()
-        },
+    for (field, bounds) in [
+        (
+            "bytes",
+            FileSystemQueryOptions {
+                size_min: Some(6),
+                size_max: Some(5),
+                ..Default::default()
+            },
+        ),
+        (
+            "modifiedAt",
+            FileSystemQueryOptions {
+                modified_from: Some(at + Duration::from_secs(1)),
+                modified_to: Some(at),
+                ..Default::default()
+            },
+        ),
+        (
+            "accessedAt",
+            FileSystemQueryOptions {
+                accessed_from: Some(at + Duration::from_secs(1)),
+                accessed_to: Some(at),
+                ..Default::default()
+            },
+        ),
     ] {
         let error = query_file_system(
             FileSystemQueryOptions {
@@ -93,5 +104,9 @@ fn reversed_metadata_bounds_fail_before_the_walk() {
         )
         .expect_err("reversed range");
         assert_eq!(error.kind(), &ErrorKind::InvalidInput);
+        assert!(
+            error.to_string().starts_with(&format!("{field} lower bound")),
+            "{error}"
+        );
     }
 }

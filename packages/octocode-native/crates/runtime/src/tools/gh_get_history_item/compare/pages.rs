@@ -69,22 +69,24 @@ pub(super) fn attach_commit_page(
     // Every commit page states where it stands, the last one too. GitHub
     // counts the range (`total_commits`): a count-cut page states that
     // total unless the provider's links say otherwise.
+    use crate::response::pages::PageFacts;
     let counted = at.total > 0 && (at.page.saturating_mul(at.per) < at.total) == at.more;
+    let shown = out["commits"].as_array().map_or(0, Vec::len);
     let facts = if counted {
-        crate::response::pages::PageFacts::counted(at.page, at.per, at.total)
+        PageFacts::nth(at.page, at.per, at.total)
     } else {
-        crate::response::pages::PageFacts::open(at.page, Some(at.per), at.more)
+        PageFacts::open(PageFacts::start_of(at.page, at.per), shown, at.more)
     };
     // A commit page past the last is the shared out-of-range outcome (the
     // response stage states `page N of M` and the restart), unless the same
     // page still lists files. The commit page continuation
-    // (`contentPagination.commits.next.nextPage`) is the cursor.
+    // (`sectionPagination.commits.next.nextPage`) is the cursor.
     let files_listed = out
         .get("files")
         .and_then(Value::as_array)
         .is_some_and(|files| !files.is_empty());
-    let past_end = !files_listed && facts.past_end().is_some();
-    out["contentPagination"][Axis::Commits.key()] = facts.out_of_range(past_end).to_value();
+    let past_end = !files_listed && facts.is_past_end();
+    out["sectionPagination"][Axis::Commits.key()] = facts.out_of_range(past_end).to_value();
     ListedCommits {
         shas,
         seen: at.more.then(|| at.page.saturating_mul(at.per)),
@@ -124,13 +126,13 @@ pub(super) fn attach_file_page(
     // it (a scope or a later page). At GitHub's cap the count is only a
     // floor: the file page's `countScope` says so and no count is claimed.
     if !include_diff && !file_limit && files.files.len() < all_count {
-        out["changedFilesCount"] = json!(all_count);
+        out["changedFileCount"] = json!(all_count);
     }
     // The page's own count fact: at the cap its total is a floor.
     if file_limit {
         files.page["countScope"] = json!("partial");
     }
-    let head = out["headSha"].as_str().map(str::to_owned);
+    let head = out["headCommitSha"].as_str().map(str::to_owned);
     let page = shape_file_page(
         out,
         files,

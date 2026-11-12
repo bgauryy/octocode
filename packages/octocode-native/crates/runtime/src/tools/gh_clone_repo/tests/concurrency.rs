@@ -85,7 +85,7 @@ fn distinct_outputs_report_sizes_and_preserve_neighboring_files() {
     fs::write(&orphan, "{}").expect("orphan");
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let fresh = clone_pinned(&fixture, &query(), &context).expect("fresh clone");
-    let local = Path::new(&fresh.location.local_path);
+    let local = Path::new(&fresh.location.path);
     assert_eq!(storage::checked_out_size(local), fresh.bytes);
     assert!(
         orphan.exists(),
@@ -113,7 +113,7 @@ fn distinct_outputs_report_sizes_and_preserve_neighboring_files() {
     });
     for row in rows {
         let row = row.expect("concurrent distinct clone");
-        assert!(Path::new(&row.location.local_path).is_dir());
+        assert!(Path::new(&row.location.path).is_dir());
     }
 }
 
@@ -189,7 +189,7 @@ fn large_indexes_clone_whole_repositories_and_sparse_trees_without_exposing_syml
             ..query()
         };
         let cloned = clone_pinned(&fixture, &query, &context).expect("large-index clone");
-        let checkout = Path::new(&cloned.location.local_path);
+        let checkout = Path::new(&cloned.location.path);
         if scope.is_none() {
             assert_eq!(
                 fs::read_dir(checkout.join("bulk"))
@@ -253,7 +253,7 @@ fn concurrent_sparse_rows_of_one_repository_share_one_store() {
         workers.map(|worker| worker.join().expect("worker"))
     });
     for row in rows {
-        assert!(Path::new(&row.expect("concurrent row").location.local_path).is_dir());
+        assert!(Path::new(&row.expect("concurrent row").location.path).is_dir());
     }
     assert_eq!(store_dirs(&home).len(), 1, "{:?}", store_dirs(&home));
     assert_eq!(steps(&runner, "initialize shared store"), 1);

@@ -24,7 +24,7 @@ fn missing_files_in_a_sparse_checkout_say_so() {
     assert!(error.contains("clone/docs/guide.md"), "{error}");
     assert!(error.contains("sparse checkout"), "{error}");
 
-    assert_eq!(r.error_code, Some(ErrorCode::PathNotFound), "{r:?}");
+    assert_eq!(r.error_code, Some(ErrorCode::NotFound), "{r:?}");
 
     // An ordinary repository keeps the plain not-found message, under
     // the not-found code the other local tools use; the recovery advice
@@ -36,7 +36,7 @@ fn missing_files_in_a_sparse_checkout_say_so() {
         Some("Path does not exist: clone/docs/guide.md"),
         "{r:?}"
     );
-    assert_eq!(r.error_code, Some(ErrorCode::PathNotFound), "{r:?}");
+    assert_eq!(r.error_code, Some(ErrorCode::NotFound), "{r:?}");
     assert!(r.resource_missing, "{r:?}");
 }
 

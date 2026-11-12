@@ -8,7 +8,7 @@ const tool = 'ghGetHistoryItem';
 const schema = contract.tools.find(entry => entry.name === tool).outputSchema;
 // A file's `path` names it on every patch page (identity); its `stat` is evidence the first page carries once.
 const response = (patch, offset, next, extra = {}) => ({ results: [{ index: 0, data: { pullRequests: [{
-  number: 4, owner: 'owner', repo: 'repo', headSha: 'head', baseSha: 'base',
+  number: 4, owner: 'owner', repo: 'repo', headCommitSha: 'head', baseCommitSha: 'base',
   files: [{ path: 'huge.ts', ...(!offset && { stat: 'A +2 -0' }), patch, ...(offset !== undefined && { patchPagination: { offset } }), ...extra }],
   ...(next && { next: { nextPage: { kind: 'continue', tool, input: { cursor: 'tail' } } } }),
 }] } }] });
@@ -38,7 +38,7 @@ test('inventory duplicates and same-patch references retain their own identities
 });
 
 test('a page that states its repository once on data keys its pull requests as rows that carry it', () => {
-  const pr = (identity) => ({ number: 4, ...identity, headSha: 'head', baseSha: 'base', files: [{ path: 'a.ts', patch: '1\t+x\n' }] });
+  const pr = (identity) => ({ number: 4, ...identity, headCommitSha: 'head', baseCommitSha: 'base', files: [{ path: 'a.ts', patch: '1\t+x\n' }] });
   const own = { results: [{ index: 0, data: { pullRequests: [pr({ owner: 'o', repo: 'r' })] } }] };
   const hoisted = { results: [{ index: 0, data: { owner: 'o', repo: 'r', pullRequests: [pr({})] } }] };
   assert.deepEqual(historyFileRows(hoisted.results[0].data, hoisted), historyFileRows(own.results[0].data, own));

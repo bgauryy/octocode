@@ -97,7 +97,11 @@ async fn owner_listing_reads_past_archived_pages_and_follows_the_link_cursor() {
         .await
         .expect("owner listing");
     assert_eq!(names(&first), vec!["a", "b", "c", "d"], "{}", first.data);
-    assert_eq!(first.data["pagination"]["providerPagesRead"], 3);
+    assert!(
+        first.data["pagination"].get("providerPagesRead").is_none(),
+        "pagination has the one shape: {}",
+        first.data
+    );
     assert_eq!(first.data["pagination"]["hasMore"], false);
     assert!(first.data["next"].get("nextPage").is_none());
 }

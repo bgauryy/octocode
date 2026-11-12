@@ -26,8 +26,8 @@ fn rows(page: &Value) -> &Vec<Value> {
 }
 
 #[test]
-fn issues_runs_the_selected_detectors_with_runnable_pinned_verify_steps() {
-    let (dir, id) = fixture();
+fn issues_runs_the_selected_detectors() {
+    let (dir, _) = fixture();
     let cycles = call(
         &dir.0,
         ToolId::GraphQuery,
@@ -35,20 +35,11 @@ fn issues_runs_the_selected_detectors_with_runnable_pinned_verify_steps() {
     );
     assert!(!rows(&cycles).is_empty(), "{cycles}");
     assert!(rows(&cycles).iter().all(|row| row["detector"] == "cycle"));
+    assert!(
+        rows(&cycles).iter().all(|row| row.get("verify").is_none()),
+        "{cycles}"
+    );
     assert_eq!(cycles["summary"]["minTier"], 90, "the contract default");
-    let steps = rows(&cycles)
-        .iter()
-        .flat_map(|row| row["verify"].as_array().cloned().unwrap_or_default())
-        .collect::<Vec<_>>();
-    assert!(!steps.is_empty(), "{cycles}");
-    for step in steps {
-        assert_eq!(step["kind"], "related", "{step}");
-        assert_eq!(step["tool"], "graphQuery", "{step}");
-        let row = step["input"]["queries"][0].clone();
-        assert_eq!(row["graph"], json!(id), "{step}");
-        assert_eq!(row["path"], "app", "{step}");
-        crate::contracts::validate_built_query("graphQuery", row).expect("a valid graphQuery row");
-    }
 }
 
 #[test]
@@ -69,7 +60,7 @@ fn issues_tiers_entries_and_baseline_reach_the_detectors() {
     let orphan = |page: &Value| {
         rows(page)
             .iter()
-            .any(|row| row["detector"] == "unreachable-file" && row["subject"] == "orphan.ts")
+            .any(|row| row["detector"] == "unreachable-file" && row["subject"] == "app/orphan.ts")
     };
     assert!(orphan(&all), "{all}");
     let entered = call(
@@ -128,8 +119,8 @@ fn find_without_text_lists_every_node_of_the_kind() {
     ids.sort();
     assert_eq!(
         ids,
-        ["a.ts", "b.ts", "main.ts", "orphan.ts"].map(String::from),
+        ["app/a.ts", "app/b.ts", "app/main.ts", "app/orphan.ts"].map(String::from),
         "{files}"
     );
-    assert_eq!(files["pagination"]["totalItems"], 4);
+    assert_eq!(files["pagination"]["total"], 4);
 }

@@ -25,6 +25,11 @@ fn full_row() -> ArtifactItem {
     item.rust_version = Some("1.56".into());
     item.downloads_monthly = Some(7);
     item.deprecated = Some("use 6".into());
+    item.advisories = Some(vec![crate::providers::artifact::Advisory {
+        id: Some("GHSA-9wx4-h78v-vm56".into()),
+        fixed_in: vec!["5.4.2".into()],
+        ..Default::default()
+    }]);
     item.source_ref = Some("b44c20cb60b56e626aa6dbec03889812de2549b8".into());
     item.source_attested = true;
     item
@@ -141,8 +146,10 @@ fn a_resolve_summary_is_the_release_and_its_source() {
 /// the request named is where the row was read, so the summary states it.
 #[test]
 fn a_named_registry_is_stated_in_the_summary() {
-    let summary = rows(json!({"operation": "resolve", "ecosystem": "npm", "packageName": "vite",
-        "registryUrl": "https://npm.example.test"}));
+    let summary = rows(
+        json!({"operation": "resolve", "ecosystem": "npm", "packageName": "vite",
+        "registryUrl": "https://npm.example.test"}),
+    );
     assert_eq!(
         summary["artifacts"][0]["registryUrl"], "https://registry.npmjs.org/vite",
         "{summary}"
@@ -152,9 +159,7 @@ fn a_named_registry_is_stated_in_the_summary() {
 /// A search row is a name to resolve: the name, the version, what it is for.
 #[test]
 fn a_search_summary_is_the_name_the_version_and_the_description() {
-    let search = |view: &str| {
-        json!({"operation": "search", "ecosystem": "npm", "keywords": ["vite"], "view": view})
-    };
+    let search = |view: &str| json!({"operation": "search", "ecosystem": "npm", "keywords": ["vite"], "view": view});
     let summary = rows(search("summary"));
     assert_eq!(
         summary["artifacts"][0],
@@ -168,7 +173,13 @@ fn a_search_summary_is_the_name_the_version_and_the_description() {
     );
     let details = rows(search("details"));
     let whole = &details["artifacts"][0];
-    for field in ["owner", "repo", "license", "downloadsMonthly", "registryUrl"] {
+    for field in [
+        "owner",
+        "repo",
+        "license",
+        "downloadsMonthly",
+        "registryUrl",
+    ] {
         assert!(whole.get(field).is_some(), "{field}: {details}");
     }
     for field in fields(whole) {

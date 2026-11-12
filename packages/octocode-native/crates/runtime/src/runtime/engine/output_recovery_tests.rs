@@ -49,9 +49,9 @@ fn malformed_row_in_mixed_batch_keeps_healthy_row_and_mcp_success_flag() {
         {"index":1,"data":{
             "owner":"a","repo":"b","bytes":0,
             "location":{
-                "kind":"repo","localPath":"/tmp/repo",
+                "kind":"repo","path":"/tmp/repo",
                 "commitSha":"abc",
-                "resolvedRef":"main"
+                "ref":"main"
             }
         }}
     ]}));

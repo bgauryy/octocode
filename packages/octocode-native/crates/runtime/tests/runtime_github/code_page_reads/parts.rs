@@ -127,7 +127,11 @@ async fn a_part_continues_as_the_response_and_pagination_counts_search_pages() {
             match &data["pagination"] {
                 Value::Null => assert_eq!(pages, 1, "a paged search states its page: {data}"),
                 pagination => {
-                    assert_eq!(pagination["page"], page, "call {at}: {pagination}");
+                    assert_eq!(
+                        pagination["offset"],
+                        (page - 1) * limit,
+                        "call {at}: {pagination}"
+                    );
                     assert_eq!(
                         pagination["hasMore"],
                         page < pages,

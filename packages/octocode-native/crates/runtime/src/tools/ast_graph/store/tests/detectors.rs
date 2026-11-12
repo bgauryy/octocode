@@ -87,11 +87,11 @@ fn every_cycle_surface_reports_the_same_groups() {
         )
     };
     let expected = Groups::from([
-        group(&["p1.py", "p2.py"], false),
-        group(&["src/ra.rs", "src/rb.rs"], false),
-        group(&["web/a.ts", "web/b.ts"], true),
-        group(&["web/d1.ts", "web/d2.ts"], false),
-        group(&["web/t1.ts", "web/t2.ts"], false),
+        group(&["app/p1.py", "app/p2.py"], false),
+        group(&["app/src/ra.rs", "app/src/rb.rs"], false),
+        group(&["app/web/a.ts", "app/web/b.ts"], true),
+        group(&["app/web/d1.ts", "app/web/d2.ts"], false),
+        group(&["app/web/t1.ts", "app/web/t2.ts"], false),
     ]);
     let listed = ask(root, "cycles", None, |_| {});
     let listed = listed.value["rows"]
@@ -220,13 +220,13 @@ fn dead_code_detectors_judge_one_fixture() {
     };
     assert_eq!(
         store_unreachable,
-        set(&["src/orphan.ts", "src/ping.ts", "src/pong.ts"]),
+        set(&["app/src/orphan.ts", "app/src/ping.ts", "app/src/pong.ts"]),
         "{}",
         issues.value
     );
     assert_eq!(
         store_unused,
-        set(&["src/inner.ts#alsoExported", "src/lib.ts#unused"]),
+        set(&["app/src/inner.ts#alsoExported", "app/src/lib.ts#unused"]),
         "{}",
         issues.value
     );
@@ -262,14 +262,14 @@ fn short_export_names_are_text_checked() {
         .as_array()
         .expect("rows")
         .iter()
-        .find(|row| row["subject"] == "src/cmd.ts")
+        .find(|row| row["subject"] == "app/src/cmd.ts")
         .cloned()
         .unwrap_or_else(|| panic!("cmd.ts unused export: {}", all.value));
     assert_eq!(row["evidence"]["exports"], json!(["run"]), "{row}");
     assert_eq!(row["tier"], 60, "{row}");
     assert_eq!(
         row["evidence"]["mentionedIn"]["run"],
-        json!(["src/loader.ts:3"]),
+        json!(["app/src/loader.ts:3"]),
         "{row}"
     );
 }
@@ -317,15 +317,15 @@ fn prose_mentions_never_hide_an_unused_export() {
             .as_array()
             .expect("rows")
             .iter()
-            .find(|row| row["subject"] == subject)
+            .find(|row| row["subject"] == format!("app/{subject}"))
             .cloned()
             .unwrap_or_else(|| panic!("{subject} unused export: {}", all.value))
     };
     let prose = json!([
-        "docs/a/README.md:3",
-        "docs/b/NOTES.md:3",
-        "docs/c/OPS.md:3",
-        "docs/d/MORE.md:3",
+        "app/docs/a/README.md:3",
+        "app/docs/b/NOTES.md:3",
+        "app/docs/c/OPS.md:3",
+        "app/docs/d/MORE.md:3",
     ]);
     let cmd = row("src/cmd.ts");
     assert_eq!(cmd["evidence"]["exports"], json!(["run"]), "{cmd}");
@@ -336,7 +336,7 @@ fn prose_mentions_never_hide_an_unused_export() {
     assert_eq!(tool["tier"], 60, "{tool}");
     assert_eq!(
         tool["evidence"]["mentionedIn"]["go"],
-        json!(["src/loader.ts:3"]),
+        json!(["app/src/loader.ts:3"]),
         "{tool}"
     );
     assert_eq!(tool["evidence"]["textMentions"]["go"], prose, "{tool}");
@@ -424,7 +424,7 @@ fn only_the_names_an_entry_reexports_are_public() {
     let rows = value["rows"].as_array().expect("rows");
     let listed = |detector: &str, subject: &str| {
         rows.iter()
-            .find(|row| row["detector"] == detector && row["subject"] == subject)
+            .find(|row| row["detector"] == detector && row["subject"] == format!("app/{subject}"))
             .unwrap_or_else(|| panic!("{detector} {subject}: {value}"))
     };
     assert_eq!(
@@ -446,7 +446,7 @@ fn only_the_names_an_entry_reexports_are_public() {
     assert_eq!(tested["evidence"]["exports"], json!(["connect"]), "{value}");
     assert_eq!(tested["tier"], 60, "{value}");
     assert!(
-        rows.iter().all(|row| row["subject"] != "all.ts"),
+        rows.iter().all(|row| row["subject"] != "app/all.ts"),
         "export * keeps every name public: {value}"
     );
     assert_eq!(rows.len(), 4, "{value}");
@@ -482,7 +482,7 @@ fn test_imported_exports_split_from_untested_ones_in_one_file() {
     let rows = value["rows"].as_array().expect("rows");
     let local = rows
         .iter()
-        .filter(|row| row["subject"] == "client.ts")
+        .filter(|row| row["subject"] == "app/client.ts")
         .collect::<Vec<_>>();
     assert_eq!(local.len(), 2, "{value}");
     let untested = local

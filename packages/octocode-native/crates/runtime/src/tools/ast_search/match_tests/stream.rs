@@ -34,8 +34,13 @@ fn a_match_walk_takes_one_call_per_limit_of_matches() {
         assert_eq!(pages.len(), calls, "limit {limit}: {pages:#?}");
         for page in &pages {
             let pagination = &page["pagination"];
-            assert_eq!(pagination["totalPages"], calls, "limit {limit}: {page}");
-            assert_eq!(pagination["totalItems"], total, "limit {limit}: {page}");
+            assert!(
+                pagination["length"]
+                    .as_u64()
+                    .is_some_and(|length| length as usize <= limit),
+                "limit {limit}: {page}"
+            );
+            assert_eq!(pagination["total"], total, "limit {limit}: {page}");
             assert_eq!(pagination["unit"], "matches", "limit {limit}: {page}");
             let shown = page["files"]
                 .as_array()
@@ -62,7 +67,8 @@ fn a_match_walk_takes_one_call_per_limit_of_matches() {
 
 /// A page whose one match outgrows the response window cannot promise a page
 /// count (the response pager splits it into row parts, so calls exceed
-/// pages): no page states `totalPages`, and still every match comes once.
+/// pages): the one pagination shape states none, and still every match
+/// comes once.
 #[test]
 fn a_page_over_its_budget_states_no_page_count_and_each_match_comes_once() {
     let root = Fixture::new();
@@ -82,8 +88,7 @@ fn a_page_over_its_budget_states_no_page_count_and_each_match_comes_once() {
         let out = run_window(&root.0, query, 400).expect("tiny window");
         calls += 1;
         assert!(calls <= 12, "nonterminating walk: {out}");
-        assert!(out["pagination"].get("totalPages").is_none(), "{out}");
-        assert_eq!(out["pagination"]["totalItems"], 6, "{out}");
+        assert_eq!(out["pagination"]["total"], 6, "{out}");
         for file in out["files"].as_array().into_iter().flatten() {
             for row in file["matches"].as_array().into_iter().flatten() {
                 let span = (file["path"].to_string(), row["line"].to_string());

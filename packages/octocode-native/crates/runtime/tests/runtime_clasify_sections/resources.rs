@@ -53,7 +53,7 @@ async fn a_github_resource_is_planned_from_its_pinned_commit() {
         "original source: {guide}"
     );
     assert_eq!(
-        guide["snapshot"], SHA,
+        guide["sourceDigest"], SHA,
         "the requested ref is pinned to its commit"
     );
     crate::support::assert_cursor_only(&guide["read"]["input"]);

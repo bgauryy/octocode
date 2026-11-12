@@ -252,7 +252,7 @@ fn deciding_read(
         .into_iter()
         .map(|(start, end)| json!({"startLine":start,"endLine":end}))
         .collect();
-    let pin = metadata["snapshot"].as_str();
+    let pin = metadata["sourceDigest"].as_str();
     Some(if can_resume {
         source_capture::read_lead(tool, &query, pin)
     } else {

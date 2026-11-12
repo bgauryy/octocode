@@ -88,7 +88,7 @@ fn selective_find_pages_reach_every_row_once() {
     for offset in (0..700).step_by(7) {
         let out = ask(&dir, "find", "fn", offset, false);
         assert_eq!(out.class, ExitClass::Success, "{}", out.value);
-        assert_eq!(out.value["pagination"]["totalItems"], 700);
+        assert_eq!(out.value["pagination"]["total"], 700);
         ids.extend(
             out.value["rows"]
                 .as_array()

@@ -249,9 +249,9 @@ async fn pr_commit_rows_are_the_shared_commit_row_with_their_body() {
     assert_eq!(
         data["pullRequests"][0]["commits"],
         json!([
-            {"commitSha":HEAD,"date":"2024-02-01T00:00:00Z","messageHeadline":"Fix parser",
+            {"commitSha":HEAD,"committedAt":"2024-02-01T00:00:00Z","messageHeadline":"Fix parser",
                 "author":"ada","messageBody":"Why it broke."},
-            {"commitSha":BASE,"date":"2024-01-02T00:00:00Z","messageHeadline":"one line",
+            {"commitSha":BASE,"committedAt":"2024-01-02T00:00:00Z","messageHeadline":"one line",
                 "author":"Ada"}
         ]),
         "{data}"

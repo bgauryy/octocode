@@ -99,7 +99,7 @@ async fn gh_get_history_item_capped_file_scan_is_not_a_complete_count() {
     .expect("capped commit scan");
     let data = row_data(&outcome);
     assert_eq!(
-        data["changedFilesCountScope"], "partial",
+        data["sectionPagination"]["files"]["countScope"], "partial",
         "{}",
         outcome.structured_content
     );
@@ -195,7 +195,7 @@ async fn path_scoped_commit_labels_whole_commit_totals() {
     .await
     .expect("commit");
     let data = row_data(&outcome);
-    assert_eq!(data["changedFilesCount"], 2, "{data}");
+    assert_eq!(data["changedFileCount"], 2, "{data}");
     assert_eq!(data["additions"], 30, "{data}");
     assert!(data.get("commitTotals").is_none(), "{data}");
     assert_eq!(inventory_len(&data["files"]), 1, "{data}");

@@ -275,6 +275,7 @@ fn run_with(
     if graph.compact_provenance {
         lean::project(&mut output.value);
     }
+    graph.rebase_paths(&mut output.value);
     graph.close_sources(&mut output, cancel)?;
     #[cfg(test)]
     if let Some(reader) = &graph.selective {

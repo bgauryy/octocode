@@ -1,10 +1,10 @@
-//! The pagination axes of an item read: each `contentPagination` key, the
+//! The pagination axes of an item read: each `sectionPagination` key, the
 //! `next.*` page that continues it, the cursor it carries, the sections a
 //! page continuation reads, and how its leftover is worded. One table, so
 //! promotion, notes and shaping never spell an axis apart.
 use crate::tools::gh_get_history_item::sections::Section;
 
-/// One `contentPagination` axis of a pull request or issue page.
+/// One `sectionPagination` axis of a pull request or issue page.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(super) enum Axis {
     Body,
@@ -57,7 +57,7 @@ impl Axis {
         Self::Commits,
     ];
 
-    /// The `contentPagination` key.
+    /// The `sectionPagination` key.
     pub(super) fn key(self) -> &'static str {
         match self {
             Self::Body => "body",
@@ -72,7 +72,7 @@ impl Axis {
         }
     }
 
-    /// The axis a `contentPagination` key names.
+    /// The axis a `sectionPagination` key names.
     pub(super) fn parse(key: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|axis| axis.key() == key)
     }

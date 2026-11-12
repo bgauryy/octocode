@@ -360,17 +360,13 @@ fn listing_page<Q: Listing>(
     // its page count is known only once the later windows are cut, so it
     // states none.
     let ranking = cut.limit_cut && cut.whole_walk();
-    let facts = if ranking {
-        crate::response::pages::PageFacts::open(page, None, has_more).with_items(cut.matched())
-    } else if cut.limit_cut || cut.time_cut.is_some() {
-        // The walk left rows past this window (its row limit or its time
-        // budget cut it): the rows are what the window loaded, a floor of the
-        // listing's, and no one has counted the pages after them.
-        crate::response::pages::PageFacts::open(page, None, has_more).with_items(total)
-    } else {
-        crate::response::pages::PageFacts::sized(page, cut.total_pages, total, has_more)
-    }
-    .out_of_range(cut.out_of_range());
+    // The walk left rows past this window when its row limit or its time
+    // budget cut it: the rows are then what the window loaded, a floor of
+    // the listing's (`countScope` below).
+    let counted = if ranking { cut.matched() } else { total };
+    let facts = crate::response::pages::PageFacts::open(shown.start, shown.len(), has_more)
+        .with_total(counted)
+        .out_of_range(cut.out_of_range());
     out["pagination"] = facts.to_value();
     if ranking {
         out["pagination"]["countScope"] = json!("complete");

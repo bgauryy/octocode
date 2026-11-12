@@ -105,7 +105,7 @@ async fn a_saved_grid_places_issue_comment_pages_without_capping_them() {
         .collect::<Vec<_>>();
     let expected = (4..11).map(|n| json!(n.to_string()).to_string());
     assert_eq!(ids, expected.collect::<Vec<_>>(), "{data}");
-    let block = &issue["contentPagination"]["comments"];
+    let block = &issue["sectionPagination"]["comments"];
     assert!(block.get("pageSize").is_none(), "{data}");
     assert_eq!(block["hasMore"], false, "{data}");
 }

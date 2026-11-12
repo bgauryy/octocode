@@ -180,7 +180,7 @@ pub(super) enum Command {
         manage: bool,
     },
     /// Remove tool caches for this home and this workspace; stop MCP servers first.
-    #[command(hide = true, disable_help_subcommand = true)]
+    #[command(disable_help_subcommand = true)]
     Cache {
         #[command(subcommand)]
         command: CacheCommand,
@@ -201,6 +201,12 @@ pub(super) enum Command {
     Install(super::mcp_install::InstallArgs),
     /// Run the MCP server over stdio, as an agent client launches it.
     Mcp,
+    /// Manage auto-downloadable language servers (`list`, `install`, `uninstall`, `clean`, `status`).
+    #[command(name = "lsp-server", disable_help_subcommand = true)]
+    LspServer {
+        #[command(subcommand)]
+        command: super::lsp_provision::LspServerCommand,
+    },
 
     // ── Hidden commands (not part of the agent surface) ──────────────────────
     /// Serve warm read-only tool calls for one workspace over a private socket.
@@ -209,12 +215,6 @@ pub(super) enum Command {
         /// Socket path.
         #[arg(long)]
         socket: std::path::PathBuf,
-    },
-    /// Manage auto-downloadable language servers (`list`, `install`, `uninstall`, `clean`, `status`).
-    #[command(name = "lsp-server", hide = true, disable_help_subcommand = true)]
-    LspServer {
-        #[command(subcommand)]
-        command: super::lsp_provision::LspServerCommand,
     },
 }
 

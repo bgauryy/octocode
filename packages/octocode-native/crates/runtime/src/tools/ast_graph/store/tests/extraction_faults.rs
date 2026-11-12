@@ -61,7 +61,7 @@ fn diagnostic_of(dir: &Path, file: &str) -> String {
     let rows = out.value["rows"].as_array().cloned().unwrap_or_default();
     let row = rows
         .iter()
-        .find(|row| row["file"] == file)
+        .find(|row| row["path"] == format!("app/{file}"))
         .unwrap_or_else(|| panic!("no diagnostic names {file}: {}", out.value));
     format!("{} {}", row["code"], row["message"])
 }
@@ -73,7 +73,7 @@ fn found(dir: &Path, name: &str) -> u64 {
         "{}",
         out.value
     );
-    out.value["pagination"]["totalItems"].as_u64().unwrap_or(0)
+    out.value["pagination"]["total"].as_u64().unwrap_or(0)
 }
 
 #[test]
@@ -215,7 +215,7 @@ fn a_backslash_file_name_is_its_own_node() {
         options.kind = Some("file".to_owned());
     }));
     files.sort();
-    assert_eq!(files, ["f/g.ts", "f\\g.ts"], "two nodes");
+    assert_eq!(files, ["app/f/g.ts", "app/f\\g.ts"], "two nodes");
 }
 
 /// Runs the graphBuild retry a failed build leads to (its `related` row) on

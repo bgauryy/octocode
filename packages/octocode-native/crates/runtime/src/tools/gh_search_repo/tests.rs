@@ -65,30 +65,23 @@ fn a_lone_keyword_in_one_repository_broadens_to_its_row() {
     crate::tools::test_support::checks::assert_leads_valid(&empty.data);
 }
 
-/// A topic that only repeats the repository's own name is dropped;
-/// every other topic stays.
+/// Every topic GitHub returns is kept, one spelling the repository's own
+/// name (vitejs/vite's `vite`) or its language included; topics a query
+/// asked for come first, the rest in GitHub's order.
 #[test]
-fn topic_naming_the_repository_itself_is_dropped() {
+fn every_topic_github_returns_is_kept() {
     let item: octocode_github::RepositorySearchItem = serde_json::from_value(json!({
-        "full_name":"harlanc/xiu","name":"xiu","html_url":"h","default_branch":"main",
-        "topics":["rtmp","XIU","rust"]
+        "full_name":"vitejs/vite","name":"vite","html_url":"h","default_branch":"main",
+        "language":"TypeScript",
+        "topics":["vite","hmr","frontend","build-tool","typescript"]
     }))
     .expect("item");
-    let row = repository_row(item, &[]);
-    assert_eq!(row["topics"], json!(["rtmp", "rust"]), "{row}");
-}
-
-/// A topic that only repeats the row's `language` is dropped too.
-#[test]
-fn topic_naming_the_language_is_dropped() {
-    let item: octocode_github::RepositorySearchItem = serde_json::from_value(json!({
-        "full_name":"psf/requests","name":"requests","html_url":"h","default_branch":"main",
-        "language":"Python","topics":["python","http"]
-    }))
-    .expect("item");
-    let row = repository_row(item, &[]);
-    assert_eq!(row["topics"], json!(["http"]), "{row}");
-    assert_eq!(row["language"], "Python", "{row}");
+    let row = repository_row(item, &["hmr".to_owned()]);
+    assert_eq!(
+        row["topics"],
+        json!(["hmr", "vite", "frontend", "build-tool", "typescript"]),
+        "{row}"
+    );
 }
 
 /// A repository only the token's account can see is marked with its
@@ -141,7 +134,10 @@ fn a_default_row_leaves_secondary_facts_to_a_fields_pick() {
         .expect("item")
     };
     let shown = |detail: &[&str], fields: &[&str]| {
-        let fields = fields.iter().map(|field| (*field).to_owned()).collect::<Vec<_>>();
+        let fields = fields
+            .iter()
+            .map(|field| (*field).to_owned())
+            .collect::<Vec<_>>();
         let mut value = json!({"repositories":[repository_row(item(), &[])]});
         crate::tools::gh_shared::lean_rows(&mut value, "repositories", detail, &fields);
         crate::tools::gh_shared::pick_rows(&mut value, "repositories", REPO_ID, &fields);

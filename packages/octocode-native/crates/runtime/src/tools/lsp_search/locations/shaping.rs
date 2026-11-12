@@ -311,11 +311,10 @@ pub(super) fn number_content(content: &str, start: u64) -> String {
     out
 }
 
-/// Public location: one one-based `displayRange` (`startLine`,
-/// `startCharacter`, `endLine`) for the symbol itself instead of the raw
-/// zero-based LSP `range` plus a line-only copy. `content` carries its own
-/// line numbers, from the widened window's first line when `contextLines`
-/// widened it.
+/// Public location: the one-based place (`line`, `column`, `endLine`) of
+/// the symbol itself instead of the raw zero-based LSP `range` plus a
+/// line-only copy. `content` carries its own line numbers, from the widened
+/// window's first line when `contextLines` widened it.
 pub(in super::super) fn public_location(internal: Value) -> Value {
     let Value::Object(mut internal) = internal else {
         return internal;
@@ -330,19 +329,21 @@ pub(in super::super) fn public_location(internal: Value) -> Value {
     {
         public.insert("path".into(), json!(uri_to_path(uri)));
     }
-    let display = range.as_ref().and_then(public_range).or_else(|| {
-        let mut window = window.clone()?;
-        let end = window.get("endLine").and_then(Value::as_u64)?;
-        window.as_object_mut()?.remove("endLine");
-        display_end(&mut window, end);
-        Some(window)
+    let place = range.as_ref().and_then(public_range).or_else(|| {
+        let window = window.as_ref()?;
+        let mut place = json!({ "line": window.get("startLine")?.as_u64()? });
+        if let Some(column) = window.get("startCharacter").and_then(Value::as_u64) {
+            place["column"] = json!(column);
+        }
+        place_end(&mut place, window.get("endLine")?.as_u64()?);
+        Some(place)
     });
-    let symbol_start = display
+    let symbol_start = place
         .as_ref()
-        .and_then(|display| display.get("startLine"))
+        .and_then(|place| place.get("line"))
         .and_then(Value::as_u64);
-    if let Some(display) = display {
-        public.insert("displayRange".into(), display);
+    if let Some(place) = place {
+        insert_place(&mut public, place);
     }
     if let Some(content) = internal.shift_remove("content") {
         let start = window

@@ -87,15 +87,15 @@ fn only_an_ignored_importer_makes_the_row_partial() {
     assert!(quiet.get("isPartial").is_none(), "{quiet}");
 
     // Nested repositories the scan did not enter are counted, whatever
-    // else it found; the lead names each one.
+    // else it found; the notice names each one.
     let nested = annotate(IgnoredMentions {
         nested_repositories: vec!["repos/a".into(), "repos/b".into()],
         ..IgnoredMentions::default()
     });
     assert_eq!(
-        nested[crate::response::paging::NOTICES],
+        nested[crate::contracts::envelope::NOTICES],
         json!([
-            "The scan for gitignored files did not enter 2 nested repositories (directories with their own .git) under the scope root."
+            "The scan for gitignored files did not enter 2 nested repositories (directories with their own .git) under the scope root: repos/a, repos/b."
         ]),
         "{nested}"
     );
@@ -107,41 +107,38 @@ fn only_an_ignored_importer_makes_the_row_partial() {
             .any(|call| call["tool"] == "localSearch"),
         "{quiet}"
     );
-    // They are no evidence, so the row stays whole, but the lead reaches
-    // into each of them.
+    // They are no evidence, so the row stays whole.
     assert!(nested.get("isPartial").is_none(), "{nested}");
     assert!(nested.get("partialReasons").is_none(), "{nested}");
+    // No lead points into ignored files: they are scratch, output or copies
+    // outside the project.
     let lead_paths = |row: &Value| {
-        crate::tools::test_support::checks::related_call(row, "localSearch", |_| true)["input"]["queries"]
+        row["related"]
             .as_array()
-            .expect("leads")
-            .iter()
-            .map(|lead| {
-                assert_eq!(lead["includeIgnored"], true, "{row}");
-                lead["path"].clone()
+            .into_iter()
+            .flatten()
+            .filter(|call| call["tool"] == "localSearch")
+            .flat_map(|call| {
+                call["input"]["queries"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default()
             })
+            .map(|lead| lead["path"].clone())
             .collect::<Vec<_>>()
     };
-    assert_eq!(
-        lead_paths(&nested),
-        [json!("/r/repos/a"), json!("/r/repos/b")],
-        "{nested}"
-    );
-    // With evidence, one lead covers it and the nested repositories.
+    assert!(lead_paths(&nested).is_empty(), "{nested}");
+    // With evidence, still no lead.
     let nested_hidden = annotate(IgnoredMentions {
         files: vec!["/r/gen/g.ts".into()],
         importing: vec!["/r/gen/g.ts".into()],
         nested_repositories: vec!["repos/a".into()],
         ..IgnoredMentions::default()
     });
-    assert_eq!(
-        lead_paths(&nested_hidden),
-        [json!("/r/gen/g.ts"), json!("/r/repos/a")],
-        "{nested_hidden}"
-    );
+    assert!(lead_paths(&nested_hidden).is_empty(), "{nested_hidden}");
 
     // An unfinished scan is outside the answer's scope: the row stays
-    // whole, with a lead over the scope and a note.
+    // whole, with a note.
     let unfinished = annotate(IgnoredMentions::unfinished());
     assert!(unfinished.get("isPartial").is_none(), "{unfinished}");
     assert!(unfinished.get("partialReasons").is_none(), "{unfinished}");
@@ -149,15 +146,9 @@ fn only_an_ignored_importer_makes_the_row_partial() {
         unfinished["coverage"]["importerScan"], SCAN_COMPLETE,
         "{unfinished}"
     );
-    let lead = &crate::tools::test_support::checks::related_call(
-        &unfinished,
-        "localSearch",
-        |_| true,
-    )["input"]["queries"][0];
-    assert_eq!(lead["path"], "/r", "{unfinished}");
-    assert_eq!(lead["includeIgnored"], true, "{unfinished}");
+    assert!(lead_paths(&unfinished).is_empty(), "{unfinished}");
     assert_eq!(
-        unfinished[crate::response::paging::NOTICES],
+        unfinished[crate::contracts::envelope::NOTICES],
         json!([IGNORED_UNFINISHED_NOTICE]),
         "{unfinished}"
     );
@@ -185,19 +176,15 @@ fn only_an_ignored_importer_makes_the_row_partial() {
         assert!(copies.get("isPartial").is_none(), "{copies}");
         assert_eq!(localsearch_leads(&copies), 0, "{copies}");
     }
-    // Beside a nested repository, the lead reaches only into it.
+    // Beside a nested repository, no lead either.
     let copies_nested = annotate(IgnoredMentions {
         files: vec!["/r/releases/copy.mjs".into()],
         nested_repositories: vec!["repos/a".into()],
         ..IgnoredMentions::default()
     });
-    assert_eq!(
-        lead_paths(&copies_nested),
-        [json!("/r/repos/a")],
-        "{copies_nested}"
-    );
+    assert!(lead_paths(&copies_nested).is_empty(), "{copies_nested}");
 
-    // An ignored importer: partial, named with its rule, lead to it.
+    // An ignored importer: partial, named with its rule.
     let hidden = annotate(IgnoredMentions {
         files: vec!["/r/gen/g.ts".into(), "/r/gen/h.ts".into()],
         rules: vec![".gitignore:1 'gen/'".into()],
@@ -213,25 +200,14 @@ fn only_an_ignored_importer_makes_the_row_partial() {
     let warning = hidden["warnings"][0].as_str().expect("warning");
     assert!(warning.contains("1 imports it"), "{hidden}");
     assert_eq!(
-        hidden[crate::response::paging::NOTICES],
+        hidden[crate::contracts::envelope::NOTICES],
         json!([IGNORED_UNFINISHED_NOTICE]),
         "{hidden}"
     );
     assert_eq!(hidden["coverage"]["importerScan"], SCAN_SKIPPED, "{hidden}");
-    // More may exist past where the scan stopped: the lead names the
-    // importer it found, then covers the scope for what it did not reach.
-    assert_eq!(
-        lead_paths(&hidden),
-        [json!("/r/gen/g.ts"), json!("/r")],
-        "{hidden}"
-    );
-    let past_stop = &crate::tools::test_support::checks::related_call(
-        &hidden,
-        "localSearch",
-        |_| true,
-    )["input"]["queries"][1];
-    assert_eq!(past_stop["include"], json!(["*.ts"]), "{hidden}");
-    // Undecided files and nested repositories are named the same way.
+    // More may exist past where the scan stopped: the notice says so.
+    assert!(lead_paths(&hidden).is_empty(), "{hidden}");
+    // Undecided files and nested repositories draw no lead either.
     let hidden_unchecked = annotate(IgnoredMentions {
         files: vec!["/r/gen/big.js".into(), "/r/gen/g.ts".into()],
         unfinished: true,
@@ -240,19 +216,13 @@ fn only_an_ignored_importer_makes_the_row_partial() {
         nested_repositories: vec!["repos/a".into()],
         ..IgnoredMentions::default()
     });
-    assert_eq!(
-        lead_paths(&hidden_unchecked),
-        [
-            json!("/r/gen/g.ts"),
-            json!("/r/gen/big.js"),
-            json!("/r/repos/a"),
-            json!("/r")
-        ],
+    assert!(
+        lead_paths(&hidden_unchecked).is_empty(),
         "{hidden_unchecked}"
     );
 
     // Files the check could not decide alone leave the row whole: the same
-    // note on every row, and a lead to each of them.
+    // note on every row.
     let only_undecided = annotate(IgnoredMentions {
         files: vec!["/r/gen/big.js".into(), "/r/gen/copy.ts".into()],
         unchecked: vec!["/r/gen/big.js".into()],
@@ -268,18 +238,13 @@ fn only_an_ignored_importer_makes_the_row_partial() {
         "{only_undecided}"
     );
     assert_eq!(
-        only_undecided[crate::response::paging::NOTICES],
+        only_undecided[crate::contracts::envelope::NOTICES],
         json!([IGNORED_UNCHECKED_NOTICE]),
         "{only_undecided}"
     );
-    assert_eq!(
-        lead_paths(&only_undecided),
-        [json!("/r/gen/big.js")],
-        "{only_undecided}"
-    );
+    assert!(lead_paths(&only_undecided).is_empty(), "{only_undecided}");
 
-    // Beside an importer they are noted apart, never counted as importers,
-    // and still lead.
+    // Beside an importer they are noted apart, never counted as importers.
     let undecided = annotate(IgnoredMentions {
         files: vec!["/r/gen/big.js".into(), "/r/gen/g.ts".into()],
         rules: vec![".gitignore:1 'gen/'".into()],
@@ -294,19 +259,11 @@ fn only_an_ignored_importer_makes_the_row_partial() {
         "{undecided}"
     );
     assert_eq!(
-        undecided[crate::response::paging::NOTICES],
+        undecided[crate::contracts::envelope::NOTICES],
         json!([IGNORED_UNCHECKED_NOTICE]),
         "{undecided}"
     );
-    let leads = crate::tools::test_support::checks::related_call(&undecided, "localSearch", |_| {
-        true
-    })["input"]["queries"]
-        .as_array()
-        .expect("leads")
-        .iter()
-        .map(|lead| lead["path"].clone())
-        .collect::<Vec<_>>();
-    assert_eq!(leads, [json!("/r/gen/g.ts"), json!("/r/gen/big.js")]);
+    assert!(lead_paths(&undecided).is_empty(), "{undecided}");
 }
 
 /// The import check reads each ignored file through the bounded reader:

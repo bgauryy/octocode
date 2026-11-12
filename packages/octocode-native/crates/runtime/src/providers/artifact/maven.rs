@@ -10,6 +10,17 @@ use octocode_engine::num::saturating_usize;
 /// run per lookup; compiling these constant patterns on every call (and once
 /// per extracted tag in the old `field` closure) was pure waste.
 mod patterns;
+
+/// Maven's order: release numbers, then `ComparableVersion`'s prerelease
+/// qualifiers before the bare release before any other qualifier (`sp1`).
+pub(super) const ORDER: super::versions::VersionOrder = super::versions::VersionOrder {
+    cmp: |left, right| super::versions::cmp_segmented(left, right, is_prerelease),
+    prerelease: is_prerelease,
+};
+
+fn is_prerelease(version: &str) -> bool {
+    patterns::prerelease().is_match(version)
+}
 mod pom;
 
 use pom::read_pom;
@@ -188,6 +199,7 @@ async fn exact(
             let published = listed_versions(&clean);
             if !published.iter().any(|version| version == wanted) {
                 return Err(super::versions::version_not_found(
+                    ArtifactType::Maven,
                     &artifact.package_name,
                     wanted,
                     &published,

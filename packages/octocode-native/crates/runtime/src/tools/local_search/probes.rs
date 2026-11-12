@@ -315,25 +315,29 @@ fn charged_search(
 
 /// Where the same search finds a match above an empty page's searched path.
 pub(super) enum Ancestor {
-    /// The narrowest folder above the searched path with a match, workspace
-    /// relative: how many files match there, a floor when the probe was cut
-    /// inside that folder.
+    /// The narrowest folder holding every match of the first folder above
+    /// the searched path with one, as rows name paths: how many files match
+    /// there, a floor when the probe was cut inside that folder.
     Found {
         dir: String,
         files: usize,
         floor: bool,
     },
-    /// The search finds nothing anywhere in the workspace.
-    Nowhere,
+    /// The search finds nothing anywhere in the tree the path lies in
+    /// ([`PathPolicy::tree_root`]): the workspace (`None`), or the named one
+    /// (a clone's checkout).
+    Nowhere { tree: Option<String> },
     /// The probe was cut, or could not run, before any folder answered.
     Unknown,
 }
 
 /// The narrowest folder above `root` (the empty page's searched file or
-/// directory, inside the workspace) where the same search finds a match. One
+/// directory) where the same search finds a match. One
 /// probe's work ([`ProbeWork`]) is shared by the walks of each folder up to the
-/// workspace root, each walking only what the folder below it did not, so
-/// every entry is read once; it stops at the first folder with a match.
+/// top of the tree `root` lies in ([`PathPolicy::tree_root`]: the workspace,
+/// a clone's checkout), each walking only what the folder below it did not, so
+/// every entry is read once; it stops at the first folder with a match and
+/// names the narrowest folder under it that holds every match.
 pub(super) fn matching_ancestor(
     options: &TextSearchOptions,
     query: &LocalSearchQuery,
@@ -346,19 +350,16 @@ pub(super) fn matching_ancestor(
     } else {
         SearchOutput::FilesWithMatch
     };
-    if paths
-        .workspace_relative(root)
-        .is_none_or(|relative| relative == ".")
-    {
+    let Some(top) = paths.tree_root(root).filter(|top| top.as_path() != root) else {
         return Ancestor::Unknown;
-    }
+    };
     let defaults = query_walk(query).default_excludes;
     let work = Arc::new(ProbeWork::new());
     let mut searched = root.to_path_buf();
     while let Some(dir) = searched.parent().map(std::path::Path::to_path_buf) {
-        let Some(relative) = paths.workspace_relative(&dir) else {
+        if !dir.starts_with(&top) {
             return Ancestor::Unknown;
-        };
+        }
         let mut level = options.probe(output);
         level.path = dir.to_string_lossy().into_owned();
         let walk = Arc::new(crate::policy::discovery::WalkAdmission::search(
@@ -376,8 +377,16 @@ pub(super) fn matching_ancestor(
         };
         let cut = work.cut() || !found.stats.cap_reasons.is_empty();
         if !found.files.is_empty() {
+            // A finished walk names every match, so the folder that holds them
+            // all is the lead; a cut one may have more past the cut, anywhere
+            // in this folder.
+            let holding = (!cut)
+                .then(|| common_dir(found.files.iter().map(|file| dir.join(&file.path))))
+                .flatten()
+                .filter(|holding| holding.starts_with(&dir))
+                .unwrap_or_else(|| dir.clone());
             return Ancestor::Found {
-                dir: relative,
+                dir: paths.shown(holding),
                 files: found.files.len(),
                 floor: cut,
             };
@@ -385,12 +394,33 @@ pub(super) fn matching_ancestor(
         if cut {
             return Ancestor::Unknown;
         }
-        if relative == "." {
-            return Ancestor::Nowhere;
+        if dir == top {
+            return Ancestor::Nowhere {
+                tree: paths
+                    .workspace_relative(&dir)
+                    .is_none()
+                    .then(|| paths.shown(&dir)),
+            };
         }
         searched = dir;
     }
     Ancestor::Unknown
+}
+
+/// The narrowest directory that holds every one of `files`.
+fn common_dir(files: impl Iterator<Item = std::path::PathBuf>) -> Option<std::path::PathBuf> {
+    let mut common: Option<std::path::PathBuf> = None;
+    for file in files {
+        let mut holding = match common {
+            Some(holding) => holding,
+            None => file.parent()?.to_path_buf(),
+        };
+        while !file.starts_with(&holding) {
+            holding = holding.parent()?.to_path_buf();
+        }
+        common = Some(holding);
+    }
+    common
 }
 
 /// A probe walk's path filter that leaves out the path the walk below it

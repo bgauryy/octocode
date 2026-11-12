@@ -290,7 +290,7 @@ export async function e19(mode) {
   contractOf(probe, 'advisory', result);
   const osv = result.data?.advisories?.find(a => a.link?.startsWith('https://osv.dev/'));
   if (!osv) return probe.check('osvRow', false, JSON.stringify(result.data?.sources));
-  probe.check('record', sorted(osv.aliases) === sorted(record.json.aliases) && osv.modified === record.json.modified, JSON.stringify({ aliases: osv.aliases, modified: osv.modified }));
+  probe.check('record', sorted(osv.aliases) === sorted(record.json.aliases) && osv.modifiedAt === record.json.modified, JSON.stringify({ aliases: osv.aliases, modifiedAt: osv.modifiedAt }));
   return probe.expect('cvssVectorNotScore', osvCvssProblem(osv, record.json), JSON.stringify(osv.cvss));
 }
 

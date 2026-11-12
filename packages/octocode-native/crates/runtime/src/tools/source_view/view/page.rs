@@ -91,8 +91,31 @@ pub(super) fn cut_page<'a>(
             0
         },
     };
-    let long_lines = (facts.byte_origin.is_none() && view.mode.is_none())
-        .then(|| super::super::pagination::LongLines::of(ext, classified));
+    let raw = facts.byte_origin.is_none() && view.mode.is_none();
+    // A raw selection's bytes are placed in its source: a byte page names
+    // the file's bytes, as a plain read of it does.
+    let offsets;
+    let placement = match (raw, ext.source_lines.as_deref()) {
+        (true, Some(selected)) => {
+            let source_offsets = match source.offsets.as_deref() {
+                Some(known) => known,
+                None => {
+                    offsets = super::super::extraction::LineOffsets::new(&source.text);
+                    &offsets
+                }
+            };
+            Some(super::super::pagination::Placement::new(
+                &view.text,
+                selected,
+                source_offsets,
+                source.text.len(),
+            ))
+        }
+        _ => None,
+    };
+    let long_lines = raw.then(|| {
+        super::super::pagination::LongLines::of(ext, classified, placement.as_ref())
+    });
     let window = PageWindow {
         query: page_q,
         view: &view.text,
@@ -105,6 +128,15 @@ pub(super) fn cut_page<'a>(
         && scanned.page.pagination.unit == ReadProgressUnit::Bytes
     {
         origin.place(&mut scanned.page.pagination);
+    }
+    let pagination = &mut scanned.page.pagination;
+    if let Some(placement) = placement.as_ref().filter(|_| !classified)
+        && pagination.unit == ReadProgressUnit::Bytes
+        && !scanned.page.out_of_range
+    {
+        pagination.placed = placement
+            .source_byte(pagination.offset)
+            .map(|at| (at, placement.total));
     }
     Ok(CutPage {
         q,

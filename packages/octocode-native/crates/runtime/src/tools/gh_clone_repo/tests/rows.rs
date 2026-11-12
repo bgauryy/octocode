@@ -63,7 +63,7 @@ fn clone_rows_continue_into_local_tools_and_name_the_checkout_time() {
     assert_eq!(explore["tool"], "structureSearch", "{fresh}");
     assert_eq!(
         explore["input"]["queries"][0]["path"],
-        fresh["location"]["localPath"]
+        fresh["location"]["path"]
     );
     assert!(fresh["location"]["clonedAt"].is_string(), "{fresh}");
     for absent in ["owner", "repo"] {
@@ -80,10 +80,7 @@ fn clone_rows_continue_into_local_tools_and_name_the_checkout_time() {
             .unwrap()
             .ends_with('Z')
     );
-    assert_eq!(
-        replaced["location"]["localPath"],
-        fresh["location"]["localPath"]
-    );
+    assert_eq!(replaced["location"]["path"], fresh["location"]["path"]);
 
     let sparse = row(&clone_pinned(
         &fixture,
@@ -94,7 +91,7 @@ fn clone_rows_continue_into_local_tools_and_name_the_checkout_time() {
         &context,
     )
     .expect("sparse clone"));
-    let local = sparse["location"]["localPath"].as_str().expect("localPath");
+    let local = sparse["location"]["path"].as_str().expect("path");
     let path = crate::tools::test_support::checks::related_call(&sparse, "structureSearch", |_| {
         true
     })["input"]["queries"][0]["path"]
@@ -116,7 +113,7 @@ fn clone_rows_continue_into_local_tools_and_name_the_checkout_time() {
         &context,
     )
     .expect("sparse file clone"));
-    let local = file["location"]["localPath"].as_str().expect("localPath");
+    let local = file["location"]["path"].as_str().expect("path");
     let explore = crate::tools::test_support::checks::related_call(&file, "localFetch", |_| true);
     assert_eq!(explore["tool"], "localFetch", "{file}");
     let path = explore["input"]["queries"][0]["path"]
@@ -182,7 +179,7 @@ fn history_depth_fetches_that_many_commits() {
         &context,
     )
     .expect("depth 2");
-    assert_ne!(shallow.location.local_path, deep.location.local_path);
+    assert_ne!(shallow.location.path, deep.location.path);
     assert_eq!(deep.location.history_depth, Some(2));
     assert_eq!(shallow.location.history_depth, None);
     let count = |path: &str| {
@@ -190,8 +187,8 @@ fn history_depth_fetches_that_many_commits() {
             .trim()
             .to_owned()
     };
-    assert_eq!(count(&shallow.location.local_path), "1");
-    assert_eq!(count(&deep.location.local_path), "2");
+    assert_eq!(count(&shallow.location.path), "1");
+    assert_eq!(count(&deep.location.path), "2");
 }
 
 #[test]
@@ -271,7 +268,7 @@ fn depth_one_rows_of_different_commits_share_one_store() {
     });
     assert_eq!(store_dirs(&home).len(), 1, "{:?}", store_dirs(&home));
     for row in &rows {
-        assert_eq!(history(&row.location.local_path), 1, "{row:?}");
+        assert_eq!(history(&row.location.path), 1, "{row:?}");
     }
 }
 
@@ -292,11 +289,11 @@ fn deeper_history_rows_of_different_commits_keep_their_depth() {
     let fourth = fixture.push_commit("four.txt");
 
     let first = clone_pinned(&fixture, &at_depth(&third, 3), &context).expect("C3");
-    assert_eq!(history(&first.location.local_path), 3);
+    assert_eq!(history(&first.location.path), 3);
     let second = clone_pinned(&fixture, &at_depth(&fourth, 3), &context).expect("C4");
-    assert_eq!(history(&second.location.local_path), 3);
+    assert_eq!(history(&second.location.path), 3);
     assert_eq!(
-        history(&first.location.local_path),
+        history(&first.location.path),
         3,
         "a descendant's fetch shortened an earlier row"
     );

@@ -350,7 +350,7 @@ fn located(row: &serde_json::Value) -> Vec<(String, u64, Option<String>)> {
                     .file_name()
                     .map(|name| name.to_string_lossy().into_owned())
                     .unwrap_or_default(),
-                found["displayRange"]["startLine"].as_u64().unwrap_or(0),
+                found["line"].as_u64().unwrap_or(0),
                 found["source"].as_str().map(str::to_owned),
             )
         })

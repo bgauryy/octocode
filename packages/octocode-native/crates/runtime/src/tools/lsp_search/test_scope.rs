@@ -45,8 +45,8 @@ pub(super) fn retain_callers(
     retain(query, paths, items, |item| {
         let caller = item.get("from")?;
         let line = caller
-            .pointer("/displayRange/startLine")
-            .or_else(|| item.pointer("/fromRanges/0/startLine"))?
+            .get("line")
+            .or_else(|| item.pointer("/fromRanges/0/line"))?
             .as_u64()?;
         Some((caller.get("path")?.as_str()?.to_owned(), line))
     })

@@ -36,9 +36,9 @@ pub(super) fn detect_dependencies(c: &mut Ctx) {
             .iter()
             .map(|(f, l)| {
                 if *l == NONE {
-                    json!({"file": v.key(*f)})
+                    json!({"path": v.key(*f)})
                 } else {
-                    json!({"file": v.key(*f), "line": l})
+                    json!({"path": v.key(*f), "line": l})
                 }
             })
             .collect::<Vec<_>>()
@@ -124,7 +124,6 @@ pub(super) fn detect_boundaries(c: &mut Ctx) {
                 impact: c.v.impact(target),
                 evidence,
                 controls: vec!["targets that are package entrypoints/exports are allowed"],
-                verify: Vec::new(),
             },
         );
     }
@@ -195,10 +194,6 @@ pub(super) fn detect_unresolved(c: &mut Ctx) {
                 impact: 0.5,
                 evidence: json!({"count": sites.len(), "sites": grouped_sites(&sites), "outsideRoot": outside}),
                 controls,
-                verify: vec![step(
-                    ToolId::GraphQuery,
-                    json!({"operation": "diagnostics", "target": file}),
-                )],
             },
         );
     }

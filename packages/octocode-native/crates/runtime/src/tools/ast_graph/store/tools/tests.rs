@@ -92,7 +92,7 @@ fn argument_evidence_variants_and_continuations_match_the_generated_contract() {
                     input = next.clone();
                 }
                 None => {
-                    assert_eq!(ids.len() as u64, page["pagination"]["totalItems"]);
+                    assert_eq!(ids.len() as u64, page["pagination"]["total"]);
                     break;
                 }
             }

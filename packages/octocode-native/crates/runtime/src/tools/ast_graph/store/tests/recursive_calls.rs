@@ -32,7 +32,7 @@ fn recursive_and_same_file_calls_remain_visible_without_reexpanding_seeds() {
             o.limit = Some(1);
             o.offset = Some(offset);
         });
-        assert_eq!(page.value["pagination"]["totalItems"], 2);
+        assert_eq!(page.value["pagination"]["total"], 2);
         paged.extend(ids(&page));
     }
     paged.sort();

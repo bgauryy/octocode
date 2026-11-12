@@ -28,7 +28,7 @@ fn same_commit_reuses_the_verified_checkout_and_other_states_fetch_fresh() {
     // Same commit: no git network step, the same facts.
     let second = clone_pinned(&fixture, &query(), &context).expect("reused clone");
     assert_eq!(fetches(&runner), 1, "same SHA must not fetch again");
-    assert_eq!(second.location.local_path, first.location.local_path);
+    assert_eq!(second.location.path, first.location.path);
     assert_eq!(second.location.commit_sha, fixture.first_commit);
     assert_eq!(second.bytes, first.bytes);
     assert_eq!(second.calls, first.calls);
@@ -48,7 +48,7 @@ fn same_commit_reuses_the_verified_checkout_and_other_states_fetch_fresh() {
     assert_eq!(fetches(&runner), 2, "a different SHA fetches");
 
     // A modified file is never reused nor discarded.
-    let readme = Path::new(&first.location.local_path).join("README.md");
+    let readme = Path::new(&first.location.path).join("README.md");
     fs::write(&readme, "tampered\n").expect("tamper");
     let error = clone_pinned(&fixture, &by_sha, &context).expect_err("dirty checkout");
     assert_eq!(error.code, ErrorCode::CheckoutDirty);
@@ -70,16 +70,12 @@ fn same_commit_reuses_the_verified_checkout_and_other_states_fetch_fresh() {
 
     // A removed checkout is made again as a fresh worktree; the shared
     // store still holds its commit, so nothing is fetched.
-    fs::remove_dir_all(&first.location.local_path).expect("remove checkout");
+    fs::remove_dir_all(&first.location.path).expect("remove checkout");
     let again = clone_pinned(&fixture, &by_sha, &context).expect("fresh after removal");
     assert!(!again.location.reused);
     assert_eq!(fetches(&runner), 2, "the store already holds the commit");
     assert_eq!(again.location.commit_sha, fixture.first_commit);
-    assert!(
-        Path::new(&again.location.local_path)
-            .join("README.md")
-            .is_file()
-    );
+    assert!(Path::new(&again.location.path).join("README.md").is_file());
 }
 
 #[test]
@@ -99,7 +95,7 @@ fn sparse_checkout_reuse_requires_its_own_destination_and_clean_scope() {
     let first = clone_pinned(&fixture, &sparse, &context).expect("sparse clone");
     let second = clone_pinned(&fixture, &sparse, &context).expect("sparse reuse");
     assert_eq!(fetches(&runner), 1);
-    assert_eq!(second.location.local_path, first.location.local_path);
+    assert_eq!(second.location.path, first.location.path);
     assert_eq!(
         second.location.requested_paths,
         first.location.requested_paths
@@ -111,7 +107,7 @@ fn sparse_checkout_reuse_requires_its_own_destination_and_clean_scope() {
     assert_eq!(fetches(&runner), 1);
 
     // A deleted tracked file in the scope is a local change.
-    fs::remove_file(Path::new(&first.location.local_path).join("src/lib.rs")).expect("delete");
+    fs::remove_file(Path::new(&first.location.path).join("src/lib.rs")).expect("delete");
     let error = clone_pinned(&fixture, &sparse, &context).expect_err("deleted file");
     assert_eq!(error.code, ErrorCode::CheckoutDirty);
     assert_eq!(fetches(&runner), 1);
@@ -131,7 +127,7 @@ fn a_checkout_reads_the_symlink_policy_of_its_store() {
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
 
     let first = clone_pinned(&fixture, &query(), &context).expect("first clone");
-    let checkout = Path::new(&first.location.local_path);
+    let checkout = Path::new(&first.location.path);
     let policy_of = || git_output(checkout, &["config", "--get", "core.symlinks"]);
     assert_eq!(policy_of().trim(), "false");
 
@@ -167,7 +163,7 @@ fn commits_of_one_repository_share_one_store_of_linked_worktrees() {
     let next = fixture.push_second();
     let second = clone_pinned(&fixture, &query(), &context).expect("second commit");
     assert_eq!(second.location.commit_sha, next);
-    assert_ne!(first.location.local_path, second.location.local_path);
+    assert_ne!(first.location.path, second.location.path);
 
     let stores = store_dirs(&home);
     assert_eq!(stores.len(), 1, "{stores:?}");
@@ -175,10 +171,10 @@ fn commits_of_one_repository_share_one_store_of_linked_worktrees() {
     assert_eq!(steps(&runner, "initialize shared store"), 1);
     let store = fs::canonicalize(&stores[0]).expect("store");
     for row in [&first, &second] {
-        let checkout = Path::new(&row.location.local_path);
+        let checkout = Path::new(&row.location.path);
         assert!(checkout.join(".git").is_file(), "a linked worktree");
-        assert_eq!(common_dir(&row.location.local_path), store);
-        assert_eq!(history(&row.location.local_path), 1);
+        assert_eq!(common_dir(&row.location.path), store);
+        assert_eq!(history(&row.location.path), 1);
     }
 }
 

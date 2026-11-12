@@ -50,7 +50,7 @@ impl GitHubProvider {
         }
         let resolved_ref = self.resolve_commit(request, context).await?;
         let spec = owner.of(self.contents_spec(request, &resolved_ref)?);
-        let page = match self.transport.execute(spec, context).await {
+        let page = match self.transport.execute(spec.clone(), context).await {
             Ok(page) => page,
             Err(error) if error.status == Some(413) => {
                 let (bytes, raw_response_bytes, blob) = self
@@ -65,8 +65,10 @@ impl GitHubProvider {
             }
             Err(error) => return Err(error),
         };
-        let (bytes, raw_response_bytes, blob) =
-            self.page_bytes(request, &page, context, owner).await?;
+        let (bytes, raw_response_bytes, blob) = self
+            .page_bytes(request, &page, context, owner)
+            .await
+            .inspect_err(|error| self.discard_undecodable(&spec, error, context))?;
         Ok(ContentResponse {
             bytes,
             resolved_ref,
@@ -166,16 +168,19 @@ impl GitHubProvider {
         directory_url
             .query_pairs_mut()
             .append_pair("ref", resolved_ref);
+        let directory_spec = RequestSpec::get(directory_url);
         let directory = self
             .transport
-            .execute(RequestSpec::get(directory_url), context)
+            .execute(directory_spec.clone(), context)
             .await?;
         let entries: Vec<DirectoryEntry> =
             serde_json::from_slice(&directory.body).map_err(|_| {
-                ProviderError::new(
+                let error = ProviderError::new(
                     ProviderErrorKind::Decode,
                     "invalid GitHub directory response",
-                )
+                );
+                self.discard_undecodable(&directory_spec, &error, context);
+                error
             })?;
         let entry = entries
             .into_iter()
@@ -192,6 +197,15 @@ impl GitHubProvider {
             directory.body.len().saturating_add(blob_bytes),
             Some(entry.sha),
         ))
+    }
+
+    /// A body this read could not decode is no answer to keep: a retry asks
+    /// GitHub again rather than meeting the same body. A file read's other
+    /// failures (a directory, a submodule) are GitHub's answer and stay.
+    fn discard_undecodable(&self, spec: &RequestSpec, error: &ProviderError, context: &RequestContext) {
+        if error.kind == ProviderErrorKind::Decode {
+            self.transport.discard(spec, context);
+        }
     }
 
     /// A blob's bytes as GitHub stores them: the raw media type answers

@@ -40,9 +40,9 @@ pub(super) struct SecurityAdvisory {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub published: Option<String>,
+    pub published_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub modified: Option<String>,
+    pub modified_at: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub fixed_in: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -602,8 +602,8 @@ pub(super) fn advisory(
         cwes: texts(database.and_then(|value| value.get("cwe_ids"))),
         summary: text(fields.get("summary")),
         details: text(fields.get("details")),
-        published: text(fields.get("published")),
-        modified: text(fields.get("modified")),
+        published_at: text(fields.get("published")),
+        modified_at: text(fields.get("modified")),
         fixed_in: fixed_in(&own),
         withdrawn: text(fields.get("withdrawn")),
         also_affects: also_affects(&other),

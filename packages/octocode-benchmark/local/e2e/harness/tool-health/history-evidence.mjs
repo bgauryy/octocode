@@ -11,7 +11,7 @@ export function historyFileRows(data, json, context = new Map(), query) {
       : [`${pr.number}:${file.path}:${file.status}`];
     const { patch, patchPagination: _pagination, ...metadata } = file;
     const [owner, repo] = resolvedIdentity(['owner', 'repo'], { row: pr, data, query });
-    const key = canon([row?.index ?? 0, owner, repo, pr.number, pr.baseSha, pr.headSha, file.path]);
+    const key = canon([row?.index ?? 0, owner, repo, pr.number, pr.baseCommitSha, pr.headCommitSha, file.path]);
     const original = context.get(key);
     const continued = file.patchPagination?.offset > 0 || row?.rowPart?.part > 1;
     const repeated = continued && laterPartContext('ghGetHistoryItem', ['data', 'pullRequests', String(prIndex), 'files', String(fileIndex)], { row: metadata, original });

@@ -1,9 +1,11 @@
 use super::*;
 
-/// A row's own text names no file and leaves for the provider: whatever a read
-/// of some file would redact is redacted in place, in every string of it,
-/// and refuses nothing: no rule knows it for a credential the caller wrote.
-/// A bare shape still needs its context, and plain state is untouched.
+/// A row's own text names no file and leaves for the provider. Its
+/// evidence (`content`) is judged as a read judges text of no known file, so
+/// the provider reads what localFetch shows of it; the caller's words beside
+/// it lose whatever a read of some file would redact, refusing nothing: no
+/// rule knows it for a credential the caller wrote. A bare shape still needs
+/// its context, and plain state is untouched.
 #[test]
 fn clasify_text_is_judged_as_if_it_could_be_any_file() {
     const VALUE: &str = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIz";
@@ -12,19 +14,41 @@ fn clasify_text_is_judged_as_if_it_could_be_any_file() {
     let policy = InputPolicy::ClasifyEvidence {
         content_limit: 32_000,
     };
-    for row in [
-        json!({"content": manifest}),
-        json!({"content": {"file": {"text": manifest}}}),
-        json!({"content": [manifest]}),
-        json!({"content": "plain", "questions": {"q": {"type": "noul", "instructions": manifest}}}),
-        json!({"content": "plain", "context": manifest}),
+    let read = security.sanitize_text(&manifest, None).content.into_owned();
+    for (row, evidence) in [
+        (json!({"content": manifest}), json!(read)),
+        (
+            json!({"content": {"file": {"text": manifest}}}),
+            json!({"file": {"text": read}}),
+        ),
+        (json!({"content": [manifest]}), json!([read])),
     ] {
         let state = security
             .check_input(row.clone(), policy)
             .expect("redacted in place");
-        let shown = state.to_string();
-        assert!(!shown.contains(VALUE), "{shown}");
-        assert!(shown.contains("REDACTED-KUBERNETESSECRETS"), "{shown}");
+        assert_eq!(state["content"], evidence, "{row}");
+    }
+    // The caller's words holding a Secret's data hold what a read of them
+    // hides (D2, round 13: the manifest names itself in any text), so the
+    // screen refuses them with the prose repair.
+    for (row, field) in [
+        (
+            json!({"content": "plain", "questions": {"q": {"type": "noul", "instructions": manifest}}}),
+            "questions.q.instructions",
+        ),
+        (json!({"content": "plain", "context": manifest}), "context"),
+    ] {
+        let issues = security
+            .check_input(row.clone(), policy)
+            .map(|_| Vec::new())
+            .unwrap_or_else(|issues| issues);
+        assert!(
+            issues.iter().any(|issue| issue.path == [field]
+                && issue
+                    .message
+                    .contains("remove the credential from the text")),
+            "{row}: {issues:?}"
+        );
     }
     // A read of no file would redact these, whatever it is called.
     for plain in [
@@ -208,8 +232,26 @@ fn clasify_words_the_gate_cleared_stay_as_written() {
         let checked = security.check_input(row.clone(), policy).expect("admitted");
         assert_eq!(*checked, row, "{words}");
     }
+    // Evidence that is an armor line alone names a key and holds none of it:
+    // it reaches the provider as written. A body beside it never does.
     let checked = security
-        .check_input(json!({"content": "-----BEGIN RSA PRIVATE KEY-----"}), policy)
+        .check_input(
+            json!({"content": "-----BEGIN RSA PRIVATE KEY-----"}),
+            policy,
+        )
+        .expect("admitted");
+    assert_eq!(checked["content"], json!("-----BEGIN RSA PRIVATE KEY-----"));
+    let body = "MIIEowIBAAKCAQEAxyzMIIEowIBAAKCAQEAxyzMIIEowIBAAKCAQEAxyzMIIEowIB";
+    let checked = security
+        .check_input(
+            json!({"content": format!("-----BEGIN RSA PRIVATE KEY-----\n{body}\n-----END RSA PRIVATE KEY-----")}),
+            policy,
+        )
         .expect("redacted in place");
-    assert_ne!(checked["content"], json!("-----BEGIN RSA PRIVATE KEY-----"));
+    let content = checked["content"].as_str().expect("content");
+    assert!(!content.contains(body), "{content}");
+    assert!(
+        content.starts_with("-----BEGIN RSA PRIVATE KEY-----\n") && content.ends_with("\n-----END RSA PRIVATE KEY-----"),
+        "{content}"
+    );
 }

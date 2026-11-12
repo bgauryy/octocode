@@ -9,7 +9,7 @@ The corpus is a private clone of harness.corpus (walk-corpus-<rev>); a graph flo
 stored graph. Per rep, one fresh home and MCP server: a warm-up read, the flow's first call (a language-server flow waits
 until its index stops answering partially), the same call again (repeat), then every continuation of that
 answer, breadth first: the response split when there is one, else each row's nextPage, same-claim branches
-(harness.SAME_CLAIM) and each collection's contentPagination.<name>.next, until none remains. Instructions
+(harness.SAME_CLAIM) and each history section's next.<section> (harness.SECTIONS), until none remains. Instructions
 come from the server process (harness.Mcp.call); child processes such as git or a language server are not in
 them. Each figure is the min over reps (3; a live flow 1, --live-reps), per call position. Stub flows also count requests the stub received
 (github, registry, osv, classification) per call; live flows sum the provider usage the answers report.

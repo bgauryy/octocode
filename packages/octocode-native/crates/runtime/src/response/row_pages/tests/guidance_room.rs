@@ -13,12 +13,11 @@ fn code_search_row(files: usize, reads: usize) -> Value {
     let files = (0..files)
         .map(|n| {
             json!({"owner":"o","repo":"r","path":format!("src/module_{n:03}.js"),
-                "matches":[{"value":format!("  useEffect(() => {{ run_{n}(); }}, [dep_{n}]);\n").repeat(4),
-                    "matchIndices":[{"start":2,"end":11,"lineOffset":0}]}],
-                "lines":[format!("{n}\t  useEffect(() => {{ run_{n}(); }}, [dep_{n}]);")]})
+                "matches":[{"line":n + 1,
+                    "value":format!("  useEffect(() => {{ run_{n}(); }}, [dep_{n}]);").repeat(5)}]})
         })
         .collect::<Vec<_>>();
-    json!({"index":0,"data":{"files":files,"pagination":{"page":1,"totalPages":6,"pageSize":50,"totalItems":259,"hasMore":true},"next":next}})
+    json!({"index":0,"data":{"files":files,"pagination":{"unit":"files","offset":0,"length":50,"total":259,"hasMore":true},"next":next}})
 }
 
 #[test]

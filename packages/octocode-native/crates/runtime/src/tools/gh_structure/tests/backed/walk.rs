@@ -40,15 +40,15 @@ async fn tree_pattern_finds_paths_by_name_at_any_depth() {
         "{}",
         out.data
     );
-    assert_eq!(out.data["summary"]["files"], 1);
+    assert_eq!(out.data["summary"]["fileCount"], 1);
     let literal = run(&server, find("Exception_Handler"))
         .await
         .expect("literal glob");
-    assert_eq!(literal.data["summary"]["files"], 0);
+    assert_eq!(literal.data["summary"]["fileCount"], 0);
     let bare = run(&server, find("**/*exception_handler*"))
         .await
         .expect("bare word");
-    assert_eq!(bare.data["summary"]["files"], 2, "{}", bare.data);
+    assert_eq!(bare.data["summary"]["fileCount"], 2, "{}", bare.data);
     let none = run(&server, find("**/nope.py")).await.expect("no match");
     assert_eq!(none.status, Some("empty"));
     let broaden =
@@ -77,7 +77,7 @@ async fn tree_pattern_finds_paths_by_name_at_any_depth() {
     let under = run(&server, under)
         .await
         .expect("repository-relative glob within scoped tree");
-    assert_eq!(under.data["summary"]["files"], 1);
+    assert_eq!(under.data["summary"]["fileCount"], 1);
     assert_eq!(
         under.data["files"],
         json!([{"dir":"starlette","files":["routing.py (3)"]}])
@@ -250,7 +250,7 @@ async fn committed_build_output_names_are_listed_and_walked() {
     assert!(data.get("omitted").is_none(), "{data}");
     assert!(data.pointer("/next/includeSkipped").is_none(), "{data}");
     let local = std::path::Path::new(
-        data["location"]["localPath"]
+        data["location"]["path"]
             .as_str()
             .expect("materialized location"),
     );

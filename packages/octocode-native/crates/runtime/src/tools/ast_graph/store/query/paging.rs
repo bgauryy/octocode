@@ -41,19 +41,12 @@ pub(super) fn run_page(
     }
     let limit = options.limit.unwrap_or_else(default_limit);
     let total = page.total;
-    let mut rows = page
+    let rows = page
         .rows
         .into_iter()
         .skip(offset.saturating_sub(page.start))
         .take(limit)
         .collect::<Vec<_>>();
-    // One ready call shows the form: every other symbol row rebuilds it
-    // from its own file, name and line.
-    for row in &mut rows {
-        if verify_symbol(graph, row) {
-            break;
-        }
-    }
     let shown = rows.len();
     let mut out = Map::new();
     out.insert("graph".into(), graph.summary());
@@ -68,27 +61,6 @@ pub(super) fn run_page(
     };
     settle(&mut output, options, total);
     output
-}
-
-/// A listed symbol row's `verify`: the lspSearch call that confirms it at
-/// its declaration, since graph rows are syntax candidates. A row that
-/// already states its verify steps (an issue, or an edge row's
-/// [`Graph::edge_lead`]) keeps them. Whether the row got one.
-fn verify_symbol(graph: &Graph, row: &mut Value) -> bool {
-    if row["kind"] != "symbol" || row.get("verify").is_some() {
-        return false;
-    }
-    // A provenance row names its file only in its key.
-    let file = row["id"].as_str().and_then(|key| graph.file_key(key));
-    let (Some(file), Some(name), Some(line)) = (file, row["name"].as_str(), row["line"].as_u64())
-    else {
-        return false;
-    };
-    let Some(lead) = graph.lsp_lead(file, name, line) else {
-        return false;
-    };
-    row["verify"] = json!([lead]);
-    true
 }
 
 /// States the page of a list answer's `rows`: its `pagination`, and the
@@ -130,15 +102,14 @@ pub(super) fn settle(output: &mut GraphOutput, options: &QueryOptions, total: us
         output.next.push((Channel::NextPage, resume));
     }
     output.next.extend(cycles);
-    output.value["pagination"] = pagination(options, total, has_more);
+    output.value["pagination"] = pagination(offset, shown, total, has_more);
 }
 
-/// The shared `pagination` object: a page's rows vary with the response
-/// budget, so `page` counts the calls made and no page count is stated. Row
-/// position stays in the cursor.
-pub(super) fn pagination(options: &QueryOptions, total: usize, has_more: bool) -> Value {
-    crate::response::pages::PageFacts::open(options.page.unwrap_or(1), None, has_more)
-        .with_items(total)
+/// The shared `pagination` object: the page's first row, the rows it shows
+/// (they vary with the response budget) and the list's total.
+pub(super) fn pagination(offset: usize, shown: usize, total: usize, has_more: bool) -> Value {
+    crate::response::pages::PageFacts::open(offset, shown, has_more)
+        .with_total(total)
         .to_value()
 }
 

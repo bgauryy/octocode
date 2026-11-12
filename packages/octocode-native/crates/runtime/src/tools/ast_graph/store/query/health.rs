@@ -14,7 +14,7 @@ pub(super) fn diagnostics(g: &Graph, filter: Option<&str>) -> Page {
             })
             .map(|diag| {
                 let mut row = json!({
-                    "file": g.t.str(diag.file),
+                    "path": g.t.str(diag.file),
                     "code": g.t.str(diag.code),
                     "message": g.t.str(diag.message),
                 });
@@ -44,7 +44,7 @@ pub(super) fn unlinked_path_imports(g: &Graph, file: u32) -> Vec<Value> {
         })
         .map(|diag| {
             json!({
-                "file": g.t.str(diag.file),
+                "path": g.t.str(diag.file),
                 "line": diag.line,
                 "message": g.t.str(diag.message),
             })
@@ -88,7 +88,7 @@ pub(super) fn stale(g: &Graph, paths: &PathPolicy) -> (Map<String, Value>, Page)
         .changes
         .into_iter()
         .map(|change| {
-            let mut row = json!({"file": change.file, "status": change.status});
+            let mut row = json!({"path": change.file, "status": change.status});
             if change.config {
                 row["config"] = json!(true);
             }

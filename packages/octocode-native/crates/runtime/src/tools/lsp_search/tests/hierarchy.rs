@@ -180,16 +180,24 @@ async fn hierarchy_walk_is_breadth_first_and_labels_every_edge_with_level_and_vi
     // `public_location`.
     let b = name_line("b");
     assert_eq!(
-        edges[0]["from"]["displayRange"],
-        serde_json::json!({"startLine": b + 1, "startCharacter": 10, "endLine": b + 4})
+        (
+            &edges[0]["from"]["line"],
+            &edges[0]["from"]["column"],
+            &edges[0]["from"]["endLine"]
+        ),
+        (
+            &serde_json::json!(b + 1),
+            &serde_json::json!(10),
+            &serde_json::json!(b + 4)
+        )
     );
     assert_eq!(edges[0]["from"]["kind"], "function");
     assert_eq!(
         edges[0]["fromRanges"],
-        serde_json::json!([{"startLine": 3, "startCharacter": 5}])
+        serde_json::json!([{"line": 3, "column": 5}])
     );
     assert_eq!(edges[2]["via"]["line"], b + 1);
-    assert_eq!(edges[2]["via"]["character"], 10);
+    assert_eq!(edges[2]["via"]["column"], 10);
     assert!(edges[0].get("via").is_none());
 }
 
@@ -238,8 +246,8 @@ async fn repeated_parent_node_pairs_merge_into_one_edge_with_all_sites() {
     assert_eq!(
         edge["fromRanges"],
         serde_json::json!([
-            {"startLine": 3, "startCharacter": 5},
-            {"startLine": 4, "startCharacter": 5}
+            {"line": 3, "column": 5},
+            {"line": 4, "column": 5}
         ])
     );
 }

@@ -305,14 +305,21 @@ fn the_provider_reads_a_shown_source_as_it_was_shown() {
             .content
             .into_owned();
         assert!(!shown.contains(value), "{path}: {shown}");
-        assert!(shown.contains("Authorization: Bearer [REDACTED-"), "{path}: {shown}");
+        assert!(
+            shown.contains("Authorization: Bearer [REDACTED-"),
+            "{path}: {shown}"
+        );
         if literal {
             assert!(shown.contains("\\r\\n\";"), "{path}: {shown}");
             assert!(shown.contains("Host: example.com"), "{path}: {shown}");
         }
         let mut state = serde_json::json!({"content": shown.clone()});
         policy.sanitize_data(&mut state);
-        assert_eq!(state["content"], shown.as_str(), "{path}: the provider's view");
+        assert_eq!(
+            state["content"],
+            shown.as_str(),
+            "{path}: the provider's view"
+        );
         let row = serde_json::json!({"content": shown.clone(), "questions": {"q": {"type": "bool", "instructions": "is it set"}}});
         let checked = policy
             .check_input(
@@ -322,6 +329,48 @@ fn the_provider_reads_a_shown_source_as_it_was_shown() {
                 },
             )
             .expect("admitted");
-        assert_eq!(checked["content"], shown.as_str(), "{path}: the gate's view");
+        assert_eq!(
+            checked["content"],
+            shown.as_str(),
+            "{path}: the gate's view"
+        );
     }
+}
+
+/// D6 (round 13): clasify's inline content reaches the provider judged as a
+/// read of text of no known file judges it: the provider's pass over the
+/// admitted evidence hides nothing a pathless read shows (`apiKey: null,`,
+/// `token: this.token,`, `DB_PASS=Fake0Moo`, a block scalar's header), and
+/// each value it hides keeps the read's one placeholder. A row naming its
+/// file is judged by that file's leaf rules.
+#[test]
+fn the_provider_reads_inline_content_as_a_pathless_read_shows_it() {
+    let policy = ContentSecurity::new();
+    let content = "const config = {\n  apiKey: null,\n  token: this.token,\n  password: undefined,\n};\nDB_PASS=Fake0Moo\ndb:\n  password: |\n    Fz8kQ2mL9xW4\napi_key = \"Zq8Wv3Xr7Tn2Lp5Ab1Cd9Ef4Gh6Jk8Lm0Np2Qr4St\"\n";
+    let read = policy.sanitize_text(content, None).content.into_owned();
+    for shown in [
+        "apiKey: null,",
+        "token: this.token,",
+        "password: undefined,",
+        "DB_PASS=Fake0Moo",
+        "  password: |\n",
+    ] {
+        assert!(read.contains(shown), "{shown:?}: {read}");
+    }
+    assert!(
+        !read.contains("Fz8kQ2mL9xW4") && !read.contains("Zq8Wv3Xr7"),
+        "{read}"
+    );
+    for mut state in [
+        serde_json::json!({"content": read.clone()}),
+        serde_json::json!({"context": "  Research context\n", "content": {"file": {"text": read.clone()}}}),
+    ] {
+        let before = state.clone();
+        policy.sanitize_data(&mut state);
+        assert_eq!(state, before, "the provider's view is the read's");
+    }
+    // The raw text, never admitted, is judged the same way at the boundary.
+    let mut raw = serde_json::json!({"content": content});
+    policy.sanitize_data(&mut raw);
+    assert_eq!(raw["content"], read.as_str());
 }

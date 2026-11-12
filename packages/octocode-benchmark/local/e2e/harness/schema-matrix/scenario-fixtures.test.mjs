@@ -44,14 +44,14 @@ test('declaration clipping starts from the real use of the symbol', () => {
 
 test('missing-version repair executes the offered related read unchanged and rejects wrong identity', async () => {
   const row = scene('lead.repair.search');
-  assert.deepEqual(row.codes, ['versionNotFound']);
+  assert.deepEqual(row.codes, ['notFound']);
   const input = { queries: [{ ...row.query, version: '1.2.3' }] };
   const lead = { kind: 'related', tool: 'artifactSearch', input };
   const invoke = async replacement => {
     let calls = 0;
     const result = await row.run({ walk: async (tool, request) => {
       assert.equal(tool, 'artifactSearch');
-      if (calls++ === 0) return { failures: [], pages: [{ json: { results: [{ data: { errorCode: 'versionNotFound', related: [replacement] } }] } }] };
+      if (calls++ === 0) return { failures: [], pages: [{ json: { results: [{ data: { errorCode: 'notFound', related: [replacement] } }] } }] };
       assert.equal(request, input, 'execute the emitted call unchanged');
       return { failures: [], pages: [{ json: { results: [{ data: { artifacts: [{ version: '1.2.3' }] } }] } }] };
     } });

@@ -257,7 +257,7 @@ async fn an_oversized_source_is_answered_from_its_sections_beside_its_siblings()
         query["resources"]["source"]["query"]["path"], "big.txt",
         "{out}"
     );
-    assert_eq!(rows[1]["data"]["errorCode"], "pathNotFound", "{out}");
+    assert_eq!(rows[1]["data"]["errorCode"], "notFound", "{out}");
     assert_eq!(
         rows[2]["data"]["answers"]["restart"]["noul"], 0.9,
         "a sibling keeps its answer"

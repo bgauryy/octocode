@@ -277,19 +277,87 @@ pub async fn execute(
         identify(&mut output.data);
     }
     // The row is redacted here, before the output gate sees it: say so with
-    // the shared warning, as the gate does for what it redacts.
-    let redacted = sanitize_provider_json(security, &mut output.data, Path::new(SCAN_PATH))?
-        + source.redacted();
+    // the shared warning, as the gate does for what it redacts. The count is
+    // what this page shows: the source redacted every body and patch it
+    // fetched, files a filter left out and other pages' included.
+    let added = sanitize_provider_json(security, &mut output.data, Path::new(SCAN_PATH))?;
+    let redacted = if added + source.redacted() > 0 {
+        crate::security::placeholders_in(&output.data)
+    } else {
+        0
+    };
     if redacted > 0 {
         crate::response::paging::push_warnings(
             &mut output.data,
             [crate::security::redacted_content_warning(redacted)],
         );
     }
+    publish_section_pages(&mut output.data);
     remove_nulls(&mut output.data);
     crate::response::result::finish_calls(&mut output.data);
     enforce_response_limit(&output.data, context.budget.max_body_bytes)?;
     Ok(output)
+}
+
+/// Every row's `sectionPagination` as the caller reads it: each block states
+/// where its section's page stands, and the call that reads on rides the
+/// row's `next.<section>`. What shaping kept in a block (its cursor, a
+/// provider limit, a terminal mark) leaves it: a terminal mark is restated
+/// on the row ([`window::lift_page_limits`]). Rows: the commit or comparison
+/// itself, each pull request and its commits, each issue.
+fn publish_section_pages(data: &mut Value) {
+    publish_row_pages(data);
+    for collection in ["pullRequests", "issues"] {
+        for row in data
+            .get_mut(collection)
+            .and_then(Value::as_array_mut)
+            .into_iter()
+            .flatten()
+        {
+            publish_row_pages(row);
+            for commit in row
+                .get_mut("commits")
+                .and_then(Value::as_array_mut)
+                .into_iter()
+                .flatten()
+            {
+                publish_row_pages(commit);
+            }
+        }
+    }
+}
+
+fn publish_row_pages(row: &mut Value) {
+    let (mut calls, mut limited) = (Vec::new(), Vec::new());
+    for (section, block) in row
+        .get_mut("sectionPagination")
+        .and_then(Value::as_object_mut)
+        .into_iter()
+        .flatten()
+    {
+        let Some(fields) = block.as_object_mut() else {
+            continue;
+        };
+        if let Some(call) = fields
+            .remove("next")
+            .and_then(|mut next| next.get_mut("nextPage").map(Value::take))
+        {
+            calls.push((section.clone(), call));
+        }
+        let limit = fields.remove("providerLimit");
+        if fields.remove("terminalLimit") == Some(Value::Bool(true)) {
+            limited.push(serde_json::json!({"terminalLimit": true, "providerLimit": limit}));
+        }
+        for cursor in ["nextPage", "nextOffset"] {
+            fields.remove(cursor);
+        }
+    }
+    for mut page in limited {
+        window::lift_page_limits(row, &mut page);
+    }
+    for (section, call) in calls {
+        crate::response::result::set_next(row, &section, call);
+    }
 }
 
 /// Read one history item through `provider`, as every GitHub tool runs:

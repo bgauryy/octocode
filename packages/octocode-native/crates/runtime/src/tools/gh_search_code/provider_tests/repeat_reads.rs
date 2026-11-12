@@ -83,7 +83,10 @@ async fn a_repeat_reads_no_file_and_a_new_commit_reads_it_again() {
     let provider = keeping_provider(&server);
 
     let first = search(&provider, "alpha").await;
-    assert_eq!(first["files"][0]["lines"], json!(["1\tfn alpha() {}"]));
+    assert_eq!(
+        first["files"][0]["matches"],
+        json!([{"line": 1, "value": "fn alpha() {}"}])
+    );
     assert_eq!(content_requests(&server).await, 1, "{first}");
 
     let repeat = search(&provider, "alpha").await;

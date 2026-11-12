@@ -135,6 +135,31 @@ fn a_write_a_call_depends_on_waits_out_a_scan_that_holds_the_store() {
     });
 }
 
+/// Two writes of one process (the rows of one call) take turns at the store:
+/// one waits as long as the other holds it, past a reuse write's wait, and is
+/// kept, so a call never reports its own store busy.
+#[test]
+fn writes_of_one_process_take_turns_and_never_find_the_store_busy() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store(dir.path());
+    let held = store.disk.as_ref().unwrap().hold();
+    std::thread::scope(|scope| {
+        let write = scope.spawn(|| {
+            let call = octocode_io::notice::ResultNotes::default();
+            let in_call = call.enter();
+            let kept = store.put_confirmed(key("turn", "x"), 1, 8, volatile(600)).1;
+            drop(in_call);
+            (kept, store_notices(&call, dir.path()))
+        });
+        std::thread::sleep(crate::cache::disk::REUSE_LOCK_WAIT + Duration::from_millis(500));
+        drop(held);
+        let (kept, notices) = write.join().expect("write");
+        assert!(kept, "the second write was kept");
+        assert_eq!(notices, Vec::<String>::new(), "no busy notice");
+    });
+    assert!(store.get(&key("turn", "x")).is_some());
+}
+
 /// Past the request's deadline the write is refused, and the call learns it.
 #[test]
 fn a_write_refused_at_its_deadline_reports_it_and_is_said() {

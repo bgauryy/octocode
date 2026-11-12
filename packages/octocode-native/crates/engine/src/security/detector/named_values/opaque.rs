@@ -30,7 +30,7 @@ static RUN_BYTES: LazyLock<[bool; 128]> = LazyLock::new(|| {
 });
 
 /// Whether every byte of `value` is an opaque run's.
-pub(super) fn is_run(value: &str) -> bool {
+pub(in crate::security::detector) fn is_run(value: &str) -> bool {
     value
         .bytes()
         .all(|byte| RUN_BYTES.get(usize::from(byte)).copied().unwrap_or(false))

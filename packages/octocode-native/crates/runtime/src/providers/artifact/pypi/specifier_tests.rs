@@ -83,7 +83,7 @@ async fn post_releases_match_and_order_after_their_base_release() {
     let excluded = lookup(">2.9.0,<3")
         .await
         .expect_err("only 2.9.0.post0 is above");
-    assert_eq!(excluded.code, ErrorCode::VersionNotFound);
+    assert_eq!(excluded.code, ErrorCode::NotFound);
 }
 
 /// A specifier only a yanked release matches names it; a pin selects it.
@@ -92,7 +92,7 @@ async fn yanked_releases_are_named_never_resolved() {
     let error = lookup(">=2.8.2,<2.9")
         .await
         .expect_err("only 2.8.2 matches");
-    assert_eq!(error.code, ErrorCode::VersionNotFound);
+    assert_eq!(error.code, ErrorCode::NotFound);
     assert!(error.message.contains("yanked 2.8.2"), "{error:?}");
     assert_eq!(error.nearest, ["2.8.2"]);
     let page = lookup(">=2.8,<2.9").await.expect("2.8.1 is not yanked");
@@ -103,12 +103,12 @@ async fn yanked_releases_are_named_never_resolved() {
     assert_eq!(pinned.artifacts[0].yanked, Some(true));
 }
 
-/// A valid specifier that matches nothing is `versionNotFound`; one that
+/// A valid specifier that matches nothing is `notFound`; one that
 /// is not PEP 440 is invalid input, never a missing version.
 #[tokio::test]
 async fn invalid_specifiers_are_invalid_input_not_missing_versions() {
     let missing = lookup(">=4").await.expect_err("no 4.x release");
-    assert_eq!(missing.code, ErrorCode::VersionNotFound);
+    assert_eq!(missing.code, ErrorCode::NotFound);
     for invalid in [
         ">=2.8,<<3",
         "~=2",

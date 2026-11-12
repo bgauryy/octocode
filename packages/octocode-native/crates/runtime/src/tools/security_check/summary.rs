@@ -97,7 +97,10 @@ fn summary(row: Value, target: Target<'_>) -> Value {
     if let Some(failed) = sources.as_ref().and_then(failed_sources) {
         lean.insert("sources".to_owned(), failed);
     }
-    lean.insert("related".to_owned(), leads(related, target.query));
+    // A row that failed (a version the registry does not publish) answers
+    // the same in details: its leads are the repairs alone.
+    let failed = lean.contains_key("errorCode");
+    lean.insert("related".to_owned(), leads(related, target.query, !failed));
     Value::Object(lean)
 }
 
@@ -113,7 +116,7 @@ pub(super) fn advisory(row: Value, query: Map<String, Value>) -> Value {
     if let Some(failed) = sources.as_ref().and_then(failed_sources) {
         fields.insert("sources".to_owned(), failed);
     }
-    fields.insert("related".to_owned(), leads(None, query));
+    fields.insert("related".to_owned(), leads(None, query, true));
     Value::Object(fields)
 }
 
@@ -168,12 +171,14 @@ fn failed_sources(sources: &Value) -> Option<Value> {
     (!failed.is_empty()).then_some(Value::Array(failed))
 }
 
-/// The summary's leads: the same target with `view:"details"`, which lists
-/// every other lead of the whole row, then the checks of exactly pinned
-/// dependencies, whose advisories no field of this row counts.
-fn leads(related: Option<Value>, query: Map<String, Value>) -> Value {
-    let details =
-        Continuation::related(ToolId::SecurityCheck, Value::Object(with_details(query))).build();
+/// The summary's leads: the same target with `view:"details"` (`details`),
+/// which lists every other lead of the whole row, then the package checks
+/// the row names: exactly pinned dependencies, whose advisories no field of
+/// this row counts, or a missing version's nearest published ones.
+fn leads(related: Option<Value>, query: Map<String, Value>, details: bool) -> Value {
+    let details = details.then(|| {
+        Continuation::related(ToolId::SecurityCheck, Value::Object(with_details(query))).build()
+    });
     let pinned = related
         .and_then(|related| match related {
             Value::Array(calls) => Some(calls),
@@ -188,7 +193,7 @@ fn leads(related: Option<Value>, query: Map<String, Value>) -> Value {
                     !rows.is_empty() && rows.iter().all(|row| row["operation"] == "package")
                 })
         });
-    std::iter::once(details).chain(pinned).collect()
+    details.into_iter().chain(pinned).collect()
 }
 
 #[cfg(test)]

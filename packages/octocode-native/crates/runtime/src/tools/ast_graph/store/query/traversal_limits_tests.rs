@@ -64,7 +64,7 @@ fn traversal_pages_reach_every_node_beyond_the_former_visit_cap() {
         .traversal()
         .unwrap();
         assert_eq!(answer.class, ExitClass::Success, "{}", answer.value);
-        assert_eq!(answer.value["pagination"]["totalItems"], 200_002);
+        assert_eq!(answer.value["pagination"]["total"], 200_002);
         assert_eq!(answer.value["rows"].as_array().unwrap().len(), 1);
         assert_eq!(answer.value["rows"][0]["id"], expected);
         if offset < 200_001 {

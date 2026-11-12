@@ -42,9 +42,9 @@ pub fn run_if_due(home: &Path, capture_ttl: Duration) -> bool {
     for dir in crate::cache::Directory::retired(home) {
         let _ = fs::remove_dir_all(dir);
     }
-    // `tmp/tree` and `tmp/tree-staging` are written by octocode-mcp 19.x,
-    // which shares this home; native never reads them, so aged entries are
-    // cleared here.
+    // `tmp/tree` and `tmp/tree-staging` are written by octocode-mcp 19.x
+    // (19.1.0 is still its latest published release), which shares this
+    // home; native never reads them, so aged entries are cleared here.
     sweep_dir(&tmp.join("tree"), INTERVAL);
     sweep_dir(&tmp.join("tree-staging"), INTERVAL);
     // Materialized checkouts: each snapshot ages by its last write and is

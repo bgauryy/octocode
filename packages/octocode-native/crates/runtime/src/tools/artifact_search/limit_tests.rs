@@ -88,7 +88,7 @@ async fn an_omitted_limit_is_the_contract_default() {
         .expect("discovery succeeds");
     assert_eq!(names(&data).len(), limits::LIMIT_DEFAULT, "{data}");
     assert_eq!(
-        data["pagination"]["pageSize"],
+        data["pagination"]["length"],
         limits::LIMIT_DEFAULT,
         "{data}"
     );

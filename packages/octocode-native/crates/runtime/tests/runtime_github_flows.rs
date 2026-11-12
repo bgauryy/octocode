@@ -74,7 +74,7 @@ async fn a_cross_fork_compare_pins_its_head_to_a_commit() {
     .expect("fork compare");
     let data = row_data(&out).clone();
     assert_eq!(row_status(&out), "success", "{data}");
-    assert_eq!(data["headSha"], FORK_HEAD_SHA, "{data}");
+    assert_eq!(data["headCommitSha"], FORK_HEAD_SHA, "{data}");
     let narrow = support::checks::related_call(&data, "ghSearchHistory", |input| {
         input["queries"][0]["operation"] == "commit" && input["queries"][0]["path"] == "lib/"
     });

@@ -56,9 +56,9 @@ pub(super) fn origin(i: usize) -> Value {
 
 pub(super) fn fixture(units: usize, rows: usize) -> Value {
     json!({"operation":"unresolved","graph":graph(),
-        "pagination":{"page":1,"totalItems":rows,"hasMore":false},"sourceEvidence":catalog(units),"rows":(0..rows).map(|i|json!({
+        "pagination":{"unit":"items","offset":0,"length":rows,"total":rows,"hasMore":false},"sourceEvidence":catalog(units),"rows":(0..rows).map(|i|json!({
             "id":format!("site:{i:03}"),"from":format!("source-{i:03}.rs#owner"),
-            "targetName":"callback","edge":"passes","file":format!("source-{i:03}.rs"),"line":1,
+            "targetName":"callback","edge":"passes","path":format!("source-{i:03}.rs"),"line":1,
             "reason":"binding-unrepresented","sourceDigest":"a".repeat(64),
             "sourceRange":range(),"sourceOrigin":origin(i%units),
             "selectionByteRange":range(),"selectionOrigin":origin(i%units),

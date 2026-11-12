@@ -26,7 +26,7 @@ fn resources(out: &Value) -> (&serde_json::Map<String, Value>, Vec<&str>) {
     (map, map.keys().map(String::as_str).collect())
 }
 
-/// Three files, one missing: two answers, one `pathNotFound`, and exactly
+/// Three files, one missing: two answers, one `notFound`, and exactly
 /// one provider request per file read; the row validates as served.
 #[tokio::test]
 async fn each_resource_is_judged_once_and_a_missing_one_keeps_its_error() {
@@ -49,7 +49,7 @@ async fn each_resource_is_judged_once_and_a_missing_one_keeps_its_error() {
         assert_eq!(map[key]["answers"]["set"]["noul"], 0.9, "{out:#}");
         assert_eq!(map[key]["usage"]["calls"], 1, "{out:#}");
     }
-    assert_eq!(map["gone"]["errorCode"], "pathNotFound", "{out:#}");
+    assert_eq!(map["gone"]["errorCode"], "notFound", "{out:#}");
     assert!(map["gone"].get("answers").is_none(), "{out:#}");
     assert_eq!(out["results"][0]["data"]["model"], "jev-1.13.0", "{out:#}");
     assert_eq!(sent(&server).await.len(), 2, "one request per file read");
@@ -147,7 +147,7 @@ async fn a_row_none_of_whose_resources_was_read_fails_like_them() {
     .await;
     assert_eq!(out["results"][0]["status"], "error", "{out:#}");
     assert_eq!(
-        out["results"][0]["data"]["errorCode"], "pathNotFound",
+        out["results"][0]["data"]["errorCode"], "notFound",
         "{out:#}"
     );
     assert_eq!(resources(&out).1, ["a", "b"], "{out:#}");
@@ -174,7 +174,7 @@ async fn a_glob_in_source_leads_with_the_resources_call() {
     )
     .await;
     let data = &out["results"][0]["data"];
-    assert_eq!(data["errorCode"], "pathNotFound", "{out:#}");
+    assert_eq!(data["errorCode"], "notFound", "{out:#}");
     let related = data["related"].as_array().expect("related calls");
     assert_eq!(related[0]["tool"], "clasify", "first: {out:#}");
     assert_eq!(

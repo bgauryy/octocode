@@ -1,5 +1,8 @@
 //! Release-source labels, source leads and repair leads.
-use super::{advisory_lead, label_release_source, source_leads, source_warning};
+use super::{
+    advisory_lead, label_release_source, retraction_warning, source_leads, source_warning,
+};
+use crate::providers::artifact::types::Retraction;
 use crate::providers::artifact::{ArtifactItem, TagAbsence};
 use octocode_contract_types::ArtifactType;
 use serde_json::json;
@@ -345,4 +348,24 @@ fn every_registry_leads_with_an_osv_ecosystem() {
             crate::providers::artifact::query::artifact_type::osv_ecosystem(kind).to_string()
         );
     }
+}
+
+/// Final round, item 4: a module's retraction reason is the module's text,
+/// quoted as judged: a credential in it shows as the placeholder a read
+/// shows, and the reason's words stay.
+#[test]
+fn a_retraction_reason_is_quoted_as_judged() {
+    let token = format!("ghp_{}", "a1B2".repeat(9));
+    let mut row = item(ArtifactType::Go, "https://github.com/o/m");
+    row.version = Some("v1.2.3".into());
+    row.retraction = Some(Retraction {
+        reason: Some(format!("leaked GITHUB_TOKEN={token}.")),
+    });
+    let warning = retraction_warning(&row).expect("warning");
+    assert!(!warning.contains(&token) && warning.contains("[REDACTED-"), "{warning}");
+    row.retraction = Some(Retraction {
+        reason: Some("published by mistake".into()),
+    });
+    let warning = retraction_warning(&row).expect("warning");
+    assert!(warning.ends_with("go.mod: published by mistake."), "{warning}");
 }

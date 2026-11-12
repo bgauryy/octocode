@@ -17,6 +17,10 @@ pub(crate) use walk::DiscoveryWalk;
 pub struct PathPolicyConfig {
     pub(crate) workspace_root: Option<PathBuf>,
     pub(crate) additional_roots: Vec<PathBuf>,
+    /// Allowed roots that store one tree per directory `depth` levels below
+    /// them (clones, materialized snapshots, URL captures): a path under one
+    /// belongs to its own tree, never to the trees beside it.
+    pub(crate) tree_stores: Vec<(PathBuf, usize)>,
     /// Roots Octocode writes its own outputs under and reads them back
     /// from ([`PathPolicy::validate_output`]), such as the graph snapshot
     /// home: never read roots of the local tools.
@@ -46,6 +50,8 @@ pub struct PathPolicy {
     closed_roots: Vec<PathBuf>,
     /// [`PathPolicyConfig::output_roots`], lexical and resolved.
     output_roots: Vec<PathBuf>,
+    /// [`PathPolicyConfig::tree_stores`], lexical and resolved.
+    tree_stores: Vec<(PathBuf, usize)>,
     workspace_root: Option<PathBuf>,
     /// The workspace root with symlinks resolved (e.g. macOS `/var` →
     /// `/private/var`), so canonical paths still display workspace-relative.
@@ -74,6 +80,12 @@ impl PathPolicy {
         for root in &config.output_roots {
             add_root(&mut output_roots, root);
         }
+        let mut tree_stores = Vec::new();
+        for (store, depth) in &config.tree_stores {
+            let mut forms = Vec::new();
+            add_root(&mut forms, store);
+            tree_stores.extend(forms.into_iter().map(|form| (form, *depth)));
+        }
         let workspace_root = config.workspace_root.map(absolutize);
         let workspace_real = workspace_root
             .as_deref()
@@ -94,6 +106,7 @@ impl PathPolicy {
             roots,
             closed_roots: Vec::new(),
             output_roots,
+            tree_stores,
             workspace_root,
             workspace_real,
             home_dir: home,
@@ -262,6 +275,51 @@ impl PathPolicy {
             Some(root) if path.is_relative() => lexical(&root.join(path)),
             _ => absolutize(path),
         }
+    }
+
+    /// The top of the tree `path` lies in, where a search widened from it
+    /// stops: the innermost of the workspace root, the one tree of a tree
+    /// store holding it (a clone's checkout, never the store's other
+    /// checkouts) and the allowed roots holding it. `None` outside them all,
+    /// or between a tree store and its trees.
+    pub(crate) fn tree_root(&self, path: impl AsRef<Path>) -> Option<PathBuf> {
+        let path = lexical(path.as_ref());
+        let holds = |root: &PathBuf| path.starts_with(root);
+        let stored = self.tree_stores.iter().find(|(store, _)| holds(store));
+        if let Some((store, depth)) = stored {
+            let tree: PathBuf = path
+                .strip_prefix(store)
+                .ok()?
+                .components()
+                .take(*depth)
+                .collect();
+            if tree.components().count() < *depth {
+                return None;
+            }
+            let tree = store.join(tree);
+            // A workspace inside one checkout bounds the tree in turn.
+            return [&self.workspace_root, &self.workspace_real]
+                .into_iter()
+                .flatten()
+                .filter(|root| holds(root) && root.starts_with(&tree))
+                .chain(std::iter::once(&tree))
+                .max_by_key(|root| root.components().count())
+                .cloned();
+        }
+        [&self.workspace_root, &self.workspace_real]
+            .into_iter()
+            .flatten()
+            .chain(&self.roots)
+            .filter(|root| holds(root))
+            .max_by_key(|root| root.components().count())
+            .cloned()
+    }
+
+    /// `path` as rows name it: workspace relative inside the workspace,
+    /// absolute outside it.
+    pub(crate) fn shown(&self, path: impl AsRef<Path>) -> String {
+        self.workspace_relative(path.as_ref())
+            .unwrap_or_else(|| lexical(path.as_ref()).to_string_lossy().into_owned())
     }
 
     /// `path` relative to the workspace root (`.` for the root itself), or

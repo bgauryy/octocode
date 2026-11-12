@@ -141,7 +141,7 @@ fn reader_failure(
         .as_object()
         .into_iter()
         .flatten()
-        .filter(|(_, lead)| crate::response::result::is_call(lead))
+        .filter(|(_, lead)| crate::contracts::envelope::is_call(lead))
         .map(|(name, lead)| (name.clone(), lead.clone()))
         .chain(
             data["related"]

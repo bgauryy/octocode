@@ -1,71 +1,87 @@
-# Tool data and handoff contract
+# Tool data and continuations
 
-CLI and MCP expose one core-owned contract. Native validates inputs, executes tools, sanitizes evidence and checks shaped output. Discovery describes the current contract; source schemas live in octocode-core.
+Octocode uses the same JSON input and indexed results on the CLI and MCP. Use `--json` for a script. In MCP, parse the JSON in the tool result's text block.
 
 ## Requests and result rows
 
-A new request is `{"queries":[query,...],"responseChars":20000}`; the optional responseChars sets a display target. A continuation request is only `{"cursor":"…"}`. A shape or value with one lossless reading is repaired, such as a bare row; anything ambiguous is rejected. There are no field aliases or public progress overrides.
+Send `queries` for new work. Each row is independent and belongs to the same tool. Most tools accept up to five rows. Check the tool's schema for its batch limit and fields.
 
-The schema a host lists is one closed object with each field once. It admits every canonical request; which operation a field goes with, what requires it and what it excludes are in the field's text. Native validation keeps the exact forms and its error names the fix. `octocode schema <tool> --select operation=X` shows the same row narrowed to one operation: its fields once, never more text than the whole row. Where a second field tells that operation's forms apart, its text says which value each field goes with, and `--select operation=X,field=value` (such as `operation=match,view=files`) narrows the row again.
+```json
+{"queries":[{"path":"README.md","ranges":[{"startLine":1,"endLine":1}]}]}
+```
 
-Results are `{"results":[{"index":0,"data":{...}}]}`. `index` is the original query position, preserved through tool and response continuations. The first response to a fresh request leaves out row fields that repeat that row's query unchanged; a value the tool resolved or changed stays, and a page read through a cursor keeps them, because its request names none of them. When a continuation expands one query into several reads, each result retains that query's index; a fresh related request starts its own indices. A row may carry `status:"empty"`, `"error"` or `"outOfRange"` (a page past the last one; a `ranges` read that starts past the file end is an `invalidInput` error row); successful evidence rows omit status. Failure data carries `errorCode` and `error`, `hints[]` with the fix, `related[]` with ready calls, and details and retryability when relevant. Invalid query rows are isolated for every tool, including `clasify`; valid siblings still execute. Invalid envelopes and batches with no valid rows fail as a whole. Inspect each row even if the envelope succeeds.
+For a two-line README starting with `# Example project`, the response is
 
-MCP sets `isError` when every row in the captured batch failed; a page containing only errors can belong to a mixed batch. CLI reports a failure exit code even when valid siblings returned evidence. Rejected input rows appear on the first response; continuations resume admitted work, so their CLI exit code can differ. Follow response continuations and inspect each row before judging the complete result.
+```json
+{"results":[{"index":0,"data":{"content":"1\t# Example project\n","totalLines":2}}]}
+```
+
+| Result | Meaning |
+|---|---|
+| `index` | Zero-based position in the original `queries` array. Resumed work keeps that index, including when a query expands into several reads. |
+| `data` with no `status` | The query returned evidence. Check for pagination and coverage warnings. |
+| `status: "empty"` | The query found nothing in its stated scope. |
+| `status: "outOfRange"` | The requested page is beyond the available collection. A file range that starts beyond the end instead reports invalid input. |
+| `status: "error"` | Read `data.errorCode`, `data.error`, hints and any recovery calls. Valid siblings in a mixed batch can still succeed. |
+
+Use `octocode schema <tool> --view variants` for examples, `--select operation=<value>` to narrow a schema, and `--view output` for result fields. Native validation accepts some unambiguous input repairs. If it maps a common field to a declared field, the warning identifies what actually ran. Correct ambiguous input using the reported field error. An invalid envelope can fail before producing rows. [CLI exit codes](OCTOCODE_CLI.md#exit-codes)
 
 ### Numbered source content
 
-Numbered source `content` uses `line<TAB>text`. Search match `value` fields use separate source coordinates; do not assume their text has line prefixes. Lines are one-based. Ranges use inclusive `startLine`/`endLine`; columns are one-based UTF-16 positions where documented. Preserve source numbers when citing. Secret redaction precedes range or match selection, so a fragment of a multi-line secret cannot escape scanning.
-
-For reads selected by `matchString`, `matchedLines` identifies actual hit lines on that page. Context lines remain in `content` without becoming hits; `matchedLines:[]` means this page contains no hit lines. A `matchString` page without the list shows hit lines only: every line of its `content` is a hit. Ordinary reads omit it.
+Numbered `content` uses a one-based line number, a tab, then the source text. Ranges include both endpoints. A `matchString` read can include context. When present, `matchedLines` lists the actual hits on that page, including an empty list for a context-only page. When omitted from a matched read, every returned line is a hit.
 
 ### Search result shapes
 
-Text and AST matches group under `files[].path` with `matches[]`. Each match retains its source location and evidence. A local text file in the content view lists `declarations:[{symbolName,kind,line,endLine}]`, each once, and a hit names its own through `enclosing`, an index there; a row split across response pages states them in its first part. `matchOnly` rows carry the hit's text and place only. Outline nodes own their path/coordinates and evidence fields rather than requiring inherited hidden defaults.
-
-Structure listings group entries by `dir`. Entries may append a byte count in parentheses; use the name without this display suffix. LSP locations and call rows group under `files[].path` with `matches[]`; hierarchy nodes and sites use their declared location objects. An evidence path inside the workspace is workspace-relative, including skipped-path disclosures; an admitted external path remains absolute. The shared native execution boundary applies this rule for every local tool on CLI and MCP.
+Text, AST and many LSP results group matches by `files[].path`. Locations carry their own line and, where supported, a one-based UTF-16 column. A text hit's `enclosing` indexes its file's `declarations`. Structure listings group names by directory. Resolve workspace-relative paths against the configured workspace. Allowed external paths remain absolute.
 
 ### Minimal by default
 
-The default response includes evidence, required coverage facts and executable next steps. Rendered-size counters, build timings and storage integrity receipts stay internal, and so does whether an answer came from a store, unless its origin was not asked and did not vouch for it (the search window, or a rate-limited origin): then a hint names when it was observed; a zero count, an empty diagnostic list and `isPartial:false` are absent. There is no extras switch or hidden field-restoration mode. Size reductions may remove duplicate metadata, never evidence. Choose an explicit view to change the requested representation; compact and symbols views are transformed evidence, not verbatim source.
+A fresh response can omit an identity already supplied in the request. Read it from the element, then the row's `data`, then the request. A cursor page restates the identity it needs. Warnings shared across rows can appear once at the top level.
 
-`structureSearch` offers `view:"paths"` for names and kind markers; its default `details` view includes metadata. Graph and AST rows place evidence by file and line by default (`includeProvenance:false`). `includeProvenance:true` adds every row's occurrence ID, source digest, byte spans, origin objects, parse assessment and any graph `derivation`, with `sourceEvidence`, for claims about exact source bytes. A default graph row with an origin that is not plainly the file's own text (transcoded, transformed, excluded or multi-source) keeps all of its provenance, and marks its plain spans `"identity"`: unchanged UTF-8 bytes of the row's file at `sourceDigest`. A parse that was not clean keeps `parseAssessment`. Neither setting changes graph scope or removes requested paths, rows, coverage facts or continuations, and continuations preserve it.
-
-## Paging
-
-A row's own list states where it is in one `pagination` object: `page`, `totalPages` (only when exact), `totalItems` (the paged rows) and `hasMore`; a window over one body states `unit`, `offset`, `length`, `total` and `hasMore` instead. A byte window's `offset`, `length` and `total` count the text as served, so they can differ from the file's bytes: it is decoded (a BOM dropped, a UTF-16 source counted as UTF-8), and each redaction placeholder counts as the bytes it shows, not the bytes it hides. Byte windows of one line are placed by `offset`, not by arrival: when a `matchString` hit sits in a line too long for a page, the windows around that line's hits come first and the rest of the line follows, each byte on exactly one page. `hasMore:true` always has a call that reads on: `next.nextPage` in the row or in that object for a collection, or `responsePagination.next`. A row whose one page holds its complete result has no `pagination`, and a section map lists only the sections with more to read.
-
-## Evidence boundaries
-
-A result proves only its stated scope. Preserve `isPartial`, `partialReasons`, warnings, skipped-path disclosures, selection receipts and terminal limits. A `partialReasons` code says what it means when it fires, once per response, as `<code>: <meaning>` in the row's `warnings` (`hints` on an empty or failed row); `octocode schema <tool> --view output` and the resource `octocode://contract/output/<tool>` hold every field and reason. Search-index gaps, provider caps and unavailable language servers constrain absence claims. A complete page can still belong to an incomplete collection. A warning every row of a response states is said once, in the response's top-level `warnings`, and applies to each row.
-
-Classification counts selected, related, excluded and unknown candidates within the assessed scope. Provider failure or unassessed evidence does not mean irrelevant. Inspect the emitted unfiltered and source-read continuations when the task requires that evidence.
-
-A `securityCheck` row with `status:"empty"` means none known to OSV for the target: it proves only that index, not that a version is safe, and for a commit it cannot show OSV tracks that repository. A failed check is `status:"error"` with no `advisories` key; it never reads as clean.
+Choose a view to match the claim. A compact read changes formatting, and a symbols view gives an outline. Use source lines for direct quotes. Where available, `includeProvenance: true` adds byte spans and source identity. A default result still discloses nontrivial source transformations and incomplete parses.
 
 ## Executable continuations
+
+```mermaid
+flowchart TD
+    accTitle: Read response pages before tool pages
+    P["Read every row on this page"] --> R{"responsePagination.next?"}
+    R -->|Yes| C["Call the named tool with its input unchanged"]
+    R -->|No| T{"next.nextPage?"}
+    T -->|Yes| C
+    C --> P
+    T -->|No| B["Check other next calls and coverage for the claim"]
+```
+
+| Channel | What to do |
+|---|---|
+| `responsePagination.next` | Finish the response pages first. A single continuation can carry several rows or sections forward. |
+| `next.nextPage` | Read the next tool page if the response has no continuation of its own. |
+| Other `next` entries | Continue the indicated branch when your claim depends on it, such as a patch, unfiltered results or an exact source read. |
+| `related[]` | Start optional fresh work with the supplied queries. The scope may differ. |
+| `hints[]` | Read the explanation for help interpreting or correcting the request. |
+
+A continuation has this shape. Pass **only its complete `input`** to its `tool`. Use the cursor the tool issued.
 
 ```json
 {"kind":"continue","tool":"localFetch","input":{"cursor":"<issued cursor>"}}
 ```
 
-One loop reads everything a request asked for: run `responsePagination.next`, else the `next.nextPage` a whole response carries, until neither remains. `responsePagination.hasMore:true` always has `next`, and `false` (stated only on a page a cursor read) means this request's walks are finished; a complete answer on one page carries no block. When a response pages, or more than one walk remains, the rows' `next.nextPage` move to that one `next`, which reads the response's later pages and then the rows' walks. The block carries no page counters: a row's own `pagination` says how far its list has gone. It may state `expiresAt`, when this saved continuation expires, and `replayed: true`, when the page was read from saved output without acquisition or inference (any usage it shows is historical). One handle continues every walk (several rows, or several sections of one row, including past the batch limit), rows keep their query's `index`, and a row whose walk ended leaves it. A row's other `next.*` names are branches and recovery; they stay on the row. Each emitted call names a tool and a complete input. Execute it unchanged; do not add queries, filters, offsets, responseChars or other fields to a cursor request.
+Cursors are bound to the tool, configuration, access context and saved state. Replaying a retained page can return historical usage. Follow a returned restart call on `staleSnapshot` and start the evidence walk again. A memory-only CLI invocation needing a saved continuation reports a failure. Use persistent storage that permits saving the result or keep an MCP session open. [Storage and limits](STORAGE_AND_LIMITS.md)
 
-```json
-{"kind":"related","tool":"localFetch","input":{"queries":[{"path":"src/index.ts","ranges":[{"startLine":1,"endLine":40}]}]}}
-```
+## Paging
 
-`related[]` starts optional new work from public input. It is distinct from remaining evidence. Executable call inputs may use absolute paths so the call retains its target; copy them unchanged. `hints[]` is prose, never a string-encoded command. An empty result may offer broader related searches; each has a different scope that the caller must evaluate.
+`responseChars` is an optional per-call page-size target. Large responses split at row boundaries where possible. If an indivisible value makes a page larger than the target, the response can mark it `oversized: true`. Provider metadata and rejected input rows can also add to the first page.
 
-A request rejected before source capture may offer a fresh related read. It has no captured version to resume. Recovery of evidence that was already captured remains source-bound continuation work.
+| Field | How to consume it |
+|---|---|
+| `pagination` | Read `unit`, zero-based `offset`, `length`, `hasMore`, and `total` when known. A one-page result can omit this object. Each section can have its own paging state. |
+| `countScope` | `loaded`, `partial` and `capped` qualify the reported total. For a capped result, only the reachable portion is counted. |
+| Byte windows | Reassemble by `offset`. A matched window on a long line can arrive before its preceding bytes. Offsets count the decoded, redacted representation as served. |
+| `rowPart` | Join parts in order for the same result. Keep repeated identities and required scalar values once. Append new list elements. Use `rowPart.continues` to merge a resumed array element, and append resumed text at the JSON pointer in `rowPart.text`. Missing prior text or an empty list on a later part preserves the earlier evidence. |
 
-Cursors are opaque handles bound to tool, configuration and access context. The same continuation (tool, complete input, access context) has the same handle while it is retained, so a lead repeated on several pages is one call. Persistent storage can support a later process; memory mode lasts only in its issuing runtime. A one-shot CLI call with memory-only saved work returns complete answers, but refuses an answer needing continuations with `executionFailed`: repeat the request with persistent storage that permits saving results, or in a live MCP session. It never publishes a cursor that dies when the command exits. Replaying a cursor does not consume it: concurrent resumes retain every published child until expiry or eviction. Saved work expires after a period without reads, so a walk lives while it is read. Expired, foreign or tampered handles fail without calling the source or provider. A live handle whose saved response was evicted re-executes its rows and answers only when the sources reproduce that response; otherwise it fails with `staleSnapshot`. Changes to a source invalidate a live-source continuation; frozen captures retain their original evidence under their access policy.
+## Evidence boundaries
 
-Pagination precedes size reduction: never clip or summarize requested evidence to meet a byte, token or `responseChars` target, even when a separate read could recover it. A large result returns complete pieces and continuations covering the rest exactly once. Response pages cut at row boundaries; only a row larger than one page is split into `rowPart` parts. Concatenate the parts in order: every part repeats whole the identity, next and disclosure fields of each object it holds (the fields that name the row or element, such as a file's `path` or a symbol's `symbolName`; an identity string is never cut into windows), and the row's evidence arrives once. A later part omits required free text the part before it delivered, never sending a placeholder `""`; the part is validated as if that text were present, and a joiner takes the text from the earlier part. A required list stays on a later part as `[]`. A required value whose empty form the output schema rejects (a number, an enum, a bounded string, a list or record with a minimum size or fixed shape) repeats whole on later parts; the copies agree, and a joiner keeps one. Joining, an empty string on a later part adds nothing, and the string `rowPart.text` names is appended to. A later part states `rowPart.continues` only when it resumes an array element the part before it began, and `rowPart.text` only when it resumes a string; a part that begins on a whole element of the row's outermost array carries neither, and its elements are appended. Continuation positions have no ceiling; a provider's own stop (GitHub search's 1,000-result window, a registry's paging range) is a terminal cap. A terminal cap must say what is unreachable. A response that an indivisible value or row skeleton makes wider than the target states one top-level `oversized: true`, whether it is a page of a walk or a complete one-page answer; nothing is cut. Per-call provider metadata that differs between runs of one request (`rateLimit`, `clientWaits`, and `observedAt`, the moment of a reused saved answer) rides its row's first part outside page planning and measurement: it never moves a page edge or sets `oversized`, and may take a page past the target by its own size. A batch's rejected input rows ride the first page the same way, whole. A complete one-page answer is no page of a split and states no `responsePagination` block. Never construct a page number or assume an absent total means zero.
+A complete page can belong to a partial search. Inspect `isPartial`, `partialReasons`, skipped paths, unassessed candidates, warnings and terminal provider limits before reporting a total or absence. GitHub code search covers its index. A classification result covers assessed candidates. An empty `securityCheck` result means the advisory lookup found no known match for the supplied target. A failed check is a separate error.
 
-## Paths, shared fields, and anchors
-
-Evidence rows retain their own identity on every fragment read through a cursor, including optional revision pins and qualifiers such as whether a search line was resolved at that revision. Every page can be cited and continued alone: locators (path, line, commit SHA, graph id) and every `next` call stay on every page. A response omits what its own request states, so a cursor page, whose input is only the cursor, restates the identity the first page left to the request. One reader rule covers everything stated once: read a value from the element that carries it, else from its row's `data`, else from the request. Hoisting is per page only: fields every row of a page shares, and notices shared by every row, are stated once per page; nothing is hoisted across pages. A response-level receipt that does not change between pages (a `complete` coverage block) is stated on the first page of the answer; each page keeps the `related[]` leads for its own rows. Each fact is stated once per response: a cap or reason appears as a field or as a warning, not both, and a hint never restates a `related[]` call. The elements of one list state their keys in one order, and an emitted call states each query's fields in the order `octocode schema <tool>` lists them. Resolve workspace-relative paths against the configured workspace, and use the emitted call when available. A commit SHA, source snapshot or coordinate is provenance; it is not permission to invent private cursor fields.
-
-## Connections between tools
-
-Repository → tree/code → file; history search → item → patch/source; package → release source; clone → local search/AST/LSP; text hit → exact read → semantic anchor. [Workflows](../skills/octocode-research/references/tool-flow.md) explain when to follow each path.
+Use the exact revision, path, lines or package version returned for the claim. If a source or page is unreachable, name the missing scope. [Examples of agent research workflows](OCTOCODE_PROTOCOL.md)

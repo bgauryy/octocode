@@ -160,7 +160,19 @@ async fn hierarchy_node_cap_truncates_with_an_executable_continuation() {
     mark_truncation(&mut row, &q, &[(Expansion::IncomingCalls, &walk)], &paths);
     // Every page is clipped and warns; only the last lists the parents and
     // their continuations, so pages never repeat them.
-    let pages = row["pagination"]["totalPages"].as_u64().expect("pages");
+    // The page count follows the budget cut: walk the pages to the last.
+    let mut pages = 1_u64;
+    while items_payload(
+        &requery(&q, serde_json::json!({ "page": pages })),
+        "callers",
+        serde_json::json!(items),
+        TEST_BUDGET,
+    )["pagination"]["hasMore"]
+        == true
+    {
+        pages += 1;
+        assert!(pages < 1_000, "finite pages");
+    }
     assert!(pages > 1, "{}", row["pagination"]);
     assert_eq!(row["clipped"], true);
     assert!(row.get("unexpandedParents").is_none(), "{row}");

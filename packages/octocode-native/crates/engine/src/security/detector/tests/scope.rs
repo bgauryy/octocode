@@ -89,31 +89,46 @@ fn detect_redacts_github_token() {
 
 #[test]
 fn detect_applies_file_context_when_path_matches() {
-    // kubernetesSecrets pattern has file_context = r"\.ya?ml$"
-    // Use a content that matches that pattern (kind: Secret … data:)
-    let yaml = "kind: Secret\ndata:\n  password: c2VjcmV0cGFzc3dvcmQ=\n";
-    let result_no_path = detect(yaml, None);
-    let result_with_yaml = detect(yaml, Some("k8s/secret.yaml"));
+    // dockerComposeSecrets has file_context = r"docker-compose\.ya?ml$".
+    let yaml = "services:\n  db:\n    environment:\n      - POSTGRES_PASSWORD=s3cretpw\n";
+    let result_with_yaml = detect(yaml, Some("deploy/docker-compose.yaml"));
     let result_with_ts = detect(yaml, Some("src/index.ts"));
-    // With .yaml path → file-context pattern should fire
-    assert!(result_with_yaml.has_secrets_or(&result_no_path));
-    // With .ts path → file-context pattern should NOT fire (the YAML scalar
-    // pattern is skipped for source code too, so the output differs from the
-    // pathless net's).
+    let compose = "dockerComposeSecrets".to_string();
     assert!(
-        !result_with_ts
-            .secrets_detected
-            .contains(&"kubernetesSecrets".to_string()),
-        "{:?}",
-        result_with_ts.secrets_detected
-    );
-    assert!(
-        result_with_yaml
-            .secrets_detected
-            .contains(&"kubernetesSecrets".to_string()),
+        result_with_yaml.secrets_detected.contains(&compose),
         "{:?}",
         result_with_yaml.secrets_detected
     );
+    assert!(
+        !result_with_ts.secrets_detected.contains(&compose),
+        "{:?}",
+        result_with_ts.secrets_detected
+    );
+}
+
+/// D2 (round 13): a Kubernetes Secret says what it is, so its `data` and
+/// `stringData` values are hidden in any text that holds it, by content:
+/// a `.yaml` file, a `.txt` copy, a source file's string, pathless text.
+#[test]
+fn a_kubernetes_secret_is_known_by_its_content() {
+    let manifest = "apiVersion: v1\nkind: Secret\nmetadata:\n  name: app\nstringData:\n  extra: Fz8kQ2mL9xW4\ndata:\n  username: YWRtaW4=\n";
+    for path in [
+        None,
+        Some("k8s/secret.yaml"),
+        Some("k8s/secret.txt"),
+        Some("notes.md"),
+    ] {
+        let result = detect(manifest, path);
+        assert_eq!(
+            result.sanitized,
+            "apiVersion: v1\nkind: Secret\nmetadata:\n  name: app\nstringData:\n  extra: [REDACTED-KUBERNETESSECRETS]\ndata:\n  username: [REDACTED-KUBERNETESSECRETS]\n",
+            "{path:?}"
+        );
+    }
+    // A ConfigMap's data is no secret anywhere.
+    let config = "kind: ConfigMap\ndata:\n  mode: YWRtaW4=\n";
+    assert_eq!(detect(config, None).sanitized, config);
+    assert_eq!(detect(config, Some("k8s/cm.txt")).sanitized, config);
 }
 
 /// An unquoted `credentialName: Identifier;` is a type member in source

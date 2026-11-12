@@ -22,9 +22,9 @@ fn typed_size_and_date_bounds_are_inclusive_and_do_not_match_directories() {
     }
     let iso = crate::civil_date::iso8601_millis(1_792_843_200_000);
     for extra in [
-        json!({"sizeBytes":{"min":2,"max":2}}),
-        json!({"modifiedAt":{"from":iso,"to":iso},"sizeBytes":{"min":2,"max":2}}),
-        json!({"accessedAt":{"from":iso,"to":iso},"sizeBytes":{"min":2,"max":2}}),
+        json!({"bytes":{"min":2,"max":2}}),
+        json!({"modifiedAt":{"from":iso,"to":iso},"bytes":{"min":2,"max":2}}),
+        json!({"accessedAt":{"from":iso,"to":iso},"bytes":{"min":2,"max":2}}),
     ] {
         let mut query = json!({"operation":"files","view":"details","path":root.0});
         query

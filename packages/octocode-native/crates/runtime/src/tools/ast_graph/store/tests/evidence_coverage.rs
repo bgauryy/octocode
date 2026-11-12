@@ -45,7 +45,7 @@ fn evidence_source_scope_distinguishes_supported_empty_unsupported_and_unknown()
         ] {
             let out = evidence(&dir.0, operation, Some(target), None);
             assert_eq!(out.class, ExitClass::Empty, "{}", out.value);
-            assert_eq!(out.value["pagination"]["totalItems"], 0);
+            assert_eq!(out.value["pagination"]["total"], 0);
             let coverage = &out.value["coverage"];
             assert_eq!(coverage["language"], language);
             assert_eq!(coverage["callExtraction"], status);
@@ -61,7 +61,7 @@ fn evidence_source_scope_distinguishes_supported_empty_unsupported_and_unknown()
             }
         }
         let empty = evidence(&dir.0, operation, Some("empty.ts"), None);
-        assert_eq!(empty.value["pagination"]["totalItems"], 0);
+        assert_eq!(empty.value["pagination"]["total"], 0);
         assert_eq!(empty.value["coverage"]["linkage"]["linked"], 2);
         assert!(
             empty.value["coverage"].get("warning").is_none(),
@@ -82,7 +82,7 @@ fn evidence_source_scope_distinguishes_supported_empty_unsupported_and_unknown()
     });
     for operation in ["witnesses", "unresolved"] {
         let unknown = evidence(&dir.0, operation, Some("quiet.py"), None);
-        assert_eq!(unknown.value["pagination"]["totalItems"], 0);
+        assert_eq!(unknown.value["pagination"]["total"], 0);
         assert_eq!(unknown.value["coverage"]["callExtraction"], "notAssessed");
         assert_eq!(unknown.value["coverage"]["linkage"]["eligible"], 0);
         assert!(unknown.value["coverage"]["linkage"]["ratio"].is_null());
@@ -156,7 +156,7 @@ fn single_language_empty_evidence_preserves_recorded_capability() {
         let built = ingest_root(&dir.0, &dir.0.join("app"), None, false);
         for operation in ["witnesses", "unresolved"] {
             let out = evidence(&dir.0, operation, None, None);
-            assert_eq!(out.value["pagination"]["totalItems"], 0);
+            assert_eq!(out.value["pagination"]["total"], 0);
             assert_eq!(out.value["coverage"]["language"], language);
             assert_eq!(out.value["coverage"]["callExtraction"], status);
         }
@@ -203,7 +203,7 @@ fn aggregate_evidence_capability_uses_snapshot_values_and_survives_paging() {
                     } else {
                         assert!(page.value.get("coverage").is_none());
                     }
-                    assert_eq!(page.value["pagination"]["totalItems"], 2);
+                    assert_eq!(page.value["pagination"]["total"], 2);
                     assert_eq!(page.value["rows"].as_array().unwrap().len(), 1);
                     assert_eq!(
                         crate::tools::ast_graph::test_support::next_offset(&page).is_some(),

@@ -365,14 +365,11 @@ fn repository_symlinks_are_checked_out_as_plain_files() {
             &context,
         )
         .expect("clone");
-        let link = Path::new(&clone.location.local_path).join("escape");
+        let link = Path::new(&clone.location.path).join("escape");
         // D7: git run in the checkout as any local step runs it (no
         // `-c core.symlinks=false`) sees nothing changed: the checkout's
         // own config records that its symlinks are plain files.
-        let status = git_output(
-            Path::new(&clone.location.local_path),
-            &["status", "--porcelain"],
-        );
+        let status = git_output(Path::new(&clone.location.path), &["status", "--porcelain"]);
         assert_eq!(
             status.trim(),
             "",

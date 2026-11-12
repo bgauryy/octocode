@@ -1,108 +1,97 @@
 # Authentication
 
-This page owns every Octocode credential flow: GitHub tokens, OAuth login and refresh, the `gh` fallback, GitHub Enterprise, the `clasify` key, and npm registry credentials. The native runtime does all credential discovery, so the CLI and the MCP server resolve the same token. File precedence: [CONFIGURATION.md](CONFIGURATION.md). Credential protection: [SECURITY.md](SECURITY.md#github-credentials).
+## OAuth device login
+
+From an interactive terminal, start GitHub login, open the URL Octocode prints, and enter the one-time code. Review the requested `repo`, `read:org` and `gist` scopes before approving. The CLI stores the login for that host. The MCP server can use it from the same Octocode home.
 
 ```bash
-npx octocode auth login            # GitHub OAuth device flow; stores an encrypted token
-npx octocode auth status --json    # verify: source, username, hostname
+npx -y octocode auth login
+npx -y octocode auth status --json
 ```
 
-To skip login, set `GITHUB_TOKEN` (or `GH_TOKEN`) in the shell, CI, or MCP client `env` block, or run `gh auth login`.
+Look for `verification: "verified"`, the expected `username` and `hostname`, and `tokenSource: "octocode-storage"`. If you already use GitHub CLI, `gh auth login` also works. To save a personal token locally, use `npx -y octocode config set GH_TOKEN --stdin`. In CI, pass a secret as `GH_TOKEN` or `GITHUB_TOKEN` to the process.
 
 ## GitHub token resolution
 
-Which credential a request uses, in order, is in [GitHub token resolution](CONFIGURATION.md#github-token-resolution).
+For each tool call, Octocode selects a credential for the configured GitHub host. Rows within the call share the selection. New calls pick up changes to stored logins.
 
-## OAuth device login
-
-```bash
-npx octocode auth login           # device flow for the configured host
-npx octocode auth login --force   # switch accounts; old login kept until the new one is saved
-npx octocode auth login --json    # machine-readable result
+```mermaid
+flowchart LR
+    accTitle: GitHub credential precedence for the selected host
+    E["Token variable"] -->|Absent| H["Octocode login"]
+    H -->|Absent| P["OS credential store"]
+    P -->|Absent| G["GitHub CLI"]
+    G -->|Absent| U["Anonymous"]
 ```
 
-1. Octocode requests a device code with scopes `repo read:org gist` and prints the URL and one-time code on stderr. Open the URL and enter the code.
-2. It polls GitHub until you approve, then saves the token and your username.
-3. If a valid stored login exists for that host, `login` does nothing without `--force`.
+| `tokenSource` in `auth status` | Where the credential comes from |
+|---|---|
+| `env` | Octocode checks the process (including MCP client `env`), then the workspace `.octocode/.env`, then the home `.env`. At the first source with a nonblank token, `GH_TOKEN` wins over `GITHUB_TOKEN`. GitHub tokens have no `.octocoderc` setting. |
+| `octocode-storage` | `auth login` saves one encrypted entry per host in `<OCTOCODE_HOME>/credentials.json`. Protect that file and its sibling `.key` together. [Credential storage](SECURITY.md#github-credentials) |
+| `platform` | An existing login in the OS credential store when Octocode has no readable home login for the host. |
+| `gh-cli` | `gh auth token --hostname <host>` reads the host's GitHub CLI login. Octocode clears token variables for this subprocess. |
+| `none` | No credential selected. Public endpoints that allow anonymous reads have lower rate limits. Private repositories and code search require authentication. [GitHub search requirements](https://docs.github.com/en/rest/search/search#rate-limit) |
 
-Login needs an interactive terminal; in CI, set a token variable. `github.com` uses Octocode's built-in OAuth app; other hosts need `OCTOCODE_GITHUB_CLIENT_ID`.
-
-**Storage:** `<OCTOCODE_HOME>/credentials.json` (default `~/.octocode/credentials.json`) holds one AES-256-GCM entry per host. The key is in `.key` beside it. Both are `0600` on Unix and written atomically under a lock; anyone who can read both files can decrypt the token. Logins in the OS credential store from older native versions are still read (source `platform`) and refreshed in place; new logins always go to `credentials.json`.
+For example, a shell `GITHUB_TOKEN` wins over a workspace `GH_TOKEN`. If GitHub rejects the explicit environment token, fix or remove it to switch accounts. If GitHub rejects a stored or `gh` token, subsequent requests in that runtime skip the rejected credential.
 
 ### Refresh
 
-GitHub App user tokens expire; classic `ghp_` tokens and env tokens are never refreshed.
-
-- **Automatic:** a stored token within 5 minutes of expiry is refreshed on the next request and written back to its store. A cross-process lock spends the single-use refresh token only once.
-- **Manual:** `npx octocode auth login --refresh` exchanges the stored refresh token without a device flow.
-- An expired refresh token needs a new `auth login`.
+Octocode refreshes a stored expiring access token on a request within five minutes of expiry and saves the replacement to its original store. To refresh manually, run `npx -y octocode auth login --refresh`. If the refresh token expired, start a new device login. Octocode treats environment tokens as supplied.
 
 ### Status and logout
 
-```bash
-npx octocode auth status
-npx octocode auth status --json
-npx octocode auth logout
-```
+| Goal | Command | What to expect |
+|---|---|---|
+| Verify the active credential | `npx -y octocode auth status --json` | Reports host, account, source and verification. Available quota buckets include remaining requests and reset times. Status checks with GitHub without refreshing the token. |
+| Switch stored accounts | `npx -y octocode auth login --force` | Replaces the saved login after successful approval. An environment token still takes priority. |
+| Remove the host's saved login | `npx -y octocode auth logout` | Clears the Octocode and OS entries for the configured host. Manage environment tokens and `gh` logins at their source. |
 
-- `status` reports `authenticated`, `username`, `hostname`, `tokenSource` (`env`, `octocode-storage`, `platform`, `gh-cli`, or `none`), and `verification` (`verified`, `unverified`, `invalid`, `none`). It never prints the token and does not refresh.
-- `logout` removes the host's login from `credentials.json` and the OS credential store. It never changes env vars or your `gh` login.
-- All three commands target the host from `GITHUB_API_URL`; `login --hostname` overrides it for one login.
-
-## gh CLI passthrough
-
-As the last source, Octocode runs `gh auth token --hostname <host>` without the token variables (`GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, `GITHUB_ENTERPRISE_TOKEN`), so `gh` answers from its own host-scoped login. Common Homebrew paths are added to `PATH`. The call is bounded to 5 seconds; a missing or failing `gh` is skipped.
+`verification` is `verified` if GitHub accepts the token, `invalid` for a 401, `unverified` when GitHub could not confirm it, or `none` without a token. Both `verified` and `unverified` have `authenticated: true`. Check `verification` when testing that a login works.
 
 ## GitHub Enterprise
 
+Set the enterprise API root in the process or home configuration. For device login or refresh, supply the client ID of an OAuth app registered on that host. The built-in client is for `github.com`.
+
 ```bash
-export GITHUB_API_URL="https://github.mycompany.com/api/v3"   # shell or home config only
-export GITHUB_TOKEN="ghp_your_ghe_token"                       # or use device login:
-export OCTOCODE_GITHUB_CLIENT_ID="your_oauth_app_client_id"    # OAuth app registered on that host
-npx octocode auth login --hostname github.mycompany.com
+export GITHUB_API_URL="https://github.example.com/api/v3"
+export OCTOCODE_GITHUB_CLIENT_ID="your-enterprise-oauth-client-id"
+npx -y octocode auth login
+npx -y octocode auth status --json
 ```
 
-- `GITHUB_API_URL` (or `github.apiUrl` in the home `.octocoderc`) selects the API root and the credential host. A workspace `.env` or `.octocoderc` cannot set it, so it cannot redirect tokens.
-- Device login and refresh on any host other than `github.com` need `OCTOCODE_GITHUB_CLIENT_ID`; without it, `login` fails and names it.
-- `gh` passthrough asks for the enterprise host by name.
+For token-based access, set the same API root and supply a token for that host. An enterprise `gh auth login --hostname <host>` is also eligible. `auth login --hostname <host>` overrides the hostname for one login. Set `GITHUB_API_URL` or home `github.apiUrl` so later requests, status, and logout target that host.
 
 ## MCP clients and the VS Code extension
 
-- The MCP server uses the same order. Put a token in the client `env` block, or rely on `auth login` or `gh` on the same machine.
-- The VS Code extension (`octocode-mcp-vscode`) signs in through the editor's GitHub account and writes the token as `GH_TOKEN` into the MCP configs it manages (`0600`).
-- Restart the MCP server after changing a token variable or `.env` file. A new `auth login` applies within a minute, without a restart.
+Put a token in the MCP server's process environment or let it use the host's Octocode or `gh` login. Restart MCP after changing its environment or `.env`. The VS Code extension signs in through the editor and writes `GH_TOKEN` to the MCP configurations it manages. [MCP setup](OCTOCODE_MCP.md)
 
 ## Classification key (`clasify`)
 
-The classification key authorizes inline `classification` and `clasify` requests. [Configuration](CONFIGURATION.md#tool-availability-cli-and-mcp) owns CLI/MCP exposure and setup; provider readiness is checked when a request runs. Get a key from the [provider docs](https://docs.typesafe.ai/introduction); what is sent: [SECURITY.md](SECURITY.md#classification-egress).
+Classification is off by default. Set a Jev key in your Octocode home to enable `clasify` and inline `classification` in the CLI and MCP. Supply the key on standard input and restart MCP. [Get a key](https://docs.typesafe.ai/introduction)
 
-| Variable | Purpose |
-|---|---|
-| `OCTOCODE_CLASSIFICATION_API` | Provider API key (bearer) |
-| `OCTOCODE_CLASSIFICATION_API_HOST` | Optional API root (default `https://api.typesafe.ai`), `classification.apiHost` in `.octocoderc`. HTTPS except on loopback. Home-only. [Change it](CONFIGURATION.md#change-the-classification-host) |
+```bash
+npx -y octocode config set OCTOCODE_CLASSIFICATION_API --stdin
+npx -y octocode config check OCTOCODE_CLASSIFICATION_API
+```
 
-- The key follows [configuration precedence](CONFIGURATION.md#where-every-value-comes-from), with `classification.api` as its settings-file fallback. It never appears in resolved configuration output.
-- A present-but-blank `OCTOCODE_CLASSIFICATION_API=` in the process environment disables classification requests, even when a file has a key. It hides `clasify` from MCP and from the CLI command list; a direct `octocode clasify` call reports the missing credential.
+A nonblank key enables discovery. A provider call verifies access. The key can also come from the process environment or home `classification.api`. A blank process variable explicitly disables classification. [Classification guide](OCTOCODE_CLASIFY.md) · [Change the provider host](CONFIGURATION.md#change-the-classification-host)
 
 ## npm registry credentials
 
-`artifactSearch` with `ecosystem:"npm"`:
+For `artifactSearch`, select `ecosystem: "npm"` and set `registryUrl` for a custom registry. The default is `https://registry.npmjs.org/`. Put the registry's credential in your **user npmrc**, selected by `NPM_CONFIG_USERCONFIG`, then `npm_config_userconfig`, then `~/.npmrc`.
 
-- queries the query's `registryUrl`, or `https://registry.npmjs.org/` by default;
-- reads credentials only from your user npmrc: `NPM_CONFIG_USERCONFIG` (or `npm_config_userconfig`), else `~/.npmrc`. A project `.npmrc` is never read, so a repository cannot steer your token;
-- attaches a token only when its `//host[:port]/path/:_authToken` (Bearer) or `:_auth` (Basic) key matches the registry origin. The longest path prefix wins; `${VAR}` references expand, and an unset variable voids the entry. npmrc keys carry no scheme, so a token is never sent to a plain `http://` registry unless it is loopback (`localhost`, `127.0.0.1`, `::1`);
-- rejects credentials, query strings, or fragments in registry URLs, and blocks private, loopback, and link-local registries unless `OCTOCODE_ALLOW_PRIVATE_REGISTRY=true` (home-only).
+```ini
+//registry.example.com/npm/:_authToken=${NPM_TOKEN}
+```
+
+Set `NPM_TOKEN` in the environment for this example. The longest matching host, port and path prefix wins. `:_authToken` supplies Bearer auth and `:_auth` supplies Basic auth. Octocode sends credentials over HTTPS or loopback HTTP. A private, loopback or link-local registry also needs `network.allowPrivateRegistry: true` in trusted configuration. [Configuration](CONFIGURATION.md#all-settings-and-defaults)
 
 ## Troubleshooting
 
-| Symptom | Fix |
+| Symptom | Next step |
 |---|---|
-| 401, or `authenticated: false` | `npx octocode auth login`, or set `GITHUB_TOKEN` in the shell or MCP `env` block |
-| Wrong account | `auth login --force`, or `auth logout` then `auth login` |
-| New login ignored | A token variable wins; unset it (`auth status --json` shows `tokenSource: "env"`) |
-| `login requires an interactive terminal` | Use a token variable in CI and scripts |
-| Enterprise login or refresh rejected | Set `OCTOCODE_GITHUB_CLIENT_ID` for that host and `GITHUB_API_URL` in the shell or home config |
-| Enterprise requests hit github.com | `GITHUB_API_URL` was set in a workspace file (ignored); set it in the shell or home config |
-| `clasify` missing from MCP | Set a nonblank `OCTOCODE_CLASSIFICATION_API`, check the [MCP availability controls](CONFIGURATION.md#tool-availability-cli-and-mcp), and restart the server. |
-| Classification call fails | Check the credential and returned provider error; CLI visibility and MCP key configuration do not prove provider readiness. |
-| Private npm package not found | Put a registry-scoped `_authToken` in your user npmrc and pass that `registryUrl` in the query |
+| A new login appears to have no effect | If `tokenSource` is `env`, replace or remove the winning variable. Otherwise check the host and the Octocode home of the process making the call. |
+| 401 or `verification: "invalid"` | Replace an environment token at its source, renew a saved login with `auth login --force`, or sign in again through `gh`, according to `tokenSource`. |
+| Device login requires a terminal | Run the login interactively or pass a token through the CI secret store. |
+| An enterprise request goes to github.com | Set `GITHUB_API_URL` in the process or home configuration. Workspace files cannot select the credential host. |
+| A private npm lookup fails | Check the query's registry URL against the user npmrc scope and confirm any referenced token variable is set. |

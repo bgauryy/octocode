@@ -59,7 +59,7 @@ async function repository(ctx) {
 async function code(ctx) {
   return checks(ctx, [
     ['filters.intersection', { ...REPO, keywords: ['greet'], path: 'src', nameContains: 'greeter', extensions: ['ts', 'md'] }, d => equal(paths(d.files), ['src/greeter.ts'])],
-    ['path.only', { ...REPO, keywords: ['greeter'], matchIn: ['path'] }, d => equal(paths(d.files), ['src/greeter.ts']) && d.files.every(file => !file.lines?.length)],
+    ['path.only', { ...REPO, keywords: ['greeter'], matchIn: ['path'] }, d => equal(paths(d.files), ['src/greeter.ts']) && d.files.every(file => !file.matches?.length)],
     ['ref.reRead', { ...REPO, keywords: ['healthMarker'], path: 'src', ref: ctx.mock.model.head.oid }, d => equal(paths(d.files), ['src/app.ts', 'src/greeter.ts', 'src/util.ts'])
       // A row's repository is its own fields, else the page's (data), else the request's.
       && d.files.every(file => (file.owner ?? d.owner ?? REPO.owner) === REPO.owner && (file.repo ?? d.repo ?? REPO.repo) === REPO.repo
@@ -81,7 +81,7 @@ async function structure(ctx) {
     const query = { ...REPO, operation: 'tree', include: ['src/greeter.ts'], materialize: true };
     const result = await ctx.call(ctx.q(query), surface);
     const location = data(result).location;
-    const target = location?.localPath && path.join(location.localPath, 'src/greeter.ts');
+    const target = location?.path && path.join(location.path, 'src/greeter.ts');
     out.push([`advanced.materialize.content.${surface}`, !!target && fs.existsSync(target) && fs.readFileSync(target, 'utf8').includes('return { text: `hello ${name}` };'), JSON.stringify(data(result))]);
     const before = ctx.mock.requestsFrom.length;
     const repeated = await ctx.call(ctx.q(query), surface);
@@ -89,7 +89,7 @@ async function structure(ctx) {
       && decodeURIComponent(entry.request).includes('/contents/src/greeter.ts'));
     // A file at a commit never changes: the repeat restores it from the kept answer.
     out.push([`advanced.materialize.fresh.${surface}`, reads.length === 0 && !data(repeated).errorCode
-      && data(repeated).location?.localPath === location?.localPath && !!target && fs.existsSync(target)
+      && data(repeated).location?.path === location?.path && !!target && fs.existsSync(target)
       && fs.readFileSync(target, 'utf8').includes('return { text: `hello ${name}` };'), JSON.stringify({ reads, data: data(repeated) })]);
   }
   return out;
@@ -369,7 +369,7 @@ async function historyItem(ctx) {
   const out = await checks(ctx, [
     ['issue.discussion', { ...REPO, operation: 'issue', number: 2, sections: ['body', 'comments'] }, d => d.issues?.[0]?.body === 'The greeter needs a configurable prefix.' && d.issues?.[0]?.comments?.[0]?.body === 'Agreed, the Greeter class takes one now.'],
     ['commit.fileFilter', { ...REPO, operation: 'commit', ref: 'main', sections: ['files'], include: ['src/*.ts'], fileStatus: ['added'], minChanges: 10 }, d => equal(paths(files(d)), ['src/greeter.ts', 'src/util.ts'])],
-    ['compare.files', { ...REPO, operation: 'compare', baseRef: ctx.mock.model.commits[0].oid, headRef: 'main', sections: ['files'], include: ['src/*.ts'] }, d => d.headSha === ctx.mock.model.head.oid && equal(paths(files(d)), ['src/app.ts', 'src/greeter.ts', 'src/util.ts'])],
+    ['compare.files', { ...REPO, operation: 'compare', baseRef: ctx.mock.model.commits[0].oid, headRef: 'main', sections: ['files'], include: ['src/*.ts'] }, d => d.headCommitSha === ctx.mock.model.head.oid && equal(paths(files(d)), ['src/app.ts', 'src/greeter.ts', 'src/util.ts'])],
     ['pr.sectionCommits', { ...REPO, operation: 'pullRequest', number: 4, sections: ['commits'] }, d => d.pullRequests?.[0]?.commits?.[0]?.commitSha === ctx.mock.model.branchCommits[0].oid],
     ['pr.patchMatch', { ...REPO, operation: 'pullRequest', number: 4, sections: ['patches'], include: ['pkg/huge.ts'], matchString: ['huge line 2999'], contextLines: { before: 1, after: 1 } }, d => { const patch = rawPatch(files(d)[0]?.patch); return patch.includes('+export const huge2998 = 2998; // healthMarker huge line 2999') && !patch.includes('huge line 1\n'); }],
     ['issue.missing', { ...REPO, operation: 'issue', number: 99999 }, error('notFound')],
@@ -400,7 +400,7 @@ async function artifacts(ctx) {
     ['resolve.exact', { operation: 'resolve', ecosystem: 'npm', packageName: 'tiny-health', version: '1.0.0', registryUrl, view: 'details' }, d => d.artifacts?.[0]?.version === '1.0.0' && equal(d.artifacts[0].dependencies, ['tiny-greet@^2.0.0'])],
     ['resolve.range', { operation: 'resolve', ecosystem: 'npm', packageName: 'tiny-health', version: '^1.0.0', registryUrl }, d => d.artifacts?.[0]?.version === '1.2.3'],
     ['resolve.tag', { operation: 'resolve', ecosystem: 'npm', packageName: 'tiny-greet', version: 'latest', registryUrl }, d => d.artifacts?.[0]?.version === '2.1.0' && d.artifacts[0].ref === ctx.mock.model.head.oid && !Object.hasOwn(d.artifacts[0], 'sourceRef')],
-    ['resolve.missingVersion', { operation: 'resolve', ecosystem: 'npm', packageName: 'tiny-health', version: '9.0.0', registryUrl }, error('versionNotFound')],
+    ['resolve.missingVersion', { operation: 'resolve', ecosystem: 'npm', packageName: 'tiny-health', version: '9.0.0', registryUrl }, error('notFound')],
     ['search.intersection', { operation: 'search', ecosystem: 'npm', keywords: ['health', 'greet'], registryUrl }, d => equal((d.artifacts ?? []).map(a => a.packageName), ['tiny-greet'])],
   ]);
   return [...out, ...await advancedRegistries(ctx)];

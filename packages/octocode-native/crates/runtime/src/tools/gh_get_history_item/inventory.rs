@@ -334,12 +334,12 @@ pub(super) fn shape_pr_files(
     }
 }
 
-/// One compact patch-row header: `path` plus the inventory's `M +3 -1`
-/// change `stat` (and `previousPath` for a rename), replacing the separate
-/// `filename`/`status`/`additions`/`deletions` fields. `path` names the
-/// file on every page of its patch; `stat` and `previousPath` are evidence
+/// One patch-row header: `path` (renamed from `filename`) beside the file's
+/// `status`, `additions` and `deletions` (and `previousPath` for a rename).
+/// `path` names the file on every page of its patch; the rest is evidence
 /// the page that starts the patch carries once, so a later page of it
-/// (`patchPagination.offset` past 0) has `path` alone.
+/// (`patchPagination.offset` past 0) has `path` alone. An `omitted` file's
+/// 0/0 is not evidence: its status only.
 pub(super) fn compact_file_header(row: &mut Value) {
     let Some(fields) = row.as_object_mut() else {
         return;
@@ -349,32 +349,17 @@ pub(super) fn compact_file_header(row: &mut Value) {
         .and_then(|span| span.get("offset"))
         .and_then(Value::as_u64)
         .is_some_and(|offset| offset > 0);
-    let count = |fields: &Map<String, Value>, key: &str| {
-        fields.get(key).and_then(Value::as_u64).unwrap_or(0)
-    };
-    let status = status_code(fields.get("status").and_then(Value::as_str).unwrap_or(""));
-    // An `omitted` file's 0/0 is not evidence: its letter only.
-    let stat = if fields.get("patchUnavailable").and_then(Value::as_str) == Some("omitted") {
-        status.to_owned()
-    } else {
-        format!(
-            "{status} +{} -{}",
-            count(fields, "additions"),
-            count(fields, "deletions")
-        )
-    };
+    let omitted = fields.get("patchUnavailable").and_then(Value::as_str) == Some("omitted");
     let rest = std::mem::take(fields);
     fields.insert(
         "path".into(),
         rest.get("filename").cloned().unwrap_or_default(),
     );
-    if !continued {
-        fields.insert("stat".into(), json!(stat));
-    }
     for (key, value) in rest {
         match key.as_str() {
-            "filename" | "status" | "additions" | "deletions" => {}
-            "previousFilename" if continued => {}
+            "filename" => {}
+            "status" | "previousFilename" if continued => {}
+            "additions" | "deletions" if continued || omitted => {}
             "previousFilename" => {
                 fields.insert("previousPath".into(), value);
             }

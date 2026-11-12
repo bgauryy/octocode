@@ -183,12 +183,13 @@ pub(super) fn locations(
     for item in matches {
         let mut item = item.as_object()?.clone();
         let path = item.shift_remove("path")?.as_str()?.to_owned();
-        let range = item.shift_remove("displayRange")?;
-        let line = range.get("startLine")?.as_u64()?;
+        let line = item.shift_remove("line")?.as_u64()?;
+        let end = item.shift_remove("endLine");
+        let column = item.shift_remove("column");
         let mut entry = Map::new();
         entry.insert("line".into(), line.into());
-        if let Some(end) = range
-            .get("endLine")
+        if let Some(end) = end
+            .as_ref()
             .and_then(Value::as_u64)
             .filter(|end| *end > line)
         {
@@ -216,8 +217,8 @@ pub(super) fn locations(
                 false
             }
         };
-        if let Some(column) = range.get("startCharacter") {
-            entry.insert("column".into(), column.clone());
+        if let Some(column) = column {
+            entry.insert("column".into(), column);
         }
         entry.append(&mut item);
         match groups.last_mut() {

@@ -315,16 +315,13 @@ fn read_page(
     let total = saturating_usize(walked.r.total_nodes);
     let more = windows.len() > page;
     let read_all = walked.r.next_offset.is_none();
-    let facts = if read_all {
-        PageFacts::sized(page, windows.len(), total, more)
-            .out_of_range(page > 1 && page > windows.len())
-    } else {
-        PageFacts::open(page, None, more).with_total(total)
-    };
     let window = windows
         .get(page.saturating_sub(1))
         .cloned()
         .unwrap_or(walked.r.nodes.len()..walked.r.nodes.len());
+    let facts = PageFacts::open(window.start, window.len(), more)
+        .with_total(total)
+        .out_of_range(read_all && page > 1 && page > windows.len());
     let r = octocode_engine::structural::SyntaxTreeInspectResult {
         source_templates: walked.r.source_templates.clone(),
         nodes: walked.r.nodes[window].to_vec(),

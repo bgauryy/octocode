@@ -134,13 +134,33 @@ fn context_gated_detectors_are_selected_only_where_they_apply() {
             .position(|pattern| pattern.name == name)
             .expect(name)
     };
-    let (kubernetes, wandb) = (index("kubernetesSecrets"), index("wandbApiKey"));
+    let (kubernetes, compose, wandb) = (
+        index("kubernetesSecrets"),
+        index("dockerComposeSecrets"),
+        index("wandbApiKey"),
+    );
     let message = "No tool is named nope; use one of localSearch, localFetch.";
     let candidates = applicable_candidates(message, Scope::Pathless);
-    assert!(!candidates.contains(&kubernetes) && !candidates.contains(&wandb));
+    assert!(
+        !candidates.contains(&kubernetes)
+            && !candidates.contains(&compose)
+            && !candidates.contains(&wandb)
+    );
+    let services = "services:\n  db:\n    environment:\n      - POSTGRES_PASSWORD=s3cretpw\n";
+    assert!(applicable_candidates(services, Scope::File("docker-compose.yaml")).contains(&compose));
+    assert!(!applicable_candidates(services, Scope::File("compose.txt")).contains(&compose));
+    // A Kubernetes Secret names itself: its content selects it at any path.
     let manifest = "kind: Secret\ndata:\n  password: c2VjcmV0\n";
-    assert!(applicable_candidates(manifest, Scope::File("k8s/secret.yaml")).contains(&kubernetes));
-    assert!(!applicable_candidates(manifest, Scope::File("k8s/secret.txt")).contains(&kubernetes));
+    for scope in [
+        Scope::File("k8s/secret.yaml"),
+        Scope::File("k8s/secret.txt"),
+        Scope::Pathless,
+    ] {
+        assert!(
+            applicable_candidates(manifest, scope).contains(&kubernetes),
+            "{scope:?}"
+        );
+    }
     let detected = detect(manifest, Some("k8s/secret.yaml"));
     assert_eq!(detected.secrets_detected, ["kubernetesSecrets"]);
 }
@@ -156,15 +176,23 @@ fn file_context_follows_what_the_text_is_about() {
             .position(|pattern| pattern.name == name)
             .expect(name)
     };
-    let (kubernetes, wandb) = (index("kubernetesSecrets"), index("wandbApiKey"));
-    let manifest = "kind: Secret\ndata:\n  password: c2VjcmV0\n";
+    let (compose, wandb) = (index("dockerComposeSecrets"), index("wandbApiKey"));
+    let services = "services:\n  db:\n    environment:\n      - POSTGRES_PASSWORD=s3cretpw\n";
     let sha = "9b5e0d8c2f7a41e6b3c58d9f0a1e2b7c4d6f8a03";
     let applies = |text, scope, pattern| applicable_candidates(text, scope).contains(&pattern);
-    assert!(applies(manifest, Scope::Leaf("k8s/a.yaml"), kubernetes));
-    assert!(!applies(manifest, Scope::Leaf("k8s/a.txt"), kubernetes));
-    assert!(!applies(manifest, Scope::Pathless, kubernetes));
-    for path in [None, Some("k8s/a.txt"), Some("k8s/a.yaml")] {
-        assert!(applies(manifest, Scope::Stored(path), kubernetes));
+    assert!(applies(
+        services,
+        Scope::Leaf("deploy/docker-compose.yml"),
+        compose
+    ));
+    assert!(!applies(services, Scope::Leaf("deploy/a.txt"), compose));
+    assert!(!applies(services, Scope::Pathless, compose));
+    for path in [
+        None,
+        Some("deploy/a.txt"),
+        Some("deploy/docker-compose.yml"),
+    ] {
+        assert!(applies(services, Scope::Stored(path), compose));
     }
     assert!(!applies(sha, Scope::Leaf("wandb/a.py"), wandb));
     assert!(applies(sha, Scope::File("wandb/a.py"), wandb));
@@ -174,13 +202,18 @@ fn file_context_follows_what_the_text_is_about() {
     assert!(applies(&format!("wandb {sha}"), Scope::Stored(None), wandb));
 }
 
-/// Only a path a multi-line file-context pattern applies to needs its whole
-/// file judged, and only when a line holds what that pattern requires.
+/// Only a path a multi-line pattern applies to needs its whole file judged,
+/// and only when a line holds what that pattern requires. A Kubernetes
+/// Secret names itself by content (D2, round 13), so every file of text may
+/// hold one, a `.txt` copy as a `.yaml` file; source code holds none.
 #[test]
 fn a_whole_source_scan_is_asked_only_where_a_window_cannot_decide() {
     use super::WholeSourcePatterns;
     assert!(WholeSourcePatterns::for_path("src/a.rs").is_none());
-    assert!(WholeSourcePatterns::for_path("docker-compose.txt").is_none());
+    assert!(WholeSourcePatterns::for_path("src/a.ts").is_none());
+    for path in ["k8s/a.yaml", "k8s/a.txt", "docker-compose.txt"] {
+        assert!(WholeSourcePatterns::for_path(path).is_some(), "{path}");
+    }
     let patterns = WholeSourcePatterns::for_path("k8s/a.yaml").expect("applies");
     assert!(patterns.named_by("kind: Secret"));
     assert!(!patterns.named_by("data:"));

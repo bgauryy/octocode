@@ -1150,7 +1150,7 @@
                 "matchString": [
                   "function createApplication"
                 ],
-                "path": "{{prev:results.0.data.location.localPath}}/lib"
+                "path": "{{prev:results.0.data.location.path}}/lib"
               }
             ]
           }

@@ -127,7 +127,8 @@ pub(super) fn touch(socket: &Path) {
 /// A failure leaves cache deletion to a later retry after the server stops.
 pub(in crate::cli) async fn stop_all_and_wait() -> Result<(), String> {
     let temp = std::env::temp_dir();
-    tokio::task::spawn_blocking(move || stop_and_wait_in(&temp))
+    let silence = octocode_io::http::READ_STALL;
+    tokio::task::spawn_blocking(move || stop_and_wait_in(&temp, silence))
         .await
         .map_err(|error| error.to_string())?
 }
@@ -138,7 +139,10 @@ pub(super) fn draining(line: &str) -> Option<u64> {
 }
 
 /// [`stop_all_and_wait`] for this user's socket directory under `temp`.
-pub(super) fn stop_and_wait_in(temp: &Path) -> Result<(), String> {
+/// A draining server says it is alive at least each heartbeat
+/// ([`super::frames`]), so the wait lasts as long as its calls do; one that
+/// sends nothing for `silence` (stopped, hung) ends the wait with an error.
+pub(super) fn stop_and_wait_in(temp: &Path, silence: std::time::Duration) -> Result<(), String> {
     use std::io::{BufRead, Read, Write};
     let (dir, uid) = socket_dir(temp);
     if !dir.exists() {
@@ -147,35 +151,49 @@ pub(super) fn stop_and_wait_in(temp: &Path) -> Result<(), String> {
     private_dir(&dir, uid).ok_or_else(|| "warm server directory is not private".to_owned())?;
     let servers = live_servers(&dir, None);
     for (_, mut stream) in servers {
-        let timeout = super::client::reply_deadline();
         stream
-            .set_read_timeout(timeout)
+            .set_read_timeout(Some(silence))
             .map_err(|error| error.to_string())?;
         stream
-            .set_write_timeout(timeout)
+            .set_write_timeout(Some(silence))
             .map_err(|error| error.to_string())?;
         stream
             .write_all(b"{\"stop\":true,\"drain\":true}\n")
             .map_err(|error| error.to_string())?;
-        let mut reader = std::io::BufReader::new(stream).take(256);
+        let mut reader = std::io::BufReader::new(stream);
         let mut line = String::new();
-        reader
-            .read_line(&mut line)
-            .map_err(|error| error.to_string())?;
-        if let Some(in_flight) = draining(&line) {
-            if in_flight > 0 {
-                eprintln!(
-                    "Waiting for {in_flight} call(s) in flight on a warm server to finish before clearing the cache; Ctrl-C stops waiting."
-                );
-            }
+        loop {
             line.clear();
-            reader
+            (&mut reader)
+                .take(256)
                 .read_line(&mut line)
-                .map_err(|error| error.to_string())?;
+                .map_err(|error| match error.kind() {
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut => format!(
+                        "A warm server sent nothing for {} s while it drained its calls; the cache was not cleared, and that server may still be running calls that use it. Rerun cache clear after it exits.",
+                        silence.as_secs()
+                    ),
+                    _ => error.to_string(),
+                })?;
+            if let Some(in_flight) = draining(&line) {
+                if in_flight > 0 {
+                    eprintln!(
+                        "Waiting for {in_flight} call(s) in flight on a warm server to finish before clearing the cache; Ctrl-C stops waiting."
+                    );
+                }
+            } else if !alive(&line) {
+                break;
+            }
         }
         if line.trim() != "{\"stopped\":true}" {
             return Err("A warm server stopped without confirming that its calls drained; rerun cache clear after it exits.".into());
         }
     }
     Ok(())
+}
+
+/// Whether `line` is a heartbeat frame ([`super::frames::ALIVE`]).
+fn alive(line: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(line)
+        .ok()
+        .is_some_and(|frame| frame.get(super::frames::ALIVE).is_some())
 }

@@ -261,6 +261,7 @@ pub(crate) async fn crates(
             Some(VersionSpec::Exact(version)) => {
                 if !all.contains(&version) {
                     return Err(super::versions::version_not_found(
+                        ArtifactType::Crates,
                         &artifact.package_name,
                         &version,
                         &all,
@@ -276,7 +277,12 @@ pub(crate) async fn crates(
                     .collect::<Vec<_>>();
                 Some(
                     cargo_resolve(&spec, releases.iter().map(String::as_str)).ok_or_else(|| {
-                        super::versions::version_not_found(&artifact.package_name, &spec, &all)
+                        super::versions::version_not_found(
+                            ArtifactType::Crates,
+                            &artifact.package_name,
+                            &spec,
+                            &all,
+                        )
                     })?,
                 )
             }

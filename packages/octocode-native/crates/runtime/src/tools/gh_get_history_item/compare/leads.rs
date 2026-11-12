@@ -34,7 +34,7 @@ pub(super) fn capped_file_leads(
         .into_iter()
         .find_map(literal_prefix)
     {
-        let mut history = json!({"operation":"commit","owner":gh_get_history_item_query::owner(query),"repo":gh_get_history_item_query::repo(query),"path":path,"ref":out["headSha"]});
+        let mut history = json!({"operation":"commit","owner":gh_get_history_item_query::owner(query),"repo":gh_get_history_item_query::repo(query),"path":path,"ref":out["headCommitSha"]});
         if let Some(date) = str_at(raw, "/merge_base_commit/commit/committer/date")
             .or_else(|| str_at(raw, "/base_commit/commit/committer/date"))
         {
@@ -108,7 +108,7 @@ fn commit_list_lead(
     size: usize,
     page: usize,
 ) -> Option<(&'static str, Value)> {
-    let mut list = json!({"operation":"compare","owner":gh_get_history_item_query::owner(query),"repo":gh_get_history_item_query::repo(query),"baseRef":out["baseSha"],"headRef":out["headSha"],"sections":["commits"],"pageSize":size});
+    let mut list = json!({"operation":"compare","owner":gh_get_history_item_query::owner(query),"repo":gh_get_history_item_query::repo(query),"baseRef":out["baseCommitSha"],"headRef":out["headCommitSha"],"sections":["commits"],"pageSize":size});
     if page > 1 {
         list["page"] = json!(page);
     }

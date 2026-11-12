@@ -33,8 +33,9 @@ impl<'a> Source<'a> {
         }
     }
 
-    /// Placeholders this source put into bodies so far: the read's
-    /// `redactedContent` warning counts them with the response walk's own.
+    /// Placeholders this source put into bodies so far, on any page and in
+    /// files a filter leaves out: whether the read's `redactedContent`
+    /// warning counts the placeholders its page shows.
     pub(super) fn redacted(&self) -> usize {
         self.redacted.load(Ordering::Relaxed)
     }

@@ -224,6 +224,29 @@ fn view_fixtures() -> Vec<(&'static str, String, Vec<String>)> {
             format!("PORT=8080\n\nGITHUB_TOKEN={token}\nDB_PASSWORD={password}\n"),
             vec![token, password.to_owned()],
         ),
+        // D1 (round 13): a block scalar's body is its key's value in every
+        // view, its indentation and header staying.
+        (
+            "db.yaml",
+            "db:\n  host: localhost\n\n  password: |\n    Fz8kQ2mL9xW4\n  api_key: >-\n    Qm7vR2xL8pZ3\n  port: 5432\n"
+                .to_owned(),
+            vec!["Fz8kQ2mL9xW4".to_owned(), "Qm7vR2xL8pZ3".to_owned()],
+        ),
+        // D3: code whose literal under `password` is no secret, and a
+        // parameter default beside it, holds no placeholder in any view.
+        (
+            "b.py",
+            "password = 'abc'\n\ndef f(x=\"abc\"):\n    return x\n".to_owned(),
+            vec![],
+        ),
+        // D4: a template literal whose text outside its holes is a scheme
+        // word is code; the holes' own strings are code too.
+        (
+            "transport.ts",
+            "export function auth(h: Headers, u: string, p: string) {\n  const scheme = 'Basic';\n  h.Authorization = `Basic ${Buffer.from(`${u}:${p}`).toString('base64')}`;\n  return h;\n}\n"
+                .to_owned(),
+            vec![],
+        ),
     ]
 }
 
@@ -353,6 +376,16 @@ fn layout_fixtures() -> Vec<(&'static str, String, Vec<&'static str>)> {
                 "SERVICE_API_KEY = (\n    # wrapped\n    \"{token}\"\n)\ndb_password = \\\n    \"{password}\"\n"
             ),
             vec![token, password],
+        ),
+        // Final round, item 1: a credential-named literal its line ends
+        // inside, at a real line break or a continuing backslash, is one
+        // value with the lines it goes on over.
+        (
+            "open.py",
+            format!(
+                "import os\n\ndef f(api_key=\"{token}\"):\n    return api_key\ntoken = \"{other}\n\"\nsecret = \"{password}\\\nmore\"\n"
+            ),
+            vec![token, other, password],
         ),
         (
             "nested.yaml",
@@ -505,6 +538,114 @@ fn bound_fixtures() -> Vec<BoundFixture> {
             vec![],
             vec!["dGhlIHNhbXBsZSBub25jZQ=="],
         ),
+        // Round 12 retest: an expression over lines, a chosen password in
+        // an arm, the Bearer token in every layout.
+        (
+            "r12.ts",
+            format!(
+                "const apiKey5 =\n  cond\n    ? \"{KEY}\"\n    : \"otherVisible17\";\nconst password = isProd ? \"Tr0ub4dor&3xK9!zQ\" : \"x\";\nconst dbPassword = c ? \"x\" : \"hunter2-Sup3rS3cret\";\nheaders[\"Authorization\"] = \"Bearer abcdefghijklmnopqrstuvwx\";\nconst h = {{ Authorization: `Bearer abcdefghijklmnopqrstuvwx` }};\n"
+            ),
+            "assword",
+            vec![KEY, "Tr0ub4dor&3xK9!zQ", "hunter2-Sup3rS3cret", "abcdefghijklmnopqrstuvwx"],
+            vec!["otherVisible17", "Authorization\"] = \"Bearer ", "{ Authorization: `Bearer "],
+        ),
+        (
+            "r12.go",
+            format!(
+                "package a\n\nvar apiKey = map[bool]string{{true: \"{KEY}\", false: \"otherVisible11\"}}[cond]\n"
+            ),
+            "apiKey",
+            vec![KEY],
+            vec!["otherVisible11", "map[bool]string{true: \""],
+        ),
+        (
+            "r12.sh",
+            format!("API_KEY=\"${{API_KEY:-{KEY}}}\"\n"),
+            "API_KEY",
+            vec![KEY],
+            vec!["API_KEY=\"${API_KEY:-"],
+        ),
+        // Prose that states a password, a value of two words, code a text
+        // file quotes.
+        (
+            "r12.txt",
+            "my password was Pl4net-Orb1t9\nthe password is: hunter2-Sup3rS3cret\nthen password = hunter2-Sup3rS3cret\nthe password is: s3cretPassw0rd\nthe password is required\nSIGNING_KEY=x-9f8.6d0.818 84c.7d6.59a\nAUTH_TOKEN=q7.x2.k9 m4.p8.z1\ntoken: T | null\n  token: this.token,\n  password: undefined,\n  apiKey: null,\n"
+                .to_owned(),
+            "assword",
+            vec!["Pl4net-Orb1t9", "hunter2-Sup3rS3cret", "s3cretPassw0rd", "x-9f8.6d0.818", "84c.7d6.59a"],
+            vec![
+                "my password was ",
+                "the password is required",
+                "AUTH_TOKEN=q7.x2.k9 m4.p8.z1",
+                "token: T | null",
+                "token: this.token,",
+                "password: undefined,",
+                "apiKey: null,",
+            ],
+        ),
+        // Round 14, B: a diff's hunks are judged as the text they change: a
+        // block scalar's body on `+` and context lines, and a Secret's data in
+        // its own document, go; the ConfigMap's value and every marker stay.
+        (
+            "x.txt",
+            "diff --git a/app.yaml b/app.yaml\n--- a/app.yaml\n+++ b/app.yaml\n@@ -1,3 +1,11 @@\n config:\n   token: |-\n     Ab3Cd9Ef2Gh7Jk5Lm1\n+  token: |-\n+    Hk3Lm9Pq2Rs7Tv5Wx1\n+---\n+kind: ConfigMap\n+data:\n+  cacheKeyPrefix: app-cache\n+---\n+kind: Secret\n+data:\n+  username: YWRtaW4=\n"
+                .to_owned(),
+            "token",
+            vec!["Ab3Cd9Ef2Gh7Jk5Lm1", "Hk3Lm9Pq2Rs7Tv5Wx1", "YWRtaW4="],
+            vec!["+  token: |-", "+    [REDACTED-", "+  cacheKeyPrefix: app-cache", "+  username: [REDACTED-"],
+        ),
+        // C: a Secret's rule holds within its own document, in a text
+        // indented as a whole too.
+        (
+            "manifest.txt",
+            "  kind: ConfigMap\n  data:\n    cacheKeyPrefix: app-cache\n  ---\n  kind: Secret\n  data:\n    username: YWRtaW4=\n"
+                .to_owned(),
+            "cacheKeyPrefix",
+            vec!["YWRtaW4="],
+            vec!["cacheKeyPrefix: app-cache", "username: [REDACTED-"],
+        ),
+        // F: a literal's escaped line ends its value, and a format argument
+        // is no value: templates and sentences show whole.
+        (
+            "fields.rs",
+            "fn f(symbols: &str) -> Vec<String> {\n    let npm_token = format!(\"//registry.npmjs.org/:_authToken={TOKEN}\\n\");\n    let prose = [\n        \"the password is required\\n\",\n        \"the password is <your-password>\\n\",\n    ];\n    vec![format!(\"the password is {symbols}\\n\"), npm_token]\n}\n"
+                .to_owned(),
+            "password",
+            vec![],
+            vec![
+                "format!(\"//registry.npmjs.org/:_authToken={TOKEN}\\n\");",
+                "\"the password is required\\n\",",
+                "\"the password is <your-password>\\n\",",
+                "format!(\"the password is {symbols}\\n\")",
+            ],
+        ),
+        // Final round, item 2: a literal's config entry loses its value
+        // alone; the registry, the key and the escape stay.
+        (
+            "npm.py",
+            format!("x_token = \"//registry.npmjs.org/:_authToken={KEY}\\n\"\n"),
+            "x_token",
+            vec![KEY],
+            vec!["x_token = \"//registry.npmjs.org/:_authToken=[REDACTED-", "]\\n\""],
+        ),
+        // D and H: a dunder name's camelCase word, and a sentence about a
+        // value under a credential's name, read as written.
+        (
+            "vite.ts",
+            "export const ssrImportKey = `__vite_ssr_import__`\nexport const ssrExportAllKey = `__vite_ssr_exportAll__`\n"
+                .to_owned(),
+            "Key",
+            vec![],
+            vec!["`__vite_ssr_exportAll__`", "`__vite_ssr_import__`"],
+        ),
+        (
+            "rules.txt",
+            "password: must be at least 8 characters\npassword: |\n  must be set by the operator\n"
+                .to_owned(),
+            "password",
+            vec![],
+            vec!["password: must be at least 8 characters", "  must be set by the operator"],
+        ),
     ]
 }
 
@@ -598,4 +739,391 @@ fn collect_rows(value: &Value, out: &mut Vec<(usize, String)>) {
         }
         _ => {}
     }
+}
+
+/// A minified source of one long line, its pages cut by bytes: the object
+/// literal jQuery passes to `ce.each` names `altKey`, `ctrlKey`, `metaKey`
+/// and `key` before code that is no value (`!0`, a call). Round 13: the
+/// operator-stated word after `altKey:` took the rest of the line, and page
+/// 3's continuation lost its snapshot (`outputContractViolation`), so the
+/// bytes past it were unreachable. Every page reads, each continuation is
+/// valid output, and the pages together hold every byte of the source.
+#[tokio::test]
+async fn a_minified_source_walks_to_its_end() {
+    const EVENT_KEYS: &str = "ce.each({altKey:!0,bubbles:!0,cancelable:!0,changedTouches:!0,ctrlKey:!0,detail:!0,eventPhase:!0,metaKey:!0,pageX:!0,pageY:!0,shiftKey:!0,view:!0,\"char\":!0,code:!0,charCode:!0,key:!0,keyCode:!0,button:!0,buttons:!0,which:!0},ce.event.addProp),ce.each({focus:\"focusin\",blur:\"focusout\"},function(r,i){function o(e){var t=_.get(this,\"handle\"),n=ce.event.fix(e);n.type=\"focusin\"===e.type?\"focus\":\"blur\",t(e)}});";
+    let mut source = String::new();
+    let mut part = 0;
+    while source.len() < 120_000 {
+        source.push_str(&format!("var a{part}=function(e){{return e.x{part}+1}};"));
+        if part % 300 == 0 {
+            source.push_str(EVENT_KEYS);
+        }
+        part += 1;
+    }
+    let workspace = Workspace::new();
+    let path = workspace.write("vendor/lib.min.js", &source);
+    let runtime = workspace.runtime(&[]);
+    let mut input = json!({"queries":[{"path": path}]});
+    let mut read = String::new();
+    let mut pages = 0;
+    loop {
+        assert!(pages < 200, "the walk ends");
+        let output: Value = runtime
+            .run(format!("minified-{pages}"), "localFetch".into(), input)
+            .await
+            .unwrap_or_else(|error| panic!("page {pages}: {error:?}"))
+            .structured_content
+            .into_value();
+        assert!(
+            output["results"][0]["data"].get("error").is_none(),
+            "page {pages}: {output}"
+        );
+        let content = output["results"][0]["data"]["content"]
+            .as_str()
+            .unwrap_or_else(|| panic!("page {pages}: no content: {output}"));
+        assert!(!content.contains("[REDACTED"), "page {pages}: {content}");
+        read.push_str(content);
+        pages += 1;
+        let Some(cursor) = next_page(&output).and_then(cursor_in) else {
+            break;
+        };
+        input = json!({ "cursor": cursor });
+    }
+    assert!(pages >= 3, "{pages} pages");
+    assert_eq!(read, source, "the pages hold every byte of the source");
+    runtime.close().await;
+}
+
+/// H1: the detector's own source, where comments name credentials around
+/// backticks and code mentions `secret` beside other words, reads as written:
+/// no value runs from a backtick in a comment into the code lines below it,
+/// and `secret == "~"` compares with a mark, no secret.
+#[tokio::test]
+async fn code_that_names_credentials_in_comments_reads_as_written() {
+    const SOURCE: &str = "}\n\n/// Whether `secret` after `key` is a sentence: after `name:` several words\n/// are prose (`password: must be at least 8 characters`); after `NAME=` they\n/// are a value.\npub(super) fn is_sentence(key: &impl KeyFacts, secret: &str) -> bool {\n    key.ends_with_colon() && secret.contains(char::is_whitespace)\n}\n\n/// Characters of a comment's first word after `name:` that make it a secret\n/// whatever words follow it.\nconst COMMENT_OPAQUE_WORD_CHARS: usize = 8;\n\nfn is_non_string_scalar(secret: &str) -> bool {\n    secret == \"~\"\n        || [\"true\", \"false\", \"null\"]\n            .iter()\n            .any(|keyword| secret.eq_ignore_ascii_case(keyword))\n}\n";
+    let workspace = Workspace::new();
+    let path = workspace.write("src/credential_values.rs", SOURCE);
+    let runtime = workspace.runtime(&[]);
+    let lines = SOURCE.lines().count();
+    let text = content(&runtime, &path, (1, lines)).await;
+    assert!(!text.contains("[REDACTED"), "{text}");
+    for line in SOURCE.lines().filter(|line| !line.is_empty()) {
+        assert!(text.contains(line), "{line:?} lost: {text}");
+    }
+    runtime.close().await;
+}
+
+/// D3 (round 13): a view's own warnings are the tool's text, never a
+/// file's: compact and symbols reads state them verbatim, and a read that
+/// replaced nothing states no redaction.
+#[tokio::test]
+async fn a_views_own_warnings_read_as_written() {
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[]);
+    let plain = workspace.write("b.py", "password = 'abc'\ndef f(x=\"abc\"):\n");
+    let planted = workspace.write(
+        "s.py",
+        "import os\nGITHUB_TOKEN = \"ghp_a1B2a1B2a1B2a1B2a1B2a1B2a1B2a1B2a1B2\"  # pat\ndef f(api_key=\"Zq7Xk2Pm9Vt4Lw8Rb3Nc6Hy1Jd5Fg0Ts7Qe2Ua4\"):\n    return api_key\ntoken = \"Zq7Xk2Pm9Vt4Lw8Rb3Nc6Hy1Jd5Fg0Ts7Qe2Ua4\n\"\n",
+    );
+    for (path, view) in [
+        (&plain, "compact"),
+        (&planted, "compact"),
+        (&planted, "symbols"),
+    ] {
+        let output: Value = runtime
+            .run(
+                "warnings".into(),
+                "localFetch".into(),
+                json!({"queries":[{"path": path, "view": view}]}),
+            )
+            .await
+            .expect("read")
+            .structured_content
+            .into_value();
+        let data = &output["results"][0]["data"];
+        let warnings: Vec<&str> = data["warnings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect();
+        for warning in &warnings {
+            assert!(!warning.contains("[REDACTED-"), "{view}: {warning}");
+        }
+        let content = data["content"].as_str().unwrap_or_default();
+        let redacted = warnings
+            .iter()
+            .any(|warning| warning.starts_with("redactedContent"));
+        assert_eq!(
+            redacted,
+            content.contains("[REDACTED-"),
+            "{view} {path:?}: {warnings:?} {content}"
+        );
+    }
+    runtime.close().await;
+}
+
+/// Every page of the localFetch read `query` starts, in order: each page's
+/// row, until no `nextPage` remains. A page that fails (round 13: the gate
+/// rewrote the continuation's `snapshot`, `outputContractViolation`) fails
+/// the walk.
+async fn walk_read(
+    runtime: &octocode_native::runtime::ToolRuntime,
+    label: &str,
+    query: Value,
+) -> Vec<Value> {
+    let mut input = json!({"queries":[query]});
+    let mut rows = Vec::new();
+    loop {
+        assert!(rows.len() < 2_000, "{label}: the walk ends");
+        let output: Value = runtime
+            .run(
+                format!("{label}-{}", rows.len()),
+                "localFetch".into(),
+                input,
+            )
+            .await
+            .unwrap_or_else(|error| panic!("{label} page {}: {error:?}", rows.len()))
+            .structured_content
+            .into_value();
+        assert!(
+            output.get("error").is_none() && output["results"][0]["data"].get("error").is_none(),
+            "{label} page {}: {output}",
+            rows.len()
+        );
+        let next = next_page(&output).and_then(cursor_in);
+        rows.push(output["results"][0]["data"].clone());
+        let Some(cursor) = next else {
+            return rows;
+        };
+        input = json!({ "cursor": cursor });
+    }
+}
+
+/// The source line numbers the pages of a line walk show, in order.
+fn walked_lines(rows: &[Value]) -> Vec<usize> {
+    rows.iter()
+        .filter_map(|row| row["content"].as_str())
+        .flat_map(str::lines)
+        .filter_map(|line| line.split_once('\t')?.0.parse().ok())
+        .collect()
+}
+
+/// Round 13, D1: a page with a continuation whose text the detector reads
+/// as a credential's context (an assignment, then a JSON object line) had
+/// its continuation's `snapshot` hidden. Each walk reaches its end, and the
+/// pages show every line exactly once, in order.
+#[tokio::test]
+async fn a_credential_shaped_page_keeps_its_continuation() {
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[]);
+    let small = workspace.write("t.md", "TOKEN=abc\n{\"a\":\"b\"}\nx\n");
+    let constructors = workspace.write(
+        "c.rs",
+        "let a = Token::new(\"\");\nlet b = Secret::new(\"\");\nlet c = Password::from(\"\");\nlet d = ApiKeys::new(\"x\");\nfn e() {}\nfn f() {}\n",
+    );
+    for (label, path, lines) in [("small", &small, 3), ("constructors", &constructors, 6)] {
+        for limit in [1, 2] {
+            let rows = walk_read(&runtime, label, json!({"path": path, "limit": limit})).await;
+            assert_eq!(
+                walked_lines(&rows),
+                (1..=lines).collect::<Vec<_>>(),
+                "{label} limit {limit}: {rows:?}"
+            );
+        }
+    }
+    runtime.close().await;
+}
+
+/// The two real files the round-13 retest failed on, walked whole: plain
+/// line pages, `ranges` with `limit`, and `matchString` pages.
+#[tokio::test]
+async fn real_sources_the_retest_failed_on_walk_to_their_end() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..");
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[]);
+    for (name, source, term) in [
+        ("CONFIGURATION.md", "docs/CONFIGURATION.md", "token"),
+        (
+            "credential_values.rs",
+            "packages/octocode-native/crates/engine/src/security/detector/credential_values.rs",
+            "secret",
+        ),
+    ] {
+        let text = std::fs::read_to_string(root.join(source)).expect("repository source");
+        let path = workspace.write(name, &text);
+        let total = text.lines().count();
+        let rows = walk_read(&runtime, name, json!({"path": path, "limit": 40})).await;
+        assert_eq!(
+            walked_lines(&rows),
+            (1..=total).collect::<Vec<_>>(),
+            "{name}"
+        );
+        let end = total.min(400);
+        let ranged = walk_read(
+            &runtime,
+            name,
+            json!({"path": path, "ranges": [{"startLine": 1, "endLine": end}], "limit": 25}),
+        )
+        .await;
+        assert_eq!(
+            walked_lines(&ranged),
+            (1..=end).collect::<Vec<_>>(),
+            "{name} ranges"
+        );
+        let matched = walk_read(
+            &runtime,
+            name,
+            json!({"path": path, "matchString": term, "limit": 10}),
+        )
+        .await;
+        let lines = walked_lines(&matched);
+        assert!(
+            !lines.is_empty() && lines.windows(2).all(|pair| pair[0] < pair[1]),
+            "{name} matchString: {lines:?}"
+        );
+    }
+    runtime.close().await;
+}
+
+/// Every response `tool` gives for `query`, its rows' text included.
+async fn tool_text(
+    runtime: &octocode_native::runtime::ToolRuntime,
+    tool: &str,
+    query: Value,
+) -> String {
+    let output: Value = runtime
+        .run("armor".into(), tool.into(), json!({ "queries": [query] }))
+        .await
+        .unwrap_or_else(|error| panic!("{tool}: {error:?}"))
+        .structured_content
+        .into_value();
+    output.to_string()
+}
+
+/// Owner rule (round 14, item 3): a key block's armor names the block and
+/// holds none of it, so every view shows the armor lines as written, a
+/// literal's closing quote too, and no view shows a byte of the body: a
+/// read, the compact view, a search's content and matchOnly rows, the
+/// symbols outline, and a byte page of a source over the whole-file
+/// ceiling. A block with no END still hides its body.
+#[tokio::test]
+async fn every_view_shows_a_key_blocks_armor_and_none_of_its_body() {
+    const BEGIN: &str = "-----BEGIN RSA PRIVATE KEY-----";
+    const END: &str = "-----END RSA PRIVATE KEY-----";
+    let bodies = [
+        "MIIEowIBAAKCAQEAfakeArmorBodyLineOneAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "Zq7Xk2Pm9Vt4Lw8Rb3Nc6Hy1Jd5Fg0Ts7Qe2Ua4fakeArmorBodyLineTwoBBBBB",
+    ];
+    let block = format!("{BEGIN}\n{}\n{}\n{END}\n", bodies[0], bodies[1]);
+    let quoted = format!("private_key: \"{BEGIN}\"");
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[]);
+    let text = workspace.write("keys.txt", format!("{quoted}\n{block}tail\n"));
+    let open = workspace.write(
+        "open.txt",
+        format!("head\n{BEGIN}\n{}\n{}\n", bodies[0], bodies[1]),
+    );
+    let code = workspace.write(
+        "pem.ts",
+        format!(
+            "export const pem = `{}`;\nexport function tail() {{ return 1; }}\n",
+            block.trim_end()
+        ),
+    );
+    let mut large = "let filler_value = 0;\n".repeat(11 * 1024 * 1024 / 22);
+    let large_lines = large.lines().count();
+    large.push_str(&block);
+    large.push_str("tail\n");
+    let large = workspace.write("large.txt", large);
+    // Each read, and the armor text it must show: a matchOnly row shows its
+    // span alone, and a search for body text shows no armor at all.
+    let reads = [
+        ("localFetch", json!({"path": text}), Some(BEGIN)),
+        (
+            "localFetch",
+            json!({"path": text, "view": "compact"}),
+            Some(BEGIN),
+        ),
+        (
+            "localFetch",
+            json!({"path": text, "ranges": [{"startLine": 2, "endLine": 5}]}),
+            Some(BEGIN),
+        ),
+        ("localFetch", json!({"path": open}), Some(BEGIN)),
+        ("localFetch", json!({"path": code}), Some(BEGIN)),
+        (
+            "localFetch",
+            json!({"path": code, "view": "compact"}),
+            Some(BEGIN),
+        ),
+        ("localFetch", json!({"path": code, "view": "symbols"}), None),
+        (
+            "localSearch",
+            json!({"path": workspace.workspace, "matchString": ["PRIVATE KEY"], "view": "content"}),
+            Some(BEGIN),
+        ),
+        (
+            "localSearch",
+            json!({"path": workspace.workspace, "matchString": ["PRIVATE KEY"], "view": "matchOnly"}),
+            Some("PRIVATE KEY"),
+        ),
+        (
+            "localSearch",
+            json!({"path": workspace.workspace, "matchString": ["BEGIN RSA PRIVATE KEY-----\\n.*"], "multiline": "on", "regexEngine": "rust", "view": "matchOnly"}),
+            None,
+        ),
+        (
+            "localSearch",
+            json!({"path": workspace.workspace, "matchString": ["fakeArmorBody"], "view": "content"}),
+            None,
+        ),
+        (
+            "localSearch",
+            json!({"path": workspace.workspace, "matchString": ["fakeArmorBody"], "view": "matchOnly"}),
+            None,
+        ),
+        (
+            "astSearch",
+            json!({"operation": "symbols", "path": code}),
+            None,
+        ),
+        (
+            "localFetch",
+            json!({"path": large, "ranges": [{"startLine": large_lines - 1, "endLine": large_lines + 6}]}),
+            Some(BEGIN),
+        ),
+    ];
+    for (tool, query, armor) in reads {
+        let shown = tool_text(&runtime, tool, query.clone()).await;
+        for body in bodies {
+            assert!(!shown.contains(&body[..24]), "{tool} {query}: {shown}");
+        }
+        if let Some(armor) = armor {
+            assert!(
+                shown.contains(armor),
+                "{tool} {query}: the armor is shown: {shown}"
+            );
+        }
+    }
+    let read = tool_text(&runtime, "localFetch", json!({"path": text})).await;
+    assert!(
+        read.contains(&quoted.replace('"', "\\\"")),
+        "the quoted armor reads whole: {read}"
+    );
+    assert!(read.contains(END), "{read}");
+    runtime.close().await;
+}
+
+/// The detector's own source states an armor in a comment, a quote and code
+/// after it (`` `-----BEGIN RSA PRIVATE KEY-----`): ``): the line reads whole.
+#[tokio::test]
+async fn a_comment_that_quotes_an_armor_reads_whole() {
+    let line = "/// Whether `secret` is one PEM armor line (`-----BEGIN RSA PRIVATE KEY-----`):";
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[]);
+    let path = workspace.write("armor.rs", format!("{line}\nfn is_armor_line() {{}}\n"));
+    let text = content(&runtime, &path, (1, 2)).await;
+    assert!(text.contains(line), "{text}");
+    runtime.close().await;
 }

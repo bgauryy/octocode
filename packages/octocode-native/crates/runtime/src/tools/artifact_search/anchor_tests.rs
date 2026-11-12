@@ -141,7 +141,7 @@ fn failures_carry_one_repair_lead() {
     let pinned = typed(
         &json!({"operation":"resolve","ecosystem":"npm","packageName":"zod","version":"3.22.9","view":"summary"}),
     );
-    let mut missing = ArtifactError::new(ErrorCode::VersionNotFound, "no 3.22.9");
+    let mut missing = ArtifactError::version_not_found("no 3.22.9");
     missing.nearest = vec!["3.22.4".into(), "3.22.0".into()];
     let next = leads::with_repair(missing, &pinned).calls.expect("lead");
     let versions = next["repair"]["input"]["queries"]
@@ -177,5 +177,54 @@ fn failures_carry_one_repair_lead() {
     assert_eq!(
         error.hints,
         ["Check the exact packageName spelling; pypi has no keyword search."]
+    );
+}
+
+/// A missing version's repair reads as many nearest versions as one call
+/// carries (the contract's batch limit), newest first; when the registry has
+/// fewer, a hint says so, and a full call needs none.
+#[test]
+fn a_missing_version_repair_fills_one_call_or_says_why_not() {
+    let limit = crate::contracts::batch_limit(crate::id::ToolId::ArtifactSearch).expect("batch limit");
+    let pinned = typed(
+        &json!({"operation":"resolve","ecosystem":"npm","packageName":"vite","version":"99.0.0"}),
+    );
+    let published = (0..limit + 3)
+        .map(|patch| format!("8.3.{patch}"))
+        .collect::<Vec<_>>();
+    let missing = crate::providers::artifact::version_not_found(
+        ArtifactType::Npm,
+        "vite",
+        "99.0.0",
+        &published,
+    );
+    let error = leads::with_repair(missing, &pinned);
+    let versions = |error: &ArtifactError| {
+        error.calls.as_ref().expect("lead")["repair"]["input"]["queries"]
+            .as_array()
+            .expect("batch")
+            .iter()
+            .map(|row| row["version"].as_str().unwrap_or_default().to_owned())
+            .collect::<Vec<_>>()
+    };
+    let newest = (3..limit + 3)
+        .rev()
+        .map(|patch| format!("8.3.{patch}"))
+        .collect::<Vec<_>>();
+    assert_eq!(versions(&error), newest);
+    assert_eq!(error.hints.len(), 1, "{:?}", error.hints);
+
+    let few = crate::providers::artifact::version_not_found(
+        ArtifactType::Npm,
+        "vite",
+        "99.0.0",
+        &published[..2],
+    );
+    let error = leads::with_repair(few, &pinned);
+    assert_eq!(versions(&error), ["8.3.1", "8.3.0"]);
+    assert!(
+        error.hints.iter().any(|hint| hint.starts_with("Only 2 published")),
+        "{:?}",
+        error.hints
     );
 }

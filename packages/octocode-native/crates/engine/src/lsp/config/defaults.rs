@@ -196,9 +196,9 @@ pub fn workspace_symbol_limit(config: &LspLanguageServerConfig) -> Option<usize>
 /// `lsp-servers.json` entry always wins ([`workspace_symbol_limit`]).
 pub fn workspace_symbol_cap_advice(config: &LspLanguageServerConfig) -> &'static str {
     if server_stem(&config.command).as_deref() == Some("tsgo") {
-        "narrow symbolQuery, or route .ts to typescript-language-server in lsp-servers.json"
+        "narrow symbolFuzzy, or route .ts to typescript-language-server in lsp-servers.json"
     } else {
-        "narrow symbolQuery"
+        "narrow symbolFuzzy"
     }
 }
 

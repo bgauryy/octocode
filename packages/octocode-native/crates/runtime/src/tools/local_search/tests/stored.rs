@@ -40,9 +40,10 @@ fn page_paths(
 }
 
 /// Thirty TS files of needle hits (every third also holds a token on a hit
-/// line), a key file whose hit sits inside a private-key block, and an
-/// innocent base64 hit: enough rows for several pages, with values that
-/// redaction replaces and files whose key-block scans read their bytes.
+/// line), a key file whose hit is a key-shaped line beside its private-key
+/// block, and an innocent base64 hit: enough rows for several pages, with
+/// values that redaction replaces and files whose key-block scans read their
+/// bytes.
 fn paged_fixture(root: &std::path::Path) {
     for file in 0..30 {
         let mut body = (0..15)
@@ -61,7 +62,9 @@ fn paged_fixture(root: &std::path::Path) {
     }
     fs::write(
         root.join("zkey.ts"),
-        "export const pem = `\n-----BEGIN RSA PRIVATE KEY-----\nMIIEpQIBAAKCAQEAneedleKeyBodyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n-----END RSA PRIVATE KEY-----\n`;\n",
+        // Its hit is a line that looks like key material outside the armor,
+        // which a read shows: the body a read hides is no hit.
+        "export const pem = `\n-----BEGIN RSA PRIVATE KEY-----\nMIIEpQIBAAKCAQEAinnerKeyBodyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n-----END RSA PRIVATE KEY-----\nMIIEpQIBAAKCAQEAneedleKeyBodyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n`;\n",
     )
     .expect("key fixture");
     fs::write(

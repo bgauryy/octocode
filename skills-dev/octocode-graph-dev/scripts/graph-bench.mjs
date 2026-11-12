@@ -129,7 +129,7 @@ function client(opts, cwd) {
         if (!next || callFailure(page.res, page.j)) break;
         page = await call('graphQuery', next);
       }
-      return { rows, ms, bytes, calls, total: first.pagination?.totalItems ?? rows.length, pagesComplete: !callFailure(page.res, page.j) && rows.length === (first.pagination?.totalItems ?? rows.length) };
+      return { rows, ms, bytes, calls, total: first.pagination?.total ?? rows.length, pagesComplete: !callFailure(page.res, page.j) && rows.length === (first.pagination?.total ?? rows.length) };
     };
     return { q, pages };
   };
@@ -163,7 +163,7 @@ export async function callerFiles(pages, ids) {
     row.ms += cl.ms;
     row.bytes += cl.bytes;
     row.pagesComplete &&= cl.pagesComplete;
-    for (const x of cl.rows) files.add(x.file);
+    for (const x of cl.rows) files.add(x.path);
   }
   row.files = files.size;
   return { files, row };
@@ -208,9 +208,9 @@ async function probeEdges(pages, ids) {
   return edges;
 }
 
-const impactRow = ({ res, j }) => ({ ms: res.ms, exit: res.code, total: j.pagination?.totalItems ?? j.rows?.length, bytes: res.out.length, summaryKeys: Object.keys(j.summary ?? {}), error: j.error, errorCode: j.errorCode });
-const cycleRow = ({ res, j }) => ({ ms: res.ms, exit: res.code, total: j.pagination?.totalItems ?? j.rows?.length, error: j.error, errorCode: j.errorCode });
-const unresolvedRow = ({ res, j }) => ({ exit: res.code, total: j.pagination?.totalItems ?? j.rows?.length, sample: (j.rows ?? []).slice(0, 5), error: j.error, errorCode: j.errorCode });
+const impactRow = ({ res, j }) => ({ ms: res.ms, exit: res.code, total: j.pagination?.total ?? j.rows?.length, bytes: res.out.length, summaryKeys: Object.keys(j.summary ?? {}), error: j.error, errorCode: j.errorCode });
+const cycleRow = ({ res, j }) => ({ ms: res.ms, exit: res.code, total: j.pagination?.total ?? j.rows?.length, error: j.error, errorCode: j.errorCode });
+const unresolvedRow = ({ res, j }) => ({ exit: res.code, total: j.pagination?.total ?? j.rows?.length, sample: (j.rows ?? []).slice(0, 5), error: j.error, errorCode: j.errorCode });
 function issuesRow({ res, j }) {
   const by = {};
   for (const finding of j.rows ?? []) by[`${finding.detector}/t${finding.tier}`] = (by[`${finding.detector}/t${finding.tier}`] ?? 0) + 1;
@@ -255,7 +255,7 @@ async function bench(c, opts) {
   const ids = defs.map((x) => x.id);
   const callers = await callerFiles(pages, ids);
   row.callers = callers.row;
-  const definitions = defs.filter((x) => x.selectionByteRange).map((x) => ({ file: x.file, startByte: x.selectionByteRange.startByte }));
+  const definitions = defs.filter((x) => x.selectionByteRange).map((x) => ({ file: x.path, startByte: x.selectionByteRange.startByte }));
   row.recall = await oracle(c, root, { graphFiles: callers.files, definitions, pages });
   if (opts.edges) row.edges = await probeEdges(pages, ids);
   return { ...row, ...(await workflow(q, ids[0])) };

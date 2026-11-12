@@ -12,8 +12,8 @@ fn source() -> String {
 }
 
 /// The MCP pages of `input`, each requested with only the previous page's
-/// cursor. Asserts every continuation is the cursor alone, pages count up
-/// by one under a fixed `totalPages`, and the last page ends the walk.
+/// cursor. Asserts every continuation is the cursor alone and canonical,
+/// and the last page ends the walk.
 async fn walk(
     runtime: &octocode_native::runtime::ToolRuntime,
     tool: &str,
@@ -117,7 +117,6 @@ async fn the_cursor_walks_saved_pages_across_persistent_restarts() {
     let first_payload = support::mcp_payload(&first);
     captured(&first_payload["results"], &mut seen);
     let mut pagination = first_payload["responsePagination"].clone();
-    let total = pagination["totalPages"].clone();
     let mut pages = 1;
     while pagination["hasMore"] == true {
         pages += 1;
@@ -136,7 +135,6 @@ async fn the_cursor_walks_saved_pages_across_persistent_restarts() {
         captured(&support::mcp_payload(&page)["results"], &mut seen);
         pagination = support::mcp_payload(&page)["responsePagination"].clone();
         assert_eq!(pagination["replayed"], true, "{pagination}");
-        assert_eq!(pagination["totalPages"], total, "{pagination}");
     }
     seen.sort();
     let expected: Vec<String> = source().lines().map(str::to_owned).collect();

@@ -106,7 +106,7 @@ async fn a_materialized_body_is_stored_once_and_a_repeat_reads_the_snapshot() {
 
     let first = materialize(&provider, &home.0).await;
     let local = std::path::PathBuf::from(
-        first["location"]["localPath"]
+        first["location"]["path"]
             .as_str()
             .expect("materialized location"),
     );

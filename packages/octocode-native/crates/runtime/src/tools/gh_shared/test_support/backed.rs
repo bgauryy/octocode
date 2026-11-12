@@ -27,6 +27,25 @@ pub(crate) async fn run_code(server: &MockServer, query: Value) -> Result<ToolDa
     .await
 }
 
+/// A ghSearchCode row's `matches` as `<line>\t<text>` entries, one per
+/// listed line; `null` when the row lists none.
+pub(crate) fn listing(row: &Value) -> Value {
+    row.get("matches")
+        .and_then(Value::as_array)
+        .map_or(Value::Null, |matches| {
+            matches
+                .iter()
+                .map(|entry| {
+                    json!(format!(
+                        "{}\t{}",
+                        entry["line"],
+                        entry["value"].as_str().unwrap_or("")
+                    ))
+                })
+                .collect()
+        })
+}
+
 pub(crate) async fn run_repo(server: &MockServer, query: Value) -> Result<ToolData, ProviderError> {
     let provider = one_shot_provider(server);
     let query = serde_json::from_value(query).expect("canonical repository query");

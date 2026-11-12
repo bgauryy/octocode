@@ -35,7 +35,7 @@ const REVIEW_FILE_CHARS: usize = 80;
 /// source files first (then other non-test, non-doc files), most changed
 /// lines first — packed into one call's patch budget. Tests, docs,
 /// changesets, lockfiles and generated output are left to the inventory.
-/// Always names at least the top file when one qualifies.
+/// Always names the top file when one qualifies, whatever its size.
 pub(in crate::tools::gh_get_history_item) fn review_selection(
     files: &[Value],
     budget: usize,
@@ -56,24 +56,25 @@ pub(in crate::tools::gh_get_history_item) fn review_selection(
         })
         .collect::<Vec<_>>();
     ranked.sort_by_key(|(rank, _, _)| *rank);
-    // Files that fit one call's budget come first (packed, most changed
-    // first), so the first read delivers whole patches; the rest follow in
-    // rank order and arrive through the patch page continuation.
+    // The pick is the most-changed file and the files whose whole patches
+    // fit one call's budget (packed, most changed first): a lead names how
+    // to read more, not the whole list. Every other patch stays one
+    // `sections: ["patches"]` read away.
     let mut used = 0usize;
     let mut packed = Vec::new();
-    let mut rest = Vec::new();
+    let mut top = None;
     for (_, path, changed) in ranked {
+        top.get_or_insert(path);
         let cost = changed.saturating_mul(REVIEW_LINE_CHARS) + REVIEW_FILE_CHARS;
         if used + cost <= budget {
             used += cost;
             packed.push(path.to_owned());
-        } else {
-            rest.push(path.to_owned());
         }
     }
-    packed.extend(rest);
-    // The pick rides one lead's `include`: as many files as it admits. The
-    // rest of the diff stays one `readPatches` away.
+    if let Some(top) = top.filter(|top| packed.first().is_none_or(|first| first != top)) {
+        packed.insert(0, top.to_owned());
+    }
+    // One lead's `include` admits at most the contract's bound.
     packed.truncate(crate::contracts::query_limits::gh_get_history_item::INCLUDE_MAX_ITEMS);
     packed
 }

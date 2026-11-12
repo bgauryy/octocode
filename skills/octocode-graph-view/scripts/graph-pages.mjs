@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { posix } from 'node:path';
 import { cliCommand, octocode } from './lib.mjs';
 
 // Bulk reads let the row `limit` end a page, not the response budget: the budget has no maximum (the default
@@ -33,10 +34,10 @@ export function sourcesPerQuery(operation) {
   return max;
 }
 
-// The rows a graphQuery row holds in all: `pagination.totalItems`, which a complete single page omits (its rows
+// The rows a graphQuery row holds in all: `pagination.total`, which a complete single page omits (its rows
 // are then the whole answer).
 export function totalOf(data) {
-  const total = data.pagination?.totalItems ?? (data.next?.nextPage ? undefined : data.rows?.length);
+  const total = data.pagination?.total ?? (data.next?.nextPage ? undefined : data.rows?.length);
   return Number.isInteger(total) ? total : undefined;
 }
 
@@ -51,6 +52,48 @@ export async function graphTotal(row, { run = graphCall } = {}) {
 export async function graphBuild(row, { run = graphCall, onProgress = () => {} } = {}) {
   const onStderr = (line) => onProgress(line.replace(/^# graphBuild: /, ''));
   return dataOf('graphBuild', await run('graphBuild', envelope(row), { onStderr }));
+}
+
+// A graph answer names every file and directory from the workspace root, as every tool does: each `path`, each
+// reference field that holds a file or directory, and each `path:line` mention. This skill keys files by their
+// snapshot key, relative to the snapshot's root (`graph.root`). Each `path` and mention is restated in that key
+// space, in place (a config file above the root as `../package.json`), and so is every reference under the root;
+// ids that are not paths (a symbol's `file#name`, `pkg:` keys, finding ids) never lie under it and stay. Calls
+// (`next`, `related`) keep theirs.
+const REFERENCE_FIELDS = new Set(['id', 'subject', 'from', 'to', 'target', 'members', 'dirs', 'nodes', 'rows', 'files', 'reachedFrom', 'affectedEntrypoints', 'testsToRun']);
+const MENTION_FIELDS = new Set(['mentionedIn', 'textMentions']);
+export function scopePaths(data) {
+  const root = data?.graph?.root;
+  if (!root || root === '.') return data;
+  const underRoot = (text) => text === root || text.startsWith(`${root}/`);
+  const reference = (item) => {
+    if (typeof item === 'string') return underRoot(item) ? posix.relative(root, item) || '.' : item;
+    if (Array.isArray(item)) return item.map(reference);
+    visit(item);
+    return item;
+  };
+  const mention = (item) => {
+    if (typeof item === 'string') {
+      const [, path, line = ''] = /^(.*?)((?::\d+)?)$/.exec(item);
+      return posix.relative(root, path) + line;
+    }
+    if (Array.isArray(item)) return item.map(mention);
+    if (item && typeof item === 'object') return Object.fromEntries(Object.entries(item).map(([k, v]) => [k, mention(v)]));
+    return item;
+  };
+  const visit = (value) => {
+    if (Array.isArray(value)) return value.forEach(visit);
+    if (!value || typeof value !== 'object') return;
+    for (const [key, item] of Object.entries(value)) {
+      if (key === 'path' && typeof item === 'string') value[key] = posix.relative(root, item);
+      else if (key === 'next' || key === 'related' || key === 'graph') continue;
+      else if (REFERENCE_FIELDS.has(key)) value[key] = reference(item);
+      else if (MENTION_FIELDS.has(key)) value[key] = mention(item);
+      else visit(item);
+    }
+  };
+  visit(data);
+  return data;
 }
 
 // The continuation of a response, in the order the contract reads them: the serialized-response page first,
@@ -74,8 +117,9 @@ function listOf(name, first, rows, pageStart) {
 
 // Every row of one graphQuery row, read to its end: `next.nextPage` pages, every `summary.*`/`baseline.*` evidence
 // list (`next['summary.x']`) and every cycle's member list (`next.cycle<i>`, i = the row on its page). Raw pages
-// reach save() before they are joined. Pages carry no row offset (it lives in the cursor), so exactly-once is
-// checked by count: a list's rows, the ones already shown included, must end equal to its `totalItems`. A repeated
+// reach save() before they are joined, with each page's data, its paths restated as snapshot keys ([`scopePaths`]),
+// which the result keeps too. Pages carry no row offset (it lives in the cursor), so exactly-once is
+// checked by count: a list's rows, the ones already shown included, must end equal to its `total`. A repeated
 // input, a count mismatch or a missing continuation rejects: the result is complete or there is none. The result
 // is the first page's data with `rows` holding every row and no `pagination` or `next`.
 export async function readGraph(row, { run = graphCall, save = () => {} } = {}) {
@@ -85,8 +129,9 @@ export async function readGraph(row, { run = graphCall, save = () => {} } = {}) 
     if (seen.has(key)) throw new Error('Repeated graph continuation; evidence is incomplete');
     seen.add(key);
     const response = await run('graphQuery', input);
-    save(input, response);
-    return { response, data: structuredClone(dataOf('graphQuery', response)) };
+    const data = scopePaths(structuredClone(dataOf('graphQuery', response)));
+    save(input, response, data);
+    return { response, data };
   }
   async function extras(data, first, rows, pageStart) {
     for (const [name, call] of Object.entries(data.next ?? {})) {
@@ -100,14 +145,14 @@ export async function readGraph(row, { run = graphCall, save = () => {} } = {}) 
   async function collect(input, shown = 0) {
     let { response, data } = await read(input);
     const first = data;
-    const total = data.pagination?.totalItems;
+    const total = data.pagination?.total;
     const rows = [];
     for (;;) {
       // A page without `rows` is a contract change, not an empty answer: fail rather than build an empty graph.
       if (!Array.isArray(data.rows)) throw new Error(`graphQuery page has no rows array: ${Object.keys(data).join(',')}`);
       const pageStart = rows.length;
       rows.push(...data.rows);
-      if (Number.isInteger(total) && shown + rows.length > total) throw new Error('Graph pages repeat rows: more rows than totalItems');
+      if (Number.isInteger(total) && shown + rows.length > total) throw new Error('Graph pages repeat rows: more rows than pagination.total');
       await extras(data, first, rows, pageStart);
       const next = pageContinuation(response, data);
       if (!next) break;

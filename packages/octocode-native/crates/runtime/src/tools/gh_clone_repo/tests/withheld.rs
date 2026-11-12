@@ -67,7 +67,7 @@ fn a_full_clone_leaves_out_credential_named_files() {
     let config = CloneConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let result = clone_pinned(&fixture, &query(), &context).expect("full clone");
-    let local = Path::new(&result.location.local_path);
+    let local = Path::new(&result.location.path);
     for secret in SECRETS {
         assert!(!local.join(secret).exists(), "{secret} was written");
     }
@@ -94,7 +94,7 @@ fn a_sparse_directory_clone_leaves_out_credential_named_files_in_scope() {
         &context,
     )
     .expect("sparse clone");
-    let local = Path::new(&result.location.local_path);
+    let local = Path::new(&result.location.path);
     assert!(local.join("examples/auth0/app.js").is_file());
     for secret in SECRETS {
         assert!(!local.join(secret).exists(), "{secret} was written");
@@ -144,7 +144,7 @@ fn credential_content_is_never_downloaded() {
             &context,
         )
         .expect("clone");
-        let objects = stored_objects(Path::new(&result.location.local_path));
+        let objects = stored_objects(Path::new(&result.location.path));
         assert!(!objects.contains("hunter2"), "secret stored ({paths:?})");
         // The ordinary file beside it was fetched, so the probe sees blobs.
         assert!(objects.contains("ok\n"), "no blob stored ({paths:?})");
@@ -202,12 +202,8 @@ fn a_store_holding_a_credential_blob_is_replaced_by_a_new_generation() {
     let stores = store_dirs(&home);
     assert_eq!(stores.len(), 2, "{stores:?}");
     assert!(stores[1].to_string_lossy().ends_with("__g2.git"));
-    assert!(
-        Path::new(&next.location.local_path)
-            .join("README.md")
-            .is_file()
-    );
-    let old_path = Path::new(&old.location.local_path);
+    assert!(Path::new(&next.location.path).join("README.md").is_file());
+    let old_path = Path::new(&old.location.path);
     assert_eq!(
         git_output(old_path, &["rev-parse", "HEAD"]).trim(),
         old.location.commit_sha
@@ -242,11 +238,7 @@ fn a_poisoned_store_serves_a_new_commit_from_a_new_generation_on_the_first_try()
     fixture.push_commit("two.txt");
 
     let next = clone_pinned(&fixture, &query(), &context).expect("a new commit, first try");
-    assert!(
-        Path::new(&next.location.local_path)
-            .join("two.txt")
-            .is_file()
-    );
+    assert!(Path::new(&next.location.path).join("two.txt").is_file());
     let stores = store_dirs(&home);
     assert_eq!(stores.len(), 2, "{stores:?}");
     assert!(stores[1].to_string_lossy().ends_with("__g2.git"));

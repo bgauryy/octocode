@@ -127,14 +127,13 @@ async fn a_proxied_listing_with_a_foreign_next_link_pages_by_its_own_origin() {
     assert_eq!(two["commits"][0]["commitSha"], "b1", "{two}");
 }
 
-/// `totalPages` appears only beside an exact total: an uncapped search
-/// count states it; a count past GitHub's 1,000-result window states the
-/// reachable `totalItems` and `partialReasons:["providerResultCap"]`, no
-/// page count.
+/// An uncapped search count is the exact `total`; a count past GitHub's
+/// 1,000-result window states the reachable `total` with `countScope:
+/// "capped"` and `partialReasons:["providerResultCap"]`.
 #[tokio::test]
-async fn total_pages_appear_only_beside_an_exact_total() {
+async fn a_capped_total_is_the_reachable_window() {
     use wiremock::MockServer;
-    for (total_count, total_pages) in [(130, Some(3)), (5_000, None)] {
+    for (total_count, capped) in [(130, false), (5_000, true)] {
         let server = MockServer::builder().start().await;
         let items = (1..=10)
             .map(|number| {
@@ -158,12 +157,17 @@ async fn total_pages_appear_only_beside_an_exact_total() {
             .await
             .expect("pull request search");
         assert_eq!(
-            data["pagination"].get("totalPages").and_then(Value::as_u64),
-            total_pages,
+            data["pagination"]["total"],
+            if capped { 1000 } else { total_count },
             "{data}"
         );
-        if total_pages.is_none() {
-            assert_eq!(data["pagination"]["totalItems"], 1000, "{data}");
+        assert_eq!(
+            data["pagination"].get("countScope").is_some(),
+            capped,
+            "{data}"
+        );
+        if capped {
+            assert_eq!(data["pagination"]["countScope"], "capped", "{data}");
             assert_eq!(
                 data["partialReasons"],
                 json!(["providerResultCap"]),
@@ -173,10 +177,10 @@ async fn total_pages_appear_only_beside_an_exact_total() {
     }
 }
 
-/// A REST list page has no total: `totalItems` counts the rows listed so far
+/// A REST list page has no total: `total` counts the rows listed so far
 /// (`countScope: loaded`, a floor), with no static warning. A pull request
 /// list also offers one count call: the same filters searched (created since
-/// the epoch, every pull request), one row, whose `totalItems` is the count.
+/// the epoch, every pull request), one row, whose `total` is the count.
 /// A commit list has none: commit search needs keywords.
 #[tokio::test]
 async fn a_rest_list_page_with_more_counts_rows_so_far_and_offers_a_count() {
@@ -224,7 +228,7 @@ async fn a_rest_list_page_with_more_counts_rows_so_far_and_offers_a_count() {
         .await
         .expect("listing");
         assert_eq!(data["pagination"]["hasMore"], true, "{data}");
-        assert_eq!(data["pagination"]["totalItems"], 1, "{data}");
+        assert_eq!(data["pagination"]["total"], 1, "{data}");
         assert_eq!(data["pagination"]["countScope"], "loaded", "{data}");
         assert!(data.get("warnings").is_none(), "{row}: {data}");
         if row["operation"] == "pullRequest" {

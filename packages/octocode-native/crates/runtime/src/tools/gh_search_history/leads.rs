@@ -220,7 +220,7 @@ pub(super) fn broaden_search(q: &GhSearchHistoryQuery) -> Option<Value> {
 }
 
 /// A pull request list's count: the same filters searched, one row. The REST
-/// list states no total; a search does (`totalItems`). Pull requests created
+/// list states no total; a search does (`pagination.total`). Pull requests created
 /// since the epoch are every pull request, so the window only routes the same
 /// rows to search. `None` when the row does not validate.
 pub(super) fn count_listed(q: &HistorySearch) -> Option<Value> {

@@ -235,3 +235,308 @@ fn types_placeholders_and_the_handshake_nonce_are_no_credentials() {
         hidden_alone(&content, "notes.txt", &[secret]);
     }
 }
+
+/// Round 12 retest, D9 and D4: a request is judged by the file judge itself,
+/// so what a read of text of no known file hides is refused, and what it
+/// shows runs. The same text in a source file and a text file agrees.
+#[test]
+fn a_request_runs_exactly_what_the_file_judge_shows() {
+    for text in [
+        "password = \"hunter2-Sup3rS3cret\"",
+        "password = \"otherVisible9\"",
+        "Bearer abcdefghijklmnopqrstuvwx",
+        "headers[\"Authorization\"] = \"Bearer abcdefghijklmnopqrstuvwx\";",
+        "const h = { Authorization: \"Bearer abcdefghijklmnopqrstuvwx\" };",
+        "const h = { Authorization: `Bearer abcdefghijklmnopqrstuvwx` };",
+        "Authorization: Bearer abcdefghijklmnopqrstuvwx",
+        "my password was Pl4net-Orb1t9",
+        "the password is: s3cretPassw0rd",
+        "password: str",
+        "token: T | null",
+        "  token: this.token,",
+        "the password is required",
+        "Authorization: Bearer <token>",
+        "API_KEY=xxxxxxxxxxxxxxxx",
+        "password: hunter2",
+        "token: v1alpha1",
+        "key: utf8mb4",
+        // Round 13 retest: each item, in both directions.
+        "db:\n  password: |\n    Fz8kQ2mL9xW4\n",
+        "api_key: >-\n  Fz8kQ2mL9xW4\n",
+        "secret: |-\n  Fz8kQ2mL9xW4\n",
+        "db_password: |\n  Fz8kQ2mL9xW4\n",
+        "description: |\n  Fz8kQ2mL9xW4 is no key's\n",
+        "apiVersion: v1\nkind: Secret\nstringData:\n  extra: Fz8kQ2mL9xW4\ndata:\n  username: YWRtaW4=\n",
+        "kind: ConfigMap\ndata:\n  mode: YWRtaW4=\n",
+        "  token: randomBytes(16).toString('hex'),",
+        "  apiKey: process.env.API_KEY!,",
+        "token: getToken()",
+        "  password: hash(pw),",
+        "  token: opts.token ?? 'Zq7Xk2Pm9Vt4Lw8Rb3Nc6Hy1Jd5Fg0Ts7Qe2Ua4',",
+        "h.Authorization = `Basic ${Buffer.from(`${u}:${p}`).toString('base64')}`;",
+        "h.Authorization = `Bearer Zq7Xk2Pm9Vt4Lw8Rb3Nc6Hy1Jd5Fg0Ts7Qe2Ua4`;",
+        "  apiKey: null,",
+        "  password: undefined,",
+        "DB_PASS=Fake0Moo",
+        "-----BEGIN OPENSSH PRIVATE KEY-----",
+        "export GITHUB_TOKEN=\"ghp_your_ghe_token\"",
+        "export GITHUB_TOKEN=\"ghp_your_Hunter2_token\"",
+        "export const ssrImportKey = `__vite_ssr_import__`",
+        "secret == \"~\"",
+        "/// are prose (`password: must be at least 8 characters`); after `NAME=` they\n/// are a value.\npub(super) fn is_sentence(key: &impl KeyFacts, secret: &str) -> bool {",
+        // Final round: a literal over lines, a literal's config entry, and
+        // a line of code with escaped quotes.
+        "import os\n\ndef f(api_key=\"Zq7Xk2Pm9Vt4Lw8Rb3Nc6Hy1Jd5Fg0Ts7Qe2Ua4\"):\n    return api_key\ntoken = \"Zq7Xk2Pm9Vt4Lw8Rb3Nc6Hy1Jd5Fg0Ts7Qe2Ua4\n\"\n",
+        "token = \"Zq7Xk2Pm9Vt4Lw8Rb3Nc6Hy1Jd5Fg0Ts7Qe2Ua4\n\"\n",
+        "token = \"Zq7Xk2Pm9Vt4Lw8Rb3Nc\\\n6Hy1Jd5Fg0Ts7Qe2Ua4\"\n",
+        "message = \"the token is\nmissing here\"\n",
+        "x_token = \"//registry.npmjs.org/:_authToken=Zq7Xk2Pm9Vt4Lw8Rb3Nc6Hy1Jd5Fg0Ts7Qe2Ua4\\n\"",
+        "x_token = \"//registry.npmjs.org/:_authToken=${NPM_TOKEN}\\n\"",
+        "    let cs_credential = format!(\"  var cred = new NetworkCredential(\\\"svc\\\", \\\"{PASSWORD}\\\");\\n\");",
+        "    let cs = \"  password = \\\"Zq7Xk2Pm9Vt4Lw8Rb3Nc6Hy1Jd5Fg0Ts7Qe2Ua4\\\";\";",
+        // KNOWN: consistent misses, the same in both (neither hides them).
+        "ＰＡＳＳＷＯＲＤ=Hunter2Zebra9xQ",
+        "client.login(\"admin\",\"Hunter2Zebra9\")",
+        "password=hunter2",
+    ] {
+        assert_eq!(
+            holds_credential_as_request(text),
+            detect(text, None).sanitized != text,
+            "{text:?}"
+        );
+    }
+    // The known misses stay misses on both sides: listed, not fixed.
+    for known in [
+        "ＰＡＳＳＷＯＲＤ=Hunter2Zebra9xQ",
+        "client.login(\"admin\",\"Hunter2Zebra9\")",
+        "password=hunter2",
+    ] {
+        assert!(
+            !holds_credential_as_request(known),
+            "{known:?} is now refused: update KNOWN"
+        );
+    }
+    // Text code and prose read alike.
+    for text in [
+        "password = \"hunter2-Sup3rS3cret\"",
+        "password = \"otherVisible9\"",
+        "Bearer abcdefghijklmnopqrstuvwx",
+        "headers[\"Authorization\"] = \"Bearer abcdefghijklmnopqrstuvwx\";",
+        "const h = { Authorization: \"Bearer abcdefghijklmnopqrstuvwx\" };",
+        "const h = { Authorization: `Bearer abcdefghijklmnopqrstuvwx` };",
+        "my password was Pl4net-Orb1t9",
+        "the password is: s3cretPassw0rd",
+        "token: T | null",
+        "  token: this.token,",
+        "the password is required",
+        "Authorization: Bearer <token>",
+    ] {
+        let hidden = detect(text, None).sanitized != text;
+        for path in ["src/a.ts", "notes.txt", "src/a.py", "README.md"] {
+            assert_eq!(
+                detect(text, Some(path)).sanitized != text,
+                hidden,
+                "{path}: {text:?}"
+            );
+        }
+    }
+}
+
+/// D9, D4: the token after the `Bearer` scheme is a credential in every
+/// layout that holds it, letters alone too; only the token goes, and a
+/// placeholder in its place runs.
+#[test]
+fn the_bearer_token_is_judged_once_in_every_layout() {
+    const TOKEN: &str = "abcdefghijklmnopqrstuvwx";
+    for content in [
+        format!("Bearer {TOKEN}\n"),
+        format!("Authorization: Bearer {TOKEN}\n"),
+        format!("headers[\"Authorization\"] = \"Bearer {TOKEN}\";\n"),
+        format!("const h = {{ Authorization: \"Bearer {TOKEN}\" }};\n"),
+        format!("const h = {{ Authorization: `Bearer {TOKEN}` }};\n"),
+    ] {
+        for path in ["src/a.ts", "notes.txt"] {
+            hidden_alone(&content, path, &[TOKEN]);
+        }
+    }
+    for content in [
+        "const h = { Authorization: `Bearer ${token}` };\n",
+        "Authorization: Bearer YOUR_ACCESS_TOKEN_HERE\n",
+        "headers[\"Authorization\"] = \"Bearer \" + token;\n",
+        "Bearer authentication is used\n",
+    ] {
+        shown_and_run(content, "src/a.ts");
+    }
+}
+
+/// D1, D2, D3: the expression a credential's name is assigned is walked
+/// over its lines and into a composite literal, and each literal it may
+/// hold whole is judged as the quoted assignment of it alone: a key in a
+/// multi-line ternary, a chosen password in an arm, a Go map's element. An
+/// arm that is no credential as a direct assignment stays.
+#[test]
+fn an_assigned_expression_is_walked_over_lines_and_composite_literals() {
+    const KEY: &str = "Zq7Xk2Pm9Vt4Lw8Rb3Nc6Hy1Jd5Fg0Ts7Qe2Ua4";
+    for (content, path, secrets) in [
+        (
+            format!("const apiKey5 =\n  cond\n    ? \"{KEY}\"\n    : \"otherVisible17\";\n"),
+            "src/a.ts",
+            vec![KEY],
+        ),
+        (
+            format!("const apiKey6 = cond\n  ? \"otherVisible18\"\n  : \"{KEY}\";\n"),
+            "src/a.ts",
+            vec![KEY],
+        ),
+        (
+            "const password = isProd ? \"Tr0ub4dor&3xK9!zQ\" : \"devVisible1\";\n".to_owned(),
+            "src/a.ts",
+            vec!["Tr0ub4dor&3xK9!zQ", "devVisible1"],
+        ),
+        (
+            "dbPassword = c ? \"x\" : \"hunter2-Sup3rS3cret\"\n".to_owned(),
+            "src/a.py",
+            vec!["hunter2-Sup3rS3cret"],
+        ),
+        (
+            format!(
+                "var apiKey = map[bool]string{{true: \"{KEY}\", false: \"otherVisible11\"}}[cond]\n"
+            ),
+            "src/a.go",
+            vec![KEY],
+        ),
+    ] {
+        hidden_alone(&content, path, &secrets);
+    }
+    // Each arm is judged as its direct assignment is.
+    for (arm, hidden) in [
+        ("devVisible1", true),
+        ("x", false),
+        ("otherVisible17", false),
+    ] {
+        let name = if arm == "otherVisible17" {
+            "apiKey"
+        } else {
+            "password"
+        };
+        let direct = format!("{name} = \"{arm}\"\n");
+        assert_eq!(
+            detect(&direct, Some("src/a.ts")).sanitized != direct,
+            hidden,
+            "{direct:?}"
+        );
+    }
+    for content in [
+        "const apiKey5 =\n  cond\n    ? \"otherVisible17\"\n    : \"fallbackValue\";\n",
+        "var apiKey = map[bool]string{true: \"otherVisible11\", false: \"dev\"}[cond]\n",
+        "const token =\n  readToken();\n",
+        "token:\n  name: \"service-account\"\n",
+    ] {
+        shown_and_run(content, "src/a.ts");
+    }
+}
+
+/// D5: prose that states a value for a chosen credential's noun states its
+/// secret when the value mixes letters with a digit or a symbol; prose of
+/// words stays and runs.
+#[test]
+fn prose_states_a_chosen_secret_that_mixes_letters_with_digits_or_symbols() {
+    for (content, secret) in [
+        ("my password was Pl4net-Orb1t9\n", "Pl4net-Orb1t9"),
+        (
+            "the password is: hunter2-Sup3rS3cret\n",
+            "hunter2-Sup3rS3cret",
+        ),
+        (
+            "then password = hunter2-Sup3rS3cret\n",
+            "hunter2-Sup3rS3cret",
+        ),
+        ("the password is: s3cretPassw0rd\n", "s3cretPassw0rd"),
+        ("my password was Gr8pe-Juic3x\n", "Gr8pe-Juic3x"),
+    ] {
+        for path in ["notes.txt", "README.md"] {
+            hidden_alone(content, path, &[secret]);
+        }
+    }
+    for content in [
+        "the password is required\n",
+        "my password was changed\n",
+        "the token was expired\n",
+        "the password is password\n",
+        "the password is hunter2\n",
+        "then password = password2\n",
+        "API_PASSWORD=Fake!123\n",
+    ] {
+        shown_and_run(content, "notes.txt");
+    }
+}
+
+/// D7: a value of several words, a blank apart, each of an opaque value's
+/// make, is one value: hidden whole when a word of it is a credential,
+/// shown whole when none is, never half. The line's own words after it stay.
+#[test]
+fn a_value_of_several_words_is_hidden_whole_or_not_at_all() {
+    hidden_alone(
+        "SIGNING_KEY=x-9f8.6d0.818 84c.7d6.59a\n",
+        "notes.txt",
+        &["x-9f8.6d0.818 84c.7d6.59a"],
+    );
+    for content in [
+        "AUTH_TOKEN=q7.x2.k9 m4.p8.z1\n",
+        "ENCRYPTION_KEY=a.1.b.2 c.3.d.4 e.5.f.6\n",
+    ] {
+        shown_and_run(content, "notes.txt");
+    }
+    let fixture = "ACCESS_TOKEN=wJalrXUtnFEMI/K7MDENG/bPxRfiCYzQ8vT3kLm2 is the key\n";
+    let shown = detect(fixture, Some("notes.txt")).sanitized;
+    assert!(shown.ends_with(" is the key\n"), "{shown:?}");
+}
+
+/// D6, D8: in a text file, a member access, `undefined`, `null`, a type
+/// parameter and the `,` that ends a member are no secret values, as in
+/// code and in a request.
+#[test]
+fn code_in_a_text_file_holds_no_secret_value() {
+    for content in [
+        "token: T | null\n",
+        "secret: T\n",
+        "  token: this.token,\n",
+        "  secret: opts.secret,\n",
+        "  password: undefined,\n",
+        "  apiKey: null,\n",
+    ] {
+        for path in ["notes.txt", "README.md"] {
+            shown_and_run(content, path);
+        }
+    }
+    for (content, secret) in [
+        ("  password: Fake0Moo9Zed,\n", "Fake0Moo9Zed"),
+        ("token: Zq8Wv3Xr7Tn2Lp5\n", "Zq8Wv3Xr7Tn2Lp5"),
+    ] {
+        hidden_alone(content, "notes.txt", &[secret]);
+    }
+}
+
+/// D10: a shell parameter expansion keeps its operator: the default after
+/// it is the value.
+#[test]
+fn a_shell_default_keeps_its_operator() {
+    const KEY: &str = "Zq7Xk2Pm9Vt4Lw8Rb3Nc6Hy1Jd5Fg0Ts7Qe2Ua4";
+    for operator in [":-", ":=", ":+"] {
+        let content = format!("API_KEY=\"${{API_KEY{operator}{KEY}}}\"\n");
+        for path in ["deploy.sh", "notes.txt", ".env", "app.properties"] {
+            hidden_alone(&content, path, &[KEY]);
+        }
+        // Text a read hid, judged again where every file's rules apply (a
+        // provider's boundary), keeps its one placeholder and its syntax.
+        let read = detect(&content, None).sanitized;
+        assert_eq!(
+            detect_in(&read, Scope::Stored(None)).sanitized,
+            read,
+            "{read:?}"
+        );
+    }
+    let quoted = detect("password = \"hunter2-Sup3rS3cret\"\n", None).sanitized;
+    assert_eq!(detect_in(&quoted, Scope::Stored(None)).sanitized, quoted);
+    shown_and_run("API_KEY=\"${API_KEY:-}\"\n", "deploy.sh");
+}

@@ -42,6 +42,12 @@ pub struct Pagination {
     /// A byte page that finished an oversized line: the 0-based line the
     /// next page resumes line paging at, so only that line is byte-chunked.
     pub resume_line: Option<usize>,
+    /// A byte page of a selection (matches, ranges) placed in the source it
+    /// was selected from ([`super::pagination::Placement`]): the source byte
+    /// the page starts at and the source's size, which the wire states as a
+    /// plain read of the same file states its bytes. The page's own offsets,
+    /// and its continuation, stay the view's.
+    pub placed: Option<(usize, usize)>,
 }
 
 /// A source-line read of `ranges` derived from `q`: the extraction selectors,

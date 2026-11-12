@@ -136,12 +136,12 @@ export const CASES = {
   },
   lspSearch: {
     budgetMs: 25000, needs: 'lsp', workspace: lspWorkspace,
-    happy: { query: { path: 'src/greeter.ts', symbolName: 'greet', line: 6, operation: 'references' }, fields: ['files', 'matchCount'], rows: data => lspLocations({ sc: { results: [{ data }] } }).map(l => `${l.path}:${l.displayRange.startLine}:${l.displayRange.startCharacter}`), min: 6 },
+    happy: { query: { path: 'src/greeter.ts', symbolName: 'greet', line: 6, operation: 'references' }, fields: ['files', 'matchCount'], rows: data => lspLocations({ sc: { results: [{ data }] } }).map(l => `${l.path}:${l.line}:${l.column}`), min: 6 },
     page: {
       ...page({ path: 'src/paging.ts', symbolName: 'pagingTarget', line: 1, operation: 'references' }),
       expect: () => ['src/paging.ts:1:17', ...Array.from({ length: LSP_PAGE_CALLS }, (_, i) => `src/paging.ts:${i + 2}:1`)],
     },
-    empty: { query: { operation: 'workspaceSymbol', workspaceRoot: '.', symbolQuery: 'zzzNoSuchSymbol' } },
+    empty: { query: { operation: 'workspaceSymbol', workspaceRoot: '.', symbolFuzzy: 'zzzNoSuchSymbol' } },
     invalid: { query: { path: 'src/greeter.ts', symbolName: 'greet' } },
     explore: [{ label: 'callers', query: { path: 'src/greeter.ts', symbolName: 'greet', line: 6, operation: 'callers' } }],
   },
@@ -187,7 +187,7 @@ export const CASES = {
   ghGetHistoryItem: {
     budgetMs: REMOTE,
     happy: { query: { ...repo, operation: 'pullRequest', number: 1, sections: ['files'] }, fields: ['pullRequests'], rows: historyFileRows, min: 2 },
-    page: { query: { ...repo, operation: 'pullRequest', number: 4, sections: ['files'] }, lead: 'nextPage', expect: ctx => ctx.mock.model.pulls.find(pr => pr.number === 4).head.added.map(p => `4:${p}:added`) },
+    page: { query: { ...repo, operation: 'pullRequest', number: 4, sections: ['files'] }, lead: 'files', expect: ctx => ctx.mock.model.pulls.find(pr => pr.number === 4).head.added.map(p => `4:${p}:added`) },
     empty: { query: { ...repo, operation: 'pullRequest', number: 1, sections: ['patches'], matchString: ['zzzNoSuchText'] } },
     invalid: { query: { ...repo, operation: 'pullRequest' } },
     explore: [{ label: 'issue', query: { ...repo, operation: 'issue', number: 2, sections: ['body', 'comments'] } }],
@@ -222,7 +222,7 @@ export const CASES = {
     extra: async ({ happy, mock }) => {
       const location = happy.cli.json?.results?.[0]?.data?.location;
       return [
-        ['checkout.source', location?.localPath && fs.existsSync(path.join(location.localPath, 'src/greeter.ts')), 'clone contains fixture source'],
+        ['checkout.source', location?.path && fs.existsSync(path.join(location.path, 'src/greeter.ts')), 'clone contains fixture source'],
         ['checkout.revision', location?.commitSha === mock.model.head.oid, 'checkout matches requested remote head'],
         ['checkout.auth', mock.gitAuth.some(a => a.user === 'x-access-token' && a.tokenMatches), 'origin-scoped askpass used'],
       ];

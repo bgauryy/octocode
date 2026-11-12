@@ -1,6 +1,6 @@
 //! Response-level receipts are stated once, on the first page of an answer
-//! ([`PAGE_ONE_RECEIPTS`]). A tool pages its own answer (`pagination.page`,
-//! or `offset` for a unit read); each later page is a fresh execution that
+//! ([`PAGE_ONE_RECEIPTS`]). A tool pages its own answer (`pagination.offset`
+//! past 0 is a later page); each later page is a fresh execution that
 //! would state the same receipts again, so the stage removes them there.
 //! Locators, every `next` call and the page's own `related` leads stay: a
 //! later page is cited and continued alone, and its leads name its rows.
@@ -13,10 +13,9 @@ fn is_later_page(data: &Map<String, Value>) -> bool {
     let Some(pagination) = data.get("pagination") else {
         return false;
     };
-    pagination["page"].as_u64().is_some_and(|page| page > 1)
-        || pagination["offset"]
-            .as_u64()
-            .is_some_and(|offset| offset > 0)
+    pagination["offset"]
+        .as_u64()
+        .is_some_and(|offset| offset > 0)
 }
 
 /// Removes the receipts of each result row that is a later page of its

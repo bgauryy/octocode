@@ -21,11 +21,18 @@
 //!   other threads; the client prints its own configuration warnings.
 //!   The call's progress lines (quota waits, language-server start) are
 //!   not in the reply: the server writes each as a frame line while the
-//!   call runs and the client prints it at once (`unix/frames.rs`).
+//!   call runs and the client prints it at once (`unix/frames.rs`). One
+//!   writer owns a connection's write side and is polled beside the call,
+//!   so a client that stops reading never stalls the call; it gets the
+//!   newest `BACKLOG` progress lines, and one that takes no byte for
+//!   `READ_STALL` is gone, as one that closed.
 //! - No count cap on servers: a server leaves only on `IDLE_EXIT` without a
-//!   request (a connection that sends none does not count) or a `STOP`
-//!   request (`octocode auth login`/`logout`, cache clear), which drains
-//!   the calls taken. A starting server never stops another, so one
+//!   request (a connection that sends none does not count, nor keeps the
+//!   server running) or a `STOP` request (`octocode auth login`/`logout`,
+//!   cache clear), which closes the connections that asked nothing and
+//!   drains the calls taken. A client waiting for the drain hears a
+//!   heartbeat frame while it runs; `stop_and_wait_in` gives up on a server
+//!   silent for `READ_STALL` and leaves the cache uncleared. A starting server never stops another, so one
 //!   agent's warm language servers survive another's first call; the
 //!   language servers themselves are bounded by the shared pool's idle
 //!   timeout and memory budget. A server marks its socket's modification
@@ -34,8 +41,10 @@
 //!   expiry applies there.
 //! - A failed exchange falls back to an in-process call and says so. The
 //!   client waits for the reply as long as the server's request budget
-//!   allows (`reply_deadline`; the CLI sets none); no reply within a budget
-//!   answers `timeout`, never a second run.
+//!   allows (`reply_deadline`; the CLI sets none) and the server keeps
+//!   talking: it sends a frame at least each `HEARTBEAT` while a call runs,
+//!   and one silent for `READ_STALL` (stopped, hung) is a failed exchange.
+//!   No reply within a budget answers `timeout`, never a second run.
 //!   Ctrl-C half-closes the client's side, which cancels the call on the
 //!   server; the client drains, and a second Ctrl-C stops waiting.
 //!

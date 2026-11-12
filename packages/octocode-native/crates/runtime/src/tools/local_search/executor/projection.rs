@@ -10,7 +10,7 @@ use super::super::handoff::Definition;
 use super::super::layout::{Layout, file_pagination};
 use super::super::page_view::EntryFacts;
 use super::super::rows::{HitWindow, merge_context_windows, project_match};
-use super::super::types::SearchFile;
+use super::super::types::{Paging, SearchFile};
 use super::super::verify::{Outlines, PageScope, Redacted};
 
 use super::super::local_search_query;
@@ -211,6 +211,7 @@ fn project_files(
                 term_counts: (is_count_view(query) && !f.term_counts.is_empty())
                     .then_some(f.term_counts),
                 pagination: file_pagination(layout, facts.total, span, match_page),
+                next: None,
                 path: f.path,
                 match_keys: Vec::new(),
             }
@@ -220,7 +221,7 @@ fn project_files(
     // earlier page as empty `outOfRange` rows. Keep them only when every
     // file on this page is exhausted, so a forged/stale matchPage still gets
     // its out-of-range diagnostic instead of a silent empty page.
-    let exhausted = |file: &SearchFile| file.pagination.as_ref().is_some_and(|p| p.out_of_range);
+    let exhausted = |file: &SearchFile| file.pagination.as_ref().is_some_and(Paging::out_of_range);
     let mut files = files;
     if !layout.list && files.iter().any(|file| !exhausted(file)) {
         files.retain(|file| !exhausted(file));

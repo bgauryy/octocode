@@ -95,14 +95,8 @@ pub fn sanitize_stored_leaf_edits(
     })
 }
 
-/// The values of a request string that the request rules place and clear
-/// ([`detector::cleared_values`]), by byte position.
-pub fn request_cleared_values(text: &str) -> crate::error::Result<Vec<std::ops::Range<usize>>> {
-    guarded(|| detector::cleared_values(text))
-}
-
-/// Whether a string of a request holds a credential, judged as a search
-/// term is: by its value, not by the name beside it (see
+/// Whether a string of a request holds a credential: whatever a read of a
+/// text of no known file would hide, as written or as a regex spells it (see
 /// [`detector::holds_credential_as_request`]).
 pub fn request_holds_credential(text: &str) -> crate::error::Result<bool> {
     guarded(|| detector::holds_credential_as_request(text))
@@ -112,13 +106,6 @@ pub fn request_holds_credential(text: &str) -> crate::error::Result<bool> {
 /// ([`detector::literal_form`]); `None` when it is its own literal.
 pub fn request_literal_form(text: &str) -> Option<String> {
     detector::literal_form(text)
-}
-
-/// A request string with each opaque value that follows a credential's name
-/// anywhere in it replaced by a placeholder ([`detector::hide_named_values`]);
-/// `None` when it holds none.
-pub fn request_named_values_hidden(text: &str) -> crate::error::Result<Option<String>> {
-    guarded(|| detector::hide_named_values(text))
 }
 
 fn redact_leaf(content: &str, scope: Scope<'_>) -> crate::error::Result<Option<String>> {

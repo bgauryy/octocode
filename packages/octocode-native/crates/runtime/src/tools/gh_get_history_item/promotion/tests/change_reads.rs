@@ -61,7 +61,7 @@ fn merged_patch_reads_offer_the_changed_source_at_the_merge_commit() {
     let read = read_at_merge(&query, &merged, &files, all).expect("offer");
     assert_eq!(read["kind"], "related", "{read}");
     assert_eq!(read["tool"], "ghGetFileContent");
-    // The diff numbers `headSha`; the merge commit is searched
+    // The diff numbers `headCommitSha`; the merge commit is searched
     // for one distinctive added line per hunk, never read by number.
     assert_eq!(
         read["input"],

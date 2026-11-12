@@ -256,7 +256,7 @@ async fn execute_within(
         let fields = field_names(&query.fields);
         pick_rows(&mut value, "files", CODE_ROW_ID, &fields);
     }
-    if let Some(pagination) = pagination(query, &data, current, past_end) {
+    if let Some(pagination) = pagination(&data, current, past_end) {
         value["pagination"] = pagination;
     }
     // Every page of a ref search states the index scope (a page can be read

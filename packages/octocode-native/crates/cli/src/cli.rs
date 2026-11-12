@@ -59,7 +59,7 @@ Discovery, smallest first: schema <tool> --view variants (operations, required
 fields, an example); schema <tool> (every field); schema --view full (all tools).
 All tools run here, including the MCP opt-ins graphBuild, graphQuery, ghCloneRepo:
   graphBuild '{"queries":[{"path":"."}]}', then graphQuery with operation stats;
-  ghCloneRepo '{"queries":[{"owner":"o","repo":"r"}]}', then local tools at localPath.
+  ghCloneRepo '{"queries":[{"owner":"o","repo":"r"}]}', then local tools at location.path.
 
 Output: text, on a terminal or a pipe; --json prints JSON (schema always does).
 Text on stdout: search hits (line:text, context line-text), sites and outlines

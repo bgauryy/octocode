@@ -44,14 +44,16 @@ fn files_a_mentioned_unreachable_file_reaches_are_not_test_only() {
                 .as_array()
                 .into_iter()
                 .flatten()
-                .find(|row| row["detector"] == "test-only" && row["subject"] == subject)
+                .find(|row| {
+                    row["detector"] == "test-only" && row["subject"] == format!("app/{subject}")
+                })
                 .cloned()
                 .unwrap_or_else(|| panic!("{subject}: {}", issues.value))
         };
         let reached = row("src/runtime.ts");
         assert_eq!(reached["tier"], 60, "{detectors:?}: {reached}");
         assert_eq!(
-            reached["evidence"]["reachedFrom"], "src/communicate.ts",
+            reached["evidence"]["reachedFrom"], "app/src/communicate.ts",
             "{detectors:?}: {reached}"
         );
         let tested = row("src/only-tested.ts");
@@ -109,7 +111,9 @@ fn a_test_only_file_production_text_names_is_tier_60() {
             .as_array()
             .into_iter()
             .flatten()
-            .find(|row| row["detector"] == "test-only" && row["subject"] == subject)
+            .find(|row| {
+                row["detector"] == "test-only" && row["subject"] == format!("app/{subject}")
+            })
             .cloned()
             .unwrap_or_else(|| panic!("{subject}: {}", issues.value))
     };
@@ -117,16 +121,66 @@ fn a_test_only_file_production_text_names_is_tier_60() {
     assert_eq!(entry["tier"], 60, "{entry}");
     assert_eq!(
         entry["evidence"]["mentionedIn"],
-        json!(["src/release.ts:1"]),
+        json!(["app/src/release.ts:1"]),
         "{entry}"
     );
     let child = row("src/hosts/shared/pi-ledger.ts");
     assert_eq!(child["tier"], 60, "{child}");
     assert_eq!(
-        child["evidence"]["reachedFrom"], "src/hosts/pi-extension.ts",
+        child["evidence"]["reachedFrom"], "app/src/hosts/pi-extension.ts",
         "{child}"
     );
     let tested = row("src/only-tested.ts");
     assert_eq!(tested["tier"], 90, "{tested}");
     assert!(tested["evidence"].get("mentionedIn").is_none(), "{tested}");
+}
+
+/// A Cargo build script is a target the manifest builds, not a build-tool
+/// config: the modules it mounts (`#[path = "build/embed.rs"] mod embed;`)
+/// are as live as the script, never `test-only`. `package.build` names a
+/// script elsewhere, and `false` turns the default `build.rs` off, so the
+/// file reads as a build-tool config again.
+#[test]
+fn a_cargo_build_script_keeps_the_modules_it_mounts_live() {
+    let src = "#[path = \"build/embed.rs\"]\nmod embed;\nfn main() { embed::run(); }\n";
+    let module = "pub fn run() {}\n";
+    for (manifest, script, live) in [
+        (
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+            "build.rs",
+            true,
+        ),
+        (
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\nbuild = \"tools/gen.rs\"\n",
+            "tools/gen.rs",
+            true,
+        ),
+        (
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\nbuild = false\n",
+            "build.rs",
+            false,
+        ),
+    ] {
+        let script_src = if script == "build.rs" {
+            src.to_owned()
+        } else {
+            src.replace("build/embed.rs", "../build/embed.rs")
+        };
+        let dir = git_app(&[
+            ("Cargo.toml", manifest),
+            ("src/lib.rs", "pub fn lib() {}\n"),
+            (script, &script_src),
+            ("build/embed.rs", module),
+        ]);
+        let root = dir.0.as_path();
+        assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
+        let issues = ask(root, "issues", None, |o| {
+            o.detectors = vec!["test-only".to_owned(), "unreachable-file".to_owned()];
+            o.min_tier = Some(0);
+        });
+        let listed =
+            |detector: &str| findings(&issues, detector).contains(&"app/build/embed.rs".to_owned());
+        assert_eq!(listed("test-only"), !live, "{manifest}: {}", issues.value);
+        assert!(!listed("unreachable-file"), "{manifest}: {}", issues.value);
+    }
 }

@@ -54,7 +54,7 @@ async fn pinned_ref_code_search_warns_and_leads_to_the_ref_listing() {
     // The warning states the per-call facts only; the route is the lead.
     assert_eq!(
         data["warnings"],
-        json!(["Files from the default-branch index at fedcba9, not dev; `lines` read at dev."]),
+        json!(["Files from the default-branch index at fedcba9, not dev; `matches` read at dev."]),
         "{data}"
     );
     let lead = &crate::support::checks::related_call(data, "ghStructure", |input| {

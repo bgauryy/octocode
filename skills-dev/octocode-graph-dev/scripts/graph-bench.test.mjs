@@ -18,12 +18,12 @@ else if (input.cursor) {
   data = { error: 'later callers page failed', errorCode: 'executionError' };
   process.exitCode = 5;
 } else if (operation === 'find') {
-  data = { rows: [{ id: 'src/lib.rs#poll_proceed', file: 'src/lib.rs', selectionByteRange: { startByte: 3 } }], pagination: { totalItems: 1 } };
+  data = { rows: [{ id: 'src/lib.rs#poll_proceed', path: 'src/lib.rs', selectionByteRange: { startByte: 3 } }], pagination: { total: 1 } };
 } else if (operation === 'callers') {
   const fail = process.env.GRAPH_BENCH_TEST_FAILURE === 'page';
-  data = { rows: [{ file: 'src/use.rs', edges: 1 }], pagination: { totalItems: fail ? 2 : 1 } };
+  data = { rows: [{ path: 'src/use.rs', edges: 1 }], pagination: { total: fail ? 2 : 1 } };
   if (fail) data.next = { nextPage: { kind: 'continue', tool: 'graphQuery', input: { cursor: 'next' } } };
-} else data = { rows: [], pagination: { totalItems: 0 } };
+} else data = { rows: [], pagination: { total: 0 } };
 console.log(JSON.stringify({ results: [{ index: 0, data }] }));
 `;
 

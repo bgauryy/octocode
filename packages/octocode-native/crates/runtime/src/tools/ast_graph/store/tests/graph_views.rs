@@ -59,11 +59,16 @@ fn directory_target_walks_every_file_under_it() {
     for target in ["config", "config/", absolute.as_str()] {
         let deps = ask(root, "deps", Some(target), |_| {});
         assert_eq!(deps.class, ExitClass::Success, "{target}: {}", deps.value);
-        assert_eq!(ids(&deps), vec!["util/fmt.ts"], "{target}: {}", deps.value);
-        assert_eq!(deps.value["rows"][0]["from"], "config/load.ts");
+        assert_eq!(
+            ids(&deps),
+            vec!["app/util/fmt.ts"],
+            "{target}: {}",
+            deps.value
+        );
+        assert_eq!(deps.value["rows"][0]["from"], "app/config/load.ts");
         assert_eq!(
             deps.value["target"],
-            json!({"id": "config", "kind": "directory"}),
+            json!({"id": "app/config", "kind": "directory"}),
             "{}",
             deps.value
         );
@@ -71,7 +76,7 @@ fn directory_target_walks_every_file_under_it() {
     let dependents = ask(root, "dependents", Some("util"), |_| {});
     assert_eq!(
         sorted(ids(&dependents)),
-        vec!["config/load.ts", "main.ts"],
+        vec!["app/config/load.ts", "app/main.ts"],
         "{}",
         dependents.value
     );
@@ -89,8 +94,8 @@ fn modules_view_counts_edges_per_directory_pair() {
     assert_eq!(
         deps.value["rows"],
         json!([
-            {"from": ".", "to": "config", "edges": 1},
-            {"from": ".", "to": "util", "edges": 1},
+            {"from": "app", "to": "app/config", "edges": 1},
+            {"from": "app", "to": "app/util", "edges": 1},
         ]),
         "{}",
         deps.value
@@ -99,8 +104,8 @@ fn modules_view_counts_edges_per_directory_pair() {
     assert_eq!(
         dependents.value["rows"],
         json!([
-            {"from": ".", "to": "util", "edges": 1},
-            {"from": "config", "to": "util", "edges": 1},
+            {"from": "app", "to": "app/util", "edges": 1},
+            {"from": "app/config", "to": "app/util", "edges": 1},
         ]),
         "{}",
         dependents.value
@@ -109,8 +114,8 @@ fn modules_view_counts_edges_per_directory_pair() {
     assert_eq!(
         callers.value["rows"],
         json!([
-            {"from": ".", "to": "util", "edges": 1},
-            {"from": "config", "to": "util", "edges": 1},
+            {"from": "app", "to": "app/util", "edges": 1},
+            {"from": "app/config", "to": "app/util", "edges": 1},
         ]),
         "{}",
         callers.value
@@ -176,26 +181,16 @@ fn not_found_path_suggests_only_nodes_under_its_directory() {
     assert_eq!(out.value["find"], "fmt", "{}", out.value);
 }
 
-/// The first symbol row of a `find`, `symbols` or `hubs` page carries a
-/// runnable lspSearch lead at its declaration, its path workspace-relative
-/// (the snapshot's root is `app`, below the workspace); the other symbol
-/// rows carry none, since each rebuilds the same call from its own `file`,
-/// `name` and `line`. Edge rows (`callers`) verify their edge instead: see
-/// the test after this one.
+/// A symbol row of a `find`, `symbols` or `hubs` page states what an
+/// lspSearch references call at its declaration takes: its `path` (a key,
+/// below the snapshot root `app`), `symbolName`, its declaration `kind` and
+/// `line`. No row carries a lead of its own.
 #[test]
-fn symbol_rows_carry_a_workspace_relative_lsp_lead() {
+fn symbol_rows_state_their_path_symbol_name_kind_and_line() {
     let dir = built();
     let root = dir.0.as_path();
-    let symbols = ask(root, "symbols", Some("util/fmt.ts"), |_| {});
-    assert_eq!(
-        symbols.value["rows"][0]["verify"],
-        json!([{"kind": "related", "tool": "lspSearch", "input": {"queries": [
-            {"operation": "references", "path": "app/util/fmt.ts", "symbolName": "fmt", "line": 1}
-        ]}}]),
-        "{}",
-        symbols.value
-    );
     let answers = [
+        ask(root, "symbols", Some("util/fmt.ts"), |_| {}),
         ask(root, "find", Some("fmt"), |o| {
             o.kind = Some("symbol".into());
         }),
@@ -204,51 +199,51 @@ fn symbol_rows_carry_a_workspace_relative_lsp_lead() {
     ];
     for out in &answers {
         let rows = out.value["rows"].as_array().unwrap();
-        let mut symbols = rows.iter().filter(|row| row["kind"] == "symbol");
-        let row = symbols
-            .next()
-            .unwrap_or_else(|| panic!("no symbol row: {}", out.value));
-        let lead = &row["verify"][0]["input"]["queries"][0];
-        let path = lead["path"]
-            .as_str()
-            .unwrap_or_else(|| panic!("no lead: {row}"));
-        assert!(root.join(path).is_file(), "{path} does not exist: {row}");
-        // The lead is the row's own fields: the snapshot root, then `file`.
-        assert_eq!(
-            path,
-            format!("app/{}", row["file"].as_str().unwrap()),
-            "{row}"
-        );
-        let name = lead["symbolName"].as_str().unwrap();
-        assert!(
-            row["name"].as_str().unwrap().ends_with(name),
-            "{name}: {row}"
-        );
-        assert_eq!(lead["line"], row["line"], "{row}");
-        for other in symbols {
-            assert!(other.get("verify").is_none(), "{other}");
+        let mut symbols = rows
+            .iter()
+            .filter(|row| row.get("symbolName").is_some())
+            .peekable();
+        assert!(symbols.peek().is_some(), "no symbol row: {}", out.value);
+        for row in symbols {
+            let path = row["path"]
+                .as_str()
+                .unwrap_or_else(|| panic!("no path: {row}"));
+            // `path` names the file from the workspace root; the id keys it
+            // from the scope `app`.
+            assert!(root.join(path).is_file(), "{path} does not exist: {row}");
+            assert!(
+                path.strip_prefix("app/")
+                    .is_some_and(|key| row["id"].as_str().unwrap().starts_with(key)),
+                "{row}"
+            );
+            assert!(row["line"].as_u64().is_some_and(|line| line >= 1), "{row}");
+            assert!(
+                !matches!(
+                    row["kind"].as_str(),
+                    None | Some("symbol" | "file" | "package")
+                ),
+                "a symbol states its declaration kind: {row}"
+            );
+            assert!(
+                row.get("verify").is_none() && row.get("name").is_none(),
+                "{row}"
+            );
         }
+        assert!(out.value.get("verify").is_none(), "{}", out.value);
     }
 }
 
-/// An edge row's `verify` confirms the edge, not the row's own symbol:
-/// lspSearch references of the symbol the edge points to, at its
-/// declaration. The edge holds when one of those references lies at the
-/// row's `edgeLine` inside the calling symbol: a `callers` row's own span, a
-/// `callees` row's `from`.
+/// An edge row places its edge: a `callers` row's `edgeLine` lies inside
+/// the calling symbol's own span, and a deeper row names the node it was
+/// reached `from`.
 #[test]
-fn an_edge_row_verifies_its_edge_by_the_references_of_its_target() {
+fn an_edge_row_places_its_edge_inside_the_calling_symbol() {
     let dir = built();
     let root = dir.0.as_path();
-    let lead = |row: &Value| row["verify"][0]["input"]["queries"][0].clone();
-    let declared = |path: &str, name: &str, line: u64| json!({"operation": "references", "path": path, "symbolName": name, "line": line});
-    // Callers of `fmt`: every row's lead is the references of `fmt`, and
-    // the row's span holds the call.
     let callers = ask(root, "callers", Some("util/fmt.ts#fmt"), |_| {});
     let rows = callers.value["rows"].as_array().unwrap();
     assert!(rows.len() >= 2, "{}", callers.value);
     for row in rows {
-        assert_eq!(lead(row), declared("app/util/fmt.ts", "fmt", 1), "{row}");
         let (line, edge) = (
             row["line"].as_u64().unwrap(),
             row["edgeLine"].as_u64().unwrap(),
@@ -258,23 +253,8 @@ fn an_edge_row_verifies_its_edge_by_the_references_of_its_target() {
             (line..=end).contains(&edge),
             "the call lies in the caller: {row}"
         );
+        assert!(row.get("verify").is_none(), "{row}");
     }
-    // Callees of `main`: each row is the edge's target, so its lead is the
-    // references of the row's own symbol.
-    let callees = ask(root, "callees", Some("main.ts#main"), |_| {});
-    let rows = callees.value["rows"].as_array().unwrap();
-    assert!(!rows.is_empty(), "{}", callees.value);
-    for row in rows {
-        let file = row["file"].as_str().unwrap();
-        let expected = declared(
-            &format!("app/{file}"),
-            row["name"].as_str().unwrap(),
-            row["line"].as_u64().unwrap(),
-        );
-        assert_eq!(lead(row), expected, "{row}");
-    }
-    // Two levels of callers of `schema`: `main` reaches it through `load`,
-    // so `main`'s edge is `main -> load`, verified by `load`'s references.
     let walk = ask(root, "callers", Some("config/schema.ts#schema"), |o| {
         o.depth = Some(2);
     });
@@ -285,11 +265,6 @@ fn an_edge_row_verifies_its_edge_by_the_references_of_its_target() {
         .find(|row| row["id"] == "main.ts#main")
         .unwrap_or_else(|| panic!("main at depth 2: {}", walk.value));
     assert_eq!(main["from"], "config/load.ts#load", "{main}");
-    assert_eq!(
-        lead(main),
-        declared("app/config/load.ts", "load", 3),
-        "{main}"
-    );
 }
 
 /// Two sub-modules importing one shared file, a `config.ts` beside a
@@ -381,35 +356,35 @@ fn grouped_views_count_every_edge_into_a_shared_file() {
     let dir = views_app();
     let root = dir.0.as_path();
     let pairs = json!([
-        {"from": "group/p", "to": "shared", "edges": 1},
-        {"from": "group/q", "to": "shared", "edges": 2},
+        {"from": "app/group/p", "to": "app/shared", "edges": 1},
+        {"from": "app/group/q", "to": "app/shared", "edges": 2},
     ]);
     assert_eq!(grouped(root, "deps", "group", "modules"), pairs);
     assert_eq!(
         grouped(root, "dependents", "shared", "modules"),
         json!([
-            {"from": ".", "to": "shared", "edges": 1},
-            {"from": "configx", "to": "shared", "edges": 1},
-            {"from": "group/p", "to": "shared", "edges": 1},
-            {"from": "group/q", "to": "shared", "edges": 2},
+            {"from": "app", "to": "app/shared", "edges": 1},
+            {"from": "app/configx", "to": "app/shared", "edges": 1},
+            {"from": "app/group/p", "to": "app/shared", "edges": 1},
+            {"from": "app/group/q", "to": "app/shared", "edges": 2},
         ])
     );
-    let big = json!([{"from": "big", "to": "lib", "edges": 120}]);
+    let big = json!([{"from": "app/big", "to": "app/lib", "edges": 120}]);
     assert_eq!(grouped(root, "deps", "big", "modules"), big);
     assert_eq!(
         grouped(root, "dependents", "lib", "modules"),
         json!([
-            {"from": "big", "to": "lib", "edges": 120},
-            {"from": "config", "to": "lib", "edges": 1},
+            {"from": "app/big", "to": "app/lib", "edges": 120},
+            {"from": "app/config", "to": "app/lib", "edges": 1},
         ])
     );
     assert_eq!(
         grouped(root, "deps", "group", "files"),
-        json!([{"file": "shared/s.ts", "edges": 3}])
+        json!([{"path": "app/shared/s.ts", "edges": 3}])
     );
     assert_eq!(
         grouped(root, "deps", "big", "files"),
-        json!([{"file": "lib/fmt.ts", "edges": 120}])
+        json!([{"path": "app/lib/fmt.ts", "edges": 120}])
     );
     // One query's views count the same walked edges.
     let sum = |rows: Value| -> u64 {
@@ -441,7 +416,7 @@ fn grouped_views_count_every_edge_into_a_shared_file() {
 fn directory_target_skips_sibling_prefixes() {
     let dir = views_app();
     let deps = ask(dir.0.as_path(), "deps", Some("config"), |_| {});
-    assert_eq!(ids(&deps), vec!["lib/fmt.ts"], "{}", deps.value);
+    assert_eq!(ids(&deps), vec!["app/lib/fmt.ts"], "{}", deps.value);
 }
 
 /// `.` and the root's absolute path are the root directory; `/` names
@@ -455,7 +430,7 @@ fn dot_is_the_root_and_slash_is_not_found() {
         let out = ask(root, "deps", Some(target), |_| {});
         assert_eq!(
             out.value["target"],
-            json!({"id": ".", "kind": "directory"}),
+            json!({"id": "app", "kind": "directory"}),
             "{target}: {}",
             out.value
         );
@@ -513,8 +488,8 @@ fn empty_references_are_not_found_at_the_workspace_root() {
 fn workspace_relative_directory_target() {
     let dir = views_app();
     let deps = ask(dir.0.as_path(), "deps", Some("app/config"), |_| {});
-    assert_eq!(ids(&deps), vec!["lib/fmt.ts"], "{}", deps.value);
-    assert_eq!(deps.value["target"]["id"], "config", "{}", deps.value);
+    assert_eq!(ids(&deps), vec!["app/lib/fmt.ts"], "{}", deps.value);
+    assert_eq!(deps.value["target"]["id"], "app/config", "{}", deps.value);
 }
 
 /// Only `deps` and `dependents` walk a directory; `callers` names nodes.
@@ -543,18 +518,18 @@ fn absolute_miss_suggests_like_its_relative_form() {
 }
 
 /// A symbol in a file whose path holds `#` keeps its whole file path in its
-/// lead and in `view:"files"`.
+/// row's `path`.
 #[test]
 fn hash_in_a_file_path_keeps_the_whole_path() {
     let dir = views_app();
     let root = dir.0.as_path();
-    let lead = |file: &str| {
+    let path = |file: &str| {
         let out = ask(root, "symbols", Some(file), |_| {});
-        out.value["rows"][0]["verify"][0]["input"]["queries"][0]["path"].clone()
+        out.value["rows"][0]["path"].clone()
     };
-    assert_eq!(lead("odd#dir/w.ts"), "app/odd#dir/w.ts");
+    assert_eq!(path("odd#dir/w.ts"), "app/odd#dir/w.ts");
     // `x.ts#y.ts#hashed` lies in `x.ts#y.ts`, not in the file `x.ts`.
-    assert_eq!(lead("x.ts#y.ts"), "app/x.ts#y.ts");
+    assert_eq!(path("x.ts#y.ts"), "app/x.ts#y.ts");
 }
 
 /// `witnesses` states how many matching call witnesses the confidence
@@ -570,7 +545,7 @@ fn witnesses_count_calls_filtered_by_confidence() {
         })
     };
     let (low, high) = (at("low"), at("high"));
-    let total = |out: &GraphOutput| out.value["pagination"]["totalItems"].as_u64().unwrap();
+    let total = |out: &GraphOutput| out.value["pagination"]["total"].as_u64().unwrap();
     assert!(
         total(&low) > total(&high),
         "fixture lacks weak calls: {}",
@@ -618,24 +593,12 @@ fn every_edge_kind_leads_its_symbol_rows_and_only_them() {
             });
             let rows = out.value["rows"].as_array().cloned().unwrap_or_default();
             listed += rows.len();
-            let lead = |row: &Value| row["verify"][0]["tool"].as_str().map(str::to_owned);
-            if let Some(first) = rows.iter().find(|row| row["kind"] == "symbol") {
-                assert_eq!(
-                    lead(first).as_deref(),
-                    Some("lspSearch"),
-                    "{name} first symbol row has no lead: {first}"
-                );
-            }
             for row in &rows {
                 assert_eq!(row["edge"], name, "{row}");
-                if row["kind"] == "symbol" {
-                    assert!(
-                        lead(row).is_none_or(|tool| tool == "lspSearch"),
-                        "{name}: {row}"
-                    );
-                } else {
-                    assert_eq!(lead(row), None, "{name} non-symbol row has a lead: {row}");
-                }
+                assert!(
+                    row.get("verify").is_none(),
+                    "{name}: no row carries a lead: {row}"
+                );
             }
         }
         assert!(listed > 0, "no {name} row in the fixture");
@@ -675,7 +638,7 @@ fn stats_calls_lead_ranks_the_most_called_symbols() {
             .as_array()
             .unwrap()
             .iter()
-            .all(|row| row["kind"] == "symbol"),
+            .all(|row| row.get("symbolName").is_some()),
         "{}",
         hubs.value
     );

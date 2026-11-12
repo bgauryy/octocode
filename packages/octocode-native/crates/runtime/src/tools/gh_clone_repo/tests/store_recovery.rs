@@ -76,7 +76,7 @@ fn a_row_queued_behind_a_slow_fetch_waits_for_the_store() {
     });
     for result in results {
         let row = result.expect("a queued row's own work is valid");
-        assert!(Path::new(&row.location.local_path).is_dir());
+        assert!(Path::new(&row.location.path).is_dir());
     }
 }
 
@@ -95,10 +95,7 @@ fn a_waiting_row_gives_up_at_its_own_deadline() {
         .create(true)
         .truncate(false)
         .write(true)
-        .open(storage::lock_path(
-            &home,
-            Path::new(&first.location.local_path),
-        ))
+        .open(storage::lock_path(&home, Path::new(&first.location.path)))
         .expect("lock file");
     let octocode_io::lock::TryLock::Locked(_held) =
         octocode_io::lock::try_lock(held).expect("lock")
@@ -163,7 +160,7 @@ fn a_store_that_fails_its_integrity_check_is_replaced_by_a_new_generation() {
     let stores = store_dirs(&home);
     assert_eq!(stores.len(), 2, "{stores:?}");
     assert!(stores[1].to_string_lossy().ends_with("__g2.git"));
-    let old_path = Path::new(&old.location.local_path);
+    let old_path = Path::new(&old.location.path);
     assert!(
         old_path.join("README.md").is_file(),
         "the old checkout stays"
@@ -210,7 +207,7 @@ fn a_moved_home_reconnects_its_checkouts() {
     let path = relocated(&path.to_string_lossy(), &home, &moved);
     let row = again(&fixture, &root, &moved, &runner).expect("the moved checkout");
     assert!(row.location.reused, "{row:?}");
-    assert_eq!(PathBuf::from(&row.location.local_path), path);
+    assert_eq!(PathBuf::from(&row.location.path), path);
     assert_eq!(
         git_output(&path, &["rev-parse", "HEAD"]).trim(),
         fixture.first_commit
@@ -259,7 +256,7 @@ fn a_branch_made_in_another_worktree_does_not_dirty_this_one() {
     fixture.push_second();
     let new = clone_pinned(&fixture, &query(), &context).expect("second commit");
     assert_ne!(old.location.commit_sha, new.location.commit_sha);
-    git(Path::new(&old.location.local_path), &["branch", "feature"]);
+    git(Path::new(&old.location.path), &["branch", "feature"]);
 
     let again = clone_pinned(&fixture, &query(), &context).expect("the other worktree");
     assert!(again.location.reused, "{again:?}");
@@ -333,7 +330,7 @@ fn a_failed_publication_restores_the_replaced_worktree_registered() {
     let config = CloneConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let old = clone_pinned(&fixture, &query(), &context).expect("first clone");
-    let old_path = PathBuf::from(&old.location.local_path);
+    let old_path = PathBuf::from(&old.location.path);
     // A credential blob in the store makes the checkout not reusable: the
     // next row replaces it from a new generation.
     let secret = root.0.join("secret.txt");
@@ -356,11 +353,7 @@ fn a_failed_publication_restores_the_replaced_worktree_registered() {
 
     runner.armed.store(false, Ordering::SeqCst);
     let next = clone_pinned(&fixture, &query(), &context).expect("the next row replaces it");
-    assert!(
-        Path::new(&next.location.local_path)
-            .join("README.md")
-            .is_file()
-    );
+    assert!(Path::new(&next.location.path).join("README.md").is_file());
 }
 
 /// The replaced worktree and the stage share a store, as when a checkout

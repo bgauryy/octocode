@@ -14,7 +14,7 @@ fn a_missing_capture_preserves_the_readers_executable_recovery() {
         panic!("a missing path is no capture");
     };
     let error = local_capture_failure(failed);
-    assert_eq!(error.code, ErrorCode::PathNotFound);
+    assert_eq!(error.code, ErrorCode::NotFound);
     let read = error
         .leads
         .iter()

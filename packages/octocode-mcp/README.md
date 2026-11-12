@@ -1,61 +1,27 @@
 # Octocode MCP server
 
-`octocode-mcp` exposes Octocode research tools over the Model Context Protocol
-using a stdio transport. It is a thin launcher for `octocode mcp`, the MCP
-server in the native binary (`@octocodeai/octocode-native`), which owns the
-protocol, tool contracts, execution, policy, and response shaping. A missing
-platform binary is a startup error; there is no JavaScript execution fallback.
-Without Node, run `octocode mcp` directly.
+Connect an agent to Octocode's local, GitHub and package research tools over stdio. This package launches the native `octocode mcp` command and requires Node.js 22 or later. The standalone native binary can serve MCP directly.
 
-## Requirements
+## Connect a client
 
-- Node.js `>=22` for this npm launcher
-- An MCP client with stdio server support
+Run `npx -y octocode install` in a terminal to choose a client. For a manual entry, configure your client to launch:
 
-The standalone native `octocode mcp` command does not require Node.js.
-
-## Run
-
-```bash
+```sh
 npx -y octocode-mcp
 ```
 
-For guided installation into a supported client, use the CLI:
+Restart the client. In a project with a README, ask your agent to read the first line of `README.md` with `localFetch`.
 
-```bash
-npx octocode install
-```
-
-The server registers the configured tool set in `tools/list`. Start with
-[Configuration](../../docs/CONFIGURATION.md#tool-availability-cli-and-mcp)
-for the default catalog, graph/clone/classification opt-ins, and tool filters.
-The [MCP guide](../../docs/OCTOCODE_MCP.md) covers client setup and protocol
-behavior. Credentials and provider readiness are execution requirements;
-see [authentication](../../docs/AUTHENTICATION.md).
-
-## Distribution
-
-- `dist/index.js` is the stdio server binary.
-- `dist/public.js` is the programmatic public entry.
-- `manifest.json` describes the desktop-extension distribution. Its `tools`
-  list is generated from the public catalog (`yarn sync:manifest`);
-  `check:manifest` fails `lint` and `build` when it is stale.
-- `server.json` describes the MCP registry package.
+| Task | Where to look |
+|---|---|
+| Set the project directory or troubleshoot startup | [MCP setup guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md) |
+| Inspect the available tools and workflows | Your client's `tools/list` and the [tool reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) |
+| Enable graph, clone, advisory or classification tools | [Configuration defaults and opt-ins](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#tool-availability-cli-and-mcp) |
+| Sign in to GitHub or use an existing token | [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md) |
 
 ## Development
 
-From the repository root:
-
-```bash
-yarn workspace octocode-mcp build
-yarn workspace octocode-mcp test
-yarn workspace octocode-mcp lint
-yarn workspace octocode-mcp typecheck
-```
-
-See [architecture](ARCHITECTURE.md), the full
-[MCP guide](../../docs/OCTOCODE_MCP.md), and
-[configuration reference](../../docs/CONFIGURATION.md).
+The package ships `dist/index.js` as its stdio launcher. `manifest.json` describes the desktop extension and `server.json` describes the MCP registry package. Run `yarn workspace octocode-mcp build` and `yarn workspace octocode-mcp test` from the repository root. [Launcher architecture](https://github.com/bgauryy/octocode/blob/main/packages/octocode-mcp/ARCHITECTURE.md)
 
 ## License
 

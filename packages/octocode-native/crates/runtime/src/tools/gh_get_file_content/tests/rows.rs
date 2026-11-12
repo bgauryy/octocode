@@ -41,7 +41,7 @@ async fn a_first_page_states_the_last_change_for_one_concurrent_request() {
     let base = json!({"owner":"a","repo":"b","path":"a.txt","ref":sha});
     let stamped = read(&provider, base.clone()).await;
     assert_eq!(
-        stamped.file.last_modified.as_deref(),
+        stamped.file.modified_at.as_deref(),
         Some("2026-01-02T00:00:00Z")
     );
     assert_eq!(stamped.file.last_modified_by.as_deref(), Some("ada-l"));
@@ -56,11 +56,11 @@ async fn a_first_page_states_the_last_change_for_one_concurrent_request() {
         "{:?}",
         failed.file.content
     );
-    assert_eq!(failed.file.last_modified, None);
+    assert_eq!(failed.file.modified_at, None);
     let mut later = base;
     later["readProgress"] = json!({"unit":"lines","offset":20});
     let later = read(&provider, later).await;
-    assert_eq!(later.file.last_modified, None);
+    assert_eq!(later.file.modified_at, None);
     assert_eq!(later.file.last_modified_by, None);
     let missing = serde_json::json!({"owner":"a","repo":"b","path":"missing.txt","ref":sha});
     let missing: GhGetFileContentQuery = serde_json::from_value(missing).expect("query");
@@ -120,7 +120,7 @@ async fn the_timestamp_request_runs_beside_the_contents_read() {
     .await;
     let elapsed = started.elapsed();
     assert_eq!(
-        stamped.file.last_modified.as_deref(),
+        stamped.file.modified_at.as_deref(),
         Some("2026-01-02T00:00:00Z")
     );
     assert!(
@@ -242,14 +242,14 @@ async fn an_anonymous_first_page_states_the_last_change_from_the_commit_list() {
         .await
         .expect("result");
     assert_eq!(
-        stamped.file.last_modified.as_deref(),
+        stamped.file.modified_at.as_deref(),
         Some("2026-01-02T00:00:00Z")
     );
     assert_eq!(stamped.file.last_modified_by.as_deref(), Some("ada-l"));
 }
 
 /// A failed last-change read is no reason to lose the body, nor to lose the
-/// reason: the row says why `lastModified` is absent, by error code.
+/// reason: the row says why `modifiedAt` is absent, by error code.
 #[tokio::test]
 async fn a_failed_last_change_read_is_named_on_the_row() {
     let server = MockServer::builder().start().await;
@@ -276,13 +276,13 @@ async fn a_failed_last_change_read_is_named_on_the_row() {
     let row = execute_default_regex(&provider, &query, &anonymous, Some(50_000))
         .await
         .expect("the body is still read");
-    assert_eq!(row.file.last_modified, None);
+    assert_eq!(row.file.modified_at, None);
     let warning = row
         .file
         .content
         .warnings
         .iter()
-        .find(|warning| warning.contains("lastModified"))
+        .find(|warning| warning.contains("modifiedAt"))
         .unwrap_or_else(|| panic!("no note: {:?}", row.file.content.warnings));
     assert!(
         warning.contains(&ErrorCode::PermissionDenied.to_string()),

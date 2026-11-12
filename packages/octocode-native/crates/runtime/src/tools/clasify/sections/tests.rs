@@ -274,13 +274,13 @@ fn an_error_preserves_executable_recovery_and_prose_separately() {
         serde_json::from_value(json!({"operation":"tree","path":"src"})).expect("a tree query");
     let lead = crate::response::result::Continuation::related_query(tree).build();
     let mut error = ClassificationError::with_hints(
-        ErrorCode::PathNotFound,
+        ErrorCode::NotFound,
         "Path does not exist: nope.rs",
         Vec::new(),
     );
     assert_eq!(
         error_value(&error),
-        json!({"errorCode":"pathNotFound","error":"Path does not exist: nope.rs"})
+        json!({"errorCode":"notFound","error":"Path does not exist: nope.rs"})
     );
     error.leads.push(("viewTree".into(), lead.clone()));
     error.hints.push("Check the spelling.".into());

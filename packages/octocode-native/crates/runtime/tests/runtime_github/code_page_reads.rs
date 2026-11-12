@@ -272,7 +272,7 @@ async fn a_page_reads_only_the_files_it_shows_and_the_walk_reads_each_once() {
         let data = &call.output["results"][0]["data"];
         for file in data["files"].as_array().into_iter().flatten() {
             assert!(
-                file["lines"].is_array(),
+                file["matches"].is_array(),
                 "a shown row has its lines: {file}"
             );
         }

@@ -80,14 +80,15 @@ pub(in super::super) fn disabled_macro_diagnostics(items: &Value) -> bool {
 }
 
 /// Replace the zero-based LSP `range` on a diagnostic (and on each related
-/// location) with the one-based public `displayRange` every other result uses.
+/// location) with the one-based place (`line`, `column`, `endLine`) every
+/// other result states.
 pub(in super::super) fn publish_diagnostic_ranges(mut item: Value) -> Value {
     fn swap(object: &mut Value) {
-        if let Some(display) = object.get("range").and_then(public_range)
+        if let Some(place) = object.get("range").and_then(public_range)
             && let Some(map) = object.as_object_mut()
         {
             map.remove("range");
-            map.insert("displayRange".into(), display);
+            super::super::locations::insert_place(map, place);
         }
     }
     swap(&mut item);
@@ -116,16 +117,30 @@ pub(in super::super) fn publish_diagnostic_ranges(mut item: Value) -> Value {
     item
 }
 
-/// The diagnostics with each identical one (every field but its range
-/// equal) listed once, where it first appears: one seen at several ranges
-/// carries `count` and every range, in report order, as `displayRanges`
-/// instead of its `displayRange`.
+/// The diagnostics with each identical one (every field but its place
+/// equal) listed once, where it first appears: one seen at several places
+/// carries `count` and every place, in report order, as `sites` instead of
+/// its own `line`, `column` and `endLine`.
 pub(in super::super) fn dedupe_diagnostics(items: Value) -> Value {
     let mut listed: Vec<(Value, Vec<Value>)> = Vec::new();
     for mut item in into_items(items) {
         let range = item
             .as_object_mut()
-            .and_then(|object| object.remove("displayRange"))
+            .map(|object| {
+                let place = ["line", "column", "endLine"]
+                    .into_iter()
+                    .filter_map(|key| {
+                        object
+                            .shift_remove(key)
+                            .map(|value| (key.to_owned(), value))
+                    })
+                    .collect::<serde_json::Map<_, _>>();
+                if place.is_empty() {
+                    Value::Null
+                } else {
+                    Value::Object(place)
+                }
+            })
             .unwrap_or(Value::Null);
         match listed.iter_mut().find(|(known, _)| *known == item) {
             Some((_, ranges)) => ranges.push(range),
@@ -139,14 +154,13 @@ pub(in super::super) fn dedupe_diagnostics(items: Value) -> Value {
                 if let Some(object) = item.as_object_mut() {
                     match ranges.len() {
                         1 => {
-                            let range = ranges.remove(0);
-                            if !range.is_null() {
-                                object.insert("displayRange".into(), range);
+                            if let Value::Object(place) = ranges.remove(0) {
+                                object.extend(place);
                             }
                         }
                         count => {
                             object.insert("count".into(), json!(count));
-                            object.insert("displayRanges".into(), Value::Array(ranges));
+                            object.insert("sites".into(), Value::Array(ranges));
                         }
                     }
                 }

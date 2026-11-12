@@ -144,8 +144,9 @@ pub(super) fn render(
 }
 
 /// An `lspSearch` answer's location rows, each with its path: `matches`, or
-/// the `files[].matches` a location answer groups them in. Call rows and the
-/// files view have no `displayRange` and print as their own shapes.
+/// the `files[].matches` a location answer groups them in. Text hits (their
+/// `value`), call rows (their `sites`) and the files view (no `line`) print
+/// as their own shapes.
 fn location_rows(data: &Map<String, Value>) -> Option<Vec<Value>> {
     if let Some(Value::Array(matches)) = data.get("matches") {
         return Some(matches.clone());
@@ -155,7 +156,10 @@ fn location_rows(data: &Map<String, Value>) -> Option<Vec<Value>> {
     for file in files {
         let path = file.get("path")?;
         for row in file.get("matches")?.as_array()? {
-            row.get("displayRange")?;
+            row.get("line")?;
+            if row.get("sites").is_some() || row.get("value").is_some() {
+                return None;
+            }
             let mut row = row.as_object()?.clone();
             row.insert("path".into(), path.clone());
             rows.push(Value::Object(row));
@@ -279,12 +283,12 @@ fn file_rows(
     // `view:"files"` sites: `path:5,32`, every start line in the file. A
     // count that only repeats their number is not restated.
     let sites = rest
-        .get("lines")
+        .get("matchedLines")
         .and_then(|lines| serde_json::from_value::<Vec<u64>>(lines.clone()).ok())
         .filter(|lines| !lines.is_empty());
     let mut entry = path.to_owned();
     if let Some(lines) = sites {
-        rest.shift_remove("lines");
+        rest.shift_remove("matchedLines");
         if rest.get("matchCount").and_then(Value::as_u64) == Some(lines.len() as u64) {
             rest.shift_remove("matchCount");
         }

@@ -17,7 +17,7 @@ export async function checkMaterialization(ctx) {
     const call = ctx.callOn(surface);
     const first = await call('ghStructure', envelope);
     record(`materialize.initial.${surface}`, succeeds(first), `exit ${first.status}, isError ${first.isError}`);
-    const checkout = data(first)?.location?.localPath;
+    const checkout = data(first)?.location?.path;
     if (!checkout) continue;
     const target = path.join(checkout, 'src/greeter.ts');
     const altered = Buffer.from(original.map(byte => byte === 10 ? 10 : 88));

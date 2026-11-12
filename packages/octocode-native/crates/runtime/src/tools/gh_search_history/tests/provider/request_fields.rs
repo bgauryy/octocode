@@ -74,7 +74,7 @@ async fn an_absent_picked_key_is_named_once() {
     );
     assert_eq!(
         data["warnings"],
-        json!(["No row has committer; these rows have: date, messageHeadline, author."]),
+        json!(["No row has committer; these rows have: committedAt, messageHeadline, author."]),
         "{data}"
     );
 }
@@ -114,6 +114,42 @@ async fn picked_keys_survive_the_implied_drop() {
         json!({"owner":"o", "repo":"r", "number": 7, "state": "merged", "createdAt": "2026-09-19T10:00:00Z"}),
         "{data}"
     );
+    assert!(data.get("warnings").is_none(), "{data}");
+}
+
+/// A count GitHub states as 0 is a value the row carries: an issue page
+/// whose every row has no comments answers `commentsCount: 0` on each, with
+/// no "No row has" warning, which is only for a key no row carries.
+#[tokio::test]
+async fn a_zero_count_is_carried_not_reported_missing() {
+    use wiremock::MockServer;
+
+    let server = MockServer::builder().start().await;
+    let issue = |number: u64| {
+        json!({"number": number, "title": "t", "state": "open", "comments": 0,
+            "user": {"login": "dev"}, "created_at": "2026-09-19T10:00:00Z",
+            "repository_url": "https://api.github.com/repos/o/r"})
+    };
+    mount_json(
+        &server,
+        "/api/v3/search/issues",
+        200,
+        json!({"total_count": 2, "incomplete_results": false, "items": [issue(1), issue(2)]}),
+    )
+    .await;
+    let query = serde_json::from_value(json!({"operation":"issue","owner":"o","repo":"r","keywords":["x"],"filters":{"state":"open"},"fields":["commentsCount"]}))
+    .expect("query");
+    let data = execute(
+        &one_shot_provider(&server),
+        &query,
+        &default_context(),
+        &Passthrough,
+    )
+    .await
+    .expect("issue search");
+    for row in data["issues"].as_array().expect("issues") {
+        assert_eq!(row["commentsCount"], 0, "{data}");
+    }
     assert!(data.get("warnings").is_none(), "{data}");
 }
 

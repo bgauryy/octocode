@@ -55,16 +55,18 @@ fn transient_guidance_respects_final_failures() {
     );
 }
 
-/// Recovery guidance is per-row evidence: every failed row of a batch that
-/// needs the shared recovery carries it in its own `hints`, as the shaping
-/// stage attaches it; a row with its own hints keeps them.
+/// N9: the shared recovery is a static note, stated once per response: on
+/// the first failed row that needs it, as the shaping stage notes it; a
+/// later row that needs the same note says nothing more, and a row with its
+/// own hints keeps them.
 #[test]
-fn every_error_row_of_a_batch_carries_its_own_shared_hint() {
+fn a_shared_error_hint_is_stated_once_per_response() {
     let failed = || json!({"status":"error","data":{"errorCode":"notFound","error":"gone"}});
     let mut structured = json!({"results":[failed(), failed(),
-        {"status":"error","data":{"errorCode":"notFound","error":"gone","hints":["own"]}}]});
+        {"status":"error","data":{"errorCode":"notFound","error":"gone","hints":["own"]}},
+        {"status":"error","data":{"errorCode":"cancelled","error":"stopped"}}]});
     for row in structured["results"].as_array_mut().expect("rows") {
-        attach_error_hint(
+        note_error_hint(
             ToolId::ArtifactSearch.output(),
             &mut row["data"],
             &Value::Null,
@@ -72,37 +74,49 @@ fn every_error_row_of_a_batch_carries_its_own_shared_hint() {
     }
     crate::response::notices::place(&mut structured, "results");
     let hints = |index: usize| structured["results"][index]["data"].get("hints").cloned();
-    assert_eq!(hints(0), hints(1), "{structured}");
-    assert!(hints(1).is_some(), "second row has its hint: {structured}");
+    assert_eq!(
+        hints(0),
+        Some(json!([crate::response::output::NOT_FOUND_HINT])),
+        "{structured}"
+    );
+    assert_eq!(hints(1), None, "said once: {structured}");
     assert_eq!(hints(2), Some(json!(["own"])), "{structured}");
+    assert_eq!(hints(3), Some(json!([CANCELLED_HINT])), "another note: {structured}");
     assert!(!structured.to_string().contains("notices"), "{structured}");
 }
 
-/// C3eK B-D5 / C-D10 / C-R7: a not-found hint fits the resource. A GitHub
-/// path, a graph node or an advisory names its resource, where it looked
-/// and its recovery in the message and leads, so no hint repeats them; the
-/// shared hint any other tool gets names no registry or version and does
-/// not restate the instructions' caution that a miss is no absence elsewhere.
+/// C3eK B-D5 / C-D10 / C-R7, round 13: one `notFound` rule on every tool.
+/// A row without hints of its own carries the shared hint, leads or not: a
+/// lead is a call (a parent listing, a search, the nearest nodes), the hint
+/// says what to do with its answer. The hint names no registry or version
+/// and does not restate the instructions' caution that a miss is no absence
+/// elsewhere.
 #[test]
 fn a_not_found_hint_fits_the_resource_and_repeats_no_caution() {
-    for tool in [
-        ToolId::GhGetFileContent,
-        ToolId::GhStructure,
-        ToolId::GraphQuery,
-        ToolId::SecurityCheck,
-    ] {
-        let mut data = json!({"errorCode":"notFound","error":"Path not found in o/r: a.rs"});
-        attach_error_hint(tool.output(), &mut data, &Value::Null);
-        assert!(data.get("hints").is_none(), "{tool}: {data}");
-    }
+    let lead =
+        json!({"kind":"related","tool":"structureSearch","input":{"queries":[{"path":"."}]}});
     for tool in ToolId::ALL {
-        let mut data = json!({"errorCode":"notFound","error":"gone"});
-        attach_error_hint(tool.output(), &mut data, &Value::Null);
-        let hint = data["hints"][0].as_str().unwrap_or_default().to_lowercase();
-        for named in ["registry", "version", "revision", "nowhere else"] {
-            assert!(!hint.contains(named), "{tool} names {named}: {hint}");
+        for related in [None, Some(json!([lead.clone()]))] {
+            let mut data = json!({"errorCode":"notFound","error":"gone"});
+            if let Some(related) = &related {
+                data["related"] = related.clone();
+            }
+            attach_error_hint(tool.output(), &mut data, &Value::Null);
+            assert_eq!(
+                data["hints"],
+                json!([crate::response::output::NOT_FOUND_HINT]),
+                "{tool}: {data}"
+            );
         }
     }
+    let hint = crate::response::output::NOT_FOUND_HINT.to_lowercase();
+    for named in ["registry", "version", "revision", "nowhere else"] {
+        assert!(!hint.contains(named), "names {named}: {hint}");
+    }
+    // A row that states its own recovery keeps it alone.
+    let mut own = json!({"errorCode":"notFound","error":"gone","hints":["own"]});
+    attach_error_hint(ToolId::GraphQuery.output(), &mut own, &Value::Null);
+    assert_eq!(own["hints"], json!(["own"]));
 }
 
 /// C3eK C-R8: an expired or stale cursor's message states the recovery

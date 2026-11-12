@@ -93,8 +93,11 @@ impl<'a> Projector<'a> {
         let marks = self.built.facts.get(file).map(|facts| facts.marks);
         let test = self.test_code.test_path(&self.built.root.join(file));
         let mut flags = file_roles(&self.built.root, file, marks, test);
-        if self.workspace.entries.contains_key(file) {
+        if let Some(rule) = self.workspace.entries.get(file) {
             flags |= ROLE_ENTRY;
+            if super::super::workspace::declared_target(rule) {
+                flags &= !ROLE_CONFIG;
+            }
         }
         if self.unparsed.contains(file) {
             flags |= ROLE_UNPARSED;

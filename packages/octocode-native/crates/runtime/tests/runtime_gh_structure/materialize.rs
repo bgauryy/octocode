@@ -34,7 +34,7 @@ async fn materialize_never_trusts_a_foreign_directory() {
     );
     let data = row_data(&outcome);
     let local =
-        std::path::PathBuf::from(data["location"]["localPath"].as_str().expect("localPath"));
+        std::path::PathBuf::from(data["location"]["path"].as_str().expect("path"));
     assert_eq!(local, own, "{data}");
     assert_eq!(data["location"]["coverage"]["state"], "complete", "{data}");
     assert_eq!(
@@ -120,9 +120,9 @@ async fn a_second_materialize_restores_every_file_reading_only_the_changed_one()
         .await
         .expect("first");
     let local = std::path::PathBuf::from(
-        row_data(&first)["location"]["localPath"]
+        row_data(&first)["location"]["path"]
             .as_str()
-            .expect("localPath"),
+            .expect("path"),
     );
     // An atomic write replaces the file (a new inode): an untouched file
     // keeps its own, a tampered one gets a new one.
@@ -237,7 +237,7 @@ async fn materialize_skips_credential_named_files_without_reading_them() {
     );
     let data = row_data(&outcome);
     let local =
-        std::path::PathBuf::from(data["location"]["localPath"].as_str().expect("localPath"));
+        std::path::PathBuf::from(data["location"]["path"].as_str().expect("path"));
     assert!(local.join("one.rs").exists(), "{data}");
     assert!(
         !local.join(".env").exists(),

@@ -80,7 +80,7 @@ fn workspace_coverage_preserves_errors_and_avoids_a_directory_document_hint() {
 /// A first-page workspaceSymbol query for `term`.
 fn first_page(term: &str) -> LspSearchQuery {
     serde_json::from_value(json!({
-        "operation": "workspaceSymbol", "symbolQuery": term, "workspaceRoot": "/w"
+        "operation": "workspaceSymbol", "symbolFuzzy": term, "workspaceRoot": "/w"
     }))
     .expect("query")
 }
@@ -92,7 +92,7 @@ fn first_page(term: &str) -> LspSearchQuery {
 fn a_later_workspace_symbol_page_repeats_no_note_or_lead() {
     let scope = Scope::new("/w".into(), vec!["*.ts".into()]);
     let later: LspSearchQuery = serde_json::from_value(json!({
-        "operation": "workspaceSymbol", "symbolQuery": "Shared", "workspaceRoot": "/w",
+        "operation": "workspaceSymbol", "symbolFuzzy": "Shared", "workspaceRoot": "/w",
         "page": 2, "snapshot": "lsp-v3:abc"
     }))
     .expect("query");
@@ -317,7 +317,7 @@ async fn rust_row_gated(
             .expect("query")
             .remove("symbolName")
             .expect("name");
-        q["symbolQuery"] = name;
+        q["symbolFuzzy"] = name;
     }
     let mut row = json!({"operation":"references","matches":[{"path":"pkg/src/lib.rs"}]});
     let q = query(q);

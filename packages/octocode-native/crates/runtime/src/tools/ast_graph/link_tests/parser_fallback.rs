@@ -117,7 +117,7 @@ fn the_scan_names_each_file_the_fallback_lane_read() {
         .filter(|row| row["code"] == "parser-fallback")
         .collect::<Vec<_>>();
     assert_eq!(fallback.len(), 1, "{diagnostics}");
-    assert_eq!(fallback[0]["file"], "broken.ts");
+    assert_eq!(fallback[0]["path"], "broken.ts");
     let message = fallback[0]["message"].as_str().unwrap_or_default();
     assert!(
         message.contains("oxc") && message.contains("tree-sitter"),
@@ -187,7 +187,7 @@ fn a_fallback_file_keeps_its_reexport_edges() {
 fn symbol<'v>(symbols: &'v Value, name: &str) -> &'v Value {
     symbols["rows"]
         .as_array()
-        .and_then(|rows| rows.iter().find(|row| row["name"] == name))
+        .and_then(|rows| rows.iter().find(|row| row["symbolName"] == name))
         .unwrap_or_else(|| panic!("no symbol {name}: {symbols}"))
 }
 

@@ -31,7 +31,7 @@ function deniedInputs(port) {
     { label: 'image.loopback', query: assetQuery(`https://${local}`), expected: 'securityValidationFailed' },
     { label: 'source.http', query: sourceQuery(`http://${local}`), expected: 'invalidInput' },
     { label: 'image.http', query: assetQuery(`http://${local}`), expected: 'invalidInput' },
-    { label: 'source.userinfo', query: sourceQuery(`https://user:canary-password@${local}`), expected: 'securityValidationFailed' },
+    { label: 'source.userinfo', query: sourceQuery(`https://user:canary-password@${local}`), expected: 'invalidInput' },
     { label: 'image.fragment', query: assetQuery(`https://${local}#crop`), expected: 'invalidInput' },
   ];
 }
@@ -72,7 +72,7 @@ function imageFixture(ctx, surface) {
     return { body: { type: 'file', encoding: 'base64', path: file, size: bytes.length, sha: blob(bytes), content: bytes.toString('base64') } };
   });
   const query = ref => ({
-    // Image provenance (source, snapshot, path) is a details field.
+    // Image provenance (source, sourceDigest, path) is a details field.
     operation: 'evaluate', view: 'details', content: { image: 'screen', evidence: 'GitHub snapshot edge fixture' },
     assets: { screen: { source: { tool: 'ghGetFileContent', query: { owner: 'octo', repo: 'demo', path: file, ref } } } },
     questions: { visible: noul('Is screen available as explicit remote evidence?') },
@@ -84,7 +84,7 @@ function capturedImage(result, bytes, ref) {
   const asset = result?.assets?.screen;
   assert.ok(asset, JSON.stringify(result));
   return result.answers.visible.noul === 0.9 && asset.source.query.ref === ref
-    && asset.snapshot === digest(bytes) && asset.bytes === bytes.length && asset.width === 280 && asset.height === 280
+    && asset.sourceDigest === digest(bytes) && asset.bytes === bytes.length && asset.width === 280 && asset.height === 280
     && fs.existsSync(asset.path) && fs.readFileSync(asset.path).equals(bytes)
     && !JSON.stringify(result).includes(bytes.toString('base64'));
 }
@@ -112,11 +112,11 @@ export async function githubImageChecks(ctx, surface, provider) {
     const ref = fixture.revisions.keys().next().value;
     const replay = data(await ctx.call(ctx.q(fixture.query(ref)), surface));
     checks.push(['remoteImage.originalFresh', capturedImage(replay, PNG, ref) && replay.replayed !== true
-      && same(replay.answers, first.answers) && replay.assets.screen.snapshot === first.assets.screen.snapshot
-      && changed.assets.screen.snapshot !== first.assets.screen.snapshot && sameBytes.assets.screen.snapshot === first.assets.screen.snapshot
+      && same(replay.answers, first.answers) && replay.assets.screen.sourceDigest === first.assets.screen.sourceDigest
+      && changed.assets.screen.sourceDigest !== first.assets.screen.sourceDigest && sameBytes.assets.screen.sourceDigest === first.assets.screen.sourceDigest
       // A commit's bytes never change: the repeat is judged again from the kept answer.
       && fs.readFileSync(first.assets.screen.path).equals(PNG) && fixture.requests.length === 3 && provider.sent.length === before + 4,
-    { snapshots: saved.map(item => item.assets.screen.snapshot), acquisitions: fixture.requests.length, inference: provider.sent.length - before }]);
+    { sourceDigests: saved.map(item => item.assets.screen.sourceDigest), acquisitions: fixture.requests.length, inference: provider.sent.length - before }]);
   } finally { fixture.close(); }
   return checks;
 }

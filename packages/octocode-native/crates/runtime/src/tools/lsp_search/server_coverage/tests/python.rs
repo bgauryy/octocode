@@ -137,7 +137,7 @@ async fn python_misses_name_unresolved_imports_apart_from_dynamic_dispatch() {
 fn python_workspace_symbols_name_no_dynamic_dispatch() {
     let mut row = json!({"operation":"symbols","matches":[{"path":"a.py"}]});
     let q =
-        query(json!({"path":"/repo/pkg/a.py","operation":"workspaceSymbol","symbolQuery":"get"}));
+        query(json!({"path":"/repo/pkg/a.py","operation":"workspaceSymbol","symbolFuzzy":"get"}));
     let scope = Scope::new("/repo".into(), vec!["*.py".into()]);
     annotate(
         &mut row,

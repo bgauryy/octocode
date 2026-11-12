@@ -111,7 +111,7 @@ fn only_a_view_that_read_sizes_states_bytes() {
     };
     assert_eq!(summary("details")["bytes"], 5);
     assert_eq!(summary("paths").get("bytes"), None);
-    assert_eq!(summary("paths")["files"], 1);
+    assert_eq!(summary("paths")["fileCount"], 1);
 }
 
 /// A paths listing's read lead still never points at a file too large to
@@ -176,7 +176,7 @@ fn a_paths_listing_lists_each_directory_as_a_row_once() {
             ["a", "a/b", "empty", "only", "only/mid"],
             "{operation}: {out}"
         );
-        assert_eq!(out["summary"]["dirs"], 5, "{operation}: {out}");
+        assert_eq!(out["summary"]["dirCount"], 5, "{operation}: {out}");
     }
 }
 

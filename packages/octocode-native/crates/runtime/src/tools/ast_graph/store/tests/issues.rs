@@ -12,7 +12,12 @@ fn issues_rank_hypotheses_with_evidence_and_controls() {
     let out = ask(root, "issues", None, |o| o.limit = Some(200));
     assert_eq!(out.class, ExitClass::Success, "{}", out.value);
 
-    assert_eq!(findings(&out, "cycle"), vec!["src/a.ts"], "{}", out.value);
+    assert_eq!(
+        findings(&out, "cycle"),
+        vec!["app/src/a.ts"],
+        "{}",
+        out.value
+    );
     let cycle = out.value["rows"]
         .as_array()
         .expect("rows")
@@ -27,16 +32,16 @@ fn issues_rank_hypotheses_with_evidence_and_controls() {
 
     let unreachable = findings(&out, "unreachable-file");
     assert!(
-        unreachable.contains(&"src/orphan.ts".to_owned()),
+        unreachable.contains(&"app/src/orphan.ts".to_owned()),
         "{unreachable:?}"
     );
     assert!(
-        !unreachable.contains(&"src/client.gen.ts".to_owned()),
+        !unreachable.contains(&"app/src/client.gen.ts".to_owned()),
         "generated files are never subjects"
     );
-    assert!(!unreachable.contains(&"src/main.ts".to_owned()));
+    assert!(!unreachable.contains(&"app/src/main.ts".to_owned()));
 
-    assert_eq!(findings(&out, "test-only"), vec!["src/fmt.ts"]);
+    assert_eq!(findings(&out, "test-only"), vec!["app/src/fmt.ts"]);
     assert_eq!(
         findings(&out, "undeclared-dependency"),
         vec!["app::left-pad"]
@@ -44,7 +49,7 @@ fn issues_rank_hypotheses_with_evidence_and_controls() {
 
     let unused = findings(&out, "unused-export");
     assert!(
-        unused.contains(&"src/lib.ts".to_owned()),
+        unused.contains(&"app/src/lib.ts".to_owned()),
         "Box is never imported: {unused:?}"
     );
 
@@ -60,7 +65,7 @@ fn issues_rank_hypotheses_with_evidence_and_controls() {
     );
 
     let only = ask(root, "issues", None, |o| o.detectors = vec!["cycle".into()]);
-    assert_eq!(only.value["pagination"]["totalItems"], 1);
+    assert_eq!(only.value["pagination"]["total"], 1);
     let bad = ask(root, "issues", None, |o| o.detectors = vec!["nope".into()]);
     assert_eq!(bad.class, ExitClass::InvalidInput);
 }
@@ -165,7 +170,7 @@ fn issues_baseline_reports_new_and_resolved_findings() {
         .filter(|row| row["status"] == "new")
         .map(|row| row["subject"].as_str().unwrap_or_default())
         .collect::<Vec<_>>();
-    assert!(new.contains(&"src/orphan2.ts"), "{new:?}");
+    assert!(new.contains(&"app/src/orphan2.ts"), "{new:?}");
 }
 
 /// The pages of an `issues` listing slice one listing: page 1 is truncated
@@ -192,8 +197,8 @@ fn issues_pages_slice_one_listing() {
         o.min_tier = Some(0);
     });
     assert_eq!(
-        second.value["pagination"]["totalItems"],
-        first.value["pagination"]["totalItems"]
+        second.value["pagination"]["total"],
+        first.value["pagination"]["total"]
     );
 }
 
@@ -210,7 +215,7 @@ fn issues_take_explicit_entrypoints_in_place_of_the_inferred_ones() {
         o.limit = Some(200);
         o.min_tier = Some(0);
     });
-    assert!(findings(&inferred, "unreachable-file").contains(&"src/orphan.ts".to_owned()));
+    assert!(findings(&inferred, "unreachable-file").contains(&"app/src/orphan.ts".to_owned()));
     let explicit = ask(root, "issues", None, |o| {
         o.detectors = vec!["unreachable-file".into(), "test-only".into()];
         o.entries = vec!["src/orphan.ts".into()];
@@ -219,13 +224,13 @@ fn issues_take_explicit_entrypoints_in_place_of_the_inferred_ones() {
     });
     let unreachable = findings(&explicit, "unreachable-file");
     assert!(
-        !unreachable.contains(&"src/orphan.ts".to_owned()),
+        !unreachable.contains(&"app/src/orphan.ts".to_owned()),
         "{}",
         explicit.value
     );
     // main.ts is no entry now: only its test reaches it.
     assert!(
-        findings(&explicit, "test-only").contains(&"src/main.ts".to_owned()),
+        findings(&explicit, "test-only").contains(&"app/src/main.ts".to_owned()),
         "{}",
         explicit.value
     );
@@ -282,30 +287,32 @@ fn drift_diffs_two_snapshots_by_file_cycle_transition_and_relation() {
     let rows = out.value["rows"].as_array().expect("rows");
     let has = |row: Value| rows.contains(&row);
     assert!(
-        has(json!({"category":"file","change":"added","file":"src/added.ts"})),
+        has(json!({"category":"file","change":"added","path":"app/src/added.ts"})),
         "{}",
         out.value
     );
     assert!(
-        has(json!({"category":"file","change":"changed","file":"src/b.ts"})),
-        "{}",
-        out.value
-    );
-    assert!(
-        has(json!({"category":"cycle","change":"resolved","files":["src/a.ts","src/b.ts"]})),
+        has(json!({"category":"file","change":"changed","path":"app/src/b.ts"})),
         "{}",
         out.value
     );
     assert!(
         has(
-            json!({"category":"transition","change":"staticToDynamic","from":"src/main.ts","to":"src/lib.ts"})
+            json!({"category":"cycle","change":"resolved","files":["app/src/a.ts","app/src/b.ts"]})
         ),
         "{}",
         out.value
     );
     assert!(
         has(
-            json!({"category":"relation","change":"removed","from":"src/b.ts","to":"src/a.ts","edge":"imports"})
+            json!({"category":"transition","change":"staticToDynamic","from":"app/src/main.ts","to":"app/src/lib.ts"})
+        ),
+        "{}",
+        out.value
+    );
+    assert!(
+        has(
+            json!({"category":"relation","change":"removed","from":"app/src/b.ts","to":"app/src/a.ts","edge":"imports"})
         ),
         "{}",
         out.value
@@ -313,8 +320,8 @@ fn drift_diffs_two_snapshots_by_file_cycle_transition_and_relation() {
     // A transition is not also an added and removed relation.
     assert!(
         !rows.iter().any(|row| row["category"] == "relation"
-            && row["from"] == "src/main.ts"
-            && row["to"] == "src/lib.ts"),
+            && row["from"] == "app/src/main.ts"
+            && row["to"] == "app/src/lib.ts"),
         "{}",
         out.value
     );
@@ -360,7 +367,7 @@ fn by_detector_reconciles_with_the_listed_total_through_the_filter() {
     };
     let all = ask(dir.0.as_path(), "issues", None, |o| o.min_tier = Some(0));
     let filtered = ask(dir.0.as_path(), "issues", None, |o| o.min_tier = Some(100));
-    let listed = |out: &GraphOutput| out.value["pagination"]["totalItems"].as_u64();
+    let listed = |out: &GraphOutput| out.value["pagination"]["total"].as_u64();
     let hidden = filtered.value["summary"]["hiddenBelowTier"]
         .as_u64()
         .expect("hiddenBelowTier");
@@ -443,9 +450,9 @@ fn the_manifest_above_lead_carries_the_snapshots_whole_scope() {
     );
 }
 
-/// A critical file's `transitiveDependents` and its `verify` lead walk the
-/// same depth: the lead lists every counted dependent, and the controls say
-/// what the count leaves out.
+/// A critical file's `transitiveDependents` and its `farthestDepth` are one
+/// walk: `dependents` to that depth lists every counted dependent, and the
+/// controls say what the count leaves out.
 #[test]
 fn a_critical_file_lead_reaches_every_dependent_it_counts() {
     let mut files = vec![(
@@ -482,17 +489,17 @@ fn a_critical_file_lead_reaches_every_dependent_it_counts() {
         .as_array()
         .into_iter()
         .flatten()
-        .find(|row| row["subject"] == "src/hub.ts")
+        .find(|row| row["subject"] == "app/src/hub.ts")
         .unwrap_or_else(|| panic!("no critical hub: {}", issues.value));
     let counted = finding["evidence"]["transitiveDependents"]
         .as_u64()
         .unwrap();
     assert_eq!(counted, 8, "{finding}");
-    let lead = &finding["verify"][0]["input"]["queries"][0];
-    assert_eq!(lead["operation"], "dependents", "{finding}");
-    assert_eq!(lead["depth"], 6, "the deepest counted dependent: {finding}");
+    let depth = &finding["evidence"]["farthestDepth"];
+    assert_eq!(*depth, 6, "the deepest counted dependent: {finding}");
+    assert!(finding.get("verify").is_none(), "{finding}");
     let walked = ask(root, "dependents", Some("src/hub.ts"), |o| {
-        o.depth = lead["depth"].as_u64().map(|depth| depth as u32);
+        o.depth = depth.as_u64().map(|depth| depth as u32);
         o.limit = Some(100);
     });
     assert_eq!(ids(&walked).len() as u64, counted, "{}", walked.value);
@@ -564,10 +571,17 @@ fn controls_every_finding_of_a_detector_shares_are_stated_once() {
         let common = shared_controls(&out.value, detector).collect::<Vec<_>>();
         stated += common.len();
         for control in row["controls"].as_array().into_iter().flatten() {
-            assert!(!common.contains(&control), "{detector} repeats {control}: {row}");
+            assert!(
+                !common.contains(&control),
+                "{detector} repeats {control}: {row}"
+            );
         }
     }
-    assert!(stated > 0, "some detector states its controls: {}", out.value);
+    assert!(
+        stated > 0,
+        "some detector states its controls: {}",
+        out.value
+    );
     // A later page carries rows only: its rows are the same rows.
     let later = ask(dir.0.as_path(), "issues", None, |o| {
         o.limit = Some(1);
@@ -576,4 +590,99 @@ fn controls_every_finding_of_a_detector_shares_are_stated_once() {
     });
     assert!(later.value.get("summary").is_none(), "{}", later.value);
     assert_eq!(later.value["rows"][0], rows[1], "{}", later.value);
+}
+
+/// Every file an answer names is a path from the workspace root, as rows'
+/// `path` is, so it goes straight to localFetch or lspSearch: hubs `id`,
+/// an issue's `subject`, a cycle's `members`, `witness` and `suggestedCuts`.
+/// A symbol id stays the snapshot's id, its file named by `path` beside it.
+#[test]
+fn answers_name_files_from_the_workspace_and_keep_symbol_ids() {
+    let dir = fixture();
+    let root = dir.0.as_path();
+    assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
+    let hubs = ask(root, "hubs", None, |_| {});
+    let hub_ids = ids(&hubs);
+    assert!(!hub_ids.is_empty(), "{}", hubs.value);
+    for id in hub_ids.iter().filter(|id| !id.starts_with("pkg:")) {
+        assert!(id.starts_with("app/src/"), "{id}: {}", hubs.value);
+        assert!(root.join(id).is_file(), "{id}");
+    }
+    let issues = ask(root, "issues", None, |o| {
+        o.detectors = vec!["cycle".into()];
+        o.min_tier = Some(0);
+    });
+    let cycle = issues.value["rows"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|row| row["detector"] == "cycle")
+        .unwrap_or_else(|| panic!("cycle finding: {}", issues.value));
+    assert_eq!(cycle["subject"], "app/src/a.ts", "{cycle}");
+    let evidence = &cycle["evidence"];
+    assert_eq!(
+        evidence["members"],
+        json!(["app/src/a.ts", "app/src/b.ts"]),
+        "{cycle}"
+    );
+    for list in ["witness", "suggestedCuts"] {
+        let hops = evidence[list].as_array().expect("hops");
+        assert!(!hops.is_empty(), "{list}: {cycle}");
+        for hop in hops {
+            for end in ["from", "to"] {
+                let file = hop[end].as_str().expect("file");
+                assert!(file.starts_with("app/src/"), "{list}.{end}: {cycle}");
+                assert!(root.join(file).is_file(), "{list}.{end}: {file}");
+            }
+        }
+    }
+    let cycles = ask(root, "cycles", None, |_| {});
+    assert_eq!(
+        cycles.value["rows"][0]["nodes"],
+        json!(["app/src/a.ts", "app/src/b.ts"]),
+        "{}",
+        cycles.value
+    );
+    let found = ask(root, "find", Some("greet"), |o| {
+        o.kind = Some("symbol".into());
+    });
+    assert_eq!(
+        found.value["rows"][0]["id"], "src/lib.ts#greet",
+        "{}",
+        found.value
+    );
+    assert_eq!(
+        found.value["rows"][0]["path"], "app/src/lib.ts",
+        "{}",
+        found.value
+    );
+    // The workspace spelling of a file reads as its snapshot key.
+    let node = ask(root, "node", Some("app/src/lib.ts"), |_| {});
+    assert_eq!(node.value["node"]["id"], "app/src/lib.ts", "{}", node.value);
+    // A mention names its file the same way, with the line after it.
+    let named = git_app(&[
+        ("package.json", r#"{"name":"app","main":"src/main.ts"}"#),
+        (
+            "src/main.ts",
+            "import { names } from './catalog';\nexport const main = () => names.map((name) => import(`./checks/${name}.js`));\n",
+        ),
+        ("src/catalog.ts", "export const names = ['late-check'];\n"),
+        ("src/checks/late-check.ts", "export const run = () => 1;\n"),
+    ]);
+    let root = named.0.as_path();
+    assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
+    let issues = ask(root, "issues", None, |o| {
+        o.detectors = vec!["unreachable-file".into()];
+        o.min_tier = Some(0);
+    });
+    let row = issues.value["rows"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|row| row["subject"] == "app/src/checks/late-check.ts")
+        .unwrap_or_else(|| panic!("mentioned file: {}", issues.value));
+    let mention = row["evidence"]["mentionedIn"][0].as_str().expect("mention");
+    assert_eq!(mention, "app/src/catalog.ts:1", "{row}");
+    let (file, _) = mention.rsplit_once(':').expect("path:line");
+    assert!(root.join(file).is_file(), "{mention}");
 }

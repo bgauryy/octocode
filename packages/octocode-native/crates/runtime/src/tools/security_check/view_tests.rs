@@ -119,7 +119,10 @@ async fn a_package_summary_is_the_verdict_the_counts_and_one_lead() {
         "{summary}"
     );
     assert_eq!(summary["outdated"], true, "{summary}");
-    for detail in DETAIL_FIELDS.iter().chain(&["answer", "packageName", "version"]) {
+    for detail in DETAIL_FIELDS
+        .iter()
+        .chain(&["answer", "packageName", "version"])
+    {
         assert!(summary.get(*detail).is_none(), "{detail}: {summary}");
     }
     // What the summary counted is what the whole row lists.
@@ -210,10 +213,14 @@ async fn a_summary_skips_the_alias_reads_that_only_details_states() {
             .count()
     };
     let http = aliased();
-    let summary = answer(&http, package_query("summary")).await.expect("summary");
+    let summary = answer(&http, package_query("summary"))
+        .await
+        .expect("summary");
     assert_eq!(alias_reads(&http), 0, "{:?}", http.targets());
     let http = aliased();
-    let details = answer(&http, package_query("details")).await.expect("details");
+    let details = answer(&http, package_query("details"))
+        .await
+        .expect("details");
     assert_eq!(alias_reads(&http), 1, "{:?}", http.targets());
     assert_eq!(
         details["advisories"][0]["disputedBy"],
@@ -225,7 +232,10 @@ async fn a_summary_skips_the_alias_reads_that_only_details_states() {
     assert_eq!(summary["upgradeTo"], details["upgradeTo"]);
     assert_eq!(
         summary["advisoryCount"],
-        details["advisories"].as_array().map(Vec::len).expect("list")
+        details["advisories"]
+            .as_array()
+            .map(Vec::len)
+            .expect("list")
     );
 }
 
@@ -239,7 +249,10 @@ async fn a_url_summary_is_the_package_summary() {
     let details = answer(&http(), query("details")).await.expect("details");
     assert_eq!(summary["affected"], false, "{summary}");
     assert_eq!(summary["advisoryCount"], 0, "{summary}");
-    assert_eq!(summary["version"], "4.18.1", "the version it resolved: {summary}");
+    assert_eq!(
+        summary["version"], "4.18.1",
+        "the version it resolved: {summary}"
+    );
     assert_eq!(details["advisories"], json!([]), "{details}");
     assert_details_holds_the_summary(&summary, &details);
     // The lead names the package the URL resolved to.

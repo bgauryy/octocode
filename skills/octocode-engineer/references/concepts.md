@@ -101,7 +101,7 @@ Connascence names what two parts must agree on, weakest to strongest: name, type
 
 ## Architecture smells
 
-Graph detectors emit ranked hypotheses with `verify` commands, never findings ([evidence lanes](analysis.md#choose-the-narrowest-evidence-lane)). Smells without a detector need scenarios, AST shape, and LSP references.
+Graph detectors emit ranked hypotheses to confirm against source and `lspSearch`, never findings ([evidence lanes](analysis.md#choose-the-narrowest-evidence-lane)). Smells without a detector need scenarios, AST shape, and LSP references.
 
 | Smell | What it looks like | Detector or lane |
 |---|---|---|

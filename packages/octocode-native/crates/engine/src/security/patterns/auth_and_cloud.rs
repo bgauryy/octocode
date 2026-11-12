@@ -74,10 +74,14 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "bearerAuthHeader",
         file_context: None,
-        // Only the token goes: the header's name and its scheme stay. The
-        // token ends with a word character, its `=` padding after it
-        // included; a mark after that closes the sentence.
-        regex: r###"(?i)\bAuthorization\s*:\s*Bearer\s+(?P<secret>[A-Za-z0-9._~+/=-]{20,}\b=*)"###,
+        // The token after the `Bearer` scheme, in whatever layout holds it
+        // (a header line, `headers["Authorization"] = "Bearer …"`, a
+        // member, a template, a sentence), as `basicAuthHeader` reads its
+        // scheme's: the scheme places a credential, whatever its
+        // characters. Only the token goes: the header's name and its scheme
+        // stay. The token ends with a word character, its `=` padding after
+        // it included; a mark after that closes the sentence.
+        regex: r###"(?i)\bBearer\s+(?P<secret>[A-Za-z0-9._~+/=-]{20,}\b=*)"###,
     },
     SecretPattern {
         name: "awsAccessKeyId",

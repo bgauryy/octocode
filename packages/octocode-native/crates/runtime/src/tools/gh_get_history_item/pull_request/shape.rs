@@ -145,7 +145,7 @@ pub(super) async fn shape_pr(
         {
             // The slim section header must keep the authoritative denominator
             // when the provider's returned collection cannot reach it.
-            row["commitsCount"] = raw["commits"].clone();
+            row["commitCount"] = raw["commits"].clone();
         }
     }
     let focused = gh_get_history_item_query::has_sections(query)
@@ -158,7 +158,7 @@ pub(super) async fn shape_pr(
         wants.lists_files(),
     );
     if !pagination.is_empty() {
-        row["contentPagination"] = Value::Object(pagination);
+        row["sectionPagination"] = Value::Object(pagination);
     }
     Ok(ShapedPr {
         row,

@@ -105,8 +105,7 @@ async fn a_page_past_the_end_is_out_of_range_not_an_empty_search() {
         );
         assert_eq!(data.get(rows_key), Some(&json!([])), "{case}");
         assert_eq!(
-            data.pointer("/pagination/totalItems")
-                .and_then(Value::as_u64),
+            data.pointer("/pagination/total").and_then(Value::as_u64),
             total,
             "{case}"
         );

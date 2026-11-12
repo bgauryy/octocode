@@ -39,12 +39,11 @@ pub(in crate::tools::gh_get_history_item) fn reconcile_file_totals(
     let Some(total) = changed_files else { return };
     let listable = total.min(MAX_FILE_BATCHES * MAX_PER_PAGE);
     if !state.exhausted && !filtered {
-        let per =
-            octocode_engine::num::saturating_usize(page["pageSize"].as_u64().unwrap_or(1).max(1));
-        let current = octocode_engine::num::saturating_usize(page["page"].as_u64().unwrap_or(1));
+        let at =
+            |key: &str| octocode_engine::num::saturating_usize(page[key].as_u64().unwrap_or(0));
         let more = page["hasMore"] == true;
         // Rebuilt from the facts, so the block keeps the one key order.
-        let mut rebuilt = crate::response::pages::PageFacts::open(current, Some(per), more)
+        let mut rebuilt = crate::response::pages::PageFacts::open(at("offset"), at("length"), more)
             .with_total(listable)
             .to_value();
         if let (Some(rebuilt), Some(old)) = (rebuilt.as_object_mut(), page.as_object()) {
@@ -93,20 +92,17 @@ pub(in crate::tools::gh_get_history_item) fn paginate_window<T>(
     let past_end = exhausted && current > pages;
     let start = (current - 1) * per;
     let more = if exhausted { current < pages } else { true };
-    let slice = values
+    let slice: Vec<T> = values
         .into_iter()
         .skip(start.saturating_sub(skipped))
         .take(per)
         .collect();
-    let facts =
-        crate::response::pages::PageFacts::open(current, Some(per), more).out_of_range(past_end);
-    // Only an exhausted listing knows its page count.
-    let mut page = if exhausted {
-        facts.with_total(loaded)
-    } else {
-        facts.with_items(loaded)
-    }
-    .to_value();
+    // An exhausted listing counts its items exactly; otherwise the count is
+    // what was loaded (`countScope:"loaded"`).
+    let mut page = crate::response::pages::PageFacts::open(start.min(loaded), slice.len(), more)
+        .with_total(loaded)
+        .out_of_range(past_end)
+        .to_value();
     if more {
         page["nextPage"] = json!(current + 1);
     }

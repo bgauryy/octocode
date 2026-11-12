@@ -100,7 +100,7 @@ impl PathPolicy {
         }
         if fetched {
             shown.push(
-                "Octocode's clones, materialized trees and URL captures, by the localPath they return"
+                "Octocode's clones, materialized trees and URL captures, by the location.path they return"
                     .to_owned(),
             );
         }

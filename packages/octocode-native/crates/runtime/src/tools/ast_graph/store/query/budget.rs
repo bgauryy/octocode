@@ -2,7 +2,7 @@
 //! the response budget, whichever comes first, on every surface. The budget
 //! is the row's share of the response page less the room its envelope takes
 //! ([`page_budget`](crate::response::page_windows::page_budget)), so the
-//! cut rows stay reachable through `next`, and `pagination.totalItems` still
+//! cut rows stay reachable through `next`, and `pagination.total` still
 //! counts the whole set. The shared response pager delivers declared sibling
 //! evidence arrays that keep the first row above its response budget.
 use super::*;
@@ -35,7 +35,7 @@ impl Graph {
         let Some(budget) = self.page_budget else {
             return Ok(());
         };
-        let Some(total) = output.value["pagination"]["totalItems"].as_u64() else {
+        let Some(total) = output.value["pagination"]["total"].as_u64() else {
             return Ok(());
         };
         if size(output, options, &self.id) <= budget {

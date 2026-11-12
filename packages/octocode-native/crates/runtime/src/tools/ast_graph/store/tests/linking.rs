@@ -72,22 +72,22 @@ fn plan_2_string_referenced_files_are_low_tier_and_hidden_by_default() {
     let default = ask(dir.0.as_path(), "issues", None, |o| o.limit = Some(500));
     let shown = findings(&default, "unreachable-file");
     assert!(
-        !shown.contains(&"src/worker.ts".to_owned()),
+        !shown.contains(&"app/src/worker.ts".to_owned()),
         "string-referenced worker hidden: {shown:?}"
     );
     assert!(
-        !shown.contains(&"src/tool.ts".to_owned()),
+        !shown.contains(&"app/src/tool.ts".to_owned()),
         "config-referenced file hidden: {shown:?}"
     );
     assert!(
-        shown.contains(&"src/orphan.ts".to_owned()),
+        shown.contains(&"app/src/orphan.ts".to_owned()),
         "true orphan still shown: {shown:?}"
     );
     let orphan = default.value["rows"]
         .as_array()
         .expect("rows")
         .iter()
-        .find(|r| r["subject"] == "src/orphan.ts" && r["detector"] == "unreachable-file")
+        .find(|r| r["subject"] == "app/src/orphan.ts" && r["detector"] == "unreachable-file")
         .expect("orphan");
     assert!(orphan["tier"].as_u64().unwrap_or(0) >= 90, "{orphan}");
 
@@ -99,7 +99,7 @@ fn plan_2_string_referenced_files_are_low_tier_and_hidden_by_default() {
         .as_array()
         .expect("rows")
         .iter()
-        .find(|r| r["subject"] == "src/worker.ts" && r["detector"] == "unreachable-file")
+        .find(|r| r["subject"] == "app/src/worker.ts" && r["detector"] == "unreachable-file")
         .expect("worker listed at tier 60");
     assert_eq!(worker["tier"], 60, "{worker}");
     assert!(
@@ -111,18 +111,18 @@ fn plan_2_string_referenced_files_are_low_tier_and_hidden_by_default() {
 
     // An export used only inside its own file is "could be un-exported".
     assert!(
-        findings(&all, "export-only-local").contains(&"src/local.ts".to_owned()),
+        findings(&all, "export-only-local").contains(&"app/src/local.ts".to_owned()),
         "{}",
         all.value["summary"]
     );
     let unused = findings(&all, "unused-export");
     assert!(
-        !unused.contains(&"src/local.ts".to_owned()) || {
+        !unused.contains(&"app/src/local.ts".to_owned()) || {
             let row = all.value["rows"]
                 .as_array()
                 .expect("rows")
                 .iter()
-                .find(|r| r["subject"] == "src/local.ts" && r["detector"] == "unused-export")
+                .find(|r| r["subject"] == "app/src/local.ts" && r["detector"] == "unused-export")
                 .expect("row");
             !row["evidence"]["exports"]
                 .as_array()
@@ -177,7 +177,7 @@ fn plan_3_type_qualified_calls_and_scoped_disambiguation_link() {
         |o| o.confidence = Some("high".into()),
     );
     assert_eq!(
-        strong.value["pagination"]["totalItems"], 0,
+        strong.value["pagination"]["total"], 0,
         "same-package bindings remain candidates: {}",
         strong.value
     );

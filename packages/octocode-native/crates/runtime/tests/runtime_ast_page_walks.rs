@@ -1,5 +1,5 @@
 //! Paged astSearch results started from an absolute `path` state, in their
-//! JSON envelope, that pages remain (`pagination.hasMore`, `totalItems`)
+//! JSON envelope, that pages remain (`pagination.hasMore`, `pagination.total`)
 //! and lead on with an executable `next.nextPage`. Continuations respell
 //! that path workspace-relative, and following only them still reaches
 //! every row exactly once, over the CLI and the MCP channel (whose one text
@@ -74,7 +74,7 @@ fn rows(data: &Value, list: &str, key: &str) -> Vec<String> {
 }
 
 /// What a walk read: each page's rows in order (a page split into row parts
-/// is one page), the `totalItems` each page stated, and how many row parts
+/// is one page), the `pagination.total` each page stated, and how many row parts
 /// past the first the response pager split pages into.
 struct Walk {
     pages: Vec<Vec<String>>,
@@ -119,9 +119,12 @@ async fn walk_input(
     };
     let mut calls = 0;
     let mut seen_inputs = BTreeSet::new();
-    let mut query_pages = None;
+    let mut query_total = None;
+    // Where the next query page starts: each page starts where the last ended.
+    let mut page_start = 0;
     loop {
         let (mut rows, mut has_more, mut next_page) = (Vec::new(), None, None);
+        let mut page_end = page_start;
         loop {
             calls += 1;
             assert!(
@@ -132,18 +135,19 @@ async fn walk_input(
             let row = &envelope["results"][0];
             let data = &row["data"];
             if let Some(pagination) = data.get("pagination") {
-                let page = pagination["page"].as_u64().expect("query page");
-                let total = pagination["totalPages"].as_u64().expect("query pages");
-                assert_eq!(page, walk.pages.len() as u64 + 1, "query pages advance");
+                let offset = pagination["offset"].as_u64().expect("query offset");
+                let length = pagination["length"].as_u64().expect("query length");
+                let total = pagination["total"].as_u64().expect("query total");
+                assert_eq!(offset, page_start, "query pages advance");
                 assert_eq!(
-                    *query_pages.get_or_insert(total),
+                    *query_total.get_or_insert(total),
                     total,
-                    "query page count is stable"
+                    "query total is stable"
                 );
-                assert!(page <= total, "query page is within the declared walk");
-                assert_eq!(pagination["hasMore"] == true, page < total);
-                walk.totals
-                    .insert(pagination["totalItems"].as_u64().expect("totalItems"));
+                assert!(offset + length <= total, "query page is within the declared walk");
+                assert_eq!(pagination["hasMore"] == true, offset + length < total);
+                walk.totals.insert(total);
+                page_end = offset + length;
                 has_more = Some(pagination["hasMore"] == true);
             }
             rows.extend(page_rows(data));
@@ -170,6 +174,7 @@ async fn walk_input(
             break;
         }
         walk.pages.push(rows);
+        page_start = page_end;
         if has_more.expect("every page states pagination") {
             // Pages remain: the envelope says so and leads to the next.
             let next = next_page.unwrap_or_else(|| panic!("mcp={mcp}: hasMore without nextPage"));
@@ -189,9 +194,9 @@ async fn walk_input(
         "mcp={mcp}: the fixture spans several pages"
     );
     assert_eq!(
-        Some(walk.pages.len() as u64),
-        query_pages,
-        "all declared query pages were read"
+        Some(page_start),
+        query_total,
+        "the walk read the declared total"
     );
     walk
 }

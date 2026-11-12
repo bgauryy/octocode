@@ -30,7 +30,7 @@ fn reference_walk<'a>(
     visit: &mut dyn FnMut(&Value, &[String]),
 ) {
     if schemas.iter().any(|schema| declares_call(schema, defs))
-        && crate::response::result::is_call(value)
+        && crate::contracts::envelope::is_call(value)
     {
         visit(value, path);
         return;

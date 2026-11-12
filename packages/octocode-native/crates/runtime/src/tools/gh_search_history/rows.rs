@@ -66,7 +66,9 @@ pub(super) fn map_pr(v: Value) -> Value {
     if !labels.is_empty() {
         row["labels"] = json!(labels);
     }
-    if let Some(count) = v.get("comments").and_then(Value::as_u64).filter(|n| *n > 0) {
+    // A count GitHub states is a fact, 0 included: only a count it does not
+    // state is absent.
+    if let Some(count) = v.get("comments").and_then(Value::as_u64) {
         row["commentsCount"] = json!(count);
     }
     remove_null_fields(&mut row);
@@ -114,7 +116,9 @@ pub(super) fn map_issue(v: Value, by_update: bool) -> Value {
     if by_update {
         row["updatedAt"] = utc_value(v.get("updated_at"));
     }
-    if let Some(count) = v.get("comments").and_then(Value::as_u64).filter(|n| *n > 0) {
+    // A count GitHub states is a fact, 0 included: only a count it does not
+    // state is absent.
+    if let Some(count) = v.get("comments").and_then(Value::as_u64) {
         row["commentsCount"] = json!(count);
     }
     remove_null_fields(&mut row);

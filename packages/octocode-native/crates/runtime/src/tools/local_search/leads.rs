@@ -20,6 +20,9 @@ use serde_json::{Value, json};
 mod reads;
 mod skipped;
 
+/// The `next` name of the listing of binaries a walk skipped.
+pub(super) const BINARY_LISTING: &str = "binarySkipped";
+
 /// What a page's leads disclosed of the paths its walk skipped.
 pub(super) struct Disclosed {
     /// Skipped paths hold a match, or may: a retry over them reaches it.
@@ -101,7 +104,7 @@ impl Found<'_> {
                 stats.binary_skipped = self.leading_binaries();
             }
             if let Some(listing) = listing {
-                add("binarySkipped".into(), listing);
+                add(BINARY_LISTING.into(), listing);
             }
         }
         // Directories the depth limit left unentered are coverage the walk
@@ -116,18 +119,10 @@ impl Found<'_> {
         }
         // What the walk left out is disclosed once, on the first page, in
         // `skippedPaths` (the security policy's withheld entries, which
-        // nothing lifts, among them), with the same search over the paths a
-        // flag lifts. An empty page proves which of them hold a match below,
-        // in `disclose_unsearched`.
-        if first_disclosure {
-            let causes = self.skipped_causes();
-            if !self.empty && !causes.is_empty() {
-                add(
-                    "includeSkipped".into(),
-                    crate::tools::leads::skipped::lead(ToolId::LocalSearch, query, &causes),
-                );
-            }
-        }
+        // nothing lifts, among them). The search over the paths a flag lifts
+        // is offered only where it applies: an empty page that proves which
+        // of them hold a match, in `disclose_unsearched`. A page with hits
+        // already answers; its skipped paths stay counted, not re-offered.
         // Thousands of hits page for dozens of calls: one count call ranks
         // the files first, so the next read or narrowing is chosen, not paged.
         if self.first_page()
@@ -188,23 +183,23 @@ impl Found<'_> {
 }
 
 /// The same search one folder up from `root` (the searched file or
-/// directory), from page 1, when `root` lies inside the workspace below its
-/// root: the scope widens by one level, never to the whole workspace at once.
-/// `None` at the root itself or outside the workspace.
+/// directory), from page 1, when `root` lies below the top of its tree
+/// ([`PathPolicy::tree_root`]: the workspace, a clone's checkout): the scope
+/// widens by one level, never to the whole tree at once. `None` at the top
+/// itself or outside every tree.
 pub(super) fn parent_folder_lead(
     query: &LocalSearchQuery,
     paths: &PathPolicy,
     root: &std::path::Path,
 ) -> Result<Option<Value>, ToolError> {
-    match paths.workspace_relative(root) {
-        Some(relative) if relative != "." => {
-            let parent = relative
-                .rsplit_once('/')
-                .map_or(".", |(parent, _)| parent)
-                .to_owned();
-            restart_lead(query, json!({"path": parent})).map(Some)
-        }
-        _ => Ok(None),
+    let parent = root.parent().filter(|parent| {
+        paths
+            .tree_root(root)
+            .is_some_and(|top| top.as_path() != root && parent.starts_with(&top))
+    });
+    match parent {
+        Some(parent) => restart_lead(query, json!({"path": paths.shown(parent)})).map(Some),
+        None => Ok(None),
     }
 }
 

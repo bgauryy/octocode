@@ -1,6 +1,6 @@
 //! graphQuery `issues`: graph-algorithm detectors that rank *possible*
 //! problems. Every finding is a hypothesis carrying its evidence, the
-//! false-positive controls applied, and commands that verify it.
+//! false-positive controls applied.
 //!
 //! Two rules keep findings honest:
 //! - **Liveness is optimistic.** Any production edge (a low-confidence call, a
@@ -25,7 +25,6 @@ use super::format::{
     EdgeKind, FLAG_EXPORTED, FLAG_LOCAL_USE, FLAG_TEST, GraphTables, NONE, NodeKind,
 };
 use super::tables::{MODULE_DETAIL, REEXPORTED_NAME};
-use crate::id::ToolId;
 use crate::tools::ast_graph::algorithms::{CycleLoad, Cycles};
 use crate::tools::ast_graph::edges::{Load, RUST_MODULE, load};
 use crate::tools::ast_graph::graph::{OUTSIDE_ROOT, rust_module_child_dir};
@@ -97,12 +96,6 @@ fn exports_judged(file: &str, kind: &str) -> bool {
 
 const PACKAGE_SCOPED: &[&str] = &["go", "java", "scala", "csharp"];
 
-/// A step that checks a finding: one call of `tool` with `row`.
-#[derive(Clone, Debug)]
-pub(crate) struct VerifyStep {
-    pub tool: ToolId,
-    pub row: Value,
-}
 
 #[derive(Clone, Debug)]
 pub(crate) struct Finding {
@@ -117,7 +110,6 @@ pub(crate) struct Finding {
     pub score: f64,
     pub evidence: Value,
     pub controls: Vec<&'static str>,
-    pub verify: Vec<VerifyStep>,
     pub corroborated_by: Vec<&'static str>,
     /// vulture-style certainty: 100 nothing references it anywhere, 90 no
     /// graph or code reference (bare prose words go to
@@ -313,7 +305,7 @@ pub(crate) fn run(
         }
     }
     let health = health(&c.v);
-    // The finding count is the page's totalItems plus summary.hiddenBelowTier.
+    // The finding count is the page's pagination.total plus summary.hiddenBelowTier.
     let summary = json!({
         "byDetector": by_detector,
         "entrypoints": {"total": c.v.entries.len(), "byRule": entries},

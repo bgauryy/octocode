@@ -120,9 +120,8 @@ fn kept(net: &Net<'_>, id: &str, modified: Option<&str>) -> Option<Value> {
         return None;
     }
     let record = serde_json::from_slice::<Value>(saved.answer.body.as_bytes()).ok()?;
-    (record.get("id")?.as_str()? == id
-        && same_stamp(modified?, record.get("modified")?.as_str()?))
-    .then_some(record)
+    (record.get("id")?.as_str()? == id && same_stamp(modified?, record.get("modified")?.as_str()?))
+        .then_some(record)
 }
 
 /// Keeps a record that states its own id and stamp: under the stamp it was

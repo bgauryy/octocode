@@ -234,7 +234,7 @@ fn options(
         target: text(row, "target").or_else(|| text(row, "cycle")),
         targets: strings(row, "target"),
         reasons: strings(row, "reasons"),
-        name: text(row, "name"),
+        symbol_name: text(row, "symbolName"),
         to: text(row, "to"),
         edges: strings(row, "edges"),
         kind: text(row, "kind"),

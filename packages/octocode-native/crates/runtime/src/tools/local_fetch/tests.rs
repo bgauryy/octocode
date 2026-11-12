@@ -124,7 +124,12 @@ pub(super) fn walk_exactly_once(
         };
         let text = read.content.clone().expect("content");
         assert!(!text.is_empty(), "every page makes progress: {page:?}");
-        for (at, piece) in crate::tools::source_view::pagination::placed_pieces(at, &text) {
+        // A selection's byte page names source bytes (its offset and its gap
+        // markers alike): one line's shift from the view's.
+        let shift = page.placed.map_or(0, |(source, _)| source - page.offset);
+        for (at, piece) in crate::tools::source_view::pagination::placed_pieces(at + shift, &text)
+        {
+            let at = at - shift;
             assert_eq!(
                 view.get(at..at + piece.len()),
                 Some(piece),

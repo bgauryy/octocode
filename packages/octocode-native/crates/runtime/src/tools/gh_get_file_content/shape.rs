@@ -96,7 +96,7 @@ pub(super) fn shape(
             file_type: file_type(access::path(query)),
             match_not_found: match_not_found.then_some(true),
             calls: next,
-            last_modified: None,
+            modified_at: None,
             last_modified_by: None,
         },
     })

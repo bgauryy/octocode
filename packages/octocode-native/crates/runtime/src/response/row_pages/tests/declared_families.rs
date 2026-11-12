@@ -42,8 +42,8 @@ fn named(prefix: &str, value: &str) -> Vec<Value> {
 fn clone_symlinks_and_sparse_scope_each_page_once() {
     let symlinks = names("link");
     let requested = json!(["src/a", "src/b"]);
-    let data = json!({"bytes":123,"location":{"kind":"tree","localPath":"/workspace",
-        "commitSha":"fixed","resolvedRef":"main","requestedPaths":requested,"symlinks":symlinks}});
+    let data = json!({"bytes":123,"location":{"kind":"tree","path":"/workspace",
+        "commitSha":"fixed","ref":"main","requestedPaths":requested,"symlinks":symlinks}});
     let mut seen = Vec::new();
     let mut scopes = Vec::new();
     for row in pages(ToolId::GhCloneRepo, data) {

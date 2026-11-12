@@ -420,7 +420,8 @@ async fn a_resumed_advisory_walk_refused_at_its_first_page_keeps_its_cursor() {
 #[tokio::test]
 async fn a_repository_summary_counts_and_links_and_details_lists() {
     use crate::tools::security_check::github_double::recorded_advisories;
-    let github = || Double::repo(RepoRead::Found(named("o", "r"))).page(None, recorded_advisories(1), None);
+    let github =
+        || Double::repo(RepoRead::Found(named("o", "r"))).page(None, recorded_advisories(1), None);
     let query = |view: &str| json!({"operation": "repository", "repo": "o/r", "view": view});
     let summary = query_row(query("summary"), &github()).await;
     let details = query_row(query("details"), &github()).await;
@@ -465,5 +466,8 @@ async fn a_repository_summary_counts_and_links_and_details_lists() {
     assert_eq!(summary["isPartial"], true, "{summary}");
     assert_eq!(summary["sources"][0]["source"], "github", "{summary}");
     assert!(summary["sources"][0]["why"].is_string(), "{summary}");
-    assert!(summary.get("advisoryCount").is_none(), "not counted: {summary}");
+    assert!(
+        summary.get("advisoryCount").is_none(),
+        "not counted: {summary}"
+    );
 }

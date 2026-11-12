@@ -77,7 +77,7 @@ fn listed(row: &serde_json::Value, root: &std::path::Path) -> Vec<(String, serde
                 .expect("under root");
             (
                 relative.to_string_lossy().into_owned(),
-                file["lines"].clone(),
+                file["matchedLines"].clone(),
             )
         })
         .collect()
@@ -136,8 +136,8 @@ fn callers_test_code_scopes_by_the_calling_symbol() {
     let caller = |name: &str, line: u64| {
         serde_json::json!({
             "from": {"symbolName": "c", "kind": "function", "path": root.join(name).to_string_lossy(),
-                     "displayRange": {"startLine": line, "startCharacter": 1, "endLine": line}},
-            "fromRanges": [{"startLine": line, "startCharacter": 1, "endLine": line}],
+                     "line": line, "column": 1, "endLine": line},
+            "fromRanges": [{"line": line, "column": 1}],
             "level": 1
         })
     };
@@ -158,11 +158,7 @@ fn callers_test_code_scopes_by_the_calling_symbol() {
     let lines = |items: &[serde_json::Value]| {
         items
             .iter()
-            .map(|item| {
-                item["from"]["displayRange"]["startLine"]
-                    .as_u64()
-                    .unwrap_or(0)
-            })
+            .map(|item| item["from"]["line"].as_u64().unwrap_or(0))
             .collect::<Vec<_>>()
     };
     assert_eq!(kept, vec![all[0].clone(), all[2].clone()]);

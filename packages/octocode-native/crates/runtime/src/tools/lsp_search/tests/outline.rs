@@ -82,7 +82,7 @@ fn document_symbols_are_compact_outline_rows() {
                     .is_none_or(|members| members.iter().all(serde_json::Value::is_object))),
         "{envelope}"
     );
-    assert_eq!(envelope["pagination"]["totalItems"], 6, "{envelope}");
+    assert_eq!(envelope["pagination"]["total"], 6, "{envelope}");
     // CHAIN: an outline leads to localFetch: the first top-level
     // multi-line declaration, name line to last line.
     let read = envelope["related"]
@@ -172,8 +172,9 @@ fn locations_are_compact_camel_case_and_one_based() {
     let public = public_location(location);
     assert!(public.get("range").is_none(), "one coordinate form only");
     assert_eq!(
-        public["displayRange"],
-        serde_json::json!({"startLine": 6, "startCharacter": 4})
+        (&public["line"], &public["column"], public.get("endLine")),
+        (&serde_json::json!(6), &serde_json::json!(4), None),
+        "{public}"
     );
     assert!(public.get("contentStartLine").is_none());
     assert_eq!(public["content"], "6\tpub fn greet() {}", "{public}");
@@ -190,7 +191,7 @@ fn widened_content_reports_its_first_line_and_single_file_pages_hoist_the_path()
         "content": "a\nb\nc\n",
         "displayRange": {"startLine": 5, "endLine": 7}
     }));
-    assert_eq!(widened["displayRange"]["startLine"], 6);
+    assert_eq!(widened["line"], 6);
     // The gutter states where widened content begins.
     assert_eq!(widened["content"], "5\ta\n6\tb\n7\tc", "{widened}");
     assert!(widened.get("contentStartLine").is_none(), "{widened}");
@@ -278,8 +279,12 @@ fn hover_range_is_published_as_a_one_based_display_range() {
     }));
     assert!(hover.get("range").is_none(), "{hover}");
     assert_eq!(
-        hover["displayRange"],
-        serde_json::json!({"startLine": 4, "startCharacter": 9, "endLine": 5}),
+        (&hover["line"], &hover["column"], &hover["endLine"]),
+        (
+            &serde_json::json!(4),
+            &serde_json::json!(9),
+            &serde_json::json!(5)
+        ),
         "{hover}"
     );
     assert_eq!(hover["contents"]["kind"], "markdown", "{hover}");

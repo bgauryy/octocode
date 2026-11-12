@@ -193,18 +193,18 @@ const REASONS = [
     script: base => ({ answers: [{ method: 'textDocument/references', result: [loc(`${base}/a.ts`, 0, 16, 6)] }, { method: 'textDocument/definition', result: [] }] }),
   }),
   scene('workspaceSymbolCoverageUnknown', {
-    command: 'tsgo', files: { ...TS_PROJECT, 'a.ts': 'export const Cap256 = 1;\n' }, query: { path: '$DIR/a.ts', symbolQuery: 'Cap256', operation: 'workspaceSymbol' }, reasons: ['workspaceSymbolCoverageUnknown'],
+    command: 'tsgo', files: { ...TS_PROJECT, 'a.ts': 'export const Cap256 = 1;\n' }, query: { path: '$DIR/a.ts', symbolFuzzy: 'Cap256', operation: 'workspaceSymbol' }, reasons: ['workspaceSymbolCoverageUnknown'],
     script: base => ({ answers: [{ method: 'workspace/symbol', result: Array.from({ length: 256 }, (_, index) => ({ name: `Cap256${index}`, kind: 13, location: loc(`${base}/a.ts`, 0, 13, 6) })) }] }),
   }),
 ];
 
 const CODES = [
-  scene('anchorUnresolved', { files: { ...TS_PROJECT, 'a.ts': 'const a = 1;\n' }, query: { path: '$DIR/a.ts', symbolName: 'nope', line: 1, operation: 'definition' }, codes: ['anchorUnresolved'], script: () => ({}) }),
+  scene('notFound.anchor', { files: { ...TS_PROJECT, 'a.ts': 'const a = 1;\n' }, query: { path: '$DIR/a.ts', symbolName: 'nope', line: 1, operation: 'definition' }, codes: ['notFound'], script: () => ({}) }),
   scene('capabilityUnavailable', { files: { ...TS_PROJECT, 'a.ts': 'function f() {}\n' }, query: { path: '$DIR/a.ts', symbolName: 'f', line: 1, operation: 'hover' }, codes: ['capabilityUnavailable'], script: () => ({ capabilities: { hoverProvider: false } }) }),
   scene('requestFailed', { files: { ...TS_PROJECT, 'a.ts': 'function f() {}\n' }, query: { path: '$DIR/a.ts', symbolName: 'f', line: 1, operation: 'hover' }, codes: ['requestFailed'], script: () => ({ answers: [{ method: 'textDocument/hover', error: { code: -32002, message: 'scripted' } }] }) }),
   scene('serverCrashed', { files: { ...TS_PROJECT, 'a.ts': 'function f() {}\n' }, query: { path: '$DIR/a.ts', symbolName: 'f', line: 1, operation: 'hover' }, codes: ['serverCrashed'], script: () => ({ answers: [{ method: 'textDocument/hover', exit: true }] }) }),
   scene('serverUnavailable', { files: { 'a.xyz': 'f\n' }, query: { path: '$DIR/a.xyz', symbolName: 'f', line: 1, operation: 'definition' }, codes: ['serverUnavailable'], script: () => ({}) }),
-  scene('workspaceRootInvalid', { files: { 'a.ts': 'export const f = 1;\n' }, query: { workspaceRoot: '$DIR/a.ts', operation: 'workspaceSymbol', symbolQuery: 'f' }, codes: ['workspaceRootInvalid'], script: () => ({}) }),
+  scene('workspaceRootInvalid', { files: { 'a.ts': 'export const f = 1;\n' }, query: { workspaceRoot: '$DIR/a.ts', operation: 'workspaceSymbol', symbolFuzzy: 'f' }, codes: ['workspaceRootInvalid'], script: () => ({}) }),
   scene('fileTooLarge', { files: { ...TS_PROJECT, 'big.ts': { sparse: 8 * 1024 * 1024 + 1, head: 'function f() {}\n' } }, query: { path: '$DIR/big.ts', symbolName: 'f', line: 1, operation: 'definition' }, codes: ['fileTooLarge'], script: () => ({}) }),
   scene('documentSyncFailed', { files: { ...TS_PROJECT, 'big.ts': `export const a = 1;\n${'// filler line for a large didOpen\n'.repeat(60_000)}` }, query: { path: '$DIR/big.ts', operation: 'documentSymbols' }, codes: ['documentSyncFailed'], script: () => ({ pauseAfterInitialized: true }) }),
 ];

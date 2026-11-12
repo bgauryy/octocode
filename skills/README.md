@@ -17,7 +17,7 @@ Saved skill output lives under the project's `.octocode/` folder: reports and au
 |---|---|
 | [Get started](octocode-get-started/) | Understand Octocode, install CLI/MCP and skills, configure scope and credentials, and verify a first task. |
 | [Research](octocode-research/SKILL.md) | A factual code, repository, dependency or change-impact question needs source evidence. |
-| [Debugging](octocode-debugging/SKILL.md) | Reproduce and fix an observed failure, hang, slow workload or memory problem with runtime evidence. |
+| [Debugging](octocode-debugging/SKILL.md) | Investigate runtime behavior or interpret an existing profile, trace or failure. |
 | [PR Review](octocode-pr-review/SKILL.md) | A pull request, branch, or local diff needs a merge verdict with proven findings. |
 | [Messages proxy](octocode-messages-proxy/SKILL.md) | Use Claude and Codex native messaging, coordinate mixed-vendor peers through Octocode, or relay to A2A agents with a small model. |
 | [Workflows](octocode-workflows/) | Select, design or resume an explicit workflow across agents, tools, services or artifacts; define handoffs and acceptance. |

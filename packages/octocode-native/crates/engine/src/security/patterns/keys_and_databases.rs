@@ -42,7 +42,9 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     },
     SecretPattern {
         name: "kubernetesSecrets",
-        file_context: Some("\\.ya?ml$"),
+        // The manifest says what it is, in a `.yaml` file or any other text
+        // (a `.txt` copy, a pathless leaf, a fenced block): no path has to.
+        file_context: None,
         // A text naming the kind. `detector::document` hides the `data` and
         // `stringData` blocks of the mapping that says so.
         regex: r###"(?im)\bkind:[ \t]*["']?Secret\b"###,
@@ -166,7 +168,15 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "rsaPrivateKey",
         file_context: None,
-        regex: r###"-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----[\s\S]*?-----END\s+(?:RSA\s+)?PRIVATE\s+KEY-----"###,
+        // The armor names the block and holds none of it: only the body
+        // (`secret`, without the line breaks that end the armor lines) is
+        // hidden. The body holds no run of the armor's dashes, so a match
+        // never runs from one armor across another (a quoted BEGIN above).
+        regex: concat!(
+            r###"-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----[ \t]*(?:\r?\n)?"###,
+            armor_headers!(),
+            r###"(?P<secret>(?:-{0,4}[^-])*?)(?:\r?\n)?[ \t]*-----END\s+(?:RSA\s+)?PRIVATE\s+KEY-----"###,
+        ),
     },
     SecretPattern {
         name: "opensshPrivateKey",
@@ -176,7 +186,11 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         // of the format's own header, `openssh-key-v1` and its NUL, which no
         // public key or certificate holds, and each next line that is base64
         // alone continues the match.
-        regex: r###"-----BEGIN\s+OPENSSH\s+PRIVATE\s+KEY-----[\s\S]*?-----END\s+OPENSSH\s+PRIVATE\s+KEY-----|b3BlbnNzaC1rZXktdjEA[A-Za-z0-9+/]{40,}={0,2}(?:\r?\n[ \t]*[A-Za-z0-9+/]{16,}={0,2}[ \t]*(?m:$))*"###,
+        regex: concat!(
+            r###"-----BEGIN\s+OPENSSH\s+PRIVATE\s+KEY-----[ \t]*(?:\r?\n)?"###,
+            armor_headers!(),
+            r###"(?P<secret>(?:-{0,4}[^-])*?)(?:\r?\n)?[ \t]*-----END\s+OPENSSH\s+PRIVATE\s+KEY-----|b3BlbnNzaC1rZXktdjEA[A-Za-z0-9+/]{40,}={0,2}(?:\r?\n[ \t]*[A-Za-z0-9+/]{16,}={0,2}[ \t]*(?m:$))*"###,
+        ),
     },
     SecretPattern {
         name: "ssh2PrivateKey",
@@ -184,29 +198,49 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         // RFC 4716 armor: four dashes and a space, where PEM has five. A run
         // of more dashes still ends in one of these prefixes, which gate the
         // pattern: `-{4,}` alone would make every Markdown rule a candidate.
-        regex: r###"-----?[ \t]?BEGIN[ \t]+SSH2(?:[ \t]+ENCRYPTED)?[ \t]+PRIVATE[ \t]+KEY[ \t]*-----?[\s\S]*?-----?[ \t]?END[ \t]+SSH2(?:[ \t]+ENCRYPTED)?[ \t]+PRIVATE[ \t]+KEY[ \t]*-----?"###,
+        regex: concat!(
+            r###"-----?[ \t]?BEGIN[ \t]+SSH2(?:[ \t]+ENCRYPTED)?[ \t]+PRIVATE[ \t]+KEY[ \t]*-----?[ \t]*(?:\r?\n)?"###,
+            armor_headers!(),
+            r###"(?P<secret>(?:-{0,3}[^-])*?)(?:\r?\n)?[ \t]*-----?[ \t]?END[ \t]+SSH2(?:[ \t]+ENCRYPTED)?[ \t]+PRIVATE[ \t]+KEY[ \t]*-----?"###,
+        ),
     },
     SecretPattern {
         name: "puttyPrivateKey",
         file_context: None,
-        regex: r###"\bPuTTY-User-Key-File-[23]:[\s\S]*?Private-MAC:[ \t]*[0-9A-Fa-f]*"###,
+        // A PuTTY key file's private half: the lines after `Private-Lines:`,
+        // each base64 alone, and the value of `Private-MAC:`. Its header lines
+        // (`Encryption:`, `Comment:`, `Public-Lines:`, a v3 file's key
+        // derivation) and its public lines hold no private key and read as
+        // written.
+        regex: r###"\bPrivate-Lines:[ \t]*[0-9]+[ \t]*\r?\n(?P<secret>(?:[A-Za-z0-9+/=]+\r?\n)*[A-Za-z0-9+/=]+)[ \t]*\r?(?m:$)|\bPrivate-MAC:[ \t]*(?P<secret_mac>[0-9A-Fa-f]+)"###,
     },
     SecretPattern {
         name: "firebaseServiceAccountPrivateKey",
         file_context: None,
-        regex: r###""private_key":\s*"(?P<secret>-----BEGIN PRIVATE KEY-----\\n[a-zA-Z0-9+/=\\n]+\\n-----END PRIVATE KEY-----)""###,
+        regex: r###""private_key":\s*"-----BEGIN PRIVATE KEY-----\\n(?P<secret>[a-zA-Z0-9+/=\\n]+?)\\n-----END PRIVATE KEY-----""###,
     },
     SecretPattern {
         name: "openvpnClientPrivateKey",
         file_context: None,
-        regex: r###"<key>\s*-----BEGIN[^<]*-----END[^<]*<\/key>"###,
+        regex: concat!(
+            r###"<key>\s*-----BEGIN[^<\r\n]*?-----[ \t]*(?:\r?\n)?"###,
+            armor_headers!(),
+            r###"(?P<secret>[^<]*?)(?:\r?\n)?[ \t]*-----END[^<]*<\/key>"###,
+        ),
     },
     SecretPattern {
         name: "secretKeyArmor",
         file_context: None,
+        // Only the body is hidden, as for `rsaPrivateKey`.
         // Armors that say `SECRET KEY`, as older PGP tools do, or OpenVPN's
         // shared key. PGP's `PUBLIC KEY BLOCK` and `AGE ENCRYPTED FILE` are not.
-        regex: r###"-----BEGIN\s+(?:PGP\s+)?SECRET\s+KEY(?:\s+BLOCK)?-----[\s\S]*?-----END\s+(?:PGP\s+)?SECRET\s+KEY(?:\s+BLOCK)?-----|-----BEGIN\s+OpenVPN\s+Static\s+key\s+V\d+-----[\s\S]*?-----END\s+OpenVPN\s+Static\s+key\s+V\d+-----"###,
+        regex: concat!(
+            r###"-----BEGIN\s+(?:PGP\s+)?SECRET\s+KEY(?:\s+BLOCK)?-----[ \t]*(?:\r?\n)?"###,
+            armor_headers!(),
+            r###"(?P<secret>(?:-{0,4}[^-])*?)(?:\r?\n)?[ \t]*-----END\s+(?:PGP\s+)?SECRET\s+KEY(?:\s+BLOCK)?-----|-----BEGIN\s+OpenVPN\s+Static\s+key\s+V\d+-----[ \t]*(?:\r?\n)?"###,
+            armor_headers!(),
+            r###"(?P<secret_vpn>(?:-{0,4}[^-])*?)(?:\r?\n)?[ \t]*-----END\s+OpenVPN\s+Static\s+key\s+V\d+-----"###,
+        ),
     },
     SecretPattern {
         name: "urlEncodedPrivateKey",

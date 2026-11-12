@@ -142,7 +142,7 @@ pub fn execute_ast(
         })
 }
 
-/// A `pathNotFound` for the query's path leads to the tree of its nearest
+/// A `notFound` for the query's path leads to the tree of its nearest
 /// existing parent ([`missing_path_lead`]), the recovery every local tool
 /// gives a missing path; its message names no absolute filesystem path.
 ///
@@ -152,7 +152,7 @@ fn missing_path_recovery(
     requested: &str,
     paths: &crate::policy::path::PathPolicy,
 ) -> ToolError {
-    if error.code != ErrorCode::PathNotFound || error.calls.is_some() {
+    if error.code != ErrorCode::NotFound || error.calls.is_some() {
         return error;
     }
     error.calls = crate::response::result::missing_path_lead(paths, requested).map(Box::new);

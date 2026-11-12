@@ -16,6 +16,7 @@ mod requests;
 use requests::exchange_reply;
 mod server_lifecycle;
 mod sockets;
+mod stalls;
 
 static NO_ENV: BTreeMap<String, String> = BTreeMap::new();
 

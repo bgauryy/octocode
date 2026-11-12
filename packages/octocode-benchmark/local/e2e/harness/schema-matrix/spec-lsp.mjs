@@ -26,7 +26,7 @@ const ANCHORS = {
   hover: { path: MODEL, line: 14, symbolName: 'add' },
   documentSymbols: { path: MODEL },
   diagnostic: { path: `${CODE}/broken.ts` },
-  workspaceSymbol: { symbolQuery: 'calculate' },
+  workspaceSymbol: { symbolFuzzy: 'calculate' },
 };
 const OPERATIONS_WITH_WORKSPACE = new Set(['workspaceSymbol']);
 
@@ -92,8 +92,9 @@ const VIEWS = {
   subtypes: data => data.flatMap(row => row.matches ?? []).map(match => [match.symbolName, match.level ?? 1]),
   hover: data => [['signature', data.some(row => row.hover?.contents?.value?.includes('add(a: number, b: number): number'))]],
   documentSymbols: data => data.flatMap(row => declarations({ sc: { results: [{ data: row }] } })).filter(item => item.kind === 'function').map(item => [item.name, item.line]),
-  diagnostic: data => data.flatMap(row => row.matches ?? []).map(item => [item.code, item.displayRange.startLine]),
-  workspaceSymbol: data => data.flatMap(row => row.matches ?? []).map(match => [match.symbolName, match.displayRange.startLine]),
+  // A diagnostic reported at several places lists them in `sites`.
+  diagnostic: data => data.flatMap(row => row.matches ?? []).flatMap(item => (item.sites ?? [item]).map(site => [item.code, site.line])),
+  workspaceSymbol: data => data.flatMap(row => row.matches ?? []).map(match => [match.symbolName, match.line]),
 };
 
 function observed(ctx, testCase, pages) {
@@ -101,8 +102,8 @@ function observed(ctx, testCase, pages) {
   const operation = query.operation ?? 'definition';
   const data = dataOf(pages);
   if (VIEWS[operation]) return VIEWS[operation](data);
-  if (query.view === 'files') return fileRows(data).flatMap(file => file.lines.map(line => [rel(ctx, file.path), line]));
-  return data.flatMap(row => lspLocations({ sc: { results: [{ data: row }] } })).map(item => [rel(ctx, item.path), item.displayRange.startLine]);
+  if (query.view === 'files') return fileRows(data).flatMap(file => file.matchedLines.map(line => [rel(ctx, file.path), line]));
+  return data.flatMap(row => lspLocations({ sc: { results: [{ data: row }] } })).map(item => [rel(ctx, item.path), item.line]);
 }
 
 /** The fields the server is started with, read back from its own protocol trace. */

@@ -131,7 +131,7 @@ async fn packagist_resolves_an_exact_version() {
         assert_eq!(item.description.as_deref(), Some("kept"), "inherited");
     }
     let error = packagist_at(&http, "9.9.9").await.expect_err("absent");
-    assert_eq!(error.code, ErrorCode::VersionNotFound);
+    assert_eq!(error.code, ErrorCode::NotFound);
     assert!(!error.nearest.is_empty(), "{error:?}");
     // A dev version lives in the `~dev` document.
     let http = RouteHttp::new().json(p2, minified_p2()).json(
@@ -183,7 +183,7 @@ async fn rubygems_resolves_an_exact_version() {
         json!([{"number": "3.2.8"}, {"number": "2.2.3"}]),
     );
     let error = rubygems_at(&listed, "2.2.4").await.expect_err("absent");
-    assert_eq!(error.code, ErrorCode::VersionNotFound);
+    assert_eq!(error.code, ErrorCode::NotFound);
     assert!(
         error.nearest.iter().any(|near| near == "2.2.3"),
         "{error:?}"

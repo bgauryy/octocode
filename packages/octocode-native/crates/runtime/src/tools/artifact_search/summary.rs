@@ -10,7 +10,10 @@ use octocode_contract_types::{ArtifactSearchQuery, ArtifactSearchView};
 use serde_json::{Value, json};
 
 /// Row fields only `details` states, on a resolve and a search row alike.
-pub(super) const DETAIL_FIELDS: [&str; 9] = [
+/// The advisories a registry lists (PyPI, NuGet) are `securityCheck`'s
+/// question: the summary leads there, and `details` lists them.
+pub(super) const DETAIL_FIELDS: [&str; 10] = [
+    "advisories",
     "license",
     "homepage",
     "dependencies",

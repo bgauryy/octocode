@@ -109,7 +109,12 @@ fn a_row_of_a_kubernetes_secret_is_judged_with_the_whole_file() {
                 !found.to_string().contains(&VALUE[..12]),
                 "{fields}: {found}"
             );
-            assert!(found["files"][0]["matches"].is_array(), "{found}");
+            // A key's name is a hit; the value a read hides is none.
+            assert_eq!(
+                found["files"][0]["matches"].is_array(),
+                fields["matchString"][0] != "QUJDREVGR0hJ",
+                "{fields}: {found}"
+            );
         }
         // The file's other lines stay as they are.
         let found = search_bytes(
@@ -121,13 +126,14 @@ fn a_row_of_a_kubernetes_secret_is_judged_with_the_whole_file() {
             found["files"][0]["matches"][0]["value"], "    l7: v7",
             "{found}"
         );
-        // The pattern is the path's: the same text elsewhere is plain text.
+        // The manifest names itself in any file of text (D2, round 13): a
+        // `.txt` copy is judged with its whole file too.
         let found = search_bytes(
             "secret.txt",
             manifest.as_bytes(),
             serde_json::json!({"matchString":["tls.crt"],"view":"content"}),
         );
-        assert!(found.to_string().contains(VALUE), "{found}");
+        assert!(!found.to_string().contains(&VALUE[..12]), "{found}");
     }
 }
 

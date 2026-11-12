@@ -28,7 +28,7 @@ fn a_file_named_by_a_quoted_string_is_mentioned_not_an_orphan() {
             .as_array()
             .into_iter()
             .flatten()
-            .find(|row| row["subject"] == subject)
+            .find(|row| row["subject"] == format!("app/{subject}"))
             .cloned()
             .unwrap_or_else(|| panic!("{subject}: {}", issues.value))
     };
@@ -36,7 +36,7 @@ fn a_file_named_by_a_quoted_string_is_mentioned_not_an_orphan() {
     assert_eq!(named["tier"], 60, "{named}");
     assert_eq!(
         named["evidence"]["mentionedIn"],
-        json!(["src/catalog.ts:1"]),
+        json!(["app/src/catalog.ts:1"]),
         "{named}"
     );
     assert_eq!(row("src/lonely.ts")["tier"], 100, "{}", issues.value);

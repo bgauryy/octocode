@@ -193,15 +193,15 @@ async fn a_workspace_root_in_a_clone_starts_no_server() {
     let world = World::new();
     let clone = world.clone_dir();
     let runtime = world.runtime(&[], &json!({}), None);
-    let root = json!({"workspaceRoot":clone,"operation":"workspaceSymbol","symbolQuery":"target"});
+    let root = json!({"workspaceRoot":clone,"operation":"workspaceSymbol","symbolFuzzy":"target"});
     assert_refused(&call(&runtime, root).await, &world);
     // The clones directory itself holds every clone.
-    let all = json!({"workspaceRoot":clones_root(&world.home),"operation":"workspaceSymbol","symbolQuery":"target"});
+    let all = json!({"workspaceRoot":clones_root(&world.home),"operation":"workspaceSymbol","symbolFuzzy":"target"});
     assert_refused(&call(&runtime, all).await, &world);
     // A directory path in the checkout does not launder a root in the clone.
     let mixed = json!({
         "path":world.cwd.join("checkout/src"),"workspaceRoot":clone,
-        "operation":"workspaceSymbol","symbolQuery":"target"
+        "operation":"workspaceSymbol","symbolFuzzy":"target"
     });
     assert_refused(&call(&runtime, mixed).await, &world);
 }
@@ -226,7 +226,7 @@ async fn a_worktree_clone_starts_no_server() {
     let runtime = world.runtime(&[], &json!({}), None);
     let file = call(&runtime, symbols(&clone.join("src/lib.rs"))).await;
     assert_refused(&file, &world);
-    let root = json!({"workspaceRoot":clone,"operation":"workspaceSymbol","symbolQuery":"target"});
+    let root = json!({"workspaceRoot":clone,"operation":"workspaceSymbol","symbolFuzzy":"target"});
     assert_refused(&call(&runtime, root).await, &world);
 }
 
@@ -264,7 +264,7 @@ async fn a_symlink_into_a_clone_starts_no_server() {
         &call(&runtime, symbols(&dir.join("src/lib.rs"))).await,
         &world,
     );
-    let root = json!({"workspaceRoot":dir,"operation":"workspaceSymbol","symbolQuery":"target"});
+    let root = json!({"workspaceRoot":dir,"operation":"workspaceSymbol","symbolFuzzy":"target"});
     assert_refused(&call(&runtime, root).await, &world);
 }
 
@@ -334,7 +334,7 @@ async fn a_root_holding_fetched_code_starts_no_server() {
     let runtime = world.runtime(&[], &json!({}), None);
     assert_refused(&call(&runtime, symbols_at(&file, &world.cwd)).await, &world);
     let root_only =
-        json!({"workspaceRoot":world.cwd,"operation":"workspaceSymbol","symbolQuery":"target"});
+        json!({"workspaceRoot":world.cwd,"operation":"workspaceSymbol","symbolFuzzy":"target"});
     assert_refused(&call(&runtime, root_only).await, &world);
     std::fs::write(world.cwd.join("Cargo.toml"), "[workspace]\n").expect("stray manifest");
     std::fs::create_dir(world.cwd.join("scratch")).expect("scratch");

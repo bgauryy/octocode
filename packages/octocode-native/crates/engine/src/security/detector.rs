@@ -14,6 +14,7 @@ use credential_values::{
 };
 use key_facts::SpanKeys;
 
+mod diff_view;
 mod document;
 mod every_value;
 mod jwk;
@@ -59,9 +60,7 @@ pub use gates::LONGEST_BOUNDED_MATCH;
 use regex_forms::{anchored_pattern_regex, pattern_regex_for};
 #[cfg(test)]
 use regex_forms::{ascii_word_boundaries, pattern_regex};
-pub(crate) use request::{
-    cleared_values, hide_named_values, holds_credential_as_request, literal_form,
-};
+pub(crate) use request::{holds_credential_as_request, literal_form};
 
 /// The largest source a read holds whole, and the text this pass judges pattern by
 /// pattern. A longer one is judged in one pass over its spans ([`long_text`]).
@@ -399,6 +398,7 @@ impl<'a> Judge<'a> {
         let end = self
             .opaque_word_end(text, secret.start, end, &credential)
             .unwrap_or(end);
+        let end = self.before_member_end(text, secret.start, end);
         self.before_inner_escape(text, base, secret.start, end)
             .filter(|&at| credential(&(secret.start..at)))
             .unwrap_or_else(|| self.before_escaped_line_end(text, base, secret.start, end))
@@ -407,9 +407,10 @@ impl<'a> Judge<'a> {
     /// Where a plain scalar ([`ValueTest::Scalar`], no quote opening it)
     /// read from `start` to `end` ends when its first word, up to a blank or
     /// a `;`, is one opaque word ([`named_values::is_opaque_word`]) and a
-    /// credential alone (`credential`): the value is that token, and what
-    /// follows it (`<token>  note`, `<token>; more`) is the line's own text.
-    /// A scalar of words (`correct horse 9`) is one value.
+    /// credential alone (`credential`): the value is that token and the words
+    /// that continue it ([`named_values::value_words_end`]), and what follows
+    /// (`<token>  note`, `<token>; more`) is the line's own text. A scalar of
+    /// words (`correct horse 9`) is one value.
     fn opaque_word_end(
         &self,
         text: &str,
@@ -430,7 +431,26 @@ impl<'a> Judge<'a> {
         (cut > 0
             && value.get(..cut).is_some_and(named_values::is_opaque_word)
             && credential(&token))
-        .then_some(token.end)
+        .then(|| named_values::value_words_end(text, token.end))
+    }
+
+    /// Where a plain scalar ([`ValueTest::Scalar`], no quote opening it) read
+    /// from `start` to `end` ends without the `,` it ends with: the `,` that
+    /// ends an object's member (`password: <value>,`) is the member's, no
+    /// part of its value.
+    fn before_member_end(&self, text: &str, start: usize, end: usize) -> usize {
+        let quoted = start
+            .checked_sub(1)
+            .and_then(|before| text.as_bytes().get(before))
+            .is_some_and(|byte| matches!(byte, b'"' | b'\''));
+        let trimmed = text
+            .get(start..end)
+            .map_or(0, |value| value.len() - value.trim_end().len());
+        let member = self.value_test == ValueTest::Scalar
+            && !quoted
+            && end - trimmed > start + 1
+            && text.as_bytes().get(end - trimmed - 1) == Some(&b',');
+        if member { end - trimmed - 1 } else { end }
     }
 
     /// Where the value read from `start` to `end` ends at a control-character
@@ -545,15 +565,27 @@ impl<'a> Judge<'a> {
         text: &str,
         mut found: impl FnMut(std::ops::Range<usize>, std::ops::Range<usize>),
     ) {
-        let found = |whole: std::ops::Range<usize>, secret: std::ops::Range<usize>| match self
-            .own_parts(text, &secret)
-        {
-            Some(parts) => {
-                for part in parts {
-                    found(whole.clone(), part);
+        let found = |whole: std::ops::Range<usize>, secret: std::ops::Range<usize>| {
+            // A shell parameter expansion keeps its syntax: its default is
+            // the value, and one a pass already replaced is judged.
+            let secret = match expansion_default(text, &secret) {
+                Some(word)
+                    if word.is_empty()
+                        || text.get(word.clone()).is_some_and(is_redaction_marker) =>
+                {
+                    return;
                 }
+                Some(word) => word,
+                None => secret,
+            };
+            match self.own_parts(text, &secret) {
+                Some(parts) => {
+                    for part in parts {
+                        found(whole.clone(), part);
+                    }
+                }
+                None => found(whole, secret),
             }
-            None => found(whole, secret),
         };
         self.judged_secrets(regex, text, found);
     }
@@ -692,6 +724,34 @@ impl<'a> Judge<'a> {
     }
 }
 
+/// The default of the shell parameter expansion the value at `secret` in
+/// `text` is, its quotes aside (`"${API_KEY:-<default>}"`, `${KEY=…}`), by
+/// byte position: the name it expands is a reference, the operator syntax,
+/// and only the default a value. `None` for a value that is no such
+/// expansion.
+fn expansion_default(
+    text: &str,
+    secret: &std::ops::Range<usize>,
+) -> Option<std::ops::Range<usize>> {
+    let value = text.get(secret.clone())?;
+    let inner = credential_values::QUOTES
+        .into_iter()
+        .find_map(|quote| value.strip_prefix(quote)?.strip_suffix(quote))
+        .unwrap_or(value);
+    let body = inner.strip_prefix("${")?.strip_suffix('}')?;
+    let name = body
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .filter(|&end| end > 0)?;
+    let rest = body.get(name..)?;
+    let operator = rest.strip_prefix(':').unwrap_or(rest);
+    let word = operator.strip_prefix(['-', '=', '?', '+'])?;
+    if word.contains(['{', '}']) {
+        return None;
+    }
+    let start = secret.start + (value.len() - inner.len()) / 2 + 2 + (body.len() - word.len());
+    Some(start..start + word.len())
+}
+
 /// Where a value that starts at `start` and was read to `end` ends when
 /// prose quotes it as code: a backtick that opens a span before it on its
 /// line (`` the string (`Server=db;Password=x`) sits under … ``) closes at
@@ -809,6 +869,7 @@ fn applicable_patterns(content: &str, scope: Scope<'_>) -> PatternSet {
 /// candidate there whatever the regex says of the whole text: its line
 /// anchors do not reach a comment after code, or a config line a literal
 /// opens mid-line ([`Judge::secrets`]).
+#[cfg(test)]
 fn matching_patterns(content: &str, scope: Scope<'_>) -> PatternSet {
     matching_patterns_gated(content, scope).0
 }
@@ -1146,8 +1207,17 @@ impl RawMatch {
         text: &str,
         line_start: usize,
     ) -> bool {
-        !is_redaction_marker(&text[self.secret.clone()])
-            && !diff_lines.outside_hunk(prefixed, line_start)
+        // A secret of several lines (a key block's body) is hidden already
+        // when each of its lines that holds text is a placeholder; an empty
+        // one (a block with no body) hides nothing.
+        let secret = &text[self.secret.clone()];
+        let hidden = if secret.contains(['\n', '\r']) {
+            let mut lines = secret.lines().map(str::trim).filter(|line| !line.is_empty());
+            lines.clone().next().is_some() && lines.all(is_redaction_marker)
+        } else {
+            is_redaction_marker(secret)
+        };
+        !secret.is_empty() && !hidden && !diff_lines.outside_hunk(prefixed, line_start)
     }
 }
 
@@ -1334,7 +1404,21 @@ pub(crate) fn redact(content: &str, scope: Scope<'_>) -> Option<DetectResult> {
 /// fine-grained GitHub tokens) so they fire only where they apply. A last
 /// pass reads the literals written in pieces ([`split_literals`]).
 /// A text past `limit` is judged in one pass over its spans.
+///
+/// A unified diff's hunks are judged as the two texts they change, old and
+/// new, their marker column aside ([`diff_view`]), and each value is replaced
+/// in its own line.
 pub(crate) fn redact_within(content: &str, scope: Scope<'_>, limit: usize) -> Option<DetectResult> {
+    match diff_view::DiffView::of(content, diff_view::Side::New) {
+        Some(view) => {
+            diff_view::redact_sides(content, &view, |text| redact_text(text, scope, limit))
+        }
+        None => redact_text(content, scope, limit),
+    }
+}
+
+/// [`redact_within`] of a text that is no diff, or a diff's view.
+fn redact_text(content: &str, scope: Scope<'_>, limit: usize) -> Option<DetectResult> {
     if content.len() > limit {
         return long_text::redact_long(content, scope);
     }

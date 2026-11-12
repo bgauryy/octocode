@@ -154,7 +154,7 @@ fn select(mut structured: Value, query: &Value, runtime: &Runtime) -> (Value, Va
 #[tokio::test]
 async fn a_withheld_candidate_reaches_no_judge_even_with_lines() {
     let (runtime, recorded) = runtime();
-    let file = |path: &str| json!({"owner":"a","repo":"b","path":path,"lines":["1:text"]});
+    let file = |path: &str| json!({"owner":"a","repo":"b","path":path,"matches":[{"line":1,"value":"text"}]});
     let hidden_read = json!({"kind":"continue","tool":"ghGetFileContent","input":{"queries":[
         {"owner":"a","repo":"b","path":".Env.Prod","matchString":["text"]}]}});
     let page = json!({"results":[{"index":0,"status":"success","data":{
@@ -188,8 +188,8 @@ async fn classification_reads_sanitized_evidence_and_replay_preserves_it() {
     assert_eq!(data["selection"]["unknownItems"], 0);
     assert_eq!(data["files"].as_array().map(Vec::len), Some(1));
     assert_eq!(data["files"][0]["path"], "src/selected.rs");
-    assert!(data["files"][0]["lines"].is_array());
-    assert!(data["files"][0].get("matches").is_none());
+    assert!(data["files"][0]["matches"].is_array());
+    assert!(data["files"][0].get("fragments").is_none());
 
     let broad = query();
     let (unprojected, _) = select(capture(&server, &broad, &runtime).await, &broad, &runtime);
@@ -242,7 +242,7 @@ async fn classification_reads_sanitized_evidence_and_replay_preserves_it() {
     assert!(
         files
             .iter()
-            .all(|file| file["lines"].is_array() && file.get("matches").is_none())
+            .all(|file| file["matches"].is_array() && file.get("fragments").is_none())
     );
     assert_eq!(recorded.lock().expect("recorded states").len(), 1);
 }
@@ -283,7 +283,7 @@ async fn complete_hit_rows_and_optional_reads_do_not_bypass_selection() {
     assert_eq!(data["files"].as_array().expect("selected files").len(), 1);
     assert_eq!(data["files"][0]["path"], "src/selected.rs");
     assert_eq!(
-        data["files"][0]["lines"]
+        data["files"][0]["matches"]
             .as_array()
             .expect("complete hit lines")
             .len(),
@@ -317,7 +317,7 @@ async fn complete_hit_rows_and_optional_reads_do_not_bypass_selection() {
     );
     let recovered = &recovered["results"][0]["data"];
     assert_eq!(recovered["files"].as_array().map(Vec::len), Some(2));
-    assert!(recovered["files"][0]["lines"].as_array().is_some());
+    assert!(recovered["files"][0]["matches"].as_array().is_some());
     assert!(recovered["next"].get("readHits").is_none());
     assert!(recovered["next"].get("readHits2").is_none());
     assert!(
@@ -325,7 +325,7 @@ async fn complete_hit_rows_and_optional_reads_do_not_bypass_selection() {
             .as_array()
             .expect("files")
             .iter()
-            .all(|file| file["lines"].as_array().expect("complete lines").len() == 8)
+            .all(|file| file["matches"].as_array().expect("complete lines").len() == 8)
     );
     assert_eq!(recorded.lock().expect("recorded states").len(), 1);
 }
@@ -340,7 +340,7 @@ fn selected_equivalent_paths_keep_their_reads_without_admitting_other_repositori
     let primary = read("r", "src/main.rs");
     let alias = read("r", "src/copy.rs");
     let mut page = json!({
-        "files":[{"owner":"o","repo":"r","path":"src/main.rs","alsoAt":["src/copy.rs"],"lines":["1\twrap_app();"]}],
+        "files":[{"owner":"o","repo":"r","path":"src/main.rs","alsoAt":["src/copy.rs"],"matches":[{"line":1,"value":"wrap_app();"}]}],
         "next":{"readHits":alias.clone(),"otherRepo":read("other", "src/copy.rs"),"read":primary.clone(),"excluded":read("r", "src/excluded.rs")}
     });
     super::finish_code_selection(&mut page, &json!({"owner":"o"}), &[]);
@@ -349,7 +349,7 @@ fn selected_equivalent_paths_keep_their_reads_without_admitting_other_repositori
     assert!(page["next"].get("otherRepo").is_none());
     assert!(page["next"].get("excluded").is_none());
     assert_eq!(page["files"][0]["alsoAt"], json!(["src/copy.rs"]));
-    assert!(page["files"][0]["lines"].is_array());
+    assert!(page["files"][0]["matches"].is_array());
 }
 
 #[test]
@@ -362,11 +362,11 @@ fn a_hidden_file_with_unlisted_hits_gets_a_judged_read_and_an_excluded_one_none(
     };
     let context = json!({"predicates":["Does this code quit on a NUL byte?"]});
     let mut page = json!({
-        "files":[{"owner":"o","repo":"r","path":"src/shown.rs","lines":["1\tquit()"]}],
+        "files":[{"owner":"o","repo":"r","path":"src/shown.rs","matches":[{"line":1,"value":"quit()"}]}],
         "next":{"readHits":read("src/hidden.rs"),"readHits2":read("src/excluded.rs")}
     });
     let hidden = [
-        json!({"owner":"o","repo":"r","path":"src/hidden.rs","lines":["3\tDetection"],"matchCount":14}),
+        json!({"owner":"o","repo":"r","path":"src/hidden.rs","matches":[{"line":3,"value":"Detection"}],"matchCount":14}),
     ];
     super::finish_code_selection(
         &mut page,

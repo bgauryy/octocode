@@ -116,8 +116,8 @@ fn grouped_location_rows_print_as_hits() {
     let result = json!({"results":[{"index":0,"data":{"operation":"references","files":[{
         "path":"a.rs",
         "matches":[
-            {"displayRange":{"startLine":2,"endLine":2},"content":"2\tneedle();\n","role":"call"},
-            {"displayRange":{"startLine":6,"endLine":6},"content":"6\tneedle();\n","role":"call"}
+            {"line":2,"content":"2\tneedle();\n","role":"call"},
+            {"line":6,"content":"6\tneedle();\n","role":"call"}
         ]
     }]}}]});
     let lines = render(ToolId::LspSearch, &result, &json!({}), None).expect("lines");
@@ -131,7 +131,7 @@ fn grouped_location_rows_print_as_hits() {
 #[test]
 fn location_labels_state_once_per_run_and_columns_only_where_needed() {
     let hit = |line: u64, text: &str, column: u64, role: &str| {
-        json!({"displayRange":{"startLine":line,"endLine":line,"startCharacter":column},
+        json!({"line":line,"column":column,
             "content":format!("{line}\t{text}\n"),"role":role})
     };
     let result = json!({"results":[{"index":0,"data":{"operation":"references","files":[{

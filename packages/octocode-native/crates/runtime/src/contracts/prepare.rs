@@ -28,14 +28,8 @@ fn shape_repair(tool_name: &str, object: &serde_json::Map<String, Value>) -> Opt
 
 /// A batch over the tool's `queries` limit: the rest go in another call.
 fn oversized_batch(tool_name: &str, rows: usize) -> Option<ValidationIssue> {
-    let contract = super::tool_contract_named(tool_name)?.ok()?;
-    let input = &contract["inputSchema"];
-    let maximum = super::schema_facts::property_schemas(input, &input["$defs"], "queries")
-        .into_iter()
-        .find_map(|queries| {
-            super::schema_facts::schema_keyword(queries, &input["$defs"], "maxItems")?.as_u64()
-        })?;
-    (rows as u64 > maximum).then(|| ValidationIssue {
+    let maximum = super::batch_limit(crate::id::ToolId::from_name(tool_name)?)?;
+    (rows > maximum).then(|| ValidationIssue {
         rule_id: "schema.size".into(),
         path: vec!["queries".to_owned()],
         message: format!(

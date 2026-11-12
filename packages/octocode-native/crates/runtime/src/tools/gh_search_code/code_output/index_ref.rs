@@ -57,7 +57,7 @@ pub(in crate::tools::gh_search_code) async fn disclose_index_ref(
         format!(" at {}", &sha[..sha.len().min(7)])
     });
     let lines = if resolved_sha_shown(value) {
-        format!("; `lines` read at {reference}")
+        format!("; `matches` read at {reference}")
     } else {
         String::new()
     };
@@ -157,9 +157,9 @@ async fn commit_or_none(
     }
 }
 
-/// Some row lists `lines` read at the resolved commit.
+/// Some row lists `matches` read at the resolved commit.
 fn resolved_sha_shown(value: &Value) -> bool {
     value["files"]
         .as_array()
-        .is_some_and(|files| files.iter().any(|row| row.get("lines").is_some()))
+        .is_some_and(|files| files.iter().any(|row| row.get("matches").is_some()))
 }

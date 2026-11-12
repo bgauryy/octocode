@@ -52,17 +52,14 @@ async fn capped_compare_with_a_path_leads_to_the_path_history() {
     // The range's commit list is not path-scoped: a file read pages it
     // apart (none shown), and its page names each commit by its headline.
     assert!(data.get("commits").is_none(), "{data}");
-    assert_eq!(
-        data["contentPagination"]["commits"]["unshown"], true,
-        "{data}"
-    );
+    assert_eq!(data["sectionPagination"]["commits"]["length"], 0, "{data}");
     assert!(
-        data["contentPagination"]["commits"]
+        data["sectionPagination"]["commits"]
             .get("currentPage")
             .is_none(),
         "{data}"
     );
-    let page = data["contentPagination"]["commits"]["next"]["nextPage"]["input"].clone();
+    let page = data["next"]["commits"]["input"].clone();
     let listed = call(&runtime, "ghGetHistoryItem", page)
         .await
         .expect("commit page");
@@ -154,8 +151,8 @@ async fn compare_include_scopes_files_and_capped_scope_leads_to_path_history() {
     assert!(!files.contains("f002.rs"), "{data}");
     // A provider cap leaves the scoped count partial even when the shown
     // inventory fits on one response page.
-    assert!(data.get("changedFilesCount").is_none(), "{data}");
-    assert_eq!(data["contentPagination"]["files"]["countScope"], "partial");
+    assert!(data.get("changedFileCount").is_none(), "{data}");
+    assert_eq!(data["sectionPagination"]["files"]["countScope"], "partial");
     assert_eq!(files.matches(".rs").count(), 101, "{data}");
     let beyond = call(
         &runtime,

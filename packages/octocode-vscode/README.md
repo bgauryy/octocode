@@ -10,7 +10,7 @@ The extension does not implement research tools. It installs and controls the
 ## Requirements
 
 - VS Code 1.107 or later
-- Node.js `^24.15.0` for the MCP server it runs (`npx -y octocode-mcp@latest`)
+- The extension declares Node.js `^24.15.0`. The npm MCP launcher it runs (`npx -y octocode-mcp@latest`) requires Node.js 22 or later.
 
 ## Commands
 
@@ -22,7 +22,13 @@ Open the command palette and search for `Octocode MCP`:
 - Install the MCP server for supported clients.
 - Install for Cline, Roo Code, Trae, or every detected client.
 
-`octocode.autoInstallMcp` controls automatic configuration. Prefer the OAuth
+| VS Code setting | Default | What it controls |
+|---|---|---|
+| `octocode.autoInstallMcp` | `true` | Automatically configures Octocode in supported editors. |
+| `octocode.ideBridge.enabled` | `true` | Lets Octocode request language intelligence from this editor. |
+| `octocode.githubToken` | Empty | Optional personal token in the editor's settings. |
+
+Prefer the OAuth
 sign-in command over storing a token in `octocode.githubToken`. The extension
 writes the signed-in token as `GH_TOKEN` into the Octocode entry's `env` block of
 each configured client (files are written owner-only), and removes it on sign-out.

@@ -1,12 +1,13 @@
 //! The client side of a warm call: resolve the server for this call, start
 //! it when none answers, send the request and print the reply.
 
-use super::frames::PROGRESS;
+use super::frames::{ALIVE, PROGRESS};
 use super::identity::{call_identity, exe_identity, served_env, server_key, workspace_of};
 use super::sockets::socket_in;
 use super::{read_line_bounded, same_dir_form};
 use crate::cli::output::Printed;
 use octocode_contract_types::ErrorCode;
+use octocode_io::http::READ_STALL;
 use serde_json::Value;
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -22,7 +23,10 @@ const REPLY_MARGIN: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// How long a client waits for the reply: the budget of the server's
 /// runtimes, which take the default request limits. Past it the call is
-/// over; running it again in process would double the wait.
+/// over; running it again in process would double the wait. Without a
+/// budget, liveness alone bounds the wait: a server sends a frame at least
+/// each [`HEARTBEAT`](super::frames::HEARTBEAT) while a call runs, and one
+/// that sends nothing for [`READ_STALL`] is gone ([`exchange`]).
 pub(super) fn reply_deadline() -> Option<std::time::Duration> {
     reply_deadline_for(octocode_native::execution::RequestLimits::default().timeout)
 }
@@ -94,6 +98,7 @@ pub(in crate::cli) async fn call(
         &mut stream,
         &request,
         deadline,
+        READ_STALL,
         first,
         tokio::signal::ctrl_c(),
         interrupted,
@@ -235,15 +240,19 @@ async fn within<T>(
 }
 
 /// Send one request and read the printed call back within `deadline`, or
-/// with none for as long as the server keeps the connection.
-/// `first` is the first interrupt: it calls `interrupted`, closes the
-/// request side (the server cancels), then waits for the server to finish
-/// unless `second` arrives first. Each progress frame the server sends
-/// while the call runs goes to `progress` as it arrives.
+/// with none for as long as the server keeps the connection and says
+/// something at least each `silence`: progress and heartbeat frames count,
+/// so a long call is waited for and a server that went silent (stopped,
+/// hung) is a fallback. `first` is the first interrupt: it calls
+/// `interrupted`, closes the request side (the server cancels), then waits
+/// for the server to finish unless `second` arrives first. Each progress
+/// frame the server sends while the call runs goes to `progress` as it
+/// arrives.
 pub(super) async fn exchange(
     stream: &mut tokio::net::UnixStream,
     request: &Request<'_>,
     deadline: Option<std::time::Duration>,
+    silence: std::time::Duration,
     first: impl std::future::Future<Output = ()>,
     second: impl std::future::Future,
     interrupted: impl FnOnce(),
@@ -268,19 +277,25 @@ pub(super) async fn exchange(
         .map_err(|error| Failed::Fallback(format!("request not sent: {error}")))?;
     let mut reader = BufReader::new(read);
     // Frames come first, one per line; the line that is not one is the
-    // reply. The deadline covers the whole wait, frames included.
+    // reply. The deadline covers the whole wait, frames included; the
+    // silence, each line.
     let awaited = async {
         loop {
-            let line = read_line_bounded(&mut reader, MAX_RESPONSE_BYTES)
+            let next = read_line_bounded(&mut reader, MAX_RESPONSE_BYTES);
+            let line = tokio::time::timeout_at(tokio::time::Instant::now() + silence, next)
                 .await
+                .map_err(|_| {
+                    Failed::Fallback(format!("it sent nothing for {} s", silence.as_secs()))
+                })?
                 .ok_or_else(|| {
                     fallback("it closed without a reply, or the reply was over the size limit")
                 })?;
             let parsed = serde_json::from_str::<Value>(&line)
                 .map_err(|_| fallback("the reply was not JSON"))?;
-            match parsed.get(PROGRESS).and_then(Value::as_str) {
-                Some(text) => progress(text),
-                None => break Ok::<Value, Failed>(parsed),
+            if let Some(text) = parsed.get(PROGRESS).and_then(Value::as_str) {
+                progress(text);
+            } else if parsed.get(ALIVE).is_none() {
+                break Ok::<Value, Failed>(parsed);
             }
         }
     };

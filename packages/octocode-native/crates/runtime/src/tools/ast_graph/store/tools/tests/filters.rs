@@ -31,10 +31,7 @@ fn all_pages(dir: &Path, mut query: Value) -> (Vec<Value>, u64) {
         match page.pointer("/next/nextPage/input/queries/0") {
             Some(next) => query = next.clone(),
             None => {
-                return (
-                    rows,
-                    page["pagination"]["totalItems"].as_u64().expect("total"),
-                );
+                return (rows, page["pagination"]["total"].as_u64().expect("total"));
             }
         }
     }
@@ -99,10 +96,10 @@ fn evidence_pages_take_several_sources_and_return_rows_from_any() {
         let both = ask(json!(["a.ts", "b.ts"]));
         assert!(!ids(&a).is_empty() && !ids(&b).is_empty(), "{operation}");
         assert_eq!(
-            both["pagination"]["totalItems"].as_u64(),
+            both["pagination"]["total"].as_u64(),
             Some(
-                a["pagination"]["totalItems"].as_u64().unwrap()
-                    + b["pagination"]["totalItems"].as_u64().unwrap()
+                a["pagination"]["total"].as_u64().unwrap()
+                    + b["pagination"]["total"].as_u64().unwrap()
             )
         );
         let union = ids(&a).into_iter().chain(ids(&b)).collect::<BTreeSet<_>>();
@@ -112,7 +109,7 @@ fn evidence_pages_take_several_sources_and_return_rows_from_any() {
             &dir.0,
             json!({"operation":operation,"path":"app","limit":1,"target":["a.ts","b.ts"]}),
         );
-        assert_eq!(total, both["pagination"]["totalItems"].as_u64().unwrap());
+        assert_eq!(total, both["pagination"]["total"].as_u64().unwrap());
         assert_eq!(
             paged.iter().map(ToString::to_string).collect::<Vec<_>>(),
             ids(&both)
@@ -135,7 +132,7 @@ fn unresolved_and_witnesses_keep_rows_of_the_named_target() {
                 op: "unresolved".into(),
                 workspace: Some(dir.0.clone()),
                 edges: vec!["calls".into()],
-                name: name.map(str::to_owned),
+                symbol_name: name.map(str::to_owned),
                 limit: Some(100),
                 ..Default::default()
             },
@@ -144,29 +141,29 @@ fn unresolved_and_witnesses_keep_rows_of_the_named_target() {
         .value
     };
     let all = ask(None);
-    assert_eq!(all["pagination"]["totalItems"], 3, "{all}");
+    assert_eq!(all["pagination"]["total"], 3, "{all}");
     let named = ask(Some("missing_two"));
-    assert_eq!(named["pagination"]["totalItems"], 1, "{named}");
+    assert_eq!(named["pagination"]["total"], 1, "{named}");
     assert_eq!(named["rows"][0]["targetName"], "missing_two", "{named}");
     let qualified = ask(Some("missing_one"));
-    assert_eq!(qualified["pagination"]["totalItems"], 2, "{qualified}");
+    assert_eq!(qualified["pagination"]["total"], 2, "{qualified}");
     let written = ask(Some("obj.missing_one"));
-    assert_eq!(written["pagination"]["totalItems"], 1, "{written}");
+    assert_eq!(written["pagination"]["total"], 1, "{written}");
     let none = ask(Some("nothing"));
-    assert_eq!(none["pagination"]["totalItems"], 0, "{none}");
+    assert_eq!(none["pagination"]["total"], 0, "{none}");
     let witnesses = query(
         &QueryOptions {
             op: "witnesses".into(),
             workspace: Some(dir.0.clone()),
             edges: vec!["calls".into()],
-            name: Some("here".into()),
+            symbol_name: Some("here".into()),
             limit: Some(100),
             ..Default::default()
         },
         &workspace_policy(&dir.0),
     )
     .value;
-    assert_eq!(witnesses["pagination"]["totalItems"], 1, "{witnesses}");
+    assert_eq!(witnesses["pagination"]["total"], 1, "{witnesses}");
     assert_eq!(witnesses["rows"][0]["to"], "a.ts#here", "{witnesses}");
 }
 

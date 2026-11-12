@@ -13,6 +13,7 @@ use std::path::Path;
 
 mod entries;
 mod manifests;
+pub(super) use entries::declared_target;
 use crate::tools::ast_graph::paths::parent;
 use manifests::*;
 

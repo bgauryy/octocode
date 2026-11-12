@@ -175,7 +175,7 @@ async fn an_unpublished_version_is_never_sent() {
     );
     assert_eq!(data["versionEvaluated"], false);
     assert_eq!(data["status"], "error", "{data}");
-    assert_eq!(data["errorCode"], "versionNotFound", "{data}");
+    assert_eq!(data["errorCode"], "notFound", "{data}");
     assert!(
         data["error"]
             .as_str()
@@ -185,11 +185,37 @@ async fn an_unpublished_version_is_never_sent() {
     );
     assert!(data.get("version").is_none());
     assert_eq!(data["advisories"][0]["id"], "GHSA-1");
+    // The miss says what to do: check the version the manifest pins, and
+    // discover the published ones, which its repair reads.
+    assert!(
+        data["hints"][0]
+            .as_str()
+            .is_some_and(|hint| hint.contains("discover published versions")),
+        "{data}"
+    );
+    // The repair reads every version the registry has, newest first, and
+    // says that is all there is to suggest.
+    let suggested = data["related"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|call| call["input"]["queries"].as_array().into_iter().flatten())
+        .filter_map(|row| row.get("version").cloned())
+        .collect::<Vec<_>>();
+    assert_eq!(suggested, [json!("4.18.1"), json!("4.17.20")], "{data}");
+    assert!(
+        data["hints"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|hint| hint.as_str().is_some_and(|hint| hint.starts_with("Only 2 published"))),
+        "{data}"
+    );
     // Nothing known about the name is still not a verdict on the version.
     let http = registry().osv_pages(vec![(200, json!({}))]);
     let data = answer(&http, Some("9.9.9"), None).await.expect("row");
     assert_eq!(data["status"], "error", "{data}");
-    assert_eq!(data["errorCode"], "versionNotFound", "{data}");
+    assert_eq!(data["errorCode"], "notFound", "{data}");
     assert_eq!(data["versionEvaluated"], false);
 }
 
@@ -984,7 +1010,9 @@ async fn githubs_database_merges_its_twin_and_names_the_advisories_osv_lacks() {
         "the twin is merged, the other not counted: {data}"
     );
     assert!(
-        rows[0]["link"].as_str().is_some_and(|link| link.starts_with("https://osv.dev/")),
+        rows[0]["link"]
+            .as_str()
+            .is_some_and(|link| link.starts_with("https://osv.dev/")),
         "OSV's record leads the merged row: {data}"
     );
     assert_eq!(

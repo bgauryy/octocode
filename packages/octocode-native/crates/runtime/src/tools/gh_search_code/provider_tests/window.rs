@@ -70,12 +70,7 @@ async fn the_code_search_window_ends_at_its_last_whole_page() {
     )
     .await
     .expect("first page");
-    assert_eq!(
-        first.data["pagination"]["totalItems"], 1000,
-        "{}",
-        first.data
-    );
-    assert_eq!(first.data["pagination"]["totalPages"], 20, "{}", first.data);
+    assert_eq!(first.data["pagination"]["total"], 1000, "{}", first.data);
     let last = execute(
         &provider,
         &at(20),
@@ -192,7 +187,7 @@ async fn a_match_count_pick_counts_every_file_without_lines() {
     assert_eq!(files[0]["path"], "src/busy.rs", "{}", out.data);
     assert_eq!(files[0]["matchCount"], 8, "{}", out.data);
     assert_eq!(files[1]["matchCount"], 1, "{}", out.data);
-    assert!(files[0].get("lines").is_none(), "{}", out.data);
+    assert!(files[0].get("matches").is_none(), "{}", out.data);
     assert!(out.data.get("warnings").is_none(), "{}", out.data);
 }
 
@@ -292,7 +287,6 @@ async fn a_multi_extension_walk_skips_exhausted_searches_and_fills_its_pages() {
         )
         .await
         .expect("page");
-        assert_eq!(out.data["pagination"]["totalPages"], 3, "{}", out.data);
         let paths = paths_of(&out);
         sizes.push(paths.len());
         listed.extend(paths);

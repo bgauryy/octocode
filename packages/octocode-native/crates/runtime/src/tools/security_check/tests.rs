@@ -387,7 +387,10 @@ fn a_range_written_to_its_last_affected_version_is_the_same_claim() {
         "ecosystemSpecific": {"vulnerable_version_range": "<= 1.9.9"}}]});
     let lead = super::answer::advisory_lead(&json!({"advisories": [osv, github]}));
     let sentence = lead["answer"].as_str().expect("answer");
-    assert!(sentence.contains("p <=1.9.9 as GitHub writes it (no fix named)"), "{sentence}");
+    assert!(
+        sentence.contains("p <=1.9.9 as GitHub writes it (no fix named)"),
+        "{sentence}"
+    );
 }
 
 /// OSV lets `versions` add to ranges: an entry holding both states both.

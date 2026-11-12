@@ -90,20 +90,15 @@ impl ToolOutput for SharedOutput {}
 /// the quickest fix for another project is to start from that directory.
 pub(crate) const SANDBOX_HINT: &str = "Outside allowed roots (the workspace is WORKSPACE_ROOT, else the directory octocode started in): run from inside that project or set WORKSPACE_ROOT to it, or add the dir to ALLOWED_PATHS (comma list) in the env or ~/.octocode/.env, not a workspace file.";
 
-/// Recovery for a path that does not resolve: check it from its parent. One
-/// text serves local and GitHub tools, so it names no tool: the row's own
+/// Recovery for a name that does not resolve (a path, repository, package,
+/// version or symbol): check it where it was looked up, a path from its
+/// parent. One text serves every tool, so it names none: the row's own
 /// related[] request lists the parent where one exists.
-pub(crate) const VERIFY_PATH_HINT: &str = "Path not found: list its parent directory (the related[] listing request when one is given), then retry with the exact listed path.";
+pub(crate) const NOT_FOUND_HINT: &str = "Check the exact name, where it was looked up and access to it; for a path, list its parent directory (the related[] listing request when one is given), then retry with the exact listed path.";
 
 /// An `error_hint` for a code whose typed error and leads are the whole
 /// answer: no fallback text is added.
 pub(crate) const NO_HINT: &str = "";
-
-/// The `error_hint` of a tool whose `NotFound` message is the whole answer:
-/// [`NO_HINT`] for it, the shared response stage's answer for any other code.
-pub(crate) fn not_found_is_the_answer(code: ErrorCode) -> Option<&'static str> {
-    (code == ErrorCode::NotFound).then_some(NO_HINT)
-}
 
 /// Recovery for a path a local read could not open (`fileAccessFailed`).
 pub(crate) const LIST_FILES_HINT: &str = "Path did not open as a file: list it with structureSearch operation:\"files\", then retry with one exact listed file.";

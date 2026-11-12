@@ -106,10 +106,9 @@ fn history_rows_carry_no_emails_or_empty_fields() {
         json!({"number":1,"title":"t","state":"open","user":{"login":"u"},
         "labels":[],"created_at":"c","comments":0}),
     );
-    assert!(
-        pr.get("labels").is_none() && pr.get("commentsCount").is_none(),
-        "{pr}"
-    );
+    // No labels is no field; a count GitHub states, 0 included, is a value.
+    assert!(pr.get("labels").is_none(), "{pr}");
+    assert_eq!(pr["commentsCount"], 0, "{pr}");
 }
 
 #[test]
@@ -134,10 +133,13 @@ fn row_dates_are_utc() {
     let commit = json!({"sha":"abc","commit":{"message":"Fix",
         "author":{"name":"Dev","date":"2024-03-01T01:30:00.000+02:00"}}});
     assert_eq!(
-        crate::tools::gh_shared::commit::row(&commit)["date"],
+        crate::tools::gh_shared::commit::row(&commit)["committedAt"],
         "2024-02-29T23:30:00Z"
     );
-    assert_eq!(map_commit_list(commit)["date"], "2024-02-29T23:30:00Z");
+    assert_eq!(
+        map_commit_list(commit)["committedAt"],
+        "2024-02-29T23:30:00Z"
+    );
     let pr = map_pr(json!({"number":1,"state":"closed","user":{"login":"u"},
         "created_at":"2024-01-01T10:00:00-01:00","merged_at":"2024-01-02T00:00:00+00:30"}));
     assert_eq!(pr["createdAt"], "2024-01-01T11:00:00Z", "{pr}");
@@ -180,9 +182,10 @@ fn a_squash_headline_names_its_pull_request_once() {
     }
 }
 
-/// Issue rows carry the discussion size like PR rows; zero stays out.
+/// Issue rows carry the discussion size like PR rows, 0 included: only a
+/// count GitHub does not state is absent.
 #[test]
-fn issue_rows_carry_a_non_zero_comment_count() {
+fn issue_rows_carry_the_stated_comment_count() {
     let issue = |comments: u64| {
         map_issue(
             json!({"number":1,"title":"t","state":"open","comments":comments}),
@@ -190,7 +193,9 @@ fn issue_rows_carry_a_non_zero_comment_count() {
         )
     };
     assert_eq!(issue(105)["commentsCount"], 105);
-    assert!(issue(0).get("commentsCount").is_none());
+    assert_eq!(issue(0)["commentsCount"], 0);
+    let unstated = map_issue(json!({"number":1,"title":"t","state":"open"}), false);
+    assert!(unstated.get("commentsCount").is_none(), "{unstated}");
 }
 
 /// A row drops what its query already says: the filtered `state`, and a

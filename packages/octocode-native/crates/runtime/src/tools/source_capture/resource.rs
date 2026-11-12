@@ -55,7 +55,8 @@ pub(crate) fn selection_metadata(captured: &TextResource, source: &Value) -> Val
     let mut metadata = captured.metadata.clone();
     metadata["source"] = source.clone();
     if let Some(tool) = source["tool"].as_str().and_then(ToolId::from_name) {
-        metadata["read"] = super::read_lead(tool, &source["query"], metadata["snapshot"].as_str());
+        metadata["read"] =
+            super::read_lead(tool, &source["query"], metadata["sourceDigest"].as_str());
     }
     metadata
 }
@@ -76,7 +77,7 @@ pub(crate) fn capture(
         return Ok(TextResource {
             text,
             path: PathBuf::from("capture.txt"),
-            metadata: json!({"status":"ready","source":source,"snapshot":provenance["snapshot"],"coordinateSpace":"capture","expiresAt":provenance["expiresAt"],"read":captured.read}),
+            metadata: json!({"status":"ready","source":source,"sourceDigest":provenance["sourceDigest"],"coordinateSpace":"capture","expiresAt":provenance["expiresAt"],"read":captured.read}),
             local_check: None,
         });
     }
@@ -152,7 +153,7 @@ pub(crate) fn capture(
     Ok(TextResource {
         text,
         path,
-        metadata: json!({"status":"ready","source":source,"snapshot":snapshot,"read":read}),
+        metadata: json!({"status":"ready","source":source,"sourceDigest":snapshot,"read":read}),
         local_check,
     })
 }
@@ -166,7 +167,7 @@ pub(super) fn local_recovery(
     dispatcher: &dyn SourceReader,
 ) -> ClassificationError {
     if error.leads.is_empty()
-        && error.code == ErrorCode::PathNotFound
+        && error.code == ErrorCode::NotFound
         && let Some(Value::Object(leads)) = crate::response::result::missing_path_lead(
             dispatcher.paths(),
             query["path"].as_str().unwrap_or_default(),
@@ -370,7 +371,7 @@ mod tests {
         let captured = TextResource {
             text: String::new(),
             path: PathBuf::from("a.rs"),
-            metadata: json!({"status": "ready", "snapshot": snapshot}),
+            metadata: json!({"status": "ready", "sourceDigest": snapshot}),
             local_check: None,
         };
         let local = json!({"tool":"localFetch","query":{"path":"a.rs"}});

@@ -96,11 +96,11 @@ async function cloneResearch(ctx) {
     const walk = walker(ctx, surface, checks, 'clone');
     const cloned = await walk('ghCloneRepo', { queries: [{ owner: 'octo', repo: 'demo', ref: ctx.mock.model.head.oid, paths: [selected], historyDepth: 1 }] }, 'checkout');
     const location = rows(cloned, 'ghCloneRepo').find(data => data.location)?.location;
-    checks.push([`workflow.github.clone.pinned.${surface}`, location?.commitSha === ctx.mock.model.head.oid && typeof location.localPath === 'string', JSON.stringify(location)]);
-    if (!location?.localPath) continue;
+    checks.push([`workflow.github.clone.pinned.${surface}`, location?.commitSha === ctx.mock.model.head.oid && typeof location.path === 'string', JSON.stringify(location)]);
+    if (!location?.path) continue;
     const again = (await ctx.callOn(surface)('ghCloneRepo', { queries: [{ owner: 'octo', repo: 'demo', ref: ctx.mock.model.head.oid, paths: [selected], historyDepth: 1 }] })).json?.results?.[0]?.data?.location;
-    checks.push([`workflow.github.clone.reuseReported.${surface}`, again?.reused === true && again.commitSha === location.commitSha && again.localPath === location.localPath, JSON.stringify({ location, again })]);
-    const target = path.join(location.localPath, selected);
+    checks.push([`workflow.github.clone.reuseReported.${surface}`, again?.reused === true && again.commitSha === location.commitSha && again.path === location.path, JSON.stringify({ location, again })]);
+    const target = path.join(location.path, selected);
     const searched = await walk('localSearch', { queries: [{ path: target, matchString: ['healthMarker'], view: 'files' }], responseChars: 300 }, 'local-search');
     equal(checks, `workflow.github.clone.localHit.${surface}`, rows(searched, 'localSearch').flatMap(data => data.files ?? []).map(file => fs.realpathSync(path.resolve(ctx.cwd, file.path))), [fs.realpathSync(target)]);
     const fetched = await walk('localFetch', { queries: [{ path: target }], responseChars: 300 }, 'local-read');

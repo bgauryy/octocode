@@ -58,11 +58,6 @@ fn failure_hint(code: ErrorCode, query: &Value) -> Option<&'static str> {
             "Use the advertised LSP operations, or fall back to astSearch/localSearch and exact source reads."
         }
         ErrorCode::Timeout => TIMEOUT_TIP,
-        // The row's `related` calls locate the name; a guessed identity would
-        // answer for a different symbol.
-        ErrorCode::AnchorUnresolved => {
-            "Locate the exact name and line with the related calls, then retry; do not guess another identity."
-        }
         _ => return None,
     })
 }

@@ -44,7 +44,8 @@ pub(super) fn convert(out: &mut GraphOutput, row: &Value) {
     if let Some(node) = data.get("node").and_then(Value::as_object) {
         let operations: &[&str] = match node.get("kind").and_then(Value::as_str) {
             Some("file") => &["symbols", "deps", "dependents"],
-            Some("symbol") => &["callers", "callees"],
+            // A symbol states its declaration kind beside its symbolName.
+            _ if node.contains_key("symbolName") => &["callers", "callees"],
             _ => &["dependents"],
         };
         let related = operations

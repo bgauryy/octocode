@@ -26,8 +26,8 @@ pub(super) struct RepoPage {
     pub(super) incomplete: bool,
     /// Organizations GitHub withheld from the answer (SAML enforcement).
     sso_partial: Vec<u64>,
-    /// An owner listing's REST pages read by this call.
-    pub(super) provider_pages: Option<usize>,
+    /// An owner listing: REST pages that state no total.
+    pub(super) listing: bool,
     /// Rows an owner listing's archive filter left out ([`OwnerListing`]).
     pub(super) archive_filtered: usize,
     /// No rows though the search (or the listing's earlier pages) has some:
@@ -54,7 +54,7 @@ impl RepoPage {
                 reachable: reach.total,
                 incomplete: data.incomplete_results,
                 sso_partial: data.sso_partial_organizations.clone(),
-                provider_pages: Some(listing.pages_read),
+                listing: true,
                 archive_filtered: listing.filtered_out,
                 past_end: empty && listing.filtered_out == 0,
             },
@@ -67,30 +67,30 @@ impl RepoPage {
                 reachable: reach.total,
                 incomplete: data.incomplete_results,
                 sso_partial: data.sso_partial_organizations.clone(),
-                provider_pages: None,
+                listing: false,
                 archive_filtered: 0,
                 past_end: empty && reach.past_last(current),
             },
         }
     }
 
-    /// The rows and their `pagination`. The REST listing reports no total:
-    /// `page` is the provider page cursor and `next.nextPage` follows the
-    /// real Link header. The listing is ordered by latest push (the `owner`
-    /// description says so); page counters are verbose (core field class).
+    /// The rows and their `pagination`: the page starts at its provider
+    /// page's first row and holds the rows shown. The REST listing reports no
+    /// total and `next.nextPage` follows the real Link header; the listing is
+    /// ordered by latest push (the `owner` description says so). A search
+    /// states its reachable total.
     pub(super) fn value(&self, repositories: Vec<Value>) -> Value {
         use crate::response::pages::PageFacts;
-        let pagination = match self.provider_pages {
-            Some(read) => {
-                let mut pagination = PageFacts::open(self.current, Some(self.per), self.more)
-                    .out_of_range(self.past_end)
-                    .to_value();
-                pagination["providerPagesRead"] = json!(read);
-                pagination
-            }
-            None => PageFacts::counted(self.current, self.per, self.reachable)
+        let start = PageFacts::start_of(self.current, self.per);
+        let pagination = if self.listing {
+            PageFacts::open(start, repositories.len(), self.more)
                 .out_of_range(self.past_end)
-                .to_value(),
+                .to_value()
+        } else {
+            PageFacts::open(start.min(self.reachable), repositories.len(), self.more)
+                .with_total(self.reachable)
+                .out_of_range(self.past_end)
+                .to_value()
         };
         json!({"repositories": repositories, "pagination": pagination})
     }
@@ -155,7 +155,7 @@ impl RepoPage {
 /// The provider's result cap, stated once. [`apply_partial`] writes it as a
 /// warning (the only statement carrying the full match count), a
 /// `partialReasons` entry and its glossary mark; the warning stays, beside
-/// the `isPartial` and `totalItemsCapped` facts. The reason name would only
+/// the `isPartial` and `countScope: "capped"` facts. The reason name would only
 /// restate it.
 fn state_cap_once(value: &mut Value) {
     const CAP: &str = "providerResultCap";

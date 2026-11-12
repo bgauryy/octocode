@@ -54,8 +54,8 @@ async fn the_ref_commit_resolves_while_the_search_runs() {
     // What the page cost is no evidence: no read count is stated.
     assert!(out.data.get("contentReads").is_none(), "{}", out.data);
     assert_eq!(
-        out.data["files"][0]["lines"],
-        json!(["1\tfn wrap_app() {}"])
+        out.data["files"][0]["matches"],
+        json!([{"line": 1, "value": "fn wrap_app() {}"}])
     );
     let first = |slow: &Delayed| *slow.arrivals.times().first().expect("requested");
     let (searched, resolved) = (first(&search), first(&commit));
@@ -145,12 +145,12 @@ async fn default_branch_lines_are_read_at_the_indexed_commit() {
             .as_array()
             .expect("files")
             .iter()
-            .all(|file| file.get("lines").is_some()),
+            .all(|file| file.get("matches").is_some()),
         "{data}"
     );
 }
 
-/// A path-only search, or a `fields` pick without `lines`, reads no lines,
+/// A path-only search, or a `fields` pick without `matches`, reads no lines,
 /// so it resolves no commit.
 #[tokio::test]
 async fn searches_without_line_reads_resolve_no_commit() {

@@ -82,7 +82,9 @@ function handle(msg) {
   if (msg.method === 'exit') return process.exit(0);
   if (!msg.id) return;
   const uri = msg.params?.textDocument?.uri;
-  const location = line => ({uri,range:{start:{line,character:0},end:{line,character:6}}});
+  // Each reference at its own column; the declaration (line 1) at its start.
+  const column = line => line === 1 ? 0 : line;
+  const location = line => ({uri,range:{start:{line,character:column(line)},end:{line,character:column(line)+6}}});
   if (msg.method === 'textDocument/definition') return send(msg.id, [location(1)]);
   if (msg.method === 'textDocument/references') return send(msg.id, [0,1,2,3].map(location));
   send(msg.id, null);

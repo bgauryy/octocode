@@ -91,9 +91,9 @@ async fn history_a_every_pr_view_carries_source_target_and_merge_commits() {
         let data = row_data(&outcome);
         assert_eq!(row_status(&outcome), "success", "{extra}: {data}");
         let pr = &data["pullRequests"][0];
-        assert_eq!(pr["headSha"], HISTORY_A_HEAD, "{extra}: {data}");
+        assert_eq!(pr["headCommitSha"], HISTORY_A_HEAD, "{extra}: {data}");
         assert_eq!(pr["mergeCommitSha"], HISTORY_A_MERGE, "{extra}: {data}");
-        assert_eq!(pr["baseSha"], HISTORY_A_BASE, "{extra}: {data}");
+        assert_eq!(pr["baseCommitSha"], HISTORY_A_BASE, "{extra}: {data}");
         checks::assert_output_contract("ghGetHistoryItem", &outcome.structured_content);
     }
     let outcome = call(
@@ -106,8 +106,8 @@ async fn history_a_every_pr_view_carries_source_target_and_merge_commits() {
     let data = row_data(&outcome);
     assert_eq!(row_status(&outcome), "success", "summary: {data}");
     let pr = &data["pullRequests"][0];
-    assert_eq!(pr["headSha"], HISTORY_A_HEAD, "summary: {data}");
-    assert_eq!(pr["baseSha"], HISTORY_A_BASE, "summary: {data}");
+    assert_eq!(pr["headCommitSha"], HISTORY_A_HEAD, "summary: {data}");
+    assert_eq!(pr["baseCommitSha"], HISTORY_A_BASE, "summary: {data}");
     assert_eq!(pr["mergeCommitSha"], HISTORY_A_MERGE, "summary: {data}");
     runtime.close().await;
 }
@@ -230,12 +230,12 @@ async fn history_a_graphql_pr_reads_target_sha_and_totals() {
         assert_eq!(row_status(&outcome), "success", "{data}");
         assert!(data.get("graphqlFallback").is_none(), "{data}");
         let pr = &data["pullRequests"][0];
-        assert_eq!(pr["headSha"], HISTORY_A_HEAD, "{sections}: {data}");
+        assert_eq!(pr["headCommitSha"], HISTORY_A_HEAD, "{sections}: {data}");
         assert_eq!(pr["mergeCommitSha"], HISTORY_A_MERGE, "{sections}: {data}");
-        assert_eq!(pr["baseSha"], HISTORY_A_BASE, "{sections}: {data}");
+        assert_eq!(pr["baseCommitSha"], HISTORY_A_BASE, "{sections}: {data}");
         // The totals are the summary read's: a section read names the pull
         // request and its commits only.
-        for total in ["commitsCount", "reviewThreadsCount"] {
+        for total in ["commitCount", "reviewThreadsCount"] {
             assert!(pr.get(total).is_none(), "{sections}: {data}");
         }
     }

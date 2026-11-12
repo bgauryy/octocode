@@ -30,11 +30,14 @@ fn a_span_ending_in_a_token_hides_a_value_secret_by_its_document() {
     for (name, text) in documents() {
         let root = tempfile::tempdir().expect("fixture directory");
         fs::write(root.path().join(name), &text).expect("fixture");
-        for pattern in [
-            "blob.*ghp_Z9Q8",
-            "blob.*ghp_",
-            "Qm.*ghp_Z",
-            "Qm[A-Za-z0-9]+",
+        // A pattern that reaches into a hidden value matches nothing, as a
+        // read's matchString does; one on the text a read shows is a row.
+        for (pattern, shows) in [
+            ("blob.*ghp_Z9Q8", false),
+            ("blob.*ghp_", false),
+            ("Qm.*ghp_Z", false),
+            ("Qm[A-Za-z0-9]+", false),
+            ("kind.*", true),
         ] {
             let (_, pages) = walk_search(
                 root.path(),
@@ -50,7 +53,7 @@ fn a_span_ending_in_a_token_hides_a_value_secret_by_its_document() {
                 .flat_map(|file| file["matches"].as_array().cloned().unwrap_or_default())
                 .map(|row| row["value"].as_str().expect("value").to_owned())
                 .collect();
-            assert!(!shown.is_empty(), "{name} {pattern}: a row is shown");
+            assert_eq!(!shown.is_empty(), shows, "{name} {pattern}: {shown:?}");
             for value in &shown {
                 for at in 0..VALUE.len() - 3 {
                     let fragment = &VALUE[at..at + 4];
@@ -77,7 +80,13 @@ fn a_content_row_hides_a_value_secret_by_its_neighbor() {
     let root = tempfile::tempdir().expect("fixture directory");
     let text = format!("untrusted comment: signify secret key\n{KEY} # {TOKEN}\n");
     fs::write(root.path().join("sig.txt"), text).expect("fixture");
-    for pattern in ["q8Zr", "ghp_", "Dzl"] {
+    // Hidden text matches nothing; the line a read shows is a row.
+    for (pattern, shows) in [
+        ("q8Zr", false),
+        ("ghp_", false),
+        ("Dzl", false),
+        (" # ", true),
+    ] {
         let (_, pages) = walk_search(
             root.path(),
             serde_json::json!({
@@ -92,7 +101,7 @@ fn a_content_row_hides_a_value_secret_by_its_neighbor() {
             .flat_map(|file| file["matches"].as_array().cloned().unwrap_or_default())
             .map(|row| row["value"].as_str().expect("value").to_owned())
             .collect();
-        assert!(!shown.is_empty(), "{pattern}: a row is shown");
+        assert_eq!(!shown.is_empty(), shows, "{pattern}: {shown:?}");
         for value in &shown {
             assert!(!value.contains("LmT2"), "{pattern}: key shown in {value:?}");
             assert!(

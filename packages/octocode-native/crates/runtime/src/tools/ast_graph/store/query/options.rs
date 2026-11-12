@@ -5,7 +5,7 @@ use std::path::PathBuf;
 pub struct QueryOptions {
     pub op: String,
     /// The graphQuery `path` that selected the snapshot: every
-    /// continuation, verify step and hint repeats it with the snapshot id.
+    /// continuation and hint repeats it with the snapshot id.
     pub path: Option<String>,
     /// Full origin objects and `derivation` on every row; lean rows (the
     /// default) mark proven identity origins `"identity"` and omit
@@ -21,7 +21,7 @@ pub struct QueryOptions {
     pub reasons: Vec<String>,
     /// `witnesses`/`unresolved`: keep only rows of this target name, before
     /// paging.
-    pub name: Option<String>,
+    pub symbol_name: Option<String>,
     /// Characters this answer may fill: the row's share of the response
     /// page. A list page ends at `limit` rows or this budget, whichever
     /// comes first. `None`: `limit` alone.
@@ -46,7 +46,7 @@ pub struct QueryOptions {
     pub limit: Option<usize>,
     pub offset: Option<usize>,
     /// The call count of a walk: 1 for its first call, each continuation's
-    /// one more (`pagination.page`).
+    /// one more. Cursor state only; a page states its `pagination.offset`.
     pub page: Option<usize>,
     /// Internal cycle-member listing selector, copied from an emitted continuation.
     pub list: Option<String>,

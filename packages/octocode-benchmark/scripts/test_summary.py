@@ -27,11 +27,11 @@ class SummaryTest(unittest.TestCase):
             path = Path(tmp) / "transcript.jsonl"
             event = {"type": "item.completed", "item": {"type": "mcp_tool_call", "tool": "lspSearch",
                 "status": "completed", "result": {"structured_content": {"results": [
-                    {"status": "error", "data": {"errorCode": "anchorUnresolved"}},
+                    {"status": "error", "data": {"errorCode": "notFound"}},
                     {"data": {"ranking": {"status": "skipped", "reason": "identityOrder", "totalItems": 1}}}]}}}}
             path.write_text(json.dumps(event))
             result = campaign.codex_receipts(path)
-            self.assertEqual(result["query_errors"], [{"tool": "lspSearch", "code": "anchorUnresolved", "count": 1}])
+            self.assertEqual(result["query_errors"], [{"tool": "lspSearch", "code": "notFound", "count": 1}])
             self.assertEqual(result["ranking_receipts"][0]["status"], "skipped")
 
     def test_provider_failure_and_missing_usage_stay_in_denominator(self):

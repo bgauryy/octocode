@@ -3,6 +3,7 @@
 pub(crate) mod generated;
 mod instructions;
 pub(crate) mod listing_roles;
+pub(crate) mod envelope;
 mod normalize;
 mod prepare;
 mod private_state;
@@ -98,6 +99,16 @@ pub(crate) fn tool_contract_named(
     name: &str,
 ) -> Option<Result<&'static serde_json::Value, &'static str>> {
     ToolId::from_name(name).map(tool_contract)
+}
+
+/// How many `queries` rows one call of `tool` carries (its schema's
+/// `maxItems`); `None` when the contract states no limit.
+pub(crate) fn batch_limit(tool: ToolId) -> Option<usize> {
+    let input = &tool_contract(tool).ok()?["inputSchema"];
+    schema_facts::property_schemas(input, &input["$defs"], "queries")
+        .into_iter()
+        .find_map(|queries| schema_facts::schema_keyword(queries, &input["$defs"], "maxItems")?.as_u64())
+        .and_then(|maximum| usize::try_from(maximum).ok())
 }
 
 /// Replace contract-violating result rows with row-level

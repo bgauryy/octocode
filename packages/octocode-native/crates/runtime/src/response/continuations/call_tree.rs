@@ -225,7 +225,7 @@ impl<'a> CallTree<'a> {
         path: &mut Vec<String>,
         found: &mut Vec<(Vec<String>, &'v Value)>,
     ) {
-        if self.nodes[id].call && crate::response::result::is_call(value) {
+        if self.nodes[id].call && crate::contracts::envelope::is_call(value) {
             found.push((path.clone(), value));
             return;
         }

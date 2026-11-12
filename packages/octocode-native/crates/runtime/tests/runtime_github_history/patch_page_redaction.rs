@@ -70,7 +70,7 @@ async fn a_long_token_line_pages_without_a_raw_fragment_and_exactly_once() {
         let Some(next) = next_input(&outcome.structured_content).or_else(|| {
             outcome
                 .structured_content
-                .pointer("/results/0/data/contentPagination/patches/next/nextPage/input")
+                .pointer("/results/0/data/next/patches/input")
                 .cloned()
         }) else {
             break;

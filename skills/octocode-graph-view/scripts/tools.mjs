@@ -61,6 +61,6 @@ export function responseShape(value) {
   if (!value || typeof value !== 'object') return { rows: 0, more: false };
   const datas = (value.results ?? []).map((r) => r?.data ?? {});
   const rows = datas.reduce((sum, d) => sum + rowCount(d), 0);
-  const total = datas.length === 1 ? datas[0].pagination?.totalItems : undefined;
+  const total = datas.length === 1 ? datas[0].pagination?.total : undefined;
   return { rows, ...(Number.isInteger(total) ? { total } : {}), more: continuations(value).length > 0, error: datas.find((d) => d.errorCode)?.errorCode };
 }

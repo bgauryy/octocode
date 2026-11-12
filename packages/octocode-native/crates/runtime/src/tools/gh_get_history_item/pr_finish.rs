@@ -132,7 +132,7 @@ pub(super) fn finish_pr(
         == Some("providerCommitListLimit")
     {
         push_warnings(&mut out, [
-            "GitHub ended this PR's commit list before commitsCount; inspect a local checkout with sufficient history.".to_owned()
+            "GitHub ended this PR's commit list before commitCount; inspect a local checkout with sufficient history.".to_owned()
         ]);
     }
     attach_full_patch_continuation(&mut out, query);
@@ -146,6 +146,8 @@ pub(super) fn finish_pr(
     // A miss already leads to its recovery reads; the menu would offer the
     // whole-PR patches the miss was narrowing away from.
     let menu = menu.filter(|_| out["status"] != "empty");
+    let coverage = menu.as_ref().and_then(|menu| selected_coverage(menu, &out));
+    crate::response::result::add_hints(&mut out, coverage);
     attach_leads(&mut out, files.side_reads, menu, merge_read);
     lead_with_comment_reads(&mut out, comment_reads);
     push_warnings(&mut out, graphql_warnings);
@@ -153,6 +155,25 @@ pub(super) fn finish_pr(
         out["graphqlFallback"] = json!(reason);
     }
     ToolData::from(out)
+}
+
+/// How much of the diff the selected-patch lead reads, when it names some of
+/// the changed files and no lead reads them all: a lead names how to read
+/// more, and its count says what it leaves.
+fn selected_coverage(menu: &Value, out: &Value) -> Option<String> {
+    if menu.get("readPatches").is_some() {
+        return None;
+    }
+    let include = menu
+        .pointer("/readSelectedPatches/input/queries/0/include")?
+        .as_array()?
+        .len();
+    let total = out.pointer("/pullRequests/0/changedFileCount")?.as_u64()?;
+    (u64::try_from(include).ok()? < total).then(|| {
+        format!(
+            "The patch lead reads {include} of {total} changed files, most-changed source first; without include it reads every patch."
+        )
+    })
 }
 
 /// The row's next steps ride the response's leads (one capped list), never
@@ -238,13 +259,13 @@ pub(super) fn attach_unsearched_read(
 
 /// `matchString` context the hunks cut short and the head text did not
 /// fill: the row is partial, and `next.expandContext` reads each file's
-/// wanted windows at the PR head (`headSha`).
+/// wanted windows at the PR head (`headCommitSha`).
 fn attach_context_reads(
     out: &mut Value,
     query: &HistoryItemRequest,
     clipped: &[(String, Vec<(usize, usize)>)],
 ) {
-    let Some(sha) = str_at(out, "/pullRequests/0/headSha").map(str::to_owned) else {
+    let Some(sha) = str_at(out, "/pullRequests/0/headCommitSha").map(str::to_owned) else {
         return;
     };
     if clipped.is_empty() {
@@ -282,7 +303,7 @@ fn lift_terminal_limits(out: &mut Value) {
         return;
     };
     let limited: Vec<Value> = row
-        .get_mut("contentPagination")
+        .get_mut("sectionPagination")
         .and_then(Value::as_object_mut)
         .into_iter()
         .flat_map(|pages| pages.values_mut())

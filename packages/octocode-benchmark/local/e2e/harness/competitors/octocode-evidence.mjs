@@ -10,7 +10,6 @@ const numbered = (ev, file, content) => { for (const m of String(content).matchA
 
 /** Line citations a node carries for `here` (its own path or the nearest ancestor's). */
 function nodeLines(ev, node, here) {
-  if (node.displayRange && typeof node.path === 'string') pair(ev, node.path, node.displayRange.startLine);
   // lspSearch callers: the row `line` is the caller's declaration; `sites` are the call lines.
   if (Array.isArray(node.sites)) { for (const site of node.sites) pair(ev, here, site?.line); }
   else if (typeof node.line === 'number') pair(ev, here, node.line);
@@ -69,7 +68,7 @@ function specialChild(c, key, child) {
     return true;
   }
   // `enclosing` names the declaration around a hit; its line is not a hit.
-  return key === 'from' || key === 'displayRange' || key === 'enclosing';
+  return key === 'from' || key === 'enclosing';
 }
 
 function walk(c, node, parentPath, inArray) {
@@ -79,7 +78,7 @@ function walk(c, node, parentPath, inArray) {
   const here = typeof node.path === 'string' ? node.path : parentPath;
   if (typeof node.path === 'string' && inArray) listFile(ev, node.path);
   if (typeof node.file === 'string') ev.files.add(node.file);
-  if (node.from?.path && Array.isArray(node.fromRanges)) { for (const r of node.fromRanges) pair(ev, node.from.path, r.startLine); return; }
+  if (node.from?.path && Array.isArray(node.fromRanges)) { for (const r of node.fromRanges) pair(ev, node.from.path, r.line); return; }
   nodeLines(ev, node, here);
   compactRows(ev, node, here);
   listedFiles(ev, c.tool, node);
@@ -95,8 +94,7 @@ function leaves(value, out = []) {
 
 function matchEvidence(ev, file, match) {
   if (Array.isArray(match.sites)) for (const site of match.sites) pair(ev, file, site.line);
-  // lspSearch location rows cite their range; every other row its `line`.
-  else pair(ev, file, match.line ?? match.displayRange?.startLine);
+  else pair(ev, file, match.line);
   ev.text += `${match.value ?? match.content ?? match.symbolName ?? ''}\n`;
 }
 
@@ -104,8 +102,8 @@ function lspEvidence(ev, data) {
   for (const match of data.matches ?? []) {
     const file = match.path ?? match.from?.path;
     if (file) listFile(ev, file);
-    if (match.fromRanges) for (const range of match.fromRanges) pair(ev, file, range.startLine);
-    else pair(ev, file, match.displayRange?.startLine);
+    if (match.fromRanges) for (const range of match.fromRanges) pair(ev, file, range.line);
+    else pair(ev, file, match.line);
     ev.text += `${match.content ?? ''}\n`;
   }
 }

@@ -8,13 +8,21 @@ fn assert_source_window(source: &str, want: Want, actual: &Streamed) {
         .split_inclusive('\n')
         .map(|line| {
             let body = line.trim_end_matches(['\r', '\n']);
-            let key = keys.push_line(body);
-            let text = if key {
-                format!("{}\n", crate::security::hide_key_line(body))
-            } else {
-                line.to_owned()
+            // A key line shows its text before the key and the placeholder; an
+            // armor line that holds no key text reads as written.
+            let key = keys
+                .push_line(body)
+                .then(|| crate::security::key_line_bytes(body))
+                .flatten();
+            let text = match &key {
+                Some(key) => format!(
+                    "{}{}\n",
+                    &body[..key.start],
+                    crate::security::key_fragment_placeholder()
+                ),
+                None => line.to_owned(),
             };
-            (text, key)
+            (text, key.is_some())
         })
         .collect::<Vec<_>>();
     let selected = lines

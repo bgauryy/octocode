@@ -16,7 +16,7 @@ use octocode_github::{ContentRequest, GitHubProvider, RequestContext};
 use serde_json::Value;
 
 /// The head text of every file on this page whose `matchString` hit runs
-/// need more context than its hunks hold, read at `headSha`. The request
+/// need more context than its hunks hold, read at `headCommitSha`. The request
 /// budget paces concurrent reads. `None` when no file needs it. A file the
 /// path policy withholds is not read: it counts as unread, so its clipped runs
 /// are flagged, and its patch alone stays (redacted). Each text read is

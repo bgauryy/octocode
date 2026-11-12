@@ -263,6 +263,30 @@ pub struct TextSearchOptions {
     /// Which matched lines a [`SearchOutput::Lines`] search shows as windows
     /// around their hits; `None` shows every matched line whole.
     pub row_window: Option<RowWindow>,
+    /// The text each file is searched as, in place of its bytes, when its
+    /// judge replaced any of them ([`SourceJudge`]); `None` searches every
+    /// file's bytes as they are.
+    pub judge: Option<SourceJudge>,
+}
+
+/// What a search matches of one opened file: `Ok(Some(text))` when the
+/// judge replaced some of its bytes, the file's text as a read of it serves
+/// it, line for line, so a hit's line is the file's line; `Ok(None)` when the
+/// bytes are searched as they are. A hit is then never made by bytes a read
+/// withholds, and every count, listing and file-level term sees the same
+/// text. An error leaves the file unsearched, recorded as a failed path. The
+/// judge reads the file from its start, and the search reads it again after.
+pub type JudgeSource =
+    dyn Fn(&std::path::Path, &std::fs::File) -> std::io::Result<Option<Vec<u8>>> + Send + Sync;
+
+/// A shared [`JudgeSource`].
+#[derive(Clone)]
+pub struct SourceJudge(pub std::sync::Arc<JudgeSource>);
+
+impl std::fmt::Debug for SourceJudge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SourceJudge")
+    }
 }
 
 /// How a line search shows a matched line too long for a row: one row per

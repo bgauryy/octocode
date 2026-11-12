@@ -137,7 +137,7 @@ async fn issue_comment_body_hops_list_only_unfinished_bodies() {
         let issue = &data["issues"][0];
         if let Some(text) = issue["body"].as_str() {
             if text_part != Some("/data/issues/0/body") {
-                let offset = issue["contentPagination"]["body"]["offset"]
+                let offset = issue["sectionPagination"]["body"]["offset"]
                     .as_u64()
                     .unwrap_or(0);
                 assert_eq!(
@@ -190,13 +190,13 @@ async fn issue_comment_body_hops_list_only_unfinished_bodies() {
         if let Some(next) = content["responsePagination"]["next"]["input"].as_object() {
             queue.push_back(serde_json::Value::Object(next.clone()));
         }
-        for page in data["issues"][0]["contentPagination"]
+        for section in data["issues"][0]["sectionPagination"]
             .as_object()
             .into_iter()
             .flatten()
-            .map(|(_, page)| page)
+            .map(|(section, _)| section)
         {
-            let lead = &page["next"]["nextPage"];
+            let lead = &data["issues"][0]["next"][section];
             if lead.is_object() {
                 queue.push_back(lead["input"].clone());
             }
@@ -358,11 +358,11 @@ async fn issue_comment_pages_after_an_uneven_cut_still_fill_the_budget() {
             ids.push(id);
         }
         sizes.push(serde_json::to_string(&shown).expect("json").len());
-        let page = &issue["contentPagination"]["comments"];
-        pages.push(page["page"].as_u64().expect("page number"));
-        input = page["next"]["nextPage"]["input"]
+        let page = &issue["sectionPagination"]["comments"];
+        pages.push(page["offset"].as_u64().expect("page offset"));
+        input = issue["next"]["comments"]["input"]
             .is_object()
-            .then(|| page["next"]["nextPage"]["input"].clone());
+            .then(|| issue["next"]["comments"]["input"].clone());
     }
     ids.sort_unstable();
     assert_eq!(ids, (0..TOTAL).collect::<Vec<_>>());

@@ -286,7 +286,7 @@ async fn drain_acknowledgement_is_sent_only_after_shutdown() {
         .write_all(b"{\"stop\":true,\"drain\":true}\n")
         .await
         .unwrap();
-    super::super::daemon::handle(&daemon, server, "stop-test".into()).await;
+    super::super::daemon::handle(&daemon, server, "stop-test".into(), || {}).await;
     let mut byte = [0];
     assert!(
         tokio::time::timeout(Duration::from_millis(20), client.read(&mut byte))

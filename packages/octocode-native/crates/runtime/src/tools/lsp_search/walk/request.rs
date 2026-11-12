@@ -220,7 +220,7 @@ pub(in crate::tools::lsp_search) async fn hierarchy(
             "lsp": {"serverAvailable": true},
             "operation": lsp_search_query::operation(query),
             "files": [],
-            "pagination": {"page": 1, "totalPages": 1, "totalItems": 0, "hasMore": false}
+            "pagination": crate::response::pages::PageFacts::counted(0, 0, 0).to_value()
         })
     } else {
         call_items_payload(
@@ -287,8 +287,8 @@ fn production_first(items: &mut [Value], paths: &PathPolicy) {
         .map(uri_to_path)
         .unwrap_or_default();
         let line = item
-            .pointer("/from/displayRange/startLine")
-            .or_else(|| item.pointer("/fromRanges/0/startLine"))
+            .pointer("/from/line")
+            .or_else(|| item.pointer("/fromRanges/0/line"))
             .and_then(Value::as_u64)
             .map(octocode_engine::num::saturating_u32);
         let file = std::path::Path::new(&file);
@@ -313,7 +313,7 @@ fn caller_sites(items: &[Value]) -> impl Iterator<Item = (String, u32)> + '_ {
                 .and_then(Value::as_str)?;
             let ranges = item["fromRanges"].as_array()?;
             Some(ranges.iter().filter_map(move |range| {
-                let line = range["startLine"].as_u64()?.checked_sub(1)?;
+                let line = range["line"].as_u64()?.checked_sub(1)?;
                 Some((path.to_owned(), u32::try_from(line).ok()?))
             }))
         })
@@ -414,7 +414,7 @@ mod tests {
         std::fs::write(root.join("src/prod.rs"), "fn p() { crate::a(); }\n").expect("prod");
         let at = |file: &str, line: u64| {
             json!({"from": {"path": root.join(file).to_string_lossy(),
-                "displayRange": {"startLine": line}}, "level": 1})
+                "line": line}, "level": 1})
         };
         let mut items = vec![
             at("src/helpers.rs", 1),

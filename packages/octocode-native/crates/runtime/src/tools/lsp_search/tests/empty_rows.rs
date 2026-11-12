@@ -61,7 +61,7 @@ fn empty_and_failed_rows_keep_acquisition_separate_from_retry() {
             .expect("valid public channels");
     }
     let root =
-        query(json!({"operation":"workspaceSymbol","workspaceRoot":"/repo","symbolQuery":"run"}));
+        query(json!({"operation":"workspaceSymbol","workspaceRoot":"/repo","symbolFuzzy":"run"}));
     let row = with_next(
         &root,
         items_payload(&root, "symbols", json!([]), TEST_BUDGET),

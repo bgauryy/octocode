@@ -11,12 +11,19 @@ const BINARY_EXTENSIONS: &[&str] = &[
     "wav", "webm", "webp", "woff", "woff2", "xz", "zip",
 ];
 
+/// Git's object ids of the empty blob (SHA-1 and SHA-256 repositories).
+const EMPTY_BLOB_IDS: [&str; 2] = [
+    "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813",
+];
+
 /// Why a changed file has no provider patch, or `None` when there is nothing
-/// to diff (a pure rename). `tooLarge`: GitHub omits a single oversized diff
-/// but still counts its lines. `binary`: a binary extension. `omitted`:
-/// GitHub sent neither patch nor line counts — binary, empty, or past the
-/// PR's total diff budget — so `additions`/`deletions` of 0 are not evidence
-/// of an unchanged file; read the file at `headSha` instead.
+/// to diff: a pure rename, or an empty file (its blob is git's empty blob, so
+/// its 0/0 is the whole change). `tooLarge`: GitHub omits a single oversized
+/// diff but still counts its lines. `binary`: a binary extension. `omitted`:
+/// GitHub sent neither patch nor line counts — binary or past the PR's total
+/// diff budget — so `additions`/`deletions` of 0 are not evidence of an
+/// unchanged file; read the file at `headCommitSha` instead.
 pub(in crate::tools::gh_get_history_item) fn missing_patch_reason(
     file: &Value,
 ) -> Option<&'static str> {
@@ -24,7 +31,9 @@ pub(in crate::tools::gh_get_history_item) fn missing_patch_reason(
     if changes > 0 {
         return Some("tooLarge");
     }
-    if str_at(file, "/status") == Some("renamed") {
+    if str_at(file, "/status") == Some("renamed")
+        || str_at(file, "/sha").is_some_and(|sha| EMPTY_BLOB_IDS.contains(&sha))
+    {
         return None;
     }
     let name = str_at(file, "/filename").unwrap_or("");

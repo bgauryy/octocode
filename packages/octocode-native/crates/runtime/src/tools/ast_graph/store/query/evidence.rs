@@ -43,7 +43,7 @@ impl Query<'_> {
         id: u32,
         seen: &mut std::collections::HashMap<u32, bool>,
     ) -> Result<bool, GraphOutput> {
-        let Some(wanted) = self.options.name.as_deref() else {
+        let Some(wanted) = self.options.symbol_name.as_deref() else {
             return Ok(true);
         };
         if let Some(&admitted) = seen.get(&id) {
@@ -117,7 +117,7 @@ impl Query<'_> {
                     let mut row = json!({
                         "from": self.g.key(edge.src), "to": self.g.key(edge.dst),
                         "edge": edge.kind.as_str(), "detail": detail,
-                        "file": file,
+                        "path": file,
                         "line": (edge.line != NONE).then_some(edge.line), "confidence": edge.confidence.as_str(),
                         "sourceDigest": source_digest,
                         "sourceRange": range, "sourceOrigin": origin.value,
@@ -174,7 +174,7 @@ impl Query<'_> {
                     let mut row = json!({
                         "from": self.g.key(site.src), "targetName": callee,
                         "edge": site.relation.as_str(),
-                        "file": file,
+                        "path": file,
                         "line": site.line, "reason": reason,
                         "sourceDigest": source_digest,
                         "sourceRange": range, "sourceOrigin": origin.value,
@@ -257,7 +257,7 @@ fn argument_fields(
             )
         })?;
     let range = sources::range;
-    let file = row["file"].as_str().unwrap_or_default().to_owned();
+    let file = row["path"].as_str().unwrap_or_default().to_owned();
     let digest = row["sourceDigest"].as_str().unwrap_or_default().to_owned();
     let origin = |reference| {
         graph

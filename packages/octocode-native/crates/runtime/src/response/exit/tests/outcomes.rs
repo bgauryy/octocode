@@ -65,7 +65,7 @@ fn outcomes_classify_by_their_rows() {
             ExitClass::InvalidInput,
         ),
         (
-            json!({"results":[row("error", "pathNotFound")]}),
+            json!({"results":[row("error", "notFound")]}),
             Some(FailureKind::NotFound),
             true,
             ExitClass::Failed(FailureKind::NotFound),
@@ -86,13 +86,13 @@ fn a_batch_ends_like_its_worst_row() {
     assert_classes([
         // No row succeeded, so the batch failed like its error rows.
         (
-            json!({"results":[row("empty", ""), row("error", "pathNotFound")]}),
+            json!({"results":[row("empty", ""), row("error", "notFound")]}),
             None,
             false,
             ExitClass::Failed(FailureKind::NotFound),
         ),
         (
-            json!({"results":[row("empty", ""), row("error", "pathNotFound"),
+            json!({"results":[row("empty", ""), row("error", "notFound"),
                     row("error", "fileAccessFailed")]}),
             None,
             false,
@@ -101,25 +101,25 @@ fn a_batch_ends_like_its_worst_row() {
         // A failed row is never hidden by an answering one, whichever
         // order the batch lists them in.
         (
-            json!({"results":[{"data":{}}, row("error", "pathNotFound")]}),
+            json!({"results":[{"data":{}}, row("error", "notFound")]}),
             None,
             false,
             ExitClass::Failed(FailureKind::NotFound),
         ),
         (
-            json!({"results":[row("error", "pathNotFound"), {"data":{}}]}),
+            json!({"results":[row("error", "notFound"), {"data":{}}]}),
             None,
             false,
             ExitClass::Failed(FailureKind::NotFound),
         ),
         (
-            json!({"results":[page_row(), row("error", "pathNotFound")]}),
+            json!({"results":[page_row(), row("error", "notFound")]}),
             None,
             false,
             ExitClass::Failed(FailureKind::NotFound),
         ),
         (
-            json!({"results":[{"data":{}}, row("error", "pathNotFound"),
+            json!({"results":[{"data":{}}, row("error", "notFound"),
                     row("error", "fileAccessFailed")]}),
             None,
             false,
@@ -127,13 +127,13 @@ fn a_batch_ends_like_its_worst_row() {
         ),
         // A rejected row outranks every failed row (the documented 2).
         (
-            json!({"results":[row("error", "pathNotFound"), row("error", "invalidInput")]}),
+            json!({"results":[row("error", "notFound"), row("error", "invalidInput")]}),
             None,
             false,
             ExitClass::InvalidInput,
         ),
         (
-            json!({"results":[row("error", "invalidInput"), row("error", "pathNotFound")]}),
+            json!({"results":[row("error", "invalidInput"), row("error", "notFound")]}),
             None,
             false,
             ExitClass::InvalidInput,

@@ -2,10 +2,10 @@ use super::*;
 
 #[test]
 fn missing_local_path_is_not_found_other_errors_are_execution() {
-    assert_eq!(failure_kind(ErrorCode::PathNotFound), FailureKind::NotFound);
+    assert_eq!(failure_kind(ErrorCode::NotFound), FailureKind::NotFound);
     assert_eq!(failure_kind(ErrorCode::NotFound), FailureKind::NotFound);
     assert_eq!(
-        failure_kind(ErrorCode::VersionNotFound),
+        failure_kind(ErrorCode::NotFound),
         FailureKind::NotFound
     );
     assert_eq!(
@@ -46,7 +46,7 @@ fn a_row_failed_after_execution_exits_by_its_code() {
 fn a_failed_batch_with_a_rejected_row_is_invalid_input() {
     let rows = json!({"results":[
         {"status":"error","data":{"errorCode":"invalidPattern"}},
-        {"status":"error","data":{"errorCode":"pathNotFound"}}
+        {"status":"error","data":{"errorCode":"notFound"}}
     ]});
     for failure in [
         Some(FailureKind::Execution),

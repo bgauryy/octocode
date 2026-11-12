@@ -24,6 +24,33 @@ const MAX_PROPERTIES = 25;
 const MAX_TEXT = 200;
 const STACK_DEPTH = 15;
 
+/** Each flag's effect on the options, given its value. */
+const FLAGS = {
+	"--break": (options, value) => {
+		const match = /^(.*?):(\d+)(?::(.*))?$/.exec(value);
+		if (!match) fail(`--break ${value}: expected file:line or file:line:condition`);
+		const file = path.resolve(match[1]);
+		const line = Number(match[2]);
+		if (options.breaks.some((b) => b.file === file && b.line === line))
+			fail(`--break ${value}: one breakpoint per line; join the conditions with || or &&`);
+		options.breaks.push({ file, line, condition: match[3] ?? "" });
+	},
+	"--eval": (options, value) => options.evals.push(value),
+	"--exceptions": (options, value) => {
+		if (value !== "all" && value !== "uncaught") fail("--exceptions: all or uncaught");
+		options.exceptions = value;
+	},
+	"--steps": (options, value) => (options.steps = count("--steps", value)),
+	"--max-hits": (options, value) => (options.maxHits = count("--max-hits", value)),
+	"--timeout": (options, value) => (options.timeout = count("--timeout", value)),
+};
+
+function count(flag, value) {
+	const number = Number(value);
+	if (!Number.isFinite(number) || number < 0) fail(`${flag}: a non-negative number`);
+	return number;
+}
+
 function parseArgs(argv) {
 	const options = { breaks: [], evals: [], exceptions: "none", steps: 0, maxHits: 20, timeout: 30, command: [] };
 	const split = argv.indexOf("--");
@@ -37,21 +64,9 @@ function parseArgs(argv) {
 		const flag = flags[i];
 		const value = flags[++i];
 		if (value === undefined) fail(`${flag} needs a value`);
-		if (flag === "--break") {
-			const match = /^(.*?):(\d+)(?::(.*))?$/.exec(value);
-			if (!match) fail(`--break ${value}: expected file:line or file:line:condition`);
-			const same = options.breaks.find((b) => b.file === path.resolve(match[1]) && b.line === Number(match[2]));
-			if (same) fail(`--break ${value}: one breakpoint per line; join the conditions with || or &&`);
-			options.breaks.push({ file: path.resolve(match[1]), line: Number(match[2]), condition: match[3] ?? "" });
-		} else if (flag === "--eval") options.evals.push(value);
-		else if (flag === "--exceptions") {
-			if (value !== "all" && value !== "uncaught") fail("--exceptions: all or uncaught");
-			options.exceptions = value;
-		} else if (flag === "--steps" || flag === "--max-hits" || flag === "--timeout") {
-			const number = Number(value);
-			if (!Number.isFinite(number) || number < 0) fail(`${flag}: a non-negative number`);
-			options[flag === "--steps" ? "steps" : flag === "--max-hits" ? "maxHits" : "timeout"] = number;
-		} else fail(`unknown option ${flag}\n${USAGE}`);
+		const apply = Object.hasOwn(FLAGS, flag) ? FLAGS[flag] : undefined;
+		if (!apply) fail(`unknown option ${flag}\n${USAGE}`);
+		apply(options, value);
 	}
 	return options;
 }
@@ -117,7 +132,10 @@ class Target {
 		});
 	}
 	receive(message) {
-		if (message.id === undefined) return void onEvent(this, message).catch(report);
+		if (message.id === undefined) {
+			onEvent(this, message).catch(report);
+			return;
+		}
 		const waiter = this.pending.get(message.id);
 		this.pending.delete(message.id);
 		if (message.error) waiter?.reject(new Error(`${message.error.message}`));

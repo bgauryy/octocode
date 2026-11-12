@@ -64,6 +64,17 @@ fn every_misuse_shape_gets_a_one_line_repair() {
             json!({"queries":[{"path":".","matchstring":["x"]}]}),
             "Unknown field 'matchstring' in queries[0]; use 'matchString'.",
         ),
+        // A former name inside a nested object names its field there.
+        (
+            "ghSearchRepo",
+            json!({"queries":[{"operation":"search","keywords":["x"],"filters":{"forkCount":{"min":5}}}]}),
+            "Unknown field 'forkCount' in queries[0].filters; use 'forks'.",
+        ),
+        (
+            "ghSearchHistory",
+            json!({"queries":[{"operation":"issue","owner":"o","repo":"r","keywords":["x"],"filters":{"commentCount":{"min":1}}}]}),
+            "Unknown field 'commentCount' in queries[0].filters; use 'commentsCount'.",
+        ),
         (
             "localSearch",
             json!({"queries":[{"path":".","matchString":["x"],"view":"file"}]}),
@@ -116,8 +127,8 @@ fn every_misuse_shape_gets_a_one_line_repair() {
         ),
         (
             "lspSearch",
-            json!({"queries":[{"operation":"definition","path":"a.ts","symbolName":"x","line":1,"symbolQuery":"y"}]}),
-            r#"'symbolQuery' is not allowed in this form of queries[0]; it requires operation:"workspaceSymbol"."#,
+            json!({"queries":[{"operation":"definition","path":"a.ts","symbolName":"x","line":1,"symbolFuzzy":"y"}]}),
+            r#"'symbolFuzzy' is not allowed in this form of queries[0]; it requires operation:"workspaceSymbol"."#,
         ),
         (
             // A form-specific field names the selector that admits it, not the

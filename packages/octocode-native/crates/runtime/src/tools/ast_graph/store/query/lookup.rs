@@ -2,6 +2,83 @@
 //! re-export users; plus the edge filter a walk follows.
 use super::*;
 
+/// `path` (a snapshot key, `..` for a config file above the scope) named from
+/// the directory `root` names, lexically: `app` and `../package.json` are
+/// `package.json`. An absolute `path` names itself.
+fn join(root: &str, path: &str) -> String {
+    if path.starts_with('/') {
+        return path.to_owned();
+    }
+    let mut parts: Vec<&str> = root
+        .split('/')
+        .filter(|part| !part.is_empty() && *part != ".")
+        .collect();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." if parts.last().is_some_and(|last| *last != "..") => {
+                parts.pop();
+            }
+            part => parts.push(part),
+        }
+    }
+    let joined = parts.join("/");
+    match (root.starts_with('/'), joined.is_empty()) {
+        (true, _) => format!("/{joined}"),
+        (false, true) => ".".to_owned(),
+        (false, false) => joined,
+    }
+}
+
+/// Answer fields whose values name nodes, directories or findings (a key,
+/// a list of keys, or rows): the ones that name a snapshot file or directory
+/// are restated from the workspace ([`Graph::rebase_paths`]).
+const REFERENCE_FIELDS: [&str; 13] = [
+    "id",
+    "subject",
+    "from",
+    "to",
+    "target",
+    "members",
+    "dirs",
+    "nodes",
+    "rows",
+    "files",
+    "reachedFrom",
+    "affectedEntrypoints",
+    "testsToRun",
+];
+
+/// Answer fields whose values are `path:line` mentions (a list, or lists
+/// keyed by export name): each path is a file's, restated from the
+/// workspace whether or not the snapshot holds it (a README, a script).
+const MENTION_FIELDS: [&str; 2] = ["mentionedIn", "textMentions"];
+
+/// Each `path:line` mention under `value` with its path restated from the
+/// workspace.
+fn rebase_mentions(value: &mut Value, root: &str) {
+    match value {
+        Value::String(mention) => {
+            let (path, line) = mention
+                .rsplit_once(':')
+                .filter(|(_, line)| !line.is_empty() && line.bytes().all(|b| b.is_ascii_digit()))
+                .map_or((mention.as_str(), None), |(path, line)| (path, Some(line)));
+            let path = join(root, path);
+            *mention = match line {
+                Some(line) => format!("{path}:{line}"),
+                None => path,
+            };
+        }
+        Value::Array(items) => items
+            .iter_mut()
+            .for_each(|item| rebase_mentions(item, root)),
+        Value::Object(fields) => fields
+            .values_mut()
+            .for_each(|item| rebase_mentions(item, root)),
+        _ => {}
+    }
+}
+
 impl Graph {
     pub(super) fn node_record(
         &self,
@@ -62,25 +139,6 @@ impl Graph {
         self.key(self.file_of(id))
             .rsplit_once('/')
             .map_or(".", |(dir, _)| dir)
-    }
-
-    /// The file part of a symbol key `<file>#<qualified name>`: the longest
-    /// `#`-prefix that is a file node's key, since a file path may hold `#`
-    /// (`x.ts#y.ts#f` lies in `x.ts#y.ts` beside a file `x.ts`), while a
-    /// name holds one only after its file (`mod.rs#r#type`). Else the text
-    /// before the first `#`; `None` for a key with no `#`.
-    pub(super) fn file_key<'k>(&self, key: &'k str) -> Option<&'k str> {
-        let cuts = key
-            .match_indices('#')
-            .filter_map(|(at, _)| key.get(..at))
-            .collect::<Vec<_>>();
-        let first = *cuts.first()?;
-        let is_file = |file: &&str| {
-            self.t
-                .by_key(file)
-                .is_some_and(|id| self.t.nodes[id as usize].kind == NodeKind::File)
-        };
-        Some(cuts.into_iter().rev().find(is_file).unwrap_or(first))
     }
 
     pub(super) fn node_json(
@@ -150,9 +208,10 @@ impl Graph {
                         out.insert("parseAssessment".into(), assessment);
                     }
                 }
-                out.insert("name".into(), json!(self.t.str(node.name)));
-                out.insert("symbolKind".into(), json!(detail));
-                out.insert("file".into(), json!(self.key(node.file)));
+                out.insert("symbolName".into(), json!(self.t.str(node.name)));
+                // A symbol's kind is its declaration's (function, class, …).
+                out.insert("kind".into(), json!(detail));
+                out.insert("path".into(), json!(self.key(node.file)));
                 out.insert("line".into(), json!(node.line));
                 if node.end_line != node.line {
                     out.insert("endLine".into(), json!(node.end_line));
@@ -169,64 +228,6 @@ impl Graph {
             }
         }
         Ok(out)
-    }
-
-    /// The lspSearch call that confirms a symbol's identity and uses at its
-    /// declaration: graph rows are syntax candidates. The symbol name is the
-    /// declared identifier (a member's last segment); `None` without a line.
-    pub(super) fn lsp_lead(&self, file: &str, name: &str, line: u64) -> Option<Value> {
-        if line == 0 || line >= u64::from(NONE) {
-            return None;
-        }
-        let identifier = name
-            .rsplit(['.', ':'])
-            .find(|part| !part.is_empty())
-            .unwrap_or(name);
-        let row = json!({
-            "operation": "references",
-            "path": self.workspace_path(file),
-            "symbolName": identifier,
-            "line": line,
-        });
-        Some(
-            crate::response::result::Continuation::related(crate::id::ToolId::LspSearch, row)
-                .build(),
-        )
-    }
-
-    /// The lspSearch call that confirms an edge row's edge: references of
-    /// the symbol the edge points to, at its declaration. The edge holds
-    /// when one of them lies at the row's `edgeLine` inside the symbol the
-    /// edge leaves. `None` for a containment edge or an edge into a file or
-    /// package: such a row keeps its own declaration's lead.
-    pub(super) fn edge_lead(
-        &self,
-        edge: &EdgeRec,
-        cancel: &dyn crate::execution::cancel::CancellationCheck,
-    ) -> Result<Option<Value>, GraphOutput> {
-        if edge.kind == EdgeKind::Contains {
-            return Ok(None);
-        }
-        let target = self.node_record(edge.dst, cancel)?;
-        if target.kind != NodeKind::Symbol {
-            return Ok(None);
-        }
-        Ok(self.lsp_lead(
-            self.key(target.file),
-            self.t.str(target.name),
-            u64::from(target.line),
-        ))
-    }
-
-    /// A root-relative key as the workspace-relative path tools take;
-    /// absolute when the snapshot records no workspace holding its root.
-    pub(super) fn workspace_path(&self, key: &str) -> String {
-        let root = Path::new(self.manifest["root"].as_str().unwrap_or_default());
-        let base = self.manifest["workspace"]
-            .as_str()
-            .and_then(|workspace| root.strip_prefix(workspace).ok())
-            .unwrap_or(root);
-        octocode_engine::text::slash_path(&base.join(key))
     }
 
     pub(super) fn edge_fields(&self, out: &mut Map<String, Value>, edge: &EdgeRec) {
@@ -246,22 +247,89 @@ impl Graph {
         }
     }
 
-    /// The snapshot every answer names. Files the scan skipped as
-    /// unreadable or oversized leave every answer partial: `partialReasons`
-    /// names the cut. A snapshot bound is no cut: a build past one is
-    /// refused, never published.
-    pub(super) fn summary(&self) -> Value {
-        // The scope is named relative to the workspace, as graphBuild states it.
+    /// The scope named relative to the workspace, as graphBuild states it;
+    /// absolute when it lies outside the workspace.
+    pub(super) fn shown_root(&self) -> String {
         let root = self.manifest["root"].as_str().unwrap_or_default();
-        let shown = self.manifest["workspace"]
+        self.manifest["workspace"]
             .as_str()
             .and_then(|workspace| Path::new(root).strip_prefix(workspace).ok())
             .map(|relative| match relative.as_os_str().is_empty() {
                 true => ".".to_owned(),
                 false => octocode_engine::text::slash_path(relative),
             })
-            .unwrap_or_else(|| root.to_owned());
-        let mut out = json!({"id": self.id, "root": shown, "createdAt": self.manifest["createdAt"]});
+            .unwrap_or_else(|| root.to_owned())
+    }
+
+    /// States every file reference of an answer from the workspace root, as
+    /// every local tool names a file: the snapshot keys files from its own
+    /// root (`graph.root`). Each `path`, and each reference field
+    /// ([`REFERENCE_FIELDS`]) that names a snapshot file or directory, is
+    /// restated; node ids that are ids (a symbol's `file#name`, a package's
+    /// `pkg:` key) and finding ids stay as they are. Calls (`next`,
+    /// `related`) carry request paths, which already name the workspace.
+    pub(super) fn rebase_paths(&self, value: &mut Value) {
+        let root = self.shown_root();
+        if root != "." {
+            self.rebase(value, &root);
+        }
+    }
+
+    fn rebase(&self, value: &mut Value, root: &str) {
+        match value {
+            Value::Array(items) => items.iter_mut().for_each(|item| self.rebase(item, root)),
+            Value::Object(object) => {
+                for (key, item) in object.iter_mut() {
+                    match (key.as_str(), item) {
+                        ("path", Value::String(path)) => *path = join(root, path),
+                        ("next" | "related" | "graph", _) => {}
+                        (key, item) if REFERENCE_FIELDS.contains(&key) => {
+                            self.rebase_reference(item, root);
+                        }
+                        (key, item) if MENTION_FIELDS.contains(&key) => rebase_mentions(item, root),
+                        (_, item) => self.rebase(item, root),
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// A reference field's value: a key, a list of keys, or an object (a
+    /// node, a hop) whose own fields say what they hold.
+    fn rebase_reference(&self, value: &mut Value, root: &str) {
+        match value {
+            Value::String(key) if self.names_path(key) => *key = join(root, key),
+            Value::Array(items) => items
+                .iter_mut()
+                .for_each(|item| self.rebase_reference(item, root)),
+            Value::Object(_) => self.rebase(value, root),
+            _ => {}
+        }
+    }
+
+    /// Whether `key` names a snapshot file, or a directory holding one (a
+    /// module; `.` is the root): a path, not an opaque id.
+    fn names_path(&self, key: &str) -> bool {
+        if key == "." {
+            return true;
+        }
+        if let Some(id) = self.t.by_key(key) {
+            return self.t.nodes[id as usize].kind == NodeKind::File;
+        }
+        let prefix = format!("{}/", key.trim_end_matches('/'));
+        let keys = &self.t.key_index;
+        let at = keys.partition_point(|id| self.key(*id) < prefix.as_str());
+        keys.get(at)
+            .is_some_and(|id| self.key(*id).starts_with(&prefix))
+    }
+
+    /// The snapshot every answer names. Files the scan skipped as
+    /// unreadable or oversized leave every answer partial: `partialReasons`
+    /// names the cut. A snapshot bound is no cut: a build past one is
+    /// refused, never published.
+    pub(super) fn summary(&self) -> Value {
+        let mut out = json!({"id": self.id, "root": self.shown_root(), "createdAt": self.manifest["createdAt"]});
         if self.manifest["scan"]["filesSkipped"].as_u64().unwrap_or(0) > 0 {
             crate::response::paging::mark_partial(
                 &mut out,
@@ -351,5 +419,27 @@ impl EdgeFilter {
     pub(super) fn production(mut self) -> Self {
         self.tests = false;
         self
+    }
+}
+
+#[cfg(test)]
+mod join_tests {
+    /// A snapshot key named from the workspace root: the scope joined in,
+    /// a config file above the scope folded in, an outside scope kept whole.
+    #[test]
+    fn a_key_joins_its_scope_lexically() {
+        for (root, key, shown) in [
+            (
+                "packages/cli",
+                "src/json-schema.ts",
+                "packages/cli/src/json-schema.ts",
+            ),
+            ("app", "../package.json", "package.json"),
+            ("a/b", "../../../x.json", "../x.json"),
+            ("/outside/scope", "src/a.ts", "/outside/scope/src/a.ts"),
+            ("app", "/abs/a.ts", "/abs/a.ts"),
+        ] {
+            assert_eq!(super::join(root, key), shown, "{root} + {key}");
+        }
     }
 }

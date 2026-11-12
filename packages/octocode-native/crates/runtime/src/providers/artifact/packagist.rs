@@ -25,6 +25,13 @@ fn abandoned(row: &serde_json::Map<String, Value>) -> Option<String> {
     }
 }
 
+/// Composer's order: release numbers, then a dev, alpha, beta or RC
+/// release before the stable one before a patch release.
+pub(super) const ORDER: super::versions::VersionOrder = super::versions::VersionOrder {
+    cmp: |left, right| super::versions::cmp_segmented(left, right, |value| !is_stable(value)),
+    prerelease: |value| !is_stable(value),
+};
+
 /// Composer's `VersionParser::parseStability`: a version is stable unless it is
 /// a dev branch or ends in an alpha, beta or RC modifier. `patch`, `pl` and `p`
 /// modifiers are stable.

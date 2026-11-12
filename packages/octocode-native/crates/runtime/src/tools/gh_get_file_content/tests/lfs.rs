@@ -36,10 +36,17 @@ async fn a_pointer_blob_warns_with_its_object_size_and_stays_as_served() {
 #[test]
 fn the_media_link_encodes_each_path_segment() {
     let pointer = crate::tools::gh_get_file_content::lfs::Pointer { size: 5 };
-    let warning =
-        crate::tools::gh_get_file_content::lfs::warning(&pointer, "a", "b", "main", "dir/pp file#1?.bin");
+    let warning = crate::tools::gh_get_file_content::lfs::warning(
+        &pointer,
+        "a",
+        "b",
+        "main",
+        "dir/pp file#1?.bin",
+    );
     assert!(
-        warning.ends_with("https://media.githubusercontent.com/media/a/b/main/dir/pp%20file%231%3F.bin"),
+        warning.ends_with(
+            "https://media.githubusercontent.com/media/a/b/main/dir/pp%20file%231%3F.bin"
+        ),
         "{warning}"
     );
 }

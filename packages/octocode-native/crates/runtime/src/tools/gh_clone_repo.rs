@@ -170,9 +170,12 @@ pub struct CloneContext<'a> {
 #[serde(rename_all = "camelCase")]
 pub struct CloneLocation {
     pub kind: &'static str,
-    pub local_path: String,
+    /// The checkout directory the local tools take.
+    pub path: String,
     pub commit_sha: String,
-    pub resolved_ref: String,
+    /// The branch or tag resolved to `commitSha`, else that commit.
+    #[serde(rename = "ref")]
+    pub ref_: String,
     /// Sparse checkouts name every requested path.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub requested_paths: Option<Vec<String>>,
@@ -339,7 +342,7 @@ pub async fn run(
         .off_runtime(move |context| execute_prepared(&pinned, context))
         .await
         .map_err(CloneFailure::from)?;
-    result.location.resolved_ref = pin.label;
+    result.location.ref_ = pin.label;
     if pin.renamed {
         result
             .warnings

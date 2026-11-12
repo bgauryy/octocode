@@ -168,7 +168,7 @@ async fn qualifiers_reach_the_search_query() {
         .await;
     let out = run(
         &server,
-        json!({"operation":"search","owner":"o","filters":{"forkCount":{"min":51},"goodFirstIssueCount":{"min":3}}}),
+        json!({"operation":"search","owner":"o","filters":{"forks":{"min":51},"goodFirstIssueCount":{"min":3}}}),
     )
     .await
     .expect("qualified search");

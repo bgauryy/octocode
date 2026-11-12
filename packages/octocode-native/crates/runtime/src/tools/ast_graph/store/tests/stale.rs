@@ -29,7 +29,7 @@ fn config_inputs_make_a_snapshot_stale_and_rebuild_fresh() {
         stale_rows(dir.0.as_path()),
         (
             json!(false),
-            json!([{"file": "tsconfig.json", "status": "changed", "config": true}])
+            json!([{"path": "app/tsconfig.json", "status": "changed", "config": true}])
         )
     );
     let rebuilt = ingest_fixture(dir.0.as_path(), None);
@@ -44,8 +44,8 @@ fn config_inputs_make_a_snapshot_stale_and_rebuild_fresh() {
     assert_eq!(
         stale_rows(dir.0.as_path()).1,
         json!([
-            {"file": "../package.json", "status": "missing", "config": true},
-            {"file": "package.json", "status": "added", "config": true},
+            {"path": "package.json", "status": "missing", "config": true},
+            {"path": "app/package.json", "status": "added", "config": true},
         ])
     );
     assert_fresh_build(&ingest_fixture(dir.0.as_path(), None));
@@ -68,8 +68,8 @@ fn stale_reports_sources_added_since_ingest() {
     assert_eq!(
         out.value["rows"],
         json!([
-            {"file": "src/deep/new/y.ts", "status": "added"},
-            {"file": "src/z.ts", "status": "added"},
+            {"path": "app/src/deep/new/y.ts", "status": "added"},
+            {"path": "app/src/z.ts", "status": "added"},
         ])
     );
     let reingest = &out.value["reingest"];
@@ -234,7 +234,7 @@ fn an_equal_input_proof_reads_no_config() {
         stale_rows(dir.0.as_path()),
         (
             json!(false),
-            json!([{"file": "tsconfig.json", "status": "changed", "config": true}])
+            json!([{"path": "app/tsconfig.json", "status": "changed", "config": true}])
         )
     );
 }
@@ -250,7 +250,7 @@ fn a_same_size_config_edit_with_mtime_restored_is_stale() {
     );
     assert_eq!(
         stale_rows(dir.0.as_path()).1,
-        json!([{"file": "tsconfig.json", "status": "changed", "config": true}])
+        json!([{"path": "app/tsconfig.json", "status": "changed", "config": true}])
     );
 }
 
@@ -262,7 +262,7 @@ fn an_ancestor_or_ignored_config_edit_is_stale() {
     rewrite_keeping_mtime(&dir.0.as_path().join("package.json"), "{\"name\":\"rep0\"}");
     assert_eq!(
         stale_rows(dir.0.as_path()).1,
-        json!([{"file": "../package.json", "status": "changed", "config": true}])
+        json!([{"path": "package.json", "status": "changed", "config": true}])
     );
     let dir = proven_fixture();
     rewrite_keeping_mtime(
@@ -271,7 +271,7 @@ fn an_ancestor_or_ignored_config_edit_is_stale() {
     );
     assert_eq!(
         stale_rows(dir.0.as_path()).1,
-        json!([{"file": "requirements.txt", "status": "changed", "config": true}])
+        json!([{"path": "app/requirements.txt", "status": "changed", "config": true}])
     );
 }
 
@@ -283,7 +283,7 @@ fn a_same_size_source_edit_with_mtime_restored_is_stale() {
     rewrite_keeping_mtime(&source, &text.replace("a()", "c()"));
     assert_eq!(
         stale_rows(dir.0.as_path()).1,
-        json!([{"file": "src/b.ts", "status": "changed"}])
+        json!([{"path": "app/src/b.ts", "status": "changed"}])
     );
 }
 
@@ -293,7 +293,7 @@ fn a_source_added_under_a_proven_snapshot_is_stale() {
     dir.write("app/src/z.ts", "export const z = 1;\n");
     assert_eq!(
         stale_rows(dir.0.as_path()).1,
-        json!([{"file": "src/z.ts", "status": "added"}])
+        json!([{"path": "app/src/z.ts", "status": "added"}])
     );
 }
 
@@ -305,19 +305,19 @@ fn configs_added_or_removed_under_a_proven_snapshot_are_stale() {
     dir.write("app/src/go.mod", "module x\n");
     assert_eq!(
         stale_rows(dir.0.as_path()).1,
-        json!([{"file": "src/go.mod", "status": "added", "config": true}])
+        json!([{"path": "app/src/go.mod", "status": "added", "config": true}])
     );
     let dir = proven_fixture();
     dir.write("app/compile_commands.json", "[]\n");
     assert_eq!(
         stale_rows(dir.0.as_path()).1,
-        json!([{"file": "compile_commands.json", "status": "added", "config": true}])
+        json!([{"path": "app/compile_commands.json", "status": "added", "config": true}])
     );
     let dir = proven_fixture();
     std::fs::remove_file(dir.0.as_path().join("package.json")).expect("remove");
     assert_eq!(
         stale_rows(dir.0.as_path()).1,
-        json!([{"file": "../package.json", "status": "missing", "config": true}])
+        json!([{"path": "package.json", "status": "missing", "config": true}])
     );
 }
 
@@ -329,7 +329,7 @@ fn a_moved_repository_root_is_stale_under_a_proof() {
     std::fs::remove_dir_all(dir.0.as_path().join(".git")).expect("remove marker");
     assert_eq!(
         stale_rows(dir.0.as_path()).1,
-        json!([{"file": "../package.json", "status": "missing", "config": true}])
+        json!([{"path": "package.json", "status": "missing", "config": true}])
     );
 }
 

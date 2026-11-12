@@ -44,7 +44,7 @@ export async function listFiles(root, emit) {
       onPage: (page, n) => {
         const rows = rowsOf([page], 'files').flatMap((g) => (g.files ?? []).map((f) => relative(root, resolve(g.dir, f))));
         files.push(...rows);
-        emit({ type: 'skeleton', files: rows, page: n, total: page.results?.[0]?.data?.pagination?.totalItems });
+        emit({ type: 'skeleton', files: rows, page: n, total: page.results?.[0]?.data?.pagination?.total });
       },
     });
   } catch (error) {
@@ -71,8 +71,8 @@ export function manifestName(root, dir) {
 function rebase(kind, rows, prefix) {
   const p = (id) => (typeof id === 'string' && !id.startsWith('pkg:') ? prefix + id : id);
   if (kind === 'files') return rows.map((n) => ({ id: p(n.id), language: n.language, roles: n.roles ?? [] }));
-  if (kind === 'symbols') return rows.map((x) => ({ id: p(x.id), file: p(x.file), name: x.name, kind: x.symbolKind, line: x.line, endLine: x.endLine, exported: !!x.exported }));
-  return rows.map((w) => ({ edge: w.edge, from: p(w.from), to: p(w.to), file: p(w.file), line: w.line, confidence: w.confidence, detail: w.detail, test: !!w.test }));
+  if (kind === 'symbols') return rows.map((x) => ({ id: p(x.id), file: p(x.path), name: x.symbolName, kind: x.kind, line: x.line, endLine: x.endLine, exported: !!x.exported }));
+  return rows.map((w) => ({ edge: w.edge, from: p(w.from), to: p(w.to), file: p(w.path), line: w.line, confidence: w.confidence, detail: w.detail, test: !!w.test }));
 }
 
 // One chunk's snapshot and graph pages; `ctx.datas` receives its data. A chunk the graph refuses as too broad

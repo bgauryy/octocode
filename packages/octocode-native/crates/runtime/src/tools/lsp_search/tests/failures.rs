@@ -132,7 +132,7 @@ fn path_policy_denials_are_file_access_failures_not_missing_servers() {
         crate::policy::PolicyErrorCode::NotFound,
         "missing",
     ));
-    assert_eq!(missing.code, ErrorCode::PathNotFound);
+    assert_eq!(missing.code, ErrorCode::NotFound);
     // Every other refusal sends the caller to verify the path, as local
     // reads do; none is told to fall back to a search for candidates.
     for code in [
@@ -288,7 +288,7 @@ fn failure_tips_never_name_workspace_root_outside_workspace_symbol() {
         ErrorCode::FileTooLarge,
         // Any other code: the generic tip.
         ErrorCode::RequestFailed,
-        ErrorCode::AnchorUnresolved,
+        ErrorCode::NotFound,
     ] {
         tips.extend(
             crate::id::ToolId::LspSearch

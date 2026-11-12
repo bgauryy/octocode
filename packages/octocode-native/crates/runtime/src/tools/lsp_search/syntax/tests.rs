@@ -110,7 +110,7 @@ async fn a_file_without_a_server_answers_every_operation_from_syntax() {
         ),
         (json!({"operation": "diagnostic", "path": path}), ""),
         (
-            json!({"operation": "workspaceSymbol", "path": path, "symbolQuery": "Squ"}),
+            json!({"operation": "workspaceSymbol", "path": path, "symbolFuzzy": "Squ"}),
             "Square",
         ),
         (
@@ -291,10 +291,7 @@ fn collect_roles(value: &Value, roles: &mut Vec<(u64, String)>) {
         Value::Object(fields) => {
             if let (Some(role), Some(line)) = (
                 fields.get("role").and_then(Value::as_str),
-                fields
-                    .get("displayRange")
-                    .and_then(|range| range.get("startLine"))
-                    .and_then(Value::as_u64),
+                fields.get("line").and_then(Value::as_u64),
             ) {
                 roles.push((line, role.to_owned()));
             }
@@ -338,10 +335,7 @@ fn collect_sites(value: &Value, lines: &mut Vec<u64>) {
     match value {
         Value::Object(fields) => {
             if fields.contains_key("role")
-                && let Some(line) = fields
-                    .get("displayRange")
-                    .and_then(|range| range.get("startLine"))
-                    .and_then(Value::as_u64)
+                && let Some(line) = fields.get("line").and_then(Value::as_u64)
             {
                 lines.push(line);
             }

@@ -1,7 +1,7 @@
 use super::*;
 
 /// A field agents send for a declared one, with one reading, runs as that
-/// field, and the call says which field it read.
+/// field, and the call says which field it read and which to send.
 #[test]
 fn a_guessed_field_with_one_reading_runs_and_is_named() {
     let row = |sent: Value| json!({"queries":[sent]});
@@ -29,6 +29,13 @@ fn a_guessed_field_with_one_reading_runs_and_is_named() {
             json!({"path":".","matchString":"x","literal":true}),
             "regexEngine",
             json!("literal"),
+        ),
+        // The former search mode that listed matching files only.
+        (
+            "localSearch",
+            json!({"path":".","matchString":"x","mode":"discovery"}),
+            "view",
+            json!("files"),
         ),
         (
             "localSearch",
@@ -101,10 +108,26 @@ fn a_guessed_field_with_one_reading_runs_and_is_named() {
         });
         assert!(rows.iter().all(Result::is_ok), "{tool} {sent}: {rows:?}");
         assert_eq!(notes.len(), 1, "{notes:?}");
+        // The one note names the field the call ran as and the one to send.
         assert!(
-            notes[0].starts_with("queries[0]: read ") && notes[0].contains(field),
+            notes[0].starts_with("queries[0]: read ")
+                && notes[0].contains(&format!("send `{field}")),
             "{notes:?}"
         );
+        // A field read with a value other than any sent (`filesOnly: true`
+        // is `view: "files"`) names that value, so the repair is whole; a
+        // sent text that validation lists (`"x"` as `["x"]`) is the same value.
+        let sent_values = sent.as_object().into_iter().flat_map(|row| row.values());
+        if field != "ranges"
+            && !sent_values
+                .into_iter()
+                .any(|value| *value == expected || json!([value]) == expected)
+        {
+            assert!(
+                notes[0].contains(&format!("send `{field}: {expected}` next time")),
+                "{notes:?}"
+            );
+        }
     }
 }
 
@@ -148,6 +171,25 @@ fn a_guessed_field_with_several_readings_names_the_field_to_use() {
             json!({"path":"a.go","ranges":[2,4]}),
             "ranges",
             "ranges",
+        ),
+        // Former names of renamed fields.
+        (
+            "structureSearch",
+            json!({"operation":"files","path":".","sizeBytes":{"min":1}}),
+            "sizeBytes",
+            "bytes",
+        ),
+        (
+            "lspSearch",
+            json!({"operation":"workspaceSymbol","path":"src","symbolQuery":"run"}),
+            "symbolQuery",
+            "symbolFuzzy",
+        ),
+        (
+            "graphQuery",
+            json!({"operation":"unresolved","name":"run"}),
+            "name",
+            "symbolName",
         ),
     ] {
         let (input, notes) = normalized_input(tool, json!({"queries":[sent.clone()]}));

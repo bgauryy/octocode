@@ -350,7 +350,7 @@ fn sparse_not_found(
         hints,
         calls: next.map(Box::new),
         ..CloneError::new(
-            ErrorCode::PathNotFound,
+            ErrorCode::NotFound,
             format!(
                 "Path does not exist: {paths} in {}/{}@{reference}; nothing was checked out for it.",
                 query.owner, query.repo

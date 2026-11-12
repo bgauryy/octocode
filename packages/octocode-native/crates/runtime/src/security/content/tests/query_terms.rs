@@ -1,5 +1,5 @@
-//! Which request strings the input gate refuses as a credential: a search
-//! term is one by its value's opacity, never by the name beside it.
+//! Which request strings the input gate refuses as a credential: whatever
+//! a read of text of no known file hides, and nothing a read shows.
 
 use super::*;
 
@@ -21,7 +21,6 @@ fn a_search_for_a_credential_named_declaration_runs() {
         "password = None",
         "secret: Option<String>",
         "apiKey?: string;",
-        "password: hunter",
         "const token = \"\"",
         "API_KEY=",
         "token = os.environ[\"GITHUB_TOKEN\"]",
@@ -48,6 +47,9 @@ fn a_pasted_secret_is_still_refused_whatever_names_it() {
         "api_key: str = \"I5PPdwnIQ10ynyepR7W5CsQV5VFxVbD8\"",
         github.as_str(),
         "AKIAIOSFODNN7EXAMPLE",
+        // A config line's rule hides any value under a password's name, a
+        // word too: the request holding one is refused as a read hides it.
+        "password: hunter",
     ] {
         for field in ["matchString", "keywords"] {
             assert!(
@@ -233,4 +235,83 @@ fn a_short_named_secret_is_refused_as_a_file_hides_it() {
     ] {
         assert!(!refused_everywhere(term), "{term:?} was refused");
     }
+}
+
+/// Round 12 (D9, D4, D5, D6, D8): the input gate refuses exactly what a
+/// read hides: each text a read of a source file, a text file or text of no
+/// known file shows runs in every screened field, and each it hides is
+/// refused there, before anything leaves the machine.
+#[test]
+fn the_gate_refuses_exactly_what_a_read_hides() {
+    let security = ContentSecurity::new();
+    for text in [
+        "password = \"hunter2-Sup3rS3cret\"",
+        "password = \"otherVisible9\"",
+        "Bearer abcdefghijklmnopqrstuvwx",
+        "headers[\"Authorization\"] = \"Bearer abcdefghijklmnopqrstuvwx\";",
+        "const h = { Authorization: \"Bearer abcdefghijklmnopqrstuvwx\" };",
+        "const h = { Authorization: `Bearer abcdefghijklmnopqrstuvwx` };",
+        "my password was Pl4net-Orb1t9",
+        "the password is: hunter2-Sup3rS3cret",
+        "then password = hunter2-Sup3rS3cret",
+        "the password is: s3cretPassw0rd",
+        "the password is required",
+        "my password was changed",
+        "the token was expired",
+        "token: T | null",
+        "secret: T",
+        "  token: this.token,",
+        "  secret: opts.secret,",
+        "  password: undefined,",
+        "  apiKey: null,",
+        "password: str",
+    ] {
+        let hidden = security.sanitize_text(text, None).content != text;
+        for path in ["src/a.ts", "notes.txt", "src/a.py"] {
+            let read = security.sanitize_text(text, Some(std::path::Path::new(path)));
+            assert_eq!(read.content != text, hidden, "{path}: {text:?}");
+        }
+        assert_eq!(refused_everywhere(text), hidden, "{text:?}");
+    }
+}
+
+/// D10: clasify evidence with no path is judged as a read judges text of no
+/// known file: the provider reads what every view shows, quotes and shell
+/// syntax kept, one placeholder per value.
+#[test]
+fn clasify_evidence_is_judged_as_text_of_no_known_file() {
+    const KEY: &str = "Zq7Xk2Pm9Vt4Lw8Rb3Nc6Hy1Jd5Fg0Ts7Qe2Ua4";
+    let security = ContentSecurity::new();
+    for evidence in [
+        "password = \"hunter2-Sup3rS3cret\"\n".to_owned(),
+        format!("API_KEY=\"${{API_KEY:-{KEY}}}\"\n"),
+        format!("x = 1 # a\\.b {KEY}\n"),
+    ] {
+        let checked = security
+            .check_input(
+                serde_json::json!({"content": evidence, "questions": {"q": {"type": "bool", "instructions": "is it set?"}}}),
+                crate::security::InputPolicy::ClasifyEvidence {
+                    content_limit: crate::id::clasify_policy::REQUEST_BYTES,
+                },
+            )
+            .expect("evidence is redacted in place, not refused");
+        let read = security.sanitize_text(&evidence, None).content.into_owned();
+        assert_eq!(checked["content"], serde_json::json!(read), "{evidence:?}");
+    }
+    let read = security
+        .sanitize_text(&format!("API_KEY=\"${{API_KEY:-{KEY}}}\"\n"), None)
+        .content
+        .into_owned();
+    assert!(
+        read.starts_with("API_KEY=\"${API_KEY:-[REDACTED-"),
+        "{read}"
+    );
+    let quoted = security
+        .sanitize_text("password = \"hunter2-Sup3rS3cret\"\n", None)
+        .content
+        .into_owned();
+    assert!(
+        quoted.starts_with("password = \"[REDACTED-") && quoted.ends_with("]\"\n"),
+        "{quoted}"
+    );
 }

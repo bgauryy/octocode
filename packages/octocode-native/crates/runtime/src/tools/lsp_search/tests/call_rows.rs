@@ -19,8 +19,8 @@ fn call_sites_that_differ_only_in_end_column_publish_once() {
     assert_eq!(
         public["fromRanges"],
         serde_json::json!([
-            {"startLine": 871, "startCharacter": 11},
-            {"startLine": 872, "startCharacter": 3}
+            {"line": 871, "column": 11},
+            {"line": 872, "column": 3}
         ])
     );
 }
@@ -35,8 +35,8 @@ fn call_edges_compact_to_per_file_call_rows() {
                   sites: &[(u64, u64)]| {
         serde_json::json!({
             "from": {"symbolName": name, "kind": kind, "uri": format!("file://{path}"),
-                "displayRange": {"startLine": start, "startCharacter": 7, "endLine": end}},
-            "fromRanges": sites.iter().map(|(line, column)| serde_json::json!({"startLine": line, "startCharacter": column, "endLine": line})).collect::<Vec<_>>(),
+                "line": start, "column": 7, "endLine": end},
+            "fromRanges": sites.iter().map(|(line, column)| serde_json::json!({"line": line, "column": column})).collect::<Vec<_>>(),
             "level": 1
         })
     };
@@ -217,8 +217,8 @@ fn signatures_are_kept_only_for_callers_that_share_a_name() {
     let caller = |path: &str, detail: &str, start: u64, site: u64| {
         serde_json::json!({
             "from": {"symbolName": "render", "kind": "function", "detail": detail, "uri": format!("file://{path}"),
-                "displayRange": {"startLine": start, "startCharacter": 7, "endLine": start + 5}},
-            "fromRanges": [{"startLine": site, "startCharacter": 3, "endLine": site}],
+                "line": start, "column": 7, "endLine": start + 5},
+            "fromRanges": [{"line": site, "column": 3}],
             "level": 1
         })
     };

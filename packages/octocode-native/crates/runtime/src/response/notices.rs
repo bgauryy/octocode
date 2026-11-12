@@ -10,7 +10,8 @@
 
 use serde_json::{Map, Value, json};
 
-use crate::response::paging::{NOTICES, STATED_REASONS, TIMED_NOTICES};
+use crate::contracts::envelope::{NOTICES, TIMED_NOTICES};
+use crate::response::paging::STATED_REASONS;
 
 /// Each coverage reason a row carries, as a notice saying what it means: core
 /// authors the sentence once, and it is sent only when this response has that
@@ -83,7 +84,9 @@ pub(crate) fn place(structured: &mut Value, rows_key: &str) {
 
 /// A warning every row of a response states word for word is a fact of the
 /// call, not of one row: it is said once, in the envelope's `warnings`, and
-/// each row keeps the warnings that are its own. Nothing is dropped: a
+/// each row keeps the warnings that are its own. A row's redaction count
+/// ([`crate::security::states_a_redaction`]) is the row's own however many
+/// rows state the same number. Nothing is dropped: a
 /// warning some rows lack stays on the rows that state it, and a one-row
 /// response repeats nothing.
 pub(crate) fn state_shared_warnings(structured: &mut Value, rows_key: &str) {
@@ -99,7 +102,14 @@ pub(crate) fn state_shared_warnings(structured: &mut Value, rows_key: &str) {
     let Some((first, rest)) = rows.split_first().filter(|(_, rest)| !rest.is_empty()) else {
         return;
     };
+    // A redaction warning states its row's count: every row saying "3"
+    // is 3 each, so it stays on each row.
     let mut shared = warnings(first);
+    shared.retain(|warning| {
+        !warning
+            .as_str()
+            .is_some_and(crate::security::states_a_redaction)
+    });
     for row in rest {
         let stated = warnings(row);
         shared.retain(|warning| stated.contains(warning));
@@ -188,6 +198,29 @@ fn append(object: &mut Map<String, Value>, key: &str, items: Vec<Value>) {
             if !list.contains(&item) {
                 list.push(item);
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    /// Two rows that each redacted 3 values say so each: one call-level "3"
+    /// would understate the 6 placeholders the response holds. A warning
+    /// that is a fact of the call is still said once.
+    #[test]
+    fn a_rows_redaction_count_is_never_shared() {
+        let redacted = crate::security::redacted_content_warning(3);
+        let row = || json!({"data": {"warnings": [redacted, "the walk paused"]}});
+        let mut envelope = json!({"results": [row(), row()]});
+        super::state_shared_warnings(&mut envelope, "results");
+        assert_eq!(envelope["warnings"], json!(["the walk paused"]));
+        for row in 0..2 {
+            assert_eq!(
+                envelope["results"][row]["data"]["warnings"],
+                json!([redacted])
+            );
         }
     }
 }

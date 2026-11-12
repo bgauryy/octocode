@@ -31,7 +31,7 @@ fn recovered_and_dynamic_scope_arguments_do_not_create_bindings() {
             o.edges = vec!["passes".into()];
         });
         assert_eq!(
-            linked.value["pagination"]["totalItems"], 0,
+            linked.value["pagination"]["total"], 0,
             "{}",
             linked.value
         );
@@ -40,7 +40,7 @@ fn recovered_and_dynamic_scope_arguments_do_not_create_bindings() {
         o.edges = vec!["passes".into()];
     });
     assert_eq!(
-        healthy.value["pagination"]["totalItems"], 1,
+        healthy.value["pagination"]["total"], 1,
         "{}",
         healthy.value
     );
@@ -70,7 +70,7 @@ fn argument_binding_premises_exclude_unrelated_members() {
         o.edges = vec!["passes".into()];
     });
     assert_eq!(
-        imported.value["pagination"]["totalItems"], 1,
+        imported.value["pagination"]["total"], 1,
         "{}",
         imported.value
     );
@@ -79,7 +79,7 @@ fn argument_binding_premises_exclude_unrelated_members() {
     let rust = ask(&dir.0, "witnesses", Some("scope.rs"), |o| {
         o.edges = vec!["passes".into()];
     });
-    assert_eq!(rust.value["pagination"]["totalItems"], 3, "{}", rust.value);
+    assert_eq!(rust.value["pagination"]["total"], 3, "{}", rust.value);
     for row in rust.value["rows"].as_array().unwrap() {
         assert!(
             matches!(
@@ -102,7 +102,7 @@ fn nearest_ordinary_lexical_scope_wins_for_argument_candidates() {
     let rows = ask(&dir.0, "witnesses", Some("module.rs"), |o| {
         o.edges = vec!["passes".into()];
     });
-    assert_eq!(rows.value["pagination"]["totalItems"], 2, "{}", rows.value);
+    assert_eq!(rows.value["pagination"]["total"], 2, "{}", rows.value);
     for row in rows.value["rows"].as_array().unwrap() {
         if row["from"] == "module.rs#outer" {
             assert_eq!(row["to"], "module.rs#handler");

@@ -34,12 +34,12 @@ fn cases() -> Vec<Case> {
             ToolId::LocalSearch,
             search.clone(),
             one(
-                json!({"matchCount":58,"filesScanned":9,"bytesSearched":57746,
+                json!({"matchCount":58,"filesScanned":9,
                 "files":[{"path":format!("{dir}/outline/tests.rs"),"matches":[
                     {"line":6,"value":"fn leaves(value: &Value) {"},
                     {"line":17,"value":"fn count_lines() {"}],
-                    "pagination":{"totalItems":9,"hasMore":true}}],
-                "pagination":{"unit":"lines","page":1,"totalPages":20,"totalItems":58,"hasMore":true},
+                    "pagination":{"unit":"matches","offset":0,"length":2,"total":9,"hasMore":true}}],
+                "pagination":{"unit":"lines","offset":0,"length":3,"total":58,"hasMore":true},
                 "next":next("localSearch","cursor2.search-page"),
                 "related":related("localFetch","src/a.rs")}),
             ),
@@ -49,7 +49,7 @@ fn cases() -> Vec<Case> {
             search.clone(),
             with_status(
                 one(
-                    json!({"matchCount":0,"filesScanned":9,"bytesSearched":57746,
+                    json!({"matchCount":0,"filesScanned":9,
                     "related":related("localSearch",".")}),
                 ),
                 "empty",
@@ -60,7 +60,7 @@ fn cases() -> Vec<Case> {
             search.clone(),
             with_status(
                 one(
-                    json!({"errorCode":"pathNotFound","error":"Path does not exist: src/nope",
+                    json!({"errorCode":"notFound","error":"Path does not exist: src/nope",
                     "related":related("structureSearch","src")}),
                 ),
                 "error",
@@ -85,8 +85,8 @@ fn cases() -> Vec<Case> {
             one(json!({"files":[
                 {"dir":dir,"files":["follow.rs (4680, totalLines=132)","hits.rs (5453, totalLines=140)","outline/"]},
                 {"dir":format!("{dir}/outline"),"files":["tests.rs (7354, totalLines=184)"]}],
-                "pagination":{"page":1,"totalPages":1254,"totalItems":5015,"hasMore":true},
-                "summary":{"files":4975,"dirs":922},
+                "pagination":{"unit":"items","offset":0,"length":4,"total":5015,"hasMore":true},
+                "summary":{"fileCount":4975,"dirCount":922},
                 "next":next("structureSearch","cursor2.listing-page"),
                 "related":related("localFetch","AGENTS.md")})),
         ),
@@ -95,7 +95,7 @@ fn cases() -> Vec<Case> {
             json!({"queries":[{"path":".","operation":"tree"}]}),
             one(
                 json!({"files":[{"dir":dir,"files":["follow.rs","hits.rs","listing.rs","outline/","outline.rs"]}],
-                "summary":{"files":4,"dirs":1,"bytes":29702}}),
+                "summary":{"fileCount":4,"dirCount":1,"bytes":29702}}),
             ),
         ),
         (
@@ -120,9 +120,9 @@ fn more_cases(dir: &str) -> Vec<Case> {
             json!({"queries":[{"operation":"tree","owner":"facebook","repo":"react","path":"packages"}]}),
             one(
                 json!({"owner":"react","files":[{"dir":"packages","files":["jest-react/","react/","react-art/","react-dom/"]}],
-                "summary":{"files":0,"dirs":40,"bytes":0},"resolvedRef":"main",
+                "summary":{"fileCount":0,"dirCount":40,"bytes":0},"ref":"main",
                 "commitSha":"b05c0b75fd9778536152eead30814c9ca90c810a",
-                "pagination":{"page":1,"totalPages":2,"hasMore":true,"totalItems":40},
+                "pagination":{"unit":"items","offset":0,"length":20,"total":40,"hasMore":true},
                 "next":next("ghStructure","cursor2.tree-page")}),
             ),
         ),
@@ -148,10 +148,10 @@ fn more_cases(dir: &str) -> Vec<Case> {
             ToolId::LspSearch,
             json!({"queries":[{"path":"src/budget.rs","operation":"references","symbolName":"deadline","line":29,"view":"files"}]}),
             one(json!({"matchCount":6,"files":[
-                {"path":"packages/native/crates/github/src/budget/tests/gates.rs","matchCount":1,"lines":[69]},
-                {"path":"packages/native/crates/github/src/commit_dates/tests.rs","matchCount":2,"lines":[5,32]},
-                {"path":"packages/native/crates/github/src/history_item.rs","matchCount":3,"lines":[79,122,173]}],
-                "pagination":{"page":1,"totalPages":3,"totalItems":14,"hasMore":true},
+                {"path":"packages/native/crates/github/src/budget/tests/gates.rs","matchCount":1,"matchedLines":[69]},
+                {"path":"packages/native/crates/github/src/commit_dates/tests.rs","matchCount":2,"matchedLines":[5,32]},
+                {"path":"packages/native/crates/github/src/history_item.rs","matchCount":3,"matchedLines":[79,122,173]}],
+                "pagination":{"unit":"items","offset":0,"length":5,"total":14,"hasMore":true},
                 "next":next("lspSearch","cursor2.sites-page")})),
         ),
         (
@@ -159,8 +159,8 @@ fn more_cases(dir: &str) -> Vec<Case> {
             json!({"queries":[{"path":"src/budget.rs","operation":"references","symbolName":"deadline","line":29}]}),
             one(
                 json!({"operation":"references","files":[{"path":"a.rs","matches":[
-                {"displayRange":{"startLine":2,"endLine":2},"content":"2\tneedle();\n","role":"call"},
-                {"displayRange":{"startLine":6,"endLine":6},"content":"6\tneedle();\n","role":"call"}]}]}),
+                {"line":2,"content":"2\tneedle();\n","role":"call"},
+                {"line":6,"content":"6\tneedle();\n","role":"call"}]}]}),
             ),
         ),
         (
@@ -184,7 +184,7 @@ fn more_cases(dir: &str) -> Vec<Case> {
                 {"number":37618,"title":"[compiler] Add regression test","mergedAt":"2026-09-16T08:53:44Z"},
                 {"number":34831,"title":"[Fiber] Ensure latest values","mergedAt":"2025-10-13T15:58:43Z"}],
                 "effectiveQuery":"useEffectEvent is:pr repo:react/react is:merged",
-                "pagination":{"page":1,"totalPages":9,"hasMore":true,"totalItems":27},
+                "pagination":{"unit":"items","offset":0,"length":3,"total":27,"hasMore":true},
                 "next":next("ghSearchHistory","cursor2.history-page"),
                 "warnings":["Repository facebook/react was renamed to react/react."]})),
         ),
@@ -194,7 +194,7 @@ fn more_cases(dir: &str) -> Vec<Case> {
             one(
                 json!({"graph":{"id":"20261110T181651Z-src-d9b10b","root":"src","isPartial":true,"partialReasons":["filesSkipped"]},
                 "rows":[{"id":"runtime/rows.ts#leaseKind","kind":"symbol","file":"runtime/rows.ts","line":29,"name":"leaseKind"}],
-                "pagination":{"page":1,"totalItems":155,"hasMore":true},
+                "pagination":{"unit":"items","offset":0,"length":10,"total":155,"hasMore":true},
                 "next":next("graphQuery","cursor2.graph-page")}),
             ),
         ),
@@ -325,12 +325,12 @@ fn no_hits_a_failure_and_a_first_page_differ_on_stdout() {
     let cases = cases();
     let outs: Vec<String> = cases.iter().take(3).map(|case| text(case).out).collect();
     assert!(outs[0].ends_with(
-        "# pagination: unit lines page 1 totalPages 20 totalItems 58 hasMore\n# next.nextPage: octocode localSearch '{\"cursor\":\"cursor2.search-page\"}'"
+        "# pagination: unit lines offset 0 length 3 total 58 hasMore\n# next.nextPage: octocode localSearch '{\"cursor\":\"cursor2.search-page\"}'"
     ), "{}", outs[0]);
     assert_eq!(outs[1], "# status: empty");
     assert_eq!(
         outs[2],
-        "errorCode: pathNotFound\nerror: Path does not exist: src/nope\n# status: error"
+        "errorCode: notFound\nerror: Path does not exist: src/nope\n# status: error"
     );
 }
 
@@ -498,7 +498,7 @@ fn a_batch_row_without_content_states_its_status() {
     let lines = render(ToolId::LocalSearch, &batch, &json!({}), None).expect("text");
     assert_eq!(
         lines.out,
-        "## results[0]\n# status: empty\n## results[1]\nerrorCode: pathNotFound\nerror: Path does not exist: src/nope\n# status: error"
+        "## results[0]\n# status: empty\n## results[1]\nerrorCode: notFound\nerror: Path does not exist: src/nope\n# status: error"
     );
     // One grammar for every note: the row, then `key: value`.
     for note in lines.notes.lines() {

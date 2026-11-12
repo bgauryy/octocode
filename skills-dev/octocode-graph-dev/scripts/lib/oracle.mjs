@@ -111,7 +111,7 @@ export function missedSites({ missed, sites, unresolved, probe }) {
   const rows = new Map();
   for (const r of unresolved) {
     if (leaf(r.targetName) !== probe) continue;
-    const key = `${r.file}\0${r.line}`;
+    const key = `${r.path}\0${r.line}`;
     if (!rows.has(key)) rows.set(key, r);
   }
   return sites

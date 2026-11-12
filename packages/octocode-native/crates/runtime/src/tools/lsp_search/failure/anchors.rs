@@ -46,7 +46,7 @@ pub(in super::super) fn path_failure(
     if let Some(row) = directory_anchor(query, paths) {
         return Ok(row);
     }
-    if failure.code != ErrorCode::PathNotFound {
+    if failure.code != ErrorCode::NotFound {
         return Err(failure);
     }
     let mut row = json!({
@@ -113,7 +113,7 @@ pub(in super::super) fn attach_recovery_next(value: &mut Value, query: &LspSearc
         .map(uri_to_path)
         .unwrap_or_default();
     let symbol = lsp_search_query::symbol_name(query)
-        .or_else(|| lsp_search_query::symbol_query(query))
+        .or_else(|| lsp_search_query::symbol_fuzzy(query))
         .filter(|name| !name.trim().is_empty());
     // A directory (a workspaceSymbol scope) is searched, not fetched.
     if let Some(symbol) = symbol.filter(|_| std::path::Path::new(&path).is_dir()) {
@@ -135,11 +135,18 @@ pub(in super::super) fn attach_recovery_next(value: &mut Value, query: &LspSearc
     }
 }
 
+/// The recovery of an anchor that resolves to nothing.
+pub(crate) const ANCHOR_HINT: &str = "Symbol anchor not found: locate the exact name and line with the related calls, then retry; do not guess another identity.";
+
 pub(in super::super) fn anchor_recovery(
     value: &mut Value,
     query: &LspSearchQuery,
     source: Option<&str>,
 ) {
+    // The row's `related` calls locate the name; a guessed identity would
+    // answer for a different symbol. The hint names the miss as an anchor:
+    // a missing path shares this row's `notFound`.
+    crate::response::result::add_hints(value, [ANCHOR_HINT]);
     let Some(name) = lsp_search_query::symbol_name(query) else {
         return;
     };

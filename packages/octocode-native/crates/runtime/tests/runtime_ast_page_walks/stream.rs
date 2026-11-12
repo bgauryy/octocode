@@ -1,8 +1,8 @@
 //! The match stream walked through the runtime's response pager, as a reader
 //! walks it: each response page first (`responsePagination.next`, row parts
 //! joined), then the row's `next.nextPage`. Pages count matches, not files:
-//! the walk makes `totalPages` query calls and reads `totalItems` matches,
-//! each once, and a match larger than a page arrives in row parts that join
+//! each query page starts where the last ended, the walk ends at the stated
+//! `total` matches and reads each once, and a match larger than a page arrives in row parts that join
 //! back to its exact source text.
 
 use super::call;
@@ -16,13 +16,14 @@ const FILES: usize = 30;
 const FUNCTIONS_PER_FILE: usize = 3;
 
 /// What one walk read: every match's value by `path line`, the query pages
-/// it called, the `totalPages` and `totalItems` its pages stated, and how
+/// it called, where the last one ended, the `total` its pages stated, and how
 /// many parts continued a split value.
 #[derive(Default)]
 struct Read {
     values: BTreeMap<String, String>,
     query_pages: u64,
-    total_pages: Option<u64>,
+    /// `offset + length` of the last query page read.
+    end: u64,
     total_items: Option<u64>,
     continued: usize,
 }
@@ -61,18 +62,16 @@ async fn walk(runtime: &ToolRuntime, mcp: bool, first: Value, chars: u64) -> Rea
         let envelope = call(runtime, mcp, calls, input.clone()).await;
         let row = &envelope["results"][0];
         if let Some(pagination) = row["data"].get("pagination") {
-            let page = pagination["page"].as_u64().expect("query page");
-            if page > read.query_pages {
+            let offset = pagination["offset"].as_u64().expect("query offset");
+            let length = pagination["length"].as_u64().expect("query length");
+            // A row part of the page already read repeats its facts; a new
+            // query page starts where the last ended.
+            if read.query_pages == 0 || offset + length != read.end {
+                assert_eq!(offset, read.end, "mcp={mcp}: query pages advance");
                 read.query_pages += 1;
-                assert_eq!(page, read.query_pages, "mcp={mcp}: query pages advance");
+                read.end = offset + length;
             }
-            let total = pagination["totalPages"].as_u64();
-            assert_eq!(
-                *read.total_pages.get_or_insert_with(|| total.unwrap_or(0)),
-                total.unwrap_or(0),
-                "mcp={mcp}: stable totalPages"
-            );
-            let items = pagination["totalItems"].as_u64().expect("totalItems");
+            let items = pagination["total"].as_u64().expect("total");
             assert_eq!(*read.total_items.get_or_insert(items), items, "mcp={mcp}");
         }
         join(&mut read, row, mcp);
@@ -112,7 +111,7 @@ fn fixture(workspace: &Workspace, big: Option<&str>) -> String {
 const MATCHES: usize = FILES * FUNCTIONS_PER_FILE;
 
 #[tokio::test]
-async fn a_match_walk_through_the_response_pager_makes_total_pages_calls_and_reads_each_match_once()
+async fn a_match_walk_through_the_response_pager_reads_each_match_once_page_after_page()
 {
     let workspace = Workspace::new();
     let root = fixture(&workspace, None);
@@ -123,14 +122,14 @@ async fn a_match_walk_through_the_response_pager_makes_total_pages_calls_and_rea
         let read = walk(&runtime, mcp, first, 6000).await;
         assert!(read.query_pages > 1, "mcp={mcp}: several pages");
         assert_eq!(
-            read.total_pages,
-            Some(read.query_pages),
-            "mcp={mcp}: calls == totalPages"
+            Some(read.end),
+            read.total_items,
+            "mcp={mcp}: the last query page ends at the total"
         );
         assert_eq!(
             read.total_items,
             Some(MATCHES as u64),
-            "mcp={mcp}: totalItems counts matches"
+            "mcp={mcp}: total counts matches"
         );
         assert_eq!(read.values.len(), MATCHES, "mcp={mcp}: every match once");
     }

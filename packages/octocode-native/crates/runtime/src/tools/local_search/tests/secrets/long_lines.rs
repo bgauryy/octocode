@@ -103,9 +103,16 @@ fn a_line_within_the_limit_shows_its_text_around_the_hit() {
 /// selected beside them stays.
 #[test]
 fn a_span_keeps_what_is_not_the_secret() {
-    let found = rows(
-        &format!("before needle-{TOKEN} after\n"),
+    let text = format!("before needle-{TOKEN} after\n");
+    // The token is text a read withholds: a span reaching into it is no hit.
+    let hidden = rows(
+        &text,
         serde_json::json!({"matchString":["needle-ghp_aB3d"], "view":"matchOnly"}),
+    );
+    assert_eq!(hidden["files"], serde_json::json!([]), "{hidden}");
+    let found = rows(
+        &text,
+        serde_json::json!({"matchString":["needle-[REDACTED-"], "regexEngine":"literal", "view":"matchOnly"}),
     );
     let value = first_value(&found);
     assert!(!value.contains("ghp_aB3d"), "{value}");

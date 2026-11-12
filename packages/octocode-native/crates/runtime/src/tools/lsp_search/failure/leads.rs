@@ -234,54 +234,6 @@ pub(in super::super) fn flagged_with(
 /// the files).
 pub(in super::super) const TEXT_CHECK: &str = "a localSearch of the name";
 
-/// Recover known ignored paths and, when unfinished, the unsearched scope.
-/// If the combined queries exceed the batch limit, an unfiltered root search
-/// covers the known paths, including nested roots and files outside the family.
-pub(in super::super) fn ignored_text_lead(
-    name: &str,
-    scope: &super::super::scope::Scope,
-    files: &[String],
-    unfinished: bool,
-) -> Option<Value> {
-    let mut rows = Vec::new();
-    for file in files {
-        let row = text_search_row(name, file)?;
-        if !rows.contains(&row) {
-            rows.push(row);
-        }
-    }
-    let mut root = text_search_row(name, &scope.root)?;
-    if !scope.include.is_empty() {
-        root["include"] = json!(scope.include);
-    }
-    if (unfinished || rows.is_empty()) && !rows.contains(&root) {
-        rows.push(root.clone());
-    }
-    let broad = rows.len() > LISTED_TEXT_FILES;
-    if broad {
-        let mut recovery = text_search_row(name, &scope.root)?;
-        // A root walk must reach paths that explicit file/root queries reach.
-        recovery["defaultExcludes"] = json!(false);
-        recovery["includeHidden"] = json!(true);
-        rows = vec![recovery];
-        if unfinished && !rows.contains(&root) {
-            rows.push(root);
-        }
-    }
-    // The files are those ignore rules or a hidden directory keep out.
-    for row in &mut rows {
-        row["includeIgnored"] = json!(true);
-        row["includeHidden"] = json!(true);
-    }
-    Some(
-        crate::response::result::Continuation::related_input(
-            ToolId::LocalSearch,
-            json!({"queries": rows}),
-        )
-        .build(),
-    )
-}
-
 /// The whole-word, case-sensitive content search of `name` under `path`: a
 /// `rust` regex, as an unset `regex` would search its `\b` spelling as
 /// literal text. `None` when `name` or `path` is not a representable value.
@@ -292,13 +244,6 @@ fn text_search_query(name: &str, path: &str) -> Option<LocalSearchQueryContent> 
         regex_engine: RegexEngine::Rust,
         ..crate::tools::source_view::extraction::text_search_query(path, &[&pattern])?
     })
-}
-
-pub(super) fn text_search_row(name: &str, path: &str) -> Option<Value> {
-    Some(crate::response::result::query_row(
-        &text_search_query(name, path)?,
-        &[],
-    ))
 }
 
 /// One lead of a search row per path, each limited to the `include` globs.

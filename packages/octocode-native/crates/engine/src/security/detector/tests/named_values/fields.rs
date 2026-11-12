@@ -16,8 +16,14 @@ fn an_auth_header_loses_only_its_credential() {
         (format!("authorization: bearer {TOKEN}\n"), TOKEN),
         (format!("AUTHORIZATION: BEARER {TOKEN}\n"), TOKEN),
         (format!("Proxy-Authorization: Bearer {TOKEN}\n"), TOKEN),
-        (format!("Authorization: Bearer {padded_token}\n"), &padded_token),
-        (format!("see Authorization: Bearer {TOKEN}. Then retry.\n"), TOKEN),
+        (
+            format!("Authorization: Bearer {padded_token}\n"),
+            &padded_token,
+        ),
+        (
+            format!("see Authorization: Bearer {TOKEN}. Then retry.\n"),
+            TOKEN,
+        ),
         (format!("Authorization: Basic {PADDED}\n"), PADDED),
         (format!("Proxy-Authorization: Basic {PADDED}\n"), PADDED),
         (
@@ -35,7 +41,10 @@ fn an_auth_header_loses_only_its_credential() {
     stays(&[
         ("Authorization: Bearer <token>\n", "docs/api.md"),
         ("Authorization: Basic abc\n", "docs/api.md"),
-        ("the Authorization header carries a Bearer token\n", "docs/api.md"),
+        (
+            "the Authorization header carries a Bearer token\n",
+            "docs/api.md",
+        ),
     ]);
 }
 
@@ -67,8 +76,16 @@ fn an_escape_inside_one_value_ends_nothing() {
     let lines = format!("{TOKEN}\\n{OTHER}");
     let worded = format!("correct-horse-battery\\n{TOKEN}{OTHER}");
     hides_only(&[
-        (&format!("const apiKey = \"{lines}\";\n"), "src/req.js", &[&lines]),
-        (&format!("const apiKey = \"{worded}\";\n"), "src/req.js", &[&worded]),
+        (
+            &format!("const apiKey = \"{lines}\";\n"),
+            "src/req.js",
+            &[&lines],
+        ),
+        (
+            &format!("const apiKey = \"{worded}\";\n"),
+            "src/req.js",
+            &[&worded],
+        ),
     ]);
     let raw = format!("api_key = r\"{TOKEN}{OTHER}\\r\\nHost: example.com\"\n");
     assert_redacts_only(
@@ -87,7 +104,12 @@ fn a_redacted_text_is_redacted_no_further() {
     let content = format!(
         "const apiKey = \"{TOKEN}{OTHER}\\r\\n\";\napiKey = \"{TOKEN}{OTHER}\\r\\n\";\nauthKey = \"{TOKEN}{OTHER}\\r\\nHost: example.com\";\n// Authorization: Basic {PADDED}\n// the password is {PASSWORD}\n"
     );
-    for path in [None, Some("src/req.js"), Some("docs/issue.md"), Some("conf/app.env")] {
+    for path in [
+        None,
+        Some("src/req.js"),
+        Some("docs/issue.md"),
+        Some("conf/app.env"),
+    ] {
         let shown = detect(&content, path).sanitized;
         assert!(shown.contains("\\r\\n\";"), "{path:?}: {shown:?}");
         for scope in [Scope::Stored(None), Scope::Pathless] {
@@ -107,7 +129,10 @@ fn a_value_a_sentence_states_is_hidden_and_prose_stays() {
         (format!("the password is {symbols}\n"), symbols),
         (format!("the password is {short}\n"), short),
         (format!("The db_password is \"{short}\".\n"), short),
-        (format!("Note: the API token IS {short}, then stop.\n"), short),
+        (
+            format!("Note: the API token IS {short}, then stop.\n"),
+            short,
+        ),
     ];
     for (content, secret) in &rows {
         for path in [None, Some("docs/setup.md"), Some("notes.txt")] {
@@ -138,8 +163,14 @@ fn a_value_a_sentence_states_is_hidden_and_prose_stays() {
 #[test]
 fn a_sec_field_keeps_only_its_nonce() {
     stays(&[
-        ("Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\n", "docs/ws.md"),
-        ("sec-websocket-key: x3JJHMbDL1EzLkh9GBhXDw==\n", "docs/ws.md"),
+        (
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\n",
+            "docs/ws.md",
+        ),
+        (
+            "sec-websocket-key: x3JJHMbDL1EzLkh9GBhXDw==\n",
+            "docs/ws.md",
+        ),
     ]);
     let long = format!("{TOKEN}{OTHER}");
     let not_a_nonce = format!("Sec-WebSocket-Key: {long}\n");

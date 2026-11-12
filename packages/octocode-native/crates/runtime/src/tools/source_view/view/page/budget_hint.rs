@@ -48,6 +48,7 @@ mod budget_cut_hint_tests {
                     has_more: true,
                     next_offset: Some(length),
                     resume_line: None,
+                    placed: None,
                 },
                 false,
             )

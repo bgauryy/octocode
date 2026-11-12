@@ -406,3 +406,59 @@ async fn a_saved_answer_reused_by_a_read_its_caller_keeps_is_not_evidence() {
         .sum();
     assert_eq!(bodies, 0, "{:?}", kept.evidence().answers);
 }
+
+/// A contents body the read cannot decode is no answer: it is neither kept
+/// nor recorded as evidence, so the retry the error's hint offers asks
+/// GitHub again and succeeds once GitHub sends a good body, even for a
+/// commit-pinned read a kept answer would serve unasked.
+#[tokio::test]
+async fn an_undecodable_contents_body_is_not_kept_so_a_retry_asks_again() {
+    let server = MockServer::builder().start().await;
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents/one.rs"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "type": "file", "encoding": "base64", "content": "@@ not base64 @@"
+        })))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents/one.rs"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "type": "file", "encoding": "base64", "content": STANDARD.encode("body\n")
+        })))
+        .mount(&server)
+        .await;
+    let (transport, _, memory) = keeping(&server);
+    let provider = GitHubProvider::new(transport);
+    let file = ContentRequest {
+        owner: "a".into(),
+        repo: "b".into(),
+        path: "one.rs".into(),
+        reference: Some(sha.into()),
+    };
+    let first = request("decode");
+    let error = provider
+        .get_file_bytes(&file, &first)
+        .await
+        .expect_err("an undecodable body");
+    assert_eq!(error.kind, ProviderErrorKind::Decode, "{error:?}");
+    assert_eq!(memory.len(), 0, "the undecodable answer is not kept");
+    assert!(
+        first
+            .evidence()
+            .answers
+            .iter()
+            .all(|answer| !answer.request.contains("/contents/")),
+        "{:?}",
+        first.evidence().answers
+    );
+    let read = provider
+        .get_file_bytes(&file, &request("decode"))
+        .await
+        .expect("the retry reads the good body");
+    assert_eq!(read.bytes, &b"body\n"[..]);
+    assert_eq!(requests(&server).await.len(), 2, "the retry asked GitHub");
+    assert_eq!(memory.len(), 1, "the good answer is kept");
+}

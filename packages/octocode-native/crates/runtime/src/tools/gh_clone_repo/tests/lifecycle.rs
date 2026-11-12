@@ -11,7 +11,7 @@ fn stale_lock_and_failed_publication_preserve_existing_output() {
     let config = CloneConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let first = clone_pinned(&fixture, &query(), &context).expect("first clone");
-    let clone_path = PathBuf::from(&first.location.local_path);
+    let clone_path = PathBuf::from(&first.location.path);
     // A holder that ended without unlocking (a crash closes its descriptor)
     // leaves only the lock file: the kernel released the lock, so the next
     // clone takes it at once, with no age or pid heuristics.
@@ -57,7 +57,7 @@ fn live_lock_and_failed_sparse_clone_preserve_other_outputs() {
     let config = CloneConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let main = clone_pinned(&fixture, &query(), &context).expect("main clone");
-    let main_path = PathBuf::from(&main.location.local_path);
+    let main_path = PathBuf::from(&main.location.path);
     // The tag names main's commit: a deeper history is another entry.
     let deep_tag = GhCloneRepoQuery {
         ref_: Some(reference("v1")),
@@ -66,16 +66,13 @@ fn live_lock_and_failed_sparse_clone_preserve_other_outputs() {
     };
     let tag = clone_pinned(&fixture, &deep_tag, &context).expect("tag clone");
     assert!(main_path.exists(), "clone outputs are never cache-evicted");
-    assert!(Path::new(&tag.location.local_path).is_dir());
+    assert!(Path::new(&tag.location.path).is_dir());
 
     let live_lock = fs::OpenOptions::new()
         .create(true)
         .truncate(false)
         .write(true)
-        .open(storage::lock_path(
-            &home,
-            Path::new(&tag.location.local_path),
-        ))
+        .open(storage::lock_path(&home, Path::new(&tag.location.path)))
         .expect("live lock file");
     let held = match octocode_io::lock::try_lock(live_lock).expect("lock") {
         octocode_io::lock::TryLock::Locked(held) => held,
@@ -99,7 +96,7 @@ fn live_lock_and_failed_sparse_clone_preserve_other_outputs() {
         &context,
     )
     .expect_err("missing sparse path");
-    assert_eq!(missing.code, ErrorCode::PathNotFound);
+    assert_eq!(missing.code, ErrorCode::NotFound);
     assert!(missing.message.contains("\"missing/path\""), "{missing:?}");
     // The lead, not a hint or the message, names the recovery: nothing near
     // `path` exists at the root, so it lists the root at the commit.
@@ -107,7 +104,7 @@ fn live_lock_and_failed_sparse_clone_preserve_other_outputs() {
     test_support::checks::assert_absent(&serde_json::json!(missing.message), "ghStructure");
     let next = missing.calls.as_deref().expect("recovery lead");
     assert_eq!(next["viewTree"]["tool"], "ghStructure", "{next}");
-    assert!(Path::new(&tag.location.local_path).is_dir());
+    assert!(Path::new(&tag.location.path).is_dir());
 }
 
 /// What the lifecycle rows below share: a runner, a home and a first row.
@@ -121,7 +118,7 @@ pub(super) fn first_row(
     let config = CloneConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let first = clone_pinned(fixture, &query(), &context).expect("first clone");
-    let path = PathBuf::from(first.location.local_path);
+    let path = PathBuf::from(first.location.path);
     (root, home, runner, path)
 }
 

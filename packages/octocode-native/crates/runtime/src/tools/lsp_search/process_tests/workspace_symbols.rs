@@ -80,7 +80,7 @@ fn workspace_symbol_provider_coverage_is_unknown_without_losing_semantic_rows() 
             } else {
                 path.clone()
             };
-            let wire = json!({"operation":"workspaceSymbol","path":anchor,"symbolQuery":"Shared"});
+            let wire = json!({"operation":"workspaceSymbol","path":anchor,"symbolFuzzy":"Shared"});
             let query: LspSearchQuery = serde_json::from_value(wire.clone()).expect("query");
             let row = symbol_row(&client, (&root, &paths), &query, &anchor, root_only).await;
             assert!(
@@ -100,10 +100,17 @@ fn workspace_symbol_provider_coverage_is_unknown_without_losing_semantic_rows() 
             assert_eq!(found[1]["containerName"], "Shadow");
             let identities = found
                 .iter()
-                .map(|value| (value["path"].clone(), value["displayRange"].clone()))
+                .map(|value| {
+                    (
+                        value["path"].clone(),
+                        value["line"].clone(),
+                        value["endLine"].clone(),
+                    )
+                })
                 .collect::<std::collections::HashSet<_>>();
             assert_eq!(identities.len(), 4);
-            assert_eq!(found[2]["displayRange"], json!({"startLine":1}));
+            assert_eq!(found[2]["line"], 1);
+            assert!(found[2].get("column").is_none() && found[2].get("endLine").is_none());
             assert_row_contract(ToolId::LspSearch, &row);
         }
         // An empty workspace-symbol answer is an empty row with its notice
@@ -114,7 +121,7 @@ fn workspace_symbol_provider_coverage_is_unknown_without_losing_semantic_rows() 
         ] {
             let mut wire = json!({"operation":operation,"path":path});
             if let Some(name) = name {
-                wire["symbolQuery"] = json!(name);
+                wire["symbolFuzzy"] = json!(name);
             }
             let query: LspSearchQuery = serde_json::from_value(wire.clone()).expect("query");
             let row = symbol_row(&client, (&root, &paths), &query, &path, false).await;
@@ -182,7 +189,7 @@ fn directories_of_a_cargo_workspace_share_one_language_server() {
         "crates/runtime/src",
         ".",
     ] {
-        let wire = json!({"operation":"workspaceSymbol","symbolQuery":"f",
+        let wire = json!({"operation":"workspaceSymbol","symbolFuzzy":"f",
             "path": root.join(anchor).canonicalize().expect("anchor").to_string_lossy()});
         let row = runtime
             .block_on(crate::tools::lsp_search::execute(
@@ -244,7 +251,7 @@ fn workspace_symbols_at_the_server_limit_say_capped() {
                 (format!("Cap{limit}"), true),
                 (format!("Cap{}", limit - 1), false),
             ] {
-                let wire = json!({"operation":"workspaceSymbol", "path":path, "symbolQuery":name});
+                let wire = json!({"operation":"workspaceSymbol", "path":path, "symbolFuzzy":name});
                 let query: LspSearchQuery = serde_json::from_value(wire.clone()).expect("query");
                 let row = symbol_row(&client, (&root, &paths), &query, &path, false).await;
                 let reasons = if capped {

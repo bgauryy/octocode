@@ -47,8 +47,8 @@ const KEY_BLOCKS: [(&str, &str, &str, &str); 4] = [
 ];
 
 /// The key pass hides a key's bytes and no other: what a line holds before
-/// the key and after it, the declared name first, is the source's own text
-/// at its place, wherever the block stands in its file.
+/// the key and after it, the declared name first, and the block's armor are
+/// the source's own text at its place, wherever the block stands in its file.
 #[test]
 fn a_key_block_hides_its_bytes_and_leaves_the_code_around_them() {
     let fillers = ["", "// head\n", "const before = 1;\nconst other = 2;\n"];
@@ -85,8 +85,15 @@ fn a_key_block_hides_its_bytes_and_leaves_the_code_around_them() {
             assert_eq!(judged.cut(led), lead, "{layout}");
             let end = source.len() - after.len() - 1;
             assert_eq!(judged.cut(end - tail.len()..end), tail, "{layout}");
-            // Every byte of the key is hidden, each line under one placeholder.
-            let key = before.len() + lead.len()..end - tail.len();
+            // The armor reads as written; every byte of the body is hidden,
+            // each line under one placeholder.
+            const BEGIN: &str = "-----BEGIN RSA PRIVATE KEY-----";
+            const END: &str = "-----END RSA PRIVATE KEY-----";
+            let opened = before.len() + lead.len();
+            assert_eq!(judged.cut(opened..opened + BEGIN.len()), BEGIN, "{layout}");
+            let closed = end - tail.len();
+            assert_eq!(judged.cut(closed - END.len()..closed), END, "{layout}");
+            let key = opened + BEGIN.len() + 1..closed - END.len() - 1;
             for at in key.clone().filter(|at| source.as_bytes()[*at] != b'\n') {
                 assert!(judged.exposes(&(at..at + 1)), "{layout}: byte {at}");
             }

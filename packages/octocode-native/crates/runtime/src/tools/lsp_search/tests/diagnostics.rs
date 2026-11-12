@@ -22,7 +22,7 @@ fn diagnostic_reports_are_listed_as_individual_diagnostics() {
     let listed = envelope["matches"].as_array().expect("matches");
     assert_eq!(listed.len(), 2, "{envelope}");
     assert_eq!(listed[0]["message"], "first");
-    assert_eq!(envelope["pagination"]["totalItems"], 2);
+    assert_eq!(envelope["pagination"]["total"], 2);
 
     // A clean file (or a pull `unchanged` report) is an empty result, not
     // a one-element list wrapping the report object.
@@ -43,9 +43,9 @@ fn diagnostic_reports_are_listed_as_individual_diagnostics() {
 
 /// Identical diagnostics (the same message, code, severity, source, link
 /// and related notes) at several ranges are listed once, with `count` and
-/// every range in `displayRanges`, in report order: the repeated text is
-/// stated once and no location is lost. A diagnostic seen once keeps its
-/// one `displayRange`.
+/// every place in `sites`, in report order: the repeated text is stated
+/// once and no location is lost. A diagnostic seen once keeps its own
+/// `line` and `column`.
 #[test]
 fn identical_diagnostics_are_listed_once_with_every_range() {
     let item = |line: u64, message: &str| {
@@ -65,17 +65,20 @@ fn identical_diagnostics_are_listed_once_with_every_range() {
     let listed = dedupe_diagnostics(items);
     let listed = listed.as_array().expect("diagnostics");
     assert_eq!(listed.len(), 2, "{listed:?}");
-    let range = |line: u64| serde_json::json!({"startLine": line + 1, "startCharacter": 1});
+    let range = |line: u64| serde_json::json!({"line": line + 1, "column": 1});
     assert_eq!(listed[0]["count"], 3, "{listed:?}");
     assert_eq!(
-        listed[0]["displayRanges"],
+        listed[0]["sites"],
         serde_json::json!([range(9), range(4), range(7)])
     );
-    assert!(listed[0].get("displayRange").is_none(), "{listed:?}");
+    assert!(listed[0].get("line").is_none(), "{listed:?}");
     assert_eq!(listed[0]["severity"], "hint");
     assert_eq!(listed[1]["message"], "other");
-    assert_eq!(listed[1]["displayRange"], range(2));
-    assert!(listed[1].get("count").is_none() && listed[1].get("displayRanges").is_none());
+    assert_eq!(
+        (&listed[1]["line"], &listed[1]["column"]),
+        (&range(2)["line"], &range(2)["column"])
+    );
+    assert!(listed[1].get("count").is_none() && listed[1].get("sites").is_none());
 }
 
 #[test]
@@ -91,12 +94,16 @@ fn diagnostics_use_the_one_based_public_coordinates() {
     let item = &items[0];
     assert!(item.get("range").is_none(), "{item}");
     assert_eq!(
-        item["displayRange"],
-        serde_json::json!({"startLine": 974, "startCharacter": 5, "endLine": 1016})
+        (&item["line"], &item["column"], &item["endLine"]),
+        (
+            &serde_json::json!(974),
+            &serde_json::json!(5),
+            &serde_json::json!(1016)
+        )
     );
     let related = &item["relatedInformation"][0]["location"];
     assert!(related.get("range").is_none(), "{related}");
-    assert_eq!(related["displayRange"]["startLine"], 1);
+    assert_eq!(related["line"], 1);
     assert!(disabled_macro_diagnostics(&items));
     assert!(!disabled_macro_diagnostics(
         &serde_json::json!([{"code": "E0308"}])
@@ -154,13 +161,7 @@ fn empty_diagnostics_carry_no_read_recovery_and_symbol_reads_are_matched() {
         "symbolName": "run",
         "line": 3
     }));
-    let row = failure(
-        &q,
-        "file:///repo/a.ts",
-        ErrorCode::AnchorUnresolved,
-        "x",
-        true,
-    );
+    let row = failure(&q, "file:///repo/a.ts", ErrorCode::NotFound, "x", true);
     let read = &crate::tools::test_support::checks::related_call(&row, "localFetch", |_| true)["input"]
         ["queries"][0];
     assert_eq!(read["path"], "/repo/a.ts");
@@ -195,7 +196,8 @@ fn diagnostic_severity_is_published_by_name() {
         ]
     );
     assert_eq!(
-        items[0]["displayRange"],
-        serde_json::json!({"startLine": 1, "startCharacter": 1})
+        (&items[0]["line"], &items[0]["column"]),
+        (&serde_json::json!(1), &serde_json::json!(1))
     );
+    assert!(items[0].get("endLine").is_none());
 }

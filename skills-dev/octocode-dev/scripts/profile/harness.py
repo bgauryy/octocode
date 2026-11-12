@@ -213,14 +213,16 @@ def oneshot(binary, tool, args, cwd, env, wrapper=()):
 # channels resume what a page left out of the same answer, not a wider or a different read.
 SAME_CLAIM = ('expandScan', 'nextCandidatePage', 'continueMaterialize', 'continueWalk', 'continueCommitFiles',
               'continueCommentBody', 'continueReviewBody', 'nextImporterWindow')
-_CHANNEL = re.compile(r'^(?:nextPage|(?:' + '|'.join(SAME_CLAIM) + r')(?:[2-9]|[1-9][0-9]+)?)$')
+# ghGetHistoryItem's per-section pages: each continues under the row's `next.<section>`.
+SECTIONS = ('body', 'reviewBody', 'patches', 'commentBody', 'files', 'comments', 'reviewComments', 'reviews',
+            'commits')
+_CHANNEL = re.compile(r'^(?:nextPage|' + '|'.join(SECTIONS) + r'|(?:' + '|'.join(SAME_CLAIM) + r')(?:[2-9]|[1-9][0-9]+)?)$')
 
 
 def continuations(content, tool=None):
     """Every next call of a walk, as [(channel, input)], in the contract's order: a response split alone when
-    there is one; else each row's `next.nextPage` and same-claim branches, then every collection's
-    `contentPagination.<name>.next` (comments, files, patches, sections, candidates), wherever it sits in the
-    row. A call owned by another tool (`read`, `related`) is no page of this walk."""
+    there is one; else each row's `next.nextPage` and same-claim branches, then every history section's
+    `next.<section>` (comments, files, patches, commits, ...), wherever it sits in the row. A call owned by another tool (`read`, `related`) is no page of this walk."""
     if not isinstance(content, dict):
         return []
     split = content.get('responsePagination')

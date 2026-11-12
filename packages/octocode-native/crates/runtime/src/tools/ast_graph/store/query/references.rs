@@ -168,6 +168,17 @@ impl Graph {
             spellings = spellings.iter().cloned().chain(canonical).collect();
         }
         let mut keys = vec![normalized.to_owned()];
+        // A path from the workspace, as answers name files, is the key under
+        // the scope it names: lexical, so a continuation reads it the same.
+        let shown = self.shown_root();
+        if shown != "."
+            && let Some(key) = normalized
+                .strip_prefix(shown.as_str())
+                .and_then(|rest| rest.strip_prefix('/'))
+                .filter(|key| !key.is_empty())
+        {
+            keys.push(key.to_owned());
+        }
         for spelling in spellings {
             if let Ok(relative) = spelling.strip_prefix(root) {
                 let relative = match octocode_engine::text::slash_path(relative) {
@@ -385,7 +396,12 @@ impl Query<'_> {
         out.value["graph"] = self.g.summary();
         let shown = page.rows.len();
         out.value["candidates"] = json!(page.rows);
-        out.value["pagination"] = pagination(self.options, page.total, shown < page.total);
+        out.value["pagination"] = pagination(
+            self.options.offset.unwrap_or(0),
+            shown,
+            page.total,
+            shown < page.total,
+        );
         if shown < page.total {
             let next = QueryOptions {
                 op: "candidates".into(),

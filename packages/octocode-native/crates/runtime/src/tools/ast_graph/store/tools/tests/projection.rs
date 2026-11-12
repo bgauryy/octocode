@@ -54,9 +54,11 @@ fn assert_same_evidence(compact: &Value, full: &Value, symbol_file: Option<&Valu
     }
     let mut actual = compact.clone();
     if let Some(file) = symbol_file {
-        assert_eq!(&actual["file"], file);
-        assert!(full.get("file").is_none());
-        actual.as_object_mut().expect("row").remove("file");
+        // The row names its file from the workspace root, as the target's
+        // file id does.
+        assert_eq!(actual["path"], *file);
+        assert!(full.get("path").is_none());
+        actual.as_object_mut().expect("row").remove("path");
     }
     if !plain {
         for field in ["sourceOrigin", "selectionOrigin", "bindingOrigin"] {
@@ -96,10 +98,7 @@ fn compact_graph_origins_keep_transformed_sources_and_complete_evidence() {
         let compact = call(&dir.0, ToolId::GraphQuery, compact_query);
         assert_eq!(default["rows"], compact["rows"], "lean is the default");
         assert_eq!(default["sourceEvidence"], compact["sourceEvidence"]);
-        assert_eq!(
-            compact["pagination"]["totalItems"],
-            full["pagination"]["totalItems"]
-        );
+        assert_eq!(compact["pagination"]["total"], full["pagination"]["total"]);
         assert_eq!(compact["coverage"], full["coverage"]);
         assert_eq!(compact["argumentCoverage"], full["argumentCoverage"]);
         let compact_rows = compact["rows"].as_array().expect("compact results");
@@ -115,16 +114,16 @@ fn compact_graph_origins_keep_transformed_sources_and_complete_evidence() {
                 original,
                 (operation == "symbols").then_some(&full["target"]["id"]),
             );
-            match projected["file"].as_str() {
-                Some("plain.ts") => {
+            match projected["path"].as_str() {
+                Some("app/plain.ts") => {
                     plain += 1;
                     assert!(projected.get("sourceOrigin").is_none(), "{projected}");
                 }
-                Some("encoded.ts") => {
+                Some("app/encoded.ts") => {
                     encoded += 1;
                     assert!(projected["sourceOrigin"].is_object());
                 }
-                Some("bom.ts") => {
+                Some("app/bom.ts") => {
                     bom += 1;
                     assert!(projected["sourceOrigin"].is_object());
                 }
@@ -188,7 +187,7 @@ fn compact_graph_pages_preserve_all_occurrence_ids_and_projection_choice() {
                         query = next.clone();
                     }
                     None => {
-                        assert_eq!(ids.len() as u64, page["pagination"]["totalItems"]);
+                        assert_eq!(ids.len() as u64, page["pagination"]["total"]);
                         break;
                     }
                 }
@@ -201,7 +200,7 @@ fn compact_graph_pages_preserve_all_occurrence_ids_and_projection_choice() {
             assert_same_evidence(
                 compact,
                 full,
-                (operation == "symbols").then_some(&json!("plain.ts")),
+                (operation == "symbols").then_some(&json!("app/plain.ts")),
             );
         }
     }
@@ -219,7 +218,7 @@ fn compact_ambiguity_continuation_keeps_the_projection_choice() {
         ToolId::GraphQuery,
         json!({"operation":"node","path":"app","target":"shared","includeProvenance":false}),
     );
-    assert_eq!(first["pagination"]["totalItems"], 21);
+    assert_eq!(first["pagination"]["total"], 21);
     let candidates = first["candidates"].as_array().expect("candidates");
     assert_eq!(candidates.len(), 20);
     assert!(

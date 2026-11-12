@@ -118,7 +118,11 @@ fn the_answer_and_the_coordinates_stay_only_when_they_say_something_new() {
     );
     // No verdict on an empty row: the sentence says what the 0 does not prove.
     assert_eq!(empty["answer"], "sentence", "{empty}");
-    let no_verdict = apply(SecurityCheckView::Summary, row(json!({})), target(package()));
+    let no_verdict = apply(
+        SecurityCheckView::Summary,
+        row(json!({})),
+        target(package()),
+    );
     assert_eq!(no_verdict["answer"], "sentence", "{no_verdict}");
     // A range the registry resolved, or a URL: the row's coordinates are news.
     let mut resolved = target(package());
@@ -148,7 +152,9 @@ fn the_answer_and_the_coordinates_stay_only_when_they_say_something_new() {
 #[test]
 fn the_leads_are_the_whole_row_and_the_pinned_dependency_checks() {
     let call = |rows: Value| json!({"kind": "related", "tool": "securityCheck", "input": {"queries": rows}});
-    let pinned = call(json!([{"operation": "package", "ecosystem": "npm", "packageName": "dep", "version": "1.0.0"}]));
+    let pinned = call(
+        json!([{"operation": "package", "ecosystem": "npm", "packageName": "dep", "version": "1.0.0"}]),
+    );
     let row = json!({"affected": false, "advisories": [], "related": [
         call(json!([{"operation": "advisory", "id": "GHSA-29mw-wpgm-hmr9", "view": "details"}])),
         pinned.clone(),
@@ -157,7 +163,31 @@ fn the_leads_are_the_whole_row_and_the_pinned_dependency_checks() {
     let lean = apply(SecurityCheckView::Summary, row, target(package()));
     let mut whole = package();
     whole["view"] = json!("details");
-    assert_eq!(lean["related"], json!([call(json!([whole])), pinned]), "{lean}");
+    assert_eq!(
+        lean["related"],
+        json!([call(json!([whole])), pinned]),
+        "{lean}"
+    );
+}
+
+/// A version the registry does not publish fails the same in details, so the
+/// summary leads only to the nearest published versions, and keeps the hint.
+#[test]
+fn a_missing_version_leads_to_the_nearest_versions_alone() {
+    let call = |queries: Value| json!({"kind": "related", "tool": "securityCheck", "input": {"queries": queries}});
+    let mut nearest = package();
+    nearest["version"] = json!("4.17.21");
+    let row = json!({"status": "error", "errorCode": "notFound",
+        "error": "lodash has no published version matching \"4.17.99\".",
+        "hints": ["Version not found: check the registry"], "versionEvaluated": false,
+        "advisories": [], "related": [call(json!([nearest.clone()]))]});
+    let lean = apply(SecurityCheckView::Summary, row, target(package()));
+    assert_eq!(lean["related"], json!([call(json!([nearest]))]), "{lean}");
+    assert_eq!(
+        lean["hints"],
+        json!(["Version not found: check the registry"]),
+        "{lean}"
+    );
 }
 
 /// Fields the summary does not name stay: a new disclosure is never dropped
@@ -212,6 +242,9 @@ fn a_row_with_no_list_keeps_its_sentence() {
             "sources": [{"source": "github", "status": "found"}]}),
         repository,
     );
-    assert_eq!(lean["answer"], "o/r: GitHub has no such repository.", "{lean}");
+    assert_eq!(
+        lean["answer"], "o/r: GitHub has no such repository.",
+        "{lean}"
+    );
     assert!(lean.get("advisoryCount").is_none(), "{lean}");
 }

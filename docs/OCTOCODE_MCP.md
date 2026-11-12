@@ -1,18 +1,14 @@
 # Octocode MCP server
 
-The Octocode MCP server exposes Octocode's research tools to AI coding clients over stdio. The server is the native binary's `octocode mcp` command; `octocode-mcp` is a thin Node launcher that starts it. The binary owns protocol framing, tool listing, tool behavior, configuration, security policy, providers, credentials, caches, and stats. MCP and `npx octocode <toolName> '<json>'` share the same schemas, runners, validation, response envelope, pagination, and secret redaction.
-
-Tool fields and the shared call contract (batch envelopes, indexed results, `next` continuations, `related` calls, and prose `hints`): [Tool data and handoff contract](TOOL_DATA_CONTRACT.md). Settings: [CONFIGURATION.md](CONFIGURATION.md). Tokens: [AUTHENTICATION.md](AUTHENTICATION.md).
-
-`npx octocode-mcp` needs Node.js (it starts the platform binary and forwards stdio). The standalone `octocode` binary serves MCP without Node: `octocode mcp`. Public Agent Skills are installed through the CLI’s embedded bundle, not an MCP tool. See [CLI interfaces](OCTOCODE_CLI.md) and [skill installation](OCTOCODE_CLI.md#skill--agent-skills).
+Connect an agent that supports stdio MCP to the same research tools as the [Octocode CLI](OCTOCODE_CLI.md). The npm launcher `octocode-mcp` requires Node.js 22 or later. With the standalone binary, configure the command as `octocode` with argument `mcp`.
 
 ## Quick start
 
-```bash
-npx octocode install --ide cursor
-```
+1. From the project directory, run `npx -y octocode install --list` to see supported clients and config paths.
+2. Run `npx -y octocode install --ide cursor` (replace `cursor` with your client ID). Add `--dry-run` to preview the entry or `--scope workspace` for a supported project-level install.
+3. Restart the MCP client. In a project with a README, ask **“Use Octocode to read the first line of README.md.”** Confirm that the agent calls `localFetch` and returns that line.
 
-Or configure the client directly:
+For a client that uses an `mcpServers` JSON object, this is the manual entry. Set `WORKSPACE_ROOT` in the entry's `env` if the client launches servers outside your project.
 
 ```json
 {
@@ -25,50 +21,32 @@ Or configure the client directly:
 }
 ```
 
-Set `GH_TOKEN` or `GITHUB_TOKEN` in the client `env` block, or run `npx octocode auth login` once on the same machine; the server also falls back to `gh auth token`.
-
-## Startup
-
-```text
-octocode-mcp (Node launcher) → platform `octocode mcp` (same stdio, same exit code)
-  → ToolRuntime::from_host(surface: mcp) → catalog → listing from the embedded presentation → rmcp over stdio
-```
-
-- One process serves both protocol eras: a 2025-era client opens with `initialize`, a 2026-07-28 client with `server/discover` (or a versioned request). The tool list, descriptions, and instructions come from the contract embedded in the binary, so the server never serves a schema the runtime would reject; there is no separate addon, ABI, or fingerprint to match.
-- A call to a name `tools/list` did not return is a JSON-RPC `-32602` (`Tool X not found`).
-- Startup fails with `No native tools are available` when no tool is available, for example a `TOOLS_TO_RUN` list of only unknown names. The launcher (and the binary) answer the client's first request with that reason as a JSON-RPC `-32603` error, then exit 1, so the client shows why. The launcher does the same when the platform binary is missing.
-- Settings and env tokens resolve once at startup. Stored logins and `gh` are resolved by native credential discovery; see [credential refresh and caching](AUTHENTICATION.md).
-- Shutdown: stdin EOF, SIGINT or SIGTERM cancel in-flight calls and close the runtime. After EOF the server still writes responses for calls already running, up to 5 seconds, so a client that closes stdin right after its last request still gets the answer. A client that sends a line longer than 16 MiB loses that line.
-- A long call does not block the others: pings, listing and short reads answer while a heavy call runs, and a cancellation reaches the call at once.
-
-Native validates the same JSON input on CLI and MCP: `{ "queries": [...] }` with optional top-level `responseChars`, or `{ "cursor": "…" }` copied from an issued continuation. Field names, operation variants and bounds are exact. A shape or value with one lossless reading is repaired, such as a bare row or a string for a one-item list; other invalid input returns field paths and schema guidance, never a guessed request. In a batch, valid rows run and each invalid row returns its own indexed error.
-
-Results use `results: [{index, data, status?, rowPart?}]`. Required work appears under `next` as `{kind:"continue", tool, input:{cursor}}`; optional exploration appears under `related` as `{kind:"related", tool, input:{queries:[...]}}`, and may widen scope (hidden or ignored paths). Copy the call's `input` unchanged to its named tool. `hints` contain explanatory text. A failed row has `status:"error"` with `data.errorCode` (and `httpStatus` for provider failures); the process exit code is not per row. Paging keys and the completeness rule are in the [tools reference](OCTOCODE_TOOLS.md#results-evidence-partial-failures-and-continuations).
-
 ## Tool catalog
 
-The contract has 17 tools. [Configuration](CONFIGURATION.md#tool-availability-cli-and-mcp) owns the default MCP catalog, graph/clone/classification/security opt-ins, and additional tool filters. Tools excluded by configuration are omitted from `tools/list`. A configured provider can still fail when invoked; discovery does not probe its health.
+The contract has 17 tools. MCP lists 12 by default. Graph tools, cloning, advisory checks and classification have separate opt-ins. Use your client's tool list to see which tools this server actually exposes. A listed GitHub tool may still need an account with access to the requested repository. [Availability and opt-ins](CONFIGURATION.md#tool-availability-cli-and-mcp) · [GitHub sign-in](AUTHENTICATION.md)
 
-| Family | Tools |
-|--------|-------|
-| GitHub | `ghSearchRepo`, `ghSearchCode`, `ghStructure`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo` |
-| Local | `localSearch`, `localFetch`, `structureSearch`, `astSearch`, `lspSearch`, `graphBuild`, `graphQuery` |
-| Package | `artifactSearch` |
-| Semantic assessment | `clasify` |
+| MCP operation | What the client gets |
+|---|---|
+| `tools/list` | Enabled tool names, descriptions and input schemas. |
+| `tools/call` | One text content block containing the JSON result. Check each indexed row for errors, empty results or remaining evidence. |
+| `resources/list` and `resources/read` | Research guides such as `octocode://research/tool-flow`, and output-field definitions at `octocode://contract/output/<tool>` for listed tools. |
 
-- `ghCloneRepo` writes a checkout unless it reuses a verified one of the same commit; `graphBuild` writes and prunes derived snapshots under workspace `.octocode/graph`, or in its own `octocode-graph/` directory inside `local.graphHome` when set ([settings](CONFIGURATION.md)), touching nothing else there. Their MCP annotations reflect those writes. `graphQuery` reads snapshots. The implementations are shared with the CLI.
-- `clasify` and inline `classification` use a configured provider credential. Questions, source capture and recovery are covered by the [classification guide](OCTOCODE_CLASIFY.md); exposure is covered by the configuration matrix above.
-- Tools take up to 5 `queries` per call; `graphBuild` accepts one. MCP publishes input schemas, titles, and descriptions, not output schemas.
-- Server instructions are one static prompt within the host cut `MCP_INSTRUCTION_CORE_CHARS` in core's `instructions.ts`: cross-tool order, envelope, paging and evidence rules. Tool-specific rules, output (`Returns:`) notes and clasify guidance live in each tool's description, so they arrive only with the listed tool. The CLI adds a `<cli>` line and the grammar inventory; MCP clients get schemas through `tools/list`.
+For example, call `localFetch` with these **arguments**. The CLI accepts the identical JSON after the tool name.
 
-## Configuration
+```json
+{"queries":[{"path":"README.md","ranges":[{"startLine":1,"endLine":1}]}]}
+```
 
-Start with [Configuration](CONFIGURATION.md) for setup, precedence and the complete settings reference. Its [client `env` example](CONFIGURATION.md#set-a-value) applies settings to one MCP process. Every tool result is one text block holding its serialized JSON, with `isError` set when it failed. Tools declare no `outputSchema`, so results carry no `structuredContent`. Development override (`OCTOCODE_NATIVE_BIN`, a candidate binary): [DEVELOPMENT.md](../skills-dev/octocode-dev/docs/DEVELOPMENT.md#development-environment-variables).
+Pass an emitted continuation's complete `input` to the tool it names. An MCP session can retain cursors in memory for its lifetime. [Reading results and following continuations](TOOL_DATA_CONTRACT.md)
 
-The server shares the CLI's cache under the Octocode home and runs the same best-effort 24-hour sweep at start ([cache storage and lifecycle](STORAGE_AND_LIMITS.md#cache-storage-and-lifecycle)). Unknown or removed tool names in `TOOLS_TO_RUN` and `DISABLE_TOOLS` are ignored with an `unknown_tool_name` config warning; if no `TOOLS_TO_RUN` name is valid, startup fails.
+## Startup and troubleshooting
 
-## See also
+| Symptom | Check |
+|---|---|
+| Client cannot start the server | Verify that the client can run `npx` and that npm installed the native package for its platform. Startup errors appear in the client's MCP log. |
+| Client connects but a tool is missing | Inspect `tools/list`, the tool's opt-in and any include or disable lists. An allowlist containing only unrecognized names can leave the server with no tools and cause startup to fail. |
+| The agent reads a different project | Inspect the client's launch directory and `WORKSPACE_ROOT`. Relative paths use the effective workspace root. |
+| A key or setting changed | Restart the server to reload the process environment and configuration files. Stored GitHub logins and GitHub CLI accounts are resolved for requests. |
+| Some batch rows failed | Inspect each row's `status` and error. `isError` describes a failed call or a batch in which every row failed. A mixed batch can contain both evidence and errors. |
 
-- [Octocode tools reference](OCTOCODE_TOOLS.md)
-- [Octocode CLI guide](OCTOCODE_CLI.md)
-- [Security](SECURITY.md)
+The native server supports the `initialize` handshake and the 2026-07-28 `server/discover` handshake on the same stdio command. The client manages the process and closes it when the session ends. [Configuration](CONFIGURATION.md) · [Security](SECURITY.md)

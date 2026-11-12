@@ -117,7 +117,7 @@ pub(crate) struct PageCut {
 /// checked for a request past its end. A page past the last one (page 1 of an
 /// empty set never is) is the empty range at the end and flagged out of
 /// range, never clamped to the last page, which would repeat rows the caller
-/// has ([`PageFacts::past_end`] is the rule).
+/// has.
 pub(crate) fn select(paging: Paging, sizes: &[usize], page: usize) -> PageCut {
     select_weighted(paging, sizes, None, page)
 }
@@ -136,13 +136,16 @@ pub(crate) fn select_weighted(
     let range = nth_page(&windows, page).cloned().unwrap_or(total..total);
     let pages = windows.len().max(1);
     let more = page < pages;
-    let facts = PageFacts::sized(page, pages, total, more);
-    let past_end = facts.past_end().is_some();
+    // Page 1 of an empty set is the empty set itself, never past its end.
+    let past_end = page > pages;
+    let facts = PageFacts::open(range.start, range.len(), more)
+        .with_total(total)
+        .out_of_range(past_end);
     PageCut {
         range,
         pages,
         more,
-        facts: facts.out_of_range(past_end),
+        facts,
     }
 }
 

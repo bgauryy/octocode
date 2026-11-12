@@ -38,7 +38,10 @@ pub(super) fn read_top_match(top: &Value, reference: Option<&str>) -> Option<Val
 
 /// The text GitHub highlighted in the top file's first fragment.
 fn highlighted(top: &Value) -> Option<String> {
-    let matched = top.get("matches")?.as_array()?.first()?;
+    let matched = top
+        .get(super::code_output::FRAGMENTS)?
+        .as_array()?
+        .first()?;
     matched["highlight"].as_str().map(str::to_owned)
 }
 

@@ -108,7 +108,7 @@ fn walk_error(
     let code = match error.kind() {
         ErrorKind::NotFound => {
             return ToolError::new(
-                ErrorCode::PathNotFound,
+                ErrorCode::NotFound,
                 format!("Path does not exist: {requested}"),
             );
         }

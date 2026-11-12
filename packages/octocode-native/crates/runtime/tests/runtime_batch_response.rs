@@ -118,7 +118,7 @@ async fn automatic_pages_reach_all_matches_once_on_both_transports() {
                     .is_empty()
             );
             if let Some(pagination) = output.get("responsePagination") {
-                assert!(pagination["page"].as_u64().is_some());
+                assert!(pagination["hasMore"].is_boolean(), "{pagination}");
                 if let Some(next) = pagination.get("next") {
                     support::assert_cursor_only(&next["input"]);
                 }

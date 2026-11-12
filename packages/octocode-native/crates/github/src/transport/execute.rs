@@ -570,6 +570,26 @@ impl GitHubTransport {
         }
     }
 
+    /// Drop every answer to `spec` this request recorded or the saved answers
+    /// hold, under its own URL and any rename route it took: its caller could
+    /// not read the body, so a retry asks GitHub again instead of meeting
+    /// the same body.
+    pub(crate) fn discard(&self, spec: &RequestSpec, context: &RequestContext) {
+        let scope = self.answer_scope(context);
+        let mut specs = vec![spec.clone()];
+        specs.extend(context.routed_urls(&spec.url).into_iter().map(|url| {
+            let mut routed = spec.clone();
+            routed.url = url;
+            routed
+        }));
+        for spec in &specs {
+            context.journal.forget(spec);
+            if let (Some(store), Some(scope)) = (&self.answers, &scope) {
+                store.forget(scope, &request_key(spec));
+            }
+        }
+    }
+
     /// Answers of one API origin and exact credential: never another's.
     fn answer_scope(&self, context: &RequestContext) -> Option<String> {
         let origin = self.endpoint.rest(&[]).ok()?;

@@ -84,7 +84,7 @@ pub(crate) fn capture(
             }),
         );
         let mut provenance_row = json!({
-            "source":origin, "snapshot":saved["snapshot"],
+            "source":origin, "sourceDigest":saved["sourceDigest"],
             "format":format, "bytes":bytes.len(), "width":width, "height":height,
             "path":saved["path"], "expiresAt":saved["expiresAt"],
         });
@@ -134,7 +134,7 @@ fn acquire(
                 .validate_read(Path::new(query["path"].as_str().unwrap_or_default()))
                 .map_err(|error| {
                     // The policy's failure keeps its shared code (a missing
-                    // image is `pathNotFound`, one outside the roots
+                    // image is `notFound`, one outside the roots
                     // `outsideAllowedRoots`) and a direct read's recovery.
                     super::resource::local_recovery(
                         ClassificationError::with_hints(

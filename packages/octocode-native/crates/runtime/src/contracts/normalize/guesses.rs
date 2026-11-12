@@ -18,6 +18,8 @@ enum Reading {
 /// value and the row it sits in.
 struct Guess {
     tools: &'static [ToolId],
+    /// The row field whose object holds `sent`: empty for the row itself.
+    within: &'static str,
     sent: &'static str,
     field: &'static str,
     /// What `field` takes, where the sent name promises something else: said
@@ -31,19 +33,23 @@ const READERS: &[ToolId] = &[ToolId::LocalFetch, ToolId::GhGetFileContent];
 
 const GUESSES: &[Guess] = &[
     Guess {
+        within: "",
         tools: SEARCH,
         sent: "mode",
         field: "regexEngine",
-        takes: None,
+        takes: Some("literal, rust or pcre2 (a files-only listing is view:\"files\")"),
         read: |value, _| match value.as_str() {
             Some(engine @ ("literal" | "rust" | "pcre2")) => {
                 Reading::Field("regexEngine", json!(engine))
             }
+            // The former search mode that listed matching files only.
+            Some("discovery") => Reading::Field("view", json!("files")),
             // A regex runs in `rust` or `pcre2`: two readings.
             _ => Reading::Ambiguous,
         },
     },
     Guess {
+        within: "",
         tools: SEARCH,
         sent: "literal",
         field: "regexEngine",
@@ -56,6 +62,7 @@ const GUESSES: &[Guess] = &[
     // After the guesses that set `regexEngine`: an engine in the row says
     // how the value is read.
     Guess {
+        within: "",
         tools: SEARCH,
         sent: "pattern",
         field: "matchString",
@@ -77,6 +84,7 @@ const GUESSES: &[Guess] = &[
         },
     },
     Guess {
+        within: "",
         tools: SEARCH,
         sent: "filesOnly",
         field: "view",
@@ -84,6 +92,7 @@ const GUESSES: &[Guess] = &[
         read: |value, _| when_true(value, "view", "files"),
     },
     Guess {
+        within: "",
         tools: SEARCH,
         sent: "countOnly",
         field: "view",
@@ -91,6 +100,7 @@ const GUESSES: &[Guess] = &[
         read: |value, _| when_true(value, "view", "countMatches"),
     },
     Guess {
+        within: "",
         tools: SEARCH,
         sent: "perFileCount",
         field: "view",
@@ -98,6 +108,7 @@ const GUESSES: &[Guess] = &[
         read: |value, _| when_true(value, "view", "countMatches"),
     },
     Guess {
+        within: "",
         tools: SEARCH,
         sent: "excludeDir",
         field: "exclude",
@@ -111,6 +122,7 @@ const GUESSES: &[Guess] = &[
         },
     },
     Guess {
+        within: "",
         tools: &[ToolId::GhSearchHistory],
         sent: "type",
         field: "operation",
@@ -118,6 +130,7 @@ const GUESSES: &[Guess] = &[
         read: |value, _| Reading::Field("operation", value.clone()),
     },
     Guess {
+        within: "",
         tools: &[ToolId::GhSearchCode],
         sent: "match",
         field: "matchIn",
@@ -130,6 +143,7 @@ const GUESSES: &[Guess] = &[
     },
     // `startLine` and `endLine` beside `path` read as one range below.
     Guess {
+        within: "",
         tools: READERS,
         sent: "startLine",
         field: "ranges",
@@ -137,9 +151,52 @@ const GUESSES: &[Guess] = &[
         read: |_, _| Reading::Ambiguous,
     },
     Guess {
+        within: "",
         tools: READERS,
         sent: "endLine",
         field: "ranges",
+        takes: None,
+        read: |_, _| Reading::Ambiguous,
+    },
+    // Former names of renamed fields: refused, the error names the field.
+    Guess {
+        within: "",
+        tools: &[ToolId::StructureSearch],
+        sent: "sizeBytes",
+        field: "bytes",
+        takes: None,
+        read: |_, _| Reading::Ambiguous,
+    },
+    Guess {
+        within: "",
+        tools: &[ToolId::LspSearch],
+        sent: "symbolQuery",
+        field: "symbolFuzzy",
+        takes: None,
+        read: |_, _| Reading::Ambiguous,
+    },
+    Guess {
+        within: "",
+        tools: &[ToolId::GraphQuery],
+        sent: "name",
+        field: "symbolName",
+        takes: None,
+        read: |_, _| Reading::Ambiguous,
+    },
+    // Filter names follow the output fields they filter.
+    Guess {
+        within: "filters",
+        tools: &[ToolId::GhSearchRepo],
+        sent: "forkCount",
+        field: "forks",
+        takes: None,
+        read: |_, _| Reading::Ambiguous,
+    },
+    Guess {
+        within: "filters",
+        tools: &[ToolId::GhSearchHistory],
+        sent: "commentCount",
+        field: "commentsCount",
         takes: None,
         read: |_, _| Reading::Ambiguous,
     },
@@ -163,12 +220,17 @@ pub(crate) fn reads_as_regex(terms: &[&str]) -> bool {
 
 /// The declared field a sent `field` of `tool` stands for, when it is a known
 /// guess, and what that field takes when the sent name promises something
-/// else: what an unknown-field error tells the caller to use.
-pub(crate) fn meant_field(tool: &str, field: &str) -> Option<(&'static str, Option<&'static str>)> {
+/// else: what an unknown-field error tells the caller to use. `within` names
+/// the row field whose object holds `field`, empty for the row itself.
+pub(crate) fn meant_field(
+    tool: &str,
+    within: &str,
+    field: &str,
+) -> Option<(&'static str, Option<&'static str>)> {
     let id = ToolId::from_name(tool)?;
     GUESSES
         .iter()
-        .find(|guess| guess.sent == field && guess.tools.contains(&id))
+        .find(|guess| guess.within == within && guess.sent == field && guess.tools.contains(&id))
         .map(|guess| (guess.field, guess.takes))
 }
 
@@ -187,7 +249,10 @@ pub(super) fn read(id: ToolId, input: &mut Value) -> Vec<String> {
             notes.extend(read_range(row).map(|note| format!("queries[{index}]: {note}")));
             notes.extend(read_pairs(row).map(|note| format!("queries[{index}]: {note}")));
         }
-        for guess in GUESSES.iter().filter(|guess| guess.tools.contains(&id)) {
+        for guess in GUESSES
+            .iter()
+            .filter(|guess| guess.within.is_empty() && guess.tools.contains(&id))
+        {
             let Some(value) = row.get(guess.sent) else {
                 continue;
             };
@@ -203,10 +268,17 @@ pub(super) fn read(id: ToolId, input: &mut Value) -> Vec<String> {
                 // The row sets the field too: two values, no one reading.
                 (Some(_), _) => continue,
             };
+            // The repair names its value when the field takes another than
+            // was sent (`filesOnly: true` is `view: "files"`).
+            let repair = if &merged == value {
+                format!("`{field}`")
+            } else {
+                format!("`{field}: {merged}`")
+            };
             row.remove(guess.sent);
             row.insert(field.to_owned(), merged);
             notes.push(format!(
-                "queries[{index}]: read `{}` as `{field}`; send `{field}` next time.",
+                "queries[{index}]: read `{}` as {repair}; send {repair} next time.",
                 guess.sent
             ));
         }
@@ -232,7 +304,10 @@ fn read_range(row: &mut Map<String, Value>) -> Option<String> {
         "ranges".to_owned(),
         json!([{"startLine": start, "endLine": end}]),
     );
-    Some("read `startLine`/`endLine` as `ranges:[{startLine,endLine}]`.".to_owned())
+    Some(
+        "read `startLine`/`endLine` as `ranges:[{startLine,endLine}]`; send `ranges` next time."
+            .to_owned(),
+    )
 }
 
 /// `ranges` as `[[start, end], …]`: each pair one range. A flat list of
@@ -250,5 +325,8 @@ fn read_pairs(row: &mut Map<String, Value>) -> Option<String> {
         .collect::<Option<Vec<_>>>()
         .filter(|pairs| !pairs.is_empty())?;
     row.insert("ranges".to_owned(), Value::Array(pairs));
-    Some("read each `[start, end]` pair of `ranges` as `{startLine, endLine}`.".to_owned())
+    Some(
+        "read each `[start, end]` pair of `ranges` as `{startLine, endLine}`; send `ranges:[{startLine,endLine}]` next time."
+            .to_owned(),
+    )
 }

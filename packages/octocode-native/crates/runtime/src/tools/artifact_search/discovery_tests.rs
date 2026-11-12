@@ -4,7 +4,7 @@ use crate::id::ToolId;
 use crate::providers::artifact::ArtifactProviderPage;
 
 /// A registry that counts no total (rubygems) states none: the page is
-/// built from the shared page facts, so `totalItems` is absent rather
+/// built from the shared page facts, so `total` is absent rather
 /// than `null`, and the row passes the output contract.
 #[test]
 fn a_discovery_without_a_registry_total_omits_total_items() {
@@ -30,7 +30,7 @@ fn a_discovery_without_a_registry_total_omits_total_items() {
     .expect("rows");
     assert_eq!(
         data["pagination"],
-        json!({"page": 1, "pageSize": 20, "hasMore": true}),
+        json!({"unit": "items", "offset": 0, "length": 1, "hasMore": true}),
         "{data}"
     );
     crate::tools::test_support::validate_sealed(
@@ -137,7 +137,7 @@ fn maven_discovery_pages_through_its_one_window() {
     // 500 matches: the reach is the window's 100 rows, through page 5.
     let first = page(1, 500);
     assert_eq!(
-        first[crate::response::paging::NOTICES],
+        first[crate::contracts::envelope::NOTICES],
         json!(["maven matched 500 results; paging reaches only the first 100 (through page 5)."]),
         "{first}"
     );
@@ -207,7 +207,7 @@ fn bounded_discovery_ends_at_its_reach() {
         };
         let first = page(1);
         assert_eq!(
-            first[crate::response::paging::NOTICES],
+            first[crate::contracts::envelope::NOTICES],
             json!([format!(
                 "{artifact_type} matched 50000 results; paging reaches only the first {reach} (through page {last_page})."
             )]),

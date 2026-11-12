@@ -34,11 +34,6 @@ pub(super) fn object(fields: &Map<String, Value>, indent: &str, out: &mut Vec<St
 /// `head` (`key:` or `-`) and `value`, nested `indent` deep.
 fn entry(head: &str, value: &Value, indent: &str, out: &mut Vec<String>) {
     let inner = format!("{indent}  ");
-    if let Value::Object(fields) = value
-        && let Some(named) = floor_named(fields)
-    {
-        return entry(head, &Value::Object(named), indent, out);
-    }
     // Items that all hold the same single field name it once, in the head:
     // `nodes[].node:`, then each item's value.
     if let Value::Array(items) = value
@@ -66,7 +61,7 @@ fn entry(head: &str, value: &Value, indent: &str, out: &mut Vec<String>) {
         Value::String(text) if text.is_empty() => out.push(format!("{head} \"\"")),
         Value::String(text) => out.push(format!("{head} {text}")),
         Value::Object(fields) if fields.is_empty() => out.push(format!("{head} {{}}")),
-        // A flat object of single words reads as words: `page 1 hasMore`.
+        // A flat object of single words reads as words: `unit lines offset 0 hasMore`.
         Value::Object(fields) if fields.values().all(is_word) => {
             out.push(format!("{head} {}", words(fields)));
         }
@@ -108,30 +103,6 @@ fn only_field(items: &[Value]) -> Option<(String, Vec<Value>)> {
         })
         .collect::<Option<Vec<_>>>()?;
     Some((field, values))
-}
-
-/// `fields` with a count that is only a floor named as one: where
-/// `countScope` is `loaded`, `totalItems` is the rows read so far, so it
-/// prints as `totalItemsAtLeast`. `None` when `fields` holds no such floor.
-pub(super) fn floor_named(fields: &Map<String, Value>) -> Option<Map<String, Value>> {
-    if fields.get("countScope").and_then(Value::as_str) != Some("loaded")
-        || !fields.contains_key("totalItems")
-    {
-        return None;
-    }
-    Some(
-        fields
-            .iter()
-            .map(|(key, value)| {
-                let key = if key == "totalItems" {
-                    "totalItemsAtLeast"
-                } else {
-                    key
-                };
-                (key.to_owned(), value.clone())
-            })
-            .collect(),
-    )
 }
 
 /// An object row that cannot read as one line of words.

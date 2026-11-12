@@ -16,7 +16,7 @@ fn walk(pages: &[Value]) -> Vec<Value> {
 
 fn answer_page(page: u64, files: Value) -> Value {
     json!({"files": files,
-        "pagination":{"page":page,"totalPages":3,"hasMore":page<3},
+        "pagination":{"unit":"files","offset":page - 1,"length":1,"total":3,"hasMore":page<3},
         "coverage":{"state":"complete","indexLimit":{"maxFileBytes":393216}},
         "related":[{"kind":"related","tool":"ghGetFileContent","input":{"queries":[{"path":"a"}]}}],
         "commitSha":"abc","next":{"nextPage":{"tool":"ghSearchCode","input":{"cursor":"c"}}}})

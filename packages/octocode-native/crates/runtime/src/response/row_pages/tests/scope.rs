@@ -3,13 +3,13 @@ use octocode_io::cancellation::Cancellation;
 
 #[test]
 fn every_code_fragment_keeps_optional_provenance_and_evidence_qualifiers() {
-    let lines = (0..30)
-        .map(|line| json!(format!("{line}\t{}", "evidence ".repeat(20))))
+    let lines = (1..=30)
+        .map(|line| json!({"line": line, "value": "evidence ".repeat(20)}))
         .collect::<Vec<_>>();
     let identity = json!({"owner":"owner","repo":"repo","path":"source.rs",
         "commitSha":"f".repeat(40),"atRef":false,"lineResolved":false});
     let mut file = identity.clone();
-    file["lines"] = json!(lines);
+    file["matches"] = json!(lines);
     let plan = PreparedRows::new(
         vec![json!({"index":0,"data":{"files":[file]}})],
         crate::id::ToolId::GhSearchCode,
@@ -27,7 +27,7 @@ fn every_code_fragment_keeps_optional_provenance_and_evidence_qualifiers() {
                 for (key, expected) in identity.as_object().expect("identity") {
                     assert_eq!(&file[key], expected, "page {page}: missing {key}");
                 }
-                seen.extend(file["lines"].as_array().expect("lines").iter().cloned());
+                seen.extend(file["matches"].as_array().expect("matches").iter().cloned());
             }
         }
     }
@@ -95,7 +95,7 @@ fn later_slices_of_an_element_do_not_repeat_its_description() {
     let body = "B".repeat(600);
     let structured = json!({"results":[{"index":0,"data":{
         "pullRequests":[{"number":7,"title":"t","state":"open","body":body,
-            "headSha":"h","comments":comments,"reviews":[{"author":"r","state":"approved"}]}]
+            "headCommitSha":"h","comments":comments,"reviews":[{"author":"r","state":"approved"}]}]
     }}]});
     let options = ResponsePageOptions {
         response_chars: Some(3_000),

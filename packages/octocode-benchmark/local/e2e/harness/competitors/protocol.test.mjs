@@ -24,7 +24,7 @@ test('every recipe resolves and validates against the current public contract wi
   const { validateInput } = contractValidators();
   assert.ok(tasks.length > 0);
   // Typed related calls and clone locations exercise templates without provider calls.
-  const response = { results: [{ data: { location: { localPath: 'fixture/clone' }, related: [
+  const response = { results: [{ data: { location: { path: 'fixture/clone' }, related: [
     { kind: 'related', tool: 'ghStructure', input: { queries: [{ operation: 'tree', owner: 'expressjs', repo: 'express', ref: 'v4.21.2' }] } },
     { kind: 'related', tool: 'ghGetHistoryItem', input: { queries: [{ operation: 'pullRequest', owner: 'cli', repo: 'cli', number: 14405 }] } },
   ] } }] };
@@ -113,7 +113,7 @@ test('schema-valid replay still fails when the tool returns a runtime error', as
 
 test('failed recipe calls retain their input, output and cost', async () => {
   const task = { octocode: [{ tool: 'localSearch', input: { queries: [{ path: '.', matchString: ['x'] }] } }] };
-  const run = await runRecipe(task, '', async (_tool, input) => entry({ results: [{ status: 'error', data: { errorCode: 'pathNotFound' } }] }, input));
+  const run = await runRecipe(task, '', async (_tool, input) => entry({ results: [{ status: 'error', data: { errorCode: 'notFound' } }] }, input));
   assert.match(run.error, /error rows/);
   assert.equal(run.entries.length, 1);
   assert.ok(run.entries[0].bytes > 0);
@@ -197,12 +197,12 @@ test('local evidence excludes skipped paths and diagnostics and counts each actu
   octocodeEvidence(entry(raw), ev);
   assert.deepEqual(ev.pairs, [{ file: 'real.rs', line: 7 }]);
   assert.deepEqual([...ev.files], ['real.rs']);
-  const refs = entry({ results: [{ data: { files: [{ path: 'ref.rs', matches: [{ displayRange: { startLine: 10 }, content: '10\tcall();\n' }] }] } }] }, undefined, { tool: 'lspSearch' });
+  const refs = entry({ results: [{ data: { files: [{ path: 'ref.rs', matches: [{ line: 10, column: 1, value: 'call();' }] }] } }] }, undefined, { tool: 'lspSearch' });
   const refEvidence = emptyEvidence();
   octocodeEvidence(refs, refEvidence);
   assert.deepEqual(refEvidence.pairs, [{ file: 'ref.rs', line: 10 }]);
   assert.match(refEvidence.text, /call\(\);/);
-  const symbols = entry({ results: [{ data: { matches: [{ path: 'sym.rs', displayRange: { startLine: 3 }, content: '' }] } }] }, undefined, { tool: 'lspSearch' });
+  const symbols = entry({ results: [{ data: { matches: [{ path: 'sym.rs', line: 3, content: '' }] } }] }, undefined, { tool: 'lspSearch' });
   const symbolEvidence = emptyEvidence();
   octocodeEvidence(symbols, symbolEvidence);
   assert.deepEqual(symbolEvidence.pairs, [{ file: 'sym.rs', line: 3 }]);

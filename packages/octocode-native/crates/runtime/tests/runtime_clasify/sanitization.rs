@@ -128,3 +128,141 @@ async fn a_captured_source_reaches_the_provider_as_its_reader_shows_it() {
     }
     runtime.close().await;
 }
+
+/// Retest R5: one placeholder per hidden line, the same in every view of a
+/// key file. A localFetch read, a localSearch row in content and in
+/// matchOnly, and clasify's inline content each show a key's line as the
+/// read does; the lines that hold no private key (a PuTTY file's headers and
+/// public lines, a PGP armor's `Version:`) read as written in each. Every
+/// value is fabricated.
+#[tokio::test]
+async fn a_key_file_shows_one_placeholder_form_in_every_view() {
+    let body =
+        |seed: &str| format!("{seed}{}", "Qk9EWUZBS0VMSU5FTk9UQUtFWQ".repeat(3))[..64].to_owned();
+    let (public, private, pgp, rsa) = (
+        body("AAAAB3Nz"),
+        body("pRiVaTeL"),
+        body("lQOYpGpL"),
+        body("MIIEfAkE"),
+    );
+    let file = format!(
+        "PuTTY-User-Key-File-2: ssh-rsa\nEncryption: none\nComment: rsa-key-20261112\nPublic-Lines: 1\n{public}\nPrivate-Lines: 2\n{private}\n{private}\nPrivate-MAC: 9f8e7d6c5b4a39281706aabbccdd\n\n-----BEGIN PGP PRIVATE KEY BLOCK-----\nVersion: GnuPG v2\n\n{pgp}\n{pgp}\n-----END PGP PRIVATE KEY BLOCK-----\n-----BEGIN RSA PRIVATE KEY-----\n{rsa}\n{rsa}\n-----END RSA PRIVATE KEY-----\n"
+    );
+    let workspace = crate::support::Workspace::new();
+    let server = provider(1).await;
+    let runtime = crate::support::clasify_runtime(&workspace, &server, &[]);
+    let path = workspace.write("keys.txt", &file);
+    let data = |output: Value| output["results"][0]["data"].clone();
+    let read = data(
+        runtime
+            .run(
+                "view".into(),
+                "localFetch".into(),
+                json!({"queries":[{"path": path}]}),
+            )
+            .await
+            .expect("read")
+            .structured_content
+            .into_value(),
+    );
+    let view: Vec<String> = read["content"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no content: {read}"))
+        .lines()
+        .map(|line| {
+            line.split_once('\t')
+                .map_or(line, |(_, text)| text)
+                .to_owned()
+        })
+        .collect();
+    let placeholder = "[REDACTED-PRIVATEKEYFRAGMENT]";
+    for (at, line) in file.lines().enumerate() {
+        let shown = &view[at];
+        if [&private, &pgp, &rsa]
+            .iter()
+            .any(|key| line == key.as_str())
+        {
+            assert_eq!(shown, placeholder, "line {}: {view:?}", at + 1);
+        } else if line.starts_with("Private-MAC:") {
+            assert_eq!(shown, &format!("Private-MAC: {placeholder}"), "{view:?}");
+        } else {
+            assert_eq!(shown, line, "line {}: {view:?}", at + 1);
+        }
+    }
+    // A search reads what a read shows: a content row's lines around each
+    // block are the read's lines, and a matchOnly search for the placeholder
+    // finds it on exactly the lines a read shows it, one per line.
+    let search = |query: Value| {
+        let runtime = &runtime;
+        async move {
+            data(
+                runtime
+                    .run(
+                        "search".into(),
+                        "localSearch".into(),
+                        json!({"queries":[query]}),
+                    )
+                    .await
+                    .expect("search")
+                    .structured_content
+                    .into_value(),
+            )
+        }
+    };
+    for needle in ["Private-Lines:", "BEGIN PGP", "BEGIN RSA"] {
+        let found = search(json!({"path": path, "matchString":[needle], "view":"content", "contextLines":{"before":4,"after":4}})).await;
+        let mut checked = 0;
+        for hit in found["files"][0]["matches"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{needle}: {found}"))
+        {
+            for line in hit["value"].as_str().expect("value").lines() {
+                let Some((number, text)) = line.split_once('\t') else {
+                    continue;
+                };
+                let number: usize = number.trim().parse().expect("line number");
+                assert_eq!(text, view[number - 1], "{needle} line {number}: {found}");
+                checked += 1;
+            }
+        }
+        assert!(checked >= 5, "{needle}: {found}");
+    }
+    let found = search(json!({"path": path, "matchString":[placeholder], "regexEngine":"literal", "view":"matchOnly"})).await;
+    let hits = found["files"][0]["matches"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{found}"));
+    let shown: Vec<usize> = (1..=view.len())
+        .filter(|line| view[line - 1].contains(placeholder))
+        .collect();
+    let found_lines: Vec<usize> = hits
+        .iter()
+        .map(|hit| {
+            assert_eq!(hit["value"], placeholder, "{found}");
+            usize::try_from(hit["line"].as_u64().expect("line")).expect("small")
+        })
+        .collect();
+    assert_eq!(found_lines, shown, "{found}");
+    let result = clasify(
+        &runtime,
+        vec![json!({
+            "operation":"evaluate",
+            "content":{"document":{"text": file}},
+            "questions":{"a":noul("Does `document.text` hold a key?")}
+        })],
+    )
+    .await;
+    assert!(
+        result["results"][0]["data"]["answers"]["a"].is_object(),
+        "{result}"
+    );
+    let bodies = sent(&server).await;
+    let sent_text = bodies[0]["state"]["document"]["text"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{}", bodies[0]));
+    assert_eq!(
+        sent_text.trim_end_matches('\n'),
+        view.join("\n"),
+        "clasify's inline content is not the read's view"
+    );
+    runtime.close().await;
+}

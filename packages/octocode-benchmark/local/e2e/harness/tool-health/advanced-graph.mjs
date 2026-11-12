@@ -294,7 +294,7 @@ async function groupedViews(ctx, graph, checks) {
     const files = tally(pairs.map(([from, to]) => `${VIEWS}/${reached === 'to' ? to : from}`));
     const modules = tally(pairs.map(([from, to]) => `${dir(from)}>${dir(to)}`));
     const grouped = await walk('files', 'files');
-    const fileCounts = counted(grouped, row => row.file);
+    const fileCounts = counted(grouped, row => row.path);
     checks.push([`graph.${operation}.file-counts.${surface}`, plain.length === edges.length - 1
       && grouped.length === Object.keys(files).length && same(fileCounts, files), JSON.stringify({ plain: plain.length, expected: files, rows: grouped })]);
     const paired = await walk('modules', 'modules');

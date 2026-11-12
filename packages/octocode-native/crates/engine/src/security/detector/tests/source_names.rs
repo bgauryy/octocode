@@ -93,11 +93,19 @@ fn a_name_is_a_structural_spelling() {
         r#"{"kind":"SecretList"}"#,
         r#"{"kind":"Secret\n"}"#,
         r#"{"subkind":"Secret"}"#,
-        "kind: \"Secret\"",
         "a Secret, and \"Secret\" alone",
     ] {
         assert_eq!(named("x.json", text), Named::default(), "{text}");
     }
+    // A YAML manifest's kind names its document in any file of text (D2,
+    // round 13), a `.json` path's too.
+    assert_eq!(
+        named("x.json", "kind: \"Secret\""),
+        Named {
+            objects: Objects::default(),
+            yaml: true,
+        }
+    );
 }
 
 /// Blanks that outrun the reach make the spelling count: the walk then decides.
@@ -114,7 +122,9 @@ fn a_name_past_any_blanks_still_counts() {
     );
 }
 
-/// `kind: Secret` counts only at a path whose YAML is judged.
+/// `kind: Secret` counts at every path of text, its YAML judged by content
+/// (D2, round 13: a `.txt` copy of a manifest is the manifest); source code
+/// holds no manifest.
 #[test]
 fn a_yaml_kind_counts_at_a_yaml_path() {
     let yaml = Named {
@@ -131,7 +141,8 @@ fn a_yaml_kind_counts_at_a_yaml_path() {
     ] {
         assert_eq!(named("a/b.yaml", text), yaml, "{text}");
         assert_eq!(named("a/b.yml", text), yaml, "{text}");
-        assert_eq!(named("a/b.txt", text), Named::default(), "{text}");
+        assert_eq!(named("a/b.txt", text), yaml, "{text}");
+        assert_eq!(named("a/b.rs", text), Named::default(), "{text}");
     }
     for text in [
         "kind: ConfigMap\n",

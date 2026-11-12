@@ -27,9 +27,7 @@ fn shaped_files(
     let count = files.len();
     let filtered = FilteredPage {
         files,
-        page: crate::response::pages::PageFacts::open(1, Some(count), false)
-            .with_total(count)
-            .to_value(),
+        page: crate::response::pages::PageFacts::counted(0, count, count).to_value(),
         kept: count,
         unsearched: vec![],
         dropped: 0,
@@ -111,7 +109,7 @@ fn commit_and_compare_patch_windows_keep_complete_stream_facts() {
         loop {
             let (mut out, page) = shaped(&query);
             attach_diff_continuations(&mut out, &query, operation, None, page.cursors);
-            let facts = &out["contentPagination"]["patches"];
+            let facts = &out["sectionPagination"]["patches"];
             assert_eq!(facts["unit"], "chars", "{operation:?}: {out}");
             assert_eq!(facts["offset"], offset, "{out}");
             assert_eq!(
@@ -130,12 +128,12 @@ fn commit_and_compare_patch_windows_keep_complete_stream_facts() {
             windows += 1;
             let Some(next_offset) = page.cursors.patch_offset else {
                 assert_eq!(facts["total"], offset + length, "{out}");
-                assert!(facts.get("next").is_none(), "{out}");
+                assert!(out["next"].get("patches").is_none(), "{out}");
                 break;
             };
             assert_eq!(next_offset, offset + length, "{out}");
             assert!(next_offset > offset, "every window advances: {out}");
-            let next = &facts["next"]["nextPage"]["input"]["queries"][0];
+            let next = &out["next"]["patches"]["input"]["queries"][0];
             assert_eq!(next["offset"], next_offset, "{out}");
             query = HistoryItemRequest::from_row(next.clone()).expect("continuation query");
             query.auto_page_chars = Some(300);

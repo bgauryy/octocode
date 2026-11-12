@@ -9,24 +9,13 @@ pub(super) fn rollback_destination(backup: &Path) -> PathBuf {
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or_default();
-    // Hidden backups are the rolling `.{name}.bak`, or older ones that add a
-    // 128-bit nonce: `.{name}-{hex}.bak`. Otherwise `{name}.bak`.
-    let Some(stem) = name
+    // A hidden backup is the rolling `.{name}.bak`; otherwise `{name}.bak`.
+    let Some(original) = name
         .strip_suffix(".bak")
         .and_then(|name| name.strip_prefix('.'))
         .filter(|stem| !stem.is_empty())
     else {
         return backup.with_extension("");
-    };
-    let original = match stem.rsplit_once('-') {
-        Some((original, nonce))
-            if nonce.len() == 32
-                && nonce.bytes().all(|byte| byte.is_ascii_hexdigit())
-                && !original.is_empty() =>
-        {
-            original
-        }
-        _ => stem,
     };
     backup.with_file_name(original)
 }

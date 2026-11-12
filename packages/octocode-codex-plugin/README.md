@@ -6,7 +6,7 @@ Install Octocode's local MCP server and all public Octocode skills as one Codex 
 
 The marketplace entry requires a published `@octocodeai/codex-plugin` release and the runtime versions pinned by that release. Until those packages are published, use the local development procedure in the repository's `ARCHITECTURE.md` for this package.
 
-1. Install Node.js compatible with the pinned Octocode CLI and MCP releases, npm, and a Codex client that supports plugins. The source release targets Node.js 24.15 or later within Node.js 24.
+1. Install Node.js compatible with the pinned Octocode CLI and MCP releases, npm, and a Codex client that supports plugins. The npm launchers in this release require Node.js 22 or later.
 2. Add the marketplace:
 
    ```sh

@@ -119,8 +119,24 @@ fn defect(path: &[&str], message: &str) -> ContractValidationError {
     }
 }
 
-/// Where the rows of `structured` carry a linear walk: every `next.nextPage`
-/// at a schema-declared call position under `results`.
+/// Whether `name` under a row's `next` is a linear walk of `tool`:
+/// `nextPage`, or a channel core declares linear (one section of a row
+/// paged by section, ghGetHistoryItem's `next.<section>`).
+fn is_linear(tool: ToolId, name: &str) -> bool {
+    name == LINEAR_WALK
+        || contracts::parsed_contract()
+            .ok()
+            .and_then(|contract| {
+                contract.pointer(&format!(
+                    "/continuationChannels/{}/row/{name}",
+                    tool.as_str()
+                ))
+            })
+            .is_some_and(|kind| kind == "linear" || kind["kind"] == "linear")
+}
+
+/// Where the rows of `structured` carry a linear walk: every `next.<walk>`
+/// ([`is_linear`]) at a schema-declared call position under `results`.
 pub(crate) fn linear_walks(
     tool: ToolId,
     structured: &Value,
@@ -128,7 +144,7 @@ pub(crate) fn linear_walks(
     let mut walks = Vec::new();
     visit_calls(tool, structured, &mut |call, path| {
         let linear = path.first().is_some_and(|key| key == "results")
-            && path.ends_with(&["next".to_owned(), LINEAR_WALK.to_owned()])
+            && matches!(path, [.., next, name] if next == "next" && is_linear(tool, name))
             && call["kind"] == "continue";
         if linear {
             walks.push(path.to_vec());

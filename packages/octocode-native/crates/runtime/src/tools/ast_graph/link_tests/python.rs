@@ -111,7 +111,7 @@ fn python_bare_names_never_bind_another_module_without_an_import() {
     let unresolved = ask_with(root, "unresolved", Some("pkg/caller.py"), |o| {
         o.edges = vec!["calls".into()];
     });
-    assert_eq!(unresolved["pagination"]["totalItems"], 2, "{unresolved}");
+    assert_eq!(unresolved["pagination"]["total"], 2, "{unresolved}");
 }
 
 #[test]

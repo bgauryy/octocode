@@ -339,7 +339,7 @@ impl WalkMeta {
     ) -> Result<(), ToolError> {
         use crate::tools::leads::skipped::{self, under};
         use octocode_contract_types::SkippedPathCause::{DefaultExcluded, Hidden, Ignored};
-        out["summary"] = json!({"files": self.files, "dirs": self.dirs});
+        out["summary"] = json!({"fileCount": self.files, "dirCount": self.dirs});
         if let Some(bytes) = self.bytes {
             out["summary"]["bytes"] = json!(bytes);
         }

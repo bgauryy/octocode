@@ -54,7 +54,7 @@ fn match_continuation_rejects_stale_snapshot() {
         assert!(restart.get(cursor).is_none(), "{cursor}: {page2}");
     }
     let fresh = run(&root.0, restart.clone()).expect("restart runs");
-    assert_eq!(fresh["pagination"]["totalItems"], 5, "{fresh}");
+    assert_eq!(fresh["pagination"]["total"], 5, "{fresh}");
 }
 
 #[test]
@@ -123,7 +123,7 @@ fn a_file_split_across_match_pages_is_paging_not_partial_coverage() {
     assert!(file.get("pagination").is_none(), "no per-file pages: {out}");
     assert_eq!(
         out["pagination"],
-        json!({"unit":"matches","page":1,"totalPages":2,"totalItems":3,"hasMore":true}),
+        json!({"unit":"matches","offset":0,"length":2,"total":3,"hasMore":true}),
         "{out}"
     );
     assert!(

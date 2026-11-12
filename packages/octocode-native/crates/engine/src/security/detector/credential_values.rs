@@ -164,6 +164,8 @@ impl ValueTest {
             }
             Self::Scalar => {
                 assigns_a_credential(key, secret)
+                    && !reads_as_a_sentence(secret)
+                    && !is_written_placeholder(secret)
                     && !is_non_string_scalar(secret)
                     && !is_type_annotation(secret)
                     && !is_template(secret.trim())
@@ -216,7 +218,8 @@ fn opens_with_opaque_word(key: &impl KeyFacts, secret: &str) -> bool {
 }
 
 /// Whether a literal interpolates an expression (`` `pi-${id}` ``,
-/// `"${HOME}/x"`, and in a literal whose prefix interpolates,
+/// `"${HOME}/x"`, a format argument by name or position, `"{name}\n"` or
+/// `"Bearer {0}"`, and in a literal whose prefix interpolates,
 /// [`opens_interpolation`], `f'{base}_x'` or `$"{key}"`): the program
 /// computes its value, so its text spells no credential.
 fn holds_interpolation(key: &impl KeyFacts, value: &str) -> bool {
@@ -225,7 +228,27 @@ fn holds_interpolation(key: &impl KeyFacts, value: &str) -> bool {
             .split_once(marker)
             .is_some_and(|(_, rest)| rest.contains('}'))
     };
-    hole("${") || (key.opens_interpolation() && holds_format_hole(value))
+    hole("${")
+        || (key.opens_interpolation() && holds_format_hole(value))
+        || (0..value.len()).any(|at| format_argument_len(value, at).is_some())
+}
+
+/// The length of the format argument that starts at `at` in `value`: a `{`,
+/// a name or a position (`{name}`, `{TOKEN}`, `{0}`), then `}`, where no `{`
+/// before it escapes the brace (`{{name}}` writes braces). Any format
+/// (`format!`, `str.format`, `String.Format`, a logger's) fills it in, so it is
+/// no part of the literal's written text.
+fn format_argument_len(value: &str, at: usize) -> Option<usize> {
+    let bytes = value.as_bytes();
+    if bytes.get(at) != Some(&b'{') || (at > 0 && bytes[at - 1] == b'{') {
+        return None;
+    }
+    let name = bytes
+        .get(at + 1..)?
+        .iter()
+        .take_while(|byte| byte.is_ascii_alphanumeric() || **byte == b'_')
+        .count();
+    (name > 0 && bytes.get(at + 1 + name) == Some(&b'}')).then_some(name + 2)
 }
 
 /// Whether a literal that interpolates ([`holds_interpolation`]) spells a
@@ -234,18 +257,25 @@ fn holds_interpolation(key: &impl KeyFacts, value: &str) -> bool {
 /// a literal of its own. A credential's piece is one opaque run of
 /// [`OPAQUE_LITERAL_CHARS`] or more with no blank in it
 /// (`f'Zq7x…{suffix}'`); a hole with no text beside it (`f'{base}'`) and
-/// prose or a short word around one (`` `pi-${id}` ``) hold none.
+/// prose or a short word around one (`` `pi-${id}` ``) hold none, and nor does
+/// a piece that assigns the hole after it (`//registry.npmjs.org/:_authToken=`
+/// before `{TOKEN}`): it is the key of the value the program fills in.
 fn holds_opaque_literal(key: &impl KeyFacts, value: &str) -> bool {
-    outside_holes(key, value).into_iter().any(|piece| {
+    let pieces = outside_holes(key, value);
+    let last = pieces.len().saturating_sub(1);
+    pieces.into_iter().enumerate().any(|(at, piece)| {
         let piece = piece.trim();
-        literal_chars(piece) >= OPAQUE_LITERAL_CHARS
+        let assigns_the_hole = at < last && piece.ends_with(['=', ':']);
+        !assigns_the_hole
+            && literal_chars(piece) >= OPAQUE_LITERAL_CHARS
             && !piece.contains(char::is_whitespace)
             && assigns_a_credential(key, piece)
     })
 }
 
-/// The text of `value` outside its holes: `${…}` anywhere, and when the literal's
-/// prefix interpolates ([`opens_interpolation`]) each `{…}` of
+/// The text of `value` outside its holes: `${…}` and a format argument
+/// ([`format_argument_len`]) anywhere, and when the literal's prefix
+/// interpolates ([`opens_interpolation`]) each `{…}` of
 /// [`holds_format_hole`]'s reading, `{{` and `}}` being text.
 fn outside_holes<'a>(key: &impl KeyFacts, value: &'a str) -> Vec<&'a str> {
     let format = key.opens_interpolation();
@@ -254,6 +284,12 @@ fn outside_holes<'a>(key: &impl KeyFacts, value: &'a str) -> Vec<&'a str> {
     let mut start = 0;
     let mut at = 0;
     while let Some(&byte) = bytes.get(at) {
+        if !format && let Some(len) = format_argument_len(value, at) {
+            pieces.push(value.get(start..at).unwrap_or_default());
+            at += len;
+            start = at;
+            continue;
+        }
         let inner = match (byte, bytes.get(at + 1)) {
             (b'{' | b'}', Some(&next)) if format && next == byte => {
                 at += 2;
@@ -358,16 +394,34 @@ const SCALAR_TYPE_NAMES: &[&str] = &[
 /// generic ([`is_type_expression`]) or a name with its parameter in brackets
 /// (`Optional[str]`), a union holding the type of no value besides
 /// (`string | null`), and after `=` at most a default that holds no value
-/// (`None`, `null`, `undefined`, an empty literal).
+/// (`None`, `null`, `undefined`, an empty literal, `b""` too).
 fn is_type_annotation(secret: &str) -> bool {
     let body = secret.trim().trim_end_matches([',', ';']).trim_end();
-    let (types, default) = match body.split_once('=') {
-        Some((types, default)) => (types.trim(), Some(default.trim())),
+    // The default follows a `=` outside every bracket: one inside is a
+    // type's argument (`Annotated[str, Field(min_length=8)]`).
+    let mut depth = 0_usize;
+    let assign = body.char_indices().find_map(|(at, c)| {
+        match c {
+            '[' | '(' | '<' | '{' => depth += 1,
+            ']' | ')' | '>' | '}' => depth = depth.saturating_sub(1),
+            '=' if depth == 0 => return Some(at),
+            _ => {}
+        }
+        None
+    });
+    let (types, default) = match assign {
+        Some(at) => (
+            body.get(..at).unwrap_or_default().trim(),
+            Some(body.get(at + 1..).unwrap_or_default().trim()),
+        ),
         None => (body, None),
     };
+    // An empty literal, a prefix before its quotes or not (`""`, `b""`).
     let empty_default = |default: &str| {
+        let literal = default.trim_start_matches(|c: char| c.is_ascii_alphabetic());
         is_non_string_scalar(default)
-            || ["None", "nil", "undefined", "\"\"", "''"].contains(&default)
+            || ["None", "nil", "undefined"].contains(&default)
+            || (default.len() - literal.len() <= 2 && ["\"\"", "''"].contains(&literal))
     };
     let types = || types.split('|').map(str::trim);
     default.is_none_or(empty_default)
@@ -382,8 +436,23 @@ fn is_annotated_type(one: &str) -> bool {
             && name.bytes().all(|byte| byte.is_ascii_alphabetic())
     };
     let one = one.trim_end_matches('?').trim_end_matches("[]");
+    // A type parameter (`T`, `K`): one capital letter.
+    if one.len() == 1 && one.bytes().all(|byte| byte.is_ascii_uppercase()) {
+        return true;
+    }
+    // A generic: its first argument a type, each other one a type or the
+    // metadata a type carries (`Annotated[str, Field(min_length=8)]`), no
+    // opaque value among them.
     if let Some((outer, inner)) = one.strip_suffix(']').and_then(|head| head.split_once('[')) {
-        return capitalized(outer) && inner.split(',').all(|part| is_annotated_type(part.trim()));
+        let mut parts = inner.split(',').map(str::trim);
+        return capitalized(outer)
+            && parts.next().is_some_and(is_annotated_type)
+            && parts.all(|part| {
+                is_annotated_type(part)
+                    || part
+                        .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+                        .all(|word| !is_opaque(word, 0))
+            });
     }
     let capitalized = capitalized(one);
     SCALAR_TYPE_NAMES
@@ -453,6 +522,8 @@ fn assigns_a_credential(key: &impl KeyFacts, secret: &str) -> bool {
         && !(is_label(secret, false) && !key.names_a_chosen_credential())
         && !(is_command(secret) && !key.names_a_chosen_credential())
         && !is_version_specifier(secret)
+        && !is_mask(secret)
+        && !is_api_version(secret)
         && !((is_key_path(secret) || is_namespaced_name(secret) || is_reference(secret))
             && (!key.names_a_chosen_credential() || spells_a_credential_word(secret)))
 }
@@ -468,6 +539,122 @@ fn is_described_credential(secret: &str) -> bool {
         && secret
             .split_whitespace()
             .any(|word| is_opaque(word.trim_matches(QUOTES), OPAQUE_LITERAL_CHARS))
+}
+
+/// Whether `secret` is an API's version as a manifest names it (`v1`,
+/// `v1alpha1`, `v2beta3`, `v1rc2`): `v`, a number, and at most a pre-release
+/// word and its number.
+fn is_api_version(secret: &str) -> bool {
+    let Some(rest) = secret.strip_prefix('v') else {
+        return false;
+    };
+    let major = rest.trim_start_matches(|c: char| c.is_ascii_digit());
+    if major.len() == rest.len() {
+        return false;
+    }
+    let tag = major.trim_end_matches(|c: char| c.is_ascii_digit());
+    tag.is_empty() || ["alpha", "beta", "rc"].contains(&tag)
+}
+
+/// Whether `secret` is a mask a document writes in a value's place: one
+/// character written over and over (`xxxxxxxxxxxxxxxx`, `********`), quotes
+/// aside. No generator and no person makes a secret of one character.
+fn is_mask(secret: &str) -> bool {
+    let value = secret.trim().trim_matches(QUOTES);
+    let mut chars = value.chars();
+    chars
+        .next()
+        .is_some_and(|first| value.len() > 1 && chars.all(|c| c == first))
+}
+
+/// Whether `secret` is a code expression marked as code, no value: code names
+/// ([`is_identifier_word`], or a short word of letters) with number and
+/// quoted literal operands, joined by member access, indexing and operators,
+/// and marked as code by a call (`getToken()`, `hash(pw)`) or an index
+/// (`tokens[0]`), a `!` beside a
+/// name (`process.env.API_KEY!`, `!opts.token`), `?.`, `??`, `||`, `&&`, or
+/// an arithmetic operator between blanks. Only its literals can be values:
+/// the rules that read literals judge them. A `,` or `;` that ends a member
+/// or a statement is no part of it. A value that holds anything else
+/// (`#`, `@`, braces, a backslash), or a name no code word spells
+/// (`Zq7Xk2Pm9Vt4(x)`), is no expression.
+fn is_marked_code(secret: &str) -> bool {
+    let body = secret.trim().trim_end_matches([',', ';']).trim_end();
+    let bytes = body.as_bytes();
+    let (mut at, mut depth, mut names, mut code) = (0, 0_usize, 0_usize, false);
+    let name_byte = |byte: u8| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$');
+    while let Some(&byte) = bytes.get(at) {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'_' | b'$' => {
+                let end = at + bytes[at..].iter().take_while(|b| name_byte(**b)).count();
+                let name = body.get(at..end).unwrap_or_default();
+                let word = name.trim_matches('$');
+                if !(is_identifier_word(word)
+                    || ((1..=4).contains(&word.len())
+                        && word.bytes().all(|b| b.is_ascii_alphabetic())))
+                {
+                    return false;
+                }
+                names += 1;
+                // A postfix `!` asserts a member it ends (`env.API_KEY!`):
+                // after a lone word it is text (`Welcome!`).
+                let member = at > 0 && bytes[at - 1] == b'.';
+                code |= matches!(bytes.get(end), Some(b'(' | b'['))
+                    || (member
+                        && bytes.get(end) == Some(&b'!')
+                        && bytes
+                            .get(end + 1)
+                            .is_none_or(|next| matches!(next, b'.' | b')' | b' ')));
+                at = end;
+                continue;
+            }
+            b'0'..=b'9' => {
+                at += bytes[at..]
+                    .iter()
+                    .take_while(|b| b.is_ascii_alphanumeric() || **b == b'.')
+                    .count();
+                continue;
+            }
+            b'"' | b'\'' | b'`' => {
+                let Some(close) = bytes[at + 1..].iter().position(|b| *b == byte) else {
+                    return false;
+                };
+                at += close + 2;
+                continue;
+            }
+            b'(' | b'[' => depth += 1,
+            b')' | b']' => {
+                let Some(outer) = depth.checked_sub(1) else {
+                    return false;
+                };
+                depth = outer;
+                code |= byte == b')'
+                    && bytes.get(at + 1) == Some(&b'!')
+                    && bytes
+                        .get(at + 2)
+                        .is_none_or(|next| matches!(next, b'.' | b')' | b' '));
+            }
+            // A prefix `!` before a name, or a postfix one after a name or a
+            // call that ends the operand (`API_KEY!,`): `pass!word` is text.
+            b'!' => {
+                code |= (at == 0 || matches!(bytes[at - 1], b' ' | b'(' | b'|' | b'&'))
+                    && bytes
+                        .get(at + 1)
+                        .is_some_and(|next| name_byte(*next) || *next == b'(');
+            }
+            b'?' | b'|' | b'&' => {
+                code |= bytes.get(at + 1) == Some(&byte)
+                    || (byte == b'?' && bytes.get(at + 1) == Some(&b'.'));
+            }
+            b'+' | b'-' | b'*' | b'/' | b'%' => {
+                code |= at > 0 && bytes[at - 1] == b' ' && bytes.get(at + 1) == Some(&b' ');
+            }
+            b'.' | b',' | b':' | b' ' | b'\t' | b'<' | b'>' | b'=' => {}
+            _ => return false,
+        }
+        at += 1;
+    }
+    depth == 0 && names > 0 && code
 }
 
 /// Whether `text` is a UUID: hex digits in groups of 8, 4, 4, 4 and 12.
@@ -637,8 +824,9 @@ fn is_command(secret: &str) -> bool {
 }
 
 /// Whether `secret` is a placeholder a person fills in: plain words
-/// ([`is_plain_word`]) joined by `-`, `_` or blanks that say so, `your` and
-/// `here` among them (`tvly-YOUR-KEY-HERE`, `your_api_key_here`), or under an
+/// ([`is_plain_word`]) joined by `-`, `_` or blanks that say so, `your`
+/// among them (`tvly-YOUR-KEY-HERE`, `your_api_key_here`, `YOUR_TOKEN`), a
+/// provider's prefix of a few letters before them (`ghp_your_ghe_token`), or under an
 /// opaque-string key plain words in angle brackets (`<your-token-here>`,
 /// `<API_KEY>`), unless they are one long word naming no credential
 /// ([`is_lone_opaque_word`]). A placeholder's word is written as a word is: lower, UPPER
@@ -663,12 +851,16 @@ fn is_fill_in(key: &impl KeyFacts, secret: &str) -> bool {
         let mut words = text
             .split(['-', '_', ' '])
             .filter(|word| !word.is_empty())
+            .enumerate()
             .peekable();
         words.peek().is_some()
-            && words.all(|word| {
-                is_plain_word(word)
+            && words.all(|(at, word)| {
+                let prefix = at == 0
+                    && (1..=4).contains(&word.len())
+                    && word.bytes().all(|byte| byte.is_ascii_alphabetic());
+                (prefix || is_plain_word(word))
                     && written_as_a_word(word)
-                    && (!chosen || names_what_to_fill(word))
+                    && (!chosen || prefix || names_what_to_fill(word))
             })
     };
     let says = |word: &str| {
@@ -678,7 +870,7 @@ fn is_fill_in(key: &impl KeyFacts, secret: &str) -> bool {
     };
     let bracketed =
         angle_inner(secret).is_some_and(|inner| plain_words(inner) && !is_lone_opaque_word(inner));
-    (bracketed && !chosen) || (plain_words(secret) && says("your") && says("here"))
+    (bracketed && !chosen) || (plain_words(secret) && says("your"))
 }
 
 /// The text between `<` and `>` when `secret` is all of it.
@@ -724,7 +916,8 @@ fn is_versioned_name(secret: &str) -> bool {
 /// operator (`==`, `!=`, `&&`, `||`), as a password of words and dots
 /// (`hunter.two-fish.cake`) is not, and never when the value is quoted: a
 /// literal under a chosen key is the value a person chose
-/// (`password = "adminUser==rootPassword"`).
+/// (`password = "adminUser==rootPassword"`). Unquoted, a value marked as
+/// code by a call, a `!`, `??` or `||` ([`is_marked_code`]) is one too.
 fn is_code_expression(key: &impl KeyFacts, secret: &str) -> bool {
     let body = secret.trim().trim_end_matches([';', ',']);
     let operator = |c: char| {
@@ -757,7 +950,7 @@ fn is_code_expression(key: &impl KeyFacts, secret: &str) -> bool {
     } else {
         body.contains(operator)
     };
-    all && joined && pieces >= 2 && names >= 2
+    (all && joined && pieces >= 2 && names >= 2) || (!key.ends_with_quote() && is_marked_code(body))
 }
 
 /// `secret` without the control characters framing it, raw or written as a
@@ -900,7 +1093,9 @@ fn is_timestamp(secret: &str) -> bool {
 }
 
 /// Whether `secret` is a label of two or more lowercase words joined by `-`
-/// or `_` (`new-login-refresh`), each a pronounceable word and none a
+/// or `_` (`new-login-refresh`, `__vite_ssr_import__`), each a pronounceable
+/// word (or, in a dunder name, an abbreviation, and a camelCase word of such
+/// parts: `__vite_ssr_exportAll__`) and none a
 /// credential word. Under a key naming an opaque string (`token`) such a
 /// value names something; a chosen password may be words so joined, so a key
 /// naming one keeps it. A label that names what it is (`unrelated-secret`,
@@ -911,15 +1106,57 @@ fn is_timestamp(secret: &str) -> bool {
 /// attribute beside one, `type="password" name="current-password"`), such
 /// a label is a keyword of the format, not a value.
 fn is_label(secret: &str, any_word: bool) -> bool {
+    // A name a language marks as its own (`__vite_ssr_import__`) wraps the
+    // label in underscores; a short word of it is an abbreviation (`ssr`).
+    let dunder = secret.starts_with("__") && secret.ends_with("__") && secret.len() > 4;
+    let secret = if dunder {
+        secret.trim_matches('_')
+    } else {
+        secret
+    };
+    let is_word = |word: &str| {
+        word.bytes().all(|b| b.is_ascii_lowercase())
+            && (pronounceable_word(word.as_bytes()) || (dunder && (1..=4).contains(&word.len())))
+            && (any_word
+                || !CREDENTIAL_WORDS
+                    .split('|')
+                    .any(|credential| credential == word))
+    };
     secret.split(['-', '_']).count() >= 2
         && secret.split(['-', '_']).all(|word| {
-            word.bytes().all(|b| b.is_ascii_lowercase())
-                && pronounceable_word(word.as_bytes())
-                && (any_word
-                    || !CREDENTIAL_WORDS
-                        .split('|')
-                        .any(|credential| credential == word))
+            if !dunder {
+                return is_word(word);
+            }
+            // A dunder name is an identifier: its words may be camelCase,
+            // each part a pronounceable word of its own (an abbreviation is
+            // a whole word: `ssr`, never a run of short parts).
+            let camel = camel_parts(word).count() > 1;
+            word.starts_with(|c: char| c.is_ascii_lowercase())
+                && word.bytes().all(|b| b.is_ascii_alphabetic())
+                && camel_parts(word).all(|part| {
+                    let part = part.to_ascii_lowercase();
+                    is_word(&part) && (!camel || pronounceable_word(part.as_bytes()))
+                })
         })
+}
+
+/// The parts of a camelCase word of letters, each cut before a capital
+/// (`exportAll`: `export`, `All`).
+fn camel_parts(word: &str) -> impl Iterator<Item = &str> {
+    let mut rest = word;
+    std::iter::from_fn(move || {
+        if rest.is_empty() {
+            return None;
+        }
+        let end = rest
+            .char_indices()
+            .skip(1)
+            .find(|(_, c)| c.is_ascii_uppercase())
+            .map_or(rest.len(), |(at, _)| at);
+        let (part, after) = rest.split_at(end);
+        rest = after;
+        Some(part)
+    })
 }
 
 /// Whether `secret` is one PEM armor line (`-----BEGIN RSA PRIVATE KEY-----`):
@@ -1352,7 +1589,9 @@ fn without_literal_prefix(key: &str) -> &str {
 
 /// The value of a literal written in pieces (`Fake0" + 'Moo9Zed`, `Fake0" "Moo9Zed`, the text
 /// between the first opening quote and the last closing one): the pieces
-/// joined, as the program reads them. Any other text is its own value.
+/// joined, as the program reads them, and each line a backslash continues
+/// joined to the next ([`without_continuations`]). Any other text is its own
+/// value.
 #[cfg_attr(
     octocode_clippy_ratchet,
     expect(
@@ -1361,8 +1600,9 @@ fn without_literal_prefix(key: &str) -> &str {
     )
 )]
 fn joined_pieces(secret: &str) -> String {
+    let secret = without_continuations(secret);
     let mut value = String::with_capacity(secret.len());
-    let mut rest = secret;
+    let mut rest = secret.as_ref();
     while let Some(at) = rest.find(QUOTES) {
         value.push_str(&rest[..at]);
         let after = &rest[at + 1..];
@@ -1380,13 +1620,55 @@ fn joined_pieces(secret: &str) -> String {
     value
 }
 
+/// `text`, a literal's body, as the program holds it over its line breaks:
+/// a backslash before a line break continues the literal on the next line
+/// (`"Zq7X…\` then the rest), so the two lines are one value with neither
+/// the backslash nor the break. An escaped backslash before a break (`\\`)
+/// continues nothing.
+pub(super) fn without_continuations(text: &str) -> std::borrow::Cow<'_, str> {
+    if !text.contains("\\\n") && !text.contains("\\\r\n") {
+        return std::borrow::Cow::Borrowed(text);
+    }
+    let mut value = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(char) = chars.next() {
+        if char != '\\' {
+            value.push(char);
+            continue;
+        }
+        match chars.peek() {
+            Some('\n') => {
+                chars.next();
+            }
+            Some('\r') => {
+                chars.next();
+                if chars.peek() == Some(&'\n') {
+                    chars.next();
+                } else {
+                    value.push_str("\\\r");
+                }
+            }
+            Some(&escaped) => {
+                chars.next();
+                value.push(char);
+                value.push(escaped);
+            }
+            None => value.push(char),
+        }
+    }
+    std::borrow::Cow::Owned(value)
+}
+
 /// The parts of a quoted rule's value `secret` (the text between a literal's
 /// first opening quote and its last closing one, `key` the text before it)
 /// that the source spells, by byte range in `secret`: each piece of a
 /// literal written in pieces (`Fake0" + 'Moo9Zed`, read as
 /// [`joined_pieces`] reads them), and in each the text outside the holes an
 /// interpolation writes ([`outside_holes`]: `${…}`, a format literal's
-/// `{…}`). A value with no seam and no hole is one part, itself.
+/// `{…}`), and of a part that writes config entries under credentials' names
+/// (`//registry.npmjs.org/:_authToken=<token>\n`) the entries' values alone
+/// ([`entry_values`]): the names and the line ends are the entries' text. A
+/// value with no seam, no hole and no such entry is one part, itself.
 #[cfg_attr(
     octocode_clippy_ratchet,
     expect(
@@ -1422,9 +1704,12 @@ pub(super) fn literal_parts(key: &str, secret: &str) -> Vec<std::ops::Range<usiz
             continue;
         }
         let base = secret.as_ptr() as usize;
+        // A part's text is judged without the control escapes framing it
+        // (`{prefix}<key>\n`): they are the literal's line end, which stays.
         parts.extend(
             outside_holes(&facts, text)
                 .into_iter()
+                .map(without_control_frame)
                 .filter(|part| !part.is_empty())
                 .map(|part| {
                     let at = part.as_ptr() as usize - base;
@@ -1433,6 +1718,102 @@ pub(super) fn literal_parts(key: &str, secret: &str) -> Vec<std::ops::Range<usiz
         );
     }
     parts
+        .into_iter()
+        .flat_map(|part| continued_lines(&secret[part.clone()], part.start))
+        .flat_map(|part| {
+            let values = entry_values(&secret[part.clone()]);
+            if values.is_empty() {
+                return vec![part];
+            }
+            values
+                .into_iter()
+                .map(|value| part.start + value.start..part.start + value.end)
+                .collect()
+        })
+        .collect()
+}
+
+/// The lines of `text`, a literal's part at `base`, that a backslash before
+/// each line break continues (`"\` then `<value>"`), by byte range from
+/// `base`: each line's text without the backslash, the break and the blanks
+/// that indent the next line, which stay where they are written. `text`
+/// alone when no line continues, or when it holds a quote: a backslash
+/// between two literals (`"ghp_" \` then `"<rest>"`) continues the
+/// statement, not a literal, and the pieces are judged as one value.
+fn continued_lines(text: &str, base: usize) -> Vec<std::ops::Range<usize>> {
+    let whole = base..base + text.len();
+    if text.contains(QUOTES) {
+        return vec![whole];
+    }
+    let bytes = text.as_bytes();
+    let mut lines = Vec::new();
+    let mut start = 0;
+    let mut at = 0;
+    while let Some(found) = bytes.get(at..).and_then(|rest| memchr::memchr(b'\\', rest)) {
+        let slash = at + found;
+        let after = slash + 1;
+        let next = match bytes.get(after) {
+            Some(b'\n') => after + 1,
+            Some(b'\r') if bytes.get(after + 1) == Some(&b'\n') => after + 2,
+            _ => {
+                at = after + 1;
+                continue;
+            }
+        };
+        lines.push(base + start..base + slash);
+        start = next
+            + bytes
+                .get(next..)
+                .unwrap_or_default()
+                .iter()
+                .take_while(|byte| matches!(byte, b' ' | b'\t'))
+                .count();
+        at = start;
+    }
+    lines.push(base + start..base + text.len());
+    lines.retain(|line| !line.is_empty());
+    lines
+}
+
+/// The values of the config entries `text`, a literal's part, writes under
+/// credentials' names (`NAME=value`, [`names_a_credential`]: `_authToken`,
+/// `password`), by byte range in `text`: each from past its `=` to the
+/// blank, `;`, `&`, quote or control escape that ends it
+/// ([`escaped_control`]: the literal's line end). An `=` the value only pads
+/// with ends nothing; empty when `text` writes no such entry.
+#[cfg_attr(
+    octocode_clippy_ratchet,
+    expect(
+        clippy::string_slice,
+        reason = "offsets are `find` results of ASCII marks, one byte wide"
+    )
+)]
+fn entry_values(text: &str) -> Vec<std::ops::Range<usize>> {
+    let is_name = |c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.');
+    let mut values = Vec::new();
+    let mut from = 0;
+    while let Some(at) = text[from..].find('=').map(|at| from + at) {
+        let name_start = text[..at]
+            .rfind(|c: char| !is_name(c))
+            .map_or(0, |before| before + 1);
+        let after = &text[at + 1..];
+        let mut len = after
+            .find(|c: char| c.is_whitespace() || matches!(c, ';' | '&' | '"' | '\'' | '`'))
+            .unwrap_or(after.len());
+        if let Some(escape) = escaped_control(&after[..len]) {
+            len = escape;
+        }
+        let value = at + 1..at + 1 + len;
+        from = value.end.max(at + 1);
+        if name_start < at
+            && names_a_credential(&text[name_start..at])
+            && !after[..len].trim_end_matches('=').is_empty()
+            && !after.starts_with('=')
+        {
+            values.push(value);
+        }
+    }
+    values
 }
 
 /// Whether `part`, a part of a quoted value ([`literal_parts`]), is a value
@@ -1469,14 +1850,54 @@ fn after_code_gap(text: &str) -> &str {
 /// secret a person chose (D6 round 4): its key names one
 /// ([`CHOSEN_CREDENTIAL_WORDS`]), and the value has no whitespace, holds a
 /// digit or a symbol (not `_`, `.` or `-`: a letters-only word is the one
-/// deliberate miss) and is no template (`<…>`, `${…}`, `{{…}}`).
+/// deliberate miss) and is no template (`<…>`, `${…}`, `{{…}}`). Marks alone
+/// (`~`, `***`) are a null, a mask or an operator: no secret holds no letter
+/// or digit.
 fn is_chosen_secret(key: &impl KeyFacts, secret: &str) -> bool {
     key.names_a_chosen_credential()
         && !is_template(secret)
         && !secret.contains(char::is_whitespace)
+        && secret.chars().any(char::is_alphanumeric)
         && secret
             .chars()
             .any(|c| c.is_ascii_digit() || !(c.is_alphanumeric() || matches!(c, '_' | '.' | '-')))
+}
+
+/// Whether `value`, a literal of an expression assigned under `key` (the
+/// name, its operator and the literal's quote), is a secret a person chose
+/// there: the quoted assignment of it alone holds one ([`ValueTest::Quoted`])
+/// for its choice, not its length ([`is_chosen_secret`]). A long readable
+/// literal of an expression (a URL, a message, a name) is the code's text.
+pub(super) fn is_chosen_literal(key: &str, value: &str) -> bool {
+    ValueTest::Quoted.redacts(key, value) && is_chosen_secret(&SpanKeys::new(key).key(0), value)
+}
+
+/// Whether `word`, the value a sentence states for the credential `name`
+/// names (`my password was Pl4net-Orb1t9`, `then password = …`), is the
+/// secret it states: under a name of a chosen credential, a word that mixes
+/// letters with a digit or a symbol ([`is_chosen_secret`]), as a person
+/// chooses one; a word of letters alone (`changed`, `required`) is prose.
+/// Stated by a word (`prose`: `is`, `was`), it is one of
+/// [`COMMENT_OPAQUE_WORD_CHARS`] or more, a chosen secret's shortest. After
+/// an operator the text may be code or a setting of any file: it is one run
+/// of an opaque value's characters, no code name (`password2`,
+/// `!options.secret_token`), and of [`OPAQUE_LITERAL_CHARS`] or more, the
+/// length floor a setting outside the dotenv class keeps (`DB_PASS=Fake0Moo`).
+pub(super) fn is_stated_chosen_secret(name: &str, word: &str, prose: bool) -> bool {
+    let named = word.trim_start_matches(['!', '&', '*']);
+    let code_name = named.starts_with(|c: char| c.is_ascii_alphabetic() || matches!(c, '_' | '$'))
+        && named
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'$' | b'.'));
+    let chars = word.chars().count();
+    let shaped = if prose {
+        chars >= COMMENT_OPAQUE_WORD_CHARS
+    } else {
+        chars >= OPAQUE_LITERAL_CHARS && !code_name && super::named_values::is_run(word)
+    };
+    shaped
+        && word.chars().any(char::is_alphabetic)
+        && is_chosen_secret(&SpanKeys::new(name).key(0), word)
 }
 
 /// Whether `secret`, written where a command or a URL takes a password, is
@@ -1667,6 +2088,45 @@ fn is_prose_line(line: &str) -> bool {
         !grouped
     });
     plain && words >= 2 && (names == 0 || (words >= 3 && words > names))
+}
+
+/// The words that make a phrase a sentence: English's closed classes, the
+/// articles, pronouns, prepositions, conjunctions, auxiliaries and modals a
+/// statement is built with. A phrase a person chose as a password strings
+/// open words together (`correct horse battery staple`); a sentence about a
+/// value (`must be at least 8 characters`) needs these to say anything.
+const FUNCTION_WORDS: &[&str] = &[
+    "a", "an", "the", "this", "that", "these", "those", "it", "its", "you", "your", "we", "our",
+    "they", "their", "he", "she", "his", "her", "is", "are", "was", "were", "be", "been", "being",
+    "am", "has", "have", "had", "do", "does", "did", "must", "should", "can", "could", "will",
+    "would", "may", "might", "shall", "not", "no", "of", "to", "in", "on", "at", "for", "with",
+    "from", "by", "as", "than", "and", "or", "but", "if", "when", "which", "who",
+];
+
+/// Whether a scalar `secret` under a credential's name reads as a sentence
+/// about the value (`password: must be at least 8 characters`, a block
+/// scalar's lines saying the same): three or more blank-separated pieces, each
+/// a plain word or a number with only sentence punctuation around it (no digit
+/// or mark mixed into a word: `Hunter2`, `p@ss`), one of them a function word
+/// ([`FUNCTION_WORDS`]). It is prose, not a secret. A phrase of open words
+/// alone (`correct horse battery staple`, `correct horse 9`) may be a chosen
+/// password and stays one.
+fn reads_as_a_sentence(secret: &str) -> bool {
+    let mut pieces = 0_usize;
+    let mut function_word = false;
+    let plain = secret.split_whitespace().all(|piece| {
+        pieces += 1;
+        let word = piece
+            .trim_start_matches(['(', '"', '\''])
+            .trim_end_matches(['.', ',', ';', ':', '!', '?', ')', '"', '\'']);
+        function_word |= FUNCTION_WORDS
+            .iter()
+            .any(|function| word.eq_ignore_ascii_case(function));
+        !word.is_empty()
+            && (word.bytes().all(|byte| byte.is_ascii_digit())
+                || (word.bytes().all(|byte| byte.is_ascii_alphabetic()) && is_word_part(word)))
+    });
+    plain && pieces >= 3 && function_word
 }
 
 /// What one blank-separated piece of a line is.
@@ -1971,14 +2431,15 @@ fn go_declared_name(head: &str) -> &str {
 /// Whether an unquoted `secret` opens with a code statement that assigns
 /// another name: an optional `!`, `&` or `*`, a dotted path of identifier
 /// words ([`is_identifier_word`], or one letter, as minified code names
-/// one) and the `;` terminator, at the end of the
-/// value (`frame.expect_key = frame.object;`) or before the next statement
-/// of minified code (`x.password=t.password;username=u`). Dotenv, INI,
+/// one) and the `;` terminator, or the `,` that ends a member of an object
+/// or an argument (`token: this.token,`, `password: undefined,`), at the
+/// end of the value (`frame.expect_key = frame.object;`) or before the next
+/// statement of minified code (`x.password=t.password;username=u`). Dotenv, INI,
 /// properties and shell values carry no statement terminator, and a quoted
 /// value (`key` ends in its opening quote) is a literal whatever it spells.
 fn reads_a_name(key: &impl KeyFacts, secret: &str) -> bool {
     !key.ends_with_quote()
-        && secret.split_once(';').is_some_and(|(name, rest)| {
+        && secret.split_once([';', ',']).is_some_and(|(name, rest)| {
             (rest.is_empty() || rest.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_'))
                 && name
                     .trim_start_matches(['!', '&', '*'])

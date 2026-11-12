@@ -24,10 +24,7 @@ fn section_expansion_is_optional_but_unread_pages_are_required() {
             ..Default::default()
         },
     );
-    assert_eq!(
-        output["contentPagination"]["files"]["next"]["nextPage"]["kind"], "continue",
-        "{output}"
-    );
+    assert_eq!(output["next"]["files"]["kind"], "continue", "{output}");
     assert_eq!(
         output["calls"]["readPatches"]["kind"], "related",
         "{output}"

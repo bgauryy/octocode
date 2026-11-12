@@ -31,7 +31,7 @@ fn ambiguity_continues_the_exact_normalized_population_after_its_preview() {
             json!({"operation":"node","path":"app","target":target}),
         );
         assert_eq!(first["errorCode"], "invalidInput");
-        assert_eq!(first["pagination"]["totalItems"], 25);
+        assert_eq!(first["pagination"]["total"], 25);
         let preview = first["candidates"].as_array().unwrap();
         assert_eq!(preview.len(), 20);
         let mut ids = preview
@@ -47,7 +47,7 @@ fn ambiguity_continues_the_exact_normalized_population_after_its_preview() {
             request["limit"] = json!(2);
             let page = call(&dir.0, ToolId::GraphQuery, request);
             assert_eq!(page["graph"]["id"], graph);
-            assert_eq!(page["pagination"]["totalItems"], 25);
+            assert_eq!(page["pagination"]["total"], 25);
             for row in page["rows"].as_array().unwrap() {
                 assert!(ids.insert(row["id"].as_str().unwrap().to_owned()));
             }
@@ -115,14 +115,14 @@ fn candidates_remain_pinned_when_a_new_snapshot_becomes_latest() {
         ToolId::GraphQuery,
         first["next"]["nextPage"]["input"]["queries"][0].clone(),
     );
-    assert_eq!(rest["pagination"]["totalItems"], 25);
+    assert_eq!(rest["pagination"]["total"], 25);
     assert_eq!(rest["graph"]["id"], first["graph"]["id"]);
     let current = call(
         &dir.0,
         ToolId::GraphQuery,
         json!({"operation":"candidates","path":"app","target":"./SharedCollision"}),
     );
-    assert_eq!(current["pagination"]["totalItems"], 26);
+    assert_eq!(current["pagination"]["total"], 26);
 }
 
 #[test]
@@ -138,14 +138,14 @@ fn candidate_exact_keys_empty_and_past_end_pages_validate() {
             ToolId::GraphQuery,
             json!({"operation":"candidates","path":"app","target":target}),
         );
-        assert_eq!(page["pagination"]["totalItems"], total);
+        assert_eq!(page["pagination"]["total"], total);
     }
     let page = call(
         &dir.0,
         ToolId::GraphQuery,
         json!({"operation":"candidates","path":"app","target":"SharedCollision","offset":99,"limit":1}),
     );
-    assert_eq!(page["pagination"]["totalItems"], 25);
+    assert_eq!(page["pagination"]["total"], 25);
     assert_eq!(page["rows"], json!([]));
     assert!(page.get("next").is_none());
 }
@@ -181,7 +181,7 @@ fn direct_and_public_call_queries_share_high_default_and_explicit_weak_levels() 
         assert_eq!(direct.value["rows"], public["rows"]);
         assert_eq!(direct.value["confidence"], public["confidence"]);
         assert_eq!(
-            public["pagination"]["totalItems"],
+            public["pagination"]["total"],
             if matches!(confidence, Some("medium" | "low")) {
                 1
             } else {
@@ -200,8 +200,8 @@ fn snapshot_absolute_candidate_keys_do_not_follow_changed_filesystem_aliases() {
     let request =
         json!({"operation":"candidates","path":"app","target":canonical.to_str().unwrap()});
     let before = call(&dir.0, ToolId::GraphQuery, request.clone());
-    assert_eq!(before["pagination"]["totalItems"], 1);
-    assert_eq!(before["rows"][0]["id"], "other.ts");
+    assert_eq!(before["pagination"]["total"], 1);
+    assert_eq!(before["rows"][0]["id"], "app/other.ts");
     std::fs::remove_file(&file).unwrap();
     std::os::unix::fs::symlink(dir.0.join("app/declaration-00.ts"), &file).unwrap();
     let mut pinned = request;

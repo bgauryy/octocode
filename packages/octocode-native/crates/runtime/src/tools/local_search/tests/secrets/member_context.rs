@@ -1,5 +1,6 @@
 //! A value whose secrecy lies lines away in the same object: the row is judged
-//! with the source, its hit stays counted, and the public members stay readable.
+//! with the source, a search finds what a read's matchString finds there (a
+//! hidden value is no hit), and the public members stay readable.
 use super::*;
 
 const SCALAR: &str = "Fake0Scalar9Not4Real8Value7Long6Enough5Xy";
@@ -19,6 +20,44 @@ fn rows(name: &str, text: &str, fields: serde_json::Value) -> serde_json::Value 
         .expect("search")
         .to_row()
         .expect("serialize")
+}
+
+/// Whether a read of `text` as `name` finds `needle` with its matchString:
+/// a search of the same text finds it exactly then.
+fn read_finds(name: &str, text: &str, needle: &str) -> bool {
+    let root = tempfile::tempdir().expect("fixture directory");
+    let path = root.path().join(name);
+    fs::write(&path, text).expect("fixture");
+    let (policy, security) = policy_for(root.path());
+    let query: octocode_contract_types::LocalFetchQuery = serde_json::from_value(
+        serde_json::json!({"path": path.to_string_lossy(), "matchString": [needle]}),
+    )
+    .expect("localFetch row");
+    let read = crate::tools::local_fetch::execute_local_fetch(
+        &query,
+        &policy,
+        &security,
+        &NeverCancel,
+        None,
+        None,
+    );
+    read.selected_match_count.unwrap_or(0) > 0
+}
+
+/// The rows a search found.
+fn found_rows(found: &serde_json::Value) -> usize {
+    found["files"][0]["matches"].as_array().map_or(0, Vec::len)
+}
+
+/// Whether `found`, a search of `fields` in `text` as `name`, finds what a
+/// read's matchString finds.
+fn finds_as_a_read(name: &str, text: &str, fields: &serde_json::Value, found: &serde_json::Value) {
+    let needle = fields["matchString"][0].as_str().expect("needle");
+    assert_eq!(
+        found_rows(found) > 0,
+        read_finds(name, text, needle),
+        "{fields}: {found}"
+    );
 }
 
 /// `kty` either side of the value, further from it than a row's window.
@@ -52,12 +91,10 @@ fn a_row_of_a_private_jwk_member_is_judged_with_its_object() {
             );
             let shown = found["files"][0]["matches"].to_string();
             assert!(!shown.contains(&SCALAR[12..24]), "{fields}: {found}");
-            // A hit is never dropped to hide a secret.
-            assert_eq!(
-                found["files"][0]["matches"].as_array().map(Vec::len),
-                Some(1),
-                "{fields}: {found}"
-            );
+            // The member's name is a hit; its hidden value is none.
+            let expected = usize::from(fields["matchString"][0] == "\"d\"");
+            assert_eq!(found_rows(&found), expected, "{fields}: {found}");
+            finds_as_a_read("key.json", &text, &fields, &found);
         }
         let public = rows(
             "key.json",
@@ -98,7 +135,8 @@ fn a_row_of_a_kubernetes_secret_in_json_is_judged_with_the_manifest() {
             serde_json::json!({"matchString":["tls.crt"],"view":"content"}),
         );
         assert!(!found.to_string().contains(&VALUE[..12]), "{found}");
-        assert!(found["files"][0]["matches"].is_array(), "{found}");
+        let fields = serde_json::json!({"matchString":["tls.crt"]});
+        finds_as_a_read("secret.json", &text, &fields, &found);
     }
 }
 
@@ -120,7 +158,8 @@ fn a_row_of_a_secret_past_deep_metadata_is_judged_with_the_manifest() {
             serde_json::json!({"matchString":["tls.crt"],"view":"content"}),
         );
         assert!(!found.to_string().contains(&SCALAR[..12]), "{found}");
-        assert!(found["files"][0]["matches"].is_array(), "{found}");
+        let fields = serde_json::json!({"matchString":["tls.crt"]});
+        finds_as_a_read("secret.json", &text, &fields, &found);
     }
 }
 
@@ -141,11 +180,7 @@ fn a_row_of_a_plain_stringdata_value_is_what_a_read_shows() {
         let shown = found["files"][0]["matches"].to_string();
         assert!(!shown.contains("horse battery"), "{fields}: {found}");
         assert!(!shown.contains("aGVsbG8="), "{fields}: {found}");
-        assert_eq!(
-            found["files"][0]["matches"].as_array().map(Vec::len),
-            Some(1),
-            "{fields}: {found}"
-        );
+        finds_as_a_read("secret.json", &text, &fields, &found);
     }
     // The manifest's other members stay, and the same member in another kind.
     let name = rows(
@@ -207,7 +242,7 @@ fn a_row_of_a_yaml_secret_past_long_annotations_is_judged_with_the_file() {
         let found = rows("secret.yaml", &text, fields.clone());
         let shown = found["files"][0]["matches"].to_string();
         assert!(!shown.contains(&VALUE[12..24]), "{fields}: {found}");
-        assert!(found["files"][0]["matches"][0].is_object(), "{found}");
+        finds_as_a_read("secret.yaml", &text, &fields, &found);
     }
     let annotation = rows(
         "secret.yaml",
@@ -232,13 +267,12 @@ fn a_body_past_a_comment_in_its_armor_is_what_a_read_shows() {
         body.join("\n")
     );
     for line in &body {
-        let found = rows(
-            "k.txt",
-            &text,
-            serde_json::json!({"matchString":[&line[..14]],"view":"content"}),
-        );
+        let fields = serde_json::json!({"matchString":[&line[..14]],"view":"content"});
+        let found = rows("k.txt", &text, fields.clone());
         assert!(!found.to_string().contains(&line[14..]), "{found}");
-        assert!(found["files"][0]["matches"][0].is_object(), "{found}");
+        // A body line a read hides is no hit.
+        assert_eq!(found_rows(&found), 0, "{found}");
+        finds_as_a_read("k.txt", &text, &fields, &found);
     }
     let after = rows(
         "k.txt",
@@ -282,8 +316,8 @@ fn a_row_with_no_such_member_keeps_its_window_check() {
     );
 }
 
-/// A key's own line says nothing: its comment is the line above. The row keeps
-/// its hit and shows what the scan of both lines left.
+/// A key's own line says nothing: its comment is the line above. A read of
+/// both lines hides the key, so it is no hit; the comment stays readable.
 #[test]
 fn a_row_of_a_minisign_secret_key_is_judged_with_its_comment() {
     let value = format!("{SCALAR}{SCALAR}");
@@ -295,10 +329,9 @@ fn a_row_of_a_minisign_secret_key_is_judged_with_its_comment() {
         let found = rows("key.txt", &text, fields.clone());
         let shown = found["files"][0]["matches"].to_string();
         assert!(!shown.contains(&SCALAR[12..24]), "{fields}: {found}");
-        assert!(
-            found["files"][0]["matches"][0].is_object(),
-            "{fields}: {found}"
-        );
+        // The hidden key is no hit.
+        assert_eq!(found_rows(&found), 0, "{fields}: {found}");
+        finds_as_a_read("key.txt", &text, &fields, &found);
     }
     let found = rows(
         "key.txt",
@@ -318,12 +351,11 @@ fn a_private_member_in_yaml_is_judged_with_its_mapping() {
     let text = format!(
         "keys:\n  - kty: EC\n    a: 1\n    b: 2\n    c: 3\n    x: {PUBLIC}\n    d: {SCALAR}\n"
     );
-    let found = rows(
-        "jwks.yaml",
-        &text,
-        serde_json::json!({"matchString":[&SCALAR[..12]],"view":"content"}),
-    );
+    let fields = serde_json::json!({"matchString":[&SCALAR[..12]],"view":"content"});
+    let found = rows("jwks.yaml", &text, fields.clone());
     let shown = found["files"][0]["matches"].to_string();
     assert!(!shown.contains(&SCALAR[12..24]), "{found}");
-    assert!(found["files"][0]["matches"][0].is_object(), "{found}");
+    // The hidden member is no hit.
+    assert_eq!(found_rows(&found), 0, "{found}");
+    finds_as_a_read("jwks.yaml", &text, &fields, &found);
 }

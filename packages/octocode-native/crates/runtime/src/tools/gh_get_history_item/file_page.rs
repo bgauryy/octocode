@@ -37,7 +37,7 @@ pub(super) struct DiffSides<'a> {
     pub(super) old: Option<&'a str>,
 }
 
-/// One page of changed files on `out` (`files`, `contentPagination.files`, and the
+/// One page of changed files on `out` (`files`, `sectionPagination.files`, and the
 /// page's warnings), for a commit and a comparison alike. Without the
 /// patches section the page lists paths and line stats (no patches) so the
 /// agent can pick files before paying for diffs. A `matchString` that hit
@@ -99,10 +99,10 @@ pub(super) fn shape_file_page(
     );
     out["files"] = rows;
     if let Some(window) = patch_window {
-        out["contentPagination"][Axis::Patches.key()] = window.to_value();
+        out["sectionPagination"][Axis::Patches.key()] = window.to_value();
     }
     super::window::lift_page_limits(out, &mut page);
-    out["contentPagination"][Axis::Files.key()] = page;
+    out["sectionPagination"][Axis::Files.key()] = page;
     let mut without_match = None;
     if first_page(query) {
         if !gh_get_history_item_query::include_patterns(query).is_empty()

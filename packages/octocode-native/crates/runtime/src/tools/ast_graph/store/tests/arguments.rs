@@ -22,7 +22,7 @@ fn named_argument_occurrences_page_without_becoming_invocations() {
             o.offset = Some(offset);
             o.confidence = Some("high".into());
         });
-        assert_eq!(out.value["pagination"]["totalItems"], 3, "{}", out.value);
+        assert_eq!(out.value["pagination"]["total"], 3, "{}", out.value);
         let row = &out.value["rows"][0];
         assert_eq!(row["edge"], "passes");
         assert_eq!(row["targetName"], "handler");
@@ -73,12 +73,12 @@ fn named_argument_occurrences_page_without_becoming_invocations() {
         o.to = Some("args.ts#handler".into());
     });
     assert_eq!(
-        calls.value["pagination"]["totalItems"], 0,
+        calls.value["pagination"]["total"], 0,
         "{}",
         calls.value
     );
     let sink = ask(&dir.0, "callees", Some("args.ts#sink"), |_| {});
-    assert_eq!(sink.value["pagination"]["totalItems"], 0);
+    assert_eq!(sink.value["pagination"]["total"], 0);
     let counts = &built.value["argumentCoverage"]["byLanguage"]["typescript"]["counts"];
     assert_eq!(counts["directReferences"], 3);
     let reused = ingest_root(&dir.0, &dir.0.join("app"), None, false);
@@ -100,7 +100,7 @@ fn argument_barriers_and_unsupported_forms_remain_queryable() {
         o.edges = vec!["passes".into()];
     });
     assert_eq!(
-        linked.value["pagination"]["totalItems"], 0,
+        linked.value["pagination"]["total"], 0,
         "{}",
         linked.value
     );
@@ -112,7 +112,7 @@ fn argument_barriers_and_unsupported_forms_remain_queryable() {
             o.limit = Some(1);
             o.offset = Some(offset);
         });
-        assert_eq!(page.value["pagination"]["totalItems"], 2, "{}", page.value);
+        assert_eq!(page.value["pagination"]["total"], 2, "{}", page.value);
         let row = &page.value["rows"][0];
         assert!(ids.insert(row["id"].as_str().unwrap().to_owned()));
         if row["reason"] == "binding-unrepresented" {
@@ -155,7 +155,7 @@ fn argument_coverage_distinguishes_unsupported_and_observed_empty() {
     );
     for operation in ["witnesses", "unresolved"] {
         let out = ask(&dir.0, operation, None, |o| o.edges = vec!["passes".into()]);
-        assert_eq!(out.value["pagination"]["totalItems"], 0);
+        assert_eq!(out.value["pagination"]["total"], 0);
         assert_eq!(&out.value["argumentCoverage"], coverage);
     }
 }
@@ -181,7 +181,7 @@ fn argument_candidates_preserve_noncall_confidence_and_source_encoding() {
         o.edges = vec!["passes".into()];
         o.confidence = Some("high".into());
     });
-    assert_eq!(out.value["pagination"]["totalItems"], 4, "{}", out.value);
+    assert_eq!(out.value["pagination"]["total"], 4, "{}", out.value);
     let mut ids = BTreeSet::new();
     for row in out.value["rows"].as_array().unwrap() {
         assert_eq!(row["confidence"], "medium");
@@ -300,7 +300,7 @@ fn wide_argument_lists_keep_every_slot_across_pages() {
             o.include_provenance = true;
             o.edges = vec!["calls".into()];
         });
-        assert_eq!(calls.value["pagination"]["totalItems"], 1);
+        assert_eq!(calls.value["pagination"]["total"], 1);
         assert_eq!(calls.value["rows"][0]["to"], "wide.rs#consume");
         let mut ids = BTreeSet::new();
         let mut slots = BTreeSet::new();
@@ -311,7 +311,7 @@ fn wide_argument_lists_keep_every_slot_across_pages() {
                 o.limit = Some(71);
                 o.offset = Some(offset);
             });
-            assert_eq!(out.value["pagination"]["totalItems"], 1203, "{}", out.value);
+            assert_eq!(out.value["pagination"]["total"], 1203, "{}", out.value);
             for row in out.value["rows"].as_array().unwrap() {
                 assert_eq!(row["from"], "wide.rs#main");
                 assert_eq!(row["to"], "wide.rs#handler");

@@ -109,7 +109,7 @@ pub(super) enum CommentSection {
 }
 
 impl CommentSection {
-    /// The row key and `contentPagination` axis of the section.
+    /// The row key and `sectionPagination` axis of the section.
     pub(super) fn key(self) -> &'static str {
         self.axis().key()
     }
@@ -280,7 +280,7 @@ pub(super) async fn shape_pr_commits(
                     more_files = commit_files::next_page(query, &sha, next_page, per_page);
                 }
                 if more_files.is_some() || files_page["terminalLimit"] == true {
-                    commit["contentPagination"][Axis::Files.key()] = files_page;
+                    commit["sectionPagination"][Axis::Files.key()] = files_page;
                 }
             }
             Ok::<_, ProviderError>((commit, more_files))
@@ -291,7 +291,7 @@ pub(super) async fn shape_pr_commits(
     let mut continuations = Vec::new();
     let mut commits = Vec::with_capacity(shaped.len());
     for (mut commit, more_files) in shaped {
-        if let Some(page) = commit.pointer_mut("/contentPagination/files") {
+        if let Some(page) = commit.pointer_mut("/sectionPagination/files") {
             lift_page_limits(row, page);
         }
         commits.push(commit);

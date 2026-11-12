@@ -31,10 +31,17 @@ fn continuations(
     fields["path"] = root.to_string_lossy().into_owned().into();
     let q = ls_query(fields, None);
     let first = search_in(&q, &policy, &security, Some(2500)).expect("page 1");
-    let total_pages = first.pagination.as_ref().expect("paged").total_pages;
-    assert!(total_pages > 6, "{total_pages} pages");
+    // The first page holds `length` of `total` rows: a page in the middle
+    // of the walk lies about `total / length / 2` pages in.
+    let paging = serde_json::to_value(first.pagination.as_ref().expect("paged")).expect("facts");
+    let (length, total) = (
+        paging["length"].as_u64().expect("length"),
+        paging["total"].as_u64().expect("total"),
+    );
+    let middle = u32::try_from(total / length.max(1) / 2).expect("page");
+    assert!(middle > 3, "{paging}");
     let snapshot = first.source_snapshot.expect("snapshot");
-    [2, 3, total_pages / 2]
+    [2, 3, middle]
         .into_iter()
         .map(|page| {
             let continued = ls_query(
@@ -116,7 +123,7 @@ fn continuations_of(page: &LocalSearchResult) -> Vec<LocalSearchQuery> {
     let file_next = page
         .files
         .iter()
-        .filter_map(|file| file.pagination.as_ref()?.next.as_ref()?.get("nextPage"));
+        .filter_map(|file| file.next.as_ref()?.get("nextPage"));
     row_next.chain(file_next).map(query_of).collect()
 }
 
@@ -156,10 +163,12 @@ fn walk_against_fresh(
             );
         }
         let bound = *bound.get_or_insert_with(|| {
-            let paging = page.pagination.as_ref();
-            paging.map_or(1, |paging| paging.total_items as usize)
-                + page.stats.files_matched as usize
-                + 1
+            let total = page
+                .pagination
+                .as_ref()
+                .and_then(|paging| serde_json::to_value(paging).ok())
+                .and_then(|paging| paging["total"].as_u64());
+            total.map_or(1, |total| total as usize) + page.stats.files_matched as usize + 1
         });
         queue.extend(continuations_of(&page));
         pages.push(row);
@@ -263,15 +272,17 @@ fn every_seek_page_equals_its_fresh_page_and_the_walk_joins_once() {
         serde_json::json!({"matchString":["needle"],"matchPage":2}),
         Some(2_500),
     );
+    // Match page `p` of a file starts at `(p - 1) × rows per match page`:
+    // two distinct later starts mean the walk reached match page 3.
+    let starts = pages
+        .iter()
+        .flat_map(|page| page["files"].as_array().cloned().unwrap_or_default())
+        .filter_map(|file| file["pagination"]["offset"].as_u64())
+        .filter(|offset| *offset > 0)
+        .collect::<std::collections::BTreeSet<_>>();
     assert!(
-        pages.iter().any(
-            |page| page["files"].as_array().into_iter().flatten().any(|file| {
-                file["pagination"]["page"]
-                    .as_u64()
-                    .is_some_and(|page| page > 2)
-            })
-        ),
-        "a grid walk reaches match page 3"
+        starts.len() >= 2,
+        "a grid walk reaches match page 3: {starts:?}"
     );
 }
 
@@ -359,7 +370,9 @@ fn redacted_rows_on_later_pages_match_their_fresh_pages() {
         "{shown}"
     );
     assert!(!shown.contains("ghp_00ABCDEF"), "{shown}");
-    assert_eq!(rows_once(&pages).len(), 20 * 12 + 3);
+    // The key's body lines are text a read withholds: no hit. The token's
+    // line is one, redacted.
+    assert_eq!(rows_once(&pages).len(), 20 * 12 + 1);
 }
 
 /// A list view keeps its scan whole: its continuation is cut again from it,
@@ -391,9 +404,11 @@ fn list_pages_from_a_whole_scan_match_their_fresh_pages() {
 }
 
 /// A seekable scan is kept only when every key-block read its first page
-/// made read the bytes it stores: a key file whose read failed (here past
-/// the key-scan limit) leaves the scan unstored, and its continuation walks
-/// again, so no page serves redaction flags another read decided.
+/// made read the bytes it stores: a file whose hit looks like key material
+/// (a body line no armor encloses, which a read shows) and whose key-block
+/// read failed (here past the key-scan limit) leaves the scan unstored, and
+/// its continuation walks again, so no page serves redaction flags another
+/// read decided.
 #[test]
 fn a_scan_whose_key_read_failed_is_not_stored_by_page() {
     let root = tempfile::tempdir().expect("fixture");
@@ -405,7 +420,7 @@ fn a_scan_whose_key_read_failed_is_not_stored_by_page() {
     }
     fs::write(
         root.path().join("z_key.ts"),
-        "export const pem = `\n-----BEGIN RSA PRIVATE KEY-----\nMIIEpQIBAAKCAQEAneedleKeyBodyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n-----END RSA PRIVATE KEY-----\n`;\n",
+        "export const pem = `\nMIIEpQIBAAKCAQEAneedleKeyBodyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n`;\n",
     )
     .expect("key file");
     settle();
@@ -421,9 +436,8 @@ fn a_scan_whose_key_read_failed_is_not_stored_by_page() {
     let first = search_in(&q, &policy, &security, Some(2_500)).expect("page 1");
     let snapshot = first.source_snapshot.expect("snapshot");
     assert!(
-        first
-            .pagination
-            .is_some_and(|paging| paging.total_pages > 2)
+        first.pagination.is_some_and(|paging| paging.has_more),
+        "page 2 is a page of the walk"
     );
     assert!(
         super::super::manifest::get(&snapshot, &policy.identity()).is_none(),

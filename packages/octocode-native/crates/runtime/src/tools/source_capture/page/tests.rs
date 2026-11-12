@@ -8,13 +8,13 @@ fn a_final_reader_failure_keeps_its_own_leads_and_hints() {
     let lead = json!({"kind":"related","tool":"structureSearch","input":{"queries":[{"operation":"tree","path":"src"}]}});
     let data = json!({
         "path": "src/exector.rs",
-        "errorCode": "pathNotFound",
+        "errorCode": "notFound",
         "error": "Path does not exist: src/exector.rs",
         "hints": ["Check the spelling."],
         "related": [lead.clone()],
     });
     let failure = reader_failure(ToolId::LocalFetch.output(), &data);
-    assert_eq!(failure.code, ErrorCode::PathNotFound);
+    assert_eq!(failure.code, ErrorCode::NotFound);
     assert_eq!(failure.hints, vec!["Check the spelling.".to_owned()]);
     assert_eq!(failure.leads.len(), 1);
     assert_eq!(failure.leads[0].1, lead);

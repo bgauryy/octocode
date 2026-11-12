@@ -54,10 +54,10 @@ async fn a_complete_page_keeps_every_hit_without_partial_disclosures() {
     assert!(out.data.get("partialReasons").is_none());
     assert!(out.data["next"].get("readHits").is_none());
     assert_eq!(
-        out.data["files"][0]["lines"],
+        out.data["files"][0]["matches"],
         json!(
             (1..=8)
-                .map(|n| format!("{n}\twrap_app();"))
+                .map(|n| json!({"line": n, "value": "wrap_app();"}))
                 .collect::<Vec<_>>()
         )
     );
@@ -111,7 +111,7 @@ async fn a_page_counts_files_and_retains_every_hit_of_each_file() {
     .expect("search");
     let (busy, calm) = (&out.data["files"][0], &out.data["files"][1]);
     assert_eq!(
-        busy["lines"].as_array().map(Vec::len),
+        busy["matches"].as_array().map(Vec::len),
         Some(8),
         "{}",
         out.data
@@ -122,18 +122,18 @@ async fn a_page_counts_files_and_retains_every_hit_of_each_file() {
     );
     assert!(calm.get("matchCount").is_none(), "{}", out.data);
     // The page's total counts files (GitHub's `total_count`), not lines.
-    assert_eq!(out.data["pagination"]["totalItems"], 140, "{}", out.data);
-    assert_eq!(out.data["pagination"]["pageSize"], 50, "{}", out.data);
+    assert_eq!(out.data["pagination"]["total"], 140, "{}", out.data);
+    assert_eq!(out.data["pagination"]["length"], 2, "{}", out.data);
     assert!(out.data["next"].get("readHits").is_none());
     assert_eq!(
         out.data["next"]["nextPage"]["input"]["queries"][0]["page"],
         2
     );
     assert_eq!(
-        busy["lines"],
+        busy["matches"],
         json!(
             (1..=8)
-                .map(|n| format!("{n}\twrap_app();"))
+                .map(|n| json!({"line": n, "value": "wrap_app();"}))
                 .collect::<Vec<_>>()
         )
     );
@@ -190,7 +190,7 @@ async fn paged_pages_state_estimates_and_the_repeats_they_dropped() {
         assert_eq!(paths_of(&first), ["a.rs", "b.rs"], "{}", first.data);
         assert_eq!(warnings_of(&first), &serde_json::Value::Null);
         let out = search_page_of(&provider, Some(&first)).await;
-        assert_eq!(out.data["pagination"]["totalItems"], 100, "{}", out.data);
+        assert_eq!(out.data["pagination"]["total"], 100, "{}", out.data);
         assert_eq!(paths_of(&out), ["c.rs"], "{}", out.data);
         assert_eq!(warnings_of(&out), &json!([dropped, moved]), "{}", out.data);
         assert_eq!(

@@ -1,6 +1,7 @@
-//! A search answers on raw text: every matching line counts, its row shows the
-//! redacted line, and a warning says the value is not verbatim. Hiding the hit
-//! would claim an absence that is false.
+//! A search answers on the text a read serves: every line that matches it
+//! counts, its row shows the redacted line, and a warning says the value is
+//! not verbatim. Text a read withholds makes no hit: a search for it, or for
+//! a part of it, finds nothing, as a read's matchString does.
 use super::*;
 use serde_json::json;
 
@@ -23,12 +24,6 @@ fn a_matching_line_holding_a_secret_is_counted_and_shown_redacted() {
             "tok.rs".to_owned(),
             format!("const T: &str = \"{token}\"; // needle\n"),
             "needle".to_owned(),
-            "[REDACTED-GITHUBTOKENS]",
-        ),
-        (
-            "tok.rs".to_owned(),
-            format!("const T: &str = \"{token}\"; // needle\n"),
-            token.clone(),
             "[REDACTED-GITHUBTOKENS]",
         ),
     ];
@@ -64,5 +59,28 @@ fn a_matching_line_holding_a_secret_is_counted_and_shown_redacted() {
             assert_eq!(count["matchedLineCount"], expected, "{lens}: {count}");
         }
         assert_eq!(run("files")["files"].as_array().expect("files").len(), 1);
+    }
+    // The secret itself, or a part of it, is no hit in any view.
+    let text = format!("const T: &str = \"{token}\"; // needle\n");
+    let files = [("tok.rs", text.as_str())];
+    for needle in [token.as_str(), &token[..10], &token[4..14]] {
+        for view in [
+            "content",
+            "matchOnly",
+            "files",
+            "countLines",
+            "countMatches",
+        ] {
+            let rows = search_fixture(
+                &files,
+                ls_query(json!({"matchString":[needle],"view":view}), None),
+            );
+            assert!(rows["matchCount"].is_null(), "{needle} {view}: {rows}");
+            assert!(
+                rows["matchedLineCount"].is_null(),
+                "{needle} {view}: {rows}"
+            );
+            assert_eq!(rows["files"], json!([]), "{needle} {view}: {rows}");
+        }
     }
 }

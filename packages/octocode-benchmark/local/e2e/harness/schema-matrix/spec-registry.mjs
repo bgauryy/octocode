@@ -107,7 +107,7 @@ export const ghCloneRepo = {
   base: () => ({ owner: 'octo', repo: 'demo', paths: ['src'], historyDepth: 1 }),
   judge: (worker, { pages }) => {
     const location = dataOf(pages)[0]?.location;
-    const file = location?.localPath && path.join(location.localPath, 'src/greeter.ts');
+    const file = location?.path && path.join(location.path, 'src/greeter.ts');
     return file && fs.existsSync(file) ? null : `clone holds no source: ${JSON.stringify(location)}`;
   },
 };

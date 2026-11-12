@@ -8,7 +8,7 @@
 use super::query::MatchQuery;
 use super::types::Group;
 use crate::response::pages::PageFacts;
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Value};
 use std::ops::Range;
 
 /// The page a query asks for.
@@ -22,6 +22,9 @@ pub(super) struct StreamPage {
     pub(super) pages: usize,
     /// A page follows this one.
     pub(super) more: bool,
+    /// A page outgrew the budget: the response pager splits it into row
+    /// parts, so `pages` is not the number of calls the walk takes.
+    pub(super) oversized: bool,
     /// Its pagination block.
     pub(super) pagination: Value,
 }
@@ -55,9 +58,8 @@ fn cut(groups: &[Group], limit: usize, budget: usize) -> (Vec<(At, At)>, bool) {
 }
 
 /// Page `q.page()` of the matches `groups` hold (of their files, in the file
-/// views). A page past the last is empty and flagged out of range. A page
-/// over the budget makes the page count unknowable to the caller (the
-/// response pager splits it into row parts), so no page states it.
+/// views): where it starts in the stream, the matches it shows and the
+/// stream's total. A page past the last is empty and flagged out of range.
 pub(super) fn stream_page(q: MatchQuery<'_>, groups: &[Group], budget: usize) -> StreamPage {
     let page = q.page().max(1) as usize;
     if super::file_list(q) {
@@ -69,7 +71,8 @@ pub(super) fn stream_page(q: MatchQuery<'_>, groups: &[Group], budget: usize) ->
             slices: Vec::new(),
             pages: cut.pages,
             more: cut.more,
-            pagination: cut.facts.to_value(),
+            oversized: false,
+            pagination: cut.facts.with_unit("files").to_value(),
         };
     }
     let limit = q.limit().map_or(usize::MAX, |limit| limit.max(1));
@@ -82,21 +85,26 @@ pub(super) fn stream_page(q: MatchQuery<'_>, groups: &[Group], budget: usize) ->
         || (groups.len()..groups.len(), Vec::new()),
         |&(from, to)| slices(groups, from, to),
     );
-    let facts = if oversized {
-        PageFacts::open(page, None, more).with_items(total)
-    } else {
-        PageFacts::sized(page, pages, total, more)
+    // The page starts after every match of the files before its first and
+    // the matches of that file before its first shown one.
+    let offset = cuts.get(page - 1).map_or(total, |&((file, index), _)| {
+        groups[..file].iter().map(|group| group.sizes.len()).sum::<usize>() + index
+    });
+    let length = slices.iter().map(ExactSizeIterator::len).sum::<usize>();
+    let facts = PageFacts::open(offset, length, more)
+        .with_unit("matches")
+        .with_total(total)
+        .out_of_range(past_end);
+    let block = match facts.to_value() {
+        Value::Object(fields) => fields,
+        _ => Map::new(),
     };
-    let mut block = Map::new();
-    block.insert("unit".into(), json!("matches"));
-    if let Value::Object(fields) = facts.out_of_range(past_end).to_value() {
-        block.extend(fields);
-    }
     StreamPage {
         window,
         slices,
         pages,
         more,
+        oversized,
         pagination: Value::Object(block),
     }
 }
@@ -122,6 +130,7 @@ fn slices(groups: &[Group], from: At, to: At) -> (Range<usize>, Vec<Range<usize>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     fn group(header: usize, sizes: &[usize]) -> Group {
         Group {

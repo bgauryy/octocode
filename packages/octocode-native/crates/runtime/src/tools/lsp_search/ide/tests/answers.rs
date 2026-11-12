@@ -144,7 +144,7 @@ async fn hover_diagnostics_and_workspace_symbols_answer_at_level_ide() {
         "{text}"
     );
     let symbols = editor
-        .ask(json!({"operation": "workspaceSymbol", "symbolQuery": "target"}))
+        .ask(json!({"operation": "workspaceSymbol", "symbolFuzzy": "target"}))
         .await;
     assert_ide(&symbols);
     assert!(symbols.to_string().contains("target"), "{symbols}");
@@ -203,7 +203,7 @@ async fn a_workspace_root_search_sends_no_path() {
     let pages = editor
         .walk(
             json!({
-                "operation": "workspaceSymbol", "symbolQuery": "targ",
+                "operation": "workspaceSymbol", "symbolFuzzy": "targ",
                 "workspaceRoot": editor.root.to_string_lossy()
             }),
             None,
@@ -224,7 +224,7 @@ async fn a_workspace_search_from_a_file_sends_its_path() {
     let bridge = Bridge::serve(Box::new(|_| result(json!([]))));
     editor.open(&bridge);
     editor
-        .ask(json!({"operation": "workspaceSymbol", "symbolQuery": "targ"}))
+        .ask(json!({"operation": "workspaceSymbol", "symbolFuzzy": "targ"}))
         .await;
     let asked = bridge.asked("workspaceSymbol");
     assert_eq!(asked[0]["path"], editor.file.to_string_lossy().as_ref());

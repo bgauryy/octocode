@@ -42,11 +42,12 @@ async function ambiguity(ctx, graph, checks, { query, label }) {
   const rows = queryRows(report);
   const continued = continuedRows(rows);
   // The candidates continuation starts after the 20 the error previews; each
-  // page is sized to fit its window, so its number advances and the last page
-  // says nothing is left. The tail check below proves the rows are contiguous.
-  const pagesAdvance = continued.every((row, index) => row.pagination?.page === index + 2);
+  // page is sized to fit its window, so each starts where the last ended and
+  // the last says nothing is left. The tail check below proves the rows.
+  const pagesAdvance = continued.every((row, index) => row.pagination?.offset === (index === 0
+    ? 20 : continued[index - 1].pagination?.offset + continued[index - 1].pagination?.length));
   checks.push([`graph.lookup.${label}.pinned-continuation`, continued.some(row => row.rows?.length)
-    && rows.every(row => row.graph?.id === graph && row.pagination?.totalItems === ids.length)
+    && rows.every(row => row.graph?.id === graph && row.pagination?.total === ids.length)
     && pagesAdvance && continued.at(-1)?.pagination?.hasMore === false,
   JSON.stringify(continued.map(row => ({ graph: row.graph?.id, pagination: row.pagination, rows: row.rows?.length })))]);
   orderedEqual(checks, `graph.lookup.${label}.preview`, rows.flatMap(row => row.candidates ?? []).map(row => row.id), ids.slice(0, 20));

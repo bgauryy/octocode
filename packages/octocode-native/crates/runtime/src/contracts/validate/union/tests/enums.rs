@@ -75,10 +75,10 @@ fn an_lsp_row_with_an_unlisted_role_fails_at_its_role() {
         "operation": "references",
         "lsp": {"serverAvailable": true, "provider": "referencesProvider"},
         "matches": [
-            {"path": "src/a.ts", "displayRange": {"startLine": 3, "startCharacter": 1, "endLine": 3},
+            {"path": "src/a.ts", "line":3,"column":1,
              "content": "3\ttarget();\n", "role": "bogus"}
         ],
-        "pagination": {"page": 1, "totalPages": 1, "totalItems": 1, "hasMore": false}
+        "pagination": {"unit": "items", "offset": 0, "length": 1, "total": 1, "hasMore": false}
     });
     let error = crate::contracts::validate_output(
         "lspSearch",

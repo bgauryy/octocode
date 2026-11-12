@@ -5,7 +5,8 @@
 //! (`local`, `import`, `namespace`, `unique-name`) and a confidence, so a
 //! consumer never mistakes a name match for proven symbol identity.
 use super::super::classify::{
-    ROLE_DECLARATION, ROLE_ENTRY, ROLE_NOT_AUTHORED, ROLE_TEST, ROLE_UNPARSED, Roles, file_roles,
+    ROLE_CONFIG, ROLE_DECLARATION, ROLE_ENTRY, ROLE_NOT_AUTHORED, ROLE_TEST, ROLE_UNPARSED, Roles,
+    file_roles,
 };
 use super::format::{
     Confidence, DeclarationRec, DiagRec, EdgeKind, EdgeRec, FLAG_EXPORTED, FLAG_LOCAL_USE,

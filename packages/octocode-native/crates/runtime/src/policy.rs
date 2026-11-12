@@ -54,7 +54,7 @@ impl PolicyError {
             PolicyErrorCode::SymlinkEscape => ErrorCode::SymlinkEscape,
             PolicyErrorCode::PermissionDenied => ErrorCode::PermissionDenied,
             // Every local tool's code for a path that does not exist.
-            PolicyErrorCode::NotFound => ErrorCode::PathNotFound,
+            PolicyErrorCode::NotFound => ErrorCode::NotFound,
             PolicyErrorCode::InvalidInput => ErrorCode::InvalidInput,
             PolicyErrorCode::InputTooLarge => ErrorCode::FileTooLarge,
             // Every local tool's code for a path the security path policy
@@ -106,7 +106,7 @@ mod tests {
                 PolicyErrorCode::BinaryContent,
                 ErrorCode::BinaryFileUnsupported,
             ),
-            (PolicyErrorCode::NotFound, ErrorCode::PathNotFound),
+            (PolicyErrorCode::NotFound, ErrorCode::NotFound),
         ] {
             let error = PolicyError::new(code, "x");
             assert_eq!(error.shared_code(), expected, "{code:?}");

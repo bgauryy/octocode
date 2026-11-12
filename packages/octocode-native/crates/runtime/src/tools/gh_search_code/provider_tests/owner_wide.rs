@@ -58,12 +58,12 @@ async fn owner_wide_rows_list_numbered_lines_at_the_indexed_commit() {
     assert_eq!(files.len(), 2, "{}", out.data);
     for row in files {
         assert_eq!(
-            row["lines"],
-            json!(["3\tclass HTTPAdapter(BaseAdapter):"]),
+            row["matches"],
+            json!([{"line": 3, "value": "class HTTPAdapter(BaseAdapter):"}]),
             "{}",
             out.data
         );
-        assert!(row.get("matches").is_none(), "{}", out.data);
+        assert!(row.get("fragments").is_none(), "{}", out.data);
         assert!(row["repo"].is_string(), "{}", out.data);
         assert_eq!(row["owner"], "o", "{}", out.data);
         assert_eq!(row["commitSha"], SHA, "{}", out.data);
@@ -93,8 +93,8 @@ async fn owner_wide_row_missing_at_its_commit_keeps_fragments() {
     let out = run_owner_wide(&server).await;
     let row = &out.data["files"][0];
     assert_eq!(row["lineResolved"], false, "{}", out.data);
+    assert!(row.get("fragments").is_none(), "{}", out.data);
     assert!(row.get("matches").is_none(), "{}", out.data);
-    assert!(row.get("lines").is_none(), "{}", out.data);
 }
 
 /// Each scoped file retains the repository, path and commit of its numbered lines.
@@ -143,8 +143,8 @@ async fn a_repo_scoped_row_is_path_and_numbered_lines_at_one_commit() {
     assert_eq!(out.data["files"][0]["owner"], "a", "{}", out.data);
     assert_eq!(out.data["files"][0]["repo"], "b", "{}", out.data);
     assert_eq!(
-        out.data["files"][0]["lines"],
-        json!(["2\tfn wrap_app() {}"]),
+        out.data["files"][0]["matches"],
+        json!([{"line": 2, "value": "fn wrap_app() {}"}]),
         "{}",
         out.data
     );

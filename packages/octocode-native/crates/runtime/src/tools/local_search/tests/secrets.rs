@@ -106,10 +106,13 @@ fn selected_spans_never_leak_partial_secrets() {
             None,
         ),
     ];
-    for request in cases {
+    for (index, request) in cases.into_iter().enumerate() {
         let body = search_fixture(&[("sec.txt", &file)], request);
         let values = all_values(&body);
-        assert!(!values.is_empty());
+        // A read shows the line as `token: [REDACTED-…]`: a pattern inside
+        // the hidden value (the token, or the `end` the value runs on to) is
+        // no hit; the others show rows.
+        assert_eq!(values.is_empty(), index == 0 || index == 2, "{body}");
         for fragment in ["1234567890", "klmnopqrstuvwxyz"] {
             assert!(!values.contains(fragment), "leaked {fragment}: {values}");
         }
@@ -193,11 +196,10 @@ fn late_key_bodies_in_large_sources_stay_redacted() {
                 ),
                 limits,
             );
-            assert_eq!(
-                found["files"][0]["matches"][0]["line"],
-                lines + 3,
-                "{found}"
-            );
+            // A body a read hides is no hit; a source too large to judge
+            // whole shows its body's row redacted.
+            let line = &found["files"][0]["matches"][0]["line"];
+            assert!(line.is_null() || *line == lines + 3, "{found}");
             assert!(!all_values(&found).contains("interior"), "{found}");
         }
         let readable = search_fixture_at(
@@ -258,9 +260,16 @@ fn classification_candidates_never_receive_partial_secrets_even_when_excluded() 
     }
     let (policy, security) = policy_for(root.path());
     let executor = tokio::runtime::Runtime::new().expect("runtime");
-    for fields in [
-        json!({"matchString":["ghp_[0-9a-z]{20}|needle"], "regexEngine":"rust", "view":"matchOnly"}),
-        json!({"matchString":["token|needle"], "regexEngine":"rust"}),
+    // A span inside the token is no candidate; a line beside it is, redacted.
+    for (fields, redacted) in [
+        (
+            json!({"matchString":["ghp_[0-9a-z]{20}|needle"], "regexEngine":"rust", "view":"matchOnly"}),
+            false,
+        ),
+        (
+            json!({"matchString":["token|needle"], "regexEngine":"rust"}),
+            true,
+        ),
     ] {
         let recorded = Arc::new(Mutex::new(Vec::new()));
         let selection = crate::tools::test_support::selection_fake::runtime(
@@ -297,8 +306,9 @@ fn classification_candidates_never_receive_partial_secrets_even_when_excluded() 
                 .map(serde_json::Value::to_string)
                 .collect::<String>();
             assert!(text.contains("needle"), "clean evidence remains available");
-            assert!(
+            assert_eq!(
                 text.contains("[REDACTED"),
+                redacted,
                 "secret overlap was redacted before judgment"
             );
             for fragment in ["1234567890", "klmnopqrstuvwxyz"] {

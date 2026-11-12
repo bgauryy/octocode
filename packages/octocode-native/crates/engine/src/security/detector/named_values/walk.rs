@@ -5,9 +5,11 @@ use std::ops::Range;
 
 use super::names::{names_a_credential, names_no_value};
 use super::opaque::{is_opaque, is_run};
-use super::text::{field_end, is_public_armor, line_end, string_end};
+use super::text::{field_end, hole_end, is_public_armor, line_end, literal_line_end, string_end};
 use super::{Named, Opener};
-use crate::security::detector::credential_values::{OPAQUE_LITERAL_CHARS, QUOTES, ValueTest};
+use crate::security::detector::credential_values::{
+    OPAQUE_LITERAL_CHARS, QUOTES, ValueTest, expanded_names, is_chosen_literal, is_expanded_name,
+};
 use crate::security::detector::{LINE_END_CHARS, is_placeholder, jwk};
 
 /// Characters of one string of a credential's collection that is a
@@ -29,6 +31,7 @@ pub(super) struct Walk<'t> {
     spent: usize,
     line_start: usize,
     searched_to: usize,
+    expanded: std::cell::OnceCell<std::collections::HashSet<Box<str>>>,
 }
 
 /// The characters that end a bare value: what closes or separates the
@@ -48,6 +51,7 @@ impl<'t> Walk<'t> {
             spent: 0,
             line_start: 0,
             searched_to: 0,
+            expanded: std::cell::OnceCell::new(),
         }
     }
 
@@ -70,12 +74,12 @@ impl<'t> Walk<'t> {
     /// credential: all of it, so no tail of it stays readable. A value a
     /// quote opens runs to the quote that closes it on its line; a bare one
     /// to the first blank or [`BARE_ENDS`] character, less the marks a
-    /// sentence closes with. A control-character escape in it ends the value's
-    /// field as a line break or a tab does ([`field_end`]: `"X-Api-Key:
-    /// <value>\r\nHost: …"`), so the value ends there when it is a credential
-    /// up to there;
-    /// otherwise the backslash may be its own character, and the value is
-    /// read whole. A value is one opaque string, no placeholder and no value
+    /// sentence closes with. In a quoted value a control-character escape ends
+    /// the value's line as a line break does ([`literal_line_end`]: `"X-Api-Key:
+    /// <value>\r\nHost: …"`, `"the password is required\n"`), so what precedes
+    /// it is judged alone. In a bare one it ends the value's field when the
+    /// value is a credential up to there ([`field_end`]); otherwise the
+    /// backslash may be its own character, and the value is read whole. A value is one opaque string, no placeholder and no value
     /// the key-name rules keep under the key the text spells from the name
     /// and the path it ends ([`ValueTest::KeyName`]), or it is no value of
     /// this rule's.
@@ -89,15 +93,16 @@ impl<'t> Walk<'t> {
         let rest = self.text.get(run.end..)?;
         // Where the value read to `to` bytes past the run ends at a field's
         // escape, counted from the run's end as `to` is.
-        let field_end_after = |to: usize| {
-            field_end(self.text.get(run.start..run.end + to)?)?.checked_sub(run.len())
-        };
+        let field_end_after =
+            |to: usize| field_end(self.text.get(run.start..run.end + to)?)?.checked_sub(run.len());
         let (whole, line) = match quote {
             Some(&quote) => {
                 let close = rest
                     .find([char::from(quote), '\n', '\r'])
                     .filter(|close| rest.as_bytes().get(*close) == Some(&quote))?;
-                (close, field_end_after(close))
+                let line = literal_line_end(self.text.get(run.start..run.end + close)?)
+                    .and_then(|end| end.checked_sub(run.len()));
+                (line.unwrap_or(close), line)
             }
             None => {
                 let end = rest
@@ -157,9 +162,11 @@ impl<'t> Walk<'t> {
         let indent = name.indent;
         let (start, end) = match *opener {
             Opener::Bracket { at } => (at, self.bracket(at, name.several, &mut emit)),
-            Opener::BlockScalar { from } => {
+            Opener::BlockScalar { header, from } => {
                 let end = self.block_end(from, indent);
-                self.words(from..end, &mut emit);
+                if !self.block_value(name.at, header, from..end, &mut emit) {
+                    self.words(from..end, &mut emit);
+                }
                 (from, end)
             }
             Opener::BlockList { from } => (from, self.list_items(from, indent, &mut emit)),
@@ -169,8 +176,13 @@ impl<'t> Walk<'t> {
                 (from, end)
             }
             Opener::Heredoc { tag, from, rest } => {
-                let body = if rest { self.next_line(from) } else { from };
-                let end = self.heredoc_end(body, tag);
+                let (body, end) = match self.escaped_heredoc(from, tag).filter(|_| rest) {
+                    Some(escaped) => escaped,
+                    None => {
+                        let body = if rest { self.next_line(from) } else { from };
+                        (body, self.heredoc_end(body, tag))
+                    }
+                };
                 self.words(body..end, &mut emit);
                 (from, end)
             }
@@ -190,11 +202,20 @@ impl<'t> Walk<'t> {
 
     /// The literals of the expression from `from` to the end of its
     /// statement (a `;` or `,`, a line break or a closing bracket outside
-    /// every bracket it opens, or a comment), each judged as the value the
-    /// name `key` holds ([`ValueTest::Named`]): a ternary's arms, a
-    /// fallback's operand, a concatenation's pieces. A literal that
-    /// interpolates is judged by its text outside the holes
-    /// ([`Walk::literal_text`]). Returns where the statement ends.
+    /// every bracket it opens, or a comment), each judged as a value the name
+    /// `key` holds. The statement goes on over a line break where its
+    /// expression does ([`Walk::continues_below`]). Only a literal is read
+    /// ([`Walk::literal_at`]): a quote that opens an operand and closes on
+    /// its line, so a quote that closes a string the name stands in, or one
+    /// a sentence or a comment writes, opens none, and no value runs on past
+    /// its line. A literal is a value when it is opaque
+    /// ([`ValueTest::Named`]), or, held whole outside every bracket (a
+    /// ternary's arm, a fallback's operand), a secret a person chose
+    /// ([`is_chosen_literal`]); a literal that interpolates is judged by its
+    /// text outside the holes, and each hole's code as an expression of its
+    /// own; a piece joined to others by `+` is part of a value, and only an
+    /// opaque one is a value of its own ([`Walk::judge_literal`]). Returns
+    /// where the statement ends.
     fn expression(&self, from: usize, key: &str, emit: &mut impl FnMut(Range<usize>)) -> usize {
         let bytes = self.text.as_bytes();
         let mut depth = 0usize;
@@ -206,25 +227,30 @@ impl<'t> Walk<'t> {
                     Some(outer) => depth = outer,
                     None => return at,
                 },
+                b'\n' | b'\r' if depth == 0 && self.continues_below(from, at, key) => {}
                 b';' | b',' | b'\n' | b'\r' if depth == 0 => return at,
                 b'/' if bytes.get(at + 1) == Some(&b'/') => return line_end(bytes, at),
                 b'#' if at == 0 || bytes[at - 1].is_ascii_whitespace() => {
                     return line_end(bytes, at);
                 }
+                // An escaped quote is text of a literal the statement is
+                // written in (`"let secret = f(\"…\");\n"`): it opens none,
+                // and the brackets and `;` around it are the statement's.
+                b'"' | b'\'' | b'`' if escaped_at(bytes, at) => {}
                 b'"' | b'\'' | b'`' => {
-                    let close = string_end(bytes, at);
-                    for piece in self.literal_text(at + 1..close) {
-                        // One run, `=` only as its padding: a literal that
-                        // holds `name=value` is the name's own to judge.
-                        let judged = self.text.get(piece.clone()).is_some_and(|value| {
-                            is_run(value)
-                                && !value.trim_end_matches('=').contains('=')
-                                && !is_placeholder(value)
-                                && ValueTest::Named.redacts(key, value)
-                        });
-                        if judged {
-                            emit(piece);
-                        }
+                    // A quote that closes on no later point of its line opens
+                    // no literal of this statement (a backtick that a comment
+                    // or a sentence writes): the rest of its line is that
+                    // string's, and the line's end is read as for any text.
+                    let line = line_end(bytes, at);
+                    let close = string_end(&bytes[..line], at);
+                    if bytes.get(close) != Some(&byte) || close >= line {
+                        at = line;
+                        continue;
+                    }
+                    if let Some(prefix) = self.literal_at(from, at, close) {
+                        let quoted = format!("{key}{prefix}{}", char::from(byte));
+                        self.judge_literal(&quoted, at, close, depth == 0, emit);
                     }
                     at = close;
                 }
@@ -233,6 +259,184 @@ impl<'t> Walk<'t> {
             at += 1;
         }
         bytes.len()
+    }
+
+    /// The prefix of the literal whose quote at `open` closes at `close`
+    /// (`f`, `$`, `r`: letters right before the quote), when it is one: the
+    /// quote is no escaped one, it closes on its line, and an operand
+    /// starts there: at the expression's start (`from`) or after an
+    /// operator, an opening bracket or a `,`, blanks aside. `None` for a
+    /// quote that opens no literal.
+    fn literal_at(&self, from: usize, open: usize, close: usize) -> Option<&'t str> {
+        let bytes = self.text.as_bytes();
+        if bytes.get(close) != bytes.get(open) {
+            return None;
+        }
+        let before = self.text.get(from..open)?;
+        let head =
+            before.trim_end_matches(|c: char| c.is_ascii_alphabetic() || matches!(c, '$' | '@'));
+        let prefix = before.get(head.len()..)?;
+        if prefix.len() > 3 || head.ends_with('\\') {
+            return None;
+        }
+        // A quote right after a word or a closing mark closes a string; one
+        // after a blank, an operator, an opening bracket or a `,` opens one.
+        let opens_operand = head.is_empty()
+            || head.ends_with(char::is_whitespace)
+            || head.ends_with([
+                '=', '?', ':', '|', '&', '+', '(', '[', '{', ',', '!', '>', '<',
+            ]);
+        opens_operand.then_some(prefix)
+    }
+
+    /// Calls `emit` for each value the literal whose quote at `open` closes
+    /// at `close` holds under `quoted` (the name, its operator, the
+    /// literal's prefix and quote: [`Walk::expression`]). `whole`: the
+    /// literal is an operand the name may hold whole (a ternary's arm, a
+    /// fallback's operand), outside every bracket; one inside a bracket is a
+    /// call's argument or a collection's element, a value only when opaque.
+    fn judge_literal(
+        &self,
+        quoted: &str,
+        open: usize,
+        close: usize,
+        whole: bool,
+        emit: &mut impl FnMut(Range<usize>),
+    ) {
+        let bytes = self.text.as_bytes();
+        let joined = bytes
+            .get(close + 1..)
+            .is_some_and(|after| after.trim_ascii_start().first() == Some(&b'+'))
+            || bytes
+                .get(..open)
+                .is_some_and(|before| before.trim_ascii_end().last() == Some(&b'+'));
+        let judged = |value: &str| {
+            // `=` only as padding: a literal that holds `name=value` is the
+            // name's own to judge.
+            !value.trim_end_matches('=').contains('=')
+                && !is_placeholder(value)
+                && !value.contains(crate::security::REDACTION_PREFIX)
+                && !is_expanded_name(|| self.expanded(), value)
+        };
+        let body = open + 1..close;
+        if joined {
+            for piece in self.literal_text(body) {
+                let opaque = self.text.get(piece.clone()).is_some_and(|value| {
+                    is_run(value) && judged(value) && ValueTest::Named.redacts(quoted, value)
+                });
+                if opaque {
+                    emit(piece);
+                }
+            }
+            return;
+        }
+        // A literal is a value when it is opaque, or, held whole, a secret a
+        // person chose ([`is_chosen_literal`]): a long readable one (a URL,
+        // a message, an identifier) is the code's text.
+        let value = |value: &str| {
+            judged(value)
+                && (ValueTest::Named.redacts(quoted, value)
+                    || (whole && is_chosen_literal(quoted, value)))
+        };
+        let pieces = self.literal_text(body.clone());
+        if pieces.len() == 1 && pieces[0] == body {
+            if self.text.get(body.clone()).is_some_and(value) {
+                emit(body);
+            }
+            return;
+        }
+        // A literal that interpolates holds its value in the text beside
+        // the holes: each piece that is one alone goes. A hole is code, its
+        // own literals judged as the expression's are.
+        let mut hole = body.start;
+        for piece in pieces
+            .into_iter()
+            .chain(std::iter::once(body.end..body.end))
+        {
+            if piece.start > hole {
+                self.expression(hole + 2, quoted, emit);
+            }
+            hole = piece.end;
+            let Some(text) = self.text.get(piece.clone()) else {
+                continue;
+            };
+            // The marks that join a piece to a hole (`${u}:…`, `${host}/…`)
+            // are the template's, no part of the value.
+            let joins = |c: char| {
+                c.is_whitespace() || matches!(c, ':' | '@' | '/' | ';' | ',' | '&' | '?' | '#')
+            };
+            let trimmed = text.trim_matches(joins);
+            let start = piece.start + (text.len() - text.trim_start_matches(joins).len());
+            if !trimmed.is_empty() && !trimmed.contains(char::is_whitespace) && value(trimmed) {
+                emit(start..start + trimmed.len());
+            }
+        }
+    }
+
+    /// The names the text expands as a variable ([`expanded_names`]), read
+    /// once when a literal first asks.
+    fn expanded(&self) -> &std::collections::HashSet<Box<str>> {
+        self.expanded.get_or_init(|| expanded_names(self.text))
+    }
+
+    /// Whether the expression assigned from `from` (after the name and
+    /// operator `key`) goes on past the line break at `at`: its line so far
+    /// holds nothing yet after an `=` (a value on the lines below; after a
+    /// bare `:` the lines below are a block's own), or ends with an operator
+    /// that takes another operand (`?`, `:`, `||`, `&&`, `??`, `+`, `=`), or
+    /// the next line with text opens with one (`? "…"`, `: "…"`, `|| "…"`,
+    /// `.call(…)`, `+ "…"`).
+    fn continues_below(&self, from: usize, at: usize, key: &str) -> bool {
+        let line_start = self
+            .text
+            .get(..at)
+            .and_then(|before| before.rfind(LINE_END_CHARS))
+            .map_or(0, |found| found + 1)
+            .max(from);
+        let so_far = self.text.get(line_start..at).unwrap_or_default().trim();
+        let after_colon = {
+            let key = key.trim_end();
+            key.ends_with(':') && !key.ends_with("::")
+        };
+        if so_far.is_empty() {
+            return line_start == from && !after_colon;
+        }
+        if so_far.ends_with(['?', ':', '|', '&', '+', '=']) {
+            return true;
+        }
+        let next = self
+            .text
+            .get(at..)
+            .unwrap_or_default()
+            .trim_start_matches(|c: char| c.is_whitespace());
+        ["?", ":", "||", "&&", "??"]
+            .iter()
+            .any(|operator| next.starts_with(operator))
+            || next
+                .strip_prefix('.')
+                .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_'))
+            || next
+                .strip_prefix('+')
+                .is_some_and(|rest| rest.starts_with([' ', '\t']))
+    }
+
+    /// Whether the statement a collection opened by the bracket at `open`
+    /// stands in goes on after the bracket that closes it: the collection
+    /// is one operand of an expression (a composite literal's type before
+    /// its braces, `map[bool]string{…}`; an index or a call after them),
+    /// not the whole value. A line's end, a `;` or `,`, a closing bracket or
+    /// a comment after it ends the statement.
+    pub(super) fn goes_on_after(&self, open: usize) -> bool {
+        let close = self.strings(open, |_, _, _| {});
+        let after = self
+            .text
+            .get(close..)
+            .unwrap_or_default()
+            .trim_start_matches([' ', '\t']);
+        !(after.is_empty()
+            || after.starts_with([';', ',', '\n', '\r', ')', ']', '}', '#'])
+            || after.starts_with("//")
+            || after.starts_with("/*"))
     }
 
     /// The text of the literal whose body lies at `body`, outside the
@@ -246,11 +450,10 @@ impl<'t> Walk<'t> {
         let mut start = 0;
         while let Some(open) = text.get(start..).and_then(|rest| rest.find("${")) {
             let open = start + open;
-            let Some(close) = text.get(open..).and_then(|rest| rest.find('}')) else {
-                break;
-            };
+            // The hole's own brackets and strings close inside it.
+            let close = hole_end(&self.text.as_bytes()[..body.end], body.start + open + 2);
             pieces.push(body.start + start..body.start + open);
-            start = open + close + 1;
+            start = close - body.start;
         }
         pieces.push(body.start + start..body.end);
         pieces.retain(|piece| !piece.is_empty());
@@ -268,6 +471,27 @@ impl<'t> Walk<'t> {
     fn next_line(&self, at: usize) -> usize {
         let rest = self.text.get(at..).unwrap_or_default();
         rest.find('\n').map_or(self.text.len(), |end| at + end + 1)
+    }
+
+    /// The body of a heredoc whose opener ends at `from` and that a string
+    /// literal holds (`"token = <<~EOS\n  …\nEOS\n"`): its opener's line goes
+    /// on with a line-break escape, so its lines are the literal's escaped
+    /// lines, and the body ends at the escaped line that is `tag` alone, or at
+    /// the source line's end. `None` when the heredoc's lines are the source's.
+    fn escaped_heredoc(&self, from: usize, tag: &str) -> Option<(usize, usize)> {
+        const BREAKS: [&str; 2] = ["\\r\\n", "\\n"];
+        let line = self.text.get(from..line_end(self.text.as_bytes(), from))?;
+        let opened = BREAKS.iter().find_map(|escape| line.strip_prefix(escape))?;
+        let body = from + (line.len() - opened.len());
+        let mut at = 0;
+        for piece in opened.split_inclusive("\\n") {
+            let text = piece.trim_end_matches("\\n").trim_end_matches("\\r");
+            if text.trim() == tag {
+                return Some((body, body + at));
+            }
+            at += piece.len();
+        }
+        Some((body, body + opened.len()))
     }
 
     /// Where the heredoc body starting at `body` ends: at the line that is
@@ -309,6 +533,57 @@ impl<'t> Walk<'t> {
                 emit(start..start + inner.len());
             }
         }
+    }
+
+    /// Whether the body at `body` of the YAML block scalar whose header
+    /// starts at `header`, under the name at `name`, is that name's value as
+    /// the one-line `name: value` is ([`ValueTest::Scalar`]): its lines'
+    /// text, joined, is judged as the value, and when it is one each line's
+    /// text goes (`emit`), its indentation and the header staying. A body
+    /// that is no value is read for the opaque words it holds instead.
+    fn block_value(
+        &self,
+        name: usize,
+        header: usize,
+        body: Range<usize>,
+        emit: &mut impl FnMut(Range<usize>),
+    ) -> bool {
+        let Some(key) = self
+            .path_start(name)
+            .and_then(|start| self.text.get(start..header))
+        else {
+            return false;
+        };
+        let mut lines = Vec::new();
+        let mut line = body.start;
+        while line < body.end {
+            let next = self.next_line(line).min(body.end);
+            let text = self.text.get(line..next).unwrap_or_default();
+            let start = line + (text.len() - text.trim_start().len());
+            let end = start + text.trim().len();
+            if end > start {
+                lines.push(start..end);
+            }
+            line = next;
+        }
+        let value = lines
+            .iter()
+            .filter_map(|line| self.text.get(line.clone()))
+            .collect::<Vec<_>>()
+            .join(" ");
+        // A public key's armor holds no secret ([`Walk::words`] reads it so).
+        let public = self.text.get(body).is_some_and(is_public_armor);
+        if lines.is_empty()
+            || public
+            || is_placeholder(&value)
+            || !ValueTest::Scalar.redacts(key, &value)
+        {
+            return false;
+        }
+        for line in lines {
+            emit(line);
+        }
+        true
     }
 
     /// Where the YAML block scalar whose lines start at `from` ends, under
@@ -471,6 +746,9 @@ impl<'t> Walk<'t> {
                         return at + 1;
                     }
                 }
+                // An escaped quote is text of a literal the collection is
+                // written in: it opens no string of the collection's.
+                b'"' | b'\'' | b'`' if escaped_at(bytes, at) => {}
                 b'"' | b'\'' | b'`' => {
                     let close = string_end(bytes, at);
                     let innermost = opened.last().map_or(open, |(at, _)| *at);
@@ -490,4 +768,18 @@ impl<'t> Walk<'t> {
         }
         bytes.len()
     }
+}
+
+/// Whether the byte at `at` follows an odd run of backslashes: a backslash
+/// escapes it.
+fn escaped_at(bytes: &[u8], at: usize) -> bool {
+    bytes
+        .get(..at)
+        .unwrap_or_default()
+        .iter()
+        .rev()
+        .take_while(|byte| **byte == b'\\')
+        .count()
+        % 2
+        == 1
 }

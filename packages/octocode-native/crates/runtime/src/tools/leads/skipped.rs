@@ -179,14 +179,17 @@ fn unreadable(root: &str, WalkErrors { skipped, denied }: WalkErrors) -> Vec<Ski
 /// that holds what was left out (the policy never names a withheld entry), so
 /// it counts what sits under that directory; any other entry's path is the
 /// first path left out, and its count is how many share its cause.
+/// The path and the reason (a rule's text, an error) are a walk's, quoted
+/// as judged ([`crate::security::quoted`]).
 pub(crate) fn disclosure(entry: &SkippedPath, shown: &str) -> String {
     let cause = serde_json::to_value(entry.cause)
         .ok()
         .and_then(|cause| cause.as_str().map(str::to_owned))
         .unwrap_or_default();
     let count = entry.count.unwrap_or(1);
-    let reason = entry
-        .reason
+    let shown = crate::security::quoted(shown);
+    let quoted_reason = entry.reason.as_deref().map(crate::security::quoted);
+    let reason = quoted_reason
         .as_ref()
         .map(|reason| format!(" ({reason})"))
         .unwrap_or_default();
@@ -195,7 +198,7 @@ pub(crate) fn disclosure(entry: &SkippedPath, shown: &str) -> String {
             format!("{count} {cause} under `{shown}`{reason}")
         }
         _ if count > 1 => format!("`{shown}` and {} more {cause}{reason}", count - 1),
-        _ => match &entry.reason {
+        _ => match &quoted_reason {
             Some(reason) => format!("`{shown}` ({cause}: {reason})"),
             None => format!("`{shown}` ({cause})"),
         },

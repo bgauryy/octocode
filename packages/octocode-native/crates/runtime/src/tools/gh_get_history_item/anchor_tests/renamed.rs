@@ -79,7 +79,7 @@ async fn a_comparison_of_a_renamed_repository_leads_canonically() {
         json!({"operation":"compare","owner":"a","repo":"b","baseRef":BASE,"headRef":HEAD}),
     )
     .await;
-    assert_eq!(out["headSha"], HEAD, "{out}");
+    assert_eq!(out["headCommitSha"], HEAD, "{out}");
     assert_names_the_rename(&out);
 }
 

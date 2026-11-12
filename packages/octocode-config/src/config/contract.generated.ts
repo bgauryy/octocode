@@ -379,7 +379,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "type": "enum",
     "resolved": true,
     "credential": false,
-    "description": "Persistent saves continuation state and provider answers to disk; memory retains them only in the current runtime. Fresh local requests recompute results; GitHub and registry answers repeat as their origin allows. Explicit graph snapshots are outputs; interrupted extraction checkpoints follow this setting.",
+    "description": "Persistent saves continuation state and provider answers to disk; memory retains them only in the current runtime. Fresh local requests reuse only in-memory results keyed by the content they read; GitHub and registry answers repeat as their origin allows. Explicit graph snapshots are outputs; interrupted extraction checkpoints follow this setting.",
     "env": {
       "name": "OCTOCODE_STORAGE_MODE",
       "dotenv": "home",

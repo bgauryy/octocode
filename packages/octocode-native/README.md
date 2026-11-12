@@ -9,20 +9,9 @@ MCP server (`octocode mcp`), which both protocol eras (2025-11-25 and 2026-07-28
 from the same process.
 
 ```sh
-$ npx octocode --version
-octocode 20.2.0
-
-$ npx octocode schema
-{"kind":"octocode.toolCatalog","version":1,"toolCount":13,"commands":{…},"tools":[…]}
-
-$ npx octocode schema --view full
-{"kind":"octocode.toolCatalog","version":1,"toolCount":13,"commands":{…},"instructions":"…","grammars":"…","tools":[…]}
-
-$ npx octocode schema localSearch --view query
-{"name":"localSearch","description":"…","querySchema":{…},"availability":{"enabled":true},"run":"octocode localSearch '<json>'"}
-
-$ npx octocode localSearch '{"queries":[{"matchString":["ToolRuntime"],"path":"crates/","view":"files"}]}'
-…
+npx -y octocode --version
+npx -y octocode schema
+npx -y octocode schema localSearch --view variants
 ```
 
 Every available tool is a command under its canonical name. CLI and MCP accept the
@@ -139,7 +128,8 @@ npx octocode schema ghSearchHistory --view query --select operation=commit
 npx octocode localFetch '{"queries":[{"path":"crates/cli/src/main.rs","ranges":[{"startLine":1,"endLine":50}]}]}'
 npx octocode localSearch '{"queries":[{"matchString":["ToolRuntime"],"path":"crates/","view":"content"}]}'
 npx octocode astSearch '{"queries":[{"operation":"match","path":"crates/","parser":"rust","rule":{"pattern":"async fn $NAME($$$ARGS) -> $T { $$$BODY }"}}]}'
-npx octocode lspSearch '{"queries":[{"operation":"definition","path":"crates/cli/src/cli.rs","symbolName":"dispatch","line":167}]}'
+npx octocode localSearch '{"queries":[{"path":"crates/cli/src/cli.rs","matchString":["dispatch(command"]}]}'
+# For a definition lookup, pass a returned path and line with symbolName "dispatch" to lspSearch.
 
 # GitHub and packages
 npx octocode ghGetFileContent '{"queries":[{"owner":"cli","repo":"cli","path":"README.md"}]}'
@@ -163,18 +153,15 @@ stdout by its status, page state, warnings, hints and runnable continuation comm
 counters and `related[]` leads are `# ` notes on stderr (`crates/cli/src/cli/lines.rs`), and so is progress when
 stderr is a terminal. A call
 rejected before it runs prints on stdout as a failed row does. `--json`
-prints JSON, indented on a terminal. `octocode --help` and `schema` expose every tool in
-the build. Credentials and storage prerequisites are checked when a tool runs.
-MCP has independent beta, classification and clone opt-ins; the
-[configuration matrix](../../docs/CONFIGURATION.md#tool-availability-cli-and-mcp) owns their rules.
+prints JSON, indented on a terminal. `octocode schema` lists the CLI tools available with the current configuration. Graph, clone and advisory tools are opt-ins on MCP. Classification requires a provider key on both interfaces. See the [availability matrix](../../docs/CONFIGURATION.md#tool-availability-cli-and-mcp).
 
 | Command | What it does |
 |---|---|
 | `schema [tool]` | Tool catalog with agent instructions, or one tool's contract (`--view query`, `--view variants`, `--select operation=VALUE[,FIELD=VALUE]`) |
-| `config` | Config paths, loaded key names, and warnings; never values (`--json`). Subcommands: `view`, `home`, `get KEY`, `set KEY VALUE` / `set KEY --stdin`, `unset KEY`, `check KEY` |
+| `config` | Open the local settings page on an interactive terminal with a display. Use `--json` for paths, loaded key names and warnings. Subcommands include `list`, `view`, `home`, `get KEY`, `set KEY VALUE` / `set KEY --stdin`, `unset KEY`, `check KEY` |
 | `cache clear` | Drain warm CLI servers and remove tool caches; [scope and MCP restart](../../docs/OCTOCODE_CLI.md#clear-tool-caches) |
 | `auth` | `status`, `login` (device flow; `--hostname`, `--force`, `--refresh`), `logout` |
-| `graph` | `ingest <path>` and `query <op>` over a persisted code graph ([CODE_GRAPH.md](docs/engine/CODE_GRAPH.md)) |
+| `graphBuild`, `graphQuery` | Build and query a persisted code graph ([CODE_GRAPH.md](docs/engine/CODE_GRAPH.md)) |
 | `install` | Add the MCP server to an agent client: `--ide <id>` from `--list` |
 | `skill list\|info\|install\|remove\|check` | Manage the embedded public skills without Node |
 | `help` | Help for the binary or a command |
@@ -189,7 +176,8 @@ tool server, started automatically). Exit codes are printed by
 Every read-only tool call (all tools except `ghCloneRepo` and `graphBuild`, which write)
 runs on `octocode serve`, so a later page reuses what an earlier call computed,
 as it does in one MCP session: issued pages, stored scans and continuation-selected symbol evidence, alongside
-live language servers. Fresh requests recompute their results. The first call of a workspace
+live language servers. A fresh request reuses only what is keyed by the
+content it reads (outlines, parsed declarations); anything else it computes again. The first call of a workspace
 starts the server, detached, behind a socket in `<temp dir>/octocode-<uid>`
 (a 0700 directory only the owner can enter).
 
@@ -218,14 +206,22 @@ starts the server, detached, behind a socket in `<temp dir>/octocode-<uid>`
   (`OCTOCODE_STORAGE_MODE=memory`), on Windows, or for `ghCloneRepo`. A server that cannot be reached, refuses a call, or fails
   mid-call is named on stderr and the call runs in process. The client waits
   for the reply as long as the server's request budget allows; the CLI sets
-  none, so it waits until the reply, the server closing, or Ctrl-C. With a
-  budget, a server that sends no reply within it answers `timeout`.
+  none, so it waits until the reply, the server closing, or Ctrl-C, as long as
+  the server keeps talking: while a call runs the server sends a heartbeat
+  every 30 s, and a server that sends nothing for 300 s (stopped or hung) is a
+  failed server, so the call runs in process. With a budget, a server that
+  sends no reply within it answers `timeout`. A client that stops reading
+  never stalls its call; it gets the newest progress lines, and one that
+  takes no byte for 300 s is treated as gone, which cancels its call.
 - **Bounded by demand.** There is no cap on servers per user, and a starting
   server never stops another: a server exits after `IDLE_EXIT` without a
   request (a connection that sends none does not count), and its language
   servers stop earlier on the pool's idle timeout and memory budget. A server
   asked to stop (`auth login`/`logout`, cache clear) finishes the calls it
-  has.
+  has; a connection that has sent no request neither keeps it alive nor
+  delays its stop. `cache clear` waits for that drain as long as it lasts,
+  hearing a heartbeat every 30 s; a server that sends nothing for 300 s ends
+  the wait with an error, and the cache is left uncleared.
 
 The named limits are constants in
 [`crates/cli/src/cli/serve.rs`](crates/cli/src/cli/serve.rs), whose module
@@ -238,7 +234,7 @@ Native owns the interactive `install` picker, skill commands, and `config view`.
 ## Test
 
 ```sh
-yarn workspace @octocodeai/octocode-native test:rust   # every crate with cargo-nextest, including the N-API adapter
+yarn workspace @octocodeai/octocode-native test:rust   # workspace Rust tests with cargo-nextest
 yarn workspace @octocodeai/octocode-native test        # script checks, Node tests, then test:rust
 yarn workspace @octocodeai/octocode-native verify      # fmt, oxlint + clippy, cargo deny, cargo shear, tsgo typecheck, tests, contract freshness
 cargo dev-test -- <filter>                             # the test:rust selection under libtest, reusing its build

@@ -34,14 +34,14 @@ async fn repeated_clone_reuses_the_checkout_and_writes_no_cache_metadata() {
     let second = clone_as(&bench, &provider, &query(), ALICE)
         .await
         .expect("fresh replacement");
-    assert_eq!(first.location.local_path, second.location.local_path);
+    assert_eq!(first.location.path, second.location.path);
     assert_eq!(
         bench.clones_seen(),
         before,
         "the verified checkout of the same commit is not fetched again"
     );
     assert!(
-        !Path::new(&second.location.local_path)
+        !Path::new(&second.location.path)
             .join(".octocode-clone-meta.json")
             .exists()
     );
@@ -135,7 +135,7 @@ async fn existing_checkout_is_not_served_to_a_caller_without_access() {
     let alice = clone_as(&bench, &provider, &query(), ALICE)
         .await
         .unwrap_or_else(|_| panic!("Alice clones"));
-    assert_eq!(alice.location.resolved_ref, "main");
+    assert_eq!(alice.location.ref_, "main");
     let clones = bench.clones_seen();
 
     match clone_as(&bench, &provider, &query(), BOB).await {
@@ -149,18 +149,13 @@ async fn existing_checkout_is_not_served_to_a_caller_without_access() {
                     "fixture-repo"
                 )
             );
-            test_support::checks::assert_absent(
-                &serde_json::json!(error),
-                &alice.location.local_path,
-            );
+            test_support::checks::assert_absent(&serde_json::json!(error), &alice.location.path);
         }
         Err(CloneFailure::Provider(error)) => panic!("a denied repository is notFound: {error:?}"),
     }
     assert_eq!(bench.clones_seen(), clones, "Bob ran no git");
     assert!(
-        Path::new(&alice.location.local_path)
-            .join("README.md")
-            .is_file(),
+        Path::new(&alice.location.path).join("README.md").is_file(),
         "Alice's checkout is kept"
     );
     // Each caller pins the commit once, with their own token.
@@ -185,7 +180,7 @@ async fn fresh_clone_follows_the_callers_access_check() {
     let bob = clone_as(&bench, &provider, &query(), BOB)
         .await
         .unwrap_or_else(|_| panic!("Bob may read the repository"));
-    assert_eq!(bob.location.local_path, alice.location.local_path);
+    assert_eq!(bob.location.path, alice.location.path);
     assert_eq!(bob.location.commit_sha, sha);
     assert_eq!(
         bench.clones_seen(),
@@ -216,7 +211,7 @@ async fn the_default_branch_requires_access() {
     let alice = clone_as(&bench, &provider, &unbranched(), ALICE)
         .await
         .unwrap_or_else(|_| panic!("Alice clones the default branch"));
-    assert_eq!(alice.location.resolved_ref, "main");
+    assert_eq!(alice.location.ref_, "main");
     match clone_as(&bench, &provider, &unbranched(), BOB).await {
         Ok(served) => panic!("Bob was served Alice's checkout: {served:?}"),
         Err(CloneFailure::Clone(error)) => assert_eq!(error.code, ErrorCode::NotFound, "{error:?}"),

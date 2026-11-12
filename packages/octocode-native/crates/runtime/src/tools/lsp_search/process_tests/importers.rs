@@ -263,8 +263,8 @@ fn reference_rows(row: &serde_json::Value) -> Vec<(String, u64, u64)> {
                 .into_owned();
             (
                 name,
-                site["displayRange"]["startLine"].as_u64().expect("line"),
-                site["displayRange"]["startCharacter"]
+                site["line"].as_u64().expect("line"),
+                site["column"]
                     .as_u64()
                     .expect("column"),
             )

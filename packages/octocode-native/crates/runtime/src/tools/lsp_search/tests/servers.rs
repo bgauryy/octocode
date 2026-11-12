@@ -92,7 +92,7 @@ async fn an_unresolved_anchor_reports_whether_its_server_would_launch() {
             "symbolName": "absent", "line": 1
         });
         let result = run_row(row, &paths, &user_server(&root, ".ts", &command)).await;
-        assert_eq!(result["errorCode"], "anchorUnresolved", "{result}");
+        assert_eq!(result["errorCode"], "notFound", "{result}");
         assert_eq!(
             result["lsp"]["serverAvailable"], available,
             "{command}: {result}"
@@ -126,7 +126,7 @@ async fn an_inferred_root_above_the_allowed_roots_falls_back_with_a_warning() {
         "symbolName": "absent", "line": 1
     });
     let inferred = run_row(row.clone(), &paths, &execution).await;
-    assert_eq!(inferred["errorCode"], "anchorUnresolved", "{inferred}");
+    assert_eq!(inferred["errorCode"], "notFound", "{inferred}");
     let warning = inferred["warnings"][0].as_str().unwrap_or_default();
     assert!(
         warning.contains("outside the allowed roots") && warning.contains("runs at ."),
@@ -237,7 +237,7 @@ async fn markdown_with_a_custom_server_keeps_the_configured_route() {
         "symbolName": "absent", "line": 1
     });
     let result = run_row(row, &paths, &execution).await;
-    assert_eq!(result["errorCode"], "anchorUnresolved", "{result}");
+    assert_eq!(result["errorCode"], "notFound", "{result}");
     assert_eq!(result["lsp"]["serverAvailable"], true, "{result}");
 }
 
@@ -260,7 +260,8 @@ fn workspace_symbols_are_flat_named_and_one_based() {
             "path": "/repo/a.ts",
             // A SymbolInformation range starts at the declaration, not the
             // name: no column.
-            "displayRange": {"startLine": 10, "endLine": 13}
+            "line": 10,
+            "endLine": 13
         })
     );
 }
@@ -270,7 +271,7 @@ fn workspace_symbol_accepts_directory_path() {
     let (_dir, root, paths) = temp_workspace();
     std::fs::create_dir_all(root.join("src")).expect("src");
     let mut q = query(serde_json::json!({
-        "operation": "workspaceSymbol", "symbolQuery": "f",
+        "operation": "workspaceSymbol", "symbolFuzzy": "f",
         "path": root.join("src").to_string_lossy()
     }));
     let resolved = resolve_paths(&mut q, &paths).expect("a directory path is the root");

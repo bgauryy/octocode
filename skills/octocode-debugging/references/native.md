@@ -1,8 +1,8 @@
-Load when debugging a compiled program: C, C++, Rust, Swift or Go.
-
 # Native programs
 
 ## Break and inspect
+
+Keep the original binary and matching symbols for an incident. For a separate stepping build, enable debug info and reduce optimization when it obscures locals. Preserve production optimization for profiling. In unattended runs use batch mode with a finite workload. Close debugger stdin unless the workload itself requires input.
 
 ```bash
 lldb -b -o "b parse.c:42" -o run -o "frame variable" -o bt -o c -- ./prog arg1 arg2
@@ -31,24 +31,22 @@ In batch mode lldb stops running `-o` commands when the program crashes. Put the
 lldb -b -o run -k "bt 10" -k "frame select 1" -k "frame variable" -- ./prog
 ```
 
-The top frame is often a library (`strlen`, `memcpy`); select the first frame in your code and print its arguments. For a crash that happens only outside the debugger, enable core files (`ulimit -c unlimited`), reproduce, then load the core: `lldb -c /cores/core.<pid> ./prog -b -o "bt all"` or `gdb ./prog core -batch -ex "thread apply all bt"`. Address sanitizer often names the bug faster than a debugger: rebuild with `-fsanitize=address,undefined -g` and run normally.
+The top frame is often a library (`strlen`, `memcpy`); select the first frame in your code and print its arguments. For a crash that happens only outside the debugger, preserve an available core with its matching binary and symbols, then load it with `lldb -c /cores/core.<pid> ./prog -b -o "bt all"` or `gdb ./prog core -batch -ex "thread apply all bt"`. For suspected memory corruption or undefined behavior, reproduce with `-fsanitize=address,undefined -g` on a supported C/C++ build.
 
 ## Running process and hangs
 
-Attach, print, detach; the process keeps running afterwards.
+Debugger attach pauses the target. Prefer periodic sampling when the live service must keep serving. If a pause is acceptable, capture all thread stacks and detach explicitly.
 
 ```bash
 lldb -p <pid> -b -o "thread backtrace all" -o detach
-gdb -p <pid> -batch -ex "thread apply all bt"
+gdb -p <pid> -batch -ex "thread apply all bt" -ex detach
 sample <pid> 3          # macOS: 3-second call tree of every thread, no debugger needed
 ```
 
-Attaching may need permission: on Linux, `ptrace_scope` or root; on macOS, a binary signed without the get-task-allow entitlement refuses. Run the program under the debugger from the start instead.
+Linux ptrace policy or macOS signing and entitlements can restrict attachment. If attach is denied, inspect an existing dump or launch a separate reproduction under the debugger.
 
 ## Rust
 
 `RUST_BACKTRACE=1` (or `full`) prints a panic's stack without a debugger. `rust-lldb` and `rust-gdb` wrap the debuggers with Rust pretty printers; the commands above work unchanged. Test binaries are under `target/debug/deps/`; `cargo test --no-run` prints their paths. Break on a panic with `b rust_panic`.
 
-## Go
-
-Send `SIGQUIT` (`kill -QUIT <pid>`) to a hung Go program: it prints every goroutine's stack and exits; `GOTRACEBACK=all` widens a crash dump the same way. With Delve installed, `dlv exec ./prog --headless` needs a client, so prefer `dlv debug --init <file>` with commands such as `break main.go:42`, `continue`, `locals`, `stack`, `exit` in the file.
+For Go goroutines, pprof and Delve, use [Go diagnostics](go.md).

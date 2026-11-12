@@ -77,11 +77,13 @@ async fn a_listing_row_carries_dir_entries_commit_and_resolved_ref() {
         json!([{"dir":".","files":["lib.rs (3)","src/"]}]),
         "{data}"
     );
-    assert_eq!(data["resolvedRef"], "main", "{data}");
+    assert_eq!(data["ref"], "main", "{data}");
     assert_eq!(data["commitSha"], SHA, "{data}");
     assert_eq!(data["owner"], "a", "{data}");
     assert_eq!(data["repo"], "b", "{data}");
-    for echo in ["path", "operation", "ref"] {
+    // `ref` is the branch the listing resolved (the default branch here),
+    // not an echo: the request named none.
+    for echo in ["path", "operation"] {
         assert!(data.get(echo).is_none(), "{echo} echoed: {data}");
     }
     let read = &crate::tools::test_support::checks::related_call(data, "ghGetFileContent", |_| {

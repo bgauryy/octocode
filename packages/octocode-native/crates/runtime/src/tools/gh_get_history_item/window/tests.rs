@@ -214,8 +214,7 @@ fn window_pages_span_provider_batches_without_provider_cursors() {
     let (slice, page) = paginate_window(items, 100, true, Some(5), Some(30));
     assert_eq!(slice.len(), 20);
     assert_eq!(page["hasMore"], false);
-    assert_eq!(page["totalItems"], 140);
-    assert_eq!(page["totalPages"], 5);
+    assert_eq!(page["total"], 140);
     assert_eq!(page["countScope"], "complete");
 }
 
@@ -224,8 +223,10 @@ fn a_page_past_an_exhausted_window_is_empty_and_flagged_not_clamped() {
     let items = (0..10).map(|n| json!(n)).collect::<Vec<_>>();
     let (slice, page) = paginate_window(items, 0, true, Some(4), Some(5));
     assert!(slice.is_empty(), "must not repeat the last page: {slice:?}");
-    assert_eq!(page["page"], 4);
-    assert_eq!(page["totalPages"], 2);
+    assert_eq!(
+        (&page["offset"], &page["length"], &page["total"]),
+        (&json!(10), &json!(0), &json!(10))
+    );
     assert_eq!(page["hasMore"], false);
     assert_eq!(page["outOfRange"], true);
 }

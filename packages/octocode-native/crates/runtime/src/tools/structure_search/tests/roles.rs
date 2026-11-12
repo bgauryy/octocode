@@ -26,7 +26,7 @@ fn sample(field: &str) -> Value {
         "minDepth" => json!(2),
         "nameRegex" => json!("^b"),
         "permissions" => json!("600"),
-        "sizeBytes" => json!({"min":1024}),
+        "bytes" => json!({"min":1024}),
         // The fixture holds no test code.
         "testCode" => json!("only"),
         "modifiedAt" | "accessedAt" => json!({"to":"2020-01-01T00:00:00Z"}),

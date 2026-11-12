@@ -36,7 +36,7 @@ async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
         "@@ -201,1 +201,1 @@\n201\t-old esbuild\n201\t+new esbuild\n"
     );
     assert_eq!(files[0]["fullPatchChars"], big.chars().count());
-    assert_eq!(data["pullRequests"][0]["headSha"], SHA);
+    assert_eq!(data["pullRequests"][0]["headCommitSha"], SHA);
     // Without a patch row the read carries the same slim identity header.
     let (status, none) = run_status(
         &server,
@@ -44,7 +44,7 @@ async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
     )
     .await;
     let none_row = &none["pullRequests"][0];
-    assert_eq!(none_row["headSha"], SHA, "{none}");
+    assert_eq!(none_row["headCommitSha"], SHA, "{none}");
     assert_eq!(none_row["state"], "merged", "{none}");
     assert!(none_row.get("title").is_none(), "{none}");
     assert!(none_row.get("bodyPreview").is_none(), "{none}");
@@ -226,14 +226,12 @@ async fn match_string_covers_every_file_page_in_one_call() {
         let patch = file["patch"].as_str().unwrap_or("");
         assert!(!patch.contains("\n a\n"), "context leaked: {patch}");
         assert!(
-            file.get("status").is_none() && file["stat"] == "M +1 -1",
+            file["status"] == "modified" && file["additions"] == 1 && file["deletions"] == 1,
             "{file}"
         );
     }
     assert!(
-        data["pullRequests"][0]["contentPagination"]["files"]["next"]
-            .get("nextPage")
-            .is_none(),
+        data["pullRequests"][0]["next"].get("files").is_none(),
         "{data}"
     );
 }

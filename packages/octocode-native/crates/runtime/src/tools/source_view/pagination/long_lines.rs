@@ -2,7 +2,7 @@
 //! the byte walk that shows a line's matches first, and the line page that
 //! fills up with the first bytes of the long line it stops at.
 use super::{LineBudget, Page, byte_page};
-use crate::tools::source_view::extraction::line_count;
+use crate::tools::source_view::extraction::{LineOffsets, OMISSION_LINE, line_count};
 use crate::tools::source_view::types::Pagination;
 use octocode_contract_types::ReadProgressUnit;
 
@@ -15,20 +15,63 @@ use octocode_contract_types::ReadProgressUnit;
 #[derive(Clone, Copy)]
 pub(in crate::tools::source_view) struct LongLines<'a> {
     pub(in crate::tools::source_view) match_windows: &'a [(usize, usize)],
+    /// Where the view's bytes sit in its source, for a selection of it: the
+    /// byte spans a page names are the source's.
+    pub(in crate::tools::source_view) placement: Option<&'a Placement<'a>>,
 }
 
 impl<'a> LongLines<'a> {
     /// The policy of a raw view of a source held whole (a streamed window's
     /// line may reach past the window, and a transformed view is not the
     /// source's bytes). `classified`: a classifier chose the view's chunks,
-    /// so it is not the text the extraction's match windows count in.
+    /// so it is not the text the extraction's match windows count in, nor
+    /// the selection `placement` places.
     pub(in crate::tools::source_view) fn of(
         ext: &'a crate::tools::source_view::extraction::Extraction,
         classified: bool,
+        placement: Option<&'a Placement<'a>>,
     ) -> Self {
         Self {
             match_windows: if classified { &[] } else { &ext.match_windows },
+            placement: placement.filter(|_| !classified),
         }
+    }
+}
+
+/// Where the bytes of a selection view (the lines of a match or range read,
+/// joined with omission markers) sit in the source they were selected from,
+/// so a byte page of it names source bytes as a plain read of the same file
+/// does: one file, one byte count.
+pub(in crate::tools::source_view) struct Placement<'a> {
+    view: LineOffsets,
+    /// Each view line's 1-based source line ([`OMISSION_LINE`]: a marker).
+    selected: &'a [usize],
+    source: &'a LineOffsets,
+    /// The source's size in bytes.
+    pub(in crate::tools::source_view) total: usize,
+}
+
+impl<'a> Placement<'a> {
+    pub(in crate::tools::source_view) fn new(
+        view: &str,
+        selected: &'a [usize],
+        source: &'a LineOffsets,
+        total: usize,
+    ) -> Self {
+        Self {
+            view: LineOffsets::new(view),
+            selected,
+            source,
+            total,
+        }
+    }
+
+    /// The source byte view byte `at` is; `None` inside an omission marker.
+    pub(in crate::tools::source_view) fn source_byte(&self, at: usize) -> Option<usize> {
+        let line = self.view.line_at(at);
+        let source_line = *self.selected.get(line)?;
+        (source_line != OMISSION_LINE)
+            .then(|| self.source.start(source_line - 1) + (at - self.view.start(line)))
     }
 }
 
@@ -49,6 +92,9 @@ impl<'a> LongLines<'a> {
 pub(super) struct MatchFirst {
     /// The line's bytes in the view, its line break included.
     line: std::ops::Range<usize>,
+    /// The source byte the line starts at, for a selection view: the gap
+    /// markers name source bytes, as the page's placed offset does.
+    source_start: Option<usize>,
     /// The line's match windows, near ones joined.
     windows: Vec<(usize, usize)>,
 }
@@ -62,7 +108,8 @@ impl MatchFirst {
         at: usize,
         room: usize,
     ) -> Option<Self> {
-        let all = long_lines?.match_windows;
+        let long_lines = long_lines?;
+        let all = long_lines.match_windows;
         let bytes = content.as_bytes();
         let start = memchr::memrchr(b'\n', bytes.get(..at)?).map_or(0, |at| at + 1);
         let end = memchr::memchr(b'\n', bytes.get(at..)?).map_or(bytes.len(), |end| at + end + 1);
@@ -85,8 +132,18 @@ impl MatchFirst {
         }
         Some(Self {
             line: start..end,
+            source_start: long_lines
+                .placement
+                .and_then(|placement| placement.source_byte(start)),
             windows,
         })
+    }
+
+    /// View byte `at` of the line as the bytes a page names: the source's
+    /// for a selection view, else the view's.
+    fn named(&self, at: usize) -> usize {
+        self.source_start
+            .map_or(at, |start| start + (at - self.line.start))
     }
 
     /// The first byte the walk shows: its first match window's.
@@ -147,7 +204,7 @@ impl MatchFirst {
             let mut left = room.saturating_sub(crate::response::cut::escaped_len(&text));
             let mut taken = held + 1;
             for &(from, to) in self.windows.get(taken..).unwrap_or_default() {
-                let marker = gap_marker(last, from);
+                let marker = gap_marker(self.named(last), self.named(from));
                 let window = content.get(from..to).unwrap_or_default();
                 let cost = crate::response::cut::escaped_len(&marker)
                     + crate::response::cut::escaped_len(window);
@@ -183,6 +240,7 @@ impl MatchFirst {
                 has_more: next_offset.is_some(),
                 next_offset,
                 resume_line,
+                placed: None,
             },
             view_lines: (line, line),
             out_of_range: false,
@@ -191,7 +249,8 @@ impl MatchFirst {
 }
 
 /// The marker between two match windows a byte page shows together: the
-/// view bytes `start..end` between them, which the line's later pages show.
+/// bytes `start..end` between them (the source's, for a selection view; as
+/// the page's offset names them), which the line's later pages show.
 /// It sits on a line of its own, so the windows around it stay verbatim.
 pub(super) fn gap_marker(start: usize, end: usize) -> String {
     format!("\n... [bytes {start}-{end} on later pages] ...\n")
@@ -257,6 +316,7 @@ pub(super) fn filled_page(
             has_more: true,
             next_offset: Some(end),
             resume_line: None,
+            placed: None,
         },
         view_lines: (first + 1, first + taken + 1),
         out_of_range: false,

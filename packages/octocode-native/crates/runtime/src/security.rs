@@ -12,7 +12,7 @@ pub use content::ContentSecurity;
 pub(crate) use content::tests::{key_formats, marker_lines};
 pub(crate) use content::{
     KEY_LINE_HEAD_BYTES, KeyBlockState, KeyBlockTracker, LineShapeScan, MarkerScan, hide_key_line,
-    key_fragment_placeholder, key_line_lead, match_window_intersects_key_block,
+    key_fragment_placeholder, key_line_bytes, key_line_lead, match_window_intersects_key_block,
     private_key_block_line_ranges, private_key_blocks_hidden, redact_private_key_blocks,
     snippet_may_hold_key_material,
 };
@@ -20,11 +20,26 @@ pub(crate) use input::{Admitted, CheckedQuery, InputPolicy};
 #[cfg(test)]
 pub(crate) use judged::scanned_on_this_thread;
 pub(crate) use judged::{
-    JudgedFiles, JudgedLeaf, JudgedLeaves, JudgedSource, JudgedText, WholePass,
+    JudgedFiles, JudgedLeaf, JudgedLeaves, JudgedSource, JudgedText, WholePass, searched_text,
 };
 pub use limits::SourceLimits;
 pub use output::Sanitized;
 pub(crate) use walk::sanitize_json;
+
+/// Outside text a tool message quotes (a provider's error, a language
+/// server's stderr or diagnostic, a registry's or a module's reason, a
+/// file's rule or path, a parser's message), judged where the message is
+/// built, by the net every text of no known file gets: a credential in it
+/// leaves as the placeholder a read shows, the rest as written. Every
+/// message that quotes outside text quotes it through this; the output
+/// gate's pathless pass over messages ([`walk::Messages::Authored`]) is the
+/// backstop until every site does.
+pub(crate) fn quoted(text: &str) -> std::borrow::Cow<'_, str> {
+    match ContentSecurity::new().sanitize_leaf(text, None) {
+        Some(clean) => std::borrow::Cow::Owned(clean),
+        None => std::borrow::Cow::Borrowed(text),
+    }
+}
 
 /// The one warning that returned text is not verbatim source: `values`
 /// secret-shaped values were replaced by placeholders (`0`: an unknown number,
@@ -38,6 +53,13 @@ pub(crate) fn redacted_content_warning(values: usize) -> String {
     } else {
         "redactedContent: secret-shaped text in the requested view was redacted; this content is not verbatim source.".into()
     }
+}
+
+/// Whether `warning` states that a row's own text was redacted
+/// ([`redacted_content_warning`], localSearch's `redactedMatches`): a fact of
+/// that row, with that row's count, never of the call.
+pub(crate) fn states_a_redaction(warning: &str) -> bool {
+    warning.starts_with("redacted")
 }
 
 /// Redaction placeholders in `text` (literal ones in a source count too).

@@ -52,10 +52,10 @@ Inspect every `results[]` row's index (its position in the request's `queries`),
 |---|---|
 | `responsePagination.next`, else `next.nextPage` | Run in that order until neither remains. Send `{kind:"continue",tool,input:{cursor}}`'s `input` whole to its tool. |
 | `rowPart{part,of}` | Read every part of the split row. |
-| `pagination{hasMore}` or `contentPagination.<collection>` | Continue the same loop; each file, patch, source, diagnostic or history collection can remain incomplete independently. |
+| `pagination{hasMore}` or `sectionPagination.<collection>` | Continue the same loop; each file, patch, source, diagnostic or history collection can remain incomplete independently. |
 | Other `next.<name>` | Branch, not page. Run it before claiming what it covers. |
 | Claim complete | No `hasMore:true` or `next` covering that claim, with or without a paging object. |
-| `isPartial`, `warnings`, `totalItemsCapped` | Incomplete: name the gap or narrow scope. Capped `totalItems` is the reachable count. |
+| `isPartial`, `warnings`, `countScope` other than `complete` | Incomplete: name the gap or narrow scope. `pagination.total` is then a floor; `capped` is the reachable count. |
 | `staleSnapshot` | Discard old snapshot pages; run `next.restart`. |
 
 Use literal emitted keys. Finish every continuation needed for the claim or name unread scope.

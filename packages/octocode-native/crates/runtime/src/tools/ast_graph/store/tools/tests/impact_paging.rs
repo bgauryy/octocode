@@ -25,7 +25,7 @@ fn impact_retains_every_test_function_for_shared_response_pagination() {
         .map(|index| json!(format!("src/lib.rs#tests.case{index:03}")))
         .collect::<Vec<_>>();
     assert_eq!(impact["summary"]["testFunctions"], json!(expected));
-    assert_eq!(impact["summary"]["testsToRun"], json!(["src/lib.rs"]));
+    assert_eq!(impact["summary"]["testsToRun"], json!(["app/src/lib.rs"]));
     assert_eq!(impact["rows"].as_array().expect("impact rows").len(), 1);
     assert!(impact.get("next").is_none(), "{impact}");
 }

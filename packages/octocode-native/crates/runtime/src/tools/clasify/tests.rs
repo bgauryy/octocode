@@ -8,10 +8,10 @@ fn a_sections_row_with_no_resource_read_fails_like_its_reads() {
     let resource =
         |status: &str, code: &str| json!({"status":status,"error":{"errorCode":code,"error":"x"}});
     let row = |resources: Value| json!({"operation":"sections","resources":resources});
-    let missing = resource("error", "pathNotFound");
+    let missing = resource("error", "notFound");
     assert_eq!(
         unread_resources_code(&row(json!({"a":missing,"b":missing}))),
-        Some(ErrorCode::PathNotFound)
+        Some(ErrorCode::NotFound)
     );
     assert_eq!(
         unread_resources_code(&row(
@@ -79,7 +79,7 @@ fn each_resource_is_judged_whole_and_a_failure_stays_with_it() {
     };
     let local = |path: &str| json!({"tool":"localFetch","query":{"path":path}});
     let missing = crate::tools::judgment::ClassificationError::new(
-        ErrorCode::PathNotFound,
+        ErrorCode::NotFound,
         "No file matches the glob 'gone/*.md'.",
         "Check the glob.",
     );
@@ -132,7 +132,7 @@ fn each_resource_is_judged_whole_and_a_failure_stays_with_it() {
     for key in ["one", "two"] {
         assert_eq!(resources[key]["usage"]["calls"], 1, "{out:#}");
     }
-    assert_eq!(resources["gone"]["errorCode"], "pathNotFound", "{out:#}");
+    assert_eq!(resources["gone"]["errorCode"], "notFound", "{out:#}");
     assert!(resources["gone"].get("answers").is_none(), "{out:#}");
 }
 

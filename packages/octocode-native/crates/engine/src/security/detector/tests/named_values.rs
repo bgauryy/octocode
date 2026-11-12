@@ -404,7 +404,11 @@ fn a_line_ending_escape_ends_the_value() {
         (&pieces, "src/req.js", &[&long]),
         (&lf, "src/req.py", &[TOKEN]),
         (&assigned, "src/req.py", &[TOKEN]),
-        (&escaped_slash, "src/req.js", &[&format!("{TOKEN}\\\\nZq7xK2m")]),
+        (
+            &escaped_slash,
+            "src/req.js",
+            &[&format!("{TOKEN}\\\\nZq7xK2m")],
+        ),
         (&bare, "conf/app.txt", &[&worded]),
     ]);
     // A literal that holds only the value and its line break: where the
@@ -422,8 +426,16 @@ fn hides_keeping_what_follows(content: &str, path: &str, secret: &str) {
     let after = content.split_once(secret).map_or("", |(_, after)| after);
     for path in [Some(path), None] {
         let result = detect(content, path);
-        assert!(!result.sanitized.contains(secret), "{path:?}: {:?}", result.sanitized);
-        assert!(result.sanitized.ends_with(after), "{path:?}: {:?}", result.sanitized);
+        assert!(
+            !result.sanitized.contains(secret),
+            "{path:?}: {:?}",
+            result.sanitized
+        );
+        assert!(
+            result.sanitized.ends_with(after),
+            "{path:?}: {:?}",
+            result.sanitized
+        );
     }
 }
 
@@ -443,7 +455,14 @@ fn a_sec_namespace_header_names_no_credential() {
     ]);
     assert!(!names_a_credential("Sec-WebSocket-Key"));
     assert!(!names_a_credential("sec-websocket-key"));
-    for name in ["SEC_KEY", "Sec-Key", "sec_token", "secKey", "X-Sec-Token", "Proxy-Authorization"] {
+    for name in [
+        "SEC_KEY",
+        "Sec-Key",
+        "sec_token",
+        "secKey",
+        "X-Sec-Token",
+        "Proxy-Authorization",
+    ] {
         assert!(names_a_credential(name), "{name}");
     }
     let long = format!("{TOKEN}{}", &OTHER[..16]);
@@ -454,8 +473,10 @@ fn a_sec_namespace_header_names_no_credential() {
     hides_keeping_what_follows(&bearer, "docs/issue.md", TOKEN);
     hides_keeping_what_follows(&proxy, "docs/issue.md", ENCODED);
     stays(&[
-        ("def login(password: str, token: Token) -> None:\n", "src/auth.py"),
+        (
+            "def login(password: str, token: Token) -> None:\n",
+            "src/auth.py",
+        ),
         ("let dispatchToken: string;\n", "src/store.ts"),
     ]);
 }
-

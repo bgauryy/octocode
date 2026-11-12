@@ -1,7 +1,8 @@
 //! A Kubernetes Secret in YAML: `kind: Secret` says what the `data` and `stringData`
 //! blocks of its own mapping are, on either side of it and however long the
 //! annotations between them run. Indentation says which mapping a line is in, so
-//! one pass over the lines finds them, and `data` in another mapping stays.
+//! one pass over the lines finds them, and `data` in another mapping, or in
+//! another document (after a `---`), stays.
 //!
 //! It takes the text in pieces of any size, keeping only each line's head: what a
 //! line says of its mapping is at its start. A line that outruns its head and
@@ -236,8 +237,12 @@ impl Blocks {
             self.last_end = line.body_end;
             return;
         }
-        if column == 0 && (rest == b"---" || rest.starts_with(b"--- ") || rest == b"...") {
-            self.close_deeper_than(None);
+        // A document's start or end closes every mapping of the document: at
+        // the margin, or in a text indented as a whole (a manifest quoted in
+        // a list, a request's text) at that text's own margin, so a `kind:
+        // Secret` says nothing of a ConfigMap in the document before it.
+        if rest == b"---" || rest.starts_with(b"--- ") || rest == b"..." {
+            self.close_deeper_than(column.checked_sub(1));
             return;
         }
         while rest == b"-" || rest.starts_with(b"- ") || rest.starts_with(b"-\t") {

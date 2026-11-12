@@ -27,7 +27,7 @@ fn empty_selection_preserves_provider_page_and_unfiltered_recovery() {
     let query = json!({"owner":"o","repo":"r","page":3,"keywords":["retry"],
         "classification":{"predicates":["Does it state the termination condition?"]}});
     let original = json!({"results":[{"index":0,"data":{
-        "files":[{"path":"retry.rs","lines":["UNRELATED_SENTINEL"]}],
+        "files":[{"path":"retry.rs","matches":[{"line":1,"value":"UNRELATED_SENTINEL"}]}],
         "next":{"nextPage":{"kind":"continue","tool":"ghSearchCode","input":{"queries":[{
             "owner":"o","repo":"r","page":4,"keywords":["retry"],
             "classification":{"predicates":["Does it state the termination condition?"]},
@@ -124,7 +124,7 @@ fn source_failure_keeps_selection_coverage_visible_without_returning_partial_bod
     let query = json!({"owner":"o","keywords":["retry"],
         "classification":{"predicates":["Does it describe retries?"]}});
     let mut output = json!({"results":[{"index":0,"status":"error","data":{
-        "errorCode":"providerUnavailable","files":[{"path":"a.rs","lines":["UNJUDGED_BODY"]}]
+        "errorCode":"providerUnavailable","files":[{"path":"a.rs","matches":[{"line":1,"value":"UNJUDGED_BODY"}]}]
     }}]});
     let mut response_query = query.clone();
     apply_code_rows(&mut output, query, &mut response_query, &runtime)

@@ -28,9 +28,14 @@ pub(super) fn discovery_page(
         next_state.and_then(|next| next.token.as_deref()),
     );
     let unreachable = more.then(|| page_out_of_range(&next_query)).flatten();
-    let facts = crate::response::pages::PageFacts::open(
-        saturating_usize(current),
-        Some(artifact_search_query::page_size(query)),
+    use crate::response::pages::PageFacts;
+    let shown = data["artifacts"].as_array().map_or(0, Vec::len);
+    let facts = PageFacts::open(
+        PageFacts::start_of(
+            saturating_usize(current),
+            artifact_search_query::page_size(query),
+        ),
+        shown,
         more && unreachable.is_none(),
     );
     let last = last_reachable_page(query);
@@ -38,11 +43,10 @@ pub(super) fn discovery_page(
     let reach = last
         .saturating_mul(artifact_search_query::page_size(query) as u64)
         .min(reachable_end(artifact_type).unwrap_or(u64::MAX));
-    // `totalItems` is the registry's matched total, whatever the page
-    // size; the rows paging reaches (the registry's paging range) are the
-    // warning's.
+    // `total` is the registry's matched total, whatever the page size; the
+    // rows paging reaches (the registry's paging range) are the warning's.
     let facts = match total.and_then(|total| usize::try_from(total).ok()) {
-        Some(total) => facts.with_items(total),
+        Some(total) => facts.with_total(total),
         None => facts,
     };
     data["pagination"] = facts.to_value();

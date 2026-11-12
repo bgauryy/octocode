@@ -38,13 +38,13 @@ fn a_source_added_where_the_snapshot_holds_nothing_is_stale() {
     dir.write("app/docs/n.ts", "export const n = 1;\n");
     assert_eq!(
         stale_rows(dir.0.as_path()),
-        json!([{"file": "docs/n.ts", "status": "added"}])
+        json!([{"path": "app/docs/n.ts", "status": "added"}])
     );
     let dir = proven();
     dir.write("app/new/deep/n.ts", "export const n = 1;\n");
     assert_eq!(
         stale_rows(dir.0.as_path()),
-        json!([{"file": "new/deep/n.ts", "status": "added"}])
+        json!([{"path": "app/new/deep/n.ts", "status": "added"}])
     );
 }
 
@@ -67,13 +67,13 @@ fn an_ignore_file_edit_that_keeps_its_times_is_stale() {
         .expect("restore mtime");
     assert_eq!(
         stale_rows(dir.0.as_path()),
-        json!([{"file": "gen/g.ts", "status": "added"}])
+        json!([{"path": "app/gen/g.ts", "status": "added"}])
     );
 }
 
 #[test]
 fn an_ignore_input_added_anywhere_is_stale() {
-    let excluded = json!([{"file": "src/a.ts", "status": "excluded"}]);
+    let excluded = json!([{"path": "app/src/a.ts", "status": "excluded"}]);
     let dir = proven();
     dir.write("app/src/.gitignore", "a.ts\n");
     assert_eq!(stale_rows(dir.0.as_path()), excluded);
@@ -92,7 +92,7 @@ fn a_repository_marker_gone_is_stale() {
     std::fs::remove_dir_all(dir.0.as_path().join(".git")).expect("marker");
     assert_eq!(
         stale_rows(dir.0.as_path()),
-        json!([{"file": "gen/g.ts", "status": "added"}])
+        json!([{"path": "app/gen/g.ts", "status": "added"}])
     );
 }
 
@@ -109,7 +109,7 @@ fn an_unsettled_listing_records_no_proof() {
     dir.write("app/src/z.ts", "export const z = 1;\n");
     assert_eq!(
         stale_rows(dir.0.as_path()),
-        json!([{"file": "src/z.ts", "status": "added"}])
+        json!([{"path": "app/src/z.ts", "status": "added"}])
     );
 }
 

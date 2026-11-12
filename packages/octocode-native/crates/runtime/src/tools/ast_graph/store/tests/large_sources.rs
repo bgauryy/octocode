@@ -92,7 +92,7 @@ fn dense_sources_are_graphed_whole_by_graph_build() {
     for name in ["generated_0039999", "f13999"] {
         let out = ask(dir.0.as_path(), "find", Some(name), |_| {});
         assert!(
-            out.value["pagination"]["totalItems"]
+            out.value["pagination"]["total"]
                 .as_u64()
                 .is_some_and(|found| found >= 1),
             "{name}: {}",

@@ -30,7 +30,7 @@ async fn tree_pins_its_pages_to_the_resolved_commit() {
     let out = run(&server, json!({"operation":"tree","owner":"a","repo":"b"}))
         .await
         .expect("tree");
-    assert_eq!(out.data["resolvedRef"], "main", "{}", out.data);
+    assert_eq!(out.data["ref"], "main", "{}", out.data);
     assert_eq!(out.data["commitSha"], TREE_SHA, "{}", out.data);
     assert_eq!(
         out.data["next"]["nextPage"]["input"]["queries"][0]["ref"],
@@ -71,7 +71,7 @@ async fn deep_tree_pages_carry_files_with_their_folders() {
     )
     .await
     .expect("tree");
-    let files = out.data["summary"]["files"].as_u64().unwrap_or(0);
+    let files = out.data["summary"]["fileCount"].as_u64().unwrap_or(0);
     assert!(files >= 5, "page 1 lists files: {}", out.data);
 }
 
@@ -108,8 +108,8 @@ async fn tree_reports_omitted_entries_and_next_page_drops_completed_metadata() {
     .await
     .expect("tree");
     assert!(out.data.get("omitted").is_none(), "{}", out.data);
-    assert_eq!(out.data["summary"]["files"], 3, "{}", out.data);
-    assert_eq!(out.data["summary"]["dirs"], 2, "{}", out.data);
+    assert_eq!(out.data["summary"]["fileCount"], 3, "{}", out.data);
+    assert_eq!(out.data["summary"]["dirCount"], 2, "{}", out.data);
     assert!(out.data["next"].get("nextPage").is_none(), "{}", out.data);
     assert!(out.data.get("pagination").is_none());
 }
@@ -144,7 +144,7 @@ async fn tree_fallback_walk_reads_every_directory() {
     .expect("tree");
     assert!(out.data.get("terminalLimit").is_none(), "{}", out.data);
     assert!(out.data.get("providerLimit").is_none(), "{}", out.data);
-    assert_eq!(out.data["summary"]["dirs"], 250, "{}", out.data);
+    assert_eq!(out.data["summary"]["dirCount"], 250, "{}", out.data);
     let requests = server.received_requests().await.unwrap_or_default();
     let contents = requests
         .iter()
@@ -184,7 +184,7 @@ async fn the_default_branch_is_looked_up_on_each_request() {
         let out = gh_structure::execute(&provider, &query, &context, &home)
             .await
             .expect("listing");
-        assert_eq!(out.data["resolvedRef"], "main", "{}", out.data);
+        assert_eq!(out.data["ref"], "main", "{}", out.data);
     }
 }
 

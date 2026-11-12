@@ -42,10 +42,10 @@ async fn compare_cursors_deliver_each_requested_file_and_commit_once_in_batches(
                     .flat_map(|row| {
                         let data = &row["data"];
                         assert!(row["status"] != "error", "{output}");
-                        if let Some(head) = data.get("headSha") {
+                        if let Some(head) = data.get("headCommitSha") {
                             assert_eq!(head, HEAD_SHA);
                         }
-                        if let Some(base) = data.get("baseSha") {
+                        if let Some(base) = data.get("baseCommitSha") {
                             assert_eq!(base, BASE_SHA);
                         }
                         let mut ids = super::file_paths(&data["files"])

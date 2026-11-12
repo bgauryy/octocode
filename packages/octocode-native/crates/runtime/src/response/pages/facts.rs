@@ -1,110 +1,78 @@
 use serde_json::{Map, Value, json};
 
-/// One page's facts. Every tool builds its `pagination` block from these
-/// (never a hand-written JSON block), so the key set and order are the same
-/// on every tool and every page: `page`, `totalPages` and
-/// `totalItems` when the total is known, `pageSize` when pages are cut by
-/// count, `hasMore`, and `outOfRange` on a page past the end. `totalItems`
-/// counts the paged unit only (the rows the pages split), never another
-/// count of the same result. Tool-specific facts (`countScope`, cursors the
-/// stage moves to `next`) follow on the block the caller extends.
+/// One list page's facts. Every tool builds its `pagination` block from these
+/// (never a hand-written JSON block), so the key set and order are the one
+/// pagination shape on every tool and every page: `unit`, `offset` (where the
+/// page starts in the list, from 0), `length` (the units it holds), `total`
+/// when the list's size is known, `hasMore`. A page requested past the end
+/// adds `outOfRange`, which the response stage turns into the row's
+/// `status:"outOfRange"` (`response::pages::state_out_of_range`). `total`
+/// counts the paged unit only, never another count of the same result.
+/// Tool-specific facts (`countScope`) follow on the block the caller extends.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct PageFacts {
-    page: usize,
-    page_size: Option<usize>,
-    total_items: Option<usize>,
-    total_pages: Option<usize>,
+    unit: &'static str,
+    offset: usize,
+    length: usize,
+    total: Option<usize>,
     has_more: bool,
     out_of_range: bool,
 }
 
 impl PageFacts {
-    /// A count-cut page of a known total: the page count and `hasMore`
-    /// follow from it.
-    pub(crate) fn counted(page: usize, page_size: usize, total_items: usize) -> Self {
-        let page = page.max(1);
-        let size = page_size.max(1);
+    /// A page of `length` items from `offset` of a list whose size is
+    /// unknown (a provider that does not count, or a walk that stops early).
+    pub(crate) fn open(offset: usize, length: usize, has_more: bool) -> Self {
         Self {
-            page,
-            page_size: Some(size),
-            total_items: Some(total_items),
-            total_pages: Some(crate::response::page_windows::count_pages(
-                total_items,
-                size,
-            )),
-            has_more: page.saturating_mul(size) < total_items,
-            out_of_range: false,
-        }
-    }
-
-    /// The page before the first: the section states its `total_items` and
-    /// that every page of it is still to read (`hasMore`), with none shown;
-    /// it renders `unshown: true` in place of a page number.
-    pub(crate) fn unshown(page_size: usize, total_items: usize) -> Self {
-        Self {
-            page: 0,
-            has_more: total_items > 0,
-            ..Self::counted(1, page_size, total_items)
-        }
-    }
-
-    /// A page whose total is unknown (a provider that does not count, or a
-    /// walk that stops early): only the cursor facts.
-    pub(crate) fn open(page: usize, page_size: Option<usize>, has_more: bool) -> Self {
-        Self {
-            page: page.max(1),
-            page_size,
-            total_items: None,
-            total_pages: None,
+            unit: "items",
+            offset,
+            length,
+            total: None,
             has_more,
             out_of_range: false,
         }
     }
 
-    /// A page cut by size (bytes, a response budget), not by count: the
-    /// pager states the page count and the total of the paged unit.
-    pub(crate) fn sized(
-        page: usize,
-        total_pages: usize,
-        total_items: usize,
-        has_more: bool,
-    ) -> Self {
+    /// A page of `length` items from `offset` of a list of `total`:
+    /// `hasMore` follows from it.
+    pub(crate) fn counted(offset: usize, length: usize, total: usize) -> Self {
         Self {
-            page: page.max(1),
-            page_size: None,
-            total_items: Some(total_items),
-            total_pages: Some(total_pages.max(1)),
-            has_more,
-            out_of_range: false,
+            has_more: offset.saturating_add(length) < total,
+            ..Self::open(offset, length, false).with_total(total)
         }
     }
 
-    /// The same page with a known total of the paged unit. A page without a
-    /// page count derives one from its page size; a size-cut page keeps the
-    /// count its pager stated.
-    pub(crate) fn with_total(mut self, total_items: usize) -> Self {
-        self.total_items = Some(total_items);
-        if self.total_pages.is_none()
-            && let Some(size) = self.page_size
-        {
-            self.total_pages = Some(crate::response::page_windows::count_pages(
-                total_items,
-                size,
-            ));
-        }
+    /// Count page `page` (1-based; 0 reads as the first) of `size` items each
+    /// over a list of `total`. A page past the end is empty at the end and
+    /// flagged `outOfRange`; page 1 of an empty list is the empty list itself.
+    pub(crate) fn nth(page: usize, size: usize, total: usize) -> Self {
+        let window = crate::response::page_windows::count_window(page, size, total);
+        Self::counted(window.start, window.len(), total)
+            .out_of_range(page.max(1) > crate::response::page_windows::count_pages(total, size))
+    }
+
+    /// The start of the count page `page` (1-based; 0 reads as the first) of
+    /// `size` items each, for a list whose size is unknown.
+    pub(crate) fn start_of(page: usize, size: usize) -> usize {
+        page.max(1).saturating_sub(1).saturating_mul(size.max(1))
+    }
+
+    /// A section before its first page: none of its `total` items shown,
+    /// every one still to read.
+    pub(crate) fn unshown(total: usize) -> Self {
+        Self::counted(0, 0, total)
+    }
+
+    /// The same page counting `unit` (`files`, `matches`) instead of items.
+    pub(crate) fn with_unit(mut self, unit: &'static str) -> Self {
+        self.unit = unit;
         self
     }
 
-    /// The same page with a partial count of the paged unit (items loaded
-    /// so far, a provider's capped total): no page count follows from it.
-    pub(crate) fn with_items(mut self, total_items: usize) -> Self {
-        self.total_items = Some(total_items);
-        self
-    }
-
-    /// The same size-cut page with the caller's requested page size.
-    pub(crate) fn with_page_size(mut self, page_size: usize) -> Self {
-        self.page_size = Some(page_size);
+    /// The same page with the size of its whole list, exact or a floor (the
+    /// caller's `countScope` says which).
+    pub(crate) fn with_total(mut self, total: usize) -> Self {
+        self.total = Some(total);
         self
     }
 
@@ -114,29 +82,19 @@ impl PageFacts {
         self
     }
 
-    /// `(page, totalPages)` when the page lies past the last page of a
-    /// known count; page 1 of an empty result is the empty result itself.
-    pub(crate) fn past_end(self) -> Option<(usize, usize)> {
-        let pages = self.total_pages?;
-        (self.page > pages.max(1)).then_some((self.page, pages))
+    /// Whether the page lies past the end of its list.
+    pub(crate) fn is_past_end(self) -> bool {
+        self.out_of_range
     }
 
     /// The `pagination` block.
     pub(crate) fn to_value(self) -> Value {
         let mut block = Map::new();
-        if self.page == 0 {
-            block.insert("unshown".into(), json!(true));
-        } else {
-            block.insert("page".into(), json!(self.page));
-        }
-        if let Some(pages) = self.total_pages {
-            block.insert("totalPages".into(), json!(pages));
-        }
-        if let Some(size) = self.page_size {
-            block.insert("pageSize".into(), json!(size));
-        }
-        if let Some(total) = self.total_items {
-            block.insert("totalItems".into(), json!(total));
+        block.insert("unit".into(), json!(self.unit));
+        block.insert("offset".into(), json!(self.offset));
+        block.insert("length".into(), json!(self.length));
+        if let Some(total) = self.total {
+            block.insert("total".into(), json!(total));
         }
         block.insert("hasMore".into(), json!(self.has_more));
         if self.out_of_range {
@@ -147,7 +105,7 @@ impl PageFacts {
 }
 
 /// One content window's facts, beside [`PageFacts`] for count pages: every
-/// window block (a read's `pagination`, a body's `contentPagination` entry,
+/// window block (a read's `pagination`, a body's `sectionPagination` entry,
 /// a patch's `patchPagination`) is built from these, so the keys and their
 /// order are one shape: `unit` (`lines`, `bytes` or `chars`), `offset`,
 /// `length`, `total`, `hasMore`, `nextOffset` while more is left (the shaping
@@ -240,17 +198,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn known_and_open_pages_share_the_canonical_page_coordinate() {
-        for (facts, expected_more) in [
-            (PageFacts::counted(2, 10, 25), true),
-            (PageFacts::open(2, None, false), false),
-        ] {
-            let output = facts.to_value();
-            assert_eq!(output["page"], 2);
-            assert_eq!(output["hasMore"], expected_more);
-            assert!(output.get("currentPage").is_none());
-        }
+    fn list_pages_state_offset_length_and_total() {
+        assert_eq!(
+            PageFacts::nth(2, 10, 25).to_value(),
+            json!({"unit":"items","offset":10,"length":10,"total":25,"hasMore":true})
+        );
+        assert_eq!(
+            PageFacts::nth(3, 10, 25).with_unit("files").to_value(),
+            json!({"unit":"files","offset":20,"length":5,"total":25,"hasMore":false})
+        );
+        assert_eq!(
+            PageFacts::open(10, 10, false).to_value(),
+            json!({"unit":"items","offset":10,"length":10,"hasMore":false})
+        );
+        assert_eq!(
+            PageFacts::unshown(4).to_value(),
+            json!({"unit":"items","offset":0,"length":0,"total":4,"hasMore":true})
+        );
     }
+
+    #[test]
+    fn a_count_page_past_the_end_is_empty_at_the_end_and_flagged() {
+        let past = PageFacts::nth(4, 10, 25);
+        assert!(past.is_past_end());
+        assert_eq!(past.to_value()["offset"], 25);
+        assert_eq!(past.to_value()["length"], 0);
+        assert!(!PageFacts::nth(1, 10, 0).is_past_end(), "page 1 of nothing");
+    }
+
     #[test]
     fn source_spans_preserve_coordinates_and_stop_at_the_end() {
         let first = SpanFacts::window("lines", 0, 10, 25);

@@ -42,6 +42,7 @@ pub(super) fn past_end_row(
             has_more: false,
             next_offset: None,
             resume_line: None,
+            placed: None,
         }),
         out_of_range: true,
         next: Some(next),
@@ -61,10 +62,18 @@ pub(super) fn map_to_file(result: &mut LocalFetchResult, streamed: &Streamed) {
     let total = streamed.total_lines;
     result.total_lines = Some(total);
     result.source_sha256 = Some(streamed.digest.clone());
-    if streamed.key_lines > 0 {
+    // The note stands on the page that shows the key lines' placeholders,
+    // counting those it shows: a page of the window's other lines shows none.
+    let placeholder = crate::security::key_fragment_placeholder();
+    let shown = result.content.as_deref().map_or(0, |content| {
+        content
+            .lines()
+            .filter(|line| line.contains(&placeholder))
+            .count()
+    });
+    if streamed.key_lines > 0 && shown > 0 {
         result.warnings.push(format!(
-            "redactedContent: {} line(s) inside private-key blocks were replaced; this content is not verbatim source.",
-            streamed.key_lines
+            "redactedContent: {shown} line(s) inside private-key blocks were replaced; this content is not verbatim source."
         ));
     }
 }

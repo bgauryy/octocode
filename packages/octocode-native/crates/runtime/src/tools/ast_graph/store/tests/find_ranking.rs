@@ -123,12 +123,12 @@ fn find_single_word_keeps_its_population_and_ranks_exact_names_by_callers() {
         .iter()
         .filter(|row| {
             let id = row["id"].as_str().unwrap_or_default().to_lowercase();
-            let name = row["name"].as_str().unwrap_or(&id).to_lowercase();
+            let name = row["symbolName"].as_str().unwrap_or(&id).to_lowercase();
             name.contains("read") || id.contains("read")
         })
         .count();
     assert_eq!(
-        out.value["pagination"]["totalItems"], containing,
+        out.value["pagination"]["total"], containing,
         "{}",
         out.value
     );
@@ -169,7 +169,7 @@ fn every_listed_detector_runs_when_selected_alone() {
         o.min_tier = Some(0);
     });
     assert!(
-        findings(&alone, "export-only-local").contains(&"src/local.ts".to_owned()),
+        findings(&alone, "export-only-local").contains(&"app/src/local.ts".to_owned()),
         "{}",
         alone.value
     );

@@ -12,7 +12,7 @@ mod stream;
 
 pub(super) use matching::matching_hunks;
 
-/// File text at the pull request's head (`headSha`): a `matchString` view
+/// File text at the pull request's head (`headCommitSha`): a `matchString` view
 /// widens its hit runs past GitHub's diff context from it. A path maps to
 /// `None` when its read failed; its clipped runs are then flagged.
 #[derive(Debug, Default)]

@@ -13,7 +13,7 @@ fn snapshots_bind_corpus_and_response_budget_and_offer_fresh_restart() {
         assert!(next.is_object(), "{first}");
         next["path"] = json!("sub");
         let second = run_budget(&root.0, next.clone(), 1).expect("same snapshot");
-        assert_eq!(second["pagination"]["page"], 2, "{second}");
+        assert_eq!(second["pagination"]["offset"], 1, "{second}");
         assert!(second.get("errorCode").is_none(), "{second}");
         let resized = run_budget(&root.0, next.clone(), 5000).expect("different cut");
         assert_eq!(resized["errorCode"], "staleSnapshot", "{resized}");
@@ -25,7 +25,7 @@ fn snapshots_bind_corpus_and_response_budget_and_offer_fresh_restart() {
             assert!(restart.get(field).is_none(), "{field}: {restart}");
         }
         let fresh = run(&root.0, restart.clone()).expect("restart");
-        assert_eq!(fresh["pagination"]["totalItems"], 8, "{fresh}");
+        assert_eq!(fresh["pagination"]["total"], 8, "{fresh}");
     }
 }
 
@@ -61,7 +61,7 @@ fn tree_and_files_summaries_count_symlinks_alike() {
         out["summary"].clone()
     };
     let tree = summary("tree");
-    assert_eq!(tree["files"], 2, "{tree}");
+    assert_eq!(tree["fileCount"], 2, "{tree}");
     // A link's own length is no file content: bytes count regular files.
     assert_eq!(tree["bytes"], 0, "{tree}");
     assert_eq!(tree, summary("files"));
@@ -85,7 +85,7 @@ fn summaries_total_the_listing_not_the_whole_walk() {
         .expect("listing");
         assert_eq!(
             out["summary"],
-            json!({"files": 2, "dirs": 0, "bytes": 4}),
+            json!({"fileCount": 2, "dirCount": 0, "bytes": 4}),
             "{operation}: {out}"
         );
     }

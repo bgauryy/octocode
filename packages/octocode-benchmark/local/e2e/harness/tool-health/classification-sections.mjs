@@ -86,8 +86,8 @@ export async function unreadSectionsChecks(ctx, surface, provider) {
     const rows = response.json?.results ?? [];
     const failed = rows.find(row => row.index === index);
     const success = rows.filter(row => row.index !== index);
-    const shape = failed?.status === 'error' && failed.data.errorCode === 'pathNotFound'
-      && typeof failed.data.error === 'string' && failed.data.resources.missing.error.errorCode === 'pathNotFound';
+    const shape = failed?.status === 'error' && failed.data.errorCode === 'notFound'
+      && typeof failed.data.error === 'string' && failed.data.resources.missing.error.errorCode === 'notFound';
     const status = surface === 'cli' ? response.status === 3 : response.isError === (queries.length === 1);
     checks.push([`sections.unreadBatch.${queries.length}.${index}`, shape && status && rows.length === queries.length
       && success.every(row => row.data.models?.length > 0) && provider.sent.length === before, response.json]);

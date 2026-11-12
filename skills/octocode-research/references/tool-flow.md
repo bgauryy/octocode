@@ -17,7 +17,7 @@ Load for tool selection, scouting or cross-source research. Live schemas own fie
 | Known PR, issue, commit or two refs | `ghGetHistoryItem`; page files, patches and discussion independently |
 | Package source or version | `artifactSearch` → verified repository/ref → source |
 | Known vulnerabilities | `securityCheck` at the version in use; an empty result is not proof of safety |
-| Many searches or AST analysis in another repo | `ghStructure` materialize → returned `localPath` → local tools |
+| Many searches or AST analysis in another repo | `ghStructure` materialize → returned `location.path` → local tools |
 | Unread evidence requiring judgment by meaning | `classification` or `clasify` → exact read |
 
 Prefer the local checkout for code and GitHub for discussion. Trace `entry → transformations → state → output → consumers`; change tools when the next claim needs different evidence. Batch independent queries, wait for dependent results, and reuse observed paths, lines and refs.
@@ -36,7 +36,7 @@ Prefer the local checkout for code and GitHub for discussion. Trace `entry → t
 | Inferred type | `lspSearch hover`; definition alone only locates source |
 | One change | History `sections` + `include`, then matching patch lines |
 | Read comment-heavy code | `view:compact`; quote or edit from `view:content` |
-| Minified text | `localSearch view:matchOnly` with a regex window around the term |
+| Minified text | plain `localSearch` content: a hit in a line over 4 KB comes as a window with its `column`; read the whole line with the emitted localFetch |
 
 Views select evidence: files have no bodies, symbols no implementations, compact no exact quotes. Widen only when the claim needs more; smaller pages never replace completing the selected evidence.
 
@@ -44,7 +44,7 @@ Views select evidence: files have no bodies, symbols no implementations, compact
 - Markdown sections end before the next heading of equal or higher level. Outlines recognize `#` headings; read underline-style headings as content.
 - On parser limits inspect `viewFallback` or `fileTooLarge`; use exact search rather than treating a missing outline as absence.
 - `localSearch` owners use `enclosing` indexes into `declarations`; LSP locations group under `files[].path`. Read the returned span before citing it.
-- `workspaceSymbol` takes `symbolQuery`, not `symbolName`; confirm fuzzy candidates at a source anchor.
+- `workspaceSymbol` takes `symbolFuzzy`, not `symbolName`; confirm fuzzy candidates at a source anchor.
 
 ## Scout: judge what you have not read
 
@@ -75,7 +75,7 @@ Use exact tools for literal facts, counts, identity and absence. Narrow by path,
 | Lockfile or installed `package.json` | `ecosystem`, `packageName`, `version` | `securityCheck` package | `affected`, `upgradeTo`, `cves` at that version |
 | Resolved `ref` | `ref` | `ghStructure`, then `ghGetFileContent` | Source of that exact release |
 | Two resolved versions | `baseRef`, `headRef` | `ghGetHistoryItem` compare | What changed between releases |
-| Commit SHA + paths | `ref`, `include`, `materialize:true` | `ghStructure` | `localPath` for local tools |
+| Commit SHA + paths | `ref`, `include`, `materialize:true` | `ghStructure` | `location.path` for local tools |
 | Local path + git remote | `owner`, `repo`, `path` | `ghSearchHistory` commit | Commits that touched it, then their PRs |
 | A line in local code | `<start>,<end>:<path>`; else `path` | `git log -L` when a shell is available; else `ghSearchHistory` commit, then `ghGetHistoryItem` patches with `include` | The commit, then its PR |
 | History `files` row | path + commit as `ref` | `ghGetFileContent` | The code at that revision |
@@ -109,7 +109,7 @@ Build the smallest directory containing both sides of the relationship, and keep
 
 `find` discovers nodes, `candidates` resolves ambiguous references to an exact ID, `witnesses` lists every occurrence behind a relationship, `unresolved` lists missing links with reasons. A `passes` edge is a direct reference in an argument slot, not invocation, scheduling or value propagation. Dynamic imports, feature gates, generated inputs and frameworks can constrain reachability. Test declarations suggest relevance; only test execution establishes a result.
 
-Run `responsePagination.next`, else `next.nextPage`, until neither remains, then the other `next.*` a claim needs, before an exhaustive claim; size the population from `pagination.totalItems`, not one page. A terminal scan or model limit is not overcome by more pages. A query verifies only the snapshot blocks it reads: for coverage read `scan`, `linkage` and `argumentCoverage` from `stats` and `coverage` on call queries; for currency read `freshness` and the `stale` operation. `extraction.resumedFiles` counts recovered extraction after an interrupted build, and `refresh` ignores checkpoints.
+Run `responsePagination.next`, else `next.nextPage`, until neither remains, then the other `next.*` a claim needs, before an exhaustive claim; size the population from `pagination.total`, not one page. A terminal scan or model limit is not overcome by more pages. A query verifies only the snapshot blocks it reads: for coverage read `scan`, `linkage` and `argumentCoverage` from `stats` and `coverage` on call queries; for currency read `freshness` and the `stale` operation. `extraction.resumedFiles` counts recovered extraction after an interrupted build, and `refresh` ignores checkpoints.
 
 ## History
 

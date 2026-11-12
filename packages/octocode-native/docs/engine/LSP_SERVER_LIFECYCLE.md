@@ -4,11 +4,11 @@ How the engine finds, starts, pools, and bounds language servers. The public que
 
 ## Semantic boundary
 
-Tree-sitter and Oxc answer syntactic questions from embedded parsers. LSP operations launch a real language server over stdio to resolve cross-file identity, definitions, references, types, implementations, and call relationships. These evidence classes are not interchangeable.
+For semantic navigation, `lspSearch` first tries the editor's language providers through the IDE bridge when available, then a language server. A server result covers only the project and capabilities that the server indexed. A running server missing a requested capability can return `capabilityUnavailable`.
 
-When an operation requires an unavailable server, `lspSearch` returns an error row with `errorCode:"serverUnavailable"` and valid recovery calls. It never labels same-file or syntactic guesses as semantic results. A running server that lacks the requested capability returns `capabilityUnavailable`. A supported server returning no rows establishes only an empty result within that server's indexed scope and configuration.
+When a server cannot be found or started, a supported file and anchor can yield syntax candidates from Tree-sitter and a text scan. These rows report `lsp.level: "syntax"` and partial coverage. Without a usable syntax answer, the error row offers text-search or read leads. A policy refusal ends the request. Check the evidence level before using results to establish symbol identity. [Result levels and examples](../../../../docs/OCTOCODE_TOOLS.md#lspsearch)
 
-`documentSymbols` also requires a server with the corresponding negotiated LSP capability. Use `localFetch view:"symbols"` for native syntax outlines and Markdown headings without a server. Markdown has no built-in LSP route; add a custom server entry to use it through `lspSearch`.
+Use `localFetch` with `view:"symbols"` for syntax outlines and Markdown headings. Markdown needs a custom route for language-server navigation.
 
 Public positions, input and output, are one-based, and servers communicate in UTF-16. A server selecting an unsupported encoding fails startup.
 

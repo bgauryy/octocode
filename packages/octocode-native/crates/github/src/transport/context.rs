@@ -185,6 +185,19 @@ impl RequestContext {
         lock(&self.renamed).push((old, new, false));
     }
 
+    /// The URLs `url` was sent to along the rename routes this request took
+    /// or GitHub stated for its repository.
+    pub(super) fn routed_urls(&self, url: &Url) -> Vec<Url> {
+        let Some((prefix, _)) = super::route::repository_prefix(url) else {
+            return Vec::new();
+        };
+        lock(&self.renamed)
+            .iter()
+            .filter(|(old, _, _)| *old == prefix)
+            .filter_map(|(_, new, _)| super::route::routed(url, new))
+            .collect()
+    }
+
     /// Whether GitHub redirected the repository `old` names in this very
     /// request: a route it stated now, not one reused.
     pub(super) fn minted_route(&self, old: &Url) -> bool {

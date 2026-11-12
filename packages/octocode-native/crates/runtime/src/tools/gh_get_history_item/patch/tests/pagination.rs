@@ -70,18 +70,18 @@ fn patch_pagination_counts_unfinished_files_and_continues_the_same_page() {
         "sections":["patches"],"page":2
     }))
     .expect("query");
-    let mut out = json!({"pullRequests":[{"contentPagination":{
+    let mut out = json!({"pullRequests":[{"sectionPagination":{
         "patches": pagination["patches"].clone()
     }}]});
     promote_pr_continuations(&mut out, &request);
-    let next = &out["pullRequests"][0]["contentPagination"]["patches"]["next"]["nextPage"]["input"]
+    let next = &out["pullRequests"][0]["sectionPagination"]["patches"]["next"]["nextPage"]["input"]
         ["queries"][0];
     assert_eq!(next["sections"], json!(["patches"]), "{out}");
     assert!(next.get("include").is_none(), "{next}");
     assert_eq!(next["page"], 2, "{next}");
     assert_eq!(next["offset"], 2);
     assert_eq!(
-        out["pullRequests"][0]["contentPagination"]["patches"]["next"]
+        out["pullRequests"][0]["sectionPagination"]["patches"]["next"]
             .as_object()
             .map(serde_json::Map::len),
         Some(1),
@@ -218,10 +218,14 @@ fn a_later_patch_page_names_its_file_by_path_only() {
                 "author":"a","createdAt":"2026-11-07T10:00:00Z","files":[row]}]}),
         );
         if row["patchPagination"]["offset"] == 0 {
-            assert_eq!(row["stat"], "R +20 -0", "{row}");
+            assert_eq!(
+                (&row["status"], &row["additions"], &row["deletions"]),
+                (&json!("renamed"), &json!(20), &json!(0)),
+                "{row}"
+            );
             assert_eq!(row["previousPath"], "old.rs", "{row}");
         } else {
-            assert!(row.get("stat").is_none(), "page {pages}: {row}");
+            assert!(row.get("status").is_none(), "page {pages}: {row}");
             assert!(row.get("previousPath").is_none(), "page {pages}: {row}");
         }
         pages += 1;

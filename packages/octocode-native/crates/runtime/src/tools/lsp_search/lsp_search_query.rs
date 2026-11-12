@@ -90,9 +90,9 @@ pub(crate) fn workspace_root(q: &Q) -> Option<&str> {
 pub(crate) fn symbol_name(q: &Q) -> Option<&str> {
     anchored_shape!(q, symbol_name => Some(symbol_name.as_str()), else => None)
 }
-pub(crate) fn symbol_query(q: &Q) -> Option<&str> {
+pub(crate) fn symbol_fuzzy(q: &Q) -> Option<&str> {
     variant_field!(q, newtype [Q::LspWorkspacePath => LspWorkspacePath, Q::LspWorkspaceRoot => LspWorkspaceRoot]
-        symbol_query => Some(symbol_query.as_str()), else => None)
+        symbol_fuzzy => Some(symbol_fuzzy.as_str()), else => None)
 }
 pub(crate) fn anchor_line(q: &Q) -> Option<u32> {
     anchored_shape!(q, line => Some(saturating_u32(line.get())), else => None)
@@ -200,7 +200,7 @@ pub(crate) fn workspace_symbol_lead(term: &str, path: &str, workspace: Option<&Q
         reasoning: None,
         rust_context: workspace.and_then(rust_context).cloned(),
         snapshot: None,
-        symbol_query: term.try_into().ok()?,
+        symbol_fuzzy: term.try_into().ok()?,
         workspace_root: workspace
             .and_then(workspace_root)
             .map(TryInto::try_into)

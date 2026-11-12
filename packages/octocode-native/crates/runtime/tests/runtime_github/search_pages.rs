@@ -265,7 +265,7 @@ async fn walks_of_every_limit_equal_the_unbudgeted_answer() {
                 .expect("first page")
                 .structured_content
                 .into_value();
-            let total = first["results"][0]["data"]["pagination"]["totalItems"].clone();
+            let total = first["results"][0]["data"]["pagination"]["total"].clone();
             assert_eq!(total, json!(RESULTS), "{tool} at {limit}: {first}");
             let walked =
                 support::walk(&runtime, tool, start, |output| data_rows(output, field, id)).await;
@@ -379,7 +379,7 @@ async fn a_tiny_window_walk_states_the_complete_coverage_on_page_one_only() {
     let mut later = 0;
     for page in &pages {
         let data = &page["results"][0]["data"];
-        if data["pagination"]["page"].as_u64().is_some_and(|n| n > 1) {
+        if data["pagination"]["offset"].as_u64().is_some_and(|n| n > 0) {
             later += 1;
             assert!(data.get("coverage").is_none(), "later page: {page}");
         }

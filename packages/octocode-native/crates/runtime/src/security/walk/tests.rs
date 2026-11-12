@@ -18,7 +18,7 @@ fn redacts_content_and_query_and_location_but_preserves_tool() {
                 "why": "because secret"
             }
         },
-        "location": {"localPath": "/tmp/secret/repo"}
+        "location": {"path": "/tmp/secret/repo"}
     });
     sanitize_json(&mut value, &mut mask).expect("sanitize");
     assert_eq!(value["title"], "[MASKED]");
@@ -28,7 +28,7 @@ fn redacts_content_and_query_and_location_but_preserves_tool() {
     // …but query, why, and location string leaves are now scanned.
     assert_eq!(value["next"]["nextPage"]["query"]["path"], "[MASKED].rs");
     assert_eq!(value["next"]["nextPage"]["why"], "because [MASKED]");
-    assert_eq!(value["location"]["localPath"], "/tmp/[MASKED]/repo");
+    assert_eq!(value["location"]["path"], "/tmp/[MASKED]/repo");
 }
 
 #[test]
@@ -111,11 +111,11 @@ fn redacted_value_is_redacted_wherever_it_recurs() {
 fn non_secret_leaves_pass_through_unchanged() {
     let mut value = json!({
         "next": {"nextPage": {"tool": "localFetch", "query": {"path": "src/a.rs"}}},
-        "location": {"localPath": "/tmp/clean/repo"}
+        "location": {"path": "/tmp/clean/repo"}
     });
     sanitize_json(&mut value, &mut mask).expect("sanitize");
     assert_eq!(value["next"]["nextPage"]["query"]["path"], "src/a.rs");
-    assert_eq!(value["location"]["localPath"], "/tmp/clean/repo");
+    assert_eq!(value["location"]["path"], "/tmp/clean/repo");
 }
 
 /// A leaf is sanitized knowing the `path` of its nearest enclosing object;

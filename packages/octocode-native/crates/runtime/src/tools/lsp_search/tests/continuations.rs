@@ -63,14 +63,14 @@ fn every_operation_retains_its_canonical_controls_and_saved_progress() {
     for row in [
         json!({"operation":"documentSymbols","path":"a.ts"}),
         json!({"operation":"diagnostic","path":"a.ts"}),
-        json!({"operation":"workspaceSymbol","path":"src","symbolQuery":"run"}),
-        json!({"operation":"workspaceSymbol","workspaceRoot":".","symbolQuery":"run"}),
+        json!({"operation":"workspaceSymbol","path":"src","symbolFuzzy":"run"}),
+        json!({"operation":"workspaceSymbol","workspaceRoot":".","symbolFuzzy":"run"}),
     ] {
         let parsed =
             query(crate::contracts::validate_query("lspSearch", row.clone()).expect("operation"));
         assert_eq!(lsp_search_query::operation(&parsed), row["operation"]);
         if row["operation"] == "workspaceSymbol" {
-            assert_eq!(lsp_search_query::symbol_query(&parsed), Some("run"));
+            assert_eq!(lsp_search_query::symbol_fuzzy(&parsed), Some("run"));
             assert_eq!(lsp_search_query::symbol_name(&parsed), None);
         }
     }
@@ -104,7 +104,7 @@ async fn reference_pages_reach_every_location_once_and_preserve_the_saved_reques
     let uri = octocode_engine::lsp::uri::path_to_uri(&file.to_string_lossy()).expect("uri");
     let found = (0..90).map(|line| json!({"uri":uri,"content":"const run = 1; // 普通😀","range":{"start":{"line":line,"character":6},"end":{"line":line,"character":9}}})).collect::<Vec<_>>();
     let initial = query(crate::contracts::validate_query("lspSearch", json!({"operation":"references","path":file,"symbolName":"run","line":1,"occurrence":0,"includeDeclaration":false,"contextLines":{"before":0,"after":0}})).expect("first query"));
-    for budget in [700, 2500, 16000] {
+    for budget in [700, 2500, 4000] {
         let mut current = initial.clone();
         let mut lines = Vec::new();
         let mut pages = 0;
@@ -120,11 +120,11 @@ async fn reference_pages_reach_every_location_once_and_preserve_the_saved_reques
             )
             .await;
             pages += 1;
-            lines.extend(location_rows(&row).iter().map(|item| {
-                item["displayRange"]["startLine"]
-                    .as_u64()
-                    .expect("source line")
-            }));
+            lines.extend(
+                location_rows(&row)
+                    .iter()
+                    .map(|item| item["line"].as_u64().expect("source line")),
+            );
             crate::tools::test_support::assert_row_contract(ToolId::LspSearch, &row);
             let Some(call) = row.pointer("/next/nextPage") else {
                 break;

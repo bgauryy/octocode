@@ -116,11 +116,9 @@ impl Facts<'_> {
     }
 }
 
+/// `count` known advisories, in the right number.
 fn counted(count: usize) -> String {
-    match count {
-        1 => "1 known advisory".to_owned(),
-        count => format!("{count} known advisories"),
-    }
+    octocode_engine::text::counted(count, "known advisory", "known advisories")
 }
 
 /// A name, id or version as the sentence states it: no character a source could

@@ -40,7 +40,7 @@ fn nested_clasify_fragments_validate_and_preserve_every_answer_and_its_context()
         resources.insert(resource.into(), json!({"status":"ready",
             "source":{"tool":"localFetch","query":{"path":format!("{resource}.ts"),
                 "ranges":[{"startLine":1,"endLine":2},{"startLine":4,"endLine":5}]}},
-            "snapshot":format!("fixed-{resource}"),
+            "sourceDigest":format!("fixed-{resource}"),
             "read":{"kind":"continue","tool":"localFetch","input":{"cursor":"cursor1.pinned-source"}},
             "sections":sections,"coverage":{"totalSections":3,"answered":21}}));
     }
@@ -72,7 +72,7 @@ fn nested_clasify_fragments_validate_and_preserve_every_answer_and_its_context()
             }
             for (key, resource) in data["resources"].as_object().expect("resources") {
                 let expected_resource = &original["resources"][key];
-                for field in ["source", "snapshot", "read", "coverage"] {
+                for field in ["source", "sourceDigest", "read", "coverage"] {
                     assert_eq!(resource[field], expected_resource[field], "{key}/{field}");
                 }
                 for section in resource["sections"].as_array().expect("sections") {

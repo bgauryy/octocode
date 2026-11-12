@@ -38,7 +38,7 @@ impl DomainDispatcher {
                     // A cancelled/expired request is a runtime outcome,
                     // not a provider failure.
                     context.check()?;
-                    let missing = failure.code == ErrorCode::PathNotFound;
+                    let missing = failure.code == ErrorCode::NotFound;
                     // No tip here: the response stage states the code's tip
                     // for lspSearch (`ToolOutput::error_hint`).
                     let mut row = DomainResult::provider(

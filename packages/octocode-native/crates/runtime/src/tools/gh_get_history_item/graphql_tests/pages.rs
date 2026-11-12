@@ -29,7 +29,7 @@ async fn a_first_page_of_two_collections_is_one_graphql_read() {
         Some(&json!("Looks good.")),
         "{pr}"
     );
-    assert_eq!(pr.pointer("/headSha"), Some(&json!(HEAD)), "{pr}");
+    assert_eq!(pr.pointer("/headCommitSha"), Some(&json!(HEAD)), "{pr}");
     let rest = server
         .received_requests()
         .await
@@ -215,9 +215,8 @@ async fn a_graphql_first_page_is_served_though_more_remain() {
     assert_eq!(shown.len(), 40, "{}", out.data);
     assert_eq!(shown[0]["body"], "comment 0", "{}", out.data);
     assert_eq!(
-        out.data.pointer(
-            "/pullRequests/0/contentPagination/comments/next/nextPage/input/queries/0/page"
-        ),
+        out.data
+            .pointer("/pullRequests/0/next/comments/input/queries/0/page"),
         Some(&json!(2)),
         "{}",
         out.data

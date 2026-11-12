@@ -180,7 +180,7 @@ fn stale_detects_edits_and_prune_keeps_the_newest_snapshots() {
     let stale = ask(dir.0.as_path(), "stale", None, |_| {});
     assert_eq!(
         stale.value["rows"],
-        json!([{"file": "src/a.ts", "status": "changed"}])
+        json!([{"path": "app/src/a.ts", "status": "changed"}])
     );
 
     for _ in 0..2 {

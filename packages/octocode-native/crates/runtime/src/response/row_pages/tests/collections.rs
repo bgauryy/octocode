@@ -22,7 +22,7 @@ fn declared_nested_collections_preserve_atomic_answers_and_shared_definitions() 
             }).collect::<Vec<_>>();
         resources.insert(
             resource.into(),
-            json!({"status":"ready","snapshot":"fixed","sections":sections}),
+            json!({"status":"ready","sourceDigest":"fixed","sections":sections}),
         );
     }
     let row = json!({"id":"research","operation":"sections","resources":resources,

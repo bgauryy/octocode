@@ -204,7 +204,10 @@ impl<'a> Reads<'a> {
                     whole_end: key.start + raw.whole.end,
                     // One read shared by the span's keys: no one key judges
                     // a part of it.
-                    end: key.start + self.judge.value_end(window, key.start, &raw.secret, |_| false),
+                    end: key.start
+                        + self
+                            .judge
+                            .value_end(window, key.start, &raw.secret, |_| false),
                     kept,
                     keys: SpanKeys::new(&text[key.start..secret.start]),
                     secret,

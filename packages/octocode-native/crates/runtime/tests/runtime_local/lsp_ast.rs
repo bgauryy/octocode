@@ -94,7 +94,7 @@ process.stdin.on('data', chunk => {
                     assert_eq!(file["path"], "src/lib.ts");
                     file["matches"].as_array().expect("locations")
                 })
-                .map(|location| format!("{}", location["displayRange"]["startLine"]))
+                .map(|location| format!("{}", location["line"]))
                 .collect()
         },
     )
@@ -351,7 +351,7 @@ async fn workspace_root_symbol_queries_infer_the_server_from_project_markers() {
         json!({
             "operation": "workspaceSymbol",
             "workspaceRoot": workspace.workspace,
-            "symbolQuery": "main"
+            "symbolFuzzy": "main"
         }),
     )
     .await

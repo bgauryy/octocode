@@ -281,7 +281,7 @@ async fn error_codes_are_declared_camel_case_names() {
         octocode_contract_types::ErrorCode::InvalidInput
     );
     let missing = support::run(&runtime, "localFetch", json!({"path":"pkg/none.rs"})).await;
-    assert_eq!(missing.data()["errorCode"], "pathNotFound");
+    assert_eq!(missing.data()["errorCode"], "notFound");
     {
         let code = support::row_data(&missing)["errorCode"]
             .as_str()

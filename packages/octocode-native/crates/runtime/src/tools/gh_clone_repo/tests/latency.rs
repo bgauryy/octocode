@@ -224,7 +224,7 @@ fn a_fresh_checkout_spends_no_separate_config_calls() {
         !seen.iter().any(|call| call.contains("configure sparse")),
         "{seen:?}"
     );
-    let dir = Path::new(&result.location.local_path);
+    let dir = Path::new(&result.location.path);
     assert_eq!(
         git_output(dir, &["config", "--get", "remote.origin.promisor"]).trim(),
         "true"

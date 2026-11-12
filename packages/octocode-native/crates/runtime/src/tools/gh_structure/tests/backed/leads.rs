@@ -52,9 +52,7 @@ async fn materialize_skips_binary_files_with_a_warning() {
     )
     .await
     .expect("materialize continues past binary files");
-    let local = out.data["location"]["localPath"]
-        .as_str()
-        .expect("location");
+    let local = out.data["location"]["path"].as_str().expect("location");
     assert!(std::path::Path::new(local).join("ok.rs").exists());
     // `location.skipped` names the file; a skipped binary is not a gap in
     // what local text tools can read, so the checkout is complete.
@@ -124,7 +122,7 @@ async fn one_materialize_writes_the_whole_selection_and_reports_complete() {
         "{}",
         out.data
     );
-    let local = std::path::Path::new(out.data["location"]["localPath"].as_str().expect("path"));
+    let local = std::path::Path::new(out.data["location"]["path"].as_str().expect("path"));
     for n in 0..70 {
         assert!(local.join(format!("deep/er/f{n}.rs")).exists(), "f{n}");
     }
@@ -223,10 +221,7 @@ async fn a_materialize_out_of_time_resumes_without_gaps_or_a_second_tree() {
             .await
             .expect("page")
             .expect("entries left");
-        let local = outcome.location["localPath"]
-            .as_str()
-            .expect("path")
-            .to_owned();
+        let local = outcome.location["path"].as_str().expect("path").to_owned();
         match outcome.next_offset {
             Some(next) => {
                 assert!(next > offset, "{next} after {offset}: the walk progresses");
@@ -344,7 +339,7 @@ async fn materialize_leads_into_the_local_copy_of_the_listed_directory() {
         )
         .await
         .expect("materialize");
-    let local = out.data["location"]["localPath"]
+    let local = out.data["location"]["path"]
         .as_str()
         .expect("location")
         .to_owned();

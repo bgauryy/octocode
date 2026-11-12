@@ -1,15 +1,16 @@
 //! The server: `octocode serve --socket <path>` accepts connections,
 //! keeps a runtime per directory and environment, and answers each call.
 
+mod drain;
 mod request;
 
 use super::identity::{call_identity, env_digest};
 use super::same_dir_form;
 pub(super) use super::served::Served;
 use super::sockets::remove_stale_sockets;
-pub(super) use request::handle;
 #[cfg(test)]
-pub(super) use request::unless_left;
+pub(super) use request::attended;
+pub(super) use request::handle;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -104,7 +105,12 @@ pub(super) struct Daemon {
     pub(super) build: Build,
     /// A [`STOP`](super::sockets::STOP) request arrived.
     pub(super) stop: tokio::sync::Notify,
-    stopped: std::cell::RefCell<Vec<tokio::net::unix::OwnedWriteHalf>>,
+    /// Clients waiting for this server to stop ([`Daemon::wait_for_stop`]).
+    stopped: drain::Waiters,
+    /// When a call's or a waiting client's connection says it is alive.
+    pub(super) pace: super::frames::Pace,
+    /// The server stopped taking calls ([`serve_on`] left its accept loop).
+    leaving: tokio::sync::watch::Sender<bool>,
 }
 
 impl Daemon {
@@ -113,18 +119,6 @@ impl Daemon {
             socket,
             octocode_native::runtime::ToolRuntime::from_host_with_lsp_pool,
         )
-    }
-
-    /// Tell each client waiting for this server to drain (`cache clear`) how
-    /// many calls it waits for, once, before the wait.
-    pub(super) async fn tell_draining(&self, in_flight: usize) {
-        use tokio::io::AsyncWriteExt;
-        let line = format!("{{\"draining\":{in_flight}}}\n");
-        let mut waiters = std::mem::take(&mut *self.stopped.borrow_mut());
-        for waiter in &mut waiters {
-            let _ = waiter.write_all(line.as_bytes()).await;
-        }
-        self.stopped.borrow_mut().extend(waiters);
     }
 
     pub(super) fn with_build(socket: PathBuf, build: Build) -> Self {
@@ -136,7 +130,16 @@ impl Daemon {
             build,
             stop: tokio::sync::Notify::new(),
             stopped: std::cell::RefCell::default(),
+            pace: super::frames::Pace::SERVED,
+            leaving: tokio::sync::watch::Sender::new(false),
         }
+    }
+
+    /// Completes once the server stops taking calls: a connection that has
+    /// sent no request by then has no call to drain.
+    pub(super) async fn leaving(&self) {
+        let mut leaving = self.leaving.subscribe();
+        let _ = leaving.wait_for(|leaving| *leaving).await;
     }
 
     /// The runtime for a call from `cwd` with `env` under `identity`: the
@@ -211,26 +214,34 @@ pub(super) async fn serve(socket: PathBuf) -> u8 {
     0
 }
 
-/// Stop every runtime, then the servers they shared.
+/// Stop every runtime, then the servers they shared, while the clients
+/// waiting for the stop hear that the server is alive; then tell them it
+/// stopped.
 pub(super) async fn shut_down(daemon: &Daemon) {
-    let runtimes = daemon.runtimes.borrow_mut().drain();
-    for served in runtimes {
-        served.runtime.close().await;
-    }
-    daemon.lsp_pool.clear_all().await;
-    use tokio::io::AsyncWriteExt;
-    let waiters = std::mem::take(&mut *daemon.stopped.borrow_mut());
-    for mut waiter in waiters {
-        let _ = waiter.write_all(b"{\"stopped\":true}\n").await;
-    }
+    daemon
+        .telling_waiters(async {
+            let runtimes = daemon.runtimes.borrow_mut().drain();
+            for served in runtimes {
+                served.runtime.close().await;
+            }
+            daemon.lsp_pool.clear_all().await;
+        })
+        .await;
+    daemon
+        .tell_waiters(&serde_json::json!({ "stopped": true }))
+        .await;
+    drop(std::mem::take(&mut *daemon.stopped.borrow_mut()));
 }
 
 /// Accept connections until nothing has been asked for `idle`, or a
 /// [`STOP`](super::sockets::STOP) request arrives. Only a connection that
 /// sends a request counts as asking: a probe that closes without one (a
-/// starting server looking for stale sockets) does not renew the server.
-/// Then `leave` runs (the socket goes, so the next call starts another
-/// server) and the calls taken finish.
+/// starting server looking for stale sockets), or one that stays open and
+/// silent, neither renews the server nor keeps it running. Then `leave`
+/// runs (the socket goes, so the next call starts another server), the
+/// connections that asked nothing close, and the calls taken finish; a
+/// call's client that stops taking bytes is gone after the frames' silence
+/// ([`super::frames`]).
 pub(super) async fn serve_on(
     listener: tokio::net::UnixListener,
     daemon: &std::rc::Rc<Daemon>,
@@ -270,26 +281,26 @@ pub(super) async fn serve_on(
         let (daemon, state) = (Rc::clone(daemon), Rc::clone(&state));
         tokio::task::spawn_local(async move {
             let _permit = permit;
-            let (active, last) = state.get();
-            state.set((active + 1, last));
-            let asked = handle(&daemon, stream, id).await;
-            let (active, last) = state.get();
-            let last = if asked {
-                std::time::Instant::now()
-            } else {
-                last
-            };
-            state.set((active.saturating_sub(1), last));
+            // A connection is active from its request line on.
+            let asked = handle(&daemon, stream, id, || {
+                let (active, last) = state.get();
+                state.set((active + 1, last));
+            })
+            .await;
+            if asked {
+                let (active, _) = state.get();
+                state.set((active.saturating_sub(1), std::time::Instant::now()));
+            }
         });
     }
     // A connection not yet accepted is refused, so its client runs in
-    // process; the ones taken finish first.
+    // process; one that asked nothing closes; the calls taken finish first.
     drop(listener);
     leave();
-    let in_flight = MAX_CONNECTIONS.saturating_sub(slots.available_permits());
-    daemon.tell_draining(in_flight).await;
+    daemon.leaving.send_replace(true);
+    daemon.tell_draining(state.get().0).await;
     let all = octocode_engine::num::saturating_u32(MAX_CONNECTIONS);
-    let _ = slots.acquire_many(all).await;
+    let _ = daemon.telling_waiters(slots.acquire_many(all)).await;
 }
 
 /// The socket file's identity, `(device, inode)`, taken right after bind.

@@ -149,7 +149,7 @@ impl DiffCursors {
     /// The cursors of a file page: its `nextPage`, read out of the block
     /// (a cursor rides the `next` continuation, never the block), and the
     /// patch-stream cursor of its unfinished patch window. The cursor is
-    /// internal state for `contentPagination.patches.next.nextPage`, never an output field.
+    /// internal state for `next.patches`, never an output field.
     pub(super) fn of_file_page(
         files_page: &mut Value,
         patch_offset: Option<usize>,
@@ -226,7 +226,7 @@ pub(super) fn attach_diff_continuations(
             remove_key(&mut nq, key);
         }
         if let Some(call) = continuation(nq) {
-            out["contentPagination"]["commits"]["next"]["nextPage"] = call;
+            crate::response::result::set_next(out, "commits", call);
         }
     }
     // A file page with unread patches continues them first: its window
@@ -238,7 +238,7 @@ pub(super) fn attach_diff_continuations(
         files_only(&mut nq, operation);
         pin_file_page_size(&mut nq, q, q.include_diff());
         if let Some(call) = continuation(nq) {
-            out["contentPagination"]["files"]["next"]["nextPage"] = call;
+            crate::response::result::set_next(out, "files", call);
         }
     }
     // Patches expand a file inventory into a fresh section read.
@@ -258,7 +258,7 @@ pub(super) fn attach_diff_continuations(
         files_only(&mut nq, operation);
 
         if let Some(call) = continuation(nq) {
-            out["contentPagination"]["patches"]["next"]["nextPage"] = call;
+            crate::response::result::set_next(out, "patches", call);
         }
     }
     // The page's own continuations join the reads the page already offers

@@ -114,7 +114,7 @@ async fn a_glob_path_read_lists_the_directory_and_no_literal_wildcard_name() {
     .await
     .expect("typed missing row");
     let data = row_data(&outcome);
-    assert_eq!(data["errorCode"], "pathNotFound", "{data}");
+    assert_eq!(data["errorCode"], "notFound", "{data}");
     let text = outcome.structured_content.to_string();
     assert!(
         text.contains("\"tree\""),
@@ -124,10 +124,11 @@ async fn a_glob_path_read_lists_the_directory_and_no_literal_wildcard_name() {
     runtime.close().await;
 }
 
-/// A missing path whose related[] already lists the parent carries no hint
-/// that only says "list the parent": the typed call is the recovery.
+/// A missing path carries its parent listing in related[] and the one
+/// `notFound` hint beside it: the lead is the call, the hint says to retry
+/// with the exact listed path.
 #[tokio::test]
-async fn a_missing_path_with_a_related_listing_carries_no_restating_hint() {
+async fn a_missing_path_carries_its_listing_and_the_not_found_hint() {
     let workspace = Workspace::new();
     workspace.write("w/a.md", "a\n");
     let runtime = workspace.runtime(&[]);
@@ -139,11 +140,16 @@ async fn a_missing_path_with_a_related_listing_carries_no_restating_hint() {
     .await
     .expect("typed missing row");
     let data = row_data(&outcome);
-    assert_eq!(data["errorCode"], "pathNotFound", "{data}");
+    assert_eq!(data["errorCode"], "notFound", "{data}");
     assert!(
         data["related"].as_array().is_some_and(|r| !r.is_empty()),
         "{data}"
     );
-    assert!(data.get("hints").is_none(), "{data}");
+    assert!(
+        data["hints"][0]
+            .as_str()
+            .is_some_and(|hint| hint.contains("retry with the exact listed path")),
+        "{data}"
+    );
     runtime.close().await;
 }

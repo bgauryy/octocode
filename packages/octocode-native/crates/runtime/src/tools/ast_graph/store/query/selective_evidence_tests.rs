@@ -191,11 +191,7 @@ fn origin_pages_read_only_their_origin_blocks_and_match_full_decode() {
         let lazy = ask(&dir, "unresolved", "code.ts", offset, false);
         let full = ask(&dir, "unresolved", "code.ts", offset, true);
         assert_eq!(lazy.class, ExitClass::Success, "{}", lazy.value);
-        assert_eq!(
-            lazy.value["pagination"]["totalItems"], 700,
-            "{}",
-            lazy.value
-        );
+        assert_eq!(lazy.value["pagination"]["total"], 700, "{}", lazy.value);
         assert!(
             lazy.value["rows"][0]["sourceOrigin"].is_object()
                 || lazy.value["rows"][0]["sourceOrigin"] == "identity",
@@ -291,10 +287,10 @@ fn grouped_callers_count_edges_per_file() {
         }
     };
     let (edges, files) = (run(None), run(Some("files")));
-    assert_eq!(files["pagination"]["totalItems"], 1, "{files}");
-    assert_eq!(files["rows"][0]["file"], "code.ts", "{files}");
+    assert_eq!(files["pagination"]["total"], 1, "{files}");
+    assert_eq!(files["rows"][0]["path"], "app/code.ts", "{files}");
     assert_eq!(
-        files["rows"][0]["edges"], edges["pagination"]["totalItems"],
+        files["rows"][0]["edges"], edges["pagination"]["total"],
         "{files}"
     );
 }

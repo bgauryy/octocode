@@ -214,8 +214,7 @@ fn declaring_files<'a>(
         if let Some((_, node)) = call_node(item)
             && let (Some(name), Some(line)) = (
                 node.get("symbolName").and_then(Value::as_str),
-                node.pointer("/displayRange/startLine")
-                    .and_then(Value::as_u64),
+                node.get("line").and_then(Value::as_u64),
             )
         {
             declared
@@ -235,8 +234,8 @@ fn call_sites(item: &Value) -> Vec<(u64, Option<u64>)> {
         .unwrap_or_default()
         .iter()
         .filter_map(|range| {
-            let line = range.get("startLine")?.as_u64()?;
-            let column = range.get("startCharacter").and_then(Value::as_u64);
+            let line = range.get("line")?.as_u64()?;
+            let column = range.get("column").and_then(Value::as_u64);
             Some((line, column))
         })
         .collect()
@@ -263,11 +262,9 @@ fn call_row(
         row.insert("symbolName".into(), json!(name));
     }
     row.insert("kind".into(), json!(kind));
-    if let Some(range) = node.get("displayRange")
-        && let Some(start) = range.get("startLine").and_then(Value::as_u64)
-    {
+    if let Some(start) = node.get("line").and_then(Value::as_u64) {
         row.insert("line".into(), json!(start));
-        if let Some(end) = range
+        if let Some(end) = node
             .get("endLine")
             .and_then(Value::as_u64)
             .filter(|end| *end != start)

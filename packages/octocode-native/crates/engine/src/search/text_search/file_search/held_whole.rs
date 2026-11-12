@@ -24,6 +24,17 @@ impl<M: Matcher> FileSearcher<'_, M> {
         work: MatchWork,
     ) -> std::io::Result<FileOutcome> {
         let bytes = read_prefix(file, file.metadata()?.len())?;
+        self.search_bytes(&bytes, path, work)
+    }
+
+    /// [`Self::search`] of a file's text held whole: its bytes, or the text
+    /// its judge serves ([`super::FileSearcher::judged`]).
+    pub(super) fn search_bytes(
+        &mut self,
+        bytes: &[u8],
+        path: &Path,
+        work: MatchWork,
+    ) -> std::io::Result<FileOutcome> {
         let mut sink = CollectSink::new(
             self.matcher,
             work,
@@ -37,8 +48,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
             .inspect_deferred
             .as_ref()
             .map(|inspect| (inspect, path));
-        self.searcher
-            .search_slice(self.matcher, &bytes, &mut sink)?;
+        self.searcher.search_slice(self.matcher, bytes, &mut sink)?;
         let binary_at = sink
             .binary_offset
             .filter(|offset| *offset != 0 && *offset <= MAX_BINARY_PREFIX_BYTES);
@@ -74,9 +84,10 @@ impl<M: Matcher> FileSearcher<'_, M> {
             let kept =
                 usize::try_from(FILE_TERMS_MAX_BYTES).map_or(bytes.len(), |at| at.min(bytes.len()));
             let eof = kept == bytes.len();
-            let mut bytes = bytes;
-            bytes.truncate(kept);
-            outcome.copied = Some(CopiedRead { bytes, eof });
+            outcome.copied = Some(CopiedRead {
+                bytes: bytes[..kept].to_vec(),
+                eof,
+            });
         }
         Ok(outcome)
     }

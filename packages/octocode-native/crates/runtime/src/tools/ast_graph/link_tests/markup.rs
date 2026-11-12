@@ -10,7 +10,7 @@ fn unlinked(out: &Value) -> Vec<(String, u64)> {
         .flatten()
         .map(|row| {
             (
-                row["file"].as_str().unwrap_or_default().to_owned(),
+                row["path"].as_str().unwrap_or_default().to_owned(),
                 row["line"].as_u64().unwrap_or_default(),
             )
         })

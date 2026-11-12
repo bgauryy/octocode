@@ -131,7 +131,7 @@ async fn commit_files_scope_covers_late_matches_and_continuations_exactly_once()
         "{tail}"
     );
     assert_eq!(
-        tail["contentPagination"]["files"]["hasMore"], false,
+        tail["sectionPagination"]["files"]["hasMore"], false,
         "{tail}"
     );
 }
@@ -162,7 +162,7 @@ async fn commit_files_unfiltered_pages_preserve_every_file() {
     .data;
     assert_eq!(tail["files"], json!(["M +1 -0 f100.rs"]));
     assert_eq!(
-        tail["contentPagination"]["files"]["hasMore"], false,
+        tail["sectionPagination"]["files"]["hasMore"], false,
         "{tail}"
     );
 }
@@ -185,7 +185,7 @@ async fn commit_files_scope_discloses_provider_boundary_even_without_next_link()
         "{row}"
     );
     assert_eq!(
-        row["commits"][0]["contentPagination"]["files"]["countScope"], "partial",
+        row["commits"][0]["sectionPagination"]["files"]["countScope"], "partial",
         "{row}"
     );
     assert_eq!(

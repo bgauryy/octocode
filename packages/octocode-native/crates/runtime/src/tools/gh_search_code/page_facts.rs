@@ -121,25 +121,23 @@ pub(super) fn disclose_completeness(
     }
 }
 
-/// The page's `pagination` when the search pages: the merged searches page
-/// together, so the page count is the longest search's, not
-/// `totalItems / pageSize` (once a short search runs out, the later pages
-/// hold the long one's share only). `hasMore` says whether another search
-/// page follows; a page shown in parts continues as the response.
+/// The page's `pagination` when the search pages: it starts after the files
+/// the walk's earlier pages listed and holds this page's files, out of the
+/// reachable total. The merged searches page together, so the page count is
+/// the longest search's; `hasMore` says whether another search page follows;
+/// a page shown in parts continues as the response.
 pub(super) fn pagination(
-    query: &GhSearchCodeQuery,
     data: &SearchPage,
     current: usize,
     past_end: bool,
 ) -> Option<serde_json::Value> {
     (data.pages > 1 || past_end).then(|| {
-        crate::response::pages::PageFacts::sized(
-            current,
-            data.pages,
-            data.total,
+        crate::response::pages::PageFacts::open(
+            data.listed.earlier_count(),
+            data.items.len(),
             current < data.pages,
         )
-        .with_page_size(super::limit(query))
+        .with_total(data.total)
         .out_of_range(past_end)
         .to_value()
     })
@@ -174,7 +172,7 @@ pub(super) fn skeleton(
 ) -> usize {
     let more = current < data.pages || continues;
     let mut value = json!({"files": []});
-    if let Some(pagination) = pagination(query, data, current, past_end) {
+    if let Some(pagination) = pagination(data, current, past_end) {
         value["pagination"] = pagination;
     }
     let walk = Continuation::cursor(

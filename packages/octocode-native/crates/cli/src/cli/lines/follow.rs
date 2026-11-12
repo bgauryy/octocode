@@ -1,4 +1,3 @@
-use super::outline::floor_named;
 use super::words;
 use serde_json::{Map, Value};
 
@@ -16,13 +15,9 @@ pub(super) fn field_notes(prefix: &str, fields: &Map<String, Value>) -> Vec<Stri
                 }
             }
             Value::String(text) => lines.push(format!("{prefix}{key}: {text}")),
-            // A flat object reads as words: `summary: files 4 dirs 0`.
+            // A flat object reads as words: `summary: fileCount 4 dirCount 0`.
             Value::Object(fields) if fields.values().all(|value| !value.is_object()) => {
-                let named = floor_named(fields);
-                lines.push(format!(
-                    "{prefix}{key}: {}",
-                    words(named.as_ref().unwrap_or(fields))
-                ));
+                lines.push(format!("{prefix}{key}: {}", words(fields)));
             }
             other => lines.push(format!("{prefix}{key}: {other}")),
         }
@@ -32,13 +27,7 @@ pub(super) fn field_notes(prefix: &str, fields: &Map<String, Value>) -> Vec<Stri
 
 /// Fields that say whether an answer is whole, beside any object that holds
 /// `hasMore`: they print in the stdout trailer, never only on stderr.
-const INCOMPLETE: [&str; 5] = [
-    "rowPart",
-    "isPartial",
-    "partialReasons",
-    "totalItemsCapped",
-    "unknownItems",
-];
+const INCOMPLETE: [&str; 4] = ["rowPart", "isPartial", "partialReasons", "unknownItems"];
 
 /// Whether a field decides "am I done": a page state (`hasMore`) or a mark
 /// of an incomplete answer.
@@ -61,19 +50,32 @@ pub(super) fn split_done(fields: Map<String, Value>) -> (Map<String, Value>, Map
 /// stdout trailer, for every tool and row shape.
 const ADVICE: [&str; 2] = ["warnings", "hints"];
 
-/// `fields` split into those the stdout trailer states (the done facts and
-/// the [`ADVICE`]) and the rest.
+/// When a saved answer was observed: present only on an answer replayed
+/// from the provider cache, it dates the whole answer, never one of its rows.
+const OBSERVED_AT: &str = "observedAt";
+
+/// `fields` split into those the stdout trailer states (the done facts, when
+/// a replayed answer was observed, and the [`ADVICE`]) and the rest.
 pub(super) fn split_stated(fields: Map<String, Value>) -> (Map<String, Value>, Map<String, Value>) {
-    fields
-        .into_iter()
-        .partition(|(key, value)| decides_done(key, value) || ADVICE.contains(&key.as_str()))
+    fields.into_iter().partition(|(key, value)| {
+        decides_done(key, value) || key == OBSERVED_AT || ADVICE.contains(&key.as_str())
+    })
 }
 
-/// The trailer lines of `stated` fields ([`split_stated`]): the done facts,
+/// The trailer lines of `stated` fields ([`split_stated`]): the done facts
+/// and when a replayed answer was observed (`observedAt <time> (cached)`),
 /// then the advice.
-pub(super) fn stated_notes(stated: Map<String, Value>) -> (Vec<String>, Vec<String>) {
+pub(super) fn stated_notes(mut stated: Map<String, Value>) -> (Vec<String>, Vec<String>) {
+    let observed = stated.shift_remove(OBSERVED_AT);
     let (done, advice) = split_done(stated);
-    (field_notes("", &done), field_notes("", &advice))
+    let mut facts = field_notes("", &done);
+    if let Some(observed) = observed {
+        let at = observed
+            .as_str()
+            .map_or_else(|| observed.to_string(), str::to_owned);
+        facts.push(format!("{OBSERVED_AT} {at} (cached)"));
+    }
+    (facts, field_notes("", &advice))
 }
 
 /// A follow-up call the output schema declares, as a runnable command.

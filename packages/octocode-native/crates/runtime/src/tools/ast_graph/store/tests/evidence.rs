@@ -22,7 +22,7 @@ fn repeated_call_sites_survive_topology_and_paging() {
     let built = ingest_root(&dir.0, &dir.0.join("app"), None, false);
     assert_eq!(built.class, ExitClass::Success, "{}", built.value);
     let topology = ask(&dir.0, "callees", Some("calls.ts#run"), |_| {});
-    assert_eq!(topology.value["pagination"]["totalItems"], 1);
+    assert_eq!(topology.value["pagination"]["total"], 1);
     let mut identities = std::collections::BTreeSet::new();
     let mut starts = std::collections::BTreeSet::new();
     for offset in 0..3 {
@@ -33,10 +33,10 @@ fn repeated_call_sites_survive_topology_and_paging() {
             o.to = Some("calls.ts#target".into());
         });
         assert_eq!(page.value["operation"], "witnesses");
-        assert_eq!(page.value["pagination"]["totalItems"], 3, "{}", page.value);
+        assert_eq!(page.value["pagination"]["total"], 3, "{}", page.value);
         assert_eq!(page.value["rows"].as_array().unwrap().len(), 1);
         let row = &page.value["rows"][0];
-        assert_eq!(row["file"], "calls.ts");
+        assert_eq!(row["path"], "app/calls.ts");
         assert_eq!(row["sourceDigest"].as_str().unwrap().len(), 64);
         assert_eq!(
             row["sourceDigest"],
@@ -65,7 +65,7 @@ fn repeated_call_sites_survive_topology_and_paging() {
     let all = ask(&dir.0, "witnesses", Some("calls.ts"), |o| {
         o.edges = vec!["calls".into()];
     });
-    assert_eq!(all.value["pagination"]["totalItems"], 3);
+    assert_eq!(all.value["pagination"]["total"], 3);
 }
 
 #[test]
@@ -79,7 +79,7 @@ fn unresolved_sites_are_attributable_and_empty_population_is_unavailable() {
     let first = ask(&dir.0, "unresolved", Some("unknown.py#run"), |o| {
         o.limit = Some(1);
     });
-    assert_eq!(first.value["pagination"]["totalItems"], 2);
+    assert_eq!(first.value["pagination"]["total"], 2);
     let second = ask(&dir.0, "unresolved", Some("unknown.py#run"), |o| {
         o.limit = Some(1);
         o.offset = Some(1);
@@ -120,7 +120,7 @@ fn witness_confidence_filters_calls_without_hiding_noncall_evidence() {
         o.edges = vec!["uses".into()];
         o.confidence = Some("high".into());
     });
-    assert_eq!(out.value["pagination"]["totalItems"], 2, "{}", out.value);
+    assert_eq!(out.value["pagination"]["total"], 2, "{}", out.value);
     for row in out.value["rows"].as_array().unwrap() {
         assert_eq!(row["confidence"], "medium");
         assert!(
@@ -149,7 +149,7 @@ fn utf16_call_evidence_hashes_and_slices_the_decoded_parser_input() {
                 o.edges = vec!["calls".into()];
             }
         });
-        assert_eq!(out.value["pagination"]["totalItems"], 1, "{}", out.value);
+        assert_eq!(out.value["pagination"]["total"], 1, "{}", out.value);
         let row = &out.value["rows"][0];
         let start = row["sourceRange"]["startByte"].as_u64().unwrap() as usize;
         let end = row["sourceRange"]["endByte"].as_u64().unwrap() as usize;

@@ -77,14 +77,14 @@ async fn compare_row_names_both_resolved_commits_and_each_commit_sha() {
     )
     .await;
     // `base`/`head` carry the resolved SHAs, never the query's ref names.
-    assert_eq!(out["baseSha"], BASE, "{out}");
-    assert_eq!(out["headSha"], HEAD, "{out}");
+    assert_eq!(out["baseCommitSha"], BASE, "{out}");
+    assert_eq!(out["headCommitSha"], HEAD, "{out}");
     assert!(out.get("commitsScope").is_none(), "{out}");
     assert_eq!(out["files"], json!(["M +1 -1 src/a.rs"]), "{out}");
     // The summary counts the range's commits (`aheadBy`) and pages them
     // apart; the commits section lists each by its SHA.
     assert!(out.get("commits").is_none(), "{out}");
-    assert_eq!(out["contentPagination"]["commits"]["unshown"], true, "{out}");
+    assert_eq!(out["sectionPagination"]["commits"]["length"], 0, "{out}");
     let listed = read(
         &server,
         json!({"operation":"compare","owner":"o","repo":"r","baseRef":"v1","headRef":"feature",
@@ -173,7 +173,7 @@ async fn mount_long_compare(server: &MockServer, files: Value) {
 /// `include` or `matchString` asks about files: the comparison answers with
 /// its file page, and the range's commits (not scoped by either filter)
 /// are not listed by default. Their section states the count, `unshown`
-/// with no page number, and `contentPagination.commits.next.nextPage` lists them from the
+/// with no page number, and `sectionPagination.commits.next.nextPage` lists them from the
 /// first page, losslessly. An unfiltered read still lists them.
 #[tokio::test]
 async fn compare_file_filters_page_the_commits_apart() {
@@ -195,7 +195,7 @@ async fn compare_file_filters_page_the_commits_apart() {
         }
         let out = read(&server, row).await;
         assert!(out.get("commits").is_none(), "{filter}: {out}");
-        // `changedFilesCount` counts both files; the include says what it kept.
+        // `changedFileCount` counts both files; the include says what it kept.
         assert_eq!(
             out["warnings"]
                 .to_string()
@@ -203,22 +203,14 @@ async fn compare_file_filters_page_the_commits_apart() {
             filter.get("include").is_some(),
             "{filter}: {out}"
         );
-        let mut commit_facts = out["contentPagination"]["commits"].clone();
-        let next = commit_facts
-            .as_object_mut()
-            .expect("commit pagination")
-            .remove("next");
-        assert!(
-            next.as_ref()
-                .is_some_and(|calls| calls["nextPage"].is_object()),
-            "{out}"
-        );
+        assert!(out["next"]["commits"].is_object(), "{out}");
+        // No commit is shown: the section's page is empty, its total the range's.
         assert_eq!(
-            commit_facts,
-            json!({"totalPages":4,"pageSize":100,"totalItems":337,"hasMore":true,"unshown":true}),
+            out["sectionPagination"]["commits"],
+            json!({"unit":"items","offset":0,"length":0,"total":337,"hasMore":true}),
             "{filter}: {out}"
         );
-        let page = &out["contentPagination"]["commits"]["next"]["nextPage"]["input"]["queries"][0];
+        let page = &out["next"]["commits"]["input"]["queries"][0];
         assert_eq!(page["sections"], json!(["commits"]), "{filter}: {out}");
         assert!(page.get("page").is_none(), "{filter}: {out}");
         assert!(page.get("matchString").is_none(), "{filter}: {out}");
@@ -233,7 +225,7 @@ async fn compare_file_filters_page_the_commits_apart() {
         // The page it names lists the first commits.
         let listed = read(&server, page.clone()).await;
         assert_eq!(listed["commits"].as_array().map(Vec::len), Some(100));
-        assert_eq!(listed["contentPagination"]["commits"]["page"], 1);
+        assert_eq!(listed["sectionPagination"]["commits"]["offset"], 0);
     }
     // The summary pages the commits apart too; the commits section lists them.
     let summary = read(
@@ -243,7 +235,7 @@ async fn compare_file_filters_page_the_commits_apart() {
     .await;
     assert!(summary.get("commits").is_none(), "{summary}");
     assert_eq!(
-        summary["contentPagination"]["commits"]["totalItems"], 337,
+        summary["sectionPagination"]["commits"]["total"], 337,
         "{summary}"
     );
     let plain = read(
@@ -257,10 +249,7 @@ async fn compare_file_filters_page_the_commits_apart() {
         Some(100),
         "{plain}"
     );
-    assert_eq!(
-        plain["contentPagination"]["commits"]["next"]["nextPage"]["input"]["queries"][0]["page"],
-        2
-    );
+    assert_eq!(plain["next"]["commits"]["input"]["queries"][0]["page"], 2);
 }
 
 /// A file GitHub sent without a patch is searched at the comparison head
@@ -300,10 +289,7 @@ async fn compare_unpatched_file_read_survives_the_comparison_pages() {
             crate::response::result::read_view(crate::id::ToolId::GhGetFileContent, search),
             octocode_contract_types::ReadView::Content
         );
-        assert!(
-            out["contentPagination"]["commits"]["next"]["nextPage"].is_object(),
-            "{sections:?}: {out}"
-        );
+        assert!(out["next"]["commits"].is_object(), "{sections:?}: {out}");
     }
 }
 

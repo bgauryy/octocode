@@ -184,7 +184,7 @@ async fn a_section_summary_is_its_lines_and_answers() {
         assert!(small * 100 <= large * 40, "{small} of {large}");
     }
     assert_eq!(short["coverage"], whole["coverage"], "{summary}");
-    assert_eq!(short["snapshot"], whole["snapshot"], "{summary}");
+    assert_eq!(short["sourceDigest"], whole["sourceDigest"], "{summary}");
     let usage = &summary["results"][0]["data"]["usage"];
     assert_eq!(
         usage.as_object().unwrap().keys().collect::<Vec<_>>(),

@@ -64,7 +64,10 @@ async fn squash_merge_commit_reads_its_pull_request_directly() {
         .await
         .expect("linked PR executes");
     assert_eq!(row_data(&linked)["pullRequests"][0]["number"], 8506);
-    assert_eq!(row_data(&linked)["pullRequests"][0]["headSha"], pr_sha);
+    assert_eq!(
+        row_data(&linked)["pullRequests"][0]["headCommitSha"],
+        pr_sha
+    );
     checks::assert_output_contract("ghGetHistoryItem", &outcome.structured_content);
     runtime.close().await;
 }

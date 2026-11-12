@@ -1,4 +1,4 @@
-//! Promotion of a shaped page's cursors (`contentPagination`) to `next.*`
+//! Promotion of a shaped page's cursors (`sectionPagination`) to `next.*`
 //! for pull requests and issues.
 use super::axis::{Axis, Cursor};
 use super::patch_hop::*;
@@ -12,7 +12,7 @@ use serde_json::{Map, Value, json};
 /// PR files), stated on the row as evidence beside the section's page block.
 fn hoist_provider_limit(out: &mut Value, row: &str) {
     let limit = out
-        .pointer(&format!("{row}/contentPagination"))
+        .pointer(&format!("{row}/sectionPagination"))
         .and_then(Value::as_object)
         .and_then(|pages| pages.values().find_map(|page| page.get("providerLimit")))
         .cloned();
@@ -48,7 +48,7 @@ fn strip_cursors(pages: &mut Map<String, Value>) {
 pub(super) fn promote_pr_continuations(out: &mut Value, q: &HistoryItemRequest) {
     hoist_provider_limit(out, "/pullRequests/0");
     let Some(pages) = out
-        .pointer_mut("/pullRequests/0/contentPagination")
+        .pointer_mut("/pullRequests/0/sectionPagination")
         .and_then(Value::as_object_mut)
     else {
         return;
@@ -146,7 +146,7 @@ pub(super) fn promote_issue_continuations(
     remainder: &Remainder,
 ) {
     let Some(pages) = out
-        .pointer_mut("/issues/0/contentPagination")
+        .pointer_mut("/issues/0/sectionPagination")
         .and_then(Value::as_object_mut)
     else {
         return;

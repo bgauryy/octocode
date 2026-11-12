@@ -172,7 +172,7 @@ pub(super) async fn issue(
         page.attach(&at, &mut row, &mut pagination, &mut remainder);
     }
     if !pagination.is_empty() {
-        row["contentPagination"] = Value::Object(pagination);
+        row["sectionPagination"] = Value::Object(pagination);
     }
     let closed = raw.get("state").and_then(Value::as_str) == Some("closed");
     let closed_by = closed_by.map(|references| references.closers(closed));

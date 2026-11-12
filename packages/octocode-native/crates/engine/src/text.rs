@@ -1,5 +1,4 @@
 pub mod case_fold;
-pub(crate) mod clip;
 pub(crate) mod file_extension;
 mod ident;
 mod source;
@@ -9,10 +8,9 @@ pub mod test_paths;
 pub(crate) mod utf8_offsets;
 mod words;
 
-/// The one extension helper, JS/TS extension set, long-line clip around a
-/// hit, identifier-boundary rule, line index, leading-BOM rule, bounded
-/// source read, regular-file open, and binary sniff.
-pub use clip::clip_around;
+/// The one extension helper, JS/TS extension set, identifier-boundary rule,
+/// line index, leading-BOM rule, bounded source read, regular-file open, and
+/// binary sniff.
 pub use file_extension::{JS_EXTENSIONS, JS_TS_EXTENSIONS, basename, extension_of};
 pub use ident::{is_ident_char, is_whole_word, whole_word_starts, word_pattern};
 pub use source::{

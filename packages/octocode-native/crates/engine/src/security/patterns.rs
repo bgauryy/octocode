@@ -85,6 +85,17 @@ macro_rules! opaque_chars {
     };
 }
 
+/// The header lines an armor may carry between its BEGIN line and its body
+/// (PEM's `Proc-Type:` and `DEK-Info:`, PGP's `Version:` and `Comment:`, RFC
+/// 4716's `Comment:` continued by a closing `\`), then the blank line that
+/// ends them: they name the key and hold none of it, so a body's `secret`
+/// group starts after them.
+macro_rules! armor_headers {
+    () => {
+        r"(?:[ \t]*[A-Za-z][A-Za-z0-9_-]*:(?:[^\r\n]*\\\r?\n)*[^\r\n]*\r?\n)*(?:[ \t]*\r?\n)?"
+    };
+}
+
 /// [`opaque_chars`] as text: the detector reads the same set.
 pub(crate) const OPAQUE_CHARS: &str = opaque_chars!();
 

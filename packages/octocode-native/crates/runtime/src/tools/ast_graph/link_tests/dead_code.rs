@@ -83,7 +83,7 @@ fn unlinked_path_imports(out: &Value) -> Vec<(String, u64)> {
         .flatten()
         .map(|row| {
             (
-                row["file"].as_str().unwrap_or_default().to_owned(),
+                row["path"].as_str().unwrap_or_default().to_owned(),
                 row["line"].as_u64().unwrap_or_default(),
             )
         })
@@ -139,7 +139,7 @@ fn dependents_list_bare_path_imports_no_config_links() {
     let diagnostics = ask(root, "diagnostics", Some("unlinked-path-import"));
     let rows = diagnostics["rows"].as_array().expect("rows");
     assert_eq!(rows.len(), 2, "{diagnostics}");
-    assert_eq!(rows[0]["file"], "src/app.ts", "{diagnostics}");
+    assert_eq!(rows[0]["path"], "src/app.ts", "{diagnostics}");
     assert_eq!(
         rows[0]["target"], "src/vs/base/common/x.ts",
         "{diagnostics}"
@@ -165,5 +165,5 @@ fn a_bare_path_a_tsconfig_links_is_a_dependent_not_a_diagnostic() {
     assert_eq!(files(&x), ["src/app.ts"], "{x}");
     assert_eq!(x["summary"], Value::Null, "{x}");
     let diagnostics = ask(root, "diagnostics", Some("unlinked-path-import"));
-    assert_eq!(diagnostics["pagination"]["totalItems"], 0, "{diagnostics}");
+    assert_eq!(diagnostics["pagination"]["total"], 0, "{diagnostics}");
 }

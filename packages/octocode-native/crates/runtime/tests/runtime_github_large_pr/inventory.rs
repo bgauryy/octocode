@@ -56,18 +56,18 @@ async fn pr_inventory_carries_the_identity_header_and_its_own_next_steps_only() 
     let data = run(&server, json!({"sections":["files"]})).await;
     let row = &data["pullRequests"][0];
     // A section read keeps what names the PR and the commits code is read at.
-    for kept in ["number", "state", "headSha", "mergeCommitSha"] {
+    for kept in ["number", "state", "headCommitSha", "mergeCommitSha"] {
         assert!(row.get(kept).is_some(), "{kept} missing: {row}");
     }
     // The first page of a file inventory states how many files it lists.
-    assert_eq!(row["changedFilesCount"], 250, "{row}");
+    assert_eq!(row["changedFileCount"], 250, "{row}");
     // The rest of the header is the summary read's.
     for summary_only in ["title", "author", "additions", "labels", "createdAt"] {
         assert!(row.get(summary_only).is_none(), "{summary_only}: {row}");
     }
     // One page holds the whole inventory: it states no block, and the
     // count is the list itself.
-    assert!(row["contentPagination"].get("files").is_none(), "{row}");
+    assert!(row["sectionPagination"].get("files").is_none(), "{row}");
     let groups = row["files"].as_array().expect("files");
     let rows = groups
         .iter()
@@ -142,6 +142,46 @@ async fn pr_inventory_picks_the_largest_source_patch_and_keeps_all_patches() {
     assert_eq!(support::inventory_len(&data["pullRequests"][0]["files"]), 5);
 }
 
+/// A pull request too large for one patch read leads to the patches that
+/// fit one call (a short `include`, most changed first), never to every
+/// path of its inventory, and the row says how many of the changed files
+/// that lead reads (vitejs/vite#12165: 143 files, a 100-path lead).
+#[tokio::test]
+async fn a_large_pr_patch_lead_names_one_call_of_files_and_its_coverage() {
+    let server = MockServer::builder().start().await;
+    mount_pr(&server, 120).await;
+    let hunk = Some("@@ -1 +1 @@\n-a\n+b");
+    let files = (0..120)
+        .map(|index| rest_file(&format!("src/m{index}.rs"), hunk, 30 + index, 30))
+        .collect::<Vec<_>>();
+    mount_file_batches(&server, vec![files[..100].to_vec(), files[100..].to_vec()], Duration::ZERO)
+        .await;
+    let data = run(&server, json!({"sections":["files"]})).await;
+    let lead = support::checks::related_call(&data, "ghGetHistoryItem", |input| {
+        input["queries"][0]["sections"] == json!(["patches"])
+    });
+    let include = lead["input"]["queries"][0]["include"]
+        .as_array()
+        .expect("a short include");
+    assert!(!include.is_empty() && include.len() < 20, "{lead}");
+    // Most changed first: the last files of the list changed the most.
+    assert_eq!(include[0], "src/m119.rs", "{lead}");
+    let coverage = format!(
+        "The patch lead reads {} of 120 changed files, most-changed source first; without include it reads every patch.",
+        include.len()
+    );
+    assert!(
+        data["hints"].as_array().is_some_and(|hints| hints.contains(&json!(coverage))),
+        "{data}"
+    );
+    let read = run(&server, lead["input"]["queries"][0].clone()).await;
+    assert_eq!(
+        read["pullRequests"][0]["files"].as_array().map(Vec::len),
+        Some(include.len()),
+        "{read}"
+    );
+}
+
 #[tokio::test]
 async fn pr_file_filter_narrows_the_inventory_and_its_counts() {
     let server = MockServer::builder().start().await;
@@ -159,8 +199,8 @@ async fn pr_file_filter_narrows_the_inventory_and_its_counts() {
     let row = &data["pullRequests"][0];
     assert_eq!(row["files"], json!(["M +30 -2 docs/guide.md"]), "{row}");
     // The one matching file is the complete filtered inventory: no block.
-    assert!(row["contentPagination"].get("files").is_none(), "{row}");
-    assert_eq!(row["changedFilesCount"], 250, "{row}");
+    assert!(row["sectionPagination"].get("files").is_none(), "{row}");
+    assert_eq!(row["changedFileCount"], 250, "{row}");
     let data = run(
         &server,
         json!({"sections":["files"],
@@ -216,7 +256,7 @@ async fn pr_file_list_stopped_by_the_provider_cap_is_not_complete() {
     // The section cursors always show; the provider limit is the
     // row's evidence beside them.
     assert!(
-        data["pullRequests"][0].get("contentPagination").is_some(),
+        data["pullRequests"][0].get("sectionPagination").is_some(),
         "{data}"
     );
     assert_eq!(data["terminalLimit"], true, "{data}");
@@ -246,11 +286,11 @@ async fn pr_inventory_page_reports_the_provider_total() {
     .await;
     let data = run(&server, json!({"sections":["files"]})).await;
     // The provider total (250) is listed in full on this one page: the
-    // row states it as `changedFilesCount` and lists every file, and no
+    // row states it as `changedFileCount` and lists every file, and no
     // pagination block restates either.
     let row = &data["pullRequests"][0];
-    assert_eq!(row["changedFilesCount"], 250, "{row}");
-    assert!(row["contentPagination"].get("files").is_none(), "{row}");
+    assert_eq!(row["changedFileCount"], 250, "{row}");
+    assert!(row["sectionPagination"].get("files").is_none(), "{row}");
     assert_eq!(
         support::inventory_len(&data["pullRequests"][0]["files"]),
         250

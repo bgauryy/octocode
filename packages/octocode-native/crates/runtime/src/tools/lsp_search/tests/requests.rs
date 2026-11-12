@@ -60,7 +60,7 @@ fn document_wide_operations_do_not_require_a_position_anchor() {
         });
         // The contract requires a query name for workspaceSymbol; it is still unanchored.
         if operation == "workspaceSymbol" {
-            row["symbolQuery"] = serde_json::json!("Lib");
+            row["symbolFuzzy"] = serde_json::json!("Lib");
         }
         let query: LspSearchQuery = serde_json::from_value(row).expect("document-wide lsp query");
         assert_eq!(

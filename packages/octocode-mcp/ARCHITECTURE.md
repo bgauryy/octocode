@@ -34,8 +34,7 @@ flowchart LR
   shutdown. Its design: `packages/octocode-native/ARCHITECTURE.md`
   (`crates/cli/src/cli/mcp_server/`); behavior and tool catalog: `docs/OCTOCODE_MCP.md`.
 
-There is no TypeScript tool fallback and no addon. If the platform binary is
-missing, startup fails closed with the reason above.
+There is no TypeScript tool fallback and no addon. If the launcher cannot resolve or acquire a suitable platform binary, it reports the startup failure to the client.
 
 ## Lifecycle
 
@@ -61,7 +60,7 @@ packages before `octocode-mcp`.
   and MCP admission, complete Unicode source walks, opaque cursors and replay
   authority through the built launchers;
 - `node skills-dev/octocode-dev/scripts/dev.mjs test:tools` (repo root): the shared
-  `tool-health.mjs` suite, which executes all 14 tools through CLI and MCP with loopback providers,
+  `tool-health.mjs` suite, which exercises research tools through CLI and MCP with loopback providers,
   output validation, typed continuations and evidence parity;
 - `yarn test:contracts:classification`: classification capability publication,
   selection, provider failure and complete unfiltered recovery against a loopback scorer;

@@ -7,7 +7,7 @@ const workspaceRoot = fixturePath('code');
 const model = `${workspaceRoot}/model.ts`;
 const use = `${workspaceRoot}/use.ts`;
 const anchor = { workspaceRoot, path: model, line: 14, symbolName: 'add' };
-const locations = (ctx, data) => data.flatMap(row => lspLocations({ sc: { results: [{ data: row }] } })).map(item => [relative(ctx, item.path), item.displayRange.startLine]);
+const locations = (ctx, data) => data.flatMap(row => lspLocations({ sc: { results: [{ data: row }] } })).map(item => [relative(ctx, item.path), item.line]);
 
 async function locationsAndReferences(ctx, surface, checks) {
   for (const view of ['content', 'files']) {
@@ -17,14 +17,14 @@ async function locationsAndReferences(ctx, surface, checks) {
       { operation: 'typeDefinition', path: use, line: 3, symbolName: 'square', expected: [['code/model.ts', 5]] },
     ]) {
       const result = await scenario(ctx, 'lspSearch', surface, { label: `lsp.${query.operation}.${view}`, query: { workspaceRoot, ...query, view }, checks, responseChars: 600 });
-      const found = view === 'content' ? locations(ctx, result.data) : files(result.data).flatMap(file => file.lines.map(sourceLine => [relative(ctx, file.path), sourceLine]));
+      const found = view === 'content' ? locations(ctx, result.data) : files(result.data).flatMap(file => file.matchedLines.map(sourceLine => [relative(ctx, file.path), sourceLine]));
       equal(checks, `lsp.${query.operation}.${view}.${surface}`, found, expected);
     }
     for (const includeDeclaration of [true, false]) {
       const refs = await scenario(ctx, 'lspSearch', surface, { label: `lsp.references.${view}.${includeDeclaration}`, query: { ...anchor, operation: 'references', view, includeDeclaration }, checks, responseChars: 600 });
       const expected = [['code/model.ts', 19], ['code/model.ts', 20], ['code/use.ts', 4]];
       if (includeDeclaration) expected.push(['code/model.ts', 14], ['code/use.ts', 1]);
-      const observed = view === 'content' ? locations(ctx, refs.data) : files(refs.data).flatMap(file => file.lines.map(line => [relative(ctx, file.path), line]));
+      const observed = view === 'content' ? locations(ctx, refs.data) : files(refs.data).flatMap(file => file.matchedLines.map(line => [relative(ctx, file.path), line]));
       // Providers differ on whether an import binding is a declaration. Every
       // executable use remains required; the function declaration is excluded.
       const required = includeDeclaration ? observed : observed.filter(([file, line]) => file !== 'code/use.ts' || line !== 1);
@@ -68,12 +68,12 @@ async function information(ctx, surface, checks) {
   const symbols = await scenario(ctx, 'lspSearch', surface, { label: 'lsp.documentSymbols', query: { workspaceRoot, path: model, operation: 'documentSymbols' }, checks, responseChars: 600 });
   equal(checks, `lsp.document-functions.${surface}`, symbols.data.flatMap(data => declarations({ sc: { results: [{ data }] } })).filter(d => d.kind === 'function').map(d => [d.name, d.line]), [['add', 14], ['calculate', 18]]);
   for (const byPath of [false, true]) {
-    const query = { operation: 'workspaceSymbol', symbolQuery: 'calculate', ...(byPath ? { path: model } : { workspaceRoot }) };
+    const query = { operation: 'workspaceSymbol', symbolFuzzy: 'calculate', ...(byPath ? { path: model } : { workspaceRoot }) };
     const symbolsAtRoot = await scenario(ctx, 'lspSearch', surface, { label: `lsp.workspaceSymbol.${byPath}`, query: query, checks });
-    equal(checks, `lsp.workspace-target.${byPath}.${surface}`, symbolsAtRoot.data.flatMap(row => row.matches ?? []).map(match => [match.symbolName, relative(ctx, match.path), match.displayRange.startLine]), [['calculate', 'code/model.ts', 18]]);
+    equal(checks, `lsp.workspace-target.${byPath}.${surface}`, symbolsAtRoot.data.flatMap(row => row.matches ?? []).map(match => [match.symbolName, relative(ctx, match.path), match.line]), [['calculate', 'code/model.ts', 18]]);
   }
   const diagnostics = await scenario(ctx, 'lspSearch', surface, { label: 'lsp.diagnostic', query: { workspaceRoot, path: `${workspaceRoot}/broken.ts`, operation: 'diagnostic' }, checks });
-  checks.push([`lsp.type-error.${surface}`, diagnostics.data.some(data => data.matches?.some(item => item.code === 2322 && item.severity === 'error' && item.displayRange.startLine === 1)), JSON.stringify(diagnostics.data)]);
+  checks.push([`lsp.type-error.${surface}`, diagnostics.data.some(data => data.matches?.some(item => item.code === 2322 && item.severity === 'error' && (item.sites ?? [item]).some(site => site.line === 1))), JSON.stringify(diagnostics.data)]);
 }
 
 export async function advancedLsp(ctx) {

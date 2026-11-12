@@ -16,12 +16,12 @@ impl LineOffsets {
         self.0.len() - 1
     }
 
-    pub(super) fn start(&self, line: usize) -> usize {
+    pub(in crate::tools::source_view) fn start(&self, line: usize) -> usize {
         self.0[line]
     }
 
     /// The 0-based line holding byte `at` (the last line past the end).
-    pub(super) fn line_at(&self, at: usize) -> usize {
+    pub(in crate::tools::source_view) fn line_at(&self, at: usize) -> usize {
         self.0
             .partition_point(|start| *start <= at)
             .clamp(1, self.len().max(1))

@@ -37,7 +37,10 @@ pub(super) async fn exact_release(
         );
     }
     Err(super::super::versions::version_not_found(
-        name, wanted, &published,
+        ArtifactType::Packagist,
+        name,
+        wanted,
+        &published,
     ))
 }
 

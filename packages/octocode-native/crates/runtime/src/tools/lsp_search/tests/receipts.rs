@@ -34,7 +34,7 @@ fn success_rows_carry_no_receipt_and_name_their_workspace_root() {
             "documentSymbolProvider",
         ),
         (
-            json!({"operation":"workspaceSymbol","workspaceRoot":"/repo","symbolQuery":"run"}),
+            json!({"operation":"workspaceSymbol","workspaceRoot":"/repo","symbolFuzzy":"run"}),
             "workspaceSymbolProvider",
         ),
     ] {

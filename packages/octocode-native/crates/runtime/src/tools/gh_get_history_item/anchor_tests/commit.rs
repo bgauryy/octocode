@@ -39,7 +39,7 @@ async fn commit_patch_continuations_preserve_match_context_and_exact_stream() {
             let data = read_with_budget(&server, query.clone(), Some(40)).await;
             assert_history_page_contract(&data);
             actual.push_str(data["files"][0]["patch"].as_str().expect("patch window"));
-            let Some(next) = data.pointer("/contentPagination/patches/next/nextPage/input") else {
+            let Some(next) = data.pointer("/next/patches/input") else {
                 break;
             };
             let normalized = crate::contracts::validate_built("ghGetHistoryItem", next.clone())
@@ -130,7 +130,7 @@ async fn a_one_batch_commit_read_by_branch_sends_no_separate_resolution() {
     let requests = server.received_requests().await.expect("requests");
     assert_eq!(requests.len(), 1, "one read of the commit by its name");
     assert_eq!(
-        data.pointer("/contentPagination/files/next/nextPage/input/queries/0/ref"),
+        data.pointer("/next/files/input/queries/0/ref"),
         Some(&json!(HEAD)),
         "{data}"
     );
@@ -157,7 +157,7 @@ async fn commit_row_carries_its_sha_and_path_stat_files() {
     // A caller's SHA is not restated as its ref; a page listing every file
     // restates no count.
     assert!(out.get("ref").is_none(), "{out}");
-    assert!(out.get("changedFilesCount").is_none(), "{out}");
+    assert!(out.get("changedFileCount").is_none(), "{out}");
     // Patches: each line numbered on its own side.
     let mut patched = row;
     patched["sections"] = json!(["patches"]);

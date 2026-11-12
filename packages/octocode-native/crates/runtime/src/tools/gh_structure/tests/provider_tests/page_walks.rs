@@ -61,8 +61,8 @@ async fn a_listing_makes_no_date_lookup_and_honors_its_default_limit() {
 }
 
 /// A walk past one page lists every entry exactly once at the requested
-/// `limit`, pinned to the listed commit, with `page` and `totalPages` counting
-/// the calls it takes and no GraphQL request on any page.
+/// `limit`, pinned to the listed commit, with `offset` and `total` placing
+/// each call it takes and no GraphQL request on any page.
 #[tokio::test]
 async fn a_walk_lists_every_entry_once_at_its_limit() {
     let server = server().await;
@@ -87,8 +87,7 @@ async fn a_walk_lists_every_entry_once_at_its_limit() {
         let Some(next) = out.data.pointer("/next/nextPage/input/queries/0") else {
             break;
         };
-        assert_eq!(out.data["pagination"]["totalItems"], total, "{}", out.data);
-        assert_eq!(out.data["pagination"]["totalPages"], 3, "{}", out.data);
+        assert_eq!(out.data["pagination"]["total"], total, "{}", out.data);
         assert_eq!(next["ref"], SHA);
         assert_eq!(next["maxDepth"], 1);
         assert!(sizes.len() < 4, "nonterminating tree: {}", out.data);
@@ -150,8 +149,7 @@ async fn a_materialize_without_a_depth_pages_its_whole_listing_once() {
             let Some(next) = out.data.pointer("/next/nextPage/input/queries/0") else {
                 break;
             };
-            assert_eq!(out.data["pagination"]["totalItems"], 25, "{}", out.data);
-            assert_eq!(out.data["pagination"]["totalPages"], 3, "{}", out.data);
+            assert_eq!(out.data["pagination"]["total"], 25, "{}", out.data);
             assert_eq!(next["ref"], SHA);
             assert!(next.get("materialize").is_none(), "{next}");
             assert!(pages < 4, "nonterminating tree: {}", out.data);

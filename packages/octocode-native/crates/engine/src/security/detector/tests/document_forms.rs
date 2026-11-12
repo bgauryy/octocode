@@ -345,6 +345,41 @@ fn only_a_yaml_secrets_own_blocks_are_hidden() {
     }
 }
 
+/// Round 14, C: a Secret's rule holds within its own YAML document. A
+/// ConfigMap in another document, before or after it, stays, at the margin
+/// and in a text indented as a whole (a manifest quoted in a list, a
+/// request's text), in a file and in the pathless net alike; the Secret's own
+/// values go.
+#[test]
+fn a_secrets_rule_holds_within_its_own_document() {
+    for indent in ["", "  ", "    "] {
+        let manifest = [
+            "apiVersion: v1",
+            "kind: ConfigMap",
+            "data:",
+            "  cacheKeyPrefix: app-cache",
+            "---",
+            "kind: Secret",
+            "data:",
+            &format!("  username: {VALUE}"),
+            "...",
+            "kind: ConfigMap",
+            "data:",
+            "  region: eu-west-1",
+        ]
+        .map(|line| format!("{indent}{line}\n"))
+        .concat();
+        for path in [Some("k8s/a.yaml"), Some("notes.txt"), None] {
+            hides(
+                &manifest,
+                path,
+                &[VALUE],
+                &["cacheKeyPrefix: app-cache", "region: eu-west-1"],
+            );
+        }
+    }
+}
+
 /// An unquoted `kty` needs nothing before it in a walk of the text.
 #[test]
 fn a_key_in_yaml_may_open_the_file() {

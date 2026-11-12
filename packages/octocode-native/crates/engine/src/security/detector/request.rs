@@ -1,15 +1,15 @@
 //! Which strings of a request (a search term, a keyword, an address, a
 //! question) hold a credential.
 //!
-//! A request names what it looks for, so the name beside a value says nothing
-//! of the value: `password: str` and `token = None` are declarations to find,
-//! `password: <a generated string>` is a secret pasted into the request. A
-//! request is also no file: a name and its value sit anywhere in a sentence
-//! (`locate password: …`), and a search term may spell its value as a regex
-//! does (`eyJ…\.eyJ…`). Nothing is redacted here: the caller refuses the
-//! request.
+//! A request is judged by the one judgement a text of no known file gets
+//! ([`judged_values`]: [`redact`] in the pathless net), so a request runs
+//! only what every read would show and refuses whatever a read would hide:
+//! `password: str` and `token = None` are declarations to find in both,
+//! `password = "hunter2-Sup3rS3cret"` is a secret in both. A request may
+//! also spell its value as a regex does (`eyJ…\.eyJ…`), which a file never
+//! does: its literal form and the texts its wildcards match are judged the
+//! same way. Nothing is redacted here: the caller refuses the request.
 
-use super::code_syntax::{self, Key};
 use super::*;
 
 /// Whether `text`, a string of a request, holds a credential: as written,
@@ -22,172 +22,18 @@ pub(crate) fn holds_credential_as_request(text: &str) -> bool {
         || spells_most_of_a_credential(text)
 }
 
-/// Whether `text` holds a credential: a value a pattern knows by its own
-/// shape (a provider's token, a key block), a value a pattern finds by where
-/// it stands (its `secret` group: a URL's password) that is written as a
-/// secret is ([`ValueTest::Written`]) or opaque, under a pattern that reads a
-/// credential's name a value that is opaque ([`named_values::is_opaque`]),
-/// or an opaque value after a credential's name anywhere in the text
-/// ([`names_an_opaque_value`]).
+/// Whether the file judge hides any of `text` ([`judged_values`]).
 fn holds_credential_as_written(text: &str) -> bool {
-    let scope = Scope::Pathless;
-    let by_form = matching_patterns(text, scope).iter().any(|idx| {
-        document::Form::of(idx)
-            .is_some_and(|form| form.redact(text, replacement_for(idx)).0 != text)
-    });
-    by_form
-        || !pattern_values(text).is_empty()
-        || split_literals::redact_pieces(text).is_some()
-        || names_an_opaque_value(text)
+    !judged_values(text).is_empty()
 }
 
-/// The credentials a pattern finds in `text` by its regex, by byte position.
-fn pattern_values(text: &str) -> Vec<std::ops::Range<usize>> {
-    placed_values(text, true)
-}
-
-/// The values a pattern's regex places in `text` that are no credential as a
-/// request writes them (a URL's `password`, a name's `str`), by byte
-/// position: what the request rules read and cleared, which a rule for a
-/// file's text may still hide.
-pub(crate) fn cleared_values(text: &str) -> Vec<std::ops::Range<usize>> {
-    placed_values(text, false)
-}
-
-/// The values a pattern's regex places in `text` that are a credential
-/// (`held`) or are none.
-fn placed_values(text: &str, held: bool) -> Vec<std::ops::Range<usize>> {
-    let scope = Scope::Pathless;
-    let mut values = Vec::new();
-    for idx in matching_patterns(text, scope).iter() {
-        if document::Form::of(idx).is_some() {
-            continue;
-        }
-        let regex = pattern_regex_for(idx, text);
-        // A pattern with no `secret` group spells the credential itself; one
-        // with a group spells where a credential stands, and its own test
-        // judged what stands there as a file's read judges it: a placeholder
-        // (`postgres://user:password@localhost`, `Bearer <token>`) is none,
-        // any other value is one ([`ValueTest::Placed`]).
-        let own_judgement = matches!(VALUE_TESTS[idx], ValueTest::Every | ValueTest::Placed);
-        Judge::of(idx, scope, text, None).secrets(regex, text, |_, secret| {
-            let Some(value) = text.get(secret.clone()) else {
-                return;
-            };
-            // A value a rule finds under a name is one its own test judged
-            // a credential as a file holds it, at any length: a request
-            // clears only a value that names a type or a field to find
-            // (`password: str`), which no opaque word of any length is.
-            let is_credential = own_judgement || is_opaque_text(value);
-            if is_credential == held {
-                values.push(secret);
-            }
-        });
-    }
-    values
-}
-
-/// Whether a word of `value` is opaque ([`named_values::is_opaque_word`]),
-/// its quotes aside.
-fn is_opaque_text(value: &str) -> bool {
-    value
-        .split_whitespace()
-        .any(|piece| named_values::is_opaque_word(piece.trim_matches(credential_values::QUOTES)))
-}
-
-/// Whether a name with a credential word, anywhere in `text`, is followed by
-/// its operator and a value whose first word is a credential by that name
-/// ([`named_values::named_word`]: opaque, and no value such a name
-/// publishes or locates). The file rules that read `name: value` and
-/// `NAME=value` start at a line's start and read to its end, and the rule
-/// that reads a name in any layout takes one run of
-/// [`crate::security::patterns::OPAQUE_CHARS`]: a request is a sentence,
-/// where the name follows other words, words follow the value, and a
-/// generated password holds any symbol (`&`).
-fn names_an_opaque_value(text: &str) -> bool {
-    !named_opaque_values(text).is_empty()
-}
-
-/// The values [`names_an_opaque_value`] finds in `text`, in text order.
-fn named_opaque_values(text: &str) -> Vec<std::ops::Range<usize>> {
-    let mut lines = Vec::new();
-    let mut offset = 0;
-    for line in text.split_inclusive(LINE_END_CHARS) {
-        code_syntax::line_keys(line.trim_end_matches(LINE_END_CHARS), offset, &mut lines);
-        offset += line.len();
-    }
-    let mut values: Vec<std::ops::Range<usize>> = Vec::new();
-    for line in &lines {
-        for &Key { start, value, .. } in &line.keys {
-            // A key inside a value found before names nothing of its own.
-            if values.last().is_some_and(|last| start < last.end) {
-                continue;
-            }
-            let (Some(name), Some(rest)) =
-                (text.get(start..value), text.get(value..line.range.end))
-            else {
-                continue;
-            };
-            let Some(word) = rest.split_whitespace().next() else {
-                continue;
-            };
-            if let Some(own) = named_values::named_word(name, word) {
-                values.push(value + own.start..value + own.end);
-            }
-        }
-    }
-    values.extend(stated_opaque_values(text));
-    values.sort_by_key(|value| value.start);
-    values
-}
-
-/// The values a sentence of `text` states for a credential's name with no
-/// operator (`the password is …`, `my password was: …`): the word after the
-/// name states a value ([`named_values::states_a_value`]), and the one after
-/// that is a credential by that name ([`named_values::named_word`]), which no
-/// word of prose is (`the password is required`, `the token was expired`).
-fn stated_opaque_values(text: &str) -> Vec<std::ops::Range<usize>> {
-    let mut values = Vec::new();
-    let (mut name, mut states) = ("", "");
-    let mut start = 0;
-    for piece in text.split_inclusive(char::is_whitespace) {
-        let word = piece.trim_end();
-        let at = start;
-        start += piece.len();
-        if word.is_empty() {
-            continue;
-        }
-        if named_values::states_a_value(states)
-            && code_syntax::names_a_credential_word(name)
-            && name.chars().all(code_syntax::is_key_char)
-            && let Some(own) = named_values::named_word(name, word)
-        {
-            values.push(at + own.start..at + own.end);
-        }
-        (name, states) = (states, word);
-    }
-    values
-}
-
-/// `text` with each value [`names_an_opaque_value`] finds replaced by the
-/// placeholder of the rule that reads a credential's name; `None` when it
-/// finds none. A request string that is evidence keeps the text around its
-/// secret.
-pub(crate) fn hide_named_values(text: &str) -> Option<String> {
-    let values = named_opaque_values(text);
-    if values.is_empty() {
-        return None;
-    }
-    let placeholder = crate::security::redaction_placeholder(named_values::PATTERN);
-    let mut hidden = String::with_capacity(text.len());
-    let mut from = 0;
-    for value in values {
-        hidden.push_str(text.get(from..value.start)?);
-        hidden.push_str(&placeholder);
-        from = value.end;
-    }
-    hidden.push_str(text.get(from..)?);
-    Some(hidden)
+/// What the file judge hides of `text`, a text of no known file, by byte
+/// position: the one judgement a read of such text makes ([`redact`] in
+/// [`Scope::Pathless`]), every rule and every value test included.
+fn judged_values(text: &str) -> Vec<std::ops::Range<usize>> {
+    redact(text, Scope::Pathless)
+        .map(|result| result.edits.redacted().collect())
+        .unwrap_or_default()
 }
 
 /// The literal a regex spelling of `text` matches, where each element that
@@ -195,21 +41,26 @@ pub(crate) fn hide_named_values(text: &str) -> Option<String> {
 /// (`\.`, `\-`, `\/`), an escaped line break or tab (`\n`, `\r`, `\t`), a
 /// class of one member (`[I]`, `[\.]`), and an empty group (`(?:)`), which
 /// matches nothing between two characters. Every other element stays as
-/// written. `None` when `text` spells none of them: it is its own literal.
+/// written, an escaped quote too ([`escaped_character`]). `None` when `text`
+/// is no regex spelling: it writes no regex operator (an escaped mark, a
+/// class of one, an empty group), so it is the text a reader wrote, judged
+/// as written alone. A line of code writes `\"` and `\n` as a literal's
+/// escapes, which a regex shares: they alone make no regex spelling.
 pub(crate) fn literal_form(text: &str) -> Option<String> {
     if !text.contains(['\\', '[', '(']) {
         return None;
     }
     let mut plain = String::with_capacity(text.len());
-    let mut changed = false;
+    let mut regex = false;
     let mut rest = text;
     while let Some(c) = rest.chars().next() {
         let (read, element) = one_character_element(rest).unwrap_or((c.len_utf8(), Some(c)));
-        changed |= element != Some(c) || read != c.len_utf8();
+        regex |= (element != Some(c) || read != c.len_utf8())
+            && !matches!(element, Some('\n' | '\r' | '\t'));
         plain.extend(element);
         rest = rest.get(read..).unwrap_or_default();
     }
-    changed.then_some(plain)
+    regex.then_some(plain)
 }
 
 /// The regex element `text` starts with when it matches one fixed character
@@ -234,12 +85,15 @@ fn one_character_element(text: &str) -> Option<(usize, Option<char>)> {
 /// The escape `text` starts with when it names one fixed character: its
 /// length and that character. An escaped letter or digit is a class, an
 /// anchor or a reference (`\w`, `\b`, `\1`), line breaks and the tab aside.
+/// An escaped quote is none: no regex needs a quote escaped, so `\"` is a
+/// string literal's escape, written as code writes it.
 fn escaped_character(text: &str) -> Option<(usize, char)> {
     let escaped = text.strip_prefix('\\')?.chars().next()?;
     let character = match escaped {
         'n' => '\n',
         'r' => '\r',
         't' => '\t',
+        '"' | '\'' | '`' => return None,
         mark if mark.is_ascii_punctuation() => mark,
         _ => return None,
     };
@@ -247,8 +101,9 @@ fn escaped_character(text: &str) -> Option<(usize, char)> {
 }
 
 /// Whether `text`, read as a regex, spells most of a credential: in a text
-/// its wildcards match ([`FilledForms`]), a credential is found
-/// ([`pattern_values`], [`named_opaque_values`]) of whose characters at least
+/// its wildcards match ([`FilledForms`]), the file judge finds a credential
+/// by its shape (a rule of its shape or place, or an opaque value) of whose
+/// characters at least
 /// [`WRITTEN_SHARE`] were written and the rest a wildcard stands for. A
 /// token whose last characters are spelled `\w\w`, `..` or `[A-Za-z0-9]{2}`
 /// is that token to whoever reads the request; a pattern that writes a
@@ -278,8 +133,29 @@ fn spells_most_of_a_credential(text: &str) -> bool {
                 && written * WRITTEN_SHARE.1 >= value.len() * WRITTEN_SHARE.0
                 && !credential_values::is_written_placeholder(&written_text(value))
         };
-        pattern_values(&filled).iter().any(mostly_written)
-            || named_opaque_values(&filled).iter().any(mostly_written)
+        // A wildcard fills characters no one wrote: only a value whose own
+        // shape is a credential's is spelled by it (a rule that knows a
+        // credential by its shape or its place found it, or it is opaque),
+        // never a word a value test reads under a name (`Optional[str]`).
+        let Some(result) = redact(&filled, Scope::Pathless) else {
+            return false;
+        };
+        let by_shape = result.secrets_detected.iter().any(|name| {
+            PATTERNS
+                .iter()
+                .position(|pattern| pattern.name == name)
+                .is_some_and(|idx| matches!(VALUE_TESTS[idx], ValueTest::Every | ValueTest::Placed))
+        });
+        result
+            .edits
+            .redacted()
+            .filter(|value| {
+                by_shape
+                    || filled.get(value.clone()).is_some_and(|text| {
+                        named_values::is_opaque_word(text.trim_matches(credential_values::QUOTES))
+                    })
+            })
+            .any(|value| mostly_written(&value))
     })
 }
 
@@ -335,9 +211,14 @@ impl FilledForms {
             if element.most == Some(element.least) {
                 continue;
             }
-            let before = elements[..at].iter().rev().take_while(|e| written(e)).count();
+            let before = elements[..at]
+                .iter()
+                .rev()
+                .take_while(|e| written(e))
+                .count();
             let after = elements[at + 1..].iter().take_while(|e| written(e)).count();
-            open = open.max((before + after) * (WRITTEN_SHARE.1 - WRITTEN_SHARE.0) / WRITTEN_SHARE.0);
+            open =
+                open.max((before + after) * (WRITTEN_SHARE.1 - WRITTEN_SHARE.0) / WRITTEN_SHARE.0);
         }
         Some(Self { elements, open })
     }
@@ -393,7 +274,10 @@ fn regex_element(text: &str, last: Option<&mut Element>) -> (usize, Option<Eleme
         return (4, None);
     }
     if let Some((read, member)) = class(text) {
-        return (read, Some(member.map_or(once('a', true), |c| once(c, false))));
+        return (
+            read,
+            Some(member.map_or(once('a', true), |c| once(c, false))),
+        );
     }
     if let Some(escaped) = text.strip_prefix('\\').and_then(|rest| rest.chars().next()) {
         let read = 1 + escaped.len_utf8();
@@ -437,7 +321,10 @@ fn count(text: &str) -> Option<(usize, usize, Option<usize>)> {
         }
         _ => return None,
     };
-    let marked = usize::from(text.get(read..).is_some_and(|rest| rest.starts_with(['?', '+'])));
+    let marked = usize::from(
+        text.get(read..)
+            .is_some_and(|rest| rest.starts_with(['?', '+'])),
+    );
     Some((read + marked, least, most))
 }
 

@@ -111,7 +111,7 @@ fn marks_rebase_under_a_prefix() {
 }
 
 /// A value named a secret by a key on an earlier line, a comment between.
-const KEYED: &str = "const apiKey =\n  // the key\n  \"Bq1Zx9Lm2Vp4Kd8Rt7Yb6Nc3\";\nconst label = \"plain\";\nexport const options = {\n  getToken: () => getGitHubToken(log),\n};\n";
+const KEYED: &str = "const apiKey =\n  // the key\n  \"Bq1Zx9Lm2Vp4Kd8Rt7Yb6Nc3\";\nconst label = \"plain\";\nexport const options = {\n  token: <string>raw,\n};\n";
 const VALUE: &str = "Bq1Zx9Lm2Vp4Kd8Rt7Yb6Nc3";
 
 fn keyed() -> JudgedText {
@@ -159,7 +159,7 @@ fn a_fragment_is_placed_and_never_judged_alone() {
         assert!(placed);
         assert!(!shown.contains(VALUE), "{shown}");
     }
-    let code = "  getToken: () => getGitHubToken(log),";
+    let code = "  token: <string>raw,";
     let alone = ContentSecurity::new().sanitize_leaf(code, Some("config/app.yaml"));
     assert!(alone.is_some(), "fixture no longer misjudged alone");
     assert_eq!(judged.fragment(6, Some(0), code), (code.into(), true));

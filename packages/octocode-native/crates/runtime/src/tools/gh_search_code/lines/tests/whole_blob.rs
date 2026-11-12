@@ -25,7 +25,8 @@ fn a_listed_line_is_judged_with_the_whole_blob_when_a_window_cannot_show_it() {
         panic!("the blob is read");
     };
     assert!(!lines.join("\n").contains(value), "{lines:?}");
-    // No such pattern applies at this path: the bytes are plain text.
+    // The manifest names itself in any file of text (D2, round 13): a `.txt`
+    // copy's listed line is judged with its whole blob too.
     let hits = scan(
         text.as_bytes(),
         "deploy/secret.txt",
@@ -37,7 +38,11 @@ fn a_listed_line_is_judged_with_the_whole_blob_when_a_window_cannot_show_it() {
     let FileHits::Lines { lines, .. } = hits else {
         panic!("the blob is read");
     };
-    assert!(lines.join("\n").contains(value), "{lines:?}");
+    assert!(!lines.join("\n").contains(value), "{lines:?}");
+    assert!(
+        lines.join("\n").contains("tls.crt: [REDACTED-"),
+        "{lines:?}"
+    );
 }
 
 /// A listed member of a private JWK, with `kty` further than any window from

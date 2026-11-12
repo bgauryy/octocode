@@ -133,7 +133,7 @@ fn an_unreadable_directory_leaves_every_walking_tool_partial() {
 }
 
 /// A missing path gets the same recovery in every local walking tool:
-/// `pathNotFound` with the viewTree lead, and no absolute filesystem path
+/// `notFound` with the viewTree lead, and no absolute filesystem path
 /// in the message.
 #[test]
 fn a_missing_path_has_one_recovery_and_no_absolute_root_in_every_tool() {
@@ -191,7 +191,7 @@ fn a_missing_path_has_one_recovery_and_no_absolute_root_in_every_tool() {
     for (tool, error) in errors {
         assert_eq!(
             error.code,
-            octocode_contract_types::ErrorCode::PathNotFound,
+            octocode_contract_types::ErrorCode::NotFound,
             "{tool}"
         );
         assert!(

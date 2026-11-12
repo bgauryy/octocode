@@ -64,7 +64,7 @@ export async function runGrammarCase(entry, surface, walk, check) {
     const pages = await query('lspSearch', { path: file, workspaceRoot: path.dirname(file), operation,
       symbolName: anchors.symbol, line: anchors.position.line + 1, ...(operation === 'references' && { includeDeclaration: true }) }, `lsp.${operation}`);
     const locations = pages.flatMap(page => lspLocations(page));
-    const positions = locations.map(row => [row.displayRange.startLine, row.displayRange.startCharacter]);
+    const positions = locations.map(row => [row.line, row.column]);
     const expected = (operation === 'definition' ? [anchors.target] : anchors.locations).map(row => [row.start.line + 1, row.start.character + 1]);
     check(`${label}.lsp.${operation}.protocol-evidence`, same(positions, expected)
       && locations.every(row => path.resolve(path.dirname(path.dirname(file)), row.path) === file), { expected, observed: positions, locations });

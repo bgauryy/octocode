@@ -36,7 +36,7 @@ async fn branch_hits_are_verified_at_the_ref_and_labeled() {
         .iter()
         .find(|row| row["path"] == "src/handler.py")
         .expect("handler");
-    assert_eq!(handler["lines"], json!(["1\tdef wrap_app(app):"]), "{data}");
+    assert_eq!(listing(handler), json!(["1\tdef wrap_app(app):"]), "{data}");
     let routing = files
         .iter()
         .find(|row| row["path"] == "src/routing.py")
@@ -82,7 +82,7 @@ async fn a_non_default_ref_discloses_the_index_commit_and_leads_to_the_ref() {
     // advice is the description's; `viewRepo` lists them.
     assert_eq!(
         data["warnings"],
-        json!(["Files from the default-branch index at fedcba9, not dev; `lines` read at dev."]),
+        json!(["Files from the default-branch index at fedcba9, not dev; `matches` read at dev."]),
         "{data}"
     );
     let lead = crate::tools::test_support::checks::related_call(data, "ghStructure", |input| {
@@ -199,11 +199,11 @@ async fn every_row_of_a_default_branch_page_has_numbered_lines() {
     assert_eq!(files.len(), names.len(), "{}", out.data);
     for (row, name) in files.iter().zip(names) {
         assert_eq!(
-            row["lines"],
+            listing(row),
             json!([format!("1\tfn wrap_app() {{}} // {name}")]),
             "{row}"
         );
-        assert!(row.get("matches").is_none(), "{row}");
+        assert!(row.get("fragments").is_none(), "{row}");
     }
 }
 
@@ -243,11 +243,11 @@ async fn every_row_of_a_ref_page_is_read_at_the_ref() {
     let files = data["files"].as_array().expect("files");
     assert_eq!(files.len(), names.len(), "{data}");
     for row in &files[..6] {
-        assert!(row.get("matches").is_none(), "{row}");
+        assert!(row.get("fragments").is_none(), "{row}");
     }
     for (row, name) in files[..6].iter().zip(names) {
         assert_eq!(
-            row["lines"],
+            listing(row),
             json!([format!("2\tfn wrap_app() {{}} // {name}")]),
             "{row}"
         );

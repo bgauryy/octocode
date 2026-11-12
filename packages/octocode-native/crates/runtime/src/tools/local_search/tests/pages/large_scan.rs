@@ -3,7 +3,7 @@ use super::*;
 
 /// A search matching more files than any one collection can hold in a
 /// page chain's scan still pages every matched file exactly once, and the
-/// first page counts them all (`totalItems` is files matched, not a cap).
+/// first page counts them all (`pagination.total` is files matched, not a cap).
 #[test]
 fn every_matched_file_of_a_large_scan_is_paged_exactly_once() {
     let root = tempfile::tempdir().expect("fixture");
@@ -35,7 +35,7 @@ fn every_matched_file_of_a_large_scan_is_paged_exactly_once() {
     assert_eq!(walk.rows.len(), expected.len(), "each file once");
     assert_eq!(delivered, expected);
     assert_eq!(
-        pages[0]["pagination"]["totalItems"],
+        pages[0]["pagination"]["total"],
         expected.len(),
         "{}",
         pages[0]["pagination"]

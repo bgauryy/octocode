@@ -67,8 +67,8 @@ test('caller-file comparisons use file evidence and preserve edge counts across 
     calls.push(query);
     return {
       rows: query.target === 'first'
-        ? [{ file: 'src/a.java', edges: 3 }, { file: 'src/b.java', edges: 1 }]
-        : [{ file: 'src/a.java', edges: 2 }],
+        ? [{ path: 'src/a.java', edges: 3 }, { path: 'src/b.java', edges: 1 }]
+        : [{ path: 'src/a.java', edges: 2 }],
       ms: 1, bytes: 20, pagesComplete: true,
     };
   }, ['first', 'second']);

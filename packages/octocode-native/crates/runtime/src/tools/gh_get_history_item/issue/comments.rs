@@ -45,7 +45,7 @@ pub(super) struct CommentPage {
 }
 
 impl CommentPage {
-    /// The comment page on `row` and its page facts. `totalItems` is the
+    /// The comment page on `row` and its page facts. `total` is the
     /// issue's real comment count; the provider comments after this page
     /// (its pages do not tile `page × pageSize`) stay on `rest`.
     pub(super) fn attach(
@@ -61,7 +61,7 @@ impl CommentPage {
             row["comments"] = Value::Array(comments);
         }
         let mut comments = self.pagination;
-        comments["totalItems"] = json!(at.total);
+        comments["total"] = json!(at.total);
         if let Some(size) = self.resume_size {
             remainder.resume_page_size(size);
         }
@@ -177,16 +177,15 @@ pub(super) async fn issue_comments(
         })
         .collect();
     // A page past the discussion's last is the shared out-of-range outcome:
-    // its block states `page N of M` on the page grid it was asked on.
+    // its block states the discussion's size on the page grid it was asked on.
     let past_end = (consumed == 0 && !more)
         .then(|| at.total.and_then(|total| usize::try_from(total).ok()))
         .flatten()
-        .map(|total| crate::response::pages::PageFacts::counted(page_no, grid, total))
-        .filter(|facts| facts.past_end().is_some());
-    let mut pagination = past_end.map_or_else(
-        || PageFacts::open(page_no, None, more).to_value(),
-        |facts| facts.out_of_range(true).to_value(),
-    );
+        .map(|total| PageFacts::nth(page_no, grid, total))
+        .filter(|facts| facts.is_past_end());
+    let mut pagination = past_end
+        .unwrap_or_else(|| PageFacts::open(start, consumed, more))
+        .to_value();
     let mut resume_size = None;
     if more {
         let next = start + consumed;

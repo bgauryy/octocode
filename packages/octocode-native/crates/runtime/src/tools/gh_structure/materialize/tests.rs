@@ -222,7 +222,7 @@ async fn repeated_materialization_keeps_the_verified_snapshot_copy() {
             .await
             .unwrap()
             .unwrap();
-        let root = result.location["localPath"].as_str().unwrap();
+        let root = result.location["path"].as_str().unwrap();
         assert_eq!(
             std::fs::read(Path::new(root).join("source.rs")).unwrap(),
             b"source\n"

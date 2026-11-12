@@ -100,7 +100,7 @@ async fn shared_pipeline_ranges_redacts_and_pins_remote_identity() {
     assert_eq!(result.file.commit_sha, sha);
     let wire = serde_json::to_value(&result.file).expect("file json");
     assert_eq!(wire["commitSha"], sha);
-    assert!(wire.get("resolvedRef").is_none(), "{wire}");
+    assert!(wire.get("ref").is_none(), "{wire}");
     assert!(result.file.calls.is_none(), "bounded range is complete");
 }
 

@@ -203,7 +203,7 @@ async function npmBatch(ctx, surface, expected, record) {
 
 function batchRowsValid(at) {
   return [0, 1, 3, 4].every(index => at(index).length === 1)
-    && at(0)[0].data?.errorCode === 'invalidInput' && at(3)[0].data?.errorCode === 'versionNotFound'
+    && at(0)[0].data?.errorCode === 'invalidInput' && at(3)[0].data?.errorCode === 'notFound'
     && at(1)[0].data?.artifacts?.[0]?.packageName === 'tiny-health' && at(4)[0].data?.artifacts?.[0]?.version === '2.0.0';
 }
 

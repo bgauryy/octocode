@@ -89,7 +89,7 @@ async fn patch_rows_in_one_call_share_one_budget() {
         // Half the default window each (one budget), not a whole window each.
         assert!((4_000..=20_000).contains(&taken), "row {index}: {taken}");
         assert_eq!(
-            data["pullRequests"][0]["contentPagination"]["patches"]["hasMore"], true,
+            data["pullRequests"][0]["sectionPagination"]["patches"]["hasMore"], true,
             "row {index}: {data}"
         );
     }
@@ -186,9 +186,7 @@ async fn filtered_review_comment_pages_load_provider_batches_concurrently() {
         let next = result
             .structured_content
             .pointer("/responsePagination/next")
-            .or_else(|| {
-                data.pointer("/pullRequests/0/contentPagination/reviewComments/next/nextPage")
-            });
+            .or_else(|| data.pointer("/pullRequests/0/next/reviewComments"));
         let Some(next) = next else { break };
         assert!(next["input"]["cursor"].is_string());
         assert_eq!(next["tool"], "ghGetHistoryItem");

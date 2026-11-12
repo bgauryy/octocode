@@ -76,12 +76,11 @@ impl<'a> ListingPage<'a> {
     /// the page count and leads back to page 1).
     pub(super) fn paginate(&self, value: &mut Value) {
         if self.total_pages > 1 || self.past_end() {
-            value["pagination"] = crate::response::pages::PageFacts::counted(
+            value["pagination"] = crate::response::pages::PageFacts::nth(
                 self.current,
                 self.per_page,
                 self.total_entries,
             )
-            .out_of_range(self.past_end())
             .to_value();
         }
     }
@@ -94,7 +93,7 @@ pub(super) fn summary(entries: &[TreeEntry]) -> Value {
         .iter()
         .filter(|entry| entry.kind == EntryKind::File)
         .count();
-    let mut summary = json!({"files": files, "dirs": entries.len() - files});
+    let mut summary = json!({"fileCount": files, "dirCount": entries.len() - files});
     let bytes = entries
         .iter()
         .filter(|entry| entry.kind == EntryKind::File)
@@ -206,7 +205,7 @@ fn file_read(query: &GhStructureQueryTree, path: String, commit_sha: &str) -> Va
 
 /// The read a materialized listing leads to: [`entry_path`] over the entries
 /// the page wrote, read with localFetch from the local copy at `local`
-/// (`location.localPath`, the listed directory), outlined like the remote read.
+/// (`location.path`, the listed directory), outlined like the remote read.
 pub(super) fn local_entry_read<'a>(
     query: &GhStructureQueryTree,
     written: impl Iterator<Item = &'a TreeEntry>,

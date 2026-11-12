@@ -425,7 +425,7 @@ fn hit_reads(resources: &serde_json::Map<String, Value>) -> Vec<Value> {
             Some(crate::tools::source_capture::read_lead(
                 tool,
                 &query,
-                resource["snapshot"].as_str(),
+                resource["sourceDigest"].as_str(),
             ))
         })
         .collect()

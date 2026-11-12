@@ -73,7 +73,7 @@ pub struct GhGetFileContentFile {
     #[serde(flatten, serialize_with = "crate::response::result::serialize_calls")]
     pub calls: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_modified: Option<String>,
+    pub modified_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_modified_by: Option<String>,
 }
@@ -321,8 +321,8 @@ pub(crate) async fn execute<S: ContentScan + Clone + Send + Sync + 'static>(
             stamp => stamp,
         };
         match stamp {
-            Ok((last_modified, last_modified_by)) => {
-                result.file.last_modified = last_modified;
+            Ok((modified_at, last_modified_by)) => {
+                result.file.modified_at = modified_at;
                 result.file.last_modified_by = last_modified_by;
             }
             Err(error) => result.file.content.warnings.push(unavailable_note(&error)),
@@ -341,14 +341,12 @@ pub(crate) struct Output;
 impl crate::response::output::ToolOutput for Output {
     fn error_hint(&self, code: ErrorCode, _query: &serde_json::Value) -> Option<&'static str> {
         // The message names the item; `repair` is the corrected read. A
-        // missing path names its repository, path and ref, and its related[]
-        // listing at that commit is the recovery. A symbols read no outline
-        // can serve carries the plain read as its related lead; the shared
-        // hint names the local filesystem tools, which cannot read this file.
+        // symbols read no outline can serve carries the plain read as its
+        // related lead; the shared hint names the local filesystem tools,
+        // which cannot read this file.
         matches!(
             code,
             ErrorCode::InvalidPattern
-                | ErrorCode::NotFound
                 | ErrorCode::SymbolsUnsupported
                 | ErrorCode::LanguageUnsupported
         )

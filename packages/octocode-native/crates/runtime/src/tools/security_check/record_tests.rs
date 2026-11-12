@@ -453,9 +453,9 @@ fn brief_rows_list_the_most_severe_first() {
 fn a_twin_record_states_only_its_differences() {
     let mut rows = vec![
         json!({"id": "GHSA-a", "summary": "s", "details": "long text", "link": "https://osv.dev/a",
-            "cwes": ["CWE-77"], "modified": "2026-10-20T20:00:04Z"}),
+            "cwes": ["CWE-77"], "modifiedAt": "2026-10-20T20:00:04Z"}),
         json!({"id": "GHSA-a", "summary": "s", "details": "long text", "link": "https://github.com/advisories/a",
-            "cwes": ["CWE-77"], "modified": "2026-10-20T19:48:26Z", "epss": {"percentage": 0.01}}),
+            "cwes": ["CWE-77"], "modifiedAt": "2026-10-20T19:48:26Z", "epss": {"percentage": 0.01}}),
         json!({"id": "GHSA-b", "summary": "s", "details": "long text"}),
     ];
     let twins = state_twin_differences(&mut rows);
@@ -463,7 +463,7 @@ fn a_twin_record_states_only_its_differences() {
     assert_eq!(
         rows[1],
         json!({"id": "GHSA-a", "link": "https://github.com/advisories/a",
-            "modified": "2026-10-20T19:48:26Z", "epss": {"percentage": 0.01}})
+            "modifiedAt": "2026-10-20T19:48:26Z", "epss": {"percentage": 0.01}})
     );
     assert_eq!(rows[0]["details"], "long text");
     assert_eq!(rows[2]["details"], "long text");

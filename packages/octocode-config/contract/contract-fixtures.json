@@ -3804,7 +3804,7 @@
           "modifiedAt": {
             "from": "2026-01-01T00:00:00Z"
           },
-          "sizeBytes": {
+          "bytes": {
             "min": 1,
             "max": 1024
           },
@@ -3825,7 +3825,7 @@
           "modifiedAt": {
             "from": "2026-01-01T00:00:00Z"
           },
-          "sizeBytes": {
+          "bytes": {
             "min": 1,
             "max": 1024
           },
@@ -5145,7 +5145,7 @@
         {
           "operation": "workspaceSymbol",
           "workspaceRoot": ".",
-          "symbolQuery": "Cache",
+          "symbolFuzzy": "Cache",
           "rustContext": {}
         }
       ]
@@ -5537,7 +5537,7 @@
         {
           "operation": "workspaceSymbol",
           "workspaceRoot": ".",
-          "symbolQuery": "expire"
+          "symbolFuzzy": "expire"
         }
       ]
     },
@@ -5547,7 +5547,7 @@
           "workspaceRoot": ".",
           "page": 1,
           "operation": "workspaceSymbol",
-          "symbolQuery": "expire"
+          "symbolFuzzy": "expire"
         }
       ]
     }

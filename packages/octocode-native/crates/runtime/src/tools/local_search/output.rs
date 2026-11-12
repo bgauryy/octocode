@@ -26,32 +26,19 @@ mod tests {
 
     #[test]
     fn pagination_producers_follow_the_public_output_contract() {
-        use super::super::types::{FilePagination, ItemPagination};
+        use super::super::types::Paging;
         use serde_json::json;
-        let file = ItemPagination {
-            page: Some(1),
-            total_pages: Some(2),
-            total_matches: Some(3),
-            has_more: true,
-            next: None,
-            out_of_range: false,
-        };
-        let outer = FilePagination {
-            unit: None,
-            page: 1,
-            match_page: None,
-            total_pages: 2,
-            files_per_page: None,
-            total_items: 3,
-            has_more: true,
-            out_of_range: false,
-        };
+        let file = Paging::of("matches", (0, 2, 3), true, false);
+        let outer = Paging::of("files", (0, 1, 3), true, false);
         let output = json!({"results":[{"index":0,"data":{
             "files":[{"path":"src/lib.rs","pagination":file}],"pagination":outer
         }}]});
         crate::contracts::validate_output("localSearch", &output)
             .expect("serialized producer pages satisfy the canonical schema");
-        assert_eq!(output["results"][0]["data"]["pagination"]["page"], 1);
+        assert_eq!(
+            output["results"][0]["data"]["pagination"],
+            json!({"unit":"files","offset":0,"length":1,"total":3,"hasMore":true})
+        );
     }
 
     /// A scope no file of which could be read is not fixed by a broader

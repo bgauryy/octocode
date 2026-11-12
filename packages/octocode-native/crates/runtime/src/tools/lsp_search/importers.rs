@@ -28,7 +28,7 @@
 //! anchor's module are opened.
 
 use super::anchor::Position;
-use super::failure::{LspFailure, flag_partial, ignored_text_lead};
+use super::failure::{LspFailure, flag_partial};
 use super::file_windows::FileWindows;
 use super::import_stop::{proven_missing, stays_on_import};
 use super::recovery::{resolve_definition_chain, snippet_identity};
@@ -95,8 +95,8 @@ pub(super) const IGNORED_REASON: crate::response::paging::PartialReason =
 /// imports the name from a module that may be the anchor's; whatever else
 /// there could not be decided is said once, with the search that reads it.
 /// These two notes say it: each reads the same on every row of the scope.
-const IGNORED_UNFINISHED_NOTICE: &str = "The scan for gitignored or hidden files that spell this name did not finish, so files there may be uncounted; they are outside this answer's scope, and a localSearch with includeIgnored and includeHidden reads them.";
-const IGNORED_UNCHECKED_NOTICE: &str = "Gitignored or hidden files could not be checked for an import of this name (unreadable, too large to parse, or unparsable); they are outside this answer's scope, and the localSearch lead reads them.";
+const IGNORED_UNFINISHED_NOTICE: &str = "The scan for gitignored or hidden files that spell this name did not finish, so files there may be uncounted; they are outside this answer's scope.";
+const IGNORED_UNCHECKED_NOTICE: &str = "Gitignored or hidden files could not be checked for an import of this name (unreadable, too large to parse, or unparsable); they are outside this answer's scope.";
 /// Settle/ready bounds for the last candidate open of a window; the load it
 /// triggers covers every candidate opened before it. Shorter than a
 /// request's anchor open (the server already loaded the anchor's project),

@@ -390,7 +390,7 @@ fn a_later_comment_page_stays_classified_and_its_unfiltered_lead_keeps_the_page(
     let mut structured = json!({"results":[{"index":0,"data":{"pullRequests":[{
         "number":1,
         "comments":[{"body":"please fix"},{"body":"lgtm"}],
-        "contentPagination":{"comments":{"page":2,"hasMore":true,"next":{"nextPage":lead}}},
+        "sectionPagination":{"comments":{"page":2,"hasMore":true,"next":{"nextPage":lead}}},
     }]}}]});
     let mut response_query = query.clone();
     apply(
@@ -408,7 +408,7 @@ fn a_later_comment_page_stays_classified_and_its_unfiltered_lead_keeps_the_page(
     assert_eq!(unfiltered["page"], 2);
     assert!(unfiltered.get("classification").is_none());
     // The next page keeps the judge and starts a fresh judgment.
-    let next = &row["contentPagination"]["comments"]["next"]["nextPage"]["input"]["queries"][0];
+    let next = &row["sectionPagination"]["comments"]["next"]["nextPage"]["input"]["queries"][0];
     assert_eq!(next["page"], 3);
     assert!(next.get("classification").is_some(), "{next}");
     assert!(

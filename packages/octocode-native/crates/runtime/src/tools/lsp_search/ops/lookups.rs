@@ -186,9 +186,9 @@ impl Operation<'_, '_> {
 
     pub(super) async fn workspace_symbol(self) -> Result<Value, LspFailure> {
         let query = self.query;
-        let name = lsp_search_query::symbol_query(query)
+        let name = lsp_search_query::symbol_fuzzy(query)
             .map(str::to_owned)
-            .ok_or_else(|| LspFailure::invalid_query("workspaceSymbol requires symbolQuery"))?;
+            .ok_or_else(|| LspFailure::invalid_query("workspaceSymbol requires symbolFuzzy"))?;
         let symbols =
             cancellable(self.cancel, self.client.workspace_symbol(name.clone())).await??;
         // The server's own cap is judged on its raw answer, before the

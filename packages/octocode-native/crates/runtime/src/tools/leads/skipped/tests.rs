@@ -98,3 +98,30 @@ fn every_tool_discloses_skipped_paths_in_one_shape() {
         "{row}"
     );
 }
+
+/// Final round, item 4: a skip's disclosure quotes the walk's path and
+/// reason (a rule's text, an error) as judged, so a credential written there
+/// shows as the placeholder a read shows; the runtime's own words stay.
+#[test]
+fn a_disclosure_quotes_the_walks_text_as_judged() {
+    let token = format!("ghp_{}", "a1B2".repeat(9));
+    let entry = |cause: SkippedPathCause, reason: Option<String>| SkippedPath {
+        path: "logs".to_owned().try_into().expect("path"),
+        cause,
+        count: None,
+        reason,
+    };
+    for cause in [SkippedPathCause::Unreadable, SkippedPathCause::Ignored] {
+        let shown = disclosure(
+            &entry(cause, Some(format!("rule `token={token}` in .gitignore"))),
+            &format!("logs/{token}.txt"),
+        );
+        assert!(!shown.contains(&token), "{shown}");
+        assert!(shown.contains("[REDACTED-"), "{shown}");
+        let plain = disclosure(&entry(cause, Some("permission denied".into())), "logs");
+        assert!(
+            plain.contains("`logs`") && plain.contains("permission denied"),
+            "{plain}"
+        );
+    }
+}

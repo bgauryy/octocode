@@ -6,7 +6,7 @@ import { classificationBase, longContextProblem } from './classification-rows.mj
 import { searchRegex } from './oracle-grep.mjs';
 
 const rowsOf = pages => pages.flatMap(page => page.json?.results ?? []).map(row => row.data ?? {});
-const SORT_KEY = { stars: 'stars', forkCount: 'forks', helpWantedIssueCount: 'helpWanted', updatedAt: 'updated', pushedAt: 'pushed' };
+const SORT_KEY = { stars: 'stars', forks: 'forks', helpWantedIssueCount: 'helpWanted', updatedAt: 'updated', pushedAt: 'pushed' };
 const orderBy = (rows, value, order) => rows.toSorted((a, b) => (order === 'asc' ? 1 : -1) * (value(a) < value(b) ? -1 : value(a) > value(b) ? 1 : 0));
 const distinct = values => values.filter((value, index) => values.indexOf(value) === index);
 
@@ -65,7 +65,7 @@ function historyTruth(ctx, { query }) {
     && selects(f, 'linked', () => item.linked)).map(item => [item.number]);
 }
 
-const HISTORY_ORDER = { commentCount: item => item.comments.length, reactionCount: item => item.reactions, createdAt: item => item.day, updatedAt: item => item.updatedDay };
+const HISTORY_ORDER = { commentsCount: item => item.comments.length, reactionCount: item => item.reactions, createdAt: item => item.day, updatedAt: item => item.updatedDay };
 const historyRows = row => [...(row.pullRequests ?? []), ...(row.issues ?? [])];
 
 function historyCheck(ctx, { query }, pages) {
@@ -217,7 +217,7 @@ export const ghStructure = {
   check: (ctx, { query }, pages) => {
     if (!query.materialize) return null;
     const location = rowsOf(pages)[0]?.location;
-    return location?.localPath ? null : `materialize true: no location: ${JSON.stringify(rowsOf(pages)[0]).slice(0, 200)}`;
+    return location?.path ? null : `materialize true: no location: ${JSON.stringify(rowsOf(pages)[0]).slice(0, 200)}`;
   },
   indistinct: { operation: 'one value per form, each with its own oracle', materialize: 'adds a checkout, judged by check' },
 };
