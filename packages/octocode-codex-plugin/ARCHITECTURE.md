@@ -20,12 +20,11 @@ From the repository root:
 ```sh
 node skills-dev/octocode-dev/scripts/dev.mjs build:dev
 yarn workspace @octocodeai/codex-plugin verify
-yarn workspace @octocodeai/codex-plugin test:smoke
 ```
 
 For a focused rebuild after prerequisites are built, use `yarn workspace @octocodeai/codex-plugin build`.
 
-The package tests validate the upstream Agent Plugins schemas, release pins, skill coverage, local script imports, and an extracted npm archive. The smoke check uses an isolated Codex home and temporary marketplace to install the built package. Its MCP check explicitly uses the local built server, since the registry pin may not be published yet. It tests project isolation and synthetic GitHub CLI authentication against a loopback fixture; it does not read real credentials or prove registry installation or other operating systems.
+The package tests validate the upstream Agent Plugins schemas, release pins, skill coverage, local script imports, and an extracted npm archive. Install behavior is an agent check, not a script: the plugins item of [tool checks](../octocode-benchmark/CHECKS.md#end-to-end-before-a-release). It proves neither registry installation nor other operating systems.
 
 Before broad release, test the published pin on each supported operating system, in a fresh desktop chat, with a user-authorized GitHub account and private repository. Check worktrees, missing login, expired credentials, permission denial, duplicate skill installations, updates, and removal. Optional services need their own workflow checks.
 

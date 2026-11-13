@@ -91,6 +91,7 @@ fn config(root: &Path, script: &Path, pids: Option<&Path>) -> LspLanguageServerC
         args: Some(Vec::new()),
         workspace_root: root.to_string_lossy().into_owned(),
         language_id: Some("plaintext".into()),
+        document_language_ids: Default::default(),
         initialization_options: None,
         env: pids.map(|pids| {
             [(

@@ -17,6 +17,7 @@ fn default_line_pages_fill_the_rendered_budget_and_resume_completely() {
         LineBudget::bytes(LINE_PAGE_BYTES),
         None,
         None,
+        Edges::WHOLE,
     );
     assert_eq!(first.pagination.length, LINE_PAGE_BYTES / rendered);
     assert_eq!(first.text, source[..2 * (LINE_PAGE_BYTES / rendered)]);
@@ -34,6 +35,7 @@ fn default_line_pages_fill_the_rendered_budget_and_resume_completely() {
             LineBudget::bytes(LINE_PAGE_BYTES),
             None,
             None,
+            Edges::WHOLE,
         );
         walked.push_str(&page.text);
     }
@@ -53,7 +55,14 @@ fn a_line_over_the_configured_page_resumes_line_paging_after_it() {
     let mut walked = String::new();
     let mut units = Vec::new();
     for _ in 0..20 {
-        let page = page_within(&content, &query, LineBudget::bytes(budget), None, None);
+        let page = page_within(
+            &content,
+            &query,
+            LineBudget::bytes(budget),
+            None,
+            None,
+            Edges::WHOLE,
+        );
         if page.pagination.unit == ReadProgressUnit::Bytes {
             assert!(
                 long.contains(&page.text),
@@ -91,7 +100,7 @@ fn a_line_rendered_over_the_fill_is_a_one_line_page_and_paging_stays_in_lines() 
     let mut walked = String::new();
     let mut units = Vec::new();
     loop {
-        let page = page_within(&content, &query, budget, None, None);
+        let page = page_within(&content, &query, budget, None, None, Edges::WHOLE);
         units.push(page.pagination.unit);
         walked.push_str(&page.text);
         let Some(next) = continuation(&query, &page.pagination) else {
@@ -123,6 +132,7 @@ fn default_raw_line_windows_keep_source_coordinates_after_transformations() {
         LineBudget::bytes(LINE_PAGE_BYTES),
         Some(&source),
         None,
+        Edges::WHOLE,
     );
     assert_eq!(result.text, content);
     assert_eq!(result.pagination.length, source.total);
@@ -172,7 +182,7 @@ fn a_bounded_scan_answers_as_the_whole_line_scan() {
             let expected = reference(&content, line, offset, end, page);
             oversized += usize::from(expected.is_some());
             assert_eq!(
-                oversized_line_end(&content, line, offset, end, page),
+                oversized_line_end(&content, line, offset, end, page, Edges::WHOLE),
                 expected,
                 "offset {offset} end {end}"
             );
@@ -222,6 +232,7 @@ fn a_transformed_view_walks_through_an_oversized_line_without_repeating() {
                 LineBudget::bytes(LINE_PAGE_BYTES),
                 Some(&source),
                 None,
+                Edges::WHOLE,
             );
             walked.push_str(&page.text);
             let Some(next) = continuation(&query, &page.pagination) else {
@@ -268,7 +279,7 @@ fn a_match_first_walk_shows_windows_then_the_rest_exactly_once() {
         serde_json::from_value(serde_json::json!({"path":"bundle.min.js"})).expect("query");
     let (mut pages, mut shown) = (Vec::new(), Vec::new());
     loop {
-        let page = page_within(&content, &query, budget, None, long_lines);
+        let page = page_within(&content, &query, budget, None, long_lines, Edges::WHOLE);
         let at = match page.pagination.unit {
             ReadProgressUnit::Bytes => page.pagination.offset,
             ReadProgressUnit::Lines => content
@@ -334,6 +345,7 @@ fn only_a_line_longer_than_a_byte_page_is_walked_match_first_or_filled() {
             match_windows: &windows,
             placement: None,
         }),
+        Edges::WHOLE,
     );
     assert_eq!(page.text, short);
     assert_eq!(page.pagination.unit, ReadProgressUnit::Lines);
@@ -348,6 +360,7 @@ fn only_a_line_longer_than_a_byte_page_is_walked_match_first_or_filled() {
             match_windows: &[],
             placement: None,
         }),
+        Edges::WHOLE,
     );
     assert_eq!(filled.pagination.unit, ReadProgressUnit::Bytes);
     assert_eq!(filled.pagination.offset, 0);
@@ -357,7 +370,7 @@ fn only_a_line_longer_than_a_byte_page_is_walked_match_first_or_filled() {
         "full: `\\n` takes two"
     );
     assert_eq!(filled.view_lines, (1, 2));
-    let plain = page_within(&long, &query, budget, None, None);
+    let plain = page_within(&long, &query, budget, None, None, Edges::WHOLE);
     assert_eq!(plain.text, "head\n");
     assert_eq!(plain.pagination.unit, ReadProgressUnit::Lines);
 }

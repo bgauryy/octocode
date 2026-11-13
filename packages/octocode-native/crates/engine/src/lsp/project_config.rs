@@ -14,19 +14,27 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
 
-/// What one config file looked like: `None` for a file that does not exist.
+/// What one config file looked like. Unknown metadata cannot prove that a
+/// pooled server still has the configuration on disk.
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct FileStamp(Option<(Option<SystemTime>, u64)>);
+enum FileStamp {
+    Missing,
+    Known(crate::stamp::SourceStamp),
+    Unknown,
+}
 
 impl FileStamp {
     fn of(path: &Path) -> Self {
-        Self(
-            std::fs::metadata(path)
-                .ok()
-                .map(|meta| (meta.modified().ok(), meta.len())),
-        )
+        match std::fs::metadata(path) {
+            Ok(meta) => crate::stamp::SourceStamp::of(&meta).map_or(Self::Unknown, Self::Known),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Self::Missing,
+            Err(_) => Self::Unknown,
+        }
+    }
+
+    fn holds(&self, path: &Path) -> bool {
+        !matches!(self, Self::Unknown) && *self == Self::of(path)
     }
 }
 
@@ -101,14 +109,16 @@ impl ProjectConfigWatch {
         let fixed_changed = self.fixed_baseline.as_ref().is_some_and(|baseline| {
             self.fixed
                 .iter()
-                .map(|file| FileStamp::of(file))
-                .ne(baseline.iter().cloned())
+                .zip(baseline)
+                .any(|(file, stamp)| !stamp.holds(file))
         });
         fixed_changed
-            || self
-                .seen
-                .iter()
-                .any(|(dir, baseline)| self.stamps(dir) != *baseline)
+            || self.seen.iter().any(|(dir, baseline)| {
+                self.names
+                    .iter()
+                    .zip(baseline)
+                    .any(|(name, stamp)| !stamp.holds(&dir.join(name)))
+            })
     }
 
     fn stamps(&self, dir: &Path) -> Vec<FileStamp> {
@@ -173,6 +183,43 @@ mod tests {
         assert!(watch.changed(), "build/compile_commands.json");
     }
 
+    /// Editors and build tools can replace a config while preserving its
+    /// modification time. Equal size and mtime do not prove it is unchanged.
+    #[cfg(unix)]
+    #[test]
+    fn a_same_size_config_replacement_restoring_mtime_invalidates_the_server() {
+        use std::os::unix::fs::MetadataExt;
+
+        let root = tempfile::tempdir().expect("tempdir");
+        let source = root.path().join("x.cpp");
+        std::fs::write(&source, "").expect("source");
+        let flags = root.path().join("compile_flags.txt");
+        std::fs::write(&flags, "-std=c++17\n").expect("initial flags");
+        let before = std::fs::metadata(&flags).expect("initial metadata");
+        let watch = watch_of(&source);
+        assert!(!watch.changed());
+
+        let replacement = root.path().join("replacement.txt");
+        std::fs::write(&replacement, "-std=c++20\n").expect("replacement flags");
+        std::fs::File::options()
+            .write(true)
+            .open(&replacement)
+            .expect("replacement file")
+            .set_modified(before.modified().expect("initial mtime"))
+            .expect("preserve mtime");
+        std::fs::rename(&replacement, &flags).expect("replace flags");
+
+        let after = std::fs::metadata(&flags).expect("replacement metadata");
+        assert_eq!(before.len(), after.len());
+        assert_eq!(before.modified().unwrap(), after.modified().unwrap());
+        assert_ne!(
+            before.ino(),
+            after.ino(),
+            "a distinct file replaced the config"
+        );
+        assert!(watch.changed(), "the server must reload the changed flags");
+    }
+
     #[test]
     fn a_later_observation_keeps_the_older_baseline() {
         let root = tempfile::tempdir().expect("tempdir");
@@ -230,6 +277,7 @@ mod tests {
             args: Some(vec!["--compile-commands-dir=build/debug".into()]),
             workspace_root: root.path().to_string_lossy().into_owned(),
             language_id: Some("cpp".into()),
+            document_language_ids: Default::default(),
             initialization_options: None,
             env: None,
             max_memory_mb: None,
@@ -263,6 +311,7 @@ mod tests {
             args: Some(vec!["--compile-commands-dir=build/debug".into()]),
             workspace_root: root.path().to_string_lossy().into_owned(),
             language_id: Some("cpp".into()),
+            document_language_ids: Default::default(),
             initialization_options: None,
             env: None,
             max_memory_mb: None,

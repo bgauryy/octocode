@@ -10,8 +10,8 @@ mod targets;
 mod text_leads;
 
 /// The protocol has no completeness marker on any workspace-symbol answer:
-/// the row says so once (a notice, not a partial flag), says no page
-/// completes it, and leads to the lexical search that checks the rest.
+/// the tool description says so once, so the row is no partial and carries
+/// no note of it; it leads to the lexical search that checks the rest.
 #[test]
 fn workspace_coverage_preserves_errors_and_avoids_a_directory_document_hint() {
     let scope = Scope::new("/w".into(), vec!["*.ts".into()]);
@@ -37,11 +37,7 @@ fn workspace_coverage_preserves_errors_and_avoids_a_directory_document_hint() {
     );
     assert!(empty.get("isPartial").is_none(), "{empty}");
     assert!(empty.get("partialReasons").is_none(), "{empty}");
-    let notice = empty["notices"][0].as_str().unwrap_or_default();
-    assert!(
-        notice.contains("no completeness marker") && notice.contains("localSearch"),
-        "{empty}"
-    );
+    assert!(empty.get("notices").is_none(), "{empty}");
     assert!(empty.get("warnings").is_none(), "{empty}");
     let text = &crate::tools::test_support::checks::related_call(&empty, "localSearch", |_| true)["input"]
         ["queries"][0];
@@ -85,9 +81,9 @@ fn first_page(term: &str) -> LspSearchQuery {
     .expect("query")
 }
 
-/// A later page of a workspace-symbol answer repeats neither the note nor
-/// the leads its first page carried (R4, R7); a server cap stays, a fact of
-/// every page.
+/// A later page of a workspace-symbol answer repeats none of the leads its
+/// first page carried (R4, R7), and no page carries a note; a server cap
+/// stays, a fact of every page.
 #[test]
 fn a_later_workspace_symbol_page_repeats_no_note_or_lead() {
     let scope = Scope::new("/w".into(), vec!["*.ts".into()]);
@@ -121,7 +117,7 @@ fn a_later_workspace_symbol_page_repeats_no_note_or_lead() {
         Some("/w/a.ts"),
         None,
     );
-    assert!(first.get("notices").is_some(), "{first}");
+    assert!(first.get("notices").is_none(), "{first}");
     assert!(first.get("related").is_some(), "{first}");
 }
 
@@ -210,7 +206,6 @@ fn gate_scan_ignores_comment_mentions_and_answered_files() {
 fn query(value: Value) -> LspSearchQuery {
     serde_json::from_value(value).expect("query")
 }
-
 fn configured_rust(
     query: &LspSearchQuery,
     options: Value,
@@ -220,6 +215,7 @@ fn configured_rust(
         args: None,
         workspace_root: "/repo".into(),
         language_id: Some("rust".into()),
+        document_language_ids: Default::default(),
         initialization_options: Some(options),
         env: None,
         max_memory_mb: None,

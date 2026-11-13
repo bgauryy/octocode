@@ -442,7 +442,9 @@ async fn no_other_github_tool_is_a_clasify_source() {
     // A search may run as its tool runs it; no file is read for any of them.
     let reads = github.received_requests().await.unwrap();
     assert!(
-        reads.iter().all(|request| !request.url.path().contains("/contents/")),
+        reads
+            .iter()
+            .all(|request| !request.url.path().contains("/contents/")),
         "{reads:?}"
     );
     runtime.close().await;

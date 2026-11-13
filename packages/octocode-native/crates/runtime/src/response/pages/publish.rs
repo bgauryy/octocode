@@ -84,7 +84,9 @@ fn complete(block: &Map<String, Value>) -> bool {
         && block
             .get("countScope")
             .is_none_or(|scope| scope == "complete")
-        && block.keys().all(|key| COMPLETE_KEYS.contains(&key.as_str()))
+        && block
+            .keys()
+            .all(|key| COMPLETE_KEYS.contains(&key.as_str()))
 }
 
 /// A row whose page lies past the end of its list or body states it as the

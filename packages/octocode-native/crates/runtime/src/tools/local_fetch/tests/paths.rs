@@ -56,11 +56,7 @@ fn missing_file_leads_to_files_by_stem() {
     let mut req = test_local_fetch_query();
     local_fetch_query::set_path(&mut req, "src/a/blok.rs").expect("path");
     let result = fetch(&req, &workspace_policy(&t.0));
-    assert_eq!(
-        result.error_code,
-        Some(ErrorCode::NotFound),
-        "{result:?}"
-    );
+    assert_eq!(result.error_code, Some(ErrorCode::NotFound), "{result:?}");
     let next = serde_json::to_value(result.next.as_ref().expect("next")).expect("json");
     let listing = &next["findFile"]["input"]["queries"][0];
     assert_eq!(listing["operation"], "files", "{next}");

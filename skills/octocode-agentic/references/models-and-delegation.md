@@ -55,26 +55,9 @@ For most developer-agent systems, start with one supervisor and bounded speciali
 
 A subagent returns a bounded result, not its process history.
 
-```ts
-type Finding = {
-  claim: string;
-  source: string;
-  confidence: "confirmed" | "inferred" | "unknown";
-};
+Return outcome, deciding evidence, changed artifacts, checks and unresolved work as needed by the caller. Match any existing host result schema; do not invent an envelope for a simple handoff. A runtime-validated example is in [agent communication](agent-communication.md#typed-messages).
 
-type AgentResult = {
-  taskId: string;
-  status: "done" | "blocked" | "failed";
-  summary: string;
-  findings: Finding[];
-  changedArtifacts: string[];
-  tests: { name: string; result: "passed" | "failed" | "not_run" }[];
-  remainingRisks: string[];
-  recommendedNextAction?: string;
-};
-```
-
-Require status, evidence references, changed artifacts, test results, uncertainty and follow-ups. "The worker returned successfully" is not "the task is proven correct": check what the next step depends on against artifacts, tests or state. A runtime-validated version with Zod is in [agent communication](agent-communication.md#typed-messages).
+A successful worker return does not establish correctness: verify the artifact, test or state the next step depends on.
 
 ## Handoff protocols
 
@@ -92,7 +75,7 @@ Each message kind uses one [catalog](protocol-catalog.md#catalog) protocol; the 
 | Message | Protocol |
 |---|---|
 | Request, brief | Task contract with a Definition of Done (stop condition for open-ended work); budget contract when costly; context manifest for large background |
-| Request that edits or spends | Check-back first: receiver restates objective and Definition of Done |
+| Ambiguous or consequential request | Check-back when needed to settle objective, authority or completion |
 | Transfer of unfinished work, stop report | Handoff packet |
 | Blocker, escalation, deviation from plan | SBAR |
 | Choice the receiver must make | Decision request |
@@ -108,33 +91,15 @@ Envelope fields (protocol version, correlation ID, sender, receiver, deadline) b
 
 Transfer enough to complete the delegated task without copying the conversation. Name who owns the user-facing result and who may write; pass large evidence by stable path or cursor.
 
-```json
-{
-  "taskId": "dependency-audit-42",
-  "assignedTo": "architecture-agent",
-  "goal": "Identify forbidden dependencies",
-  "scope": { "module": "packages/payments", "revision": "commit-abc123" },
-  "acceptanceCriteria": [
-    "Enumerate confirmed violations",
-    "Include exact source locations",
-    "Separate inferred findings"
-  ],
-  "contextRefs": ["artifact://repo/dependency-graph"],
-  "constraints": { "readOnly": true, "maxResults": 100 },
-  "expectedResultSchema": "architecture-findings/v1"
-}
-```
-
-The supervisor receives status, findings, evidence, artifacts, uncertainty and next actions, not the worker's reasoning transcript.
+State goal and scope, relevant inputs, constraints, acceptance and the expected return. Keep message or task handles only when the host needs them to route, resume or cancel the work.
 
 ## Frozen base prompt
 
 - Workers sharing a base prompt get the released bytes, never a rewritten copy; changes need a new reviewed version. One-off delegation needs none of this.
-- Release record: `base_prompt_id` + immutable version, canonical bytes + digest, source revisions, behavior-affecting model and provider config, ordered tool-catalog, schema and output-contract versions, eval result and release time.
-- Per-task data (timestamps, user data, evidence, task text, status, secrets) goes in a typed overlay after the base; a role is a versioned overlay or a new base ID. Overlays specialize, never weaken, higher-authority rules. Secrets remain outside model-visible context under [security](security.md#between-agents).
-- Dispatch: load the released base by ID and version, never from fragments → canonicalize with the release serializer; recompute the digest → compare digest, ordered tool catalog, output schema and provider settings with the manifest → append the overlay, base untouched → log both digests with the result. Mismatch: rebuild from the release or open a new-version review; the target agent never attests its own prompt.
-- Platform-injected instructions you cannot hash: scope the invariant to bytes and config you control; a cache hit corroborates, not proves.
-- Change: candidate → semantic and byte diff → rerun held-out behavior and security tests → publish or revert. In-flight tasks keep their version unless a migration policy allows restart. Never mutate a base for cache hits or context limits.
+- Retain the released prompt and settings that affect behavior. Use the deployment's existing version/artifact identity; add digests only when byte identity must be established, rather than inventing a release manifest for ordinary delegation.
+- Per-task data belongs in a typed overlay after the base. Overlays specialize but never weaken higher-authority rules; keep secrets outside model-visible context.
+- Before dispatch, verify that the configured loader supplies the intended released base and tool/output contracts, then append the overlay. A cache hit alone does not prove identity; scope checks to bytes and configuration the platform exposes.
+- A base change needs review and relevant behavior/security checks. In-flight tasks retain their version unless the migration policy permits restart; do not silently mutate it for cache hits or context limits.
 
 ## Task ownership
 

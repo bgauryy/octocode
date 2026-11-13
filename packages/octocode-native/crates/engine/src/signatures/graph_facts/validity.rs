@@ -15,12 +15,12 @@ pub(super) fn byte_range(node: Node<'_>) -> ObservedSpan {
     )
 }
 
-/// [`byte_range`] of `node` widened to start at `header`, the first of the
-/// annotations written before it.
+/// A declaration's syntax extent widened to start at `header`, the first of
+/// the annotations written before it, without trailing parser trivia.
 pub(super) fn header_byte_range(node: Node<'_>, header: Option<usize>) -> ObservedSpan {
     ObservedSpan::root(
         saturating_u32(header.map_or(node.start_byte(), |at| at.min(node.start_byte()))),
-        saturating_u32(node.end_byte()),
+        saturating_u32(super::positions::declaration_end_byte(node)),
     )
 }
 

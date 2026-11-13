@@ -22,7 +22,6 @@ Principle: agents communicate through explicit, validated contracts, not unstruc
 - [Capability routing](#capability-routing)
 - [Testing](#testing)
 - [Choose a mechanism](#choose-a-mechanism)
-- [Rules](#rules)
 - [Sources](#sources)
 
 ## Protocols
@@ -95,34 +94,11 @@ An A2A Agent Skill is advertised metadata, not an executable `SKILL.md` package.
 
 TypeScript types vanish at runtime, and a remote agent, tool, model, file or MCP server can return invalid data. Validate actual values at every boundary with Zod, and export JSON Schema when other languages need the contract. Examples use Zod 4 APIs.
 
-```ts
-import { z } from "zod";
-
-// An application task request, not the A2A wire format.
-const AgentRequest = z.strictObject({
-  version: z.literal("1.0"),
-  taskId: z.string().min(1),
-  correlationId: z.string().min(1),
-  from: z.string().min(1),
-  to: z.string().min(1),
-  intent: z.strictObject({
-    goal: z.string().min(1),
-    reason: z.string().min(1),
-    expectedOutput: z.string().min(1),
-  }),
-  limits: z.strictObject({
-    maxSteps: z.number().int().positive(),
-    maxOutputTokens: z.number().int().positive(),
-  }),
-  contextRefs: z.array(z.string()),
-  input: z.record(z.string(), z.unknown()),
-});
-type AgentRequest = z.infer<typeof AgentRequest>;
-```
-
 Use a discriminated union instead of one loose object with many optional fields:
 
 ```ts
+import { z } from "zod";
+
 const EvidenceRef = z.strictObject({ uri: z.string().min(1), revision: z.string().optional() });
 
 const Result = z.discriminatedUnion("status", [
@@ -146,20 +122,7 @@ function receiveAgentResult(raw: unknown): AgentResult {
 
 Completed, blocked and failed work each get an explicit shape; TypeScript narrows on `status` and runtime validation rejects malformed results. `blocked` is an interruption requiring input or recovery, not a terminal outcome; preserve the callee's actual terminal state separately. A rejected request also needs a stable code and one retry, approval or terminal action.
 
-Validate sends with `.parse()` and receives with `.safeParse()` before routing, storage or tool use; reject malformed packets with a small structured error. Use the request, result and envelope examples here as one application-owned set, not a wire standard. Only export with `z.toJSONSchema()` when a protocol needs JSON Schema.
-
-| Technique | Purpose |
-|---|---|
-| `z.strictObject()` | Reject unexpected fields |
-| `z.discriminatedUnion()` | Typed message variants |
-| `.safeParse()` | Validate without throwing |
-| `.refine()` / `.superRefine()` | Custom invariants / richer cross-field issues |
-| `z.infer` | Derive TypeScript types |
-| `z.toJSONSchema()` | Export interoperable contracts |
-| `.parseAsync()` | Asynchronous refinements |
-| `.optional()` / `.default()` | Optional data / controlled defaults |
-| `.transform()` | Normalize after validation |
-| `.brand()` | Distinguish identical-looking domain types |
+Validate sends with `.parse()` and receives with `.safeParse()` before routing, storage or tool use; reject malformed packets with a small structured error. The result example is an application contract, not a wire standard. Only export with `z.toJSONSchema()` when a protocol needs JSON Schema.
 
 Some Zod types and transforms have no faithful JSON Schema form. Zod-specific migration and API detail: the `zod` skill, if installed, or the Zod documentation.
 
@@ -196,25 +159,7 @@ One canonical contract reduces drift, but targets support different dialects: st
 
 ## Message envelope
 
-Separate routing, tracing, lifecycle and compatibility from the domain payload:
-
-```ts
-const Envelope = z.strictObject({
-  schemaVersion: z.literal("1.0"),
-  messageId: z.uuid(),
-  taskId: z.string(),
-  correlationId: z.string(),
-  causationId: z.string().optional(),
-  sender: z.string(),
-  recipient: z.string(),
-  kind: z.enum(["command", "event", "query", "result", "error", "cancel"]),
-  createdAt: z.iso.datetime(),
-  deadlineAt: z.iso.datetime().optional(),
-  idempotencyKey: z.string().optional(),
-  payloadSchema: z.string(),
-  payload: z.unknown(),
-});
-```
+Use the native protocol's envelope. Add application metadata only for a concrete consumer; the examples below describe meanings, not a required field set:
 
 | Field | Purpose |
 |---|---|
@@ -335,19 +280,6 @@ Validate on ingress and egress, and test real contract fixtures; TypeScript comp
 | Reliable repeated operations | Idempotency + transactional records | No repeated side effects |
 | Schema changes across versions | Versioned registry + compatibility tests | No integration breakage |
 | Many available agents | Capability registry + router | Choice by contract and permission |
-
-## Rules
-
-1. Schema first: every message boundary has a defined, validated contract.
-2. A2A for agents, MCP for capabilities.
-3. Separate messages from artifacts: messages carry intent and status; deliverables are stored independently.
-4. Validate twice: outgoing and incoming.
-5. Reference large results instead of copying them into every context.
-6. Use correlation and causation IDs so distributed activity is traceable.
-7. Design for duplicates and failure: retries must not duplicate logical effects.
-8. Version contracts deliberately and test compatibility before deploying.
-9. Bound delegation: explicit ownership, budgets, deadlines and completion criteria.
-10. Trust verification, not declarations: an agent reporting success does not establish success.
 
 Protocol security is in [security](security.md#between-agents).
 

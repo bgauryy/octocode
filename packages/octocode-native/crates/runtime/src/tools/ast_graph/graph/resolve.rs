@@ -57,10 +57,6 @@ pub(super) fn rust_internal_specifier(spec: &str) -> bool {
     matches!(first, "crate" | "self" | "super")
 }
 
-/// Diagnostic prefix of a relative import that climbs above the snapshot
-/// root; `detect_unresolved` reads it back.
-pub(crate) const OUTSIDE_ROOT: &str = "Import points outside the snapshot root:";
-
 /// Whether a relative specifier climbs above the snapshot root from the
 /// directory of `file` (`../../x` from a file one directory deep): the
 /// target may well exist, but the scan never held it.
@@ -109,8 +105,9 @@ pub(super) fn is_non_code_specifier(spec: &str) -> bool {
 
 /// Tallies one import resolution; returns whether an unlinked specifier names
 /// an external package (as opposed to an unresolved or unsupported one).
-/// `internal_bare` marks a bare specifier that names project code (alias or
-/// workspace package), so an unlinked one is an internal gap.
+/// `bare` says what a bare specifier names: project code (alias or workspace
+/// package), so an unlinked one is an internal gap, and whether that code lies
+/// beyond the snapshot root, like a relative path climbing out of it.
 pub(super) fn record_resolution(
     b: &mut BuiltGraph,
     file: &str,
@@ -119,7 +116,7 @@ pub(super) fn record_resolution(
     lang: Linker,
     target: &Option<String>,
     unsupported: bool,
-    internal_bare: bool,
+    bare: BareTarget,
     security: &ContentSecurity,
 ) -> bool {
     if target.is_some() {
@@ -136,7 +133,7 @@ pub(super) fn record_resolution(
             ),
         ));
     } else if lang != Linker::Python
-        && (spec.starts_with('.') || spec.starts_with('/') || internal_bare)
+        && (spec.starts_with('.') || spec.starts_with('/') || bare != BareTarget::External)
         && is_non_code_specifier(spec)
     {
         b.count_import(ImportOutcome::NonCode, file, line, spec);
@@ -145,27 +142,48 @@ pub(super) fn record_resolution(
     } else if spec.starts_with('.')
         || spec.starts_with('/')
         || (lang == Linker::Rust && rust_internal_specifier(spec))
-        || internal_bare
+        || bare != BareTarget::External
     {
-        b.count_import(ImportOutcome::UnresolvedInternal, file, line, spec);
-        let message = if escapes_root(file, spec)
-            || (lang == Linker::Rust && rust_super_escapes_root(file, spec))
-        {
-            format!("{OUTSIDE_ROOT} {spec:?} (unresolvedInternal).")
-        } else {
-            format!("Cannot link import {spec:?} (unresolvedInternal).")
-        };
-        b.diagnostics.push(Diagnostic::new(
-            file,
-            Some(line),
-            DiagnosticCode::UnresolvedInternal,
-            sanitize(security, &message),
-        ));
+        let outside = bare == BareTarget::OutsideRoot
+            || escapes_root(file, spec)
+            || (lang == Linker::Rust && rust_super_escapes_root(file, spec));
+        record_unresolved_internal(b, file, line, spec, outside, security);
     } else {
         b.count_import(ImportOutcome::External, file, line, spec);
         return true;
     }
     false
+}
+
+/// Counts one import of project code that links nothing and diagnoses it:
+/// beyond the snapshot root (`outside`) a scope gap, its own code
+/// ([`DiagnosticCode::OutsideRoot`]) and the specifier alone as its message,
+/// since the code says the rest once; else a broken import. Every
+/// language's unlinked project import goes through here, so the two kinds
+/// read alike whatever the resolver.
+pub(super) fn record_unresolved_internal(
+    b: &mut BuiltGraph,
+    file: &str,
+    line: u32,
+    spec: &str,
+    outside: bool,
+    security: &ContentSecurity,
+) {
+    b.count_import(ImportOutcome::UnresolvedInternal, file, line, spec);
+    let (code, message) = if outside {
+        (DiagnosticCode::OutsideRoot, format!("{spec:?}"))
+    } else {
+        (
+            DiagnosticCode::UnresolvedInternal,
+            format!("Cannot link import {spec:?} (unresolvedInternal)."),
+        )
+    };
+    b.diagnostics.push(Diagnostic::new(
+        file,
+        Some(line),
+        code,
+        sanitize(security, &message),
+    ));
 }
 
 /// Whether relative `spec` from `file` names a file that exists on disk

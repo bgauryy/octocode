@@ -4,7 +4,9 @@
 use super::LspPoolOptions;
 use super::pool_client::PoolClient;
 use crate::error::Error;
+use lru::LruCache;
 use std::collections::{HashMap, VecDeque};
+use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
@@ -136,19 +138,21 @@ impl<C: Clone> InFlight<C> {
 pub(super) struct State<C> {
     pub(super) entries: HashMap<String, Entry<C>>,
     pub(super) inflight: HashMap<String, Arc<InFlight<C>>>,
-    pub(super) backoff: HashMap<String, StartBackoff>,
+    /// Failed starts are optional memoized state, bounded by the same owner
+    /// capacity as the clients. A cold failure can be retried after eviction.
+    pub(super) backoff: LruCache<String, StartBackoff>,
     pub(super) lru: VecDeque<String>,
     pub(super) next_id: u64,
     #[cfg(test)]
     pub(super) idle_timers_spawned: usize,
 }
 
-impl<C> Default for State<C> {
-    fn default() -> Self {
+impl<C> State<C> {
+    pub(super) fn new(max_entries: NonZeroUsize) -> Self {
         Self {
             entries: HashMap::new(),
             inflight: HashMap::new(),
-            backoff: HashMap::new(),
+            backoff: LruCache::new(max_entries),
             lru: VecDeque::new(),
             next_id: 1,
             #[cfg(test)]

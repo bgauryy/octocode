@@ -200,7 +200,9 @@ fn graph_build_reports_progress_on_a_terminal_stderr_and_the_result_on_stdout() 
     );
     // Progress names the scope like every output path: workspace-relative.
     assert!(
-        lines.iter().any(|line| line == "# graphBuild: scanning app"),
+        lines
+            .iter()
+            .any(|line| line == "# graphBuild: scanning app"),
         "{lines:?}"
     );
     let mut after = 0;

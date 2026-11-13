@@ -24,7 +24,7 @@ function launch(t, args, { auth = { loggedIn: true }, skillText, models = [
     writeFileSync(path.join(bundle, 'SKILL.md'), skillText);
   }
   const executable = (name, source) => writeFileSync(path.join(dir, name),
-    '#!/usr/bin/env python3\nimport json,sys\n' + source, { mode: 0o700 });
+    `#!/usr/bin/env python3\nimport json,sys\n${source}`, { mode: 0o700 });
   executable('claude', `
 if sys.argv[1:] == ['auth', 'status']:
     print(${JSON.stringify(JSON.stringify(auth))})
@@ -152,7 +152,7 @@ test('native proxies receive common instructions without Octocode-only operation
 });
 
 test('missing or duplicate prompt blocks refuse launch instead of using stale instructions', t => {
-  for (const skillText of ['', bundledPrompts + '\n' + bundledPrompts]) {
+  for (const skillText of ['', `${bundledPrompts}\n${bundledPrompts}`]) {
     const result = launch(t, ['--vendor', 'codex'], { skillText });
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /prompt block/);

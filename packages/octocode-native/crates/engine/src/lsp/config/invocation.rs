@@ -47,6 +47,7 @@ pub(super) fn route_from_spec(
         args: Some(resolved.args),
         workspace_root: workspace_root.to_owned(),
         language_id: Some(spec.language_id.to_owned()),
+        document_language_ids: Default::default(),
         initialization_options: None,
         env: None,
         max_memory_mb: None,

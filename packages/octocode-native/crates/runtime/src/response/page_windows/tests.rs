@@ -225,7 +225,11 @@ fn select_cuts_counted_and_sized_pages_with_one_past_end_rule() {
         assert_eq!(block["outOfRange"], true, "{block}");
         assert_eq!(block["hasMore"], false, "{block}");
         assert_eq!(block["total"], 5, "{block}");
-        assert_eq!((&block["offset"], &block["length"]), (&5.into(), &0.into()), "{block}");
+        assert_eq!(
+            (&block["offset"], &block["length"]),
+            (&5.into(), &0.into()),
+            "{block}"
+        );
     }
     for paging in [
         Paging::Rows {

@@ -6,7 +6,7 @@ Commands use the task's selected Octocode CLI: prefer the built local CLI when a
 
 ## Install
 
-- Check-back: before any write, restate source, destinations, scope, authority, and Definition of Done.
+- Resolve uncertain source, destination, scope or replacement effects before the affected write. Reuse existing authorization; a clear request needs no ceremonial restatement.
 - Normalize the source (`owner/repo/path`, GitHub tree or blob URL, local path); strip a trailing `SKILL.md`.
 - Resolve providers, per-provider scope (user, project, custom), project root, and mode from the request and session.
 - Read third-party scripts and hooks first (no separate approval).

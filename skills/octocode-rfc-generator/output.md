@@ -35,17 +35,7 @@ Save at `<workspace>/.octocode/octocode-rfc-generator/<YYYY-MM-DD>-<slug>/RFC.md
 
 No companion `PLAN.md`, `KPI.md`, `PREREQUISITES.md`, `IMPLEMENTATION.md`, or `RESOURCES.md`.
 
-## Presentation choices
-
-Summary → proposed behavior → alternatives and rollout → validation → open questions. Keep current facts distinct from proposed behavior.
-
-| Format | Use when / why |
-|---|---|
-| `flowchart` / `sequenceDiagram` / `stateDiagram-v2` | Explain proposed data flow / interactions / lifecycle, including failure paths. |
-| Alternatives table / `gantt` | Compare tradeoffs / show a schedule only when dates and dependencies are justified. |
-| Markdown images / linked prototype | Show proposed UI with a clear mockup label / let readers inspect a separate interactive prototype. |
-
-Use the [shared format guide](references/report-output.md#choose-the-format); load its Mermaid or widget reference only for that syntax.
+Use the [shared format guide](references/report-output.md#choose-the-format) only when a visual clarifies the proposal. The [RFC checklist](references/checklist.md#diagrams) maps decision needs to diagram types; label UI prototypes as mockups and justify schedule dates.
 
 ## Saved report
 

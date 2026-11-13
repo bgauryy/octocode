@@ -58,20 +58,56 @@ fn go_modules_name_a_dependency_in_require_and_replace() {
     ));
 }
 
+/// A Cargo build file names the anchor's package by key or `package`, in
+/// any dependency table, target-specific ones included, under Cargo's
+/// `-`/`_` normalization, when the dependency's source is that package; a
+/// registry dependency of that name may be it.
 #[test]
 fn cargo_names_a_dependency_by_key_or_package() {
-    let parse = |text: &str| text.parse::<toml::Table>().expect("toml");
-    assert!(cargo_requires(
-        &parse("[dependencies]\nmy-crate = { path = \"../a\" }\n"),
-        "my_crate"
-    ));
-    assert!(cargo_requires(
-        &parse("[dev-dependencies]\nalias = { package = \"a\" }\n"),
-        "a"
-    ));
-    assert!(cargo_requires(
-        &parse("[target.'cfg(unix)'.dependencies]\na = \"1\"\n"),
-        "a"
-    ));
-    assert!(!cargo_requires(&parse("[dependencies]\nb = \"1\"\n"), "a"));
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().canonicalize().expect("canonical");
+    let write = |relative: &str, text: &str| {
+        let path = root.join(relative);
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("dirs");
+        std::fs::write(&path, text).expect("write");
+        path
+    };
+    write(
+        "my-crate/Cargo.toml",
+        "[package]\nname = \"my-crate\"\nversion = \"0.1.0\"\n",
+    );
+    let anchor = write("my-crate/src/lib.rs", "pub fn f() {}\n");
+    let (identity, _) = Identity::of(&anchor, "rs").expect("identity");
+    let user = |name: &str, deps: &str| {
+        write(
+            &format!("{name}/Cargo.toml"),
+            &format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n\n{deps}"),
+        )
+    };
+    for (name, deps) in [
+        (
+            "by-key",
+            "[dependencies]\nmy_crate = { path = \"../my-crate\" }\n",
+        ),
+        (
+            "renamed",
+            "[dev-dependencies]\nalias = { package = \"my-crate\", path = \"../my-crate\" }\n",
+        ),
+        (
+            "targeted",
+            "[target.'cfg(unix)'.dependencies]\nmy-crate = { path = \"../my-crate\" }\n",
+        ),
+        ("registry", "[dependencies]\nmy-crate = \"1\"\n"),
+    ] {
+        assert!(depends_on(&user(name, deps), &identity), "{name}");
+    }
+    for (name, deps) in [
+        ("other", "[dependencies]\nb = \"1\"\n"),
+        (
+            "elsewhere",
+            "[dependencies]\nmy-crate = { path = \"../missing\" }\n",
+        ),
+    ] {
+        assert!(!depends_on(&user(name, deps), &identity), "{name}");
+    }
 }

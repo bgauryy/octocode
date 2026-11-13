@@ -4,7 +4,7 @@
  * Static identity of a staged platform binary, read from its bytes on any
  * host: executable format and CPU (Mach-O, ELF, PE), the ELF interpreter and
  * the newest GLIBC_ version it requires, and the embedded package version and
- * contract fingerprint. `smoke-binary.cjs` and `pack-release.cjs` check every
+ * contract fingerprint. `pack-release.cjs` checks every
  * platform package against `bin/platform.cjs` with it; only a run on the
  * target proves the binary works.
  */

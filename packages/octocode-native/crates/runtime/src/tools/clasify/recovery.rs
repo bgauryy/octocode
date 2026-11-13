@@ -403,7 +403,10 @@ mod tests {
         row.input = Input::Judge(Target::Content(json!("literal")));
         row.assets = Some(json!({"pic":{}}));
         let notice = crate::contracts::classification_notice;
-        for code in ["invalidClassificationContext", "invalidClassificationRequest"] {
+        for code in [
+            "invalidClassificationContext",
+            "invalidClassificationRequest",
+        ] {
             let mut refused = json!({"errorCode":code,"hints":["Fix the input."]});
             add(&row, None, &mut refused, true);
             assert_eq!(refused["hints"], json!(["Fix the input."]), "{refused}");
@@ -413,7 +416,10 @@ mod tests {
         add(&row, None, &mut failed, true);
         let hints = failed["hints"].as_array().unwrap();
         assert!(hints.contains(&json!(notice("failed"))), "{failed}");
-        assert!(hints.contains(&json!(notice("imageInspection"))), "{failed}");
+        assert!(
+            hints.contains(&json!(notice("imageInspection"))),
+            "{failed}"
+        );
     }
 
     /// An image given as a text source gets the same questions as a ready
@@ -473,8 +479,7 @@ mod tests {
         assert_eq!(query["operation"], "evaluate", "{call:#}");
         assert_eq!(query["resources"], json!({"source":glob}), "{call:#}");
         // A literal missing path is no glob: nothing points to resources.
-        let mut plain =
-            json!({"errorCode":"notFound","error":"Path does not exist: source.rs"});
+        let mut plain = json!({"errorCode":"notFound","error":"Path does not exist: source.rs"});
         add(&source_row(), None, &mut plain, true);
         assert!(!plain.to_string().contains("resources"), "{plain:#}");
     }

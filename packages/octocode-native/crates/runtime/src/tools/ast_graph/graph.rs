@@ -1,4 +1,4 @@
-use super::aliases::ResolveContext;
+use super::aliases::{BareTarget, ResolveContext};
 use super::cargo::{CargoCrates, enclosing_manifests, load_cargo_crates};
 use super::js_paths::{ModulesByName, probe_js};
 use super::linking::Linker;
@@ -36,7 +36,6 @@ pub(crate) mod peaks;
 #[cfg(test)]
 pub(super) use checkpoint::inject_secret_scan_fault;
 use link::*;
-pub(super) use resolve::OUTSIDE_ROOT;
 use resolve::*;
 pub(super) use rust::rust_module_child_dir;
 use rust::*;

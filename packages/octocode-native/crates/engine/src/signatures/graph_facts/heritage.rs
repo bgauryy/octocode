@@ -282,7 +282,7 @@ fn push_type_list<'t>(
 
 /// The base type as written with type arguments and whitespace removed:
 /// `Base<T>` → `Base`, `ns::Base<T>::Inner` → `ns::Base::Inner`. `None` for
-/// anything that is not a plain (possibly qualified) name.
+/// anything that is not a plain (possibly qualified) name ([`is_plain_name`]).
 pub(super) fn base_type_name(text: &str) -> Option<String> {
     let mut name = String::with_capacity(text.len());
     let mut depth = 0usize;
@@ -294,13 +294,22 @@ pub(super) fn base_type_name(text: &str) -> Option<String> {
             _ => name.push(c),
         }
     }
-    let plain = depth == 0
-        && !name.is_empty()
-        && name.len() <= 160
-        && name
-            .chars()
-            .all(|c| c.is_alphanumeric() || matches!(c, '_' | '.' | ':' | '$'));
+    let plain = depth == 0 && !name.is_empty() && name.len() <= 160 && is_plain_name(&name);
     plain.then_some(name)
+}
+
+/// Whether `name` holds only identifier characters and `.`/`:` separators,
+/// each segment possibly a Rust raw identifier (`r#Trait`), kept as written.
+fn is_plain_name(name: &str) -> bool {
+    name.split(['.', ':']).all(|segment| {
+        let bare = match segment.strip_prefix("r#") {
+            Some("") => return false,
+            Some(bare) => bare,
+            None => segment,
+        };
+        bare.chars()
+            .all(|c| c.is_alphanumeric() || matches!(c, '_' | '$'))
+    })
 }
 
 #[cfg(test)]
@@ -322,6 +331,12 @@ mod tests {
         assert_eq!(base_type_name("pkg.Base").as_deref(), Some("pkg.Base"));
         assert_eq!(base_type_name("mixin(A)"), None);
         assert_eq!(base_type_name("Broken<T"), None);
+        assert_eq!(
+            base_type_name("a::r#Trait<T>").as_deref(),
+            Some("a::r#Trait")
+        );
+        assert_eq!(base_type_name("a#b"), None);
+        assert_eq!(base_type_name("r#"), None);
         assert_eq!(base_type_name(""), None);
     }
 }

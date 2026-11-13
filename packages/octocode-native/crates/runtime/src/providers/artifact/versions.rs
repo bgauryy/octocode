@@ -302,7 +302,11 @@ pub(crate) fn version_not_found(
     versions: &[String],
 ) -> ArtifactError {
     ArtifactError {
-        nearest: nearest(requested, versions.iter().map(String::as_str), &order_of(ecosystem)),
+        nearest: nearest(
+            requested,
+            versions.iter().map(String::as_str),
+            &order_of(ecosystem),
+        ),
         nearest_ranked: true,
         ..ArtifactError::version_not_found(format!(
             "{name} has no published version matching \"{requested}\""
@@ -319,10 +323,13 @@ pub(crate) fn suggested(
     limit: usize,
 ) -> (Vec<String>, Option<String>) {
     let order = order_of(ecosystem);
-    let mut picked = error.nearest.iter().take(limit).cloned().collect::<Vec<_>>();
-    picked.sort_by(|left, right| {
-        (order.cmp)(right, left).unwrap_or(std::cmp::Ordering::Equal)
-    });
+    let mut picked = error
+        .nearest
+        .iter()
+        .take(limit)
+        .cloned()
+        .collect::<Vec<_>>();
+    picked.sort_by(|left, right| (order.cmp)(right, left).unwrap_or(std::cmp::Ordering::Equal));
     let hint = (error.nearest_ranked && !picked.is_empty() && picked.len() < limit).then(|| {
         format!(
             "Only {} published version(s) to suggest; the lead reads every one.",
@@ -364,9 +371,8 @@ pub(crate) fn nearest<'a>(
     };
     // Where the missing version would sit; unknown when `order` cannot read it.
     let placed = order.readable(requested).then(|| {
-        sorted.partition_point(|version| {
-            (order.cmp)(version, requested).is_some_and(Ordering::is_lt)
-        })
+        sorted
+            .partition_point(|version| (order.cmp)(version, requested).is_some_and(Ordering::is_lt))
     });
     if placed.is_none() && sorted.iter().all(|version| shared(version) == 0) {
         return Vec::new();
@@ -382,7 +388,15 @@ pub(crate) fn nearest<'a>(
                 None => sorted.len() - 1 - index,
             };
             let prerelease = !wants_prerelease && (order.prerelease)(version);
-            ((prerelease, Reverse(shared(version)), distance, Reverse(index)), *version)
+            (
+                (
+                    prerelease,
+                    Reverse(shared(version)),
+                    distance,
+                    Reverse(index),
+                ),
+                *version,
+            )
         })
         .collect::<Vec<_>>();
     ranked.sort_by_key(|(rank, _)| *rank);

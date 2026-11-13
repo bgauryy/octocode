@@ -266,6 +266,11 @@ fn walk_lines(
             return Ok(shown);
         };
         next = call.query;
+        // A byte page that ends its line hands back to the line walk: the next
+        // byte page counts in the bytes of the lines it starts at.
+        if local_fetch_query::unit(&next) == ReadProgressUnit::Lines {
+            expected = None;
+        }
     }
     unreachable!("the walk ends")
 }
@@ -335,4 +340,66 @@ fn a_source_changed_mid_walk_is_refused_as_stale_never_mixed() {
         );
         assert!(refused.content.is_none(), "{refused:?}");
     }
+}
+
+/// S3: a whole-file read (no `ranges`) of a streamed source with a line too long
+/// for a line page inside a later window, walked by every emitted continuation:
+/// the long line's byte pages hand back to the line walk, so the pages join to
+/// the source byte for byte and every line is reached exactly once, to the
+/// file's last line (review: the byte pages took the window's lines as their
+/// range and ended there, `hasMore:false`, with every later line unreachable).
+#[test]
+fn a_whole_file_walk_reaches_every_line_once_across_a_long_line() {
+    let mut text = String::new();
+    for line in 1..=7 {
+        text.push_str(&format!("head line {line}\n"));
+    }
+    text.push_str(&"x".repeat(BYTE_WINDOW_BYTES + STRETCH));
+    text.push('\n');
+    let mut line = 9;
+    while text.len() < past_whole() || line < 2 * WINDOW_LINES + 9 {
+        text.push_str(&format!("row {line:07} {}\n", "y".repeat(40)));
+        line += 1;
+    }
+    let total = line - 1;
+    let file = temp(text.as_bytes());
+    // A settled file's pass is kept: later pages read from it.
+    octocode_engine::stamp::settle_written_so_far();
+    let mut next = query(serde_json::json!({"path":file.path()}));
+    let (mut shown, mut lines_paged, mut bytes_paged) = (String::new(), 0, 0);
+    let mut last_line = 0;
+    for at in 0.. {
+        let page = fetch(&file, &next, None);
+        assert_eq!(page.status, ReadStatus::Success, "page {at}: {page:?}");
+        let content = page.content.clone().expect("a page");
+        let pagination = page.pagination.as_ref().expect("paged");
+        if pagination.unit == ReadProgressUnit::Lines {
+            lines_paged += 1;
+            let (start, end) = (
+                page.start_line.expect("a line page's first line"),
+                page.end_line.expect("a line page's last line"),
+            );
+            assert_eq!(start, last_line + 1, "page {at}: lines follow on, once");
+            last_line = end;
+            assert_eq!(page.total_lines, Some(total), "page {at}");
+        } else {
+            bytes_paged += 1;
+            assert_eq!(page.total_lines, Some(total), "page {at}");
+            last_line = 8;
+        }
+        shown.push_str(&content);
+        let Some(call) = page.next.and_then(|next| next.continue_window) else {
+            assert!(!pagination.has_more, "page {at}: no hasMore without a call");
+            break;
+        };
+        assert!(pagination.has_more, "page {at}: a call only with hasMore");
+        next = call.query;
+    }
+    assert!(
+        lines_paged > 2 && bytes_paged > 2,
+        "{lines_paged} line pages, {bytes_paged} byte pages"
+    );
+    assert_eq!(last_line, total, "the walk reaches the file's last line");
+    assert_eq!(shown.len(), text.len(), "every byte once");
+    assert!(shown == text, "the source, byte for byte");
 }

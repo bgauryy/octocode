@@ -4,6 +4,49 @@ use super::*;
 
 mod follow_ups;
 
+/// A ranking exposes its deciding value; `fields` can also request it,
+/// including a provider-stated zero, without inflating ordinary rows.
+#[test]
+fn reaction_rankings_and_picked_fields_keep_the_provider_count() {
+    for (operation, collection) in [("issue", "issues"), ("pullRequest", "pullRequests")] {
+        for (selection, keep) in [
+            (json!({"sort":{"by":"reactionCount","order":"desc"}}), true),
+            (json!({"fields":["reactionCount"]}), true),
+            (json!({}), false),
+        ] {
+            for count in [Some(17), Some(0), None] {
+                let mut query = json!({"operation":operation,"owner":"o","repo":"r"});
+                query
+                    .as_object_mut()
+                    .expect("query object")
+                    .extend(selection.as_object().expect("selection object").clone());
+                let query = HistorySearch::new(serde_json::from_value(query).expect("query"))
+                    .expect("search");
+                let mut item = json!({"number":1,"title":"ranked","state":"open",
+                    "created_at":"2026-01-01T00:00:00Z"});
+                if let Some(count) = count {
+                    item["reactions"] = json!({"total_count":count});
+                }
+                let page = octocode_github::HistoryPage {
+                    total_count: 1,
+                    incomplete_results: false,
+                    items: vec![item],
+                    warnings: Vec::new(),
+                    listed: false,
+                    has_more: false,
+                };
+                let paging = super::shape::Paging::new(&page, 1, 10);
+                let value = super::shape::shape(&query, page, &paging, String::new());
+                assert_eq!(
+                    value[collection][0].get("reactionCount"),
+                    count.filter(|_| keep).map(Value::from).as_ref(),
+                    "{operation} {selection} {count:?}: {value}",
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn pull_request_rows_normalize_merged_state_from_list_and_search_shapes() {
     let listed = map_pr(json!({

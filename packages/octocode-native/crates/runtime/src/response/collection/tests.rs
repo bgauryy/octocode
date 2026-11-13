@@ -56,7 +56,10 @@ fn the_last_page_of_a_collection_has_no_next() {
     let walk = walk_name(tool, &collection);
     let mut holder = json!({"pagination": {"offset": 5, "hasMore": true}, "next": {walk: {}}});
     set_next_page(&mut holder, tool, &collection, None);
-    assert_eq!(holder, json!({"pagination": {"offset": 5, "hasMore": false}}));
+    assert_eq!(
+        holder,
+        json!({"pagination": {"offset": 5, "hasMore": false}})
+    );
 }
 
 #[test]

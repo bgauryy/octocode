@@ -28,10 +28,7 @@ pub(super) fn io_error(path: &str, error: std::io::Error) -> ToolError {
 
 /// `notFound` with the path policy's message.
 fn path_not_found(path: &str) -> ToolError {
-    ToolError::new(
-        ErrorCode::NotFound,
-        format!("Path does not exist: {path}"),
-    )
+    ToolError::new(ErrorCode::NotFound, format!("Path does not exist: {path}"))
 }
 
 /// An engine error as a tool error: the engine's typed kind names its code

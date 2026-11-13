@@ -15,7 +15,8 @@
 //! is a row; a row that lists child rows ([`CHILD_ROWS`]) is their context
 //! and each child is the unit (a file's hits, a pull request's comments, a
 //! directory's entries); a row without them is the unit itself (a commit, a
-//! repository, a package).
+//! repository, a package). A search row's unit is each hit, however the tool
+//! joined their windows ([`hits`]).
 use super::{Row, RowOutcome, reply};
 use crate::execution::ExecutionContext;
 use crate::id::ToolId;
@@ -27,6 +28,8 @@ use crate::tools::source_capture::{self, SourceReader};
 use futures_util::{StreamExt as _, stream};
 use octocode_contract_types::{ClasifyChannel, ErrorCode};
 use serde_json::{Map, Value, json};
+
+mod hits;
 
 /// The fields of a row that list its child rows: hits and symbols of a
 /// file, lines of a remote file, entries of a directory, changed files and
@@ -55,11 +58,13 @@ const NAMES: [&str; 7] = [
 /// Below this P(yes) a `noul` answer is a no, as a quiet section's is.
 const QUIET_BELOW: f64 = 0.3;
 
-/// One unit: its key in the row, and what the judge sees of it (`None`:
-/// withheld, nothing is sent).
+/// One unit: its key in the row, what the judge sees of it (`None`:
+/// withheld, nothing is sent), and whether that names a `target` every
+/// question is about (a search hit).
 struct Unit {
     key: String,
     state: Option<Value>,
+    scoped: bool,
 }
 
 /// The tool whose rows `source` names, when it is not one text: every tool
@@ -132,17 +137,23 @@ fn path_of<'a>(parent: Option<&'a Value>, unit: &'a Value, key: &'a str) -> Opti
         })
 }
 
-/// The units of one page of a tool's `data`, in page order.
-fn page_units(data: &Value) -> Vec<Unit> {
+/// The units of one page of a tool's `data`, in page order; `query` is the
+/// tool's query that listed them.
+fn page_units(data: &Value, query: &Value) -> Vec<Unit> {
+    let reach = hits::Reach::of(query);
     let mut units = Vec::new();
-    let mut push = |key: String, parent: Option<&Value>, kind: Option<&str>, unit: &Value| {
+    let child_unit = |key: String, parent: Option<&Value>, kind: Option<&str>, unit: &Value| {
         let withheld = path_of(parent, unit, &key)
             .is_some_and(crate::policy::discovery::is_sensitive_repository_file);
         let state = (!withheld).then(|| match (parent.and_then(name), kind) {
             (Some(of), Some(kind)) => json!({"of": of, kind: unit}),
             _ => unit.clone(),
         });
-        units.push(Unit { key, state });
+        Unit {
+            key,
+            state,
+            scoped: false,
+        }
     };
     let Some(fields) = data.as_object() else {
         return units;
@@ -155,6 +166,20 @@ fn page_units(data: &Value) -> Vec<Unit> {
             let own = name(row);
             let mut children = 0;
             for kind in CHILD_ROWS {
+                if kind == "matches"
+                    && let Some(found) = own.as_deref().and_then(|own| hits::units(row, own, reach))
+                {
+                    let withheld = row["path"]
+                        .as_str()
+                        .is_some_and(crate::policy::discovery::is_sensitive_repository_file);
+                    children += found.len();
+                    units.extend(found.into_iter().map(|(key, state)| Unit {
+                        key,
+                        state: (!withheld).then_some(state),
+                        scoped: true,
+                    }));
+                    continue;
+                }
                 for (child_at, child) in row[kind].as_array().into_iter().flatten().enumerate() {
                     children += 1;
                     // A string child is a name only in a directory listing;
@@ -170,12 +195,12 @@ fn page_units(data: &Value) -> Vec<Unit> {
                         (_, Some(own), None) => format!("{own}:{kind}/{child_at}"),
                         (_, None, None) => format!("{collection}/{at}/{kind}/{child_at}"),
                     };
-                    push(key, Some(row), Some(kind), child);
+                    units.push(child_unit(key, Some(row), Some(kind), child));
                 }
             }
             if children == 0 {
                 let key = own.unwrap_or_else(|| format!("{collection}/{at}"));
-                push(key, None, None, row);
+                units.push(child_unit(key, None, None, row));
             }
         }
     }
@@ -190,6 +215,7 @@ fn item_units(items: &[Value]) -> Vec<Unit> {
         .map(|(at, item)| Unit {
             key: at.to_string(),
             state: (!blank(item)).then(|| item.clone()),
+            scoped: false,
         })
         .collect()
 }
@@ -268,7 +294,7 @@ pub(super) fn judge_source(
         Ok((data, _)) => data,
         Err(error) => return RowOutcome::Units(Err(error)),
     };
-    let units = page_units(&data);
+    let units = page_units(&data, &source["query"]);
     let mut output = judge(
         evaluator,
         evaluations,
@@ -389,8 +415,7 @@ fn judge(
     let judged: Vec<Option<Result<Judged, ClassificationError>>> = dispatcher.handle().block_on(
         stream::iter(units.iter())
             .map(|unit| async move {
-                let state = unit.state.as_ref()?;
-                let state = super::rows::contextual_state(state, row.context.as_deref());
+                let state = sent_state(unit, row.context.as_deref())?;
                 let input = EvaluationInput {
                     state: &state,
                     questions: &row.questions,
@@ -407,6 +432,17 @@ fn judge(
             .collect(),
     );
     shape(row, units, judged)
+}
+
+/// What the provider is sent of `unit`, with the row's task `context`; a
+/// unit with a target scopes every question to it. `None`: withheld.
+fn sent_state<'a>(unit: &'a Unit, context: Option<&str>) -> Option<std::borrow::Cow<'a, Value>> {
+    let state = super::rows::contextual_state(unit.state.as_ref()?, context);
+    Some(if unit.scoped {
+        std::borrow::Cow::Owned(super::rows::scoped(state))
+    } else {
+        state
+    })
 }
 
 /// A stop of the call, not a failure of the unit: the same call judges it.
@@ -500,7 +536,7 @@ mod tests {
     use super::*;
 
     fn keys(data: &Value) -> Vec<String> {
-        let mut units = page_units(data);
+        let mut units = page_units(data, &json!({}));
         distinct(&mut units);
         units.into_iter().map(|unit| unit.key).collect()
     }
@@ -523,11 +559,181 @@ mod tests {
                 "src/b.rs:7"
             ]
         );
-        let units = page_units(&data);
+        let units = page_units(&data, &json!({}));
         assert_eq!(
             units[0].state,
-            Some(json!({"of":"src/a.rs","matches":{"line":49,"value":"x"}}))
+            Some(json!({"path":"src/a.rs","target":{"line":49,"text":"x"}}))
         );
+    }
+
+    fn units_of(data: &Value, query: &Value) -> Vec<Unit> {
+        let mut units = page_units(data, query);
+        distinct(&mut units);
+        units
+    }
+
+    fn line_of(key: &str) -> u64 {
+        key.rsplit_once(':')
+            .and_then(|(_, line)| line.parse().ok())
+            .expect("path:line key")
+    }
+
+    /// A merged context block (localSearch joins overlapping windows into one
+    /// row listing every hit in `matchedLines`): each hit is its own unit,
+    /// keyed `path:line`, its target that line, its window the block's lines
+    /// within the query's contextLines of it.
+    #[test]
+    fn merged_context_windows_are_one_unit_per_hit_each_with_its_own_window() {
+        let (before, after) = (2_u64, 1_u64);
+        let listed = (2..=11_u64).collect::<Vec<_>>();
+        let text = |line: u64| format!("    step({line});");
+        let value = listed
+            .iter()
+            .map(|&line| format!("{line}\t{}", text(line)))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let hits = [4_u64, 7, 10];
+        let data = json!({"files":[{"path":"src/walk.rs",
+            "declarations":[{"symbolName":"walk","kind":"function","line":1,"endLine":12}],
+            "matches":[{"line":4,"value":value,"matchedLines":hits,"enclosing":0}]}]});
+        let query = json!({"path":"src","matchString":["step"],
+            "contextLines":{"before":before,"after":after}});
+        let units = units_of(&data, &query);
+        assert_eq!(
+            units
+                .iter()
+                .map(|unit| unit.key.clone())
+                .collect::<Vec<_>>(),
+            hits.iter()
+                .map(|line| format!("src/walk.rs:{line}"))
+                .collect::<Vec<_>>()
+        );
+        for unit in &units {
+            let hit = line_of(&unit.key);
+            let state = unit.state.as_ref().expect("judged");
+            assert_eq!(state["target"]["line"], hit, "{state}");
+            assert_eq!(state["target"]["text"], text(hit), "{state}");
+            let window = state["lines"]
+                .as_array()
+                .expect("window")
+                .iter()
+                .map(|entry| entry[0].as_u64().expect("line"))
+                .collect::<Vec<_>>();
+            let reach = listed
+                .iter()
+                .copied()
+                .filter(|&line| line + before >= hit && line <= hit + after)
+                .collect::<Vec<_>>();
+            assert_eq!(window, reach, "{state}");
+            for entry in state["lines"].as_array().into_iter().flatten() {
+                assert_eq!(entry[1], text(entry[0].as_u64().unwrap()), "{state}");
+            }
+        }
+    }
+
+    /// A hit's judged text names which line is the hit and the declaration
+    /// the row says holds it (the innermost one), so a question about scope
+    /// is answerable from the unit; with no context its window is the target.
+    #[test]
+    fn a_hit_unit_marks_its_line_and_carries_its_enclosing_declaration() {
+        let declarations = json!([
+            {"symbolName":"Walker","kind":"impl","line":1,"endLine":20},
+            {"symbolName":"walk","kind":"method","line":3,"endLine":12},
+        ]);
+        let data = json!({"files":[{"path":"src/walk.rs","declarations":declarations,
+            "matches":[{"line":5,"value":"        walk(next)","enclosing":1},
+                       {"line":15,"value":"    fn other() {}","enclosing":0}]}]});
+        let units = units_of(&data, &json!({"path":"src","matchString":["walk"]}));
+        let states = units
+            .iter()
+            .map(|unit| unit.state.clone().expect("judged"))
+            .collect::<Vec<_>>();
+        assert_eq!(states[0]["path"], "src/walk.rs");
+        assert_eq!(states[0]["target"]["line"], 5);
+        assert_eq!(states[0]["target"]["text"], "        walk(next)");
+        assert_eq!(states[0]["target"]["enclosing"], declarations[1]);
+        assert_eq!(states[1]["target"]["enclosing"], declarations[0]);
+        assert!(states.iter().all(|state| state.get("lines").is_none()));
+        // What is sent scopes every question to the target, with the
+        // contract's text; a unit without a target is sent as it is.
+        let sent = sent_state(&units[0], Some("task")).expect("judged");
+        assert_eq!(
+            Some(&sent["question"]),
+            crate::tools::selection::section_question()
+        );
+        assert_eq!(sent["content"], states[0]);
+        let item = &item_units(&[json!("a")])[0];
+        assert_eq!(
+            sent_state(item, None).expect("judged").as_ref(),
+            &json!("a")
+        );
+    }
+
+    /// A GitHub code row lists one entry per line and its hits in the row's
+    /// `matchedLines`: the other entries are the hits' context, not units.
+    #[test]
+    fn listed_context_lines_are_windows_not_units() {
+        let data = json!({"files":[{"path":"src/x.rs","matchedLines":[14],
+            "matches":[{"line":13,"value":"a"},{"line":14,"value":"needle"},{"line":15,"value":"c"}]}]});
+        let query = json!({"keywords":["needle"],"contextLines":{"before":1,"after":1}});
+        let units = units_of(&data, &query);
+        assert_eq!(units.len(), 1);
+        assert_eq!(units[0].key, "src/x.rs:14");
+        let state = units[0].state.as_ref().expect("judged");
+        assert_eq!(state["target"]["text"], "needle");
+        assert_eq!(
+            state["lines"],
+            json!([[13, "a"], [14, "needle"], [15, "c"]])
+        );
+    }
+
+    /// A keyed file's row names each hit line's key path (`matchKeys`, the
+    /// wire's `[{line, keyPath}]`): the hit's target carries its own.
+    #[test]
+    fn a_hit_in_a_keyed_file_carries_its_key_path() {
+        let data = json!({"files":[{"path":"package.json",
+            "matchKeys":[{"line":2,"keyPath":"name"},{"line":9,"keyPath":"scripts.build"}],
+            "matches":[{"line":2,"value":"  \"name\": \"x\","},{"line":9,"value":"    \"build\": \"x\""}]}]});
+        let units = units_of(&data, &json!({"path":".","matchString":["x"]}));
+        let keys = &data["files"][0]["matchKeys"];
+        for (unit, key) in units.iter().zip(keys.as_array().expect("keys")) {
+            let target = &unit.state.as_ref().expect("judged")["target"];
+            assert_eq!(target["line"], key["line"], "{target}");
+            assert_eq!(target["key"], key["keyPath"], "{target}");
+        }
+        assert_eq!(units.len(), 2);
+    }
+
+    /// A match over several lines states its extent in `endLine`: one hit,
+    /// its target those lines. `matchedLines` are always separate hits (of a
+    /// merged context window), whatever the query's `multiline`.
+    #[test]
+    fn a_match_extent_comes_from_the_row_not_the_query() {
+        let multiline = json!({"path":".","matchString":["x|fold\\(\\n.*"],"multiline":"on"});
+        let data = json!({"files":[{"path":"a.rs",
+            "matches":[{"line":20,"value":"fold(\n    init,","endLine":21}]}]});
+        let units = units_of(&data, &multiline);
+        assert_eq!(units.len(), 1);
+        assert_eq!(units[0].key, "a.rs:20");
+        let target = &units[0].state.as_ref().expect("judged")["target"];
+        assert_eq!(target["lastLine"], 21);
+        assert_eq!(target["text"], "fold(\n    init,");
+
+        let data = json!({"files":[{"path":"a.rs",
+            "matches":[{"line":21,"value":"20\tfold(\n21\tx\n22\tx","matchedLines":[21,22]}]}]});
+        let units = units_of(&data, &multiline);
+        assert_eq!(
+            units
+                .iter()
+                .map(|unit| unit.key.as_str())
+                .collect::<Vec<_>>(),
+            ["a.rs:21", "a.rs:22"]
+        );
+        assert!(units.iter().all(|unit| {
+            unit.state.as_ref().expect("judged")["target"]
+                .get("lastLine")
+                .is_none()
+        }));
     }
 
     /// A page that lists files without hits (a files-only view): each file.
@@ -578,7 +784,7 @@ mod tests {
             "files":[{"path":"src/x.rs","patch":"@@"}]}]});
         assert_eq!(keys(&data), ["42:src/x.rs", "42:1", "42:2", "42:9", "42:5"]);
         // The pull request's body is not repeated to each entry's judge.
-        let units = page_units(&data);
+        let units = page_units(&data, &json!({}));
         assert_eq!(
             units[1].state,
             Some(json!({"of":"42","comments":{"id":1,"body":"a"}}))
@@ -592,7 +798,7 @@ mod tests {
             {"path":".env","matches":[{"line":1,"value":"KEY=1"}]},
             {"dir":"cfg","files":[".env.local","app.toml"]},
         ]});
-        let units = page_units(&data);
+        let units = page_units(&data, &json!({}));
         let withheld: Vec<&str> = units
             .iter()
             .filter(|unit| unit.state.is_none())

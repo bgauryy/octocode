@@ -114,7 +114,11 @@ fn git_admission_waits_land_on_the_row_by_cause() {
         "{:?}",
         refused.waits.summed()
     );
-    assert_eq!(refused.client_waits(), Vec::new(), "spacing is not disclosed");
+    assert_eq!(
+        refused.client_waits(),
+        Vec::new(),
+        "spacing is not disclosed"
+    );
     drop(held);
 }
 

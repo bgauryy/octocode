@@ -13,7 +13,7 @@ Load when measuring whether a host loads the right skill.
 claude -p "<request>" --model <model> --output-format stream-json --verbose --no-session-persistence
 ```
 
-- Run each request in a fresh headless session with the production tool and permission policy. Keep the same policy, timeout, and concurrency for both arms; bound concurrent runs to avoid resource contention. Record the first `Skill` tool call (`input.skill`) or none, plus host version, model, policy, and cost. A restricted-tool probe measures that restricted condition only.
+- Run each request in a fresh headless session with the production tool and permission policy. Keep the same policy, timeout, and concurrency for both arms; bound concurrent runs to avoid resource contention. Record the first `Skill` tool call (`input.skill`) or none, plus host version, model, policy, and cost. A restricted-tool check measures that restricted condition only.
 
 ## Score
 

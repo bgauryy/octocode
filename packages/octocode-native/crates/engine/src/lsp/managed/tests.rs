@@ -170,6 +170,7 @@ fn every_platform_maps_to_an_asset_built_for_its_os_and_cpu() {
 fn resolve_hashes_an_unchanged_binary_once() {
     let root = TmpDir::new();
     let bin = install(&root, "rust-analyzer", "linux-x64", b"ra-memo");
+    crate::stamp::settle_written_so_far();
     let before = HASH_CALLS.with(std::cell::Cell::get);
     for _ in 0..3 {
         assert_eq!(
@@ -177,7 +178,11 @@ fn resolve_hashes_an_unchanged_binary_once() {
             Some(bin.clone())
         );
     }
-    assert_eq!(HASH_CALLS.with(std::cell::Cell::get) - before, 1);
+    let unchanged_hashes = if cfg!(unix) { 1 } else { 3 };
+    assert_eq!(
+        HASH_CALLS.with(std::cell::Cell::get) - before,
+        unchanged_hashes
+    );
     // Same size, new content; move mtime explicitly so a coarse
     // filesystem clock cannot hide the rewrite.
     let modified = std::fs::metadata(&bin)
@@ -193,7 +198,72 @@ fn resolve_hashes_an_unchanged_binary_once() {
         resolve_cached_server(&root, "rust-analyzer", "linux-x64"),
         None
     );
-    assert_eq!(HASH_CALLS.with(std::cell::Cell::get) - before, 2);
+    assert_eq!(
+        HASH_CALLS.with(std::cell::Cell::get) - before,
+        unchanged_hashes + 1
+    );
+}
+
+/// A replace by rename can preserve both size and modification time. The
+/// verification memo must name the file object, not only those two values.
+#[test]
+fn resolve_rehashes_a_replacement_with_preserved_size_and_mtime() {
+    let root = TmpDir::new();
+    let bin = install(&root, "rust-analyzer", "linux-x64", b"ra-memo");
+    crate::stamp::settle_written_so_far();
+    assert_eq!(
+        resolve_cached_server(&root, "rust-analyzer", "linux-x64"),
+        Some(bin.clone())
+    );
+    let modified = std::fs::metadata(&bin)
+        .and_then(|metadata| metadata.modified())
+        .expect("mtime");
+    let replacement = bin.with_extension("replacement");
+    std::fs::write(&replacement, b"ra-mem2").expect("replacement");
+    std::fs::File::options()
+        .write(true)
+        .open(&replacement)
+        .and_then(|file| file.set_modified(modified))
+        .expect("preserve mtime");
+    std::fs::rename(&replacement, &bin).expect("replace binary");
+    assert_eq!(
+        resolve_cached_server(&root, "rust-analyzer", "linux-x64"),
+        None
+    );
+}
+
+/// Cache-home changes must not retain every verified install forever. The
+/// manifest's complete platform working set bounds optional verification state.
+#[test]
+fn verified_binary_memo_is_bounded_by_the_manifest_working_set() {
+    let mut memo = new_verification_memo();
+    let capacity: usize = manifest()
+        .values()
+        .map(|server| server.platforms.len())
+        .sum();
+    assert_eq!(memo.cap().get(), capacity);
+    assert_eq!(
+        verified_binaries()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .cap()
+            .get(),
+        capacity
+    );
+    // Exercise eviction locally so this test cannot evict another parallel
+    // test's verified binary and invalidate its exact hash-call observation.
+    for index in 0..=capacity {
+        memo.put(
+            PathBuf::from(index.to_string()),
+            VerifiedBinary {
+                stamp: crate::stamp::SourceStamp::default(),
+                binary_sha256: String::new(),
+            },
+        );
+    }
+    assert_eq!(memo.len(), capacity);
+    assert!(!memo.contains(&PathBuf::from("0")));
+    assert!(memo.contains(&PathBuf::from(capacity.to_string())));
 }
 
 #[test]

@@ -106,7 +106,7 @@ impl Question<'_, '_> {
                 let report = self
                     .ask("diagnostics", json!({ "path": self.path }))
                     .await?;
-                let (found, _) = diagnostic_items(Some(report));
+                let found = diagnostic_items(Some(report));
                 Ok(items_payload(
                     query,
                     "diagnostics",

@@ -1,0 +1,63 @@
+{
+  "scope": "isolated source copies; sibling core not modified",
+  "patchFiles": [
+    "packages/octocode-core/src/__tests__/instructions.test.ts",
+    "packages/octocode-core/src/toolContract/instructions.ts",
+    "packages/octocode-core/src/toolContract/outputGitHubData.ts",
+    "packages/octocode-core/src/toolContract/tools/_read.ts",
+    "packages/octocode-core/src/toolContract/tools/artifactSearch.ts",
+    "packages/octocode-core/src/toolContract/tools/astSearch.ts",
+    "packages/octocode-core/src/toolContract/tools/clasify.ts",
+    "packages/octocode-core/src/toolContract/tools/ghCloneRepo.ts",
+    "packages/octocode-core/src/toolContract/tools/ghGetFileContent.ts",
+    "packages/octocode-core/src/toolContract/tools/ghSearchCode.ts",
+    "packages/octocode-core/src/toolContract/tools/ghSearchHistory.ts",
+    "packages/octocode-core/src/toolContract/tools/ghSearchRepo.ts",
+    "packages/octocode-core/src/toolContract/tools/ghStructure.ts",
+    "packages/octocode-core/src/toolContract/tools/graphBuild.ts",
+    "packages/octocode-core/src/toolContract/tools/graphQuery.ts",
+    "packages/octocode-core/src/toolContract/tools/localFetch.ts",
+    "packages/octocode-core/src/toolContract/tools/localSearch.ts",
+    "packages/octocode-core/src/toolContract/tools/lspSearch.ts",
+    "packages/octocode-core/src/toolContract/tools/securityCheck.ts",
+    "packages/octocode-core/src/toolContract/tools/structureSearch.ts"
+  ],
+  "patchSha256": "d10cf3e52dccba90d817b0536873ab3ea7e306518098ddd184d49ea4b4c41b26",
+  "coreBuild": {
+    "command": "tsc -p tsconfig.json",
+    "exitCode": 0
+  },
+  "typecheck": {
+    "command": "tsgo --noEmit -p tsconfig.typecheck.json",
+    "exitCode": 0
+  },
+  "lint": {
+    "command": "oxlint --type-aware --deny-warnings --report-unused-disable-directives -c .oxlintrc.json src scripts",
+    "exitCode": 0
+  },
+  "format": {
+    "command": "prettier --check 'src/**/*.ts' (plus final output note)",
+    "exitCode": 0
+  },
+  "coreTests": {
+    "command": "vitest run --maxWorkers=1 --no-file-parallelism --cache=false",
+    "exitCode": 0,
+    "filesPassed": 110,
+    "testsPassed": 1575
+  },
+  "finalOutputChecks": {
+    "exitCode": 0,
+    "filesPassed": 5,
+    "testsPassed": 104
+  },
+  "docsVerify": {
+    "command": "node skills-dev/octocode-dev/scripts/dev.mjs docs:verify",
+    "exitCode": 0
+  },
+  "patchApplyCheck": {
+    "command": "git apply --check <patch>",
+    "exitCode": 0
+  },
+  "nativeRegeneration": "blocked: sibling core is outside writable sandbox paths",
+  "liveCandidateReplay": "not run: core patch not applied or regenerated"
+}

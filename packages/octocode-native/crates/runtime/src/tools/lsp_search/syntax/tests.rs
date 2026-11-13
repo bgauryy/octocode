@@ -6,6 +6,8 @@ use crate::tools::test_support::checks::{Page, Walker};
 use serde_json::{Value, json};
 use std::path::Path;
 
+mod raw_identifiers;
+
 const JAVA: &str = "package demo;\n\ninterface Shape { double area(); }\n\nclass Square implements Shape {\n    public double area() { return side(); }\n    double side() { return 2; }\n}\n\nclass Main {\n    void run() { new Square().area(); }\n}\n";
 
 /// A workspace with `name` holding `content`, and a home whose user config

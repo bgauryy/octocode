@@ -72,9 +72,53 @@ pub(super) fn map_to_file(result: &mut LocalFetchResult, streamed: &Streamed) {
             .count()
     });
     if streamed.key_lines > 0 && shown > 0 {
-        result.warnings.push(format!(
-            "redactedContent: {shown} line(s) inside private-key blocks were replaced; this content is not verbatim source."
-        ));
+        result.warnings.push(key_lines_warning(shown));
+    }
+}
+
+/// The note of a page that shows `lines` private-key lines' placeholders.
+fn key_lines_warning(lines: usize) -> String {
+    format!(
+        "redactedContent: {lines} line(s) inside private-key blocks were replaced; this content is not verbatim source."
+    )
+}
+
+/// The key lines a [`key_lines_warning`] counts; `None` for any other warning.
+fn key_lines_of(warning: &str) -> Option<usize> {
+    let lines = warning
+        .strip_prefix("redactedContent: ")?
+        .split_once(' ')?
+        .0
+        .parse()
+        .ok()?;
+    (key_lines_warning(lines) == warning).then_some(lines)
+}
+
+/// Add a joined part's `warning` to the row's `warnings`: a count of what the
+/// part replaced adds to the row's count of the same, so the joined row states
+/// every placeholder it shows; any other warning is stated once.
+pub(super) fn join_warning(warnings: &mut Vec<String>, warning: String) {
+    let counts: [(fn(&str) -> Option<usize>, fn(usize) -> String); 2] = [
+        (
+            crate::security::redacted_values,
+            crate::security::redacted_content_warning,
+        ),
+        (key_lines_of, key_lines_warning),
+    ];
+    for (count, state) in counts {
+        if let Some(more) = count(&warning) {
+            match warnings
+                .iter_mut()
+                .find_map(|held| count(held).map(|had| (held, had)))
+            {
+                Some((held, had)) => *held = state(had + more),
+                None => warnings.push(warning),
+            }
+            return;
+        }
+    }
+    if !warnings.contains(&warning) {
+        warnings.push(warning);
     }
 }
 
@@ -102,12 +146,16 @@ pub(super) fn continue_window(
     {
         local_fetch_query::set_path(&mut inner.query, local_fetch_query::path(q))
             .map_err(|error| error.to_string())?;
-        local_fetch_query::set_line_span(
-            &mut inner.query,
-            span.first,
-            span.last.min(streamed.total_lines),
-        )
-        .map_err(|error| error.to_string())?;
+        // The byte pages count from the window's first line and run to the
+        // read's last line (the file's for a chunk, the range's otherwise), not
+        // the window's: the line walk they hand back to goes on to that line.
+        let read_last = if chunked {
+            streamed.total_lines
+        } else {
+            span.requested_last.min(streamed.total_lines)
+        };
+        local_fetch_query::set_line_span(&mut inner.query, span.first, read_last)
+            .map_err(|error| error.to_string())?;
         local_fetch_query::set_snapshot(&mut inner.query, Some(snapshot))
             .map_err(|error| error.to_string())?;
         return Ok(());

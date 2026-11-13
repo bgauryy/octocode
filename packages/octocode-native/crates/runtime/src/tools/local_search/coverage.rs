@@ -10,8 +10,11 @@ use octocode_engine::num::saturating_u32;
 use octocode_engine::types::CapReason;
 
 /// The page's warning when some shown values are placeholders the secret
-/// check put in their place.
-pub(super) const UNVERIFIED_WARNING: &str = "Some match values are [REDACTED: …] placeholders, each naming why its text could not be checked for secrets: the source is too large around the match, could not be re-read, or changed during the call, or the row's window disagrees with its source. Read those lines with localFetch at the returned anchors.";
+/// check put in their place: this page's fact only. What a placeholder means
+/// and the localFetch read that shows its line are the tool description's;
+/// each placeholder names its own cause.
+pub(super) const UNVERIFIED_WARNING: &str =
+    "unverifiedMatches: some returned match values are [REDACTED: …] placeholders.";
 
 /// What the scan could not cover, and how the row says so.
 pub(super) struct Coverage {

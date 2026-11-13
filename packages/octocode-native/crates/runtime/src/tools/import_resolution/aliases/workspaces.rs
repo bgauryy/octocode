@@ -2,9 +2,10 @@
 //! import of one is an unscanned sibling and not a third-party package.
 use super::*;
 
-/// The dependencies `value` (a `package.json`) takes from this repository:
-/// `workspace:`, `file:`, `link:` and `portal:` version specs.
-pub(super) fn local_dependencies(value: &Value) -> impl Iterator<Item = String> {
+/// The dependencies `value` (a `package.json`) takes from this repository
+/// (`workspace:`, `file:`, `link:` and `portal:` version specs), each with
+/// the path a path protocol names, relative to the manifest's directory.
+fn local_dependencies(value: &Value) -> Vec<(String, Option<String>)> {
     [
         "dependencies",
         "devDependencies",
@@ -14,16 +15,17 @@ pub(super) fn local_dependencies(value: &Value) -> impl Iterator<Item = String> 
     .into_iter()
     .filter_map(|field| value.get(field).and_then(Value::as_object))
     .flat_map(|map| map.iter())
-    .filter(|(_, version)| {
-        version.as_str().is_some_and(|version| {
-            ["workspace:", "file:", "link:", "portal:"]
-                .iter()
-                .any(|protocol| version.starts_with(protocol))
-        })
+    .filter_map(|(name, version)| {
+        let version = version.as_str()?;
+        if version.starts_with("workspace:") {
+            return Some((name.clone(), None));
+        }
+        ["file:", "link:", "portal:"]
+            .iter()
+            .find_map(|protocol| version.strip_prefix(protocol))
+            .map(|path| (name.clone(), Some(path.to_owned())))
     })
-    .map(|(name, _)| name.clone())
-    .collect::<Vec<_>>()
-    .into_iter()
+    .collect()
 }
 
 /// Whether Node, resolving the package's own `name` from its directory
@@ -112,6 +114,25 @@ fn root_patterns(
 }
 
 impl ResolveContext {
+    /// Records the local dependencies of the manifest `value` in the
+    /// directory `dir`; one whose path lies outside the scan root is code
+    /// beyond it.
+    pub(super) fn load_local_dependencies(
+        &mut self,
+        reader: &ConfigReader<'_>,
+        dir: &Path,
+        value: &Value,
+    ) {
+        for (name, path) in local_dependencies(value) {
+            if path.is_some_and(|path| {
+                relative_to_root(reader.root, &lexical(&dir.join(path))).is_none()
+            }) {
+                self.outside_packages.insert(name.clone());
+            }
+            self.local_packages.insert(name);
+        }
+    }
+
     /// The member directories of a scanned workspace root at `dir`.
     pub(super) fn load_workspace_members(
         &mut self,
@@ -156,6 +177,9 @@ impl ResolveContext {
                     .as_ref()
                     .and_then(|value| value.get("name")?.as_str())
                 {
+                    if relative_to_root(reader.root, &lexical(&package)).is_none() {
+                        self.outside_packages.insert(name.to_owned());
+                    }
                     self.local_packages.insert(name.to_owned());
                 }
             }

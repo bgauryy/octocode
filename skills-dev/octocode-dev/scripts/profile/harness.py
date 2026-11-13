@@ -344,7 +344,7 @@ def extras(workspace):
 
 
 def stub_server(work):
-    """Tool-health's loopback GitHub, the registry proxy and OSV. Returns (process, {url, proxyUrl, caFile}),
+    """The providers/ loopback GitHub, the registry proxy and OSV. Returns (process, {url, proxyUrl, caFile}),
     or (None, reason) when it cannot start."""
     url_file = Path(work) / 'stub.url'
     env = {**os.environ, 'STUB_TOKENS': 'profile-fake-token', 'PROF_TMP': str(work)}

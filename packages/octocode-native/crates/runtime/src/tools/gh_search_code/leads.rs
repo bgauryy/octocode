@@ -66,7 +66,9 @@ pub(super) fn hits_read(
         owner,
         repo,
         path,
-        reference: Some(sha),
+        reference: (!sha.is_empty())
+            .then_some(sha)
+            .or_else(|| requested_ref(query)),
     };
     let read = match_read(&target, keyword_terms(query)?, Some((0, 0)), false)?;
     Some(Continuation::continued_query(read).build())
@@ -142,8 +144,8 @@ pub(super) fn file_scope_read(query: &GhSearchCodeQuery, file: &str) -> Option<V
 
 /// The index-fragment read of the top file, kept inside the verified source
 /// scope: pinned to the resolved commit, dropped when the file is absent
-/// there, and naming the requested ref when nothing was resolved. It never
-/// silently reads the default branch for a requested ref.
+/// there, and naming the requested ref or proven index commit when no lines
+/// were read. It never silently changes a known source revision.
 pub(super) fn scoped_fragment_read(
     fragment: Option<&Value>,
     query: &GhSearchCodeQuery,
@@ -180,7 +182,12 @@ pub(super) fn scoped_fragment_read(
             Some((sha, _)) => Some(sha.as_str()),
             None => None,
         },
-        None => requested_ref(query),
+        None => requested_ref(query).or_else(|| {
+            fragment
+                .get("commitSha")
+                .and_then(Value::as_str)
+                .filter(|commit| octocode_github::is_full_sha(commit))
+        }),
     };
     read_top_match(fragment, branch)
 }

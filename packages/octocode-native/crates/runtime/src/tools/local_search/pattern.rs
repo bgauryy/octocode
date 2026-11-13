@@ -4,8 +4,13 @@ use crate::response::result::ToolError;
 use octocode_contract_types::{ErrorCode, LocalSearchQuery, RegexEngine};
 
 pub(super) fn check_pattern(query: &LocalSearchQuery) -> Result<(), ToolError> {
+    check_expression(query, local_search_query::pattern(query))
+}
+
+/// Validate one expression under the query's regex and multiline rules,
+/// without copying the query or changing its pattern list.
+pub(super) fn check_expression(query: &LocalSearchQuery, pattern: &str) -> Result<(), ToolError> {
     let mode = local_search_query::regex_mode(query);
-    let pattern = local_search_query::pattern(query);
     if local_search_query::multiline(query) == Multiline::Off
         && octocode_engine::search::text_pattern::matches_line_break(
             pattern,

@@ -1,7 +1,6 @@
 // Markdown engine. Runs in Node (self-test) and in the page (inlined via Function#toString), so
 // mdKit must stay self-contained: no imports or outer references inside it, so its helpers
 // cannot move to module scope and the function holds the whole engine.
-// oxlint-disable-next-line max-lines-per-function -- serialized whole via Function#toString
 export function mdKit() {
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   const slugify = (t) => String(t).toLowerCase().trim().replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/\s+/g, '-') || 'section';

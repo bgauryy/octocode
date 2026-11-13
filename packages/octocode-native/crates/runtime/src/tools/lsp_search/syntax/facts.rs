@@ -5,7 +5,6 @@ use super::super::source::read_bounded_source;
 use crate::tools::declarations;
 use octocode_engine::graph::{GraphFactDeclaration, GraphFactsDocument, GraphRange};
 use octocode_engine::lsp::types::{LspCodeSnippet, LspExactPosition, LspRange};
-use octocode_engine::num::saturating_u32;
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -15,6 +14,7 @@ pub(super) struct File {
     pub(super) path: String,
     pub(super) uri: String,
     pub(super) content: String,
+    pub(super) language_id: Option<String>,
 }
 
 impl File {
@@ -23,7 +23,16 @@ impl File {
             path: path.to_owned(),
             uri: octocode_engine::lsp::uri::path_to_uri(path).ok()?,
             content: read_bounded_source(std::path::Path::new(path)).ok()?,
+            language_id: octocode_engine::lsp::config::detect_language_id(path),
         })
+    }
+
+    pub(super) fn canonical_name<'a>(&self, name: &'a str) -> &'a str {
+        octocode_engine::lsp::resolver::canonical_symbol_name(self.language_id.as_deref(), name)
+    }
+
+    pub(super) fn same_name(&self, left: &str, right: &str) -> bool {
+        self.canonical_name(left) == self.canonical_name(right)
     }
 
     /// The file's declarations; `None` when its type has no grammar.
@@ -102,7 +111,7 @@ pub(super) fn declared(
             outline
                 .declarations
                 .iter()
-                .filter(|declaration| declaration.name == name)
+                .filter(|declaration| file.same_name(&declaration.name, name))
                 .map(|declaration| {
                     file.snippet(&declaration.selection_range, Some(&declaration.kind))
                 })
@@ -112,50 +121,58 @@ pub(super) fn declared(
     (found.into_iter().flatten().collect(), unread)
 }
 
-/// Every whole-identifier occurrence of `name` in `files`.
+/// Every grammar-established code occurrence of `name` in `files`, retaining
+/// full source ranges. A source whose parse cannot establish occurrences is
+/// unread coverage, never a text match presented as syntax.
 pub(super) fn occurrences(
     files: &BTreeSet<String>,
     name: &str,
     stopped: &(dyn Fn() -> bool + Sync),
 ) -> (Vec<LspCodeSnippet>, Vec<String>) {
-    let (found, unread) = each_file(files, stopped, |file| {
-        let mut found = Vec::new();
-        for (line, text) in file.content.lines().enumerate() {
-            for (start, _) in text.match_indices(name) {
-                let end = start + name.len();
-                let (Some(before), Some(after)) = (text.get(..start), text.get(end..)) else {
-                    continue;
-                };
-                let bounded = !before.chars().next_back().is_some_and(is_word)
-                    && !after.chars().next().is_some_and(is_word);
-                if !bounded {
-                    continue;
-                }
-                let line = saturating_u32(line);
-                let column = |byte: usize| {
-                    saturating_u32(text.get(..byte).unwrap_or_default().encode_utf16().count())
-                };
-                found.push(LspCodeSnippet {
-                    uri: file.uri.clone(),
-                    range: LspRange {
-                        start: LspExactPosition {
-                            line,
-                            character: column(start),
-                        },
-                        end: LspExactPosition {
-                            line,
-                            character: column(end),
-                        },
-                    },
-                    content: text.to_owned(),
-                    symbol_kind: None,
-                    display_range: None,
-                });
-            }
-        }
-        found
+    let (scanned, mut unread) = each_file(files, stopped, |file| {
+        let found =
+            octocode_engine::lsp::resolver::code_occurrences(&file.path, &file.content, name).map(
+                |occurrences| {
+                    let index = octocode_engine::text::LineIndex::new(&file.content);
+                    occurrences
+                        .ranges()
+                        .iter()
+                        .map(|range| {
+                            let first = range.start.line;
+                            let end = range.end.line;
+                            let last = end
+                                .saturating_sub(u32::from(range.end.character == 0 && end > first));
+                            let start = index.position_to_byte(&file.content, first, 0) as usize;
+                            let end =
+                                index.position_to_byte(&file.content, last.saturating_add(1), 0)
+                                    as usize;
+                            LspCodeSnippet {
+                                uri: file.uri.clone(),
+                                range: range.clone(),
+                                content: file
+                                    .content
+                                    .get(start..end)
+                                    .unwrap_or_default()
+                                    .trim_end_matches(['\r', '\n'])
+                                    .to_owned(),
+                                symbol_kind: None,
+                                display_range: None,
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                },
+            );
+        (file.path.clone(), found)
     });
-    (found.into_iter().flatten().collect(), unread)
+    let mut found = Vec::new();
+    for (path, scanned) in scanned {
+        match scanned {
+            Some(snippets) => found.extend(snippets),
+            None => unread.push(path),
+        }
+    }
+    unread.sort();
+    (found, unread)
 }
 
 /// The declarations of `files` whose name contains `query` (case-folded),
@@ -256,10 +273,6 @@ pub(super) fn syntax_errors(document: &GraphFactsDocument) -> Value {
 fn contains(outer: &GraphRange, inner: &GraphRange) -> bool {
     (outer.start.line, outer.start.character) <= (inner.start.line, inner.start.character)
         && (inner.end.line, inner.end.character) <= (outer.end.line, outer.end.character)
-}
-
-fn is_word(character: char) -> bool {
-    character.is_alphanumeric() || character == '_' || character == '$'
 }
 
 pub(super) fn lsp_range(range: &GraphRange) -> LspRange {

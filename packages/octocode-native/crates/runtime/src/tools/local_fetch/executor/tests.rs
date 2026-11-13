@@ -40,3 +40,19 @@ fn payload_line(n: usize) -> String {
     format!("line {n} payload payload payload payload\n")
 }
 
+#[test]
+fn binary_sniff_does_not_reserve_the_whole_source() {
+    let mut file = tempfile::tempfile().expect("source");
+    std::io::Write::write_all(&mut file, b"\0binary").expect("binary prefix");
+    file.set_len(MAX_SOURCE_BYTES).expect("source size");
+    std::io::Seek::rewind(&mut file).expect("rewind");
+    let (_, sample) = read_sample(file).expect("sample");
+    assert_eq!(
+        octocode_engine::text::sniff(&sample),
+        octocode_engine::text::BinaryVerdict::Binary
+    );
+    assert!(
+        sample.capacity() <= BINARY_SAMPLE_BYTES,
+        "an immediate binary refusal must retain only its sniff, not the whole source"
+    );
+}

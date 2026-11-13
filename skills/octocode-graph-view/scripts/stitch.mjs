@@ -2,6 +2,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, posix, relative, sep } from 'node:path';
 import { degrees, topGroup } from './lib.mjs';
+import { chunkCoverage } from './coverage.mjs';
 
 const EXT = ['.ts', '.tsx', '.mts', '.cts', '.d.ts', '.js', '.jsx', '.mjs', '.cjs', '.json', '.py', '.rs', '.go', '.java', '.scala', '.cs', '.c', '.h', '.cc', '.cpp', '.hpp', '.cu', '.cuh'];
 const JS_TO_TS = { '.js': ['.ts', '.tsx'], '.mjs': ['.mts'], '.cjs': ['.cts'], '.jsx': ['.tsx'] };
@@ -367,13 +368,14 @@ function whole({ root, chunks, datas, cross, crossCalls }) {
   const fnSet = [...new Set(m.fnFiles)];
   const sources = m.files.filter((f) => f.kind !== 'package').toSorted((a, b) => b.fanIn - a.fanIn);
   const crossCount = m.imports.filter((e) => e.crossChunk).length;
+  const { partial, partialChunks, notBuilt } = chunkCoverage(chunks, datas);
   return {
     section: root,
     mode: 'whole',
     frozen: false,
     evidence: 'chunks/<id>/tmp/evidence',
-    coverage: { chunks: chunks.length, built: built.length, notBuilt: chunks.filter((c) => !datas.has(c.id)).map((c) => c.id), files: sources.length, imports: m.imports.length, crossChunkImports: crossCount, calls: m.calls.length, crossChunkCalls: m.calls.filter((c) => c.crossChunk).length, callsOutside: m.callsOutside, note: 'Stitched from built chunk snapshots. Imports between chunks come from out-of-root relative imports, Rust paths into other workspace crates (crate-path) and workspace package imports. Calls between chunks are bound by name through those imports (stitched-import, medium: the exact top-level name declared in one imported file, or in the module file a workspace crate path names); member, other qualified, dynamic-import and ambiguous calls stay unbound in the evidence of each chunk. Cycles and findings are per chunk.' },
-    snapshot: { id: 'whole', root, counts: { nodes: m.files.length + m.symbols.length, edges: m.imports.length + m.calls.length, nodesByKind: { file: sources.length } } },
+    coverage: { ...partial, partialChunks, chunks: chunks.length, built: built.length, notBuilt, files: sources.length, imports: m.imports.length, crossChunkImports: crossCount, calls: m.calls.length, crossChunkCalls: m.calls.filter((c) => c.crossChunk).length, callsOutside: m.callsOutside, note: 'Stitched from built chunk snapshots. Imports between chunks come from out-of-root relative imports, Rust paths into other workspace crates (crate-path) and workspace package imports. Calls between chunks are bound by name through those imports (stitched-import, medium: the exact top-level name declared in one imported file, or in the module file a workspace crate path names); member, other qualified, dynamic-import and ambiguous calls stay unbound in the evidence of each chunk. Cycles and findings are per chunk.' },
+    snapshot: { ...partial, id: 'whole', root, counts: { nodes: m.files.length + m.symbols.length, edges: m.imports.length + m.calls.length, nodesByKind: { file: sources.length } } },
     files: m.files,
     imports: m.imports,
     symbols: m.symbols,

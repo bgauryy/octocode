@@ -70,7 +70,9 @@ async fn crates_exact_versions_carry_the_packaging_commit_or_release_tag() {
     assert_eq!(latest.repository_directory, None);
     // A release tag naming another commit leaves cargo's commit the
     // registry's claim, and the row says which commit the tag names.
-    let elsewhere = KnownTags::new(vec!["serde-rs/serde@v1.0.100=0000000000000000000000000000000000000001"]);
+    let elsewhere = KnownTags::new(vec![
+        "serde-rs/serde@v1.0.100=0000000000000000000000000000000000000001",
+    ]);
     let client = RegistryClient {
         tags: Some(&elsewhere),
         ..RegistryClient::new(&http, &b)

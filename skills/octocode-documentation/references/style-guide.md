@@ -17,7 +17,7 @@ Load when running a style pass, ruling on wording, structure, formatting, code, 
 - Required = must or imperative; recommended = "we recommend"; optional = can. Not `should`, `may`.
 - No filler: `please`, `just`, `simply`, `easy`, `of course`, exclamation marks.
 - Software detects; it does not see, want, or know.
-- One idea per sentence; at most five or six sentences per paragraph; no hard wraps.
+- Keep sentences focused and paragraphs easy to scan; follow the document's wrapping convention.
 - Translatable: one term per concept, keep articles and "that", no idioms, humor, or double negatives.
 
 ## Words ([word list](https://developers.google.com/style/word-list), [inclusive](https://developers.google.com/style/inclusive-documentation), [abbreviations](https://developers.google.com/style/abbreviations))
@@ -35,7 +35,7 @@ Load when running a style pass, ruling on wording, structure, formatting, code, 
 - Lists: numbered for order, else bulleted; introduced by a sentence and colon; parallel, never one item; period only on sentences.
 - Procedures: one imperative action per step, location first; prerequisites before step 1; mark "Optional:".
 - Notices: `**Note:** ...` (Note, Caution, Warning, Success), sparingly; never a required step.
-- Tables: three or more related values per row; sentence-case cells; no merged or layout tables.
+- Tables: compare related values; sentence-case cells; no merged or layout tables.
 
 ## Punctuation, numbers, dates ([commas](https://developers.google.com/style/commas), [hyphens](https://developers.google.com/style/hyphens), [numbers](https://developers.google.com/style/numbers), [dates](https://developers.google.com/style/dates-times), [units](https://developers.google.com/style/units-of-measure))
 
@@ -52,13 +52,13 @@ Load when running a style pass, ruling on wording, structure, formatting, code, 
 - UI verbs: click a button; select or clear a checkbox; turn on a toggle; press a key; enter text. Never `hit`, `toggle`, `deselect`, or hover (hold the pointer over).
 - Name the goal, not the widget. Menus: **File > Open**. Keys as `<kbd>`: **Control+S** (**Command+S** on macOS).
 - No direction or color (`the button above`); use preceding and following.
-- Images only when words fail; alt text ≤155 characters, or `alt=""` if decorative; no images of text or code; crop screenshots and cover personal data.
+- Use images when they clarify the task; concise meaningful alt text, or `alt=""` if decorative. Keep text and code selectable; crop screenshots and cover personal data.
 - File names: lowercase, hyphens, ASCII (`set-up-billing.md`); in prose, the `main.tf` file.
 
 ## Code ([code in text](https://developers.google.com/style/code-in-text), [samples](https://developers.google.com/style/code-samples), [syntax](https://developers.google.com/style/code-syntax), [placeholders](https://developers.google.com/style/placeholders), [API reference](https://developers.google.com/style/api-reference-comments))
 
 - Code font for identifiers, paths, commands, values, env vars, HTTP verbs, status codes; never inflected: `POST`ed → send a `POST` request.
-- Samples: introduced; two-space indent; wrap at 80; omissions as a comment, not `...`.
+- Introduce samples and match the language and project formatting; mark omissions with comments, not `...`.
 - Syntax: `[OPTIONAL]`, `{a|b}`, `ARG...`; none in click-to-copy blocks.
 - Placeholders: `PROJECT_ID`, never `MY_ID`, explained once.
 - Output in its own block: "The output is similar to the following:".

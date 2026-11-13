@@ -82,6 +82,7 @@ fn initialize_advertises_push_diagnostics_so_servers_publish_them() {
         args: Some(vec!["--stdio".into()]),
         workspace_root: std::env::temp_dir().to_string_lossy().into_owned(),
         language_id: Some("typescript".into()),
+        document_language_ids: Default::default(),
         initialization_options: None,
         env: None,
         max_memory_mb: None,

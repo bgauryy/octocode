@@ -18,13 +18,15 @@ pub(super) fn annotate_rust(
         let negated =
             gated_files_mentioning(scope, server_root, name, Gate::NegatedFeature, stopped);
         if negated.matches > 0 || negated.incomplete() {
+            // The counts are this answer's; what the gate means and the
+            // default-features comparison are `cfgNegatedFeatures`', said once.
             let warning = format!(
-                "{} Rust files that mention `{name}` carry cfg(not(feature …)) gates; an all-features build compiles that code out. {}Compare with the default-features run, or confirm with {}.",
+                "{} Rust files that mention `{name}` carry cfg(not(feature …)) gates. {}",
                 negated.matches,
                 negated.incomplete_warning(),
-                text_check()
             );
-            flag_partial(row, query, CFG_NEGATED_REASON, Some(&warning), scope);
+            let warning = warning.trim_end();
+            flag_partial(row, query, CFG_NEGATED_REASON, Some(warning), scope);
         }
         return;
     }
@@ -37,13 +39,10 @@ pub(super) fn annotate_rust(
     if gated.matches > 0 {
         flag_partial(row, query, CFG_REASON, None, scope);
     } else {
-        let warning = format!(
-            "{}Uses under features rust-analyzer left off may be missing: {}.",
-            gated.incomplete_warning(),
-            text_check()
-        );
+        // Only the scan's own counts: what `cfgGatedFiles` means is core's.
+        let warning = gated.incomplete_warning().trim_end().to_owned();
         flag_partial(row, query, CFG_REASON, None, scope);
-        // The caveat reads the same on every row of the scan: said once per
+        // The counts read the same on every row of the scan: said once per
         // response (a notice), beside each row's own reason.
         if flagged_with(row, &[CFG_REASON]) {
             crate::response::paging::push_notice(row, warning);

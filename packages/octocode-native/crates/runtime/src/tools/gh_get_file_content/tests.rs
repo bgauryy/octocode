@@ -26,6 +26,7 @@ mod renamed;
 mod rows;
 mod selection;
 mod windows;
+mod worker;
 
 /// Shaping over the test scanner [`Safe`]; a ranked read judges with
 /// `judge` (a plain read never calls it).

@@ -22,6 +22,7 @@ doctest = false
 workspace = true
 
 [dependencies]
+lru = { workspace = true }
 octocode-io = { path = "../io" }
 aho-corasick = "1"
 grep-matcher = "0.1.9"

@@ -15,7 +15,7 @@ Research, Chrome DevTools and agents-communication are different executables. Th
 
 ## Discover and invoke
 
-Discover the least you need: `--help` lists when to use each tool; `--view variants` gives operations, required fields and an example (about 1 KB); `--view query` every field (6–10 KB); `--view full` every tool (about 23 KB).
+Discover the least you need: `--help` lists when to use each tool; `--view variants` gives operations, required fields and an example; `--view query` every field; `--view full` every tool.
 
 ```bash
 node packages/octocode/out/octocode.js --help
@@ -25,9 +25,11 @@ node packages/octocode/out/octocode.js schema --view full
 node packages/octocode/out/octocode.js localFetch '{"queries":[{"path":"src/index.ts","ranges":[{"startLine":1,"endLine":40}]}]}'
 ```
 
-New requests contain `queries` and optional `responseChars`; each query takes `mainGoal` (the task) and `reasoning` (why this query). Use one tool per batch and respect its schema's maximum row count (at most five). Resume only with an emitted `{cursor}` input. CLI and MCP use the same envelope. For long requests, save JSON under the active skill's scratch directory and use CLI `--input <file>`.
+New requests contain `queries` and optional `responseChars`; each query takes `mainGoal` (the task) and `reasoning` (why this query). Use one tool per batch and respect its schema's batch limit. Resume only with an emitted `{cursor}` input. CLI and MCP use the same envelope. For long requests, save JSON under the active skill's scratch directory and use CLI `--input <file>`.
 
-Long command output (test runs, builds, CI and service logs, `git log`, `ps`) goes to clasify as a file, not into your context: `set -o pipefail; <cmd> > .octocode/<skill-folder>/out.log 2>&1`, then `clasify` with `source:{tool:"localFetch",query:{path:".octocode/<skill-folder>/out.log"}}` and a typed question: a yes names its deciding `lines` and `next.read` reads them (`sections` when you need every place or the order). A scratch path outside the workspace, such as `/tmp`, is refused (`outsideAllowedRoots`). A known marker (`FAILED`, `error[`, `##[error]`) is cheaper with `localSearch` on the same file. Output you will not reread can go straight from the pipe as the row's `content`: `set -o pipefail; <cmd> 2>&1 | <cli> clasify --content - '{"queries":[{"operation":"evaluate","questions":{…}}]}'` (or the JSON from `--input <file>`); its `lines` count lines of that output.
+Save long command output under the active skill's workspace scratch directory. Search known failure markers with `localSearch` and read deciding spans with `localFetch`. When exact search cannot split large unstructured evidence, use `clasify` with `source:{tool:"localFetch",query:{path:".octocode/<skill-folder>/out.log"}}` and a typed question. Read emitted `next.read` before citing its lines. Use `sections` when order or every occurrence matters. Files outside allowed workspace roots, such as `/tmp`, are refused.
+
+For a pipe-only input, use `set -o pipefail; <cmd> 2>&1 | <cli> clasify --content - '<request-json>'`; save reusable requests and pass `--input <file>`. Classification may incur provider cost; discovery does not.
 
 Use observed paths, lines, refs and identifiers. Shared fields have one form: `matchString` string arrays, `contextLines:{before,after}`, `ranges:[{startLine,endLine}]`, numeric `{min,max}`, dates `{from,to}`, `sort:{by,order}`. Live schemas own exact fields and limits. Send declared fields: a known misspelled field runs repaired with a hint naming the real one; bare queries are refused.
 
@@ -36,15 +38,6 @@ Use observed paths, lines, refs and identifiers. Shared fields have one form: `m
 Inspect schema availability, auth status and `lsp-server status <file>` as needed. Unavailable is a coverage gap, not an empty answer. `ghCloneRepo` requires persistent storage when invoked.
 
 Follow [configuration](configuration.md) for credentials/settings. Inline `classification:{predicates:[...],context?,longContext?}` requires `OCTOCODE_CLASSIFICATION_API` or classification.api. Without the key, both surfaces leave out clasify and those fields; a CLI call answers `missingConfiguration`. Discovery makes no provider request. No setting change is implied by a missing capability.
-
-## 17 public tools
-
-The default catalog contains 12 tools over MCP and 16 in the CLI, securityCheck among them. A nonblank classification key adds clasify to both (beta and provider health do not gate it). MCP independently adds graph tools with beta, clone with `OCTOCODE_ENABLE_CLONE=true` and securityCheck with `OCTOCODE_SECURITY_CHECKS=true`; tool lists and the local switch can restrict MCP further. Discovery is authoritative for the configured surface.
-
-- Graph, only when discovery lists it: graphBuild writes and prunes workspace snapshots; graphQuery explores them. Candidates need LSP and source verification.
-- GitHub: ghSearchRepo, ghSearchCode, ghStructure, ghGetFileContent, ghSearchHistory, ghGetHistoryItem, ghCloneRepo.
-- Local: localSearch, structureSearch, astSearch, localFetch, lspSearch.
-- Other: artifactSearch, clasify.
 
 ## Read results and recover
 

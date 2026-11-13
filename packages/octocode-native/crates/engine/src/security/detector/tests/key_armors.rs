@@ -171,8 +171,14 @@ fn a_keys_header_lines_and_public_half_read_as_written() {
 #[test]
 fn an_indented_armor_body_keeps_its_indentation() {
     for (open, close) in [
-        ("-----BEGIN RSA PRIVATE KEY-----", "-----END RSA PRIVATE KEY-----"),
-        ("-----BEGIN EC PRIVATE KEY-----", "-----END EC PRIVATE KEY-----"),
+        (
+            "-----BEGIN RSA PRIVATE KEY-----",
+            "-----END RSA PRIVATE KEY-----",
+        ),
+        (
+            "-----BEGIN EC PRIVATE KEY-----",
+            "-----END EC PRIVATE KEY-----",
+        ),
         ("-----BEGIN PRIVATE KEY-----", "-----END PRIVATE KEY-----"),
         (
             "-----BEGIN OPENSSH PRIVATE KEY-----",

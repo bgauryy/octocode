@@ -116,7 +116,8 @@ mod reason_tests {
             serde_json::json!("securityWalkMemoryBudget")
         );
         assert!(
-            crate::contracts::partial_reason_meaning("securityWalkMemoryBudget").is_some(),
+            crate::contracts::partial_reasons()
+                .is_some_and(|reasons| reasons.get("securityWalkMemoryBudget").is_some()),
             "the embedded contract declares the reason"
         );
     }
@@ -168,6 +169,10 @@ pub struct SourceFacts {
 pub struct ByteOrigin {
     /// The view byte the window's first byte is.
     pub base: usize,
+    /// Bytes of the window's first line before its first byte: the line's
+    /// length counts them when a byte page decides it is too long for a line
+    /// page.
+    pub lead: usize,
     /// The view's size in bytes.
     pub total: usize,
     /// The window's lines (1-based) its redactions changed, with the
@@ -215,15 +220,13 @@ impl ByteOrigin {
 
     /// A byte page cut from the window, restated in the view's coordinates:
     /// its offset, the view's size, and whether (and where) more follows.
-    /// A page that stopped at an oversized line's end resumes by lines, so
-    /// its remainder is the view's whenever the line is not the last.
+    /// A page that stopped at an oversized line's end resumes by lines; either
+    /// way its remainder is the view's past the page.
     pub(super) fn place(&self, page: &mut Pagination) {
         page.offset += self.base;
         page.total_bytes = self.total;
         let end = page.offset + page.length;
-        if page.resume_line.is_none() {
-            page.has_more = end < self.total;
-        }
+        page.has_more = end < self.total;
         page.next_offset = page.has_more.then_some(end);
     }
 }

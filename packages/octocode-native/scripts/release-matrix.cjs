@@ -11,7 +11,7 @@
  * same-CPU Linux build is native and links the runner's glibc).
  *
  * verify: each platform on its own OS and CPU. Every gnu platform also runs in
- * an image whose glibc is GLIBC_FLOOR, through `smoke-binary.cjs --container`
+ * an image whose glibc is GLIBC_FLOOR, through `docker run` of the verify job
  * on the Linux runner of that CPU.
  */
 'use strict';

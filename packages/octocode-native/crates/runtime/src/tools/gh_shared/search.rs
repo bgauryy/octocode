@@ -213,7 +213,7 @@ pub(crate) fn apply_partial(
     query: &impl serde::Serialize,
     facts: &SearchCompleteness<'_>,
 ) {
-    use crate::response::paging::{PartialReason, mark_partial, mark_stated, terminal_limit};
+    use crate::response::paging::{PartialReason, mark_partial, terminal_limit};
     let SearchCompleteness {
         tool,
         matched,
@@ -240,8 +240,6 @@ pub(crate) fn apply_partial(
         } else {
             terminal_limit(value, PartialReason::ProviderResultCap, &warnings);
         }
-        // The warning states what the cap means: no glossary line restates it.
-        mark_stated(value, PartialReason::ProviderResultCap);
     }
     if incomplete {
         mark_partial(value, PartialReason::ProviderIncompleteResults, &[]);

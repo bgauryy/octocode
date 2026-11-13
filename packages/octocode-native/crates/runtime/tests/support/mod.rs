@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use std::path::Path;
 
 // The contract, lead and page-walk checks the unit tests use: one copy, by path.
-use octocode_native::contracts::{validate, validate_output};
+use octocode_native::contracts::{partial_reasons, validate, validate_output};
 #[path = "../../src/tools/test_support/checks.rs"]
 #[expect(dead_code, reason = "the unit tests use the rest of the shared checks")]
 pub mod checks;

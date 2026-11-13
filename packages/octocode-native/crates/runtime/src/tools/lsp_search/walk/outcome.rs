@@ -66,8 +66,6 @@ pub(in crate::tools::lsp_search) fn mark_partial_expansion(
     } else {
         crate::response::paging::mark_partial(row, reason, &[]);
     }
-    // `expansionFailures` states what the reason means, with its counts.
-    crate::response::paging::mark_stated(row, reason);
     if let Some(object) = row.as_object_mut() {
         object.insert(
             "expansionFailures".into(),

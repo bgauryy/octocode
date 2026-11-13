@@ -19,13 +19,12 @@ yarn workspace octocode build:dev
 yarn workspace octocode-mcp build:dev
 yarn workspace @octocodeai/claude-plugin verify
 yarn workspace @octocodeai/claude-plugin validate
-yarn workspace @octocodeai/claude-plugin test:smoke
 node skills-dev/octocode-dev/scripts/dev.mjs docs:verify
 ```
 
-The archive tests check public-skill completeness, relative script imports, forbidden private/build files, and the extracted skill navigation. `validate` uses Claude's authoritative validator in strict mode for the plugin and marketplace. The smoke test installs the actual npm archive through a loopback registry into a temporary Claude configuration, checks the installed manifest and skills, then uses the built local MCP to read two isolated project roots and reject unrelated plugin paths. It never uses the user's GitHub or Claude credentials. Claude Code 2.1.286 was used during development.
+The archive tests check public-skill completeness, relative script imports, forbidden private/build files, and the extracted skill navigation. `validate` uses Claude's authoritative validator in strict mode for the plugin and marketplace. Claude Code 2.1.286 was used during development.
 
-The smoke test explicitly substitutes the local MCP build for the unpublished runtime. Public-registry startup, interactive skill invocation, and Windows/Linux behavior need release validation; an npm fixture install does not establish them.
+Install behavior is an agent check, not a script: the plugins item of [tool checks](../octocode-benchmark/CHECKS.md#end-to-end-before-a-release). Public-registry startup, interactive skill invocation, and Windows/Linux behavior need release validation.
 
 ## Publish the npm package and marketplace
 

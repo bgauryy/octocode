@@ -3,6 +3,77 @@
 //! search.
 use super::*;
 
+/// Commit history's path is literal and can name a file or directory;
+/// the next tool takes globs, which must preserve that exact scope.
+#[test]
+fn history_path_handoffs_preserve_literal_files_and_directory_descendants() {
+    for path in [
+        "src",
+        "src/",
+        "src/lib.rs",
+        "src/file name.rs",
+        "src/日本語.rs",
+    ] {
+        assert_path_handoffs(path);
+    }
+}
+
+/// These valid GitHub names cannot reach the native handoff until core's
+/// LiteralPathSchema stops treating literal metacharacters as authored globs.
+#[test]
+#[ignore = "Blocked by core LiteralPathSchema rejecting valid GitHub paths with [], ? or {}"]
+fn history_path_handoffs_preserve_literal_metacharacters() {
+    for path in ["src/[id]", "src/a?.rs", "src/{one,two}.rs"] {
+        assert_path_handoffs(path);
+    }
+}
+
+fn assert_path_handoffs(path: &str) {
+    let query: GhSearchHistoryQuery = serde_json::from_value(json!({
+        "operation":"commit","owner":"o","repo":"r","path":path
+    }))
+    .unwrap_or_else(|error| panic!("contract rejected {path:?}: {error}"));
+    let rows = [json!({"messageHeadline":"Fix (#1)"})];
+    for lead in [
+        super::leads::read_commit(&query, "a"),
+        super::leads::read_commit_pull_request(&query, &rows),
+    ] {
+        let lead = lead.expect("read");
+        let patterns: Vec<_> = lead["input"]["queries"][0]["include"]
+            .as_array()
+            .expect("include")
+            .iter()
+            .map(|pattern| {
+                globset::GlobBuilder::new(pattern.as_str().expect("glob"))
+                    .literal_separator(true)
+                    .build()
+                    .expect("valid emitted glob")
+                    .compile_matcher()
+            })
+            .collect();
+        let selected = |candidate: &str| patterns.iter().any(|p| p.is_match(candidate));
+        let root = path.trim_end_matches('/');
+        assert!(selected(root), "literal {path}: {lead}");
+        assert!(
+            selected(&format!("{root}/nested/file.rs")),
+            "directory {path}: {lead}"
+        );
+        assert!(
+            !selected(&format!("{root}-sibling/file.rs")),
+            "sibling {path}: {lead}"
+        );
+        if path.contains('[') {
+            assert!(!selected("src/i"), "literal brackets: {lead}");
+        }
+        if path.contains('?') {
+            assert!(!selected("src/ab.rs"), "literal question mark: {lead}");
+        }
+        if path.contains('{') {
+            assert!(!selected("src/one.rs"), "literal braces: {lead}");
+        }
+    }
+}
+
 /// The default PR read targets the merged fix, not the first
 /// (unmerged) search row; the rows already name the others.
 #[test]

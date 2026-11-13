@@ -89,6 +89,7 @@ pub(super) struct KeptHits {
     line_edges: usize,
     mid_edges: usize,
     overlap: usize,
+    redacted: (usize, usize),
 }
 
 impl KeptHits {
@@ -103,6 +104,7 @@ impl KeptHits {
             line_edges: found.line_edges,
             mid_edges: found.mid_edges,
             overlap: found.overlap,
+            redacted: found.redacted,
         })
     }
 
@@ -120,6 +122,7 @@ impl KeptHits {
             line_edges: self.line_edges,
             mid_edges: self.mid_edges,
             overlap: self.overlap,
+            redacted: self.redacted,
             ..Scan::default()
         };
         for line in self.runs.iter().flat_map(|run| run.0..=run.1) {

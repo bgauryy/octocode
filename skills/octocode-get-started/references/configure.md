@@ -23,7 +23,7 @@ Local tools need no keys. Add only what the user's task needs:
 | Web search in `octocode-brainstorming` | `TAVILY_API_KEY`, `EXA_API_KEY` or `SERPER_API_KEY` | unset |
 | `octocode-scraping` | `SCRAPING_ANT` | unset |
 
-Ask before saving anything, and have the user enter a secret themselves so it stays out of chat and version control:
+Save only within the user's requested setup scope; resolve missing authority before changing credentials or destinations. Have the user enter secrets directly:
 
 ```bash
 octocode config set OCTOCODE_CLASSIFICATION_API --stdin    # the key, read from stdin into the home .env

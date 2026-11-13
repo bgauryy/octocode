@@ -327,13 +327,15 @@ pub(super) fn filled_page(
 /// over the line page's `line_page_bytes`, the only reason a line read
 /// pages by bytes) stops instead: that line's end, and the 0-based line line
 /// paging resumes at. `None` when the line fits a line page, the page ends
-/// inside it, or it is the last line.
+/// inside it, or it is the view's last line. `edges` places `content` in the
+/// view it was cut from: a line that starts before it counts those bytes too.
 pub(super) fn oversized_line_end(
     content: &str,
     line: usize,
     offset: usize,
     end: usize,
     line_page_bytes: usize,
+    edges: super::Edges,
 ) -> Option<(usize, usize)> {
     let bytes = content.as_bytes();
     // Only a line that ends within the page matters, and only its length
@@ -341,14 +343,20 @@ pub(super) fn oversized_line_end(
     // the offset, a line page's length. A line start further back than that
     // makes the line oversized whatever its exact start, so it is not found.
     let behind = offset.saturating_sub(line_page_bytes);
-    let line_start = bytes[behind..offset]
+    let before = match bytes[behind..offset]
         .iter()
         .rposition(|byte| *byte == b'\n')
-        .map_or(behind, |at| behind + at + 1);
+    {
+        Some(at) => offset - (behind + at + 1),
+        // The text's first line: it started `lead` bytes before the text.
+        None if behind == 0 => offset + edges.lead,
+        None => offset - behind,
+    };
     let line_end = bytes[offset..end.min(bytes.len())]
         .iter()
         .position(|byte| *byte == b'\n')
         .map(|at| offset + at + 1)?;
     // The 1-based line at `offset` is also the 0-based index of the next.
-    (line_end - line_start > line_page_bytes && line_end < bytes.len()).then_some((line_end, line))
+    (before + (line_end - offset) > line_page_bytes && (line_end < bytes.len() || edges.more))
+        .then_some((line_end, line))
 }

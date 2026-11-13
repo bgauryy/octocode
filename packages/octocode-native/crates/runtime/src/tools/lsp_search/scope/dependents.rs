@@ -27,12 +27,29 @@ pub(in super::super) struct Dependents {
     /// `None`: the anchor's own project could not be named, so every other
     /// project may depend on it.
     roots: Option<BTreeSet<PathBuf>>,
+    /// The build files that state a project's dependencies in the anchor's
+    /// language ([`Identity::build_files`]); empty when `roots` is `None`.
+    build_files: &'static [&'static str],
 }
 
 impl Dependents {
     /// Whether the project rooted at `root` (canonical) may use the anchor.
     pub(in super::super) fn includes(&self, root: &Path) -> bool {
         self.roots.as_ref().is_none_or(|roots| roots.contains(root))
+    }
+
+    /// Whether `file` (canonical), one the walk did not enter (gitignored or
+    /// hidden), may lie in a project that uses the anchor. Under no build
+    /// file of the anchor's language it is in no project, so in none that
+    /// depends on the anchor's, as a visible project with no dependent build
+    /// file is none ([`Self::includes`]). A build file the walk never read
+    /// may name the anchor, so a file under one may.
+    pub(in super::super) fn may_hold_use(&self, file: &Path) -> bool {
+        self.roots.is_none()
+            || file
+                .ancestors()
+                .skip(1)
+                .any(|dir| self.build_files.iter().any(|name| dir.join(name).is_file()))
     }
 
     /// Whether no other project can use the anchor.
@@ -246,7 +263,13 @@ fn read_dependents(
         .filter(|(_, files)| files.iter().any(|file| depends_on(file, &identity)))
         .map(|(root, _)| root)
         .collect();
-    Some((Dependents { roots: Some(roots) }, Some(read)))
+    Some((
+        Dependents {
+            roots: Some(roots),
+            build_files: names,
+        },
+        Some(read),
+    ))
 }
 
 /// Test-only count of the dependents walks of each scope root.

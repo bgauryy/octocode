@@ -59,7 +59,7 @@ impl<C: PoolClient> GenericPool<C> {
                                 idle_timer: IdleTimerGuard(Some(timer)),
                             },
                         );
-                        state.backoff.remove(&key);
+                        state.backoff.pop(&key);
                         remove_lru(&mut state.lru, &key);
                         state.lru.push_back(key.clone());
                         // The new server replaces its workspace's idle
@@ -109,7 +109,7 @@ impl<C: PoolClient> GenericPool<C> {
                         .get(&key)
                         .map_or(0, |backoff| backoff.failures)
                         .saturating_add(1);
-                    state.backoff.insert(
+                    state.backoff.put(
                         key.clone(),
                         StartBackoff {
                             failures,
@@ -185,7 +185,7 @@ impl<C: PoolClient> GenericPool<C> {
             let client = state.entries.remove(key).map(|entry| entry.client);
             self.count.store(state.entries.len(), Ordering::SeqCst);
             let inflight = state.inflight.remove(key);
-            state.backoff.remove(key);
+            state.backoff.pop(key);
             (client, inflight)
         };
         let removed = inflight.is_some() || client.is_some();

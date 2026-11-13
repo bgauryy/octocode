@@ -95,7 +95,10 @@ fn nested_clasify_fragments_validate_and_preserve_every_answer_and_its_context()
                         assert_eq!(found, &expected_section["target"]["bytes"]);
                         *bytes.entry((key.clone(), id.to_owned())).or_insert(0) += 1;
                     }
-                    if section.get("context").is_some_and(|context| *context != json!([])) {
+                    if section
+                        .get("context")
+                        .is_some_and(|context| *context != json!([]))
+                    {
                         assert_eq!(section["context"], expected_section["context"]);
                         *contexts.entry((key.clone(), id.to_owned())).or_insert(0) += 1;
                     }

@@ -23,7 +23,7 @@ flowchart TD
 - Pin roots, revision, existing uncommitted work, entry points, configuration, runtime target, and exclusions. Inventory manifests, registrations, schemas, exports, configuration, live catalogs, adapters, jobs, callbacks, and lifecycle entry points.
 - BFS every junction: branch, dispatch, adapter, shared service, fan-in/out, or ownership/state/control boundary. Rank critical paths for order, never exclusion. Dedupe by resolved identity plus bounded configuration/scenario identity; one visited file never covers every incoming contract.
 - DFS `input → validation → dispatch → implementation → state/dependency → output → consumer`, including supported success, denial, empty, partial, failure, cancellation, retry, timeout, cleanup, and dynamic/registered paths. Keep the pending BFS frontier and DFS stack/resume point beside the ledger for interruption and replan.
-- Use Research for live schemas and continuations; use [AST/LSP](ast-lsp-workflows.md) for candidates and semantic checks; use Engineer's [review angles](../../octocode-engineer/references/checks.md#review-angles) and [change discipline](../../octocode-engineer/references/change-discipline.md) for authorized code work.
+- Use Research for live schemas and continuations; use [AST/LSP](ast-lsp-workflows.md) for candidates and semantic checks; use `octocode-engineer`, when installed, for review angles and authorized change discipline.
 - For runtime rows use the [identity guard](verification.md#automatically-check-artifact-identity). Source-only rows name their source/index scope. Missing fixtures, access, services, or tools remain explicit gaps.
 
 ## Repair and completion

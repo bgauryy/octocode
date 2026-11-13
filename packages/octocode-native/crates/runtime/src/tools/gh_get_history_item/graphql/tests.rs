@@ -41,6 +41,8 @@ fn graphql_comments_state_an_edit_as_rest_ones_do() {
 
 use super::*;
 
+mod single_connection;
+
 /// Fields and arguments `document` selects that the GitHub schema
 /// fixture does not define, walked from the root `Query` type.
 fn undefined_selections(document: &str) -> Vec<String> {
@@ -159,15 +161,13 @@ fn outgoing_documents_validate_against_the_github_schema() {
         "{without_body}"
     );
     assert_eq!(undefined_selections(&document), Vec::<String>::new());
-    assert_eq!(variables.len(), 5, "{document}");
+    assert_eq!(variables.len(), wants.count(), "{document}");
+    assert!(
+        !document.contains("labels("),
+        "section reads do not show labels: {document}"
+    );
     // Each connection's continuation reads on from its end cursor.
-    for connection in [
-        &super::document::LABELS,
-        &FILES,
-        &DISCUSSION,
-        &REVIEWS,
-        &COMMITS,
-    ] {
+    for connection in [&FILES, &DISCUSSION, &REVIEWS, &COMMITS] {
         let next = connection.continuation_document();
         assert!(next.contains("after:$after"), "{next}");
         assert_eq!(undefined_selections(&next), Vec::<String>::new());
@@ -201,7 +201,7 @@ fn graphql_reviews_carry_distinct_rest_ids() {
 }
 
 #[test]
-fn graphql_fast_path_requires_two_flags_first_pages_and_no_patches() {
+fn graphql_fast_path_requires_first_pages_and_no_patches() {
     let bare: HistoryItemRequest = HistoryItemRequest::from_row(json!({
         "operation":"pullRequest", "owner":"a","repo":"b","number":1
     }))

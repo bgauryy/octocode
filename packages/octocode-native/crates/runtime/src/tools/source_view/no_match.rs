@@ -83,7 +83,12 @@ pub(super) fn no_match(q: &LocalFetchQuery, source: &Source<'_>) -> LocalFetchRe
         .filter(|next| !next.is_empty()),
         warnings,
         hints: redacted
-            .then(|| REDACTED_MATCH_HINT.to_owned())
+            .then(|| {
+                redacted_miss(
+                    source.redacted_lines.len(),
+                    source.redacted_lines.iter().map(|(_, values)| values).sum(),
+                )
+            })
             .into_iter()
             .collect(),
         total_lines: Some(source.total_lines),
@@ -94,10 +99,18 @@ pub(super) fn no_match(q: &LocalFetchQuery, source: &Source<'_>) -> LocalFetchRe
     }
 }
 
-/// Why a matchString can miss text that is in the file: it ran on the
-/// redacted text, whose secrets are placeholders. A fact of the file, stated
-/// beside the miss's leads, not as its cause.
-pub(crate) const REDACTED_MATCH_HINT: &str = "matchString ran on redacted text: text behind this file's [REDACTED…] placeholders cannot match.";
+/// The fact of a miss in a file with redactions: `values` placeholders on
+/// `lines` lines hide text a `matchString` runs past (the tool description
+/// says why). It counts the file, never the guess, so a right and a wrong guess
+/// at a secret read the same.
+pub(crate) fn redacted_miss(lines: usize, values: usize) -> String {
+    format!(
+        "{REDACTED_MISS}{values} [REDACTED…] placeholder(s) on {lines} line(s) of this file hide text matchString cannot match."
+    )
+}
+
+/// What every [`redacted_miss`] starts with.
+pub(crate) const REDACTED_MISS: &str = "redactedMiss: ";
 
 /// Lines the same read selects when every pattern matches case-insensitively;
 /// 0 when the patterns do not compile that way either, or already matched so.

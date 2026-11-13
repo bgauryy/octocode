@@ -182,6 +182,10 @@ pub(crate) fn query_row(options: &QueryOptions, id: &str) -> Map<String, Value> 
         .as_deref()
         .map(|base| snapshot_id(base).to_owned());
     let fields = [
+        (
+            "symbolName",
+            options.symbol_name.as_ref().map(|name| json!(name)),
+        ),
         ("to", options.to.as_ref().map(|to| json!(to))),
         ("kind", options.kind.as_ref().map(|kind| json!(kind))),
         ("view", options.view.as_ref().map(|view| json!(view))),

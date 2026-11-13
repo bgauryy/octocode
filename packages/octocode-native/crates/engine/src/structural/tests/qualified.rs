@@ -6,7 +6,7 @@ use super::*;
 /// The spelling that qualifies every name of the pattern.
 fn broader(pattern: &str, ext: &str) -> Option<String> {
     pattern_qualifier(pattern, ext)
-        .map(|qualified| qualified.spelling(&(0..qualified.names().len()).collect::<Vec<_>>()))
+        .map(|qualified| qualified.spelling(&(0..qualified.names().len()).collect::<Vec<_>>(), ""))
 }
 
 fn match_lines(src: &str, ext: &str, pattern: &str) -> Vec<usize> {
@@ -23,7 +23,7 @@ fn match_lines(src: &str, ext: &str, pattern: &str) -> Vec<usize> {
 fn a_rust_path_names_its_head_and_a_longer_spelling() {
     let call = pattern_qualifier("Mutex::new($X)", "rs").expect("a qualified call");
     assert_eq!(call.names(), ["Mutex"]);
-    assert_eq!(call.spelling(&[0]), "$QUALIFIER::Mutex::new($X)");
+    assert_eq!(call.spelling(&[0], ""), "$QUALIFIER::Mutex::new($X)");
     assert_eq!(
         broader("std::sync::Mutex::new($$$A)", "rs").as_deref(),
         Some("$QUALIFIER::std::sync::Mutex::new($$$A)")
@@ -56,7 +56,7 @@ fn a_cpp_or_cuda_path_names_its_head_and_a_longer_spelling() {
         let qualified = pattern_qualifier("chrono::seconds($X)", ext).expect(ext);
         assert_eq!(qualified.names(), ["chrono"], "{ext}");
         assert_eq!(
-            qualified.spelling(&[0]),
+            qualified.spelling(&[0], ""),
             "$QUALIFIER::chrono::seconds($X)",
             "{ext}"
         );
@@ -95,7 +95,7 @@ fn patterns_without_a_literal_qualified_head_have_no_longer_spelling() {
 fn a_bare_callee_names_itself_and_a_longer_spelling() {
     let call = pattern_qualifier("redact_lines($$$A)", "rs").expect("a bare call");
     assert_eq!(call.names(), ["redact_lines"]);
-    assert_eq!(call.spelling(&[0]), "$QUALIFIER::redact_lines($$$A)");
+    assert_eq!(call.spelling(&[0], ""), "$QUALIFIER::redact_lines($$$A)");
     assert_eq!(
         broader("  run( $X )  ", "rs").as_deref(),
         Some("  $QUALIFIER::run( $X )  ")
@@ -114,7 +114,7 @@ fn a_bare_callee_names_itself_and_a_longer_spelling() {
     ] {
         let qualified = pattern_qualifier("format($$$A)", ext).expect(ext);
         assert_eq!(qualified.names(), ["format"], "{ext}");
-        assert_eq!(qualified.spelling(&[0]), spelled, "{ext}");
+        assert_eq!(qualified.spelling(&[0], ""), spelled, "{ext}");
     }
 }
 
@@ -187,15 +187,18 @@ fn names_inside_a_larger_rust_pattern_have_longer_spellings() {
     assert_eq!(trait_impl.names(), ["ToolOutput"]);
     assert_eq!(trait_impl.skeleton(), "impl $QUALIFIER for $T {}");
     assert_eq!(
-        trait_impl.spelling(&[0]),
+        trait_impl.spelling(&[0], ""),
         "impl $QUALIFIER::ToolOutput for $T {}"
     );
     let both = pattern_qualifier("impl Display for Foo {}", "rs").expect("impl");
     assert_eq!(both.names(), ["Display", "Foo"]);
     assert_eq!(both.skeleton(), "impl $QUALIFIER for $QUALIFIER2 {}");
-    assert_eq!(both.spelling(&[1]), "impl Display for $QUALIFIER::Foo {}");
     assert_eq!(
-        both.spelling(&[0, 1]),
+        both.spelling(&[1], ""),
+        "impl Display for $QUALIFIER::Foo {}"
+    );
+    assert_eq!(
+        both.spelling(&[0, 1], ""),
         "impl $QUALIFIER::Display for $QUALIFIER2::Foo {}"
     );
     let typed = pattern_qualifier("fn $N(c: Config) {}", "rs").expect("fn");
@@ -210,10 +213,16 @@ fn the_skeleton_tells_which_names_a_site_qualifies() {
     let src = "impl Display for Foo {}\nimpl fmt::Display for Foo {}\nimpl Display for crate::m::Foo {}\nimpl std::fmt::Display for m::Foo {}\nimpl MyDisplay for Foo {}\nimpl Display for Bar {}\n";
     let qualified = pattern_qualifier("impl Display for Foo {}", "rs").expect("impl");
     assert_eq!(match_lines(src, "rs", "impl Display for Foo {}"), vec![1]);
-    assert_eq!(match_lines(src, "rs", &qualified.spelling(&[0])), vec![2]);
-    assert_eq!(match_lines(src, "rs", &qualified.spelling(&[1])), vec![3]);
     assert_eq!(
-        match_lines(src, "rs", &qualified.spelling(&[0, 1])),
+        match_lines(src, "rs", &qualified.spelling(&[0], "")),
+        vec![2]
+    );
+    assert_eq!(
+        match_lines(src, "rs", &qualified.spelling(&[1], "")),
+        vec![3]
+    );
+    assert_eq!(
+        match_lines(src, "rs", &qualified.spelling(&[0, 1], "")),
         vec![4]
     );
     let read: Vec<(usize, Option<Vec<usize>>)> =
@@ -248,7 +257,7 @@ fn a_bodyless_impl_has_longer_spellings_as_written() {
     let qualified = pattern_qualifier("impl ToolOutput for $T", "rs").expect("impl");
     assert_eq!(qualified.names(), ["ToolOutput"]);
     assert_eq!(qualified.skeleton(), "impl $QUALIFIER for $T");
-    let longer = qualified.spelling(&[0]);
+    let longer = qualified.spelling(&[0], "");
     assert_eq!(longer, "impl $QUALIFIER::ToolOutput for $T");
     let src =
         "impl ToolOutput for A { fn f() {} }\nimpl crate::x::ToolOutput for B { fn f() {} }\n";
@@ -264,11 +273,14 @@ fn a_type_name_in_a_member_grammar_annotation_has_a_longer_spelling() {
     let annotated = pattern_qualifier("const $V: Bar = $E", "ts").expect("annotation");
     assert_eq!(annotated.names(), ["Bar"]);
     assert_eq!(annotated.skeleton(), "const $V: $QUALIFIER = $E");
-    assert_eq!(annotated.spelling(&[0]), "const $V: $QUALIFIER.Bar = $E");
+    assert_eq!(
+        annotated.spelling(&[0], ""),
+        "const $V: $QUALIFIER.Bar = $E"
+    );
     let src = "const a: Bar = make();\nconst b: ns.Bar = make();\nconst c: a.b.Bar = make();\nconst d: MyBar = make();\nconst e: ns.MyBar = make();\n";
     assert_eq!(match_lines(src, "ts", "const $V: Bar = $E"), vec![1]);
     assert_eq!(
-        match_lines(src, "ts", &annotated.spelling(&[0])),
+        match_lines(src, "ts", &annotated.spelling(&[0], "")),
         vec![2, 3]
     );
     assert_eq!(
@@ -304,7 +316,7 @@ fn a_bare_callee_in_a_path_grammar_also_has_its_member_spelling() {
     let spelled = |pattern: &str, ext: &str| {
         pattern_qualifiers(pattern, ext)
             .iter()
-            .map(|qualified| qualified.spelling(&[0]))
+            .map(|qualified| qualified.spelling(&[0], ""))
             .collect::<Vec<_>>()
     };
     assert_eq!(
@@ -325,4 +337,28 @@ fn a_bare_callee_in_a_path_grammar_also_has_its_member_spelling() {
     assert!(pattern_qualifiers("$X.run($Y)", "rs").is_empty());
     let rust = "fn f() {\n    run(1);\n    crate::a::run(2);\n    x.run(4);\n    self.inner.run(5);\n    x.runner(6);\n}\n";
     assert_eq!(match_lines(rust, "rs", "$QUALIFIER.run($X)"), vec![4, 5]);
+}
+
+/// A rule binds one capture name to one text wherever it spells it, so a
+/// spelling going into a rule takes captures the rest of that rule does not
+/// spell: two rewritten patterns never tie their qualifiers together.
+#[test]
+fn a_spelling_takes_captures_free_beside_the_rest_of_its_rule() {
+    let call = pattern_qualifier("run($$$A)", "rs").expect("a bare call");
+    let alone = call.spelling(&[0], "");
+    let beside = format!(r#"{{"has":{{"pattern":"{alone}"}}}}"#);
+    let spelled = call.spelling(&[0], &beside);
+    let capture = |spelled: &str| {
+        spelled
+            .strip_prefix('$')
+            .and_then(|rest| rest.split("::").next())
+            .map(str::to_owned)
+            .expect("a leading capture")
+    };
+    assert_ne!(capture(&spelled), capture(&alone), "{spelled}");
+    assert!(
+        !beside.contains(&format!("${}", capture(&spelled))),
+        "{spelled} beside {beside}"
+    );
+    assert_eq!(spelled.replace(&capture(&spelled), &capture(&alone)), alone);
 }

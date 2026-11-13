@@ -56,6 +56,21 @@ pub(super) fn contextual_state<'a>(
     }
 }
 
+/// A provider state with the template's target scope as its `question`: the
+/// judge answers about the state's `target` (a section, or a search hit),
+/// never from the context beside it. A section gets it when its batch runs,
+/// so a saved plan gets it too.
+pub(super) fn scoped(state: std::borrow::Cow<'_, Value>) -> Value {
+    let mut state = state.into_owned();
+    if let (Some(question), Some(fields)) = (
+        crate::tools::selection::section_question(),
+        state.as_object_mut(),
+    ) {
+        fields.insert("question".into(), question.clone());
+    }
+    state
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

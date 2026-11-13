@@ -8,6 +8,7 @@ use std::sync::Mutex;
 use wiremock::Request;
 
 mod compressed;
+mod directives;
 mod known_misses;
 mod proven_commits;
 mod repository_proof;
@@ -245,13 +246,9 @@ async fn one_credentials_answers_never_reach_another() {
 async fn a_search_without_a_validator_reuses_within_its_window_and_says_so() {
     let server = MockServer::start().await;
     Mock::given(path("/api/v3/search/repositories"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .insert_header("cache-control", "no-cache")
-                .set_body_json(
-                    serde_json::json!({"total_count":1,"incomplete_results":false,"items":[]}),
-                ),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(
+            serde_json::json!({"total_count":1,"incomplete_results":false,"items":[]}),
+        ))
         .mount(&server)
         .await;
     let (transport, endpoint, memory) = keeping(&server);

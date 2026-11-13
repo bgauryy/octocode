@@ -7,7 +7,10 @@ use crate::tools::local_search::executor;
 use crate::tools::local_search::verify::UNVERIFIED_PLACEHOLDER;
 use octocode_contract_types::ErrorCode;
 
-const CHANGED_DISCLOSURE: &str = "changed during the call";
+/// The page's own disclosure that it shows unverified placeholders; what a
+/// placeholder means (a source changed during the call among its causes) is
+/// the tool description's.
+const DISCLOSURE: &str = crate::tools::local_search::coverage::UNVERIFIED_WARNING;
 
 /// The value of every shown row, by `path`.
 fn shown_values(result: &LocalSearchResult) -> Vec<(String, Vec<String>)> {
@@ -75,23 +78,9 @@ fn a_fresh_page_withholds_only_the_file_written_after_its_scan() {
         "only the changed file's values are withheld"
     );
     assert!(
-        page.warnings
-            .iter()
-            .any(|warning| warning.contains(CHANGED_DISCLOSURE)),
+        page.warnings.iter().any(|warning| warning == DISCLOSURE),
         "the page discloses the withheld values: {:?}",
         page.warnings
-    );
-    // The placeholder's warning names every reason a placeholder can give.
-    assert!(
-        page.warnings
-            .iter()
-            .any(|warning| warning == crate::tools::local_search::coverage::UNVERIFIED_WARNING),
-        "{:?}",
-        page.warnings
-    );
-    assert!(
-        crate::tools::local_search::coverage::UNVERIFIED_WARNING
-            .contains("the row's window disagrees with its source")
     );
 }
 
@@ -105,10 +94,7 @@ fn an_unchanged_fresh_page_discloses_nothing() {
         vec![("a.ts".to_owned(), vec!["const needle = 1;".to_owned()])]
     );
     assert!(
-        !page
-            .warnings
-            .iter()
-            .any(|warning| warning.contains(CHANGED_DISCLOSURE)),
+        !page.warnings.iter().any(|warning| warning == DISCLOSURE),
         "{:?}",
         page.warnings
     );

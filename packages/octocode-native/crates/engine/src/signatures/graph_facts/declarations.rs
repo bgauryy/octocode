@@ -6,7 +6,9 @@ use super::walk::method_kind;
 use super::{GraphAccumulator, heritage};
 use tree_sitter::Node;
 
-use crate::graph::{GraphFactDeclaration, GraphFactEdge, GraphFactExport};
+use crate::graph::{
+    GraphFactDeclaration, GraphFactEdge, GraphFactExport, GraphParseAssessment, GraphParseScope,
+};
 
 use crate::signatures::languages::SCRIPT_BEARING_MARKUP;
 use crate::signatures::nodes::{
@@ -190,6 +192,18 @@ pub(super) fn named_declaration(
                 .filter(|(id, _)| *id == extent.id())
                 .map(|(_, start)| start);
             let range = line_index.declaration_range(extent, header);
+            let mut parse_assessment = super::validity::assess(node, ancestors, line_index);
+            match &mut parse_assessment {
+                GraphParseAssessment::Parsed {
+                    range: assessed, ..
+                }
+                | GraphParseAssessment::Recovered {
+                    scope: GraphParseScope::Declaration,
+                    range: assessed,
+                    ..
+                } => *assessed = range.clone(),
+                _ => {}
+            }
             // `line` stays where the declaration node itself starts; the
             // range also holds its template or decorator header.
             let line = line_index.range(node).start.line + 1;
@@ -239,7 +253,7 @@ pub(super) fn named_declaration(
                 selection_range: line_index.range(name_token),
                 source_range: Some(super::validity::header_byte_range(extent, header)),
                 selection_byte_range: Some(super::validity::byte_range(name_token)),
-                parse_assessment: super::validity::assess(node, ancestors, line_index),
+                parse_assessment,
                 test_identity,
                 exported,
                 parent,

@@ -1,4 +1,4 @@
-//! Shared 24-hour sweep of native tmp caches.
+//! Startup-triggered retention sweeps of native caches.
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -8,17 +8,32 @@ use std::{
 const INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 const MARKER: &str = ".last-cache-maintenance";
 
-/// Sweeps only an existing `<home>/tmp`: when no cache dir was ever created
-/// (e.g. `storage.mode=memory` on a fresh home) there is nothing to sweep and
-/// nothing is written. `false` when nothing was swept or the sweep could
-/// not be recorded. `capture_ttl` is the URL capture retention, the same
-/// value each capture publishes as its `expiresAt`.
+#[cfg(test)]
+type SnapshotLockHook = Box<dyn FnOnce(&Path, &Path)>;
+
+#[cfg(test)]
+thread_local! {
+    static BEFORE_SNAPSHOT_LOCK: std::cell::RefCell<Option<SnapshotLockHook>> = const {
+        std::cell::RefCell::new(None)
+    };
+}
+
+/// Sweeps existing owned cache directories: when none was ever created
+/// (e.g. `storage.mode=memory` on a fresh home), nothing is written. `false`
+/// when no sweep is due or it could not be recorded. `capture_ttl` is the URL
+/// capture retention, the same value each capture publishes as its `expiresAt`.
 pub fn run_if_due(home: &Path, capture_ttl: Duration) -> bool {
     let tmp = home.join("tmp");
-    if !tmp.is_dir() {
+    if !tmp.is_dir()
+        && !crate::cache::Directory::ALL
+            .into_iter()
+            .map(|directory| directory.path(home))
+            .chain(crate::cache::Directory::retired(home))
+            .any(|dir| dir.is_dir())
+    {
         return false;
     }
-    let marker = tmp.join(MARKER);
+    let marker = home.join(MARKER);
     if let Ok(text) = fs::read_to_string(&marker)
         && let Ok(epoch) = text.trim().parse::<u64>()
     {
@@ -31,7 +46,7 @@ pub fn run_if_due(home: &Path, capture_ttl: Duration) -> bool {
     // older tmp/clone checkouts are cache entries or safe age-sweep targets.
     // Retained-state stores age each entry by the class it was saved under
     // (a file age would drop entries the store keeps): each store removes
-    // its own expired entries here, as its writes do a share at a time.
+    // its own expired entries here with a complete expiration pass.
     for directory in crate::cache::Directory::ALL {
         let dir = directory.path(home);
         if dir.is_dir() {
@@ -84,8 +99,6 @@ pub fn run_if_due(home: &Path, capture_ttl: Duration) -> bool {
 /// whose lock is held is in use and stays. The lock file stays too, so a
 /// writer waiting on it never locks a file another writer recreated.
 fn sweep_materialized(root: &Path, max_age: Duration) {
-    let now = SystemTime::now();
-    let modified = |path: &Path| fs::metadata(path).and_then(|meta| meta.modified()).ok();
     let children = |path: &Path| {
         fs::read_dir(path)
             .into_iter()
@@ -104,16 +117,15 @@ fn sweep_materialized(root: &Path, max_age: Duration) {
                 continue;
             };
             let manifest = repo.join(format!("{commit}.manifest.json"));
-            let newest = [modified(&snapshot), modified(&manifest)]
-                .into_iter()
-                .flatten()
-                .max();
-            let stale = newest
-                .and_then(|newest| now.duration_since(newest).ok())
-                .is_some_and(|age| age > max_age);
-            if !stale {
+            if !materialized_stale(&snapshot, &manifest, max_age) {
                 continue;
             }
+            #[cfg(test)]
+            BEFORE_SNAPSHOT_LOCK.with(|hook| {
+                if let Some(hook) = hook.take() {
+                    hook(&snapshot, &manifest);
+                }
+            });
             let Ok(file) = fs::OpenOptions::new()
                 .create(true)
                 .truncate(false)
@@ -126,10 +138,24 @@ fn sweep_materialized(root: &Path, max_age: Duration) {
             else {
                 continue;
             };
+            // A writer may have refreshed the snapshot after the unlocked
+            // age check. Its lock makes this verdict and deletion one transaction.
+            if !materialized_stale(&snapshot, &manifest, max_age) {
+                continue;
+            }
             let _ = fs::remove_dir_all(&snapshot);
             let _ = fs::remove_file(&manifest);
         }
     }
+}
+
+fn materialized_stale(snapshot: &Path, manifest: &Path, max_age: Duration) -> bool {
+    [snapshot, manifest]
+        .into_iter()
+        .filter_map(|path| fs::metadata(path).and_then(|meta| meta.modified()).ok())
+        .max()
+        .and_then(|newest| newest.elapsed().ok())
+        .is_some_and(|age| age > max_age)
 }
 
 fn sweep_dir(path: &PathBuf, max_age: Duration) {
@@ -160,6 +186,68 @@ fn sweep_dir(path: &PathBuf, max_age: Duration) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn provider_only_home_without_tmp_prunes_expired_answers_and_records_the_sweep() {
+        use crate::cache::{CacheClass, CacheConfig, CacheKey, Directory, Disk, Store};
+        let home = tempfile::tempdir().unwrap();
+        let dir = Directory::ProviderAnswers.path(home.path());
+        let store = Store::<u32>::new(CacheConfig::derived(), Some(dir.clone()));
+        let key = CacheKey {
+            namespace: "maintenance".into(),
+            scope: "provider-only".into(),
+            resource: "expired".into(),
+        };
+        let class = CacheClass::Volatile { ttl: INTERVAL };
+        assert!(store.put_confirmed(key.clone(), 1, 4, class).1);
+        let file = Disk::new(dir).file(&key);
+        age_entry(&file, INTERVAL * 2);
+        assert!(!home.path().join("tmp").exists());
+        assert!(run_if_due(home.path(), INTERVAL));
+        assert!(!file.exists(), "the provider answer expired");
+        assert!(
+            !home.path().join("tmp").exists(),
+            "maintenance creates no tmp"
+        );
+        assert!(!run_if_due(home.path(), INTERVAL), "the sweep was recorded");
+    }
+
+    #[test]
+    fn a_materialized_snapshot_refreshed_before_maintenance_locks_it_is_kept() {
+        let home = tempfile::tempdir().unwrap();
+        let root = crate::tools::gh_structure::materialize::materialize_root(home.path());
+        let repo = root.join("owner/repo");
+        let snapshot = repo.join("commit");
+        let manifest = repo.join("commit.manifest.json");
+        fs::create_dir_all(&snapshot).unwrap();
+        fs::write(&manifest, "{}").unwrap();
+        age(&snapshot, INTERVAL * 2);
+        age(&manifest, INTERVAL * 2);
+        BEFORE_SNAPSHOT_LOCK.with(|hook| {
+            hook.replace(Some(Box::new(move |snapshot, manifest| {
+                let file = fs::OpenOptions::new()
+                    .create(true)
+                    .truncate(false)
+                    .write(true)
+                    .open(repo.join("commit.lock"))
+                    .unwrap();
+                let _writer = octocode_io::lock::lock_within(file, Duration::ZERO, Duration::ZERO)
+                    .expect("writer lock");
+                fs::write(snapshot.join("refreshed.txt"), "fresh evidence").unwrap();
+                fs::File::open(manifest)
+                    .unwrap()
+                    .set_times(fs::FileTimes::new().set_modified(SystemTime::now()))
+                    .unwrap();
+            })));
+        });
+        sweep_materialized(&root, INTERVAL);
+        assert_eq!(
+            fs::read_to_string(snapshot.join("refreshed.txt")).unwrap(),
+            "fresh evidence"
+        );
+        assert!(manifest.is_file(), "a writer refreshed this manifest");
+        BEFORE_SNAPSHOT_LOCK.with(|hook| assert!(hook.borrow().is_none()));
+    }
 
     /// Materialized snapshots of the current layout age out by their last
     /// write; one whose lock is held (a materialize in progress) stays, and
@@ -362,8 +450,8 @@ mod tests {
             .unwrap();
     }
 
-    /// A URL capture outlives its published `expiresAt` by at most one sweep
-    /// interval; a capture still inside its retention is kept.
+    /// A due startup sweep removes URL captures past their published
+    /// retention; a capture still inside its retention is kept.
     #[test]
     fn url_captures_past_their_retention_are_removed() {
         let home = tempfile::tempdir().unwrap();
@@ -389,7 +477,8 @@ mod tests {
     fn an_unwritable_marker_is_not_a_recorded_sweep() {
         let home = tempfile::tempdir().unwrap();
         // A directory where the marker file belongs makes its write fail.
-        fs::create_dir_all(home.path().join("tmp").join(MARKER)).unwrap();
+        fs::create_dir_all(home.path().join("tmp")).unwrap();
+        fs::create_dir(home.path().join(MARKER)).unwrap();
         assert!(!run_if_due(home.path(), INTERVAL));
     }
 
@@ -399,7 +488,7 @@ mod tests {
         let tmp = home.path().join("tmp");
         fs::create_dir_all(&tmp).unwrap();
         assert!(run_if_due(home.path(), INTERVAL));
-        assert!(tmp.join(MARKER).is_file());
+        assert!(home.path().join(MARKER).is_file());
         assert!(!tmp.join("session-stats.json").exists());
         assert!(!run_if_due(home.path(), INTERVAL));
     }

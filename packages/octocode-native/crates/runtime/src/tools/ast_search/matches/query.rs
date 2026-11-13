@@ -46,6 +46,17 @@ pub(super) struct RulePattern {
 }
 
 impl RulePattern {
+    /// Whether the pattern is under an odd number of `not`s: there a pattern
+    /// that matches less excludes less, so it cannot empty a result.
+    pub(super) fn negated(&self) -> bool {
+        self.at
+            .split('/')
+            .filter(|segment| *segment == "not")
+            .count()
+            % 2
+            == 1
+    }
+
     /// The pattern as the engine reads it; `None` for a value that is
     /// neither text nor a `{context, selector}` object.
     pub(super) fn written(&self) -> Option<octocode_engine::structural::WrittenPattern<'_>> {

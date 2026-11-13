@@ -22,7 +22,11 @@ fn qualified_notes(out: &Value) -> Vec<Value> {
         .flatten()
         .filter(|diagnostic| diagnostic["code"] == CODE)
         .cloned()
-        .chain(qualified_hints(out).into_iter().map(|hint| json!({"message": hint})))
+        .chain(
+            qualified_hints(out)
+                .into_iter()
+                .map(|hint| json!({"message": hint})),
+        )
         .collect()
 }
 
@@ -214,7 +218,6 @@ fn an_unfinished_spelling_run_leaves_the_count_unknown() {
     let qualified =
         octocode_engine::structural::pattern_qualifier(pattern, "rs").expect("a qualifier");
     let rule = json!({"pattern": pattern});
-    let rule = rule.as_object().expect("rule");
     let skeleton = |source: &str| {
         octocode_engine::structural::search_detailed(
             source,
@@ -227,11 +230,11 @@ fn an_unfinished_spelling_run_leaves_the_count_unknown() {
     };
     let candidates = skeleton("fn u(a: m::Foo) {}\n");
     assert_eq!(
-        super::longer_spellings(rule, &qualified, &candidates, |_| None),
+        super::longer_spellings((&rule, ""), &qualified, &candidates, &mut |_| None),
         None
     );
     let bare = skeleton("fn u(a: Foo) {}\n");
-    let unrun = super::longer_spellings(rule, &qualified, &bare, |_| {
+    let unrun = super::longer_spellings((&rule, ""), &qualified, &bare, &mut |_| {
         panic!("no candidate needs a spelling run")
     });
     assert_eq!(unrun, Some(Vec::new()));
@@ -277,8 +280,8 @@ fn a_file_without_a_source_is_unprobed_and_the_rest_still_count() {
     let probe = super::directory_probe(
         &scope,
         &scan,
-        rule.as_object().expect("rule"),
-        pattern,
+        &rule,
+        &[(String::new(), pattern.to_owned())],
         &crate::execution::cancel::NeverCancel,
     )
     .expect("a probe");
@@ -303,6 +306,7 @@ fn the_note_states_unprobed_files_and_keeps_its_count() {
     let miss = |first: Option<&str>, queries| super::QualifiedMiss {
         names: vec!["Foo".to_owned()],
         count: 2,
+        floor: false,
         files: 1,
         first: first.map(str::to_owned),
         unprobed: Some((3, "b.rs".to_owned())),
@@ -466,7 +470,152 @@ fn a_matched_bare_call_counts_the_calls_on_a_receiver() {
     let notes = qualified_notes(&out);
     assert_eq!(notes.len(), 1, "{out}");
     let message = notes[0]["message"].as_str().expect("message");
-    assert!(message.contains("2 more match(es) in 1 file(s)"), "{message}");
+    assert!(
+        message.contains("2 more match(es) in 1 file(s)"),
+        "{message}"
+    );
     let rows = lead_rows(&out);
+    assert_eq!(lead_count(&root.0, &rows), 3, "{out}");
+}
+
+fn rule_matched(root: &std::path::Path, rule: &Value) -> Value {
+    run(root, json!({"operation":"match","path":root,"rule":rule})).expect("match")
+}
+
+/// D1: a bare call pattern nested in a relation misses its calls on a
+/// receiver as the top-level one does: the empty page says so in the same
+/// hint, and its lead rewrites that nested pattern in place, the rest of the
+/// rule unchanged. The note counts exactly what the lead adds.
+#[test]
+fn a_nested_bare_call_names_the_calls_on_a_receiver() {
+    let root = Fixture::new();
+    root.write(
+        "a.rs",
+        "fn a(x: Option<u8>) -> u8 {\n    x.unwrap()\n}\nfn b(x: Option<u8>) -> u8 {\n    x.unwrap_or(0)\n}\nmod m {\n    fn c(x: Option<u8>) -> u8 {\n        x.unwrap()\n    }\n}\nfn e(s: &S) -> u8 {\n    s.inner.unwrap()\n}\n",
+    );
+    let has = json!({"pattern":"unwrap()","stopBy":"end"});
+    let rule = json!({
+        "kind":"function_item",
+        "has": has,
+        "not":{"inside":{"kind":"mod_item","stopBy":"end"}}
+    });
+    let out = rule_matched(&root.0, &rule);
+    assert_eq!(out["status"], "empty", "{out}");
+    let said = qualified_hints(&out);
+    assert_eq!(said.len(), 1, "{out}");
+    assert!(
+        said[0].contains("2 more match(es) in 1 file(s)")
+            && said[0].contains("`unwrap`")
+            && said[0].contains("a.rs:1"),
+        "{}",
+        said[0]
+    );
+    let rows = lead_rows_at(&out, "/has");
+    assert_eq!(rows.len(), 1, "{out}");
+    let mut expected = rule.clone();
+    expected["has"] = json!({
+        "any":[{"pattern":"unwrap()"},{"pattern":"$QUALIFIER.unwrap()"}],
+        "stopBy":"end"
+    });
+    assert_eq!(rows[0]["rule"], expected, "{out}");
+    assert_eq!(lead_count(&root.0, &rows), 2, "{out}");
+}
+
+/// The lead of a rule whose `any` holds the pattern at `at`.
+fn lead_rows_at(out: &Value, at: &str) -> Vec<Value> {
+    checks::find_related_call(out, "astSearch", |input| {
+        input["queries"][0]["rule"]
+            .pointer(at)
+            .is_some_and(|holder| holder.get("any").is_some())
+    })
+    .and_then(|call| call["input"]["queries"].as_array().cloned())
+    .unwrap_or_default()
+}
+
+/// A pattern under `not` that misses its longer spellings excludes less, so
+/// it can never empty a result: no note and no lead, whatever the code holds.
+#[test]
+fn a_negated_bare_call_gets_no_qualified_note() {
+    let root = Fixture::new();
+    root.write(
+        "a.rs",
+        "fn a(x: Option<u8>) -> u8 {\n    x.unwrap()\n}\nfn b() {}\n",
+    );
+    for rule in [
+        json!({"kind":"function_item","not":{"has":{"pattern":"unwrap()","stopBy":"end"}}}),
+        json!({"kind":"function_item","all":[{"not":{"has":{"pattern":"unwrap()","stopBy":"end"}}}]}),
+    ] {
+        let out = rule_matched(&root.0, &rule);
+        assert!(qualified_notes(&out).is_empty(), "{rule}: {out}");
+        assert!(lead_rows_at(&out, "/not/has").is_empty(), "{rule}: {out}");
+        assert!(
+            lead_rows_at(&out, "/all/0/not/has").is_empty(),
+            "{rule}: {out}"
+        );
+    }
+}
+
+/// Each pattern of an `any` is rewritten in place with its own spellings,
+/// with captures of its own; alternatives add their own matches, so the
+/// count is exactly what the lead adds.
+#[test]
+fn each_pattern_of_an_any_lists_its_own_longer_spellings() {
+    let root = Fixture::new();
+    root.write(
+        "a.rs",
+        "fn f(x: &S, y: &S) {\n    x.run(1);\n    y.stop(2);\n    stop(3);\n}\n",
+    );
+    let rule = json!({"any":[{"pattern":"run($$$A)"},{"pattern":"stop($$$A)"}]});
+    let out = rule_matched(&root.0, &rule);
+    assert_eq!(out["matchCount"], 1, "{out}");
+    let notes = qualified_notes(&out);
+    assert_eq!(notes.len(), 1, "{out}");
+    let message = notes[0]["message"].as_str().expect("message");
+    assert!(
+        message.contains(": 2 more match(es) in 1 file(s)")
+            && message.contains("`run`")
+            && message.contains("`stop`")
+            && message.contains("a.rs:2"),
+        "{message}"
+    );
+    let rows = lead_rows_at(&out, "/any/0");
+    assert_eq!(rows.len(), 1, "{out}");
+    assert_eq!(
+        rows[0]["rule"],
+        json!({"any":[
+            {"any":[{"pattern":"run($$$A)"},{"pattern":"$QUALIFIER.run($$$A)"}]},
+            {"any":[{"pattern":"stop($$$A)"},{"pattern":"$QUALIFIER2.stop($$$A)"}]}
+        ]}),
+        "{out}"
+    );
+    assert_eq!(lead_count(&root.0, &rows), 3, "{out}");
+}
+
+/// Two patterns in one match: each is probed with the other as written, so a
+/// match that needs both qualified at once is returned by the lead but not
+/// counted. The note then gives its count as a floor.
+#[test]
+fn two_nested_patterns_count_a_floor_of_what_the_lead_adds() {
+    let root = Fixture::new();
+    root.write(
+        "a.rs",
+        "fn f(x: &S) {\n    x.run(1);\n    stop(2);\n}\nfn g(y: &S) {\n    run(1);\n    y.stop(2);\n}\nfn h(x: &S, y: &S) {\n    x.run(1);\n    y.stop(2);\n}\n",
+    );
+    let rule = json!({"kind":"function_item","all":[
+        {"has":{"pattern":"run($$$A)","stopBy":"end"}},
+        {"has":{"pattern":"stop($$$B)","stopBy":"end"}}
+    ]});
+    let out = rule_matched(&root.0, &rule);
+    assert_eq!(out["status"], "empty", "{out}");
+    let said = qualified_hints(&out);
+    assert_eq!(said.len(), 1, "{out}");
+    assert!(
+        said[0].contains("at least 2 more match(es) in 1 file(s)"),
+        "{}",
+        said[0]
+    );
+    let rows = lead_rows_at(&out, "/all/0/has");
+    assert_eq!(rows.len(), 1, "{out}");
+    assert!(rows[0]["rule"].pointer("/all/1/has/any").is_some(), "{out}");
     assert_eq!(lead_count(&root.0, &rows), 3, "{out}");
 }

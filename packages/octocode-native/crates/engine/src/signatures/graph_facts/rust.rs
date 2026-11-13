@@ -73,13 +73,7 @@ pub(in crate::signatures) fn folded_attributes() -> usize {
 fn fold_rust_attribute(folded: &mut RustAttributes, attribute: Node<'_>, content: &str) {
     #[cfg(test)]
     FOLDED_ATTRIBUTES.with(|count| count.set(count.get() + 1));
-    let text = node_text(attribute, content).unwrap_or_default();
-    let inner = text
-        .trim()
-        .strip_prefix("#[")
-        .and_then(|text| text.strip_suffix(']'))
-        .unwrap_or_default()
-        .trim();
+    let inner = outer_attribute_body(attribute, content);
     let name = inner.split(['(', '=']).next().unwrap_or_default().trim();
     match name {
         "path" => {
@@ -127,6 +121,46 @@ fn fold_rust_attribute(folded: &mut RustAttributes, attribute: Node<'_>, content
     }
 }
 
+/// The text between `#[` and `]` of an outer attribute.
+fn outer_attribute_body<'t>(attribute: Node<'_>, content: &'t str) -> &'t str {
+    node_text(attribute, content)
+        .unwrap_or_default()
+        .trim()
+        .strip_prefix("#[")
+        .and_then(|text| text.strip_suffix(']'))
+        .unwrap_or_default()
+        .trim()
+}
+
+/// Where the test span of a node that holds its own outer attributes starts,
+/// when one of them requires test. The grammar writes a struct literal's
+/// `#[cfg(test)] name: value` inside one `field_initializer` (and a shorthand
+/// `#[cfg(test)] name` inside a `shorthand_field_initializer`), so the
+/// attribute gates that whole node, its value to its last line, not only the
+/// name after it. The span starts as an item's does: at the first attribute
+/// that begins its line, else at the line of the name.
+pub(super) fn owned_test_start(kind: &str, children: &[Node<'_>], content: &str) -> Option<usize> {
+    if !matches!(kind, "field_initializer" | "shorthand_field_initializer") {
+        return None;
+    }
+    let mut cfg_test = false;
+    let mut line_start = None;
+    for child in children {
+        match child.kind() {
+            "attribute_item" => {
+                if line_start.is_none() && begins_line(content, child.start_byte()) {
+                    line_start = Some(child.start_byte());
+                }
+                cfg_test |=
+                    super::rust_cfg::cfg_requires_test(outer_attribute_body(*child, content));
+            }
+            "line_comment" | "block_comment" => {}
+            _ => return cfg_test.then(|| line_start.unwrap_or(child.start_byte())),
+        }
+    }
+    None
+}
+
 /// The file a `path = "x.rs"` attribute body names, when it is a plain literal.
 fn path_literal(attribute: &str) -> Option<&str> {
     attribute
@@ -168,6 +202,9 @@ pub(super) fn rust_child_contexts(
                 fold_rust_attribute(folded, *child, content);
             }
             "line_comment" | "block_comment" => {}
+            // A tuple struct's field is `#[attr] pub Type` with no node of
+            // its own: the attributes gate its type too, not only `pub`.
+            "visibility_modifier" => {}
             _ => run = None,
         }
     }

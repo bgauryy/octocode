@@ -5,7 +5,7 @@
 //! specifier first asks.
 use crate::policy::path::PathPolicy;
 use crate::security::ContentSecurity;
-use crate::tools::import_resolution::aliases::ResolveContext;
+use crate::tools::import_resolution::aliases::{BareTarget, ResolveContext};
 use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
 use std::sync::OnceLock;
@@ -73,7 +73,9 @@ impl Project {
         match context.resolve_bare_js(specifier, &importer, &self.known) {
             Some(target) => Placed::At(self.root.join(target)),
             // Project code the resolution names without finding its file.
-            None if context.is_internal_bare_js(specifier, &importer) => Placed::Unknown,
+            None if context.bare_target_js(specifier, &importer) != BareTarget::External => {
+                Placed::Unknown
+            }
             None => Placed::Elsewhere,
         }
     }

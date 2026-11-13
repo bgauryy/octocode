@@ -52,7 +52,6 @@ pub(crate) struct Published {
 /// same length as every issued cursor). The skeleton is `row - text`.
 pub(crate) fn published_chars(row: &Value) -> Published {
     let mut staged = json!({"results":[{"index":0,"data":row}]});
-    super::notices::explain_codes(&mut staged, "results");
     super::notices::place(&mut staged, "results");
     let data = &mut staged["results"][0]["data"];
     super::numbered::number_read_row(data);

@@ -30,7 +30,7 @@ flowchart TD
 | `src/engine/capture-result.mts`, `src/engine/flow-page.mts` | Compact verified acknowledgements, hoisted provenance, direct read pages, manifests and shared continuation routing; full source/log retention |
 | `OPERATING.md`, `docs/`, `src/engine/guide.mts` | Package operating knowledge, available through CLI/MCP `skill` |
 | `tools/build.mjs` | One bundled adapter runtime, thin CLI/MCP modules, and a refreshed shared config copy |
-| `tests/*suite.mjs`, `tests/unit/` | Hermetic, real-browser, transport and extracted-package regression checks; each real-browser suite entry runs its fixtures, harness and named cases from `tests/live/`, `tests/protocol/` or `tests/cdp-all/` |
+| `tests/unit/`, `tests/*-self-test.mjs` | Browser-free unit and self-tests; real-browser behavior is an agent checklist ([README](README.md#browser-checks)) |
 
 MCP and typed CLI use the same spec, delegate to the same core CLI and stop on the same failures. Browser business logic is not duplicated in the interfaces. Plan schema validation remains in the executor; raw CDP params remain open and Chrome validates them. These are package-local browser operations, not native Octocode tools.
 

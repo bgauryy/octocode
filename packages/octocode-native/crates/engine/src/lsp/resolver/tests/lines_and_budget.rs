@@ -195,6 +195,7 @@ fn expired_walk_budget_discards_partial_candidates() {
         source,
         &crate::lsp::resolver::LineIndex::new(source),
         "target",
+        Some(spec.language_id),
         &mut candidates,
         std::time::Instant::now(),
     );

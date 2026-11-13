@@ -1,6 +1,6 @@
 ---
 name: octocode-context-audit
-description: "Use when inventorying or measuring configured agent context: instructions, skills and MCP descriptions/schemas, plus observed Claude transcript usage. Covers context bloat, duplicate installations, availability checks and before/after context-cost audits; octocode-agentic owns behavioral diagnosis."
+description: "Use when measuring configured agent context: instructions, skills, MCP schemas and descriptions, duplicate installations, and observed Claude transcript usage. Use octocode-agentic for behavioral diagnosis."
 ---
 
 # Context audit

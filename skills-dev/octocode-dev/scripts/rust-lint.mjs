@@ -5,8 +5,8 @@
 //                    more findings than its entries fails, and one holding fewer is stale until --write
 //   --write:         rewrites the file from the current findings; never raises a crate's total
 //   --adopt:         adds the entries of a lint newly added to RATCHET; a reviewed change, once per lint
-// Ratchets judge production code only, by crate rather than by file, because the 400-line limit moves code
-// between files all the time. A site the rule should really allow says why, in the code:
+// Ratchets judge production code only, by crate rather than by file, because refactors move code between
+// files all the time. A site the rule should really allow says why, in the code:
 //   #[cfg_attr(octocode_clippy_ratchet, expect(clippy::disallowed_methods, reason = "..."))]
 // Only this mode loads the bans and enables that cfg, so plain Clippy has no unfulfilled expectation.
 // The banned paths and their reasons are in packages/octocode-native/clippy-ratchet.toml.

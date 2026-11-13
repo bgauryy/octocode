@@ -27,31 +27,34 @@ impl FileLink<'_, '_> {
         })
     }
 
-    /// A non-relative specifier that may name project code: failing to link
-    /// it is an internal gap, not proof of a third-party package. That is a JS/TS
-    /// alias, workspace package, `#`/`@/`/`~/` convention or a path a scanned
-    /// file ends in; a Python module the scan or the directories above it spell;
-    /// or a Rust crate a path dependency names, or any when no manifest says.
-    pub(super) fn internal_bare(&self, spec: &str) -> bool {
+    /// What a non-relative specifier names (relative ones are `External`
+    /// here: their path decides). Project code, failing to link, is an
+    /// internal gap, not proof of a third-party package: a JS/TS alias,
+    /// workspace package, `#`/`@/`/`~/` convention or a path a scanned file
+    /// ends in; a Python module the scan, the directories above it or a local
+    /// path dependency spell; a Rust crate a path dependency names, or any when
+    /// no manifest says. Where the project places that code beyond the scan
+    /// root, it is [`BareTarget::OutsideRoot`].
+    pub(super) fn bare_target(&self, spec: &str) -> BareTarget {
         if spec.starts_with('.') || spec.starts_with('/') {
-            return false;
+            return BareTarget::External;
         }
         match self.lang {
-            Linker::JsTs => {
-                self.inputs.ctx.is_internal_bare_js(spec, &self.file)
-                    || self.inputs.js_modules.named_by(spec).next().is_some()
-            }
-            Linker::Python => self.inputs.ctx.python_may_be_internal(spec),
+            Linker::JsTs => match self.inputs.ctx.bare_target_js(spec, &self.file) {
+                BareTarget::External if self.inputs.js_modules.named_by(spec).next().is_some() => {
+                    BareTarget::Internal
+                }
+                target => target,
+            },
+            Linker::Python => self.inputs.ctx.python_bare_target(spec),
             Linker::Rust => spec
                 .trim_start_matches("::")
                 .split("::")
                 .next()
-                .is_some_and(|head| {
-                    self.inputs
-                        .cargo_crates
-                        .may_name_local_crate(&self.file, head)
+                .map_or(BareTarget::External, |head| {
+                    self.inputs.cargo_crates.local_crate(&self.file, head)
                 }),
-            _ => false,
+            _ => BareTarget::External,
         }
     }
 
@@ -83,7 +86,11 @@ impl FileLink<'_, '_> {
         target: &Option<String>,
         unsupported: bool,
     ) -> bool {
-        let internal = target.is_none() && self.internal_bare(spec);
+        let bare = if target.is_none() {
+            self.bare_target(spec)
+        } else {
+            BareTarget::External
+        };
         record_resolution(
             self.b,
             &self.file,
@@ -92,7 +99,7 @@ impl FileLink<'_, '_> {
             self.lang,
             target,
             unsupported,
-            internal,
+            bare,
             self.inputs.security,
         )
     }
@@ -185,7 +192,7 @@ impl FileLink<'_, '_> {
                 self.lang,
                 &target,
                 unsupported,
-                true,
+                BareTarget::Internal,
                 self.inputs.security,
             )
         } else {
@@ -232,28 +239,21 @@ impl FileLink<'_, '_> {
             .resolve(self.lang, &i.specifier, &self.file)
         {
             PackageLink::Files(files) => files,
-            PackageLink::UnresolvedInternal => {
-                self.b.count_import(
-                    ImportOutcome::UnresolvedInternal,
-                    &self.file,
-                    i.line,
-                    &i.specifier,
-                );
-                self.b.diagnostics.push(Diagnostic::new(
-                    self.file.clone(),
-                    Some(i.line),
-                    DiagnosticCode::UnresolvedInternal,
-                    sanitize(
-                        self.inputs.security,
-                        &format!("Cannot link import {:?} (unresolvedInternal).", i.specifier),
-                    ),
-                ));
-                Vec::new()
-            }
-            PackageLink::External => {
+            PackageLink::Unlinked(BareTarget::External) => {
                 self.b
                     .count_import(ImportOutcome::External, &self.file, i.line, &i.specifier);
                 external = true;
+                Vec::new()
+            }
+            PackageLink::Unlinked(target) => {
+                record_unresolved_internal(
+                    self.b,
+                    &self.file,
+                    i.line,
+                    &i.specifier,
+                    target == BareTarget::OutsideRoot,
+                    self.inputs.security,
+                );
                 Vec::new()
             }
         };

@@ -244,7 +244,13 @@ impl<'a> Attempts<'a> {
         {
             self.redirects += 1;
             self.context.record_rename(&self.spec.url, &location);
-            if let Some((old, new)) = super::route::rename_route(&self.spec.url, &location) {
+            // Kept routes cannot revalidate the redirect's policy. Only a
+            // redirect with no explicit cache policy may use their heuristic
+            // lifetime; every permitted redirect is still followed now.
+            if (status == StatusCode::MOVED_PERMANENTLY || status == StatusCode::PERMANENT_REDIRECT)
+                && !headers.contains_key(reqwest::header::CACHE_CONTROL)
+                && let Some((old, new)) = super::route::rename_route(&self.spec.url, &location)
+            {
                 self.context.record_route(old.clone(), new.clone());
                 self.followed.push((old, new));
             }
@@ -281,7 +287,7 @@ impl<'a> Attempts<'a> {
         };
         if *self.attempt + 1 >= retry.max_attempts
             || limit.is_some_and(|limit| backoff.wait > limit)
-            || Instant::now() + backoff.wait >= deadline
+            || backoff.wait >= deadline.saturating_duration_since(Instant::now())
         {
             return Err(error);
         }
@@ -300,5 +306,62 @@ impl<'a> Attempts<'a> {
             .await?;
         *self.attempt += 1;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn an_extreme_provider_wait_is_refused_without_overflow_or_network() {
+        let endpoint =
+            crate::GitHubEndpoint::new(url::Url::parse("https://api.github.com").expect("API URL"))
+                .expect("endpoint");
+        let transport = GitHubTransport::new(
+            endpoint.clone(),
+            super::super::RetryPolicy::default(),
+            crate::GitHubBudget::relaxed(),
+        )
+        .expect("transport");
+        let context = RequestContext::with_timeout(Duration::from_secs(5), 1024);
+        let mut failed = None;
+        let mut attempt = 0;
+        let mut followed = Vec::new();
+        let mut attempts = Attempts::new(
+            &transport,
+            RequestSpec::get(endpoint.rest(&[]).expect("route")),
+            &context,
+            &mut failed,
+            &mut attempt,
+            &mut followed,
+        );
+        let refused = attempts
+            .retry(
+                ProviderError::new(ProviderErrorKind::RateLimited, "provider delay"),
+                RetryWait {
+                    wait: Duration::MAX,
+                    sleep: Duration::ZERO,
+                    rate_limited: true,
+                },
+            )
+            .await
+            .expect_err("provider delay exceeds the call deadline");
+        assert_eq!(refused.kind, ProviderErrorKind::RateLimited);
+
+        let state = transport.key_state(None);
+        state.cool_down(u64::MAX);
+        assert!(!transport.graphql_available(&context));
+        let blocked = state
+            .wait_unblocked(
+                "core",
+                transport.budget.config(),
+                context.budget.admission_deadline(),
+                &context.budget.cancellation,
+                &context.waits,
+            )
+            .await
+            .expect_err("the shared cooldown exceeds the call deadline");
+        assert_eq!(blocked.kind, ProviderErrorKind::RateLimited);
     }
 }

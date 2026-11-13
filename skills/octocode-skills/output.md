@@ -2,40 +2,22 @@
 
 <!-- report-contract {"statuses":["Ready","Needs work"],"required":["Unchecked"],"anyOf":[["Findings","Changes"]]} -->
 
-Markdown, task content only. `skill-review.mjs --json` returns `errorCount`, `warnCount`, and per-skill `results` (structural findings, not quality scores); `skill-sync.mjs --json` returns a destination plan or applied results.
-
 ## Response
 
-- Review: BLUF readiness verdict; findings as review comments (Conventional Comments): label (issue, suggestion, question, nitpick, praise), blocking or not, file anchor, evidence, why (impact, kind), repair and its check; unchecked areas.
-- Edits: changed skills, support-file changes, checks run; for context reduction, discovery, entry and selected-branch sizes separately, with units. Do not equate byte savings with activation or runtime improvement.
-- Discovery: source and revision when available, skill path/name, fit, host requirements, license, risks and unchecked scope; no installation unless requested.
-- Install: destination, reload step and verification.
+Lead with **Ready** or **Needs work** for the checked scope. Return findings or changes, evidence, checks run and unchecked areas. Separate structural facts, editorial judgment and observed activation; rate only against stated criteria.
 
-## Presentation choices
+- Review: location, trigger, impact, repair and deciding check, most consequential first. For collections, assess each skill in a row.
+- Edits: changed skills/resources and validation. For shortening, report discovery, entry and selected-branch size separately with units; do not infer runtime gains.
+- Discovery: source/revision, skill path/name, fit, host requirements, license and unchecked risks. No installation unless authorized.
+- Install/sync: destination plan, applied results, conflicts, recovery and discovery verification. File existence is not activation.
 
-Readiness verdict → findings or changes → checks and unchecked areas. Separate structural, editorial and activation evidence.
-
-| Format | Use when / why |
-|---|---|
-| Short comparison table / finding subsections | Compare skills against the same criteria; move long evidence into sections. |
-| `flowchart` / `agentflow-beta` | Explain skill activation, resource routes or agent task flow. |
-| `chart` bar / linked JSON | Compare measured activation outcomes / preserve checker results; do not turn editorial impressions into measured scores. |
-
-Use the [shared format guide](references/report-output.md#choose-the-format); load its Mermaid or widget reference only for that syntax. Run the bundled [report renderer](scripts/render-report.mjs) only when HTML is requested or accepted; use `--help` for its interface.
+The checker JSON contains `errorCount`, `warnCount`, per-skill `results` and `findings`; sync JSON is a plan or applied results. Neither is a quality score. Use prose for simple results and tables for exact comparisons. Load [format guidance](references/report-output.md#choose-the-format) only for a richer report; render HTML when requested or accepted.
 
 ## Saved report
 
-Authored skills stay in their canonical folders; a separate review goes to `<workspace>/.octocode/octocode-skills/<YYYY-MM-DD>-<slug>.md` unless the user names a path. Save a review, or a multi-file change report, when it has a table, a diagram, over ~40 lines or five findings, or the user asks; keep every result when the user or project instructions say so.
+Keep authored skills in their canonical folders. Save a separate review when requested or useful for a durable handoff, under `<workspace>/.octocode/octocode-skills/<YYYY-MM-DD>-<slug>.md` unless another destination is named.
 
 Use the [shared header](references/report-output.md#report-header). Accepted `status` values: `Ready`, `Needs work`.
+State the answer under the title. Include `## Findings` or `## Changes`, plus `## Unchecked`. Findings record skill, location, evidence, impact, repair and check; changes record each skill's actual edits and validation. Label finding kind (`lint`, `editorial`, `activation`) and severity with its justification.
 
-A lead paragraph under the `#` title states the answer.
-
-Put findings under `## Findings` as one table, most severe first, then add `## Unchecked` for areas that were not reviewed:
-
-| Skill | Location | Finding | Kind | Severity | Fix |
-|---|---|---|---|---|---|
-
-`Kind`: `lint`, `editorial`, or `activation`; severity: `Critical`, `High`, `Medium`, or `Low`. A change report has `## Changes`, one row per edited file, ending with the `skill-review.mjs` result. Always include `## Unchecked` for remaining verification gaps. Every saved report has either `## Findings` (a review) or `## Changes` (a change report).
-
-After delivery, follow the [HTML offer](references/presentation.md#html-delivery). Use [report commands](references/report-output.md#render-and-retrieve) for accepted rendering and `--manifest` discovery.
+For requested HTML, use [render commands](references/report-output.md#render-and-retrieve) and the bundled [renderer](scripts/render-report.mjs) (`--help` for arguments). Preserve Markdown/data sources; distinguish generated from visually verified output. Use `--manifest` for prior-report discovery.

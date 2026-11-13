@@ -112,7 +112,6 @@ fn redacted(text: &str) -> bool {
 }
 
 #[tokio::test]
-#[expect(clippy::too_many_lines, reason = "one walk over every tool and view")]
 async fn every_tool_serves_a_source_as_its_whole_file_judgment() {
     let workspace = Workspace::new();
     let root = workspace
@@ -491,7 +490,6 @@ fn multiline_placeholders(text: &str) -> Vec<&str> {
 /// read shows of those lines, and an AST piece shows its lines as the read
 /// does, each hidden value under the read's own placeholder.
 #[tokio::test]
-#[expect(clippy::too_many_lines, reason = "one walk over every layout and view")]
 async fn multiline_redactions_keep_names_and_one_placeholder_per_value() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[]);
@@ -1251,7 +1249,10 @@ async fn ast_search_states_every_digest_and_coordinate_over_the_shown_text() {
     };
     let read = run("localFetch", json!({})).await;
     let shown_line = numbered(read["content"].as_str().expect("content"))[&2].clone();
-    assert!(shown_line.starts_with("DB_PASSWORD = \"[REDACTED-"), "{shown_line}");
+    assert!(
+        shown_line.starts_with("DB_PASSWORD = \"[REDACTED-"),
+        "{shown_line}"
+    );
     let shown: String = format!("import os\n{shown_line}\nprint(os)\n");
     let raw_digest = hex::encode(sha2::Sha256::digest(WEAK.as_bytes()));
     let shown_digest = hex::encode(sha2::Sha256::digest(shown.as_bytes()));
@@ -1294,10 +1295,16 @@ async fn ast_search_states_every_digest_and_coordinate_over_the_shown_text() {
     // The string node ends where the read's closing quote does.
     let matched = &responses[0].1["files"][0]["matches"][0];
     assert_eq!(matched["line"], 2, "{matched}");
-    assert_eq!(matched["value"], shown_line["DB_PASSWORD = ".len()..], "{matched}");
-    let end = matched["endColumn"]
-        .as_u64()
-        .or_else(|| matched["column"].as_u64().map(|c| c + matched["value"].as_str().map_or(0, |v| v.len() as u64)));
+    assert_eq!(
+        matched["value"],
+        shown_line["DB_PASSWORD = ".len()..],
+        "{matched}"
+    );
+    let end = matched["endColumn"].as_u64().or_else(|| {
+        matched["column"]
+            .as_u64()
+            .map(|c| c + matched["value"].as_str().map_or(0, |v| v.len() as u64))
+    });
     assert_eq!(end, Some(quote as u64 + 2), "{matched}");
     // syntaxTree: the string's content spans the placeholder, not the value.
     let tree = responses[3].1.to_string();
@@ -1311,11 +1318,22 @@ async fn ast_search_states_every_digest_and_coordinate_over_the_shown_text() {
     for (length, hits) in [(11, 0), (inner, 1)] {
         let rule = json!({"kind": "string", "regex": format!("^.[^\"]{{{length}}}.$")});
         let data = run("astSearch", json!({"operation": "match", "rule": rule})).await;
-        assert_eq!(data["matchCount"].as_u64().unwrap_or(0), hits, "{length}: {data}");
+        assert_eq!(
+            data["matchCount"].as_u64().unwrap_or(0),
+            hits,
+            "{length}: {data}"
+        );
     }
     // The lines around the value read as written.
-    let data = run("astSearch", json!({"operation": "match", "rule": {"kind": "call"}})).await;
-    assert_eq!(data["files"][0]["matches"][0]["value"], "print(os)", "{data}");
+    let data = run(
+        "astSearch",
+        json!({"operation": "match", "rule": {"kind": "call"}}),
+    )
+    .await;
+    assert_eq!(
+        data["files"][0]["matches"][0]["value"], "print(os)",
+        "{data}"
+    );
 }
 
 /// Item 8 (bin16 retest): a key in a YAML block scalar (a Kubernetes
@@ -1341,13 +1359,26 @@ async fn a_key_in_a_yaml_block_scalar_reads_as_a_key() {
             .expect("read")
             .structured_content
             .into_value();
-        let content = output["results"][0]["data"]["content"].as_str().expect("content");
+        let content = output["results"][0]["data"]["content"]
+            .as_str()
+            .expect("content");
         let lines = numbered(content);
         let first = u64::try_from(head.lines().count()).expect("small") + 1;
         assert_eq!(lines[&first], "  tls.key: |", "{name}: {content}");
-        assert_eq!(lines[&(first + 1)], "    -----BEGIN PRIVATE KEY-----", "{name}: {content}");
-        assert!(lines[&(first + 2)].contains("[REDACTED-"), "{name}: {content}");
-        assert_eq!(lines[&(first + 3)], "    -----END PRIVATE KEY-----", "{name}: {content}");
+        assert_eq!(
+            lines[&(first + 1)],
+            "    -----BEGIN PRIVATE KEY-----",
+            "{name}: {content}"
+        );
+        assert!(
+            lines[&(first + 2)].contains("[REDACTED-"),
+            "{name}: {content}"
+        );
+        assert_eq!(
+            lines[&(first + 3)],
+            "    -----END PRIVATE KEY-----",
+            "{name}: {content}"
+        );
         assert!(!content.contains(body), "{name}: {content}");
     }
 }

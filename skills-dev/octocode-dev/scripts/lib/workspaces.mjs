@@ -11,9 +11,6 @@ const skillsBuild = path.join(ROOT, 'skills', 'common', 'build.mjs');
 export const SKILL_COLLECTIONS = fs.existsSync(skillsBuild) ? (await import(pathToFileURL(skillsBuild).href)).COLLECTIONS : [];
 
 const PACKAGE_SCRIPT_POLICY = ['build', 'lint', 'test', 'typecheck', 'verify'];
-// Python and scripts run from source: nothing to build or typecheck, so no stub scripts.
-const SOURCE_ONLY_PACKAGES = new Set(['packages/octocode-benchmark']);
-const SOURCE_ONLY_SCRIPT_POLICY = ['lint', 'test', 'verify'];
 export const SKILL_SCRIPT_POLICY = ['build', 'lint', 'test'];
 // oxlint runs once per repo-wide run, in oxlint-baseline.mjs. A script that includes oxlint has an
 // oxlint-free variant, which repo-wide runs use instead: `lint:own` (its other checks; absent when oxlint
@@ -95,7 +92,7 @@ export function discoverWorkspaces() {
       const requiredScripts = isNativePlatformPackage
         ? []
         : kind === 'package'
-          ? SOURCE_ONLY_PACKAGES.has(relativePath) ? SOURCE_ONLY_SCRIPT_POLICY : PACKAGE_SCRIPT_POLICY
+          ? PACKAGE_SCRIPT_POLICY
           : SKILL_SCRIPT_POLICY;
 
       return {

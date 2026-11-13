@@ -30,13 +30,11 @@ pub(super) fn resume_query(
     let line = u32::try_from(anchor.pointer("/start/line")?.as_u64()?).ok()?;
     let character = u32::try_from(anchor.pointer("/start/character")?.as_u64()?).ok()?;
     let path = uri_to_path(uri);
-    let source = sources
-        .entry(path.clone())
-        .or_insert_with(|| {
-            read_bounded_source(std::path::Path::new(&path))
-                .ok()
-                .map(Source::new)
-        });
+    let source = sources.entry(path.clone()).or_insert_with(|| {
+        read_bounded_source(std::path::Path::new(&path))
+            .ok()
+            .map(Source::new)
+    });
     let order = source
         .as_ref()
         .and_then(|source| order_on_line(source, line, name, character))

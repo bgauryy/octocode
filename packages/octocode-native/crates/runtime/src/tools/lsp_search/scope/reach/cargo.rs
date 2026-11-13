@@ -84,12 +84,12 @@ fn dependencies(manifest: &toml::Table) -> Vec<(&str, &toml::Value)> {
     found
 }
 
-/// The local directory a dependency entry of the package at `package`
-/// resolves to: its `path`, or its workspace entry's; `None` for a
-/// registry or git dependency.
-fn dependency_dir(package: &Path, key: &str, entry: &toml::Value) -> Option<PathBuf> {
+/// The local path a dependency entry of the package at `package` names:
+/// its `path`, or its workspace entry's; `None` for a registry or git
+/// dependency, or a workspace entry this cannot read.
+fn dependency_path(package: &Path, key: &str, entry: &toml::Value) -> Option<PathBuf> {
     if let Some(path) = entry.get("path").and_then(toml::Value::as_str) {
-        return std::fs::canonicalize(package.join(path)).ok();
+        return Some(package.join(path));
     }
     if entry.get("workspace").and_then(toml::Value::as_bool) != Some(true) {
         return None;
@@ -103,7 +103,14 @@ fn dependency_dir(package: &Path, key: &str, entry: &toml::Value) -> Option<Path
         .get("path")?
         .as_str()?
         .to_owned();
-    std::fs::canonicalize(root.join(path)).ok()
+    Some(root.join(path))
+}
+
+/// The local directory a dependency entry resolves to ([`dependency_path`],
+/// canonical); `None` for a registry or git dependency, or a path that
+/// names no directory.
+fn dependency_dir(package: &Path, key: &str, entry: &toml::Value) -> Option<PathBuf> {
+    dependency_path(package, key, entry).and_then(|path| std::fs::canonicalize(path).ok())
 }
 
 /// Names compare as Cargo normalizes them for code: `-` and `_` alike.
@@ -113,10 +120,14 @@ fn same_crate(left: &str, right: &str) -> bool {
 
 /// Whether the package at `start` depends on crate `name` (at `defining`),
 /// directly or through local path dependencies: a re-export can relay an
-/// item down a chain. A `[patch]` of the workspace that points at the
-/// defining package can make any registry dependency it, so every package
-/// of that workspace depends on it.
-pub(super) fn depends_on(start: &Path, name: &str, defining: &Path) -> bool {
+/// item down a chain. A dependency names the crate its source holds, not any
+/// crate of that name: one by local path is the defining crate only when the
+/// path is its directory (a snapshot of the workspace depends on its own
+/// copy; a path that names no directory compiles nothing). A registry or git
+/// dependency of that name may be it: a `[patch]` of the workspace that
+/// points at the defining package makes every package of that workspace
+/// depend on it, and a patch this does not read may too.
+pub(in crate::tools::lsp_search) fn depends_on(start: &Path, name: &str, defining: &Path) -> bool {
     patched(start, defining)
         || local_packages(start).iter().any(|package| {
             manifest(package).is_some_and(|manifest| {
@@ -126,6 +137,9 @@ pub(super) fn depends_on(start: &Path, name: &str, defining: &Path) -> bool {
                         .and_then(toml::Value::as_str)
                         .unwrap_or(key);
                     same_crate(crate_name, name)
+                        && dependency_path(package, key, entry).is_none_or(|path| {
+                            std::fs::canonicalize(path).is_ok_and(|dir| dir == defining)
+                        })
                 })
             })
         })

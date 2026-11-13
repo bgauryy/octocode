@@ -31,7 +31,6 @@ mod scan;
 mod sealed;
 mod searched;
 mod stream;
-mod unjudged;
 mod window;
 
 use crate::execution::cancel::CancellationCheck;
@@ -156,9 +155,10 @@ fn unsupported(
         local_fetch_query::path(q).to_owned(),
         ErrorCode::LargeSourceWindowOnly,
         format!(
-            "This source is {}MB, above the {}MB whole-file read limit, so only bounded line windows are served: {reason}",
-            len / (1024 * 1024),
-            limits.whole_source / (1024 * 1024)
+            "This source is {len} bytes ({}), above the {}-byte ({}) whole-file read limit, so only bounded line windows are served: {reason}",
+            mib(len),
+            limits.whole_source,
+            mib(limits.whole_source_bytes())
         ),
     );
     result.next = Some(next);
@@ -178,25 +178,6 @@ fn line_chunk_query(
 /// Serve `q` from a source larger than the whole-file ceiling, streamed
 /// from `source`, the read's open handle on `path`.
 pub(crate) fn fetch_window(
-    q: &LocalFetchQuery,
-    path: &Path,
-    source: &std::fs::File,
-    meta: &std::fs::Metadata,
-    share: Option<usize>,
-    security: &impl ContentScan,
-    cancel: &impl CancellationCheck,
-) -> LocalFetchResult {
-    let security = &unjudged::Unjudged {
-        scan: security,
-        path_gated: octocode_engine::security::WholeSourcePatterns::for_path(
-            &path.to_string_lossy(),
-        )
-        .is_some(),
-    };
-    serve_source(q, path, source, meta, share, security, cancel)
-}
-
-fn serve_source(
     q: &LocalFetchQuery,
     path: &Path,
     source: &std::fs::File,
@@ -260,9 +241,17 @@ fn serve_source(
 /// whole-file ceiling. The served lines are the row's own line anchors.
 fn streamed_warning(len: u64) -> String {
     format!(
-        "Large source ({}MB): served from streamed line windows.",
-        len / (1024 * 1024)
+        "Large source ({len} bytes, {}): served from streamed line windows.",
+        mib(len)
     )
+}
+
+/// `bytes` in MiB to one decimal, rounded down: shown beside the exact bytes,
+/// which keep a comparison with a limit true however close they are.
+fn mib(bytes: u64) -> String {
+    const MIB: u64 = 1024 * 1024;
+    let tenths = bytes.saturating_mul(10) / MIB;
+    format!("{}.{} MiB", tenths / 10, tenths % 10)
 }
 
 /// What a read of a source past the whole-file ceiling serves of some of its
@@ -293,13 +282,6 @@ pub(crate) fn served_lines(
     security: &impl ContentScan,
     cancel: &impl CancellationCheck,
 ) -> Result<ServedLines, String> {
-    let security = &unjudged::Unjudged {
-        scan: security,
-        path_gated: octocode_engine::security::WholeSourcePatterns::for_path(
-            &path.to_string_lossy(),
-        )
-        .is_some(),
-    };
     let kept = known.and_then(|digest| kept::of_digest(digest, path, meta));
     let opened = Opened {
         file: source,

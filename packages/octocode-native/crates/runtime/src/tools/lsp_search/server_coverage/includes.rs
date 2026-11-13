@@ -11,8 +11,9 @@ use super::*;
 /// missing from the answer, the lexical lead names them, and the reason
 /// says which load is missing: `includeOutsidePackage` (no build context
 /// loads it) or `buildScriptsOff` (with its rerun), the latter only when a
-/// missed file is not one a target gate leaves out (`target_gated`). The
-/// prose is static: a notice, said once ([`flag_stated`]).
+/// missed file is not one a target gate leaves out (`target_gated`). A
+/// reason's meaning is core's; a note names only this answer's files, said
+/// once ([`flag_noted`]).
 pub(super) fn annotate_includes(
     row: &mut Value,
     query: &LspSearchQuery,
@@ -33,15 +34,14 @@ pub(super) fn annotate_includes(
             .to_string_lossy()
             .into_owned();
         let note = format!(
-            "rust-analyzer never loads {shown}{} (include!d from outside this package): uses through its types are missing under any rustContext; confirm with {}.",
+            "include!d from outside this package: {shown}{}.",
             if includes.outside.len() > 1 {
                 format!(" and {} more", includes.outside.len() - 1)
             } else {
                 String::new()
             },
-            text_check()
         );
-        flag_stated(row, query, OUTSIDE_INCLUDE_REASON, note, scope);
+        flag_noted(row, query, OUTSIDE_INCLUDE_REASON, note, scope);
     }
     // Several files declare the anchor as a module (`#[path]` from a bench
     // and a test): each crate compiles its own copy, and rust-analyzer
@@ -55,7 +55,7 @@ pub(super) fn annotate_includes(
                 .into_owned()
         };
         let note = format!(
-            "{} is declared as a module by {} files ({}), so each compiles its own copy: rust-analyzer answers for one copy, and uses through the others are missing; confirm with {}.",
+            "{} is declared as a module by {} files: {}.",
             shown(Path::new(anchor)),
             includes.declared_by.len(),
             includes
@@ -64,9 +64,8 @@ pub(super) fn annotate_includes(
                 .map(|path| shown(path))
                 .collect::<Vec<_>>()
                 .join(", "),
-            text_check()
         );
-        flag_stated(row, query, SHARED_MODULE_REASON, note, scope);
+        flag_noted(row, query, SHARED_MODULE_REASON, note, scope);
     }
     if includes.generated.is_empty() || rust.build_scripts {
         return;
@@ -89,28 +88,11 @@ pub(super) fn annotate_includes(
     // may hide it too, the rerun (~2 GB) can recover nothing, so the text
     // check comes first and the rerun is no lead.
     let outside = lists_reason(row, OUTSIDE_INCLUDE_REASON);
-    // The note is the one statement of the fact and of the rerun's cost and
-    // risk ([`BUILD_SCRIPTS_COST`]); an offered rerun carries the call, so
-    // the note names the lead instead of restating it, and the `findText`
-    // lead is the text check.
-    let opt_in = super::super::receipt::BUILD_SCRIPTS_OPT_IN;
-    let note = if !allowed {
-        // Refused until the host opts in: no rerun is offered, so the note
-        // says what the opt-in is.
-        format!(
-            "rust-analyzer did not run this package's build scripts, so uses through the types they generate are missing; rustContext.buildScripts, which {BUILD_SCRIPTS_COST}, is refused until you opt in: {opt_in}."
-        )
-    } else if outside {
-        format!(
-            "rust-analyzer also did not run this package's build scripts; confirm the missing uses with {} first: rustContext {{buildScripts:true}} loads only the generated types, never the outside include, and {BUILD_SCRIPTS_COST}.",
-            text_check()
-        )
-    } else {
-        format!(
-            "rust-analyzer did not run this package's build scripts, so uses through the types they generate are missing; the rerun with rustContext.buildScripts enabled {BUILD_SCRIPTS_COST}."
-        )
-    };
-    flag_stated(row, query, BUILD_SCRIPTS_REASON, note, scope);
+    // `buildScriptsOff` is the whole statement: its meaning is core's, and
+    // the rerun's cost and opt-in are the `rustContext.buildScripts` field's.
+    // An offered rerun carries the call; the `findText` lead is the text
+    // check.
+    flag_partial(row, query, BUILD_SCRIPTS_REASON, None, scope);
     // The rerun repeats the whole walk: offered once, on its first page,
     // and only where the reason holds alone.
     if allowed

@@ -210,11 +210,14 @@ fn when_true(value: &Value, field: &'static str, meant: &str) -> Reading {
     }
 }
 
-/// Whether literal `terms` also read as a regex: some term holds regex
-/// syntax and every term compiles. Text without regex syntax, or with syntax
-/// that does not compile (`call(`), has the literal reading alone.
+/// Whether literal `terms` also read as a regex matching other text: some
+/// term's regex reading is not its own spelling and every term compiles.
+/// Text whose regex reading spells itself (`defects-queue`: `-` is literal
+/// outside a class), or that does not compile (`call(`), has the literal
+/// reading alone.
 pub(crate) fn reads_as_regex(terms: &[&str]) -> bool {
-    terms.iter().any(|term| regex::escape(term) != *term)
+    use octocode_engine::search::text_pattern::regex_spells_itself;
+    terms.iter().any(|term| !regex_spells_itself(term))
         && terms.iter().all(|term| regex::Regex::new(term).is_ok())
 }
 

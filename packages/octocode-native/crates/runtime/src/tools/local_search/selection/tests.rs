@@ -172,8 +172,10 @@ fn each_hit_is_judged_and_counts_describe_the_kept_hits() {
     // classification kept no hit of are said, with the call that lists them.
     assert_eq!(result.stats.matched_files, Some(1));
     assert!(
-        result.warnings.iter().any(|note| note
-            == "2 of 3 matched files kept no hit: next.unfiltered lists them."),
+        result
+            .warnings
+            .iter()
+            .any(|note| note == "2 of 3 matched files kept no hit: next.unfiltered lists them."),
         "{:?}",
         result.warnings
     );

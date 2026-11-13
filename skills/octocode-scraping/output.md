@@ -2,31 +2,15 @@
 
 <!-- report-contract {"statuses":["Complete","Partial","Blocked"],"required":["Answer","Pages covered","Blocked or unread","Session"],"anyOf":[]} -->
 
-Deliver task content only; no probe output or process metadata. Answers and citations in Markdown; source text, HTML, JSON, and captures stay in session formats ([corpus](references/corpus.md)).
-
-## Response
-
-BLUF: answer and confidence first, then evidence (Claim–evidence: each claim beside its source URL and saved artifact path), pages covered, and blocked or unread portions.
+Lead with the answer and confidence, each claim beside its source URL and saved artifact path, then coverage and blocked or unread scope. Separate source content from interpretation; keep source text, HTML, JSON and captures in [session formats](references/corpus.md).
 
 ## Saved result
 
-Session pages: `<workspace>/.octocode/octocode-scraping/tmp/<sessionId>/` (`--out` must stay under `<workspace>/.octocode/`). Report: `<workspace>/.octocode/octocode-scraping/<YYYY-MM-DD>-<slug>.md`. `<workspace>` is the project root (repository root, else current directory), never inside an existing `.octocode/`. A user-named path wins; a harness or subagent scratch folder such as `.octocode/tmp/` does not: save here and link from scratch notes.
-
-## Presentation choices
-
-Answer → covered pages → blocked or unread portions → source artifacts. Keep source content distinct from interpretation.
-
-| Format | Use when / why |
-|---|---|
-| Coverage table / source links | Make retrieved, blocked and unread evidence explicit. |
-| Markdown images | Show a relevant captured figure or UI state with attribution and capture context. |
-| `flowchart` / linked JSON or CSV | Explain a meaningful crawl relationship / provide reusable extracted records; avoid decorative page-count charts. |
-
-Use the [shared format guide](references/report-output.md#choose-the-format); load its Mermaid or widget reference only for that syntax.
+Sessions use `<workspace>/.octocode/octocode-scraping/tmp/<sessionId>/`; `--out` stays under `<workspace>/.octocode/`. Reports use `<workspace>/.octocode/octocode-scraping/<YYYY-MM-DD>-<slug>.md`. Workspace is the repository root, else cwd, never an existing `.octocode/`. A user-named report path wins; subagent scratch does not. Use a [coverage table or extracted JSON/CSV](references/report-output.md#choose-the-format) when useful; attribute images and link full captures.
 
 ## Saved report
 
-Save when the result has a table, a diagram, over ~40 lines or five findings, or the user or project instructions (`AGENTS.md`) ask; keep a short answer in chat. Link fetched pages and `reports/summary.md`; never paste them.
+Save when requested or when extracted records and coverage need a reusable report; otherwise answer in chat. Link fetched pages and `reports/summary.md`; never paste them.
 
 Use the [shared header](references/report-output.md#report-header). Accepted `status` values: `Complete`, `Partial`, `Blocked`.
 

@@ -72,10 +72,6 @@ pub(super) fn needle(
 ) -> Option<std::sync::Arc<super::matcher::Matcher>> {
     query.matcher.clone()
 }
-pub(super) fn body_matches(value: &Value, matcher: Option<&super::matcher::Matcher>) -> bool {
-    matcher.is_none_or(|matcher| matcher.matches(&string(value.get("body"))))
-}
-
 /// A body window a continuation hop (`offset` > 0) finds empty: an earlier
 /// window of the same page delivered the whole body (an empty one
 /// included), so the hop does not list its item again.

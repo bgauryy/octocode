@@ -210,7 +210,7 @@ fn tools_list_serves_the_core_published_definitions_byte_for_byte() {
 /// mode does, per `ALL_TOOLS` entry) repeats them itself; this server must not.
 #[test]
 fn no_listed_tool_repeats_the_instructions() {
-    use super::super::super::schema::{instruction_sentences, strings_of};
+    use crate::cli::test_support::{instruction_sentences, strings_of};
     let names = presentation_tools();
     let names = names.iter().map(String::as_str).collect::<Vec<_>>();
     for selection in [false, true] {

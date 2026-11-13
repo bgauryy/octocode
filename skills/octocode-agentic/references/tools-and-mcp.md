@@ -56,7 +56,7 @@ When the agent should call what is in [retrieval and grounding](retrieval-and-gr
 | Idempotency | Safe retries where applicable |
 | Cancellation | Stop unneeded long-running work |
 | Timeouts | Explicit execution deadlines |
-| Observability | Request IDs, latency, cost and error metadata |
+| Observability | Enough evidence to diagnose failures and support measurements |
 | Versioning | Stable contracts and compatibility |
 | Security | Server-delivered content is untrusted |
 
@@ -77,7 +77,7 @@ Octocode tools: edit `@octocodeai/octocode-core`, which owns tool names, schemas
 
 ## Instructions, descriptions, names
 
-- Host caps cut text silently: Claude Code keeps 4,096 characters of server instructions and of each loaded description (2,048 before v2.1.296). Put routing and trust boundaries first; check the current target host before applying version-specific behavior.
+- Hosts may shorten loaded instructions or descriptions. Put routing and trust boundaries first and inspect what the target host actually serves; consult current documentation for its limits.
 - Instructions reach MCP agents only. Deferred tool loading and CLI agents skip them, so a field an agent must fill keeps its own note, and CLI help carries its own routing.
 - Server instructions explain dependencies and what the agent cannot infer (refusals, approvals, what empty proves). Include routing only when it resolves a cross-tool decision; do not repeat the tool catalog.
 - Descriptions give a capable new hire the selection or behavior information missing from the name and schema. A simple tool may need one sentence; add an example or next step only when it prevents ambiguity.
@@ -99,27 +99,13 @@ Octocode tools: edit `@octocodeai/octocode-core`, which owns tool names, schemas
 | Full build log | Status, errors, first actionable locations, artifact reference |
 | Entire database rows | Requested fields, filtered records, cursor |
 | Unbounded search hits | Ranked top results and `hasMore` |
-| 10,000-line file | Symbol metadata and relevant ranges |
+| Large file | Symbol metadata and relevant ranges |
 | Full test output | Pass/fail counts, failures, log reference |
 | Raw exception flood | Typed failure, cause, retryability |
 | Entire web page | Title, relevant excerpt, source reference |
 | Full subagent transcript | Evidence-backed summary and outstanding risks |
 
-```json
-{
-  "status": "ok",
-  "summary": "Found 3 relevant handlers",
-  "items": [
-    { "path": "src/api/orders.ts", "symbol": "createOrder", "lineStart": 48, "lineEnd": 91 }
-  ],
-  "nextCursor": "opaque-token",
-  "truncated": false,
-  "sourceRevision": "commit-hash",
-  "warnings": []
-}
-```
-
-Return what helps choose the next action: identifiers, counts, locations, status, truncation flags, cursors, revision IDs and errors. A larger payload is not more progress.
+Return action-relevant results, source locations, completeness and recovery information. Include counts, revisions and diagnostic details when they support the task; a larger payload is not more progress.
 
 ## Reference-first responses
 
@@ -132,45 +118,11 @@ Tool runs the analysis (repository scan, large build, database query)
   → Agent reads a range, symbol, page or artifact only if needed
 ```
 
-```json
-{
-  "status": "success",
-  "summary": "Scanned 1,240 source files",
-  "findings": { "dependencyCycles": 3, "criticalViolations": 2 },
-  "result": {
-    "resourceId": "scan:7f9a",
-    "uri": "artifact://scans/7f9a",
-    "totalItems": 1240,
-    "returnedItems": 0
-  },
-  "recommendedNext": [{ "action": "get_findings", "filter": "severity=critical" }]
-}
-```
-
 A reference must resolve, be scoped to the right identity and live as long as the workflow needs it. A file path alone does not prove the file exists or is current. Default: return a summary and a reference; inline raw data only when it is small and needed.
 
 ## Pagination contract
 
 Design pagination into search, listing, scanning and retrieval tools from the start.
-
-```ts
-type PageRequest = {
-  query?: string;
-  cursor?: string;
-  limit?: number;
-  fields?: string[];
-  reason: string;
-};
-
-type PageResult<T> = {
-  items: T[];
-  nextCursor?: string;
-  hasMore: boolean;
-  totalCount?: number;
-  sourceRevision?: string;
-  truncated: boolean;
-};
-```
 
 1. Bounded default page sizes with server-enforced limits.
 2. Opaque cursors over offsets for frequently changing data.
@@ -187,7 +139,7 @@ MCP list operations use opaque cursors: clients follow `nextCursor` and never pa
 
 ## Actionable errors
 
-An error should tell the agent whether to retry, change the request, inspect another resource or stop. State what failed and give the corrected call: `Error 400` → `path must be workspace-relative; retry with path: "src/a.ts"`.
+An error should tell the agent whether to retry, change the request, inspect another resource or stop. State what failed and give the corrected call: a generic error → `path must be workspace-relative; retry with path: "src/a.ts"`.
 
 - A misplaced field reports where it belongs, for example: `cursor is the whole input; send {"cursor":"…"} alone`.
 - Drop errors that only follow from the first one, such as a row that "lacks" its own fields because it was never a row.
@@ -207,94 +159,17 @@ An error should tell the agent whether to retry, change the request, inspect ano
 | `INTERNAL_ERROR` | Retry only where appropriate |
 | `PARTIAL_SUCCESS` | Keep completed work, address the rest |
 
-```json
-{
-  "status": "error",
-  "code": "RESULT_TOO_LARGE",
-  "message": "Result exceeds the inline response limit.",
-  "retryable": true,
-  "cause": { "estimatedItems": 85000, "maxInlineItems": 100 },
-  "hints": [
-    { "action": "add_filter", "example": "severity=critical" },
-    { "action": "paginate", "suggestedLimit": 50 },
-    { "action": "read_artifact", "resourceId": "scan:7f9a" }
-  ],
-  "resourceId": "scan:7f9a"
-}
-```
-
 Separate the **error** (what failed), **cause** (the observable condition), **hint** (a valid next step), **retryability** (is repeating the same call safe) and **evidence** (partial result or diagnostic artifact). Hints are suggestions, never authorization ([security](security.md#risks-and-mitigations)): a tool must not override the agent's security or task constraints.
 
 ## Reason-aware invocation
 
-Give each important call a short, structured operational reason: the information or operation needed and how it serves the task. It is an audit and routing record, not exposed private reasoning.
+For a consequential call, identify the missing information or authorized effect it serves. Use the tool's real input fields; do not add a universal intent envelope or demand long rationales for trivial calls. Capture timing, usage or correlation only when diagnosing a failure or measuring that dimension.
 
-```json
-{
-  "tool": "repository.search",
-  "arguments": { "query": "createOrder", "fileTypes": ["ts"], "limit": 20 },
-  "intent": {
-    "reason": "Locate the order creation entry point.",
-    "evidenceNeeded": "Definition and callers",
-    "decisionSupported": "Identify the owner of idempotency logic",
-    "expectedOutput": "Symbol locations, not full files"
-  },
-  "execution": { "timeoutMs": 5000, "maxOutputTokens": 1200 }
-}
-```
-
-| Logged field | Purpose |
-|---|---|
-| `taskId`, `stepId` | Correlate calls to a task and step |
-| `toolName` | Invoked capability |
-| `reason`, `evidenceNeeded` | Operational purpose and expected information |
-| `inputSummary` | Sanitized request |
-| `outputReference` | Retained result |
-| `durationMs`, `tokensUsed` | Time and cost |
-| `resultStatus` | Success or failure |
-| `nextDecision` | Resulting workflow transition |
-
-- A model-written reason proves neither authorization nor usefulness; enforce authorization at execution ([security](security.md#risks-and-mitigations)).
-- Do not demand long rationales for trivial calls: short intent labels suffice, and child calls can inherit the parent task's purpose.
+A model-written reason proves neither authorization nor usefulness; enforce authorization at execution ([security](security.md#risks-and-mitigations)).
 
 ## Unified tool contract
 
-Intent, execution options, concise results, recoverable errors and optional deferred retrieval in one shape. In MCP these are application-level schemas or metadata, not required protocol fields.
-
-```ts
-type ToolIntent = { reason: string; evidenceNeeded?: string; decisionSupported?: string };
-
-type ToolRequest<T> = {
-  input: T;
-  intent: ToolIntent;
-  options?: {
-    cursor?: string;
-    limit?: number;
-    maxOutputTokens?: number;
-    timeoutMs?: number;
-    returnMode?: "inline" | "reference" | "auto";
-  };
-};
-
-type ToolError = {
-  code: string;
-  message: string;
-  retryable: boolean;
-  hints?: Array<{ action: string; parameters?: Record<string, unknown> }>;
-};
-
-type ToolResponse<T> = {
-  status: "success" | "partial" | "error";
-  summary: string;
-  data?: T;
-  artifact?: { resourceId: string; uri: string; contentType?: string; revision?: string };
-  pagination?: { nextCursor?: string; hasMore: boolean; totalCount?: number };
-  error?: ToolError;
-  execution: { durationMs: number; truncated: boolean };
-};
-```
-
-Not every tool needs every field; add the ones its results and failures actually use. Test pagination, errors, limits, revisions and permissions as part of the contract.
+Generate each application's tool surface from its owning definition; keep inputs, results, continuation and error semantics consistent across adapters. Add only fields the consumer uses and test the actual boundaries. There is no mandatory cross-tool request or diagnostic envelope.
 
 ## Skills and progressive disclosure
 
@@ -341,7 +216,7 @@ Optimize successful work per loaded context, not tool count or character count a
 
 - For wording-only edits, compare non-prose schema structure before/after: names, requiredness, defaults, bounds, enums, composition and annotations must remain unchanged. Check affected CLI help and host projections as well as MCP calls.
 - For changed tool surfaces or substantial rewrites, use [cold interviews and live replay](interview.md): selection, request/result handling, invalid combinations, hidden capabilities, retries, empty pages, continuations and untrusted content. Execute proposed calls; valid syntax or self-reported confidence is not enough.
-- Keep reductions that preserve required decisions and recovery. Report measured size and observed outcomes separately; use held-out evaluation for comparative reliability or cost-per-success claims. Do not turn a few successful probes into a general model-performance claim.
+- Keep reductions that preserve required decisions and recovery. Report measured size and observed outcomes separately; use held-out evaluation for comparative reliability or cost-per-success claims. Do not turn a few successful checks into a general model-performance claim.
 
 ## MCP wire
 

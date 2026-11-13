@@ -2,7 +2,7 @@
 //! base64 passes through.
 
 use super::*;
-use crate::tools::source_view::no_match::REDACTED_MATCH_HINT;
+use crate::tools::source_view::no_match::REDACTED_MISS;
 
 // A bounded read of an interior body line of a private key must not
 // leak the key, even when the file is NOT key-named and the selected window
@@ -78,7 +78,10 @@ fn match_string_cannot_probe_line_level_secrets() {
         serde_json::to_string(&wrong.next).expect("json")
     );
     assert!(
-        right.hints.iter().any(|hint| hint == REDACTED_MATCH_HINT),
+        right
+            .hints
+            .iter()
+            .any(|hint| hint.starts_with(REDACTED_MISS)),
         "{right:?}"
     );
     let clean = dir.join("clean.txt");
@@ -92,7 +95,10 @@ fn match_string_cannot_probe_line_level_secrets() {
         None,
     );
     assert!(
-        !miss.hints.iter().any(|hint| hint == REDACTED_MATCH_HINT),
+        !miss
+            .hints
+            .iter()
+            .any(|hint| hint.starts_with(REDACTED_MISS)),
         "{miss:?}"
     );
     let after = probe("needle");

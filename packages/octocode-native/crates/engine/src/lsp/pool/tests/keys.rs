@@ -61,6 +61,7 @@ fn canonical_key_normalizes_root_and_all_effective_config() {
         args: Some(vec!["--stdio".into()]),
         workspace_root: root.join("x/../workspace").to_string_lossy().into_owned(),
         language_id: Some("rust".into()),
+        document_language_ids: Default::default(),
         initialization_options: Some(serde_json::json!({"z": 1, "nested": {"b": 2, "a": 1}})),
         env: Some(env_a),
         max_memory_mb: None,
@@ -92,6 +93,47 @@ fn canonical_key_normalizes_root_and_all_effective_config() {
     );
 }
 
+#[test]
+fn canonical_key_separates_custom_document_language_ids() {
+    let root = tempfile::tempdir().expect("root");
+    let config = LspLanguageServerConfig {
+        command: "custom-server".to_owned(),
+        args: None,
+        workspace_root: root.path().to_string_lossy().into_owned(),
+        language_id: Some("cpp".to_owned()),
+        document_language_ids: Default::default(),
+        initialization_options: None,
+        env: None,
+        max_memory_mb: None,
+        source: Default::default(),
+    };
+    let mut custom = config.clone();
+    custom
+        .document_language_ids
+        .insert(".h".into(), "cpp".into());
+    assert_ne!(
+        canonical_lsp_key(&config).expect("default key"),
+        canonical_lsp_key(&custom).expect("custom key")
+    );
+    custom.document_language_ids.insert(".h".into(), "c".into());
+    let mut alternate = custom.clone();
+    alternate
+        .document_language_ids
+        .insert(".h".into(), "cpp".into());
+    assert_ne!(
+        canonical_lsp_key(&custom).expect("C header key"),
+        canonical_lsp_key(&alternate).expect("C++ header key")
+    );
+    let mut serialized = serde_json::to_value(&config).expect("config");
+    serialized
+        .as_object_mut()
+        .expect("object")
+        .remove("document_language_ids");
+    let restored: LspLanguageServerConfig =
+        serde_json::from_value(serialized).expect("default IDs");
+    assert!(restored.document_language_ids.is_empty());
+}
+
 #[cfg(unix)]
 #[test]
 fn canonical_key_follows_workspace_symlinks() {
@@ -112,6 +154,7 @@ fn canonical_key_follows_workspace_symlinks() {
         args: None,
         workspace_root: root.to_string_lossy().into_owned(),
         language_id: Some("rust".into()),
+        document_language_ids: Default::default(),
         initialization_options: None,
         env: None,
         max_memory_mb: None,
@@ -134,6 +177,7 @@ fn family_key_ignores_options_and_splits_on_workspace_binary_and_language() {
         args: Some(vec!["--stdio".into()]),
         workspace_root: root.to_string_lossy().into_owned(),
         language_id: Some("typescript".into()),
+        document_language_ids: Default::default(),
         initialization_options: Some(serde_json::json!({"a": 1})),
         env: None,
         max_memory_mb: None,

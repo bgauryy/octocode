@@ -18,18 +18,12 @@ use super::{
 use crate::budget::{CircuitCause, GitHubResource, now_ms};
 use crate::{Partition, ProviderError, ProviderErrorKind};
 
-/// How long a GitHub search answer stands in for asking again. GitHub's search
-/// endpoints send no validator (`ETag`, `Last-Modified`) and no lifetime, so no
-/// answer can be confirmed: this is a chosen bound, the one freshness number
-/// the origin does not state. Each reuse is disclosed
-/// ([`RequestContext::reused_since`]), and a search hit is a lead that a read
-/// (which is validated) settles.
+/// Disclosed reuse window for search answers without origin validators or cache policy.
+/// Hits remain leads; source reads verify them. See [`RequestContext::reused_since`].
 pub(crate) const SEARCH_REUSE_WINDOW: Duration = Duration::from_secs(300);
 
-/// How long a GraphQL read of one pull request stands in for asking again when
-/// GitHub states no lifetime for that pull request over REST (none seen yet, or
-/// none allowed). Owner decision (GHI-3): the same chosen-bound rule as
-/// [`SEARCH_REUSE_WINDOW`], disclosed on every reuse; a stated lifetime wins.
+/// Disclosed GraphQL PR reuse window (owner decision GHI-3).
+/// The origin's REST cache policy takes precedence.
 #[cfg_attr(
     octocode_clippy_ratchet,
     expect(
@@ -57,15 +51,20 @@ struct Saved {
 }
 
 /// Whether GitHub said this answer lacks results: `incomplete_results` on a
-/// search, or organizations SAML enforcement withheld.
-fn is_partial(page: &ResponsePage) -> bool {
+/// search, or organizations SAML enforcement withheld. A non-search body is
+/// source data: its own JSON fields have no provider-envelope meaning.
+fn is_partial(page: &ResponsePage, resource: GitHubResource) -> bool {
     #[derive(Deserialize)]
     struct Search {
         #[serde(default)]
         incomplete_results: bool,
     }
     !page.sso_partial_organizations().is_empty()
-        || serde_json::from_slice::<Search>(&page.body).is_ok_and(|page| page.incomplete_results)
+        || (matches!(
+            resource,
+            GitHubResource::Search | GitHubResource::CodeSearch
+        ) && serde_json::from_slice::<Search>(&page.body)
+            .is_ok_and(|page| page.incomplete_results))
 }
 
 /// Whether a REST `url` reads one pull request or something under it: what the
@@ -177,9 +176,8 @@ impl GitHubTransport {
         Ok(page)
     }
 
-    /// `spec` sent along the rename route kept for its repository, with the
-    /// route's store key and, when the route is reused within its window, when
-    /// it was observed; the rename is recorded as if GitHub redirected it.
+    /// Route `spec` through its saved rename, returning the store key and observed time.
+    /// Record the rename and disclose heuristic reuse.
     fn route(
         &self,
         spec: &RequestSpec,
@@ -232,11 +230,8 @@ impl GitHubTransport {
             .is_err_and(|error| error.kind == ProviderErrorKind::NotFound)
     }
 
-    /// A contents miss at `url` waits for its repository to answer, and the
-    /// repository's saved answer was replayed (inside the `max-age` GitHub
-    /// stated), which proves nothing now: ask GitHub to confirm it, whatever
-    /// that lifetime. Its `304` is free of the rate limit. With no saved
-    /// answer to confirm, nothing is sent.
+    /// Revalidate a cached repository before using it to prove a contents miss.
+    /// Cached freshness alone proves no current access; no saved answer means no request.
     async fn prove_repository(
         &self,
         url: &Url,
@@ -344,9 +339,7 @@ impl GitHubTransport {
         }
     }
 
-    /// [`Self::execute`] drawing on `attempt`, the physical-attempt count of
-    /// an enclosing logical operation: its sends and an outer semantic retry
-    /// share one `max_attempts` budget.
+    /// Execute within the enclosing operation's shared physical-attempt budget.
     pub(super) async fn execute_counted(
         &self,
         spec: RequestSpec,
@@ -388,8 +381,7 @@ impl GitHubTransport {
             match &saved.reuse {
                 Reuse::Pinned | Reuse::Fresh | Reuse::Window => {
                     context.check()?;
-                    // What GitHub said before vouches for nothing now: not
-                    // for the repository, nor for a commit.
+                    // A cached answer proves no current repository or commit access.
                     if let Some(error) = &saved.saved.answer.not_found {
                         context.journal.record(&spec, &Err(error.clone()));
                         return Err(error.clone());
@@ -462,7 +454,11 @@ impl GitHubTransport {
                     .collect::<Vec<_>>();
                 saved.saved.confirm(&headers, now_ms());
                 if let Some(store) = &self.answers {
-                    store.save(&saved.scope, &saved.request, saved.saved.clone());
+                    if worth_keeping(&saved.saved.answer.headers, false, None) {
+                        store.save(&saved.scope, &saved.request, saved.saved.clone());
+                    } else {
+                        store.forget(&saved.scope, &saved.request);
+                    }
                 }
                 let mut answer = page_of(&saved.saved.answer);
                 answer.redirected = page.redirected;
@@ -479,7 +475,9 @@ impl GitHubTransport {
             }),
             // GitHub refused to answer now: the last answer it gave, disclosed
             // by the time it was observed, beats no answer.
-            (Err(error), Some(saved)) if error.kind == ProviderErrorKind::RateLimited => {
+            (Err(error), Some(saved))
+                if error.kind == ProviderErrorKind::RateLimited && saved.saved.allows_stale() =>
+            {
                 context.record_reused(saved.saved.observed_ms);
                 Ok(Obtained {
                     page: page_of(&saved.saved.answer),
@@ -504,9 +502,7 @@ impl GitHubTransport {
         }
     }
 
-    /// The saved answer to `spec` under this request's credential, and what
-    /// it can do. A body past this call's limit answers nothing: the request
-    /// reaches GitHub and meets that limit there.
+    /// Load this credential's answer and reuse policy; oversized bodies require a new read.
     fn saved(&self, spec: &RequestSpec, context: &RequestContext) -> Option<Saved> {
         let store = self.answers.as_ref()?;
         if !matches!(spec.method, HttpMethod::Get) && !spec.keeps_graphql_answer() {
@@ -536,20 +532,32 @@ impl GitHubTransport {
             })
     }
 
-    /// Keep `page`, the origin's answer to `spec`, when something can later
-    /// vouch for it. A partial answer (GitHub says some results are missing,
-    /// or SAML withheld some) is worth asking again and is never kept.
+    /// Keep reusable origin answers. Partial or SAML-withheld answers are not cached.
     pub(super) fn keep(&self, spec: &RequestSpec, page: &ResponsePage, context: &RequestContext) {
         let Some(store) = &self.answers else {
             return;
         };
-        if page.status != 200 || is_partial(page) || spec.kept_by_caller {
-            return;
-        }
         let Some(scope) = self.answer_scope(context) else {
             return;
         };
         let request = request_key(spec);
+        let cache_headers = page
+            .headers
+            .get_all("cache-control")
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .map(|value| ("cache-control".to_owned(), value.to_owned()))
+            .collect::<Vec<_>>();
+        if super::saved::has_directive(&cache_headers, "no-store") {
+            store.forget(&scope, &request);
+            return;
+        }
+        if page.status != 200
+            || is_partial(page, self.endpoint.resource(&spec.url))
+            || spec.kept_by_caller
+        {
+            return;
+        }
         let Some(answer) = answer_of(&request, page) else {
             return;
         };
@@ -567,13 +575,13 @@ impl GitHubTransport {
                     redirected: page.redirected,
                 },
             );
+        } else {
+            store.forget(&scope, &request);
         }
     }
 
-    /// Drop every answer to `spec` this request recorded or the saved answers
-    /// hold, under its own URL and any rename route it took: its caller could
-    /// not read the body, so a retry asks GitHub again instead of meeting
-    /// the same body.
+    /// Drop unreadable answers from the journal and cache, including renamed routes.
+    /// A retry must acquire a new body.
     pub(crate) fn discard(&self, spec: &RequestSpec, context: &RequestContext) {
         let scope = self.answer_scope(context);
         let mut specs = vec![spec.clone()];

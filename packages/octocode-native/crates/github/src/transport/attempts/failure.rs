@@ -144,9 +144,6 @@ enum Failure {
     Final,
 }
 
-/// The longest provider-requested retry delay honored: a day.
-const MAX_PROVIDER_RETRY_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
-
 /// How long a secondary limit answered with `headers` holds: what GitHub says,
 /// else the documented default. A spent bucket's reset is not a secondary
 /// wait: such an answer is that bucket's limit ([`spent_bucket_reset`]).
@@ -199,11 +196,7 @@ pub(in crate::transport) fn secondary_cooldown(
 
 /// `Retry-After` (delta-seconds or HTTP-date) or `retry-after-ms`.
 fn provider_retry_after(headers: &HeaderMap) -> Option<Duration> {
-    retry_after_delay(
-        headers,
-        MAX_PROVIDER_RETRY_AFTER,
-        std::time::SystemTime::now(),
-    )
+    retry_after_delay(headers, Duration::MAX, std::time::SystemTime::now())
 }
 
 fn classify_failure(
@@ -248,5 +241,25 @@ fn classify_failure(
         Failure::Server
     } else {
         Failure::Final
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn provider_retry_after_preserves_declared_delays_without_a_day_cap() {
+        for seconds in [2 * 24 * 60 * 60, u64::MAX] {
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                "retry-after",
+                reqwest::header::HeaderValue::from_str(&seconds.to_string()).expect("header"),
+            );
+            assert_eq!(
+                provider_retry_after(&headers),
+                Some(Duration::from_secs(seconds))
+            );
+        }
     }
 }

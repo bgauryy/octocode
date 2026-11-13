@@ -15,9 +15,6 @@ use octocode_contract_types::{ErrorCode, LocalFetchQuery, ReadProgressUnit};
 use octocode_engine::num::saturating_usize;
 use std::path::Path;
 
-/// Why a page of a source whose structure outran the memory budget hides its values.
-const EVERY_VALUE_NOTE: &str = "redactedContent: this source names a Kubernetes Secret, a JSON Web Key or a Docker registry config, and the walk that places their values outgrew the memory budget (nesting too deep, too many values, or a token too long to carry) before it finished, so every value on this page is hidden, secret or not. Split the source to read it.";
-
 /// Disclose a page of the every-value fallback: its values are hidden, secret
 /// or not, because the structure walk outgrew the memory budget.
 fn every_value_reason(result: &mut LocalFetchResult) {
@@ -284,10 +281,8 @@ pub(super) fn serve_window(
         }
         map_to_file(&mut result, &streamed);
         if streamed.every_value {
-            result
-                .warnings
-                .retain(|warning| !warning.starts_with("redactedContent"));
-            result.warnings.push(EVERY_VALUE_NOTE.to_owned());
+            // The page's own count stands; `partialReasons` says why every
+            // value is hidden (its meaning is the contract's).
             every_value_reason(&mut result);
         }
         if !chunked && requested_last > total {

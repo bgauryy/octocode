@@ -152,9 +152,16 @@ pub(crate) fn search_options(
 /// ([`crate::security::searched_text`]); a file past the whole-source size
 /// a read judges whole is searched with each line its streamed read serves
 /// differently replaced by that line ([`crate::tools::large_source::changed_lines`]).
+/// A file whose own bytes prove that text holds no match is not judged
+/// ([`crate::security::meets_written`]).
 pub(crate) fn judge(limits: crate::security::SourceLimits) -> octocode_engine::types::SourceJudge {
-    octocode_engine::types::SourceJudge(std::sync::Arc::new(move |path, file| {
+    let serve = std::sync::Arc::new(move |path: &std::path::Path, file: &std::fs::File| {
         use std::io::{Read, Seek, SeekFrom};
+        #[cfg(test)]
+        JUDGED_PATHS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(path.to_path_buf());
         let security = crate::security::ContentSecurity::with_limits(limits);
         let limit = security.limits().whole_source_bytes();
         let meta = file.metadata()?;
@@ -180,7 +187,7 @@ pub(crate) fn judge(limits: crate::security::SourceLimits) -> octocode_engine::t
                 .read_to_end(&mut text)?;
             return Ok(Some(text));
         }
-        handle.seek(SeekFrom::Start(0))?;
+        // The search hands the file at its start ([`octocode_engine::types::JudgeSource`]).
         let mut bytes = Vec::new();
         handle.take(limit).read_to_end(&mut bytes)?;
         // Judged by the pass kept of this text, which a row's whole-source
@@ -188,5 +195,14 @@ pub(crate) fn judge(limits: crate::security::SourceLimits) -> octocode_engine::t
         Ok(crate::security::searched_text(&bytes, |text| {
             crate::tools::judged_rows::judged_text(text, path, &security)
         }))
-    }))
+    });
+    octocode_engine::types::SourceJudge {
+        serve,
+        writes: std::sync::Arc::new(crate::security::meets_written),
+    }
 }
+
+/// Every path a local search's judge judged in this process, in order.
+#[cfg(test)]
+pub(crate) static JUDGED_PATHS: std::sync::Mutex<Vec<std::path::PathBuf>> =
+    std::sync::Mutex::new(Vec::new());

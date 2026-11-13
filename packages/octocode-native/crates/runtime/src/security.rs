@@ -20,7 +20,8 @@ pub(crate) use input::{Admitted, CheckedQuery, InputPolicy};
 #[cfg(test)]
 pub(crate) use judged::scanned_on_this_thread;
 pub(crate) use judged::{
-    JudgedFiles, JudgedLeaf, JudgedLeaves, JudgedSource, JudgedText, WholePass, searched_text,
+    JudgedFiles, JudgedLeaf, JudgedLeaves, JudgedSource, JudgedText, WholePass, meets_written,
+    searched_text,
 };
 pub use limits::SourceLimits;
 pub use output::Sanitized;
@@ -53,6 +54,18 @@ pub(crate) fn redacted_content_warning(values: usize) -> String {
     } else {
         "redactedContent: secret-shaped text in the requested view was redacted; this content is not verbatim source.".into()
     }
+}
+
+/// The values a [`redacted_content_warning`] counts; `None` for any other
+/// warning, or one that counts none: parts of one row joined state their sum.
+pub(crate) fn redacted_values(warning: &str) -> Option<usize> {
+    let values = warning
+        .strip_prefix("redactedContent: ")?
+        .split_once(' ')?
+        .0
+        .parse()
+        .ok()?;
+    (values > 0 && redacted_content_warning(values) == warning).then_some(values)
 }
 
 /// Whether `warning` states that a row's own text was redacted

@@ -195,11 +195,13 @@ async fn a_numbered_armor_line_keeps_its_number() {
     let rows = &output["results"][0]["data"]["files"][0]["matches"];
     let begin = rows[0]["value"].as_str().expect("begin row");
     let end = rows[1]["value"].as_str().expect("end row");
-    assert!(begin.starts_with("1501\t-----BEGIN PRIVATE KEY-----\n1502\t[REDACTED-"), "{begin}");
+    assert!(
+        begin.starts_with("1501\t-----BEGIN PRIVATE KEY-----\n1502\t[REDACTED-"),
+        "{begin}"
+    );
     assert!(!begin.contains("MIIEvQ"), "{begin}");
     assert_eq!(
-        end,
-        "1505\t-----END PRIVATE KEY-----\n1506\tafter one\n1507\tafter two",
+        end, "1505\t-----END PRIVATE KEY-----\n1506\tafter one\n1507\tafter two",
         "{output}"
     );
 }
@@ -231,9 +233,18 @@ async fn match_only_empty_matches_end_with_their_line() {
     let rows = lines["files"][0]["matches"].as_array().expect("rows");
     let shown: Vec<(u64, &str)> = rows
         .iter()
-        .map(|row| (row["line"].as_u64().expect("line"), row["value"].as_str().expect("value")))
+        .map(|row| {
+            (
+                row["line"].as_u64().expect("line"),
+                row["value"].as_str().expect("value"),
+            )
+        })
         .collect();
-    assert_eq!(shown, [(1, "nothing secret here"), (2, "just words")], "{lines}");
+    assert_eq!(
+        shown,
+        [(1, "nothing secret here"), (2, "just words")],
+        "{lines}"
+    );
     assert_eq!(lines["matchCount"], 2, "{lines}");
     assert!(lines.get("warnings").is_none(), "{lines}");
     let empty = run("x*").await;

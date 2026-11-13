@@ -94,23 +94,32 @@ recovery at a new path; never overwrite a live store.
 
 ## Verify concurrent native workers
 
-From a repository checkout, deterministic crash and recovery checks are included in:
+An agent runs these by hand and judges each answer by reading it
+([method](../../octocode-benchmark/CHECKS.md)). Use a fresh workspace and database per
+trial and explicit model IDs; never join an existing conversation or change host settings. Worker checks use
+the configured accounts and cost usage.
 
-```sh
-yarn workspace @octocodeai/octocode-agents-communication verify
-```
-
-The optional live harness (`src/live.ts`; `--help` lists its scenarios) starts isolated native Pi, Claude and Codex workers and can consume usage on their configured accounts. Supply explicit model IDs available to each installed host; the runner chooses no model and changes no host settings. It refuses to start without `--live`:
-
-```sh
-node packages/octocode-agents-communication/src/live.ts --live --scenarios soak \
-  --models '{"pi":"<provider/model>","claude":"<model>","codex":"<model>"}' \
-  --waves 3 --idle-ms 65000 --duration-ms 480000 --output /absolute/results
-```
-
-Each wave sends two requests to each host, with the second arriving while the first is pending. The runner checks exact correlated answers, submission and acknowledgement, then keeps the same sessions alive across an idle interval longer than the default presence lifetime. Passive notices must remain quiet and be acknowledged with later work. It stores full runtime traces, observed usage, source hashes, failed attempts and cleanup receipts. Its grader requires the active overlap to have been observed; a merely sequential run cannot pass that check.
-
-The same harness also runs single-host trials (`qa`, `lock-handoff`, `paged-read`; see the package README). These repeated soak waves share native sessions and measure a bounded soak, not independent trials or a service-level reliability rate. Process-kill fixtures establish the named storage/transport boundaries; actual model replies establish the tested live-host path. Longer deployments, other vendor versions and other platforms need their own measurements.
+- [ ] Packed package: `npm pack --ignore-scripts`. The archive holds the bin, `dist/{communication,runtime,cli,mcp}.js`,
+  every `dist/hosts/*` entry, `docs/COMMANDS.md`, `assets/catalog.json`, `OPERATING.md` and `ARCHITECTURE.md`, and
+  nothing under `src/`, `tests/`, `skills/` or `scripts/`. Outside the monorepo, run it with
+  `npx -y --package <tgz> octocode-agents-communication`: `--version` matches, `--help` lists `join`, `skill`
+  returns the operating guide, `schema send_message` answers, `join` then `peers` and `db info` (compatible)
+  work, and every `./hosts/*` export loads. Its MCP server lists the catalog's selected tools; a message sent
+  over MCP reaches the CLI inbox, and the reply arrives with the right `replyTo`.
+- [ ] Two sessions: `peers` lists both; a lease held by one blocks the other's `lock` on the same path and
+  `unlock` releases it; a handoff and a request, reply and acknowledgement arrive with correct ids, and the
+  inbox empties after `complete`. Export, then restore into a new database: integrity `ok`, same hash.
+- [ ] One host at a time (Pi, Claude, Codex): a request is answered and acknowledged, a passive notice starts
+  no turn, a lock handoff between two workers holds, and a paged read returns every page once. Repeat a few
+  trials; one pass does not establish reliability.
+- [ ] Soak, all three hosts: in each wave a second request arrives while the first is pending, both get exact
+  correlated answers, and the sessions survive an idle period longer than the presence lifetime. A run that
+  never overlapped two requests proves nothing about concurrency.
+- [ ] Scale: in a database seeded with 10^4 leases and 10^5 records, each hot CLI command (`lock` granted and
+  denied, `check_paths` with its `next` page, context and document reads, `send_message` and its inbox, `record`
+  and its search) answers correctly within about 1.5 s; `tests/storage-scale.test.ts` already proves the
+  statements use indexes.
+- [ ] After every trial no worker process remains, and no `complete` call was rejected or left without a result.
 
 ## Retention
 

@@ -14,11 +14,11 @@ Choose by the dependency or proof the task needs. Use one primary workflow; add 
 | Investigate separable questions | **Independent evidence lanes:** assign questions → gather primary evidence → merge | Deciding sources are rechecked; conflicts and gaps are resolved or reported. |
 | Change separate parts concurrently | **[Parallel change lanes](composition.md#parallel-write-lanes):** partition paths → edit → integrate → check | Checks pass on the merged tree under one build owner. |
 | Check a result independently | **Independent acceptance:** give checker contract and inputs → derive checks → inspect result | Consumer and edge checks pass against a stable acceptance condition. |
-| Distinguish rival causes | **[Hypothesis checking](mental-models.md#issue-hunting-loop):** claim + rival → distinguishing probe → observation | The observation separates the causes, or the deciding gap is named. |
+| Distinguish rival causes | **[Hypothesis checking](mental-models.md#issue-hunting-loop):** claim + rival → distinguishing check → observation | The observation separates the causes, or the deciding gap is named. |
 | Act on changing state | **Stateful procedure:** inspect prerequisites → act → confirm durable effect | The intended transition is observed; uncertain effects are reconciled before replay. |
 | Diagnose waste or resource growth | **[Resource-flow audit](resource-flow.md):** map → measure → diagnose → repair → replay | A comparable measurement improves while correctness and required evidence remain intact. |
 
-Roles are duties, not a worker count. Separate actors or concurrent work require authorization. For orchestrated execution, [composition](composition.md) owns assignments and handoffs; [verification](verification.md) owns the single ledger, acceptance and recovery. Domain skills retain their methods, permissions and output. A proposed selection needs no ledger.
+Roles are duties, not a minimum worker count. Use separate actors only for useful authorized work. For orchestrated execution, [composition](composition.md) owns assignments and handoffs; [verification](verification.md) owns the single ledger, acceptance and recovery. Domain skills retain their methods, permissions and output. A proposed selection needs no ledger.
 
 ## Evidence techniques
 

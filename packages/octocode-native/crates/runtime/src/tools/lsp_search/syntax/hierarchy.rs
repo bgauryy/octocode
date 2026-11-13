@@ -47,7 +47,7 @@ pub(super) fn named(
             outline
                 .declarations
                 .iter()
-                .filter(|declaration| declaration.name == name)
+                .filter(|declaration| file.same_name(&declaration.name, name))
                 .map(|declaration| Found {
                     path: file.path.clone(),
                     id: declaration.id.clone(),
@@ -67,7 +67,7 @@ pub(super) fn anchor_declaration(file: &File, name: &str, line: u32) -> Option<F
         .declarations
         .iter()
         .filter(|declaration| {
-            declaration.name == name
+            file.same_name(&declaration.name, name)
                 && declaration.range.start.line <= line
                 && line <= declaration.range.end.line
         })
@@ -90,9 +90,13 @@ pub(super) fn incoming(
         let Some(facts) = file.facts() else {
             return Vec::new();
         };
+        let names = names
+            .iter()
+            .map(|name| file.canonical_name(name))
+            .collect::<BTreeSet<_>>();
         let mut callers: BTreeMap<(String, String), Vec<Value>> = BTreeMap::new();
         for call in &facts.calls {
-            let callee = short(&call.callee);
+            let callee = file.canonical_name(short(&call.callee));
             if names.contains(callee) {
                 let caller = call.caller_id.clone().unwrap_or_default();
                 callers
@@ -130,7 +134,7 @@ pub(super) fn outgoing(path: &str, id: &str) -> Vec<(String, Vec<Value>)> {
         for call in file.facts().iter().flat_map(|facts| facts.calls.iter()) {
             if call.caller_id.as_deref() == Some(id) {
                 callees
-                    .entry(short(&call.callee).to_owned())
+                    .entry(file.canonical_name(short(&call.callee)).to_owned())
                     .or_default()
                     .push(range_value(&call.range));
             }

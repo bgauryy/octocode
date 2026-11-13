@@ -129,7 +129,6 @@ async fn a_next_page_past_the_registry_reach_states_a_terminal_limit() {
         ]),
         "{data}"
     );
-    // The response stage strips the internal `statedReasons` marker.
     let mut placed = json!({"results": [{"index": 0, "data": data}]});
     crate::response::notices::place(&mut placed, "results");
     crate::tools::test_support::validate_sealed(ToolId::ArtifactSearch.as_str(), &placed)
@@ -212,9 +211,9 @@ async fn a_total_past_the_reach_states_the_reachable_window() {
         .expect("contract-valid capped page");
 }
 
-/// The cap notice states what `providerResultCap` means (the matched total,
-/// the reach), so the response stage adds no glossary line for the same
-/// reason: a capped page, continuing or terminal, says the fact once.
+/// The cap notice states the matched total and the reach beside the
+/// `providerResultCap` code, and no response says what the code means: a
+/// capped page, continuing or terminal, says the fact once.
 #[tokio::test]
 async fn a_capped_page_states_the_cap_once() {
     let server = npm_window(146_295, 146_295).await;
@@ -229,8 +228,8 @@ async fn a_capped_page_states_the_cap_once() {
             "{data}"
         );
         let mut staged = json!({"results": [{"index": 0, "data": data}]});
-        crate::response::notices::explain_codes(&mut staged, "results");
         crate::response::notices::place(&mut staged, "results");
+        crate::tools::test_support::checks::assert_no_reason_meaning(&staged);
         let warnings = staged["results"][0]["data"]["warnings"]
             .as_array()
             .cloned()

@@ -36,12 +36,20 @@ fn a_page_cursor_of_another_build_is_stale_with_a_restart_lead() {
     let first_row = json!({"operation":"match","path":root.0,"rule":{"pattern":"console.log($A)"},"parser":"typescript"});
     let first = answer("build-a", &first_row, &root.0).expect("page 1");
     let again = answer("build-b", &first_row, &root.0).expect("page 1 elsewhere");
-    assert_ne!(crate::tools::test_support::pinned_snapshot(&first), crate::tools::test_support::pinned_snapshot(&again), "{first}");
+    assert_ne!(
+        crate::tools::test_support::pinned_snapshot(&first),
+        crate::tools::test_support::pinned_snapshot(&again),
+        "{first}"
+    );
     // Production is the same function under this build's identity.
     let produced = crate::tools::ast_search::test_rows::run_window(&root.0, first_row.clone(), 1)
         .expect("production page 1");
     let under = answer(crate::build_identity::BUILD_IDENTITY, &first_row, &root.0).expect("page 1");
-    assert_eq!(crate::tools::test_support::pinned_snapshot(&produced), crate::tools::test_support::pinned_snapshot(&under), "{produced}");
+    assert_eq!(
+        crate::tools::test_support::pinned_snapshot(&produced),
+        crate::tools::test_support::pinned_snapshot(&under),
+        "{produced}"
+    );
     let page_two = first["next"]["nextPage"]["input"]["queries"][0].clone();
     assert!(page_two.is_object(), "{first}");
     let served = answer("build-a", &page_two, &root.0).expect("the minting build serves it");

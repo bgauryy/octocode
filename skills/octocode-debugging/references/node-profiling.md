@@ -21,7 +21,7 @@ For allocation sites, use `node --heap-prof --heap-prof-dir="$out" app.mjs` on a
 ## CPU, memory and loop timing over time
 
 ```bash
-OCTOCODE_PROFILE_DIR="$out" OCTOCODE_PROFILE_INTERVAL_MS=1000 \
+NODE_METRICS_DIR="$out" NODE_METRICS_INTERVAL_MS=1000 \
   node --import "$skill/scripts/node-metrics.mjs" app.mjs
 # Set metrics to the emitted .metrics.jsonl file for the selected PID.
 node "$skill/scripts/metrics-report.mjs" "$metrics" "$out/timeline.html"

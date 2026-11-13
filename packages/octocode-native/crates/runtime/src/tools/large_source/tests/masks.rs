@@ -306,13 +306,14 @@ fn walk_ranges_every_value(
     pages
 }
 
-/// A page of the every-value fallback names the memory budget as a terminal
-/// limit.
+/// A page of the every-value fallback that hides a value names the memory
+/// budget as a terminal limit: the reason, whose meaning the contract states,
+/// is the page's own fact.
 fn assert_every_value_disclosed(page: &LocalFetchResult) {
     let hidden = page
-        .warnings
-        .iter()
-        .any(|warning| warning.contains("every value on this page is hidden"));
+        .content
+        .as_deref()
+        .is_some_and(|content| content.contains("[REDACTED"));
     if hidden {
         let reason = PartialReason::SecurityWalkMemoryBudget;
         assert!(page.partial_reasons.contains(&reason), "{page:?}");

@@ -4,7 +4,7 @@ Load when choosing an investigation prompt or tool for the scoped target.
 
 Use these as investigation prompts, not a checklist to print or questions to make the user answer. Select those relevant to the target; follow new evidence beyond this list.
 
-For hidden assumptions, proxy success or cascading harm, select a [mental model](mental-models.md#choose-the-lens) and use its deciding check. Keep hypothetical risks separate from demonstrated defects; a model name adds no severity.
+Keep hypothetical risks separate from demonstrated defects; a useful question generates a lead, not severity.
 
 | Hunt | Questions to ask the code | Proving check |
 |---|---|---|
@@ -35,4 +35,4 @@ Load the available tool schemas; do not invent query fields. Prefer the checkout
 | Scout evidence too broad for exact searches | `clasify` if enabled → exact-read candidates; classification is not proof or exhaustive coverage. |
 | Explain an upstream decision or dependency | Relevant GitHub history tools or `artifactSearch`; use `securityCheck` for known vulnerability claims. |
 
-Batch independent lookups and narrow the next question from evidence. Apply the [entry’s paging and absence rules](../SKILL.md#thinking-modes).
+Batch independent lookups and narrow the next question from evidence. Apply the [entry’s paging and absence rules](../SKILL.md#hunt).

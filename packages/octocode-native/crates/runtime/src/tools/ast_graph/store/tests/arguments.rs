@@ -72,11 +72,7 @@ fn named_argument_occurrences_page_without_becoming_invocations() {
         o.edges = vec!["calls".into()];
         o.to = Some("args.ts#handler".into());
     });
-    assert_eq!(
-        calls.value["pagination"]["total"], 0,
-        "{}",
-        calls.value
-    );
+    assert_eq!(calls.value["pagination"]["total"], 0, "{}", calls.value);
     let sink = ask(&dir.0, "callees", Some("args.ts#sink"), |_| {});
     assert_eq!(sink.value["pagination"]["total"], 0);
     let counts = &built.value["argumentCoverage"]["byLanguage"]["typescript"]["counts"];
@@ -99,11 +95,7 @@ fn argument_barriers_and_unsupported_forms_remain_queryable() {
         o.include_provenance = true;
         o.edges = vec!["passes".into()];
     });
-    assert_eq!(
-        linked.value["pagination"]["total"], 0,
-        "{}",
-        linked.value
-    );
+    assert_eq!(linked.value["pagination"]["total"], 0, "{}", linked.value);
     let mut ids = BTreeSet::new();
     for offset in 0..2 {
         let page = ask(&dir.0, "unresolved", Some("barriers.ts#run"), |o| {

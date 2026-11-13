@@ -278,6 +278,15 @@ fn declaration_given<'t, P: Iterator<Item = Node<'t>> + Clone>(
     {
         return None;
     }
+    if matches!(
+        node_kind,
+        "struct_specifier" | "union_specifier" | "enum_specifier" | "class_specifier"
+    ) {
+        // Anonymous aggregates have no tag binding. Descending to a member's
+        // name would invent a type declaration with that member's name.
+        let kind = declaration_kind(node_kind)?;
+        return node.child_by_field_name("name").map(|name| (kind, name));
+    }
     if let Some(kind) = declaration_kind(node_kind) {
         // C/C++ definitions carry no `name` field: the name sits in the
         // declarator chain, and the `type` field (a named return type such as

@@ -26,12 +26,9 @@ pub enum HttpMethod {
     Get,
     Post,
 }
-/// Octokit plugin-retry parity: `max_attempts` = retries + 1; 5xx/network
-/// backoff is full-jitter from `base_delay`; a 5xx `retry-after` longer than
-/// `max_retry_after` fails fast. A rate-limit wait (primary or secondary
-/// limit, search pacing) has no cap of its own: it is credited to the request
-/// budget, so it never spends the request time, and fails fast with
-/// `retryAfter` only when it would end past the call's deadline.
+/// Octokit retry parity: `max_attempts` = retries + 1, with full-jitter 5xx/network backoff.
+/// A 5xx delay beyond `max_retry_after` fails fast. Rate waits preserve the origin's
+/// full delay, credit request time, and refuse waits beyond the caller's deadline.
 #[derive(Clone, Debug)]
 pub struct RetryPolicy {
     pub max_attempts: u8,
@@ -65,8 +62,7 @@ pub struct RequestSpec {
     pub body: Option<Value>,
     pub headers: HeaderMap,
     /// The repository file this request reads when its URL names none (a blob).
-    /// Part of its identity ([`evidence::request_key`]), so what keeps the answer
-    /// can tell what it holds ([`requested_file`]).
+    /// Included in [`evidence::request_key`] and exposed by [`requested_file`].
     file: Option<String>,
     /// A read of one pull request by a route with no validator (GraphQL): a kept
     /// answer stands for the lifetime GitHub states for that pull request's REST
@@ -368,8 +364,7 @@ impl GitHubTransport {
     }
 
     /// Whether GraphQL can be attempted now for this credential: false while
-    /// the key's graphql bucket (or a secondary cooldown) blocks past the
-    /// request's deadline. Replaces the old permanent per-host skip.
+    /// its bucket or secondary cooldown blocks past the request deadline.
     pub fn graphql_available(&self, context: &RequestContext) -> bool {
         let state = self.key_state(context.resolved_credential());
         state.refresh_from_disk();
@@ -378,7 +373,11 @@ impl GitHubTransport {
             .is_none_or(|block| {
                 let wait = block.wait(now_ms());
                 block.circuit.is_none()
-                    && Instant::now() + wait < context.budget.admission_deadline()
+                    && wait
+                        < context
+                            .budget
+                            .admission_deadline()
+                            .saturating_duration_since(Instant::now())
             })
     }
 }
@@ -394,6 +393,7 @@ mod context;
 mod evidence;
 mod execute;
 mod graphql;
+mod headers;
 pub use context::RequestContext;
 pub use evidence::{AnswerBody, ProviderAnswer, ProviderEvidence, requested_file};
 #[cfg(test)]

@@ -47,10 +47,7 @@ async fn a_content_row_sends_the_questions_unchanged_and_returns_provider_answer
         result["usage"],
         json!({"inputTokens":40,"outputTokens":7,"calls":1})
     );
-    assert_eq!(
-        result["answers"]["restart"],
-        json!({"noul":0.9})
-    );
+    assert_eq!(result["answers"]["restart"], json!({"noul":0.9}));
     assert!(
         result["answers"]["route"].get("type").is_none(),
         "an answer names its type by its value key, not a type field"

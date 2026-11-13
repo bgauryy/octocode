@@ -305,6 +305,8 @@ async fn dispatch(command: Command, runtime: &ToolRuntime, mode: OutputMode) -> 
 }
 
 #[cfg(test)]
+mod test_support;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tool_flags_tests;

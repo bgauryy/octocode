@@ -31,7 +31,10 @@ impl<C: PoolClient> GenericPool<C> {
         options.max_entries = options.max_entries.max(1);
         Self {
             options,
-            state: Arc::new(Mutex::new(State::default())),
+            state: Arc::new(Mutex::new(State::new(
+                std::num::NonZeroUsize::new(options.max_entries)
+                    .unwrap_or(std::num::NonZeroUsize::MIN),
+            ))),
             count: Arc::new(AtomicUsize::new(0)),
         }
     }

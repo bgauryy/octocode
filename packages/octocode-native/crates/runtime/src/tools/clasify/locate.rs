@@ -7,10 +7,12 @@
 //! the row's `next.read` reads only them.
 //!
 //! A part is about one page of the read that follows: as many parts as the
-//! text's shown characters (its lines with their `N\t` gutter) fill pages of
-//! the runtime's automatic response page ([`RuntimeLimits::auto_page_chars`],
-//! `DEFAULT_RESPONSE_CHARS` unless configured), at least two, at most the
-//! labels one choice may list. Finer parts would cost the provider's output
+//! text's lines, counted as a read renders them (JSON text and `N\t`
+//! gutter), fill line pages of the automatic response page
+//! ([`RuntimeLimits::auto_page_chars`], `DEFAULT_RESPONSE_CHARS` unless
+//! configured, less the row around its lines:
+//! [`crate::response::page_windows::page_budget`]), at least two, at most
+//! the labels one choice may list. Finer parts would cost the provider's output
 //! a probability per label and still leave the agent one read.
 //!
 //! No request is added for it: a companion rides only in a grouped request
@@ -132,51 +134,54 @@ fn label(index: usize) -> String {
     format!("p{}", index + 1)
 }
 
-/// The characters a read shows of line `number` (1-based) holding `line`:
-/// the line and its `N\t` gutter.
-fn shown(number: usize, line: &str) -> usize {
-    line.chars().count() + number.to_string().len() + 1
+/// The response characters a line read takes as it renders: its JSON text
+/// and its gutter, as the reader counts a page
+/// ([`crate::tools::source_view::pagination::LineBudget`]).
+fn rendered(line: &str, gutter: usize) -> usize {
+    octocode_engine::json_size::string_body_units(line) + gutter
 }
 
-/// The spans of whole lines `text` is cut into: about one page of
-/// `page_chars` shown characters each, at least two and at most the labels
-/// one choice may list, balanced by shown characters. `None` when the text
-/// cannot be cut in two.
-fn spans(lines: &[&str], page_chars: usize) -> Option<Vec<(usize, usize)>> {
-    let widths: Vec<usize> = lines
-        .iter()
-        .enumerate()
-        .map(|(index, line)| shown(index + 1, line))
-        .collect();
+/// The spans of whole `lines` a text is cut into: about one line page of
+/// `page_chars` rendered characters each, at least two and at most the labels
+/// one choice may list (and the lines there are). A part ends at the first
+/// line that brings the text read so far to its share of the whole, and
+/// holds at least one line.
+fn spans(lines: &[&str], page_chars: usize) -> Vec<(usize, usize)> {
+    let gutter = crate::tools::source_view::pagination::gutter_chars(lines.len());
+    let widths: Vec<usize> = lines.iter().map(|line| rendered(line, gutter)).collect();
     let total: usize = widths.iter().sum();
     let parts = total
         .div_ceil(page_chars.max(1))
         .clamp(2, LABELS - 1)
         .min(lines.len());
-    let share = total.div_ceil(parts);
     let mut spans = Vec::with_capacity(parts);
-    let (mut start, mut filled, mut next) = (1, 0, share);
-    for (index, width) in widths.iter().enumerate() {
-        filled += width;
-        let number = index + 1;
-        if filled >= next && number < lines.len() && spans.len() + 1 < parts {
-            spans.push((start, number));
-            start = number + 1;
-            next = (filled / share + 1) * share;
+    let (mut end, mut filled) = (0, 0);
+    for part in 1..parts {
+        let start = end + 1;
+        let due = (total * part).div_ceil(parts);
+        // Every later part keeps at least one line.
+        let last = lines.len() - (parts - part);
+        loop {
+            end += 1;
+            filled += widths[end - 1];
+            if filled >= due || end >= last {
+                break;
+            }
         }
+        spans.push((start, end));
     }
-    spans.push((start, lines.len()));
-    (spans.len() >= 2).then_some(spans)
+    spans.push((end + 1, lines.len()));
+    spans
 }
 
 /// `text` with a marker line (`[p1]`, `[p2]`, …) before each part
-/// ([`spans`]), and each part's lines; `None` when it cannot be cut in two.
+/// ([`spans`]), and each part's lines; `None` for a text of one line.
 fn mark(text: &str, page_chars: usize) -> Option<(String, Vec<(usize, usize)>)> {
     let lines: Vec<&str> = text.split_inclusive('\n').collect();
     if lines.len() < 2 {
         return None;
     }
-    let parts = spans(&lines, page_chars)?;
+    let parts = spans(&lines, page_chars);
     let mut marked = String::with_capacity(text.len() + parts.len() * 8);
     for (index, &(start, end)) in parts.iter().enumerate() {
         marked.push_str(&format!("[{}]\n", label(index)));

@@ -98,13 +98,16 @@ pub(super) fn annotate_unanswered(
     let files = scope.text_only_files(name).unwrap_or_default();
     // Ignored files are judged as the visible ones are: only a file the server
     // may not have loaded counts, so with the server's root known, one of another
-    // project.
+    // project that may use the anchor. The dependents walk does not enter ignored
+    // directories, so such a file is judged by the build files above it.
     let ignored = scope.ignored_only_files(name).map(|mut found| {
         if let Some(root) = project {
             let outside = other_projects(&found.files, root);
-            found
-                .files
-                .retain(|file| outside.values().any(|own| own.contains(file)));
+            let dependents = scope.known_dependents();
+            found.files.retain(|file| {
+                outside.values().any(|own| own.contains(file))
+                    && dependents.is_none_or(|known| known.may_hold_use(Path::new(file)))
+            });
         }
         found
     });

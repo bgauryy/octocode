@@ -1,6 +1,5 @@
 //! Loading the context: tsconfig paths, workspace manifests, Python roots
 //! and C/C++ include directories.
-use super::workspaces::local_dependencies;
 use super::*;
 
 /// `-I` / `-iquote` directories named by compile_commands.json, rebased to
@@ -123,6 +122,7 @@ impl ResolveContext {
         context.load_outer_workspaces(&reader);
         if !py_dirs.is_empty() {
             context.load_python_roots(root, &py_dirs, PythonModules::of(py_files.into_iter()));
+            context.load_python_path_dependencies(&reader, &py_dirs);
         }
         if has_c {
             context.load_include_dirs(root, paths);
@@ -184,7 +184,7 @@ impl ResolveContext {
             let Some(value) = reader.read_json(&reader.root.join(dir).join("package.json")) else {
                 continue;
             };
-            self.local_packages.extend(local_dependencies(&value));
+            self.load_local_dependencies(reader, &reader.root.join(dir), &value);
             self.load_workspace_members(reader, dir, &value);
             let manifest = Arc::new(Manifest::parse(dir, &value));
             if let Some(name) = value.get("name").and_then(Value::as_str) {
@@ -220,7 +220,7 @@ impl ResolveContext {
                 else {
                     return;
                 };
-                self.local_packages.extend(local_dependencies(&value));
+                self.load_local_dependencies(reader, directory, &value);
                 let offset = octocode_engine::text::slash_path(offset);
                 let manifest = Arc::new(Manifest::parse(".", &value).rebased(&offset));
                 if let Some(name) = value.get("name").and_then(Value::as_str) {

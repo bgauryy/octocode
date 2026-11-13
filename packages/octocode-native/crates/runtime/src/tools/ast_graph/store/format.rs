@@ -98,7 +98,11 @@ pub(crate) const MAGIC: &[u8; 8] = b"OCGRAPH\0";
 /// v20: a file node flags a source a read hides a value of
 /// (`ROLE_HIDDEN_VALUE`); its rows state no byte provenance. An older
 /// snapshot cannot say which, so it is rebuilt.
-pub(crate) const FORMAT_VERSION: u32 = 20;
+/// v21: an import above the snapshot root is its own diagnostic code
+/// (`outside-root`, the specifier as its message), no longer an
+/// `unresolved-internal` message prefix; an older snapshot is rebuilt so the
+/// unresolved-import detector reads the code.
+pub(crate) const FORMAT_VERSION: u32 = 21;
 /// Packed edge byte bit: the edge's evidence is test code.
 const EDGE_TEST: u8 = 0x80;
 const HEADER_LEN: usize = 8 + 4 + 4 + 32;

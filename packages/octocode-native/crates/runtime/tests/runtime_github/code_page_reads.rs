@@ -280,6 +280,44 @@ async fn a_page_reads_only_the_files_it_shows_and_the_walk_reads_each_once() {
     runtime.close().await;
 }
 
+/// Whatever the window, the part a page cuts fits it as published, the
+/// response envelope and the saved page's `responsePagination` included: the
+/// pager never cuts that part again, so the page reads no file it does not
+/// show.
+#[tokio::test]
+async fn every_window_publishes_the_whole_part_its_page_read() {
+    let names = files(50, |n| format!("src/f{n:03}.rs"));
+    for chars in (1_500..=5_000).step_by(167) {
+        let server = MockServer::builder().start().await;
+        mount(&server, &names, &[]).await;
+        let workspace = Workspace::new();
+        let runtime = workspace.runtime(&support::github_api(&server));
+        let query = json!({
+            "queries": [{"owner": "o", "repo": "r", "keywords": ["needle"]}],
+            "responseChars": chars
+        });
+        let output = runtime
+            .run("first".into(), "ghSearchCode".into(), query)
+            .await
+            .unwrap_or_else(|error| panic!("responseChars {chars}: {error:?}"))
+            .structured_content
+            .into_value();
+        let shown = listed(&output);
+        let (_, reads) = requests(&server).await;
+        assert!(
+            output["results"][0].get("rowPart").is_none(),
+            "responseChars {chars}: the pager cut the page's part again: {output}"
+        );
+        assert!(
+            !shown.is_empty() && reads.len() <= shown.len(),
+            "responseChars {chars}: read {} files to show {}: {reads:?}",
+            reads.len(),
+            shown.len()
+        );
+        runtime.close().await;
+    }
+}
+
 /// Unicode paths and a file whose read fails: every hit is listed once, the
 /// failed one says its lines were not resolved and leads to its read.
 #[tokio::test]

@@ -593,14 +593,20 @@ fn place(raw: &str, clean: &str) -> Option<Vec<(Range<usize>, String)>> {
     Some(edits)
 }
 
-/// Merge `more` edits (each a placeholder for its bytes) into the sorted `edits`:
-/// overlapping ones become one edit over both, showing each placeholder.
+/// Merge `more` edits (each a placeholder for its bytes; the structure's, which
+/// a source held whole puts first) into the sorted `edits`: an edit inside
+/// another goes with it, as a whole read hides a span inside another, so the
+/// same bytes show one placeholder, the structure's on a tie; edits that only
+/// overlap become one edit over both, showing each placeholder.
 pub(super) fn merge(edits: Vec<Edit>, more: Vec<Edit>) -> Vec<Edit> {
-    let mut all: Vec<Edit> = edits.into_iter().chain(more).collect();
-    all.sort_by_key(|edit| (edit.range.start, edit.range.end));
+    let mut all: Vec<Edit> = more.into_iter().chain(edits).collect();
+    // Stable: on the same bytes, `more` stays first.
+    all.sort_by_key(|edit| (edit.range.start, std::cmp::Reverse(edit.range.end)));
     let mut out: Vec<Edit> = Vec::with_capacity(all.len());
     for edit in all {
         match out.last_mut() {
+            Some(last) if edit.range.end <= last.range.end && edit.range.start < last.range.end => {
+            }
             Some(last) if edit.range.start < last.range.end => {
                 last.range.end = last.range.end.max(edit.range.end);
                 if !last.text.contains(&*edit.text) {

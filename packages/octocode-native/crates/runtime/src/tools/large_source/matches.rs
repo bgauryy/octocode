@@ -70,6 +70,17 @@ pub(super) fn fetch_matches<S: ContentScan>(
             .and_then(|judged| {
                 let (changed, judged_digest) = judged.unzip();
                 let judged_digest = judged_digest.flatten();
+                let redacted = changed.as_ref().map_or((0, 0), |changed| {
+                    let values = changed
+                        .values()
+                        .map(|shown| {
+                            shown
+                                .matches(octocode_engine::security::REDACTION_PREFIX)
+                                .count()
+                        })
+                        .sum();
+                    (changed.len(), values)
+                });
                 let kept = judged_digest
                     .as_deref()
                     .and_then(|digest| super::kept::of_digest(digest, source.path, source.meta));
@@ -84,7 +95,8 @@ pub(super) fn fetch_matches<S: ContentScan>(
                     resume,
                     source.scan,
                     cancel,
-                )?;
+                )
+                .map(|found| Scan { redacted, ..found })?;
                 // The lines replaced are of the bytes the scan read.
                 match (&judged_digest, &found.digest) {
                     (Some(judged), Some(read)) if judged != read => Err(ExtractionError::new(
@@ -122,6 +134,12 @@ pub(super) fn fetch_matches<S: ContentScan>(
             total_lines: Some(found.total_lines),
             returned_bytes: Some(0),
             returned_lines: Some(0),
+            // As an in-memory read's miss says: the scan ran on what a read
+            // shows, so text behind a placeholder cannot match.
+            hints: (found.count == 0 && found.redacted.0 > 0)
+                .then(|| no_match::redacted_miss(found.redacted.0, found.redacted.1))
+                .into_iter()
+                .collect(),
             ..LocalFetchResult::blank(ReadStatus::Empty)
         }
     } else {

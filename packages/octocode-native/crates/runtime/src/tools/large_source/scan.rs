@@ -89,6 +89,10 @@ pub(super) struct Scan {
     pub(super) proven: Option<super::proven::Proven>,
     /// The digest of the bytes the scan read.
     pub(super) digest: Option<String>,
+    /// The lines the scan matched that differ from the source's, and the
+    /// placeholders they show: text a redaction hid, where no pattern can
+    /// match it.
+    pub(super) redacted: (usize, usize),
     /// The most text the window held at once.
     #[cfg(test)]
     pub(super) peak: usize,

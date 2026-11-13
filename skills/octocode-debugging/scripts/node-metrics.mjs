@@ -7,11 +7,11 @@ import { isMainThread } from "node:worker_threads";
 if (isMainThread) start();
 
 function start() {
-	const directory = process.env.OCTOCODE_PROFILE_DIR;
-	if (!directory) throw new Error("node-metrics: set OCTOCODE_PROFILE_DIR to the capture directory");
-	const interval = Number(process.env.OCTOCODE_PROFILE_INTERVAL_MS ?? 1000);
+	const directory = process.env.NODE_METRICS_DIR;
+	if (!directory) throw new Error("node-metrics: set NODE_METRICS_DIR to the capture directory");
+	const interval = Number(process.env.NODE_METRICS_INTERVAL_MS ?? 1000);
 	if (!Number.isSafeInteger(interval) || interval < 10 || interval > 2147483647) {
-		throw new Error("node-metrics: OCTOCODE_PROFILE_INTERVAL_MS must be an integer from 10 to 2147483647");
+		throw new Error("node-metrics: NODE_METRICS_INTERVAL_MS must be an integer from 10 to 2147483647");
 	}
 	mkdirSync(resolve(directory), { recursive: true });
 	const file = openSync(join(resolve(directory), `${process.pid}-${Date.now()}.metrics.jsonl`), "wx", 0o600);

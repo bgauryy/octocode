@@ -201,6 +201,13 @@ fn overlapping_edits_merge() {
         vec![edit(4..8, "[B]")],
     );
     assert_eq!(merged, vec![edit(2..8, "[A][B]"), edit(10..12, "[C]")]);
+    // An edit inside another, or on the same bytes, goes with it: the
+    // structure's (`more`) stands on a tie, as a whole read shows one.
+    let merged = merge(
+        vec![edit(2..6, "[A]"), edit(12..14, "[C]")],
+        vec![edit(2..6, "[S]"), edit(10..16, "[T]")],
+    );
+    assert_eq!(merged, vec![edit(2..6, "[S]"), edit(10..16, "[T]")]);
 }
 
 /// A sealed length counts each placeholder's own bytes: one longer than its

@@ -18,7 +18,7 @@ For a regression between a known good and bad revision, a repeatable test can dr
 
 Record before, during and after the trigger. If the service already retains rolling telemetry, save the original window. Choose sampling resolution for the suspected burst, and record missed events, delayed samples and cumulative metrics. A one-second average cannot locate a ten-millisecond spike. Quantiles cannot be differenced across windows.
 
-Use boundary events with a monotonic duration, operation ID, input size and phase. Include a reason for a retry or queue transition when relevant. Avoid sensitive payloads and per-item synchronous logging in a hot path. For intermittent failures, preserve the first failing run, the number of attempts and their outcomes. Replaying an external write needs an idempotent or disposable target. When an experiment fails, keep its evidence and remove unsupported experimental edits.
+Add boundary events only for a missing observation. Use a correlation ID to follow handoffs, and timing, input size or phase when they distinguish causes; include a retry reason when relevant. Avoid sensitive payloads and synchronous hot-path logging. Preserve an intermittent failure and enough context to replay it. External writes need an idempotent or disposable target. Remove unsupported experimental edits.
 
 ## Follow a full-stack request
 

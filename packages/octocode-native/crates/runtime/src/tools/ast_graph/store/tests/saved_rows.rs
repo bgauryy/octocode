@@ -230,9 +230,7 @@ fn impact_and_drift_pages_reconstruct_their_rows_exactly_once() {
             tweak(o);
             o.limit = Some(500);
         });
-        let total = whole.value["pagination"]["total"]
-            .as_u64()
-            .unwrap_or(0);
+        let total = whole.value["pagination"]["total"].as_u64().unwrap_or(0);
         assert!(total >= 2, "{op}: {}", whole.value);
         assert_eq!(pages.len() as u64, total, "{op}: one row a page");
         let walked = pages

@@ -63,28 +63,6 @@ Avoid rigid rules such as "always read the first ten files" or "always retrieve 
 6. **Judge sufficiency:** can the next action be justified?
 7. **Continue or stop:** retrieve more only for a material gap.
 
-Heuristic for the next action, a conceptual score rather than a calibrated formula:
-
-```text
-utility = expected reduction in decision uncertainty / (latency + token cost + operational risk)
-```
-
-Sketch of adaptive retrieval; `rerank` and `sufficient` are application policies, and a real version also handles timeouts, authorization, stale hits and incomplete coverage:
-
-```python
-def retrieve_evidence(query, search, fetch):
-    hits = search(query=query, limit=20, fields=["id", "title", "snippet", "score"])
-    evidence, seen = [], set()
-    for hit in rerank(hits, query):
-        if hit["id"] in seen:
-            continue
-        seen.add(hit["id"])
-        if sufficient(evidence, query):
-            break
-        evidence.append(fetch(id=hit["id"], relevant_ranges=True, max_tokens=2500))
-    return evidence
-```
-
 ## Pagination
 
 1. Start with a small, relevant page.
@@ -99,22 +77,7 @@ Producer-side rules are in [tools](tools-and-mcp.md#pagination-contract).
 
 ## Grounding
 
-| Technique | Purpose |
-|---|---|
-| Grounded generation | Tie conclusions to retrieved evidence |
-| Citation / provenance | Identify supporting sources |
-| Claim verification | Check important factual statements |
-| Abstention | Avoid unsupported conclusions |
-| Uncertainty representation | Separate known from unknown |
-| Tool-based verification | Validate against external state |
-| Schema validation | Enforce output shape |
-| Type checking | Detect invalid code or contracts |
-| Execution-based testing | Validate actual behavior |
-| Independent verification | Catch some generation errors |
-| Contradiction checking | Detect inconsistent evidence |
-| Freshness validation | Avoid outdated conclusions |
-| Adversarial testing | Expose brittle assumptions |
-| Faithfulness evaluation | Measure whether statements follow evidence |
+Tie each important claim to an inspected source, test or observation; check freshness and contradictions. Schema/type checks establish structure; execution establishes behavior. Use independent or adversarial checks where the consequence warrants them, and qualify what the evidence cannot decide.
 
 | Label | Meaning |
 |---|---|

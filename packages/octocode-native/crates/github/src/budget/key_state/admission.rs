@@ -33,7 +33,7 @@ impl KeyState {
             };
             let now = now_ms();
             let wait = block.wait(now);
-            if !block.waited_out() || Instant::now() + wait >= deadline {
+            if !block.waited_out() || wait >= deadline.saturating_duration_since(Instant::now()) {
                 return Err(block.error(now));
             }
             client_waits

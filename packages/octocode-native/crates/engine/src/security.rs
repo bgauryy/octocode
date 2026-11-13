@@ -12,9 +12,9 @@ pub mod types;
 #[cfg(feature = "test-hooks")]
 pub use detector::set_walk_budget;
 pub use detector::{
-    EveryValueScan, LONG_LINE_BYTES, LONGEST_BOUNDED_MATCH, LongLine, MAX_CONTENT_SIZE, Named, Objects, SecretForm,
-    SecretSpan, SecretSpans, SourceNames, SourceWalk, WholeSourcePatterns, every_value_spans,
-    hide_jwk_members,
+    BlockValues, EveryValueScan, LONG_LINE_BYTES, LONGEST_BOUNDED_MATCH, LongLine,
+    MAX_CONTENT_SIZE, Named, Objects, SecretForm, SecretSpan, SecretSpans, SourceNames, SourceWalk,
+    WholeSourcePatterns, every_value_spans,
 };
 pub use edits::Edits;
 
@@ -35,6 +35,12 @@ pub const REDACTION_PREFIX: &str = "[REDACTED";
 /// The placeholder that stands in for a secret of kind `name`.
 pub fn redaction_placeholder(name: &str) -> String {
     format!("{REDACTION_PREFIX}-{}]", name.to_ascii_uppercase())
+}
+
+/// The placeholder of every detector pattern: what the detector writes in
+/// place of a value it hides.
+pub fn pattern_placeholders() -> &'static [String] {
+    &detector::REPLACEMENTS
 }
 
 /// Prefix of placeholders replacing a whole content view.

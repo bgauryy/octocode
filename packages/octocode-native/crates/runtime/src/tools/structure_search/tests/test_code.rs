@@ -39,7 +39,11 @@ fn names(out: &Value) -> Vec<String> {
 #[test]
 fn exclude_lists_production_entries_and_counts_the_test_ones() {
     let root = mixed();
-    let all = run(&root.0, json!({"operation":"files","view":"details","path":"."})).expect("listing");
+    let all = run(
+        &root.0,
+        json!({"operation":"files","view":"details","path":"."}),
+    )
+    .expect("listing");
     assert!(all.get("testCodeExcluded").is_none(), "{all}");
     let out = run(
         &root.0,

@@ -7,8 +7,9 @@ use std::path::{Path, PathBuf};
 pub(super) enum Identity {
     /// A Go module path (`module` in `go.mod`).
     Go(String),
-    /// A Cargo package name.
-    Cargo(String),
+    /// A Cargo package: its name and its directory (canonical), the source
+    /// a dependency must resolve to.
+    Cargo { name: String, package: PathBuf },
     /// Maven coordinates; `version` when the pom states one.
     Maven {
         group: String,
@@ -38,9 +39,13 @@ impl Identity {
                     .map(|path| Self::Go(path.trim().trim_matches('"').to_owned()))?
             }
             "rs" => {
-                let table = octocode_engine::lsp::workspace::cargo_manifest(file.parent()?)?;
+                let package = file.parent()?;
+                let table = octocode_engine::lsp::workspace::cargo_manifest(package)?;
                 let name = table.get("package")?.get("name")?.as_str()?;
-                Self::Cargo(name.to_owned())
+                Self::Cargo {
+                    name: name.to_owned(),
+                    package: std::fs::canonicalize(package).ok()?,
+                }
             }
             _ => {
                 let pom = octocode_engine::lsp::config_file::read_utf8(&file).ok()?;
@@ -60,7 +65,7 @@ impl Identity {
     pub(super) fn build_files(&self) -> &'static [&'static str] {
         match self {
             Self::Go(_) => &["go.mod"],
-            Self::Cargo(_) => &["Cargo.toml"],
+            Self::Cargo { .. } => &["Cargo.toml"],
             Self::Maven { .. } => &["pom.xml", "build.gradle", "build.gradle.kts"],
         }
     }
@@ -72,10 +77,12 @@ pub(super) fn depends_on(path: &Path, identity: &Identity) -> bool {
     match identity {
         Identity::Go(module) => octocode_engine::lsp::config_file::read_utf8(path)
             .map_or(true, |text| go_requires(&text, module)),
-        Identity::Cargo(name) => path
-            .parent()
-            .and_then(octocode_engine::lsp::workspace::cargo_manifest)
-            .is_none_or(|table| cargo_requires(&table, name)),
+        // The one Cargo dependency rule of reach: by local path only to the
+        // anchor's package, directly or through local packages.
+        Identity::Cargo { name, package } => path.parent().is_none_or(|dir| {
+            octocode_engine::lsp::workspace::cargo_manifest(dir).is_none()
+                || super::super::reach::depends_on(dir, name, package)
+        }),
         Identity::Maven {
             group,
             artifact,
@@ -120,43 +127,6 @@ fn go_requires(text: &str, module: &str) -> bool {
             _ => false,
         }
     })
-}
-
-/// A dependency table of the manifest (any of Cargo's, target-specific and the
-/// workspace's included) naming the package `name`, by key or `package`.
-fn cargo_requires(table: &toml::Table, name: &str) -> bool {
-    let same = |other: &str| other.replace('-', "_") == name.replace('-', "_");
-    let names = |deps: &toml::Value| {
-        deps.as_table().is_some_and(|deps| {
-            deps.iter().any(|(key, value)| {
-                same(
-                    value
-                        .get("package")
-                        .and_then(toml::Value::as_str)
-                        .unwrap_or(key),
-                )
-            })
-        })
-    };
-    let lists = |table: &toml::Table| {
-        ["dependencies", "dev-dependencies", "build-dependencies"]
-            .iter()
-            .any(|kind| table.get(*kind).is_some_and(names))
-    };
-    lists(table)
-        || table
-            .get("target")
-            .and_then(toml::Value::as_table)
-            .is_some_and(|targets| {
-                targets
-                    .values()
-                    .filter_map(toml::Value::as_table)
-                    .any(lists)
-            })
-        || table
-            .get("workspace")
-            .and_then(toml::Value::as_table)
-            .is_some_and(lists)
 }
 
 /// A `<dependency>` of `group:artifact` at the anchor's `version`. A version the

@@ -61,7 +61,13 @@ impl SavedAnswer {
     pub fn reuse(&self, pinned: bool, window: Option<Duration>, now_ms: u64) -> Reuse {
         let headers = &self.answer.headers;
         let age = Duration::from_millis(now_ms.saturating_sub(self.observed_ms));
-        if !self.redirected {
+        if has_directive(headers, "no-store") {
+            return Reuse::Spent;
+        }
+        let must_validate = has_directive(headers, "no-cache")
+            || (has_directive(headers, "must-revalidate")
+                && stated_lifetime(headers).is_none_or(|lifetime| age >= lifetime));
+        if !self.redirected && !must_validate {
             if pinned {
                 return Reuse::Pinned;
             }
@@ -72,7 +78,11 @@ impl SavedAnswer {
         if let Some((name, value)) = validator(headers) {
             return Reuse::Ask(name, value);
         }
-        if !self.redirected && window.is_some_and(|window| age < window) {
+        if !self.redirected
+            && !must_validate
+            && !has_directive(headers, "max-age")
+            && window.is_some_and(|window| age < window)
+        {
             return Reuse::Window;
         }
         Reuse::Spent
@@ -84,20 +94,34 @@ impl SavedAnswer {
         validator(&self.answer.headers)
     }
 
+    /// A refused validation cannot override an origin's revalidation requirement.
+    pub(super) fn allows_stale(&self) -> bool {
+        !["no-store", "no-cache", "must-revalidate"]
+            .iter()
+            .any(|name| has_directive(&self.answer.headers, name))
+    }
+
     /// The origin confirmed this answer at `now_ms` with `headers` (a 304):
     /// they replace what freshness reads (RFC 9111 section 3.2); the rest of
     /// the answer stays whole.
     pub fn confirm(&mut self, headers: &[(String, String)], now_ms: u64) {
         self.observed_ms = now_ms;
         for name in ["cache-control", "age", "etag", "last-modified"] {
-            let Some(value) = header(headers, name) else {
+            if !headers
+                .iter()
+                .any(|(key, _)| key.eq_ignore_ascii_case(name))
+            {
                 continue;
-            };
-            let value = value.to_owned();
+            }
             self.answer
                 .headers
                 .retain(|(saved_name, _)| !saved_name.eq_ignore_ascii_case(name));
-            self.answer.headers.push((name.to_owned(), value));
+            self.answer.headers.extend(
+                headers
+                    .iter()
+                    .filter(|(key, _)| key.eq_ignore_ascii_case(name))
+                    .cloned(),
+            );
         }
     }
 }
@@ -106,6 +130,7 @@ impl SavedAnswer {
 /// later vouch for it, and the origin did not forbid keeping it.
 pub fn worth_keeping(headers: &[(String, String)], pinned: bool, window: Option<Duration>) -> bool {
     !has_directive(headers, "no-store")
+        && (!has_directive(headers, "no-cache") || validator(headers).is_some())
         && (pinned
             || window.is_some()
             || validator(headers).is_some()
@@ -120,14 +145,20 @@ fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
 }
 
 fn directives(headers: &[(String, String)]) -> impl Iterator<Item = &str> {
-    header(headers, "cache-control")
-        .into_iter()
-        .flat_map(|value| value.split(','))
-        .map(str::trim)
+    headers
+        .iter()
+        .filter(|(name, _)| name.eq_ignore_ascii_case("cache-control"))
+        .flat_map(|(_, value)| super::headers::list(value, ','))
 }
 
-fn has_directive(headers: &[(String, String)], name: &str) -> bool {
-    directives(headers).any(|directive| directive.eq_ignore_ascii_case(name))
+pub(super) fn has_directive(headers: &[(String, String)], name: &str) -> bool {
+    directives(headers).any(|directive| {
+        directive
+            .split_once('=')
+            .map_or(directive, |(key, _)| key)
+            .trim()
+            .eq_ignore_ascii_case(name)
+    })
 }
 
 /// The `max-age` an answer states, in seconds, when it allows reuse at all.
@@ -135,11 +166,18 @@ pub(super) fn stated_max_age(headers: &[(String, String)]) -> Option<u64> {
     if has_directive(headers, "no-cache") || has_directive(headers, "no-store") {
         return None;
     }
-    directives(headers).find_map(|directive| {
+    let mut lifetimes = directives(headers).filter_map(|directive| {
         let (name, value) = directive.split_once('=')?;
         name.trim()
             .eq_ignore_ascii_case("max-age")
-            .then(|| value.trim().parse::<u64>().ok())?
+            .then(|| value.trim().trim_matches('"').parse::<u64>().unwrap_or(0))
+    });
+    let lifetime = lifetimes.next()?;
+    // Conflicting freshness values are stale (RFC 9111 section 4.2.1).
+    Some(if lifetimes.any(|other| other != lifetime) {
+        0
+    } else {
+        lifetime
     })
 }
 
@@ -163,139 +201,4 @@ fn validator(headers: &[(String, String)]) -> Option<(HeaderName, String)> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn saved(headers: &[(&str, &str)]) -> SavedAnswer {
-        SavedAnswer {
-            answer: ProviderAnswer {
-                request: "GET x".into(),
-                status: 200,
-                headers: headers
-                    .iter()
-                    .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
-                    .collect(),
-                body: "{}".into(),
-                next: None,
-                not_found: None,
-            },
-            observed_ms: 1_000_000,
-            redirected: false,
-        }
-    }
-
-    /// The table: what each kind of answer does at an age. Ages are relative
-    /// to each answer's own stated lifetime, never a copied constant.
-    #[test]
-    fn the_origin_decides_how_an_answer_may_be_reused() {
-        let observed = 1_000_000;
-        let ask = |etag: &str| Reuse::Ask(IF_NONE_MATCH, etag.to_owned());
-        let private = [("Cache-Control", "private, max-age=60"), ("ETag", "\"e\"")];
-        assert_eq!(
-            saved(&private).reuse(false, None, observed + 59_000),
-            Reuse::Fresh
-        );
-        assert_eq!(
-            saved(&private).reuse(false, None, observed + 60_000),
-            ask("\"e\"")
-        );
-        let no_cache = [("Cache-Control", "no-cache"), ("ETag", "\"e\"")];
-        assert_eq!(saved(&no_cache).reuse(false, None, observed), ask("\"e\""));
-        let aged = [("cache-control", "public, max-age=300"), ("age", "290")];
-        assert_eq!(
-            saved(&aged).reuse(false, None, observed + 9_000),
-            Reuse::Fresh
-        );
-        assert_eq!(
-            saved(&aged).reuse(false, None, observed + 10_000),
-            Reuse::Spent
-        );
-        let dated = [("last-modified", "Mon, 02 Nov 2026 00:00:00 GMT")];
-        assert_eq!(
-            saved(&dated).reuse(false, None, observed),
-            Reuse::Ask(IF_MODIFIED_SINCE, dated[0].1.to_owned())
-        );
-        let window = Duration::from_secs(30);
-        let bare = [("cache-control", "no-cache")];
-        assert_eq!(
-            saved(&bare).reuse(false, Some(window), observed + 29_000),
-            Reuse::Window
-        );
-        assert_eq!(
-            saved(&bare).reuse(false, Some(window), observed + 30_000),
-            Reuse::Spent
-        );
-        assert_eq!(saved(&bare).reuse(false, None, observed), Reuse::Spent);
-        // A validator always wins over the window: it can tell the truth.
-        let validated = [("etag", "\"e\"")];
-        assert_eq!(
-            saved(&validated).reuse(false, Some(window), observed),
-            ask("\"e\"")
-        );
-        // Pinned needs nothing, however old.
-        assert_eq!(
-            saved(&[]).reuse(true, None, u64::MAX),
-            Reuse::Pinned,
-            "a pinned answer never ages"
-        );
-    }
-
-    /// A redirected answer always asks, so the redirect itself is seen again.
-    #[test]
-    fn a_redirected_answer_is_never_reused_without_asking() {
-        let mut answer = saved(&[("cache-control", "max-age=60"), ("etag", "\"e\"")]);
-        answer.redirected = true;
-        let ask = Reuse::Ask(IF_NONE_MATCH, "\"e\"".into());
-        assert_eq!(answer.reuse(true, None, answer.observed_ms), ask);
-        assert_eq!(answer.reuse(false, None, answer.observed_ms), ask);
-        let mut bare = saved(&[]);
-        bare.redirected = true;
-        assert_eq!(
-            bare.reuse(true, Some(Duration::from_secs(1)), bare.observed_ms),
-            Reuse::Spent
-        );
-    }
-
-    #[test]
-    fn only_an_answer_something_can_vouch_for_is_kept() {
-        let headers = |pairs: &[(&str, &str)]| {
-            pairs
-                .iter()
-                .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
-                .collect::<Vec<_>>()
-        };
-        let window = Some(Duration::from_secs(1));
-        assert!(!worth_keeping(&headers(&[]), false, None));
-        assert!(worth_keeping(&headers(&[]), true, None));
-        assert!(worth_keeping(&headers(&[]), false, window));
-        assert!(worth_keeping(&headers(&[("etag", "\"e\"")]), false, None));
-        assert!(worth_keeping(
-            &headers(&[("cache-control", "max-age=1")]),
-            false,
-            None
-        ));
-        assert!(!worth_keeping(
-            &headers(&[("cache-control", "no-store"), ("etag", "\"e\"")]),
-            true,
-            window
-        ));
-    }
-
-    #[test]
-    fn a_confirmation_restarts_the_answer_and_keeps_its_body() {
-        let mut answer = saved(&[("etag", "\"old\""), ("x-kept", "1")]);
-        let confirmed = [
-            ("ETag".to_owned(), "\"new\"".to_owned()),
-            ("Cache-Control".to_owned(), "max-age=9".to_owned()),
-            ("x-ratelimit-remaining".to_owned(), "1".to_owned()),
-        ];
-        answer.confirm(&confirmed, 5);
-        assert_eq!(answer.observed_ms, 5);
-        assert_eq!(answer.answer.body, "{}");
-        let value = |name: &str| header(&answer.answer.headers, name).map(str::to_owned);
-        assert_eq!(value("etag").as_deref(), Some("\"new\""));
-        assert_eq!(value("cache-control").as_deref(), Some("max-age=9"));
-        assert_eq!(value("x-kept").as_deref(), Some("1"));
-        assert_eq!(value("x-ratelimit-remaining"), None);
-    }
-}
+mod tests;

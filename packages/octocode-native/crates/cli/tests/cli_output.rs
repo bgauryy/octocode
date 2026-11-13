@@ -327,4 +327,3 @@ fn json_argument_errors_keep_the_whole_clap_message() {
 
 #[cfg(unix)]
 mod terminal;
-

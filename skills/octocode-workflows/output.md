@@ -16,8 +16,6 @@ For completion: result and confidence first; then verified scope, decisive evide
 
 ## Presentation choices
 
-Selection or completion → decisive evidence → limits and next action. The domain owner’s artifact format wins.
-
 | Format | Use when / why |
 |---|---|
 | `flowchart` / `agentflow-beta` | Explain branches, recovery and agent/tool steps. |

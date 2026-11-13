@@ -35,7 +35,7 @@ pub(in crate::tools::gh_structure) async fn walk_contents(
         for ((path, sha), listing) in level.iter().zip(listings) {
             let mut listing = match listing {
                 Ok(listing) => listing,
-                Err(error) if !required && !access_failure(&error) => {
+                Err(error) if !required && !terminal_failure(&error) => {
                     traversal.failed_subtrees += 1;
                     continue;
                 }
@@ -129,7 +129,7 @@ async fn whole_directory(
                 .await
             {
                 Ok(siblings) => siblings,
-                Err(error) if access_failure(&error) => return Err(error),
+                Err(error) if terminal_failure(&error) => return Err(error),
                 Err(_) => return Ok(None),
             };
             match siblings
@@ -158,7 +158,7 @@ async fn whole_directory(
     {
         Ok(tree) if !tree.truncated => tree,
         Ok(_) => return Ok(None),
-        Err(error) if access_failure(&error) => return Err(error),
+        Err(error) if terminal_failure(&error) => return Err(error),
         Err(_) => return Ok(None),
     };
     Ok(Some(

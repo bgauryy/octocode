@@ -99,7 +99,9 @@ pub(super) fn evaluate_row(
                 target,
                 &state,
                 &row.questions,
-                dispatcher.limits().auto_page_chars,
+                crate::response::page_windows::page_budget(Some(
+                    dispatcher.limits().auto_page_chars,
+                )),
             )
         })
         .flatten();

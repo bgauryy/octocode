@@ -1,43 +1,38 @@
 //! Push-diagnostics cache for a JSON-RPC LSP connection.
 //!
-//! Records `textDocument/publishDiagnostics` notifications the server pushes
-//! unprompted, bounds their retained document/entry/byte counts, and lets
-//! callers wait for a report at (or above) a requested document version.
+//! Records complete `textDocument/publishDiagnostics` notifications the server
+//! pushes unprompted against the process's shared memory budget, and lets callers
+//! wait for a report at (or above) a requested document version. The transport
+//! admits each whole notification before this store sees it; pagination belongs
+//! to the caller, so this store must never discard a report's suffix.
 
+use octocode_io::memo::{Memo, MemoryBudget};
 use serde_json::{Value, json};
-use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tokio::sync::Notify;
 use tokio::time::{Duration, Instant, timeout};
 
-/// Documents retained at once; the least recently published is evicted first.
-const MAX_PUSH_DIAGNOSTIC_DOCUMENTS: usize = 256;
-const MAX_PUSH_DIAGNOSTICS_PER_DOCUMENT: usize = 2_000;
-const MAX_PUSH_DIAGNOSTIC_BYTES_PER_DOCUMENT: usize = 256 * 1024;
-
 struct PushDiagnosticsRecord {
     params: Value,
-    truncated: bool,
     /// The document changed on the server after this report. A server that
     /// publishes only when its diagnostics change (typescript-language-server)
     /// never replaces it, so after a wait for a fresh report it still
     /// stands, flagged.
-    superseded: bool,
+    superseded: AtomicBool,
 }
 
-#[derive(Default)]
-struct PushDiagnosticsState {
-    records: HashMap<String, PushDiagnosticsRecord>,
-    order: VecDeque<String>,
-}
-
-#[derive(Default)]
 pub(super) struct PushDiagnosticsStore {
-    state: Mutex<PushDiagnosticsState>,
+    records: Memo<String, PushDiagnosticsRecord>,
     changed: Notify,
     /// Reports received, for any document, however many are kept.
     published: AtomicU64,
+}
+
+impl Default for PushDiagnosticsStore {
+    fn default() -> Self {
+        Self::with_budget(&crate::memory::MEMORY)
+    }
 }
 
 impl PushDiagnosticsStore {
@@ -45,61 +40,39 @@ impl PushDiagnosticsStore {
         Arc::new(Self::default())
     }
 
+    fn with_budget(budget: &'static MemoryBudget) -> Self {
+        Self {
+            records: Memo::new(budget),
+            changed: Notify::new(),
+            published: AtomicU64::new(0),
+        }
+    }
+
     /// How many reports the server has published, for any document.
     pub(super) fn published(&self) -> u64 {
         self.published.load(Ordering::Relaxed)
     }
 
-    pub(super) fn record(&self, mut params: Value) {
+    pub(super) fn record(&self, params: Value) {
         self.published.fetch_add(1, Ordering::Relaxed);
         let Some(uri) = params.get("uri").and_then(Value::as_str).map(str::to_owned) else {
             return;
         };
-        let mut truncated = false;
-        if let Some(items) = params.get_mut("diagnostics").and_then(Value::as_array_mut) {
-            if items.len() > MAX_PUSH_DIAGNOSTICS_PER_DOCUMENT {
-                items.truncate(MAX_PUSH_DIAGNOSTICS_PER_DOCUMENT);
-                truncated = true;
-            }
-            let mut retained_bytes = 2usize; // JSON array brackets
-            let mut retained_len = items.len();
-            for (index, item) in items.iter().enumerate() {
-                let item_bytes = crate::json_size::bytes(item)
-                    .unwrap_or(MAX_PUSH_DIAGNOSTIC_BYTES_PER_DOCUMENT + 1);
-                let next_bytes = retained_bytes
-                    .saturating_add(usize::from(index > 0))
-                    .saturating_add(item_bytes);
-                if next_bytes > MAX_PUSH_DIAGNOSTIC_BYTES_PER_DOCUMENT {
-                    retained_len = index;
-                    truncated = true;
-                    break;
-                }
-                retained_bytes = next_bytes;
-            }
-            items.truncate(retained_len);
-        }
-        // A poisoned lock keeps its last state: the cache is rebuilt by the next report.
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        state.order.retain(|existing| *existing != uri);
-        if !state.records.contains_key(&uri)
-            && state.records.len() >= MAX_PUSH_DIAGNOSTIC_DOCUMENTS
-            && let Some(oldest) = state.order.pop_front()
-        {
-            state.records.remove(&oldest);
-        }
-        state.order.push_back(uri.clone());
-        state.records.insert(
+        let weight = std::mem::size_of::<PushDiagnosticsRecord>()
+            .saturating_add(std::mem::size_of::<String>())
+            .saturating_add(uri.len())
+            .saturating_add(crate::json_size::heap_bytes(&params));
+        // Admission and whole-entry eviction belong to the process budget.
+        // An unretained report is unavailable, never an empty clean report.
+        self.records.insert(
             uri,
             PushDiagnosticsRecord {
                 params,
-                truncated,
-                superseded: false,
+                superseded: AtomicBool::new(false),
             },
+            weight,
+            None,
         );
-        drop(state);
         self.changed.notify_waiters();
     }
 
@@ -107,12 +80,8 @@ impl PushDiagnosticsStore {
     /// kept but marked, so a reader prefers a fresh publish and falls back
     /// to it only once none arrived in time.
     pub(super) fn supersede(&self, uri: &str) {
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(record) = state.records.get_mut(uri) {
-            record.superseded = true;
+        if let Some(record) = self.records.get(uri) {
+            record.value.superseded.store(true, Ordering::Relaxed);
         }
     }
 
@@ -120,24 +89,13 @@ impl PushDiagnosticsStore {
     /// may now be out of date, as a new module can resolve another file's
     /// import.
     pub(super) fn supersede_all(&self) {
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        for record in state.records.values_mut() {
-            record.superseded = true;
+        for uri in self.records.contents().0 {
+            self.supersede(&uri);
         }
     }
 
     pub(super) fn clear(&self, uri: &str) {
-        {
-            let mut state = self
-                .state
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            state.records.remove(uri);
-            state.order.retain(|existing| existing != uri);
-        }
+        self.records.remove(uri);
     }
 
     /// The report for `uri`: a fresh one (published since the last sync, at
@@ -149,16 +107,15 @@ impl PushDiagnosticsStore {
         min_version: Option<i64>,
         allow_superseded: bool,
     ) -> Option<Value> {
-        let state = self
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let record = state.records.get(uri)?;
-        if record.superseded && !allow_superseded {
+        // Memo releases its lock after cloning only the Arc: materializing a
+        // large report never holds up other document publications or reads.
+        let record = self.records.get(uri)?.value;
+        let superseded = record.superseded.load(Ordering::Relaxed);
+        if superseded && !allow_superseded {
             return None;
         }
         if let Some(min_version) = min_version
-            && !record.superseded
+            && !superseded
         {
             // A record tagged with an older version belongs to a superseded
             // sync and must not be returned as fresh. A record WITHOUT a
@@ -176,8 +133,7 @@ impl PushDiagnosticsStore {
             "items": record.params.get("diagnostics").cloned().unwrap_or_else(|| json!([])),
             "version": record.params.get("version").cloned().unwrap_or(Value::Null),
             "source": "push",
-            "truncated": record.truncated,
-            "superseded": record.superseded,
+            "superseded": superseded,
         }))
     }
 
@@ -262,48 +218,96 @@ mod tests {
     }
 
     #[test]
-    fn push_diagnostics_bounds_retained_bytes() {
+    fn push_diagnostics_preserves_the_complete_published_report() {
         let store = PushDiagnosticsStore::new();
+        let diagnostics = (0..4097)
+            .map(|index| json!({ "message": format!("diagnostic {index}: λ😀") }))
+            .collect::<Vec<_>>();
         store.record(json!({
             "uri": "file:///workspace/a.ts",
             "version": 3,
-            "diagnostics": [{
-                "message": "x".repeat(MAX_PUSH_DIAGNOSTIC_BYTES_PER_DOCUMENT + 1)
-            }]
+            "diagnostics": diagnostics,
         }));
 
         let report = store
             .report("file:///workspace/a.ts", Some(3), false)
-            .expect("bounded report");
-        assert_eq!(report["truncated"], true);
-        assert_eq!(report["items"].as_array().map(Vec::len), Some(0));
+            .expect("published report");
+        assert_eq!(report["items"], json!(diagnostics));
     }
 
     #[test]
-    fn push_diagnostics_bounds_documents_and_entries() {
+    fn push_diagnostics_preserves_a_large_indivisible_diagnostic() {
         let store = PushDiagnosticsStore::new();
-        for index in 0..=MAX_PUSH_DIAGNOSTIC_DOCUMENTS {
+        let diagnostic = json!({
+            "message": "λ😀".repeat(128 * 1024),
+            "data": { "source": "complete provider evidence" },
+        });
+        store.record(json!({
+            "uri": "file:///workspace/a.ts",
+            "diagnostics": [diagnostic],
+        }));
+
+        let report = store
+            .report("file:///workspace/a.ts", None, false)
+            .expect("published report");
+        assert_eq!(report["items"], json!([diagnostic]));
+    }
+
+    #[test]
+    fn push_diagnostics_evicts_whole_reports_under_the_shared_memory_budget() {
+        static BUDGET: MemoryBudget = MemoryBudget::new(|| 16 * 1024);
+        let store = PushDiagnosticsStore::with_budget(&BUDGET);
+        let competing = Memo::<String, Vec<u8>>::new(&BUDGET);
+        let diagnostics = json!([{ "message": "λ東京".repeat(256) }]);
+        for index in 0..32 {
             store.record(json!({
                 "uri": format!("file:///w/{index}.ts"),
-                "diagnostics": vec![json!({"message": "m"}); MAX_PUSH_DIAGNOSTICS_PER_DOCUMENT + 1]
+                "diagnostics": diagnostics
             }));
+            assert!(BUDGET.used() <= BUDGET.limit());
         }
-        assert!(
-            store.report("file:///w/0.ts", None, false).is_none(),
-            "oldest evicted"
-        );
-        let newest = store
-            .report(
-                &format!("file:///w/{MAX_PUSH_DIAGNOSTIC_DOCUMENTS}.ts"),
-                None,
-                false,
-            )
-            .expect("newest kept");
-        assert_eq!(newest["truncated"], true);
+        assert!(store.report("file:///w/0.ts", None, false).is_none());
         assert_eq!(
-            newest["items"].as_array().map(Vec::len),
-            Some(MAX_PUSH_DIAGNOSTICS_PER_DOCUMENT)
+            store
+                .report("file:///w/31.ts", None, false)
+                .expect("newest retained")["items"],
+            diagnostics
         );
+        // Other engine stores compete against the same owner; no diagnostic
+        // store can keep a second, unaccounted copy outside its budget.
+        competing.insert(
+            "other tool".into(),
+            vec![0; BUDGET.limit()],
+            BUDGET.limit(),
+            None,
+        );
+        assert!(store.report("file:///w/31.ts", None, false).is_none());
+        assert!(BUDGET.used() <= BUDGET.limit());
+        drop((store, competing));
+        assert_eq!(BUDGET.used(), 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_unretainable_report_is_unavailable_instead_of_clean_or_stale() {
+        static BUDGET: MemoryBudget = MemoryBudget::new(|| 4 * 1024);
+        let store = PushDiagnosticsStore::with_budget(&BUDGET);
+        let uri = "file:///w/oversized.ts";
+        store.record(json!({ "uri": uri, "diagnostics": [] }));
+        assert!(store.report(uri, None, false).is_some());
+        store.record(json!({
+            "uri": uri,
+            "diagnostics": [{ "message": "λ東京".repeat(BUDGET.limit()) }]
+        }));
+        assert!(
+            store.report(uri, None, false).is_none(),
+            "old clean report was replaced"
+        );
+        assert!(
+            store.wait_for(uri, 0, None).await.is_none(),
+            "no invented empty report"
+        );
+        assert_eq!(store.published(), 2);
+        assert_eq!(BUDGET.used(), 0);
     }
 
     #[tokio::test(start_paused = true)]

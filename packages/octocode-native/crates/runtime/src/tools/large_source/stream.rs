@@ -29,6 +29,7 @@ pub(super) fn streamed(
             key_lines: held.key_lines,
             origin: ByteOrigin {
                 base: held.start.map_or(0, |start| start.base),
+                lead: held.start.map_or(0, |start| start.lead),
                 total: held.view_pos,
                 redacted: held.redacted.into(),
             },

@@ -4,4 +4,4 @@ Preserved article draft and illustrations for the GitHub research benchmark. Thi
 
 - [Article draft](content.md)
 - [Illustrations](assets/)
-- Benchmark results: local only, in `packages/octocode-benchmark/results/` (gitignored).
+- Benchmark results: the [package README](../../../README.md#results).

@@ -272,7 +272,10 @@ fn fallback_subtypes_page_the_anchor_candidates_by_window() {
     let mut offset = 0;
     for (page_index, row) in first_window.iter().enumerate() {
         assert_eq!(row["pagination"]["total"], cap, "{row}");
-        assert_eq!(row["pagination"]["offset"], offset, "pages follow each other: {row}");
+        assert_eq!(
+            row["pagination"]["offset"], offset,
+            "pages follow each other: {row}"
+        );
         offset += row["pagination"]["length"].as_u64().expect("length");
         assert_eq!(row["isPartial"], true, "{row}");
         assert!(row.get("terminalLimit").is_none(), "{row}");
@@ -300,7 +303,10 @@ fn fallback_subtypes_page_the_anchor_candidates_by_window() {
             assert_eq!(matched["line"], reached + 2, "{row}");
             assert_eq!(matched["level"], 1, "{row}");
             assert!(
-                identities.insert((matched["path"].clone(), format!("{}:{}", matched["line"], matched["column"]))),
+                identities.insert((
+                    matched["path"].clone(),
+                    format!("{}:{}", matched["line"], matched["column"])
+                )),
                 "no repeated declaration: {matched}"
             );
             reached += 1;

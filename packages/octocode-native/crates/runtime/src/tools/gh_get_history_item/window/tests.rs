@@ -7,6 +7,8 @@ use serde_json::json;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+mod waves;
+
 #[test]
 fn commit_file_limit_uses_raw_extent_and_preserves_existing_caps() {
     for (skipped, count, exhausted, capped, expected) in [

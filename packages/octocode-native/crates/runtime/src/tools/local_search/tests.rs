@@ -219,6 +219,7 @@ mod changed;
 mod empty_pages;
 mod large_sources;
 mod limit;
+mod long_line_rows;
 mod long_text_every_value;
 mod match_list;
 mod pages;

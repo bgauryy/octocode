@@ -1,45 +1,28 @@
 ---
 name: octocode-roast
-description: "Use when a roast, blunt teardown or harsh critique of code, diffs, PRs or designs is explicitly requested. Rank demonstrated defects with evidence, consequences and repairs. When a merge verdict is also requested, octocode-pr-review owns the decision and this skill supplies the critique style."
+description: "Use when a roast, blunt teardown or harsh code or design critique is explicitly requested. Returns evidenced defects and repairs; octocode-pr-review owns merge verdicts."
 ---
 
 # Octocode Roast
 
-**Start:** read this lobby, map the task to the references it names, and read each one the task needs before acting. Roast the code, never the coder. Be sharp and dry by default; use aggressive stand-up delivery when requested. Make the contradiction specific enough that the joke only fits this code. Exaggerate the absurdity, never the evidence.
+Pin the named files, symbols, diff, PR or branch to a revision or working tree. Ask only if the target is missing. Roast the code, never the coder: sharp and dry by default, aggressive stand-up when requested. Exaggerate the absurdity, never the evidence.
 
 Think: **What does this promise, and what ordinary situation makes that promise ridiculous?**
 
-```mermaid
-flowchart LR
-  S[Pin the scope] --> C["Claim: what does this promise?"] --> P["Probe: input, guards, callers, outcome"]
-  P --> V{Survives the countercheck?}
-  V -- no --> L["Drop taste; keep unresolved leads with their next check"]
-  V -- yes --> K[Rank by demonstrated consequence] --> J["Punchline: setup, reversal, consequence"] --> R[Repair with a proving check]
-```
-
 ## Hunt
 
-| Stage | Action / proof |
-|---|---|
-| Scope | Pin named files, symbols, diff, PR or branch to revision/working tree; ask for a missing target. Whole-repo review only when requested: start with large files, high fan-in and churn; disclose unread/unavailable scope. |
-| Find | Use available Octocode structure/text/AST searches, LSP callers and relevant history; exact-read source. Follow required continuations or report gaps. Exclude generated code unless targeted or exposing generator error. |
-| Clear suspects | Trace input → guards → callers → outcome; check tests, fixtures and docs. Suspicious syntax is a lead. Exploit, latency and outage claims need a trace/measurement. Keep unresolved leads with their next check; drop taste. |
-| Rank | Demonstrated security, data loss, correctness and user-visible speed outrank style. |
+1. Find promises and suspect paths with available Octocode structure/text/AST searches, LSP callers and relevant history; exact-read source. Whole-repo scope requires a request: prioritize consequence, fan-in and churn. Exclude generated code unless targeted or exposing a generator defect.
+2. Trace input → guards → callers → outcome; check tests, fixtures and docs. Try the strongest innocent explanation before keeping a finding. Exploit, latency and outage claims need a trace/measurement; suspicious syntax stays a lead.
+3. Challenge impressive metrics and complexity against the real outcome and a simpler baseline. Rank demonstrated security, data loss, correctness and user-visible speed above style. Deduplicate by root cause; separate unresolved leads with their next check.
 
-## Thinking modes
-
-| Intent | Thinking mode | Action / check |
-|---|---|---|
-| Expose a broken promise | Inversion / Second-Order | Find the reachable contradiction and its consequence. |
-| Challenge impressive numbers or complexity | Goodhart / Via Negativa | Test the real outcome and the simpler baseline. |
-| Protect a favorite finding | Bayesian | Generate competing explanations, then try to disprove it before writing the burn. |
-
-Use the [question/tool catalog](references/hunt.md) or [shared models](references/mental-models.md#choose-the-lens) when the next probe is unclear. Do not print a checklist or make the user answer it.
+Use the [question/tool catalog](references/hunt.md) only when the next probe is unclear. It supplies questions to investigate, not a checklist to print or make the user answer.
 
 Finish response pages before tool-level continuations, copying calls unchanged. Unread pages, filtered candidates and partial LSP coverage cannot prove absence.
 
 ## Rank, write, deliver
 
-Set severity by demonstrated impact, reachability and affected scope, never by how funny or suspicious the code looks; build each bit as setup → reversal → concrete consequence: [rank and write](references/rank-and-write.md). Follow [output.md](output.md) for findings, fix order, repair results and optional saved reports. Use `octocode-pr-review` for a neutral merge verdict, `octocode-research` for claim verification, `octocode-clean-agentic-code` for proven dead code or AI leftovers, and `octocode-engineer` for a boundary decision. Use `octocode-workflows` for composition when an orchestrator assigns the roast as one actor.
+Set severity by impact, reachability and affected scope. Build each bit as **setup → reversal → concrete consequence**, beside its evidence; use [rank and write](references/rank-and-write.md) for severity and delivery examples. Return ranked findings and fix order, each with source, trigger, impact, repair and a proving check. Critique stays read-only unless repairs are requested. [Output](output.md) owns repair results and optional saved reports.
 
 **Done:** Every finding survives a countercheck, cites deciding evidence, explains impact and has a repair with a proving check. Report checked scope, unavailable evidence and unresolved leads. Tone is not a quality score; never claim completeness beyond the reviewed scope.
+
+Neighbors: `octocode-pr-review` owns merge verdicts; `octocode-research` verifies claims; `octocode-clean-agentic-code` removes proven dead code; `octocode-engineer` handles design choices; `octocode-workflows` coordinates actors.

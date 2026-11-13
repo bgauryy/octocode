@@ -38,7 +38,7 @@ pub fn execute_local_fetch(
     }
     let limits = security.limits();
     let in_memory = meta.len() <= limits.whole_source_bytes();
-    let (file, sample) = match read_sample(file, meta.len(), in_memory) {
+    let (file, mut sample) = match read_sample(file) {
         Ok(opened) => opened,
         Err(error) => {
             return LocalFetchResult::error(
@@ -68,6 +68,9 @@ pub fn execute_local_fetch(
     if !in_memory {
         return fetch_streamed(q, &validated, &file, &meta, window, security, cancel);
     }
+    // Reserve the whole-file buffer only after the binary sniff accepted it.
+    let capacity = usize::try_from(meta.len()).map_or(BINARY_SAMPLE_BYTES, |len| len + 1);
+    sample.reserve(capacity.saturating_sub(sample.len()));
     // The read stops past the cap, in case the file grew past the ceiling
     // between the stat above and this read (TOCTOU).
     let bytes = match read_rest(file, sample, limits.whole_source_bytes(), cancel) {

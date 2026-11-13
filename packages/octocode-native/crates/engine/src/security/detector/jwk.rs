@@ -1,8 +1,7 @@
 //! A JSON Web Key's private members in a cut of a source too large to scan whole.
 //! Only `kty` says what `d`, `p` or `k` are; a walk of the source's objects
 //! ([`super::objects`]) pairs them where it can see both.
-use super::is_identifier_name;
-use regex::{Captures, Regex};
+use regex::Regex;
 use std::sync::LazyLock;
 
 /// One private member, in any spelling a walk of its object reads.
@@ -23,20 +22,4 @@ pub(super) const PATTERN: &str = "jwkPrivateMembers";
 /// Whether `text` shows a member only its object can judge.
 pub(super) fn shows_member(text: &str) -> bool {
     MEMBER.is_match(text)
-}
-
-/// `text` with every private member's value redacted, `kty` or no `kty`, for a
-/// cut of a source too large to scan whole. `None` when it holds none.
-pub fn hide_members(text: &str) -> Option<String> {
-    let placeholder = crate::security::redaction_placeholder(PATTERN);
-    let hidden = MEMBER
-        .replace_all(text, |member: &Captures<'_>| {
-            if is_identifier_name(&member["value"]) {
-                member[0].to_owned()
-            } else {
-                format!("{}{placeholder}{}", &member["name"], &member["end"])
-            }
-        })
-        .into_owned();
-    (hidden != text).then_some(hidden)
 }

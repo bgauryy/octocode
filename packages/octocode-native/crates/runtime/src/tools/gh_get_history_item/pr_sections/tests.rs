@@ -4,6 +4,39 @@ use super::*;
 
 mod commit_files;
 
+/// matchString selects patch text, never the independently requested
+/// discussion or a review whose body is empty.
+#[test]
+fn patch_matches_do_not_filter_requested_discussion_sections() {
+    let query = HistoryItemRequest::from_row(json!({
+        "operation":"pullRequest","owner":"o","repo":"r","number":1,
+        "sections":["patches","comments","reviewComments","reviews"],
+        "matchString":["patch-only-needle"]
+    }))
+    .expect("query");
+    let comment = raw(json!({"body":"An unrelated discussion."}));
+    for section in [CommentSection::Discussion, CommentSection::ReviewInline] {
+        let (row, _) = shape(&query, section, vec![comment.clone()], &mut Map::new());
+        let key = match section {
+            CommentSection::Discussion => "comments",
+            CommentSection::ReviewInline => "reviewComments",
+        };
+        assert_eq!(row[key].as_array().map(Vec::len), Some(1), "{row}");
+        assert_eq!(row[key][0]["body"], "An unrelated discussion.");
+    }
+    let mut row = json!({});
+    shape_pr_reviews(
+        &mut row,
+        &mut Map::new(),
+        vec![json!({"id":2,"state":"APPROVED","body":"","user":{"login":"rev"}})],
+        WindowState::COMPLETE,
+        &query,
+        &mut BodyWindows::default(),
+    );
+    assert_eq!(row["reviews"].as_array().map(Vec::len), Some(1), "{row}");
+    assert_eq!(row["reviews"][0]["state"], "APPROVED");
+}
+
 fn review_comments() -> HistoryItemRequest {
     HistoryItemRequest::from_row(json!({
         "operation":"pullRequest","owner":"o","repo":"r","number":1,

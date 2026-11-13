@@ -1,6 +1,41 @@
 //! Refs reads: a missing repository, a named ref, tag order, branch leads and refs paging.
 use super::*;
 
+/// A transient failure cannot change the tag ordering used by an emitted
+/// cursor. Otherwise a GitHub-order first page followed by a version-order
+/// page silently duplicates some tags and loses others.
+#[tokio::test]
+async fn tag_listing_failure_never_emits_an_incompatible_order_cursor() {
+    use crate::tools::gh_shared::test_support::one_shot_provider;
+
+    let server = server().await;
+    mount_json(
+        &server,
+        "/api/v3/repos/a/b/tags",
+        200,
+        json!([{"name":"v2","commit":{"sha":SHA}}]),
+    )
+    .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/git/matching-refs/tags"))
+        .respond_with(ResponseTemplate::new(500))
+        .mount(&server)
+        .await;
+    let provider = one_shot_provider(&server);
+    let home = tempfile::tempdir().expect("home");
+    let result = execute(
+        &provider,
+        &query(json!({"operation":"refs","owner":"a","repo":"b","refKinds":["tags"],"limit":1})),
+        &default_context(),
+        home.path(),
+    )
+    .await;
+    assert!(
+        matches!(result, Err(ref error) if error.kind == ProviderErrorKind::Server),
+        "a tag ordering failure must remain a typed failure, not a cursor over another order"
+    );
+}
+
 /// A repository that does not resolve (a typo) leads to a search for
 /// its name, as the search tools' failures do.
 #[tokio::test]
@@ -85,8 +120,7 @@ async fn a_named_ref_states_its_kind() {
 /// tag pages run reverse-lexicographic, so a repository's own latest
 /// release can sit on its last page): page 1 answers "latest tag", the
 /// count is exact, and the next page continues the same order. A tag
-/// set that cannot be read whole falls back to GitHub's page, which
-/// says its order.
+/// set that cannot be read whole fails without changing the ordering.
 #[tokio::test]
 async fn tags_list_newest_version_first_across_pages() {
     let ordered = server().await;
@@ -149,18 +183,13 @@ async fn tags_list_newest_version_first_across_pages() {
         json!([{"name":"v2","commit":{"sha":SHA}},{"name":"v10","commit":{"sha":SHA}}]),
     )
     .await;
-    let out = list(
+    let error = list(
         &fallback,
         json!({"owner":"a","repo":"b","operation":"refs"}),
     )
     .await
-    .expect("refs from GitHub's page");
-    assert_eq!(out.data["tags"], json!(["v2", "v10"]), "{}", out.data);
-    assert!(
-        out.data["warnings"].to_string().contains("GitHub's order"),
-        "{}",
-        out.data
-    );
+    .expect_err("the failed whole-list read cannot substitute another order");
+    assert_eq!(error.kind, ProviderErrorKind::Server);
 }
 
 /// A paged refs listing: a clamped `pageSize` warns once and its next

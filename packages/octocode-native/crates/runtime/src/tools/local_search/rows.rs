@@ -61,7 +61,8 @@ pub(super) fn project_shape(
         window_start: matched.window_start,
         byte_offset: matched.byte_offset,
         first_line: matched.first_line,
-        match_lines: spanned_lines(matched),
+        end_line: matched.last_line.filter(|&last| last > matched.line),
+        match_lines: None,
         count: matched.count,
         enclosing: None,
         declaration: (matched.rank == Some(3)).then_some(true),
@@ -75,15 +76,6 @@ pub(super) fn project_shape(
     (row, &matched.value)
 }
 
-/// Every line a match spanning several lines covers (multiline mode), as
-/// `matchedLines`; `None` for a one-line match.
-fn spanned_lines(matched: &octocode_engine::types::TextSearchMatch) -> Option<Vec<u32>> {
-    matched
-        .last_line
-        .filter(|&last| last > matched.line)
-        .map(|last| (matched.line..=last).collect())
-}
-
 /// First source line and lines of a content-view row's context window, or
 /// `None` when the value is not a plain window (redacted, grouped, or lines
 /// that disagree with the window the search reports). The window starts where
@@ -94,10 +86,9 @@ pub(super) fn context_window(
     matched: &SearchMatch,
     context: SearchContext,
 ) -> Option<(u32, Vec<&str>)> {
-    let span = matched
-        .match_lines
-        .as_ref()
-        .map_or(Some(1), |spanned| u32::try_from(spanned.len()).ok())?;
+    let span = matched.end_line.map_or(Some(1), |last| {
+        last.checked_sub(matched.line)?.checked_add(1)
+    })?;
     let shape = WindowShape {
         line: matched.line,
         first_line: matched.first_line,
@@ -180,7 +171,7 @@ impl HitWindow {
 
 /// Merge rows whose context windows overlap or touch into one block, so each
 /// source line is emitted once, numbered. A merged block keeps the first row's
-/// `line`/`column`, and `matchedLines` lists every matched line it holds. Rows
+/// `line`/`column`, and `matchedLines` lists every hit line it holds. Rows
 /// merge only when both windows are plain and their shared lines are
 /// byte-identical, so a redacted window is never spliced.
 ///
@@ -264,9 +255,7 @@ pub(super) fn merge_context_windows(
             let end = start.saturating_add(saturating_u32(lines.len())); // exclusive
             let window = HitWindow {
                 line: row.line,
-                matched_last: row.match_lines.as_ref().map_or(row.line, |spanned| {
-                    spanned.last().copied().unwrap_or(row.line)
-                }),
+                matched_last: row.end_line.unwrap_or(row.line).max(row.line),
                 first: start,
                 last: end - 1,
             };
@@ -279,15 +268,16 @@ pub(super) fn merge_context_windows(
             )
         };
         // A match spanning several lines stands alone: its window is its
-        // own, numbered, with every line it covers a matched line.
-        if let Some(spanned) = row.match_lines.clone() {
+        // own, numbered, its extent stated by its `endLine`.
+        if row.end_line.is_some() {
             let lines = lines.into_iter().map(str::to_owned).collect();
+            let line = row.line;
             out.extend(open.take().map(flush));
             out.push(flush(Block {
                 head: row,
                 start,
                 lines,
-                match_lines: spanned,
+                match_lines: vec![line],
             }));
             continue;
         }

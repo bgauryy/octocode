@@ -26,6 +26,7 @@ mod config;
 mod loading;
 mod manifests;
 mod python;
+mod python_paths;
 mod workspaces;
 pub(crate) use config::read_config_text;
 use config::*;
@@ -124,22 +125,39 @@ impl TsPaths {
             .collect()
     }
 
-    /// Explicit aliases are internal unless every target names node_modules.
-    /// A bare `*` fallback alone does not classify an import.
-    fn claims(&self, spec: &str) -> Option<bool> {
+    /// Explicit aliases are internal unless every target names node_modules;
+    /// one with a target above the scan root names code beyond it. A bare `*`
+    /// fallback alone does not classify an import.
+    fn claims(&self, spec: &str) -> Option<BareTarget> {
         let pattern = self.pattern(spec)?;
         if pattern.wildcard && pattern.prefix.is_empty() {
             return None;
         }
-        Some(
-            pattern.outside_root
-                || pattern.targets.iter().any(|target| {
-                    !target
-                        .split('/')
-                        .any(|component| component == "node_modules")
-                }),
-        )
+        Some(if pattern.outside_root {
+            BareTarget::OutsideRoot
+        } else if pattern.targets.iter().any(|target| {
+            !target
+                .split('/')
+                .any(|component| component == "node_modules")
+        }) {
+            BareTarget::Internal
+        } else {
+            BareTarget::External
+        })
     }
+}
+
+/// What a bare (non-relative) specifier the resolution did not link names,
+/// as the project's configuration places it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BareTarget {
+    /// Nothing of the project: a third-party package or a builtin.
+    External,
+    /// Project code the scan root holds, or no configuration says where.
+    Internal,
+    /// Project code beyond the scan root: a workspace sibling or path
+    /// dependency outside it, an alias target or `baseUrl` module above it.
+    OutsideRoot,
 }
 
 /// A `package.json` next to scanned sources.
@@ -180,6 +198,8 @@ pub(crate) struct ResolveContext {
     /// Package names local to the repository though not scanned: a sibling in
     /// an enclosing workspace, or a `workspace:`, `file:` or `link:` dependency.
     local_packages: HashSet<String>,
+    /// Of `local_packages`, those whose directory lies outside the scan root.
+    outside_packages: HashSet<String>,
     /// Package directories whose own name Node resolves to themselves: the
     /// first `node_modules/<name>` above is a link to the package (a
     /// workspace's or `npm link`'s).
@@ -317,27 +337,50 @@ impl ResolveContext {
         probe_js(&join_within_root(config.base_url.as_deref()?, spec)?, known)
     }
 
-    /// A bare specifier that names project code (alias prefix, workspace
-    /// package, `#` import, `@/` or `~/` convention). Failing to link one is
-    /// an internal coverage gap, never a third-party dependency.
-    pub(crate) fn is_internal_bare_js(&self, spec: &str, importer: &str) -> bool {
-        if let Some(internal) = self
-            .ts_config_for(importer)
-            .and_then(|config| config.claims(spec))
-        {
-            return internal;
+    /// What a bare specifier names: project code (alias prefix, workspace
+    /// package, `#` import, `@/` or `~/` convention, a module under a
+    /// `baseUrl` above the scan) or a third-party package. Failing to link
+    /// project code is an internal coverage gap, never a dependency; when the
+    /// configuration places that code beyond the scan root, the scope is the
+    /// gap ([`BareTarget::OutsideRoot`]).
+    pub(crate) fn bare_target_js(&self, spec: &str, importer: &str) -> BareTarget {
+        let config = self.ts_config_for(importer);
+        if let Some(target) = config.and_then(|config| config.claims(spec)) {
+            return target;
         }
         if spec.starts_with('#') || spec.starts_with("@/") || spec.starts_with("~/") {
-            return true;
+            return BareTarget::Internal;
         }
-        split_package(spec).is_some_and(|(package, _)| {
-            self.packages.get(package).is_some_and(|manifest| {
+        if let Some((package, _)) = split_package(spec) {
+            if self.packages.get(package).is_some_and(|manifest| {
                 self.named_from(manifest, package, importer) || self.outer_workspace_unread
-            }) || self.local_packages.contains(package)
-        }) || self
-            .ts_config_for(importer)
-            .and_then(|config| config.outer_base.as_ref())
-            .is_some_and(|base| self.outer_base_holds(&base.dir, spec))
+            }) {
+                return BareTarget::Internal;
+            }
+            if self.local_packages.contains(package) {
+                return if self.outside_packages.contains(package) {
+                    BareTarget::OutsideRoot
+                } else {
+                    BareTarget::Internal
+                };
+            }
+        }
+        match config.and_then(|config| config.outer_base.as_ref()) {
+            Some(base) if self.outer_base_holds(&base.dir, spec) => {
+                // Spelled through the scan root's own directory, the module
+                // lies inside it; any other lies beyond.
+                let inside = base.root_below.as_deref().is_some_and(|below| {
+                    spec.strip_prefix(below)
+                        .is_some_and(|rest| rest.starts_with('/'))
+                });
+                if inside {
+                    BareTarget::Internal
+                } else {
+                    BareTarget::OutsideRoot
+                }
+            }
+            _ => BareTarget::External,
+        }
     }
 
     /// Whether `importer` reaches the package `name` (declared by `manifest`)

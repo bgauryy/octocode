@@ -154,13 +154,3 @@ The release store and the acquire load that reads `true` form a happens-before e
 8. Treat memory reclamation as part of the concurrent algorithm.
 9. Document thread safety, object lifetimes and ownership contracts in APIs.
 10. Validate concurrent code with stress tests, sanitizers and targeted fault injection.
-
-## Learning order
-
-1. Memory layout, stack and heap, pointers and references.
-2. Ownership, lifetimes, RAII and garbage collection.
-3. Threads, mutexes, semaphores and condition variables.
-4. Atomics, memory ordering and happens-before.
-5. Thread pools, async/await, actors and channels.
-6. CPU cache, allocation, NUMA and performance.
-7. Lock-free algorithms, RCU and memory reclamation.

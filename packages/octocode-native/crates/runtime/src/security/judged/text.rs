@@ -517,19 +517,24 @@ pub(crate) fn searched_text(
     let decoded = octocode_engine::text::has_utf16_bom(head)
         .then(|| octocode_engine::text::decode(head).text.into_owned());
     let own: Vec<&[u8]> = match &decoded {
-        Some(text) => text.as_bytes().split_inclusive(|byte| *byte == b'\n').collect(),
+        Some(text) => text
+            .as_bytes()
+            .split_inclusive(|byte| *byte == b'\n')
+            .collect(),
         None => head.split_inclusive(|byte| *byte == b'\n').collect(),
     };
     let lines: Vec<std::borrow::Cow<'_, str>> = own
         .iter()
-        .map(|line| match octocode_engine::text::Decoded::interior(line).text {
-            std::borrow::Cow::Borrowed(text) => {
-                std::borrow::Cow::Borrowed(text.trim_end_matches(['\n', '\r']))
-            }
-            std::borrow::Cow::Owned(text) => {
-                std::borrow::Cow::Owned(text.trim_end_matches(['\n', '\r']).to_owned())
-            }
-        })
+        .map(
+            |line| match octocode_engine::text::Decoded::interior(line).text {
+                std::borrow::Cow::Borrowed(text) => {
+                    std::borrow::Cow::Borrowed(text.trim_end_matches(['\n', '\r']))
+                }
+                std::borrow::Cow::Owned(text) => {
+                    std::borrow::Cow::Owned(text.trim_end_matches(['\n', '\r']).to_owned())
+                }
+            },
+        )
         .collect();
     let judged = judge(&lines.join("\n"));
     if !judged.is_redacted() {
@@ -565,6 +570,44 @@ pub(crate) fn searched_text(
     }
     out.extend_from_slice(tail);
     Some(out)
+}
+
+/// Whether a match of `literal` (compared ignoring case when `fold`) could
+/// take text [`searched_text`] writes or moves rather than the source's own
+/// bytes at their place: a placeholder or a part of one (a later pass may
+/// replace part of an earlier one's), a line break a replaced value keeps
+/// and the blanks or diff markers that follow it there, a character a lossy
+/// decoding of a changed line writes, or a line break a served line folds to
+/// a blank. Any other match is the source's own bytes, so a source without
+/// it serves a text without it.
+pub(crate) fn meets_written(literal: &str, fold: bool) -> bool {
+    static WRITTEN: std::sync::LazyLock<Vec<String>> = std::sync::LazyLock::new(|| {
+        let mut written = octocode_engine::security::pattern_placeholders().to_vec();
+        written.push(crate::security::key_fragment_placeholder());
+        written.push(octocode_engine::security::SANITIZER_FAILURE_PLACEHOLDER.to_owned());
+        written.push(REDACTED.to_owned());
+        written
+    });
+    literal.contains(['[', ']', '\n', '\r', char::REPLACEMENT_CHARACTER])
+        || literal.starts_with([' ', '\t', '+', '-'])
+        || WRITTEN.iter().any(|written| holds(written, literal, fold))
+}
+
+/// Whether `text` holds `part`, each character compared ignoring case when
+/// `fold` (as a search's simple case folding: `K` holds the Kelvin sign).
+fn holds(text: &str, part: &str, fold: bool) -> bool {
+    let same = |a: char, b: char| {
+        a == b
+            || (fold
+                && (a.to_lowercase().eq(b.to_lowercase()) || a.to_uppercase().eq(b.to_uppercase())))
+    };
+    let text = text.chars().collect::<Vec<_>>();
+    let part = part.chars().collect::<Vec<_>>();
+    part.is_empty()
+        || part.len() <= text.len()
+            && text
+                .windows(part.len())
+                .any(|window| window.iter().zip(&part).all(|(a, b)| same(*a, *b)))
 }
 
 /// A kept judgment: the digest of the text judged, and the judgment.

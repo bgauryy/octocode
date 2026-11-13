@@ -28,7 +28,7 @@ Load when reading script output, searching a session, mapping a site, or extract
 
 ## Bounded search
 
-- `corpus-find.mjs --session-dir <dir> --query <text> [--limit 20] [--offset 0]`.
+- `corpus-find.mjs --session-dir <dir> --query <text> [--limit <page-size>] [--offset <offset>]`.
 - Output: `matches`, `isPartial`, `completeness` (`partial` | `complete`), `pagination` (`offset`, `limit`, `totalMatches`, `returnedMatches`, `remainingMatches`, `hasMore`), `suggestedFiles`.
 - Run `next.page` unchanged while rows remain; the end returns `next:null` and `completeness:"complete"`. Restart at offset 0 after a fetch.
 
@@ -62,14 +62,14 @@ Load when reading script output, searching a session, mapping a site, or extract
 
 ## Extraction
 
-- Define the schema or claim list first; report row counts and 3–5 sample rows. `sources.jsonl` holds route, URL, status, content type, fetch time.
+- Define the schema or claim list first; report row counts and representative rows when useful. `sources.jsonl` holds route, URL, status, content type, fetch time.
 - Claim–evidence: each claim or row beside its exact source evidence; spot-check critical facts against raw HTML or snippets and cross-check key claims with another selector or source.
 - Facts, assumptions, unknowns: mark partial, blocked, transformed, or inferred data instead of presenting it as fact.
 - Rows as JSONL in `extracts/`, excerpts in `snippets/`; narrative in the saved report ([output](../output.md)), not `reports/summary.md`.
 
 ## Capture limits
 
-- Bodies are read up to max(`--max-raw-bytes`, `--max-text-bytes`, 64000) bytes (defaults 1,000,000 and 250,000), saved to `raw/` unless `--no-raw`; a cut sets `networkTruncated`, `rawTruncated`, `textTruncated` and warns (raise either limit).
+- Response limits come from `--max-raw-bytes` and `--max-text-bytes`; inspect `fetch.mjs --help` and returned warnings rather than copying defaults into requests. Bodies are saved to `raw/` unless `--no-raw`. If `networkTruncated`, `rawTruncated` or `textTruncated` is set, raise the relevant limit or report unread scope.
 - `--chunk-bytes` and `--max-text-bytes` size clean-text parts; nothing is discarded.
 - `source-query.mjs` returns base64 byte pages: concatenate decoded bytes before decoding UTF-8.
 

@@ -4,48 +4,18 @@
 //! notices, and the stage places each remaining
 //! notice on the first row that carries it ([`place`]): in `warnings` on a
 //! row with evidence, in `hints.text` on an empty or failed row (where its
-//! guidance goes). No `notices` (or `statedReasons`) key reaches a caller. A warning every row
+//! guidance goes). No `notices` key reaches a caller. A warning every row
 //! of a response states is said once for the call
 //! ([`state_shared_warnings`]).
+//!
+//! A `partialReasons` code is a fact of its row; what the code means is
+//! static, so no response says it: core authors each meaning once and the
+//! output reference serves it (`schema <tool> --view output`, and the MCP
+//! output resource of the tool).
 
 use serde_json::{Map, Value, json};
 
 use crate::contracts::envelope::{NOTICES, TIMED_NOTICES};
-use crate::response::paging::STATED_REASONS;
-
-/// Each coverage reason a row carries, as a notice saying what it means: core
-/// authors the sentence once, and it is sent only when this response has that
-/// gap ([`place`] says it on the first row that carries it), and only where
-/// the row's own text does not already state it
-/// ([`crate::response::paging::mark_stated`]).
-pub(crate) fn explain_codes(structured: &mut Value, rows_key: &str) {
-    let Some(rows) = structured.get_mut(rows_key).and_then(Value::as_array_mut) else {
-        return;
-    };
-    for row in rows {
-        let Some(data) = row.get_mut("data") else {
-            continue;
-        };
-        let codes = data["partialReasons"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .chain(data.pointer("/coverage/reason"))
-            .filter_map(Value::as_str)
-            .filter(|code| {
-                !data[STATED_REASONS]
-                    .as_array()
-                    .is_some_and(|stated| stated.iter().any(|stated| stated == code))
-            })
-            .map(str::to_owned)
-            .collect::<Vec<_>>();
-        for code in codes {
-            if let Some(meaning) = crate::contracts::partial_reason_meaning(&code) {
-                crate::response::paging::push_notice(data, format!("{code}: {meaning}"));
-            }
-        }
-    }
-}
 
 /// Moves every row's notices to where the row states guidance, keeping
 /// each notice on the first row of the response that carries it.
@@ -62,7 +32,6 @@ pub(crate) fn place(structured: &mut Value, rows_key: &str) {
         let Some(data) = row.get_mut("data").and_then(Value::as_object_mut) else {
             continue;
         };
-        data.remove(STATED_REASONS);
         let Some(Value::Array(notices)) = data.remove(NOTICES) else {
             continue;
         };

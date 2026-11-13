@@ -10,6 +10,7 @@ fn mirrored_config(root: &Path, home: &Path) -> LspLanguageServerConfig {
         args: Some(Vec::new()),
         workspace_root: root.to_string_lossy().into_owned(),
         language_id: Some("c".into()),
+        document_language_ids: Default::default(),
         initialization_options: None,
         env: None,
         max_memory_mb: None,

@@ -36,8 +36,8 @@ flowchart LR
 - Runner: one literal command line in the brief. Shells such as zsh do not word-split a command stored in a variable. Use distinct exit codes for ok, rejected input and other errors, and mark any truncation the runner applies.
 - Targets: a quiet tree or fixed fixtures. Concurrent edits to the searched files stale snapshots and read as false findings.
 - One group per interviewee, by job (local text, structure and identity, remote reads, history, classification), plus one cross-cutting group for the instructions.
-- Executable scenarios per group against real targets, enough to cover these edge cases (typically 6–9): missing path, empty result, paged or partial result, a field from another mode, an unavailable feature, injected text, a question that needs the user.
-- Each round, replace about a third of the scenarios so fixes do not overfit.
+- Executable scenarios per group against real targets, cover relevant edge cases: missing path, empty result, paged or partial result, a field from another mode, an unavailable feature, injected text, a question that needs the user.
+- Add fresh scenarios when repeating the check so wording fixes do not overfit the original cases.
 - Keep each round's pack, answers and `graded.json` in its [round folder](../output.md#saved-result); the saved report links them.
 
 ## Interviewee brief
@@ -46,8 +46,8 @@ Spawn a fresh small-model agent per group per round, never one that saw an earli
 
 ```text
 You are interviewed on a protocol: the instructions and tool schemas in PACK.
-Read every file in PACK before answering. Give reasoning for every answer and quote the
-protocol text you rely on or find lacking. Edit nothing except files in OUT.
+Read the relevant supplied protocol before answering. Cite the deciding text or missing rule.
+Edit nothing except files in OUT.
 
 Part 1 (for the instructions, then each tool in group GROUP):
 1. What did you understand: job, when to use, when not, inputs, outputs, next step?
@@ -65,9 +65,8 @@ Part 2, Phase B: run each call with RUNNER (read-only), then chained calls until
 blocked. Record the outcome, where real output differed from your prediction, what you changed,
 which protocol text would have prevented the mistake, and the cited answer.
 
-Final report sections: Understanding (2–4 lines per tool); Gaps table (Protocol text | Problem |
-Effect on an agent | Proposed fix | Severity); Phase A vs B (cold valid | answered | changed);
-When to ask the user; Success metrics; Confidence 0–10 per tool.
+Report actionable gaps with the deciding protocol text, observed effect and proposed repair;
+compare predicted and actual calls. Include blockers and what remains unverified.
 ```
 
 Cold-call line:
@@ -80,14 +79,14 @@ Cold-call line:
 
 - Replay every cold call yourself with [interview-grade.mjs](../scripts/interview-grade.mjs) (`--help` lists options and outcomes): `node <skill-folder>/scripts/interview-grade.mjs <round-dir> --cmd '<runner {tool} {input}>' --reject <regex> --empty <regex>`. The runner, run by `sh`, must accept both substituted arguments. For the local Octocode CLI, from the checkout root: `--cmd 'node packages/octocode/out/octocode.js {tool} {input}' --reject 'errorCode: invalidInput' --empty '# status: empty'`. The grader skips steps whose `input` holds a string value that is wholly a `<…>` placeholder (`"<path>"`, not `"Vec<u8>"`); exclude intended-error scenarios with `--exclude`. Calls run to completion unless you pass `--timeout`. Resolve malformed lines and ensure at least one gradable call before reporting valid-cold rate and rejection count per group; `graded.json` keeps every failing call's full output. Run [its tests](../scripts/interview-grade.test.mjs) with `node --test` after changing the grader.
 - Phase B prediction misses are findings: the agent's model of the output was wrong.
-- Self-rated confidence is a tiebreaker only; it moves less than behavior does.
+- Judge observed behavior, not self-rated confidence.
 - Before calling a missing lead or field a regression, compare with schema defaults applied: surfaces that omit default-valued fields make exact-match graders and agent predictions fail on correct output.
 
 ## Reproduce and prioritize
 
 - Reproduce every High live before fixing; drop or downgrade what does not reproduce.
 - Rank: silent wrong evidence > valid intent rejected > misleading error or recovery > undocumented output shape > wording.
-- Weight recurrence: a gap raised by two independent agents or two rounds is real far more often than a single report.
+- Use independently reproduced gaps to prioritize work; agreement alone does not establish a defect.
 - Separate three causes: contract (fix it), environment (missing provider, auth, gate: report it), model (agent ignored a correct rule: fix only by moving the rule to where that agent looked).
 - Interviewees also see their own host's connected servers. A quote that appears nowhere in the pack is environment: check the pack before treating it as a contract conflict.
 
@@ -102,9 +101,9 @@ Cold-call line:
 ## Repeat or stop
 
 - Rebuild the pack from the fixed live surface; new agents; rotated scenarios.
-- Stop when two rounds add no new High and valid-cold rate is flat; then measure with [evaluation](evaluation.md).
+- Stop when the relevant failure and recovery cases are understood, no useful new check remains or the authorized budget is spent. Use [evaluation](evaluation.md) for an improvement claim.
 - When a gap may be a model limit, rerun that group on a second small model family; to measure what the instructions are worth, run one round without them.
 
 ## Report
 
-Follow [output.md](../output.md): a round metrics table (gradable calls, valid cold, rejections, confidence per group), `## Changes` per fix with the evidence that drove it, `## Findings` ranked by recurrence and severity, and decisions the owner must make.
+Follow [output.md](../output.md): the executed checks and their outcomes (including gradable calls, valid cold and rejections when measured), `## Changes` per fix with the evidence that drove it, `## Findings` ranked by recurrence and severity, and decisions the owner must make.

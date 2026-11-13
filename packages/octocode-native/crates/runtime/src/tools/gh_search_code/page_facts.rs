@@ -29,6 +29,8 @@ pub(super) fn disclose_coverage(output: &mut ToolData, endpoint: &octocode_githu
 /// under 384 KB (<https://docs.github.com/en/rest/search/search#search-code>);
 /// an Enterprise Server, files under 5 MB
 /// (<https://docs.github.com/en/enterprise-server@latest/search-github/searching-on-github/searching-code#considerations-for-code-search>).
+/// An Enterprise Server also searches only each file's first 500 KB: a fact of
+/// the deployment, not of a page, so the tool description states it once.
 pub(super) fn index_max_file_bytes(endpoint: &octocode_github::GitHubEndpoint) -> u64 {
     match endpoint.deployment() {
         octocode_github::Deployment::Cloud => 384 * 1024,
@@ -156,14 +158,16 @@ pub(super) fn disclose_incomplete(output: &mut ToolData, data: &SearchPage) {
     }
 }
 
-/// The response chars the page's row states besides its `rows` file rows,
-/// shown whole or, `continues`, as a part that continues the page: built
-/// from the facts the page states before any file is read (its
-/// `pagination`, continuation, read count, completeness and coverage), so
-/// the room left for its rows is the window less what this page adds. A
-/// part's continuation is the response's: the channel moves it to
-/// `responsePagination` ([`crate::response::continuations::hoist`]), so it
-/// is measured there, not as the row's `next.nextPage`.
+/// The response chars a page states besides its file rows, shown whole or,
+/// `continues`, as a part that continues the page: built from the facts the
+/// page states before any file is read (its `pagination`, continuation, read
+/// count, completeness and coverage) inside the response envelope, so the
+/// room left for its rows is the window less what this page adds. A part's
+/// continuation is the response's: the channel moves it to
+/// `responsePagination` ([`crate::response::continuations::hoist`]), which
+/// also states the saved page's expiry, so it is measured as the pager
+/// publishes it ([`crate::response::pager::continuing_block_chars`]), not as
+/// the row's `next.nextPage`.
 pub(super) fn skeleton(
     query: &GhSearchCodeQuery,
     data: &SearchPage,
@@ -175,19 +179,14 @@ pub(super) fn skeleton(
     if let Some(pagination) = pagination(data, current, past_end) {
         value["pagination"] = pagination;
     }
-    let walk = Continuation::cursor(
-        ToolId::GhSearchCode.as_str(),
-        crate::response::cursor::issued::placeholder(),
-    );
-    // `,"responsePagination":` around the hoisted block.
     let hoisted = if continues {
-        octocode_engine::json_size::utf16_units(&json!({"hasMore": true, "next": walk}))
-            .unwrap_or(0)
-            + "responsePagination".len()
-            + 4
+        crate::response::pager::continuing_block_chars(ToolId::GhSearchCode)
     } else {
         if more {
-            value["next"]["nextPage"] = walk;
+            value["next"]["nextPage"] = Continuation::cursor(
+                ToolId::GhSearchCode.as_str(),
+                crate::response::cursor::issued::placeholder(),
+            );
         }
         0
     };
@@ -203,7 +202,8 @@ pub(super) fn skeleton(
             diagnostics: output.diagnostics,
         },
     );
-    octocode_engine::json_size::utf16_units(&row).unwrap_or(0) + hoisted
+    let page = crate::response::rows::envelope(ToolId::GhSearchCode, vec![row]);
+    octocode_engine::json_size::utf16_units(&page).unwrap_or(0) + hoisted
 }
 
 /// The page's warnings about what its lines show: redacted values, rows the
@@ -244,6 +244,15 @@ pub(super) fn disclose_reads(
                 "{} file(s) on this page are larger than the line-scan read bound ({} bytes: the scan limit, or the request's smaller response budget), so their lines were not resolved (`lineResolved:false`): read them with ghGetFileContent at the commit.",
                 reads.oversized,
                 super::lines::read_bound(context).budget.max_body_bytes
+            )],
+        );
+    }
+    if reads.unanchored > 0 {
+        crate::response::paging::push_warnings(
+            value,
+            [format!(
+                "{} file(s) have no resolved index commit; their required reads resolve the ref when run and cannot verify the historical index snapshot.",
+                reads.unanchored
             )],
         );
     }

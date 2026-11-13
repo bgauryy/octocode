@@ -1,4 +1,4 @@
-// Loopback GitHub, npm registry and classification provider: tool-health's mock over its own fixture, plus a
+// Loopback GitHub, npm registry and classification provider: the providers/ mock over test-utils/fixtures/demo-repo, plus a
 // bulk pull request and the profile extras below. A TLS registry proxy answers the public registries and OSV
 // from fixtures, so `artifactSearch` on public ecosystems and `securityCheck` never leave the machine.
 // Answers are small unless an extra says otherwise, so a stub flow shows a mechanism, not the cost of a real answer.
@@ -7,14 +7,11 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-
-const e2e = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../packages/octocode-benchmark/local/e2e');
-const load = file => import(pathToFileURL(path.join(e2e, 'harness/tool-health', file)).href);
-const { startMock } = await load('mock-server.mjs');
-const { addBulkPullRequest, sha, DATE } = await load('mock-model.mjs');
-const { startRegistryProxy } = await load('mock-registry-proxy.mjs');
-const { recordedJson } = await load('recorded-answers.mjs');
+import { startMock } from '../providers/mock-server.mjs';
+import { addBulkPullRequest, sha, DATE } from '../providers/mock-model.mjs';
+import { startRegistryProxy } from '../providers/mock-registry-proxy.mjs';
+import { recordedJson } from '../providers/recorded-answers.mjs';
+import { DEMO_REPO } from '../providers/paths.mjs';
 
 /** One deterministic minified line of `bytes` bytes, as a bundler would emit it. */
 const minifiedLine = bytes => {
@@ -29,7 +26,7 @@ const minifiedLine = bytes => {
 };
 
 /**
- * The profile extras, beside tool-health's own model (nothing it reads changes):
+ * The profile extras, beside the mock's own model (nothing it reads changes):
  * - issue 7: 365 comments, the RR-D1 count, for `gh.item.issue.comments`;
  * - pull request 5: a branch adding one 1 MiB single-line bundle, for `gh.item.patch.long`;
  * - octo/demo-docs `big.txt`: 20,000 lines, for `gh.file.big`;
@@ -71,7 +68,7 @@ function pagedOsv(registry) {
 
 const tmp = fs.mkdtempSync(path.join(process.env.PROF_TMP ?? os.tmpdir(), 'stub-'));
 const mock = await startMock({
-  fixtureDir: path.join(e2e, 'fixtures/tool-health'),
+  fixtureDir: DEMO_REPO,
   tmpDir: tmp,
   token: process.env.STUB_TOKENS.split(','),
   configureModel: addProfileExtras,

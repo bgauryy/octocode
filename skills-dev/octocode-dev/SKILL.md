@@ -1,6 +1,6 @@
 ---
 name: octocode-dev
-description: "Use when developing or verifying the Octocode monorepo: setup, builds, tests, lint, release preparation, contract regeneration, or tool and configuration audits across their owning layers."
+description: "Use when developing or verifying the Octocode monorepo: setup, builds, tests, lint, contract regeneration, tool audits, configuration changes or release preparation."
 ---
 
 # Octocode Dev
@@ -14,7 +14,7 @@ octo() { node packages/octocode/out/octocode.js "$@"; }
 
 For tool calls see [MCP and CLI usage](references/octocode-usage.md).
 Delegating more than one task: [orchestration](references/orchestration.md) (dependency graph, briefs, standups, one build, fresh retest).
-Checking tools and workflows: [tool checks](references/tool-checks.md) (direct calls judged by reading, compared with gh/rg; no saved harness scripts).
+Checking tools and workflows: [tool checks](../../packages/octocode-benchmark/CHECKS.md) (direct calls judged by reading, compared with gh/rg; no saved harness scripts).
 
 ## Task runner
 
@@ -22,7 +22,7 @@ Checking tools and workflows: [tool checks](references/tool-checks.md) (direct c
 |---|---|
 | First checkout | `dev setup` then `yarn install` |
 | Building locally | `dev build:dev` for the host. Native `build` also targets the host for release-mode testing. Rebuild affected launchers. |
-| Testing one package or tool | `yarn workspace <pkg> <script>` or, after a local build, `dev test:tools [tool,...]` for CLI and MCP |
+| Testing one package or tool | `yarn workspace <pkg> <script>`; after a local build, check the tool on CLI and MCP by hand per [tool checks](../../packages/octocode-benchmark/CHECKS.md) |
 | A skill or documentation changed | `dev skills:check` or `dev docs:verify`, respectively. Run both when both surfaces changed. |
 | Static checks before handing over a change | `dev check`, with a focused test. Rust only: `dev lint:rust` |
 | Finding where a tool flow's CPU goes | `dev profile <tool> '<query>' [--phase repeat]`: see [Development](docs/DEVELOPMENT.md#profiling-a-tool-flow) |

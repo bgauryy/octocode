@@ -56,16 +56,9 @@ packages before `octocode-mcp`.
 
 - `tests/launcher/*` (vitest): binary resolution, argv and exit-code
   forwarding, and the startup-failure reply;
-- `yarn test:boundary`: the shared hermetic `transport.mjs` suite checks CLI
-  and MCP admission, complete Unicode source walks, opaque cursors and replay
-  authority through the built launchers;
-- `node skills-dev/octocode-dev/scripts/dev.mjs test:tools` (repo root): the shared
-  `tool-health.mjs` suite, which exercises research tools through CLI and MCP with loopback providers,
-  output validation, typed continuations and evidence parity;
-- `yarn test:contracts:classification`: classification capability publication,
-  selection, provider failure and complete unfiltered recovery against a loopback scorer;
+- an agent's behavioral checks of the built CLI and MCP server
+  ([tool checks](../octocode-benchmark/CHECKS.md)): admission, page walks,
+  cursors, leads, CLI = MCP parity and which tools each setting publishes, judged by reading;
 - native Rust tests (`crates/cli/tests/mcp_server.rs` and `listing/tests.rs`
   under `packages/octocode-native`) for protocol eras, listing and shutdown.
 
-The shared suites own their isolated homes, source fixtures and mock providers.
-No registered acceptance command sends evidence to a paid provider.

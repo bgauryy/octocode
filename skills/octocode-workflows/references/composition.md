@@ -4,24 +4,23 @@ Load when assigning workflow roles or Octocode tools, sequencing work, running p
 
 ## Execute an orchestrated workflow
 
-1. Follow the user's actor assignments and sequence. Before assigning roles, use [composition](#orchestrator-and-actor-contract). One accountable orchestrator owns scope, the sole ledger, verification and the final result. At least one responsible actor executes a bounded Task contract and returns raw observations keyed to its row.
-2. Add a [role pattern](role-patterns.md) or evidence technique only for a distinct check or required capability within the user's authority. Keep requested work sequential. Only the orchestrator reassigns roles within that authority. Actors never spawn actors. Report a missing required capability and the affected check.
-3. The orchestrator rechecks deciding anchors, merges observations and accepts or reassigns the row. Follow [verification](verification.md) for the five ledger states, invalidating dependent evidence and reconciling uncertain mutations before retry. Runtime claims require proof of the loaded artifact's identity. Apply the domain's stricter browser or sealed-evaluation safeguards. On [resume](#compose-and-resume), reconcile the existing ledger and assign the next outstanding row.
+1. Honor the user's scope, actor assignments and sequence. Choose the domain owner and one primary workflow; name an accountable orchestrator and each execution duty. One agent can hold both coordination and execution duties when delegation adds no useful capability or independent check.
+2. Reuse or create one ledger and assign bounded Task contracts under [the contract below](#orchestrator-and-actor-contract). Parallelize independent work only when authorized; workers request changed scope or additional roles through the orchestrator. Report unavailable capabilities and affected checks.
+3. Recheck deciding anchors, merge observations and accept or reassign rows using [verification](verification.md). A runtime claim needs loaded-artifact identity; uncertain mutations need durable-state reconciliation before retry. Domain browser and sealed-evaluation safeguards remain in force.
 
 ## Orchestrator and actor contract
 
-RACI for every workflow execution, which has one orchestrator and at least one actor. Honor user-directed actor assignments and sequence before considering optional splits. The workflow assigns the required actor; an optional actor still needs a distinct check or required capability and must stay within the user's authority.
+| Duty | Owner and responsibility |
+|---|---|
+| Coordinate | One orchestrator owns goal, authority, dependencies, assignments, the sole ledger, integration, verification and the user-facing result. |
+| Execute | Each actor owns its bounded scope and returns the deciding observations for the assigned work. It creates no competing ledger, accepts no own work as independent proof and does not expand delegation without the orchestrator's authorization. |
+| Set domain acceptance | The owner skill retains its methods, permissions and output. |
 
-| RACI slot | Who | Duties |
-|---|---|---|
-| Accountable | Orchestrator | Owns the user goal, authority, primary workflow, actor selection, sequence, one ledger, evidence merge, verification, and user-facing result. Sends each actor a Task contract with a bounded input (table below). |
-| Responsible | Each actor | Executes only its assigned steps, preserves raw evidence, and returns observations keyed to the orchestrator's ledger row. Creates no other ledger and never marks the work accepted. Requests another role from the orchestrator; there is no nested, unsupervised orchestrator or recursive spawning. |
-| Consulted | Owner skill | Keeps its method, permissions, and output. |
-| Informed | User | Receives the orchestrator's result. |
+Roles describe duties, not a minimum agent count. If one agent holds several duties, record any resulting loss of independence instead of inventing a second actor.
 
 | Assignment: Task contract + Definition of Done | Actor return: claim–evidence, keyed to the row | Orchestrator merge |
 |---|---|---|
-| Objective: goal/scope, target boundary; inputs: relevant Octocode access and anchors; constraints: authority (read/write/process), role; Definition of Done: acceptance condition; next row | Row key; exact source/runtime anchors, relevant non-secret conditions, expected and observed result; counterevidence/gap; requested next action | Re-read deciding anchors, check applicability and identity, retain disproof/uncertainty, update the one ledger |
+| Objective: goal/scope, target boundary; inputs: relevant Octocode access and anchors; constraints: authority (read/write/process), role; Definition of Done: acceptance condition; next row | Assigned work; deciding source/runtime evidence, relevant conditions, expected and observed result; gap and next action | Re-read deciding anchors, check applicability and identity, retain disproof/uncertainty, update the one ledger |
 
 Use `octocode-agentic` coordination for identity, leases, requests, completion, and durable delivery. A delivered handoff is not a verified result. One source/build owner writes a changed boundary; one process owner changes a target process. Inspectors return evidence rather than racing the writer with fixes.
 
@@ -47,9 +46,9 @@ Size a lane by its files and checks, not by item count. Once its return is in, r
 
 ## Octocode tools for every role
 
-The [shared tool-access rule](../SKILL.md#use-octocode-across-workflows) applies to all catalog cards and metaphors. Assign the evidence question and relevant checkout/ref or entry point; let the actor choose and refine its calls. The orchestrator can use the same tools to scope work, resolve disagreements, and verify returned anchors without taking over actor duties.
+The [shared tool-access rule](../SKILL.md#use-octocode-across-workflows) applies to every role. Assign the evidence question and checkout/ref or entry point; let its owner refine the calls. The orchestrator can use the same tools to scope work, resolve disagreements and verify anchors.
 
-Use the [shared MCP/CLI guide](octocode-usage.md) for invocation, live availability, pagination, and recovery. Choose the tool and query shape with the [tool flow](../../octocode-research/references/tool-flow.md). Locating, reading, shape, identity, upstream facts and history are all there, for writing, planning, critique and maintenance as well as investigation. The rows below add what specific roles pair with those tools.
+Use the [MCP/CLI guide](octocode-usage.md) for live availability, invocation, pagination and recovery. Choose tools by the evidence question; `octocode-research`, when installed, adds detailed query selection. The rows below pair source capabilities with each boundary.
 
 | Evidence needed, in any workflow | Useful Octocode capability and application |
 |---|---|
@@ -62,24 +61,10 @@ Apply the [shared evidence rules](evidence.md). Return capability gaps to the or
 
 ## Compose and resume
 
-```mermaid
-flowchart TD
-  S[Select one primary workflow from the catalog; load its owner skill when that phase begins] --> L[Create or reuse the single ledger; assign the required actor]
-  L --> P{Optional actor authorized and useful?}
-  P -- no --> E[Assigned actors execute and return raw evidence]
-  P -- yes --> H[Send a row-keyed Task contract to the helper]
-  H --> E
-  E --> M[Merge observations; run the applicable acceptance check; invalidate dependent rows after a relevant change]
-  M --> Q{Observations disagree?}
-  Q -- yes --> X[Distinguishing observation or explicit unresolved tradeoff, never a vote or eloquence contest] --> M
-  Q -- no --> D[Report through the orchestrator]
-  I[Interruption] --> R[Resume from the existing ledger; assign the next outstanding row] --> L
-```
+- Reopen the existing ledger and reconcile current source, artifacts, configuration and state. Keep evidence only while its dependency basis still holds; assign the next outstanding row instead of starting a replacement ledger.
+- On disagreement, seek a distinguishing observation or record the unresolved tradeoff; agreement and eloquence are not evidence.
+- Add a helper only for a distinct check or capability within authority and the user's sequence. Reject a split that merely paraphrases, lacks decisive access or costs more coordination than the work. No nested, unsupervised teams.
 
-- Add a helper only for a stated condition and within the user's authorized sequence. A user's request to work sequentially excludes optional concurrent lanes.
-- Reject a split when the second role only paraphrases, lacks decisive access, cannot check independently, or costs more coordination than the bounded work. Actors request additional roles from the orchestrator; they do not create nested teams.
-- Resume is Checkpoint–resume with the ledger as the checkpoint: done is the `verified` rows, next the next outstanding row, open questions the gaps. Reread the existing ledger, reconcile it with current source/artifact/state identity, retain only evidence with a dependency basis, and assign the next outstanding row. Do not create a replacement ledger.
-
-When a workflow needs unavailable actor tools, report it as an SBAR: situation (the missing role or tool), background (the workflow and row), assessment (the affected check), recommendation (what to supply or accept). Do not convert the orchestrator into an undisclosed actor. A direct task outside this workflow has no orchestrator wrapper.
+When a workflow needs unavailable actor tools, report it as an SBAR: situation (the missing role or tool), background (the workflow and row), assessment (the affected check), recommendation (what to supply or accept). If the orchestrator also executes, state that explicitly and identify any unavailable independent check. A direct task outside this workflow needs no orchestrator wrapper.
 
 Next: choose a concrete split in [role patterns](role-patterns.md) or execute the selected procedure.

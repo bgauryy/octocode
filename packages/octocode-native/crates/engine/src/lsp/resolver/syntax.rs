@@ -12,14 +12,18 @@ use crate::text::utf8_offsets::hide_bom_in_line;
 use std::time::Instant;
 use tree_sitter::Node;
 
+mod literals;
+use literals::literal_context;
+
 #[derive(Clone)]
 pub(super) struct SymbolCandidate {
     pub(super) line_index: usize,
+    pub(super) source: std::ops::Range<usize>,
     character: usize,
     pub(super) is_exact: bool,
     is_declaration: bool,
-    /// The match sits inside a string literal (or similar textual node) rather
-    /// than an identifier; ranked after identifiers on the same line.
+    /// The match is literal text, rather than code or a quoted declaration
+    /// name; ranked after identifiers on the same line.
     pub(super) is_literal: bool,
 }
 
@@ -30,6 +34,7 @@ pub(super) struct SymbolCandidate {
 struct PathStep<'tree> {
     kind: &'tree str,
     field: Option<&'tree str>,
+    literal: bool,
 }
 
 pub(super) fn collect_symbol_candidates(
@@ -37,15 +42,17 @@ pub(super) fn collect_symbol_candidates(
     content: &str,
     index: &LineIndex,
     symbol_name: &str,
+    language_id: Option<&str>,
     candidates: &mut Vec<SymbolCandidate>,
     deadline: Instant,
 ) -> Result<()> {
     // A candidate's text holds the name, so a node without it holds none.
-    let spelled = Spelled::of(content, symbol_name);
+    let spelled = Spelled::of(content, canonical_symbol_name(language_id, symbol_name));
     let mut cursor = node.walk();
     let mut path = vec![PathStep {
         kind: node.kind(),
         field: None,
+        literal: literal_context(false, node, None),
     }];
     loop {
         check_budget(deadline)?;
@@ -54,24 +61,36 @@ pub(super) fn collect_symbol_candidates(
             && !is_ignored_node(current.kind())
             && spelled.within(current.start_byte(), current.end_byte())
         {
-            if let Some(mut candidate) = candidate_from_node(current, content, index, symbol_name) {
+            if let Some(mut candidate) =
+                candidate_from_node(current, content, index, symbol_name, language_id)
+            {
                 candidate.is_declaration = candidate.is_exact && is_declaration_name(&path);
+                candidate.is_literal =
+                    !candidate.is_declaration && path.last().is_some_and(|step| step.literal);
                 candidates.push(candidate);
             }
             if cursor.goto_first_child() {
+                let parent_literal = path.last().is_some_and(|step| step.literal);
                 path.push(PathStep {
                     kind: cursor.node().kind(),
                     field: cursor.field_name(),
+                    literal: literal_context(parent_literal, cursor.node(), cursor.field_name()),
                 });
                 continue;
             }
         }
         loop {
             if cursor.goto_next_sibling() {
+                let parent_literal = path.iter().rev().nth(1).is_some_and(|step| step.literal);
                 if let Some(step) = path.last_mut() {
                     *step = PathStep {
                         kind: cursor.node().kind(),
                         field: cursor.field_name(),
+                        literal: literal_context(
+                            parent_literal,
+                            cursor.node(),
+                            cursor.field_name(),
+                        ),
                     };
                 }
                 break;
@@ -89,30 +108,44 @@ fn candidate_from_node(
     content: &str,
     index: &LineIndex,
     symbol_name: &str,
+    language_id: Option<&str>,
 ) -> Option<SymbolCandidate> {
+    // A node that only wraps one named child of the same span (Go's
+    // one-value `expression_list`) spells nothing of its own: the walk reaches
+    // that child, whose own context says whether it is code or literal.
+    if node.named_child_count() == 1
+        && node
+            .named_child(0)
+            .is_some_and(|child| child.byte_range() == node.byte_range())
+    {
+        return None;
+    }
     // `content` is text: a span of it is text exactly when it is on char
     // boundaries, so nothing validates the root's whole file again.
     let text = content.get(node.start_byte()..node.end_byte())?;
-    let is_exact = exact_symbol_text(text, symbol_name);
+    let is_exact = exact_symbol_text(text, symbol_name, language_id);
     if !is_exact && node.named_child_count() > 0 && !is_symbolish_node(node.kind()) {
         return None;
     }
 
     let match_offset = if is_exact {
-        text.find(symbol_name).unwrap_or(0)
+        text.find(symbol_name)
+            .or_else(|| text.find(canonical_symbol_name(language_id, symbol_name)))
+            .unwrap_or(0)
     } else {
-        find_symbol_in_line(text, symbol_name, 0)?
+        find_symbol_in_line(text, canonical_symbol_name(language_id, symbol_name), 0)?
     };
     // Tree-sitter rows count only `\n`; derive the line from the byte offset
     // so a lone `\r` breaks lines here exactly as it does for the server.
     let (line_index, column) = index.position_of(node.start_byte() + match_offset);
     Some(SymbolCandidate {
         line_index,
+        source: node.byte_range(),
         character: column,
         is_exact,
         // Set by the walk, which holds the ancestor path.
         is_declaration: false,
-        is_literal: is_literal_node(node.kind()),
+        is_literal: false,
     })
 }
 
@@ -256,12 +289,6 @@ fn is_ignored_node(kind: &str) -> bool {
     is_comment_kind(kind) || kind == "ERROR"
 }
 
-fn is_literal_node(kind: &str) -> bool {
-    // `template_string` is covered by "string"; C++ `template_*` kinds are
-    // identifier-like and deliberately not treated as literals.
-    kind.contains("string") || is_comment_kind(kind)
-}
-
 fn is_symbolish_node(kind: &str) -> bool {
     kind.contains("identifier")
         || kind.contains("name")
@@ -343,11 +370,25 @@ fn is_declaring_kind(kind: &str) -> bool {
         && DECLARING_MARKERS.iter().any(|marker| kind.contains(marker))
 }
 
-fn exact_symbol_text(text: &str, symbol_name: &str) -> bool {
-    if text == symbol_name {
+/// Identifier identity without language-specific escapes; source spelling
+/// and ranges stay unchanged. Sigils that belong to a name remain significant.
+#[must_use]
+pub fn canonical_symbol_name<'a>(language_id: Option<&str>, name: &'a str) -> &'a str {
+    let bare = match language_id {
+        Some("rust") => name.strip_prefix("r#"),
+        Some("csharp") => name.strip_prefix('@'),
+        Some("scala") => name
+            .strip_prefix('`')
+            .and_then(|name| name.strip_suffix('`')),
+        _ => None,
+    };
+    bare.filter(|name| !name.is_empty()).unwrap_or(name)
+}
+
+fn exact_symbol_text(text: &str, symbol_name: &str, language_id: Option<&str>) -> bool {
+    let symbol_name = canonical_symbol_name(language_id, symbol_name);
+    if canonical_symbol_name(language_id, text) == symbol_name {
         return true;
     }
-    text.trim_matches(['"', '\'', '`'])
-        .trim_start_matches(['.', '#', '$', '@'])
-        == symbol_name
+    canonical_symbol_name(language_id, text.trim_matches(['"', '\'', '`'])) == symbol_name
 }

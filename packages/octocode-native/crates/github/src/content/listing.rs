@@ -27,12 +27,10 @@ impl GitHubProvider {
         let payload: ContentPayload = serde_json::from_slice(&page.body).map_err(|_| {
             ProviderError::new(ProviderErrorKind::Decode, "invalid GitHub content response")
         })?;
-        Ok(
-            (payload.kind.as_deref() == Some("submodule")).then_some(Submodule {
-                url: payload.submodule_git_url,
-                commit: payload.sha,
-            }),
-        )
+        Ok(payload.is_submodule().then_some(Submodule {
+            url: payload.submodule_git_url,
+            commit: payload.sha,
+        }))
     }
 
     pub async fn repository_contents(

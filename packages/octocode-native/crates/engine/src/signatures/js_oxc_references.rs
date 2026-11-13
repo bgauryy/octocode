@@ -83,7 +83,10 @@ pub(super) fn mark_type_use_only(
     }
     let scoping = semantic.scoping();
     let mut symbols_by_start: Option<HashMap<u32, _>> = None;
-    for import in imports.iter_mut().filter(|import| import.import_kind == "value") {
+    for import in imports
+        .iter_mut()
+        .filter(|import| import.import_kind == "value")
+    {
         let Some(range) = &import.local_range else {
             continue;
         };
@@ -310,7 +313,8 @@ mod tests {
     /// Each specifier of one declaration is judged by its own binding.
     #[test]
     fn specifiers_of_one_declaration_are_judged_apart() {
-        let source = "import { B, make } from './b';\nexport function build(): B { return make(); }\n";
+        let source =
+            "import { B, make } from './b';\nexport function build(): B { return make(); }\n";
         assert_eq!(
             type_use_only(source, "a.ts"),
             [("B".to_owned(), true), ("make".to_owned(), false)]

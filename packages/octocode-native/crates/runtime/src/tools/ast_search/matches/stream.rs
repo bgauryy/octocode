@@ -88,7 +88,11 @@ pub(super) fn stream_page(q: MatchQuery<'_>, groups: &[Group], budget: usize) ->
     // The page starts after every match of the files before its first and
     // the matches of that file before its first shown one.
     let offset = cuts.get(page - 1).map_or(total, |&((file, index), _)| {
-        groups[..file].iter().map(|group| group.sizes.len()).sum::<usize>() + index
+        groups[..file]
+            .iter()
+            .map(|group| group.sizes.len())
+            .sum::<usize>()
+            + index
     });
     let length = slices.iter().map(ExactSizeIterator::len).sum::<usize>();
     let facts = PageFacts::open(offset, length, more)

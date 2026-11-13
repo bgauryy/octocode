@@ -88,7 +88,7 @@ pub(super) fn read_commit_pull_request(q: &GhSearchHistoryQuery, rows: &[Value])
     })?;
     let mut read = pr_read_row(owner, repo, number);
     if let Some(path) = gh_search_history_query::path(q) {
-        read["include"] = json!([path]);
+        read["include"] = path_scope(path);
     }
     Some(Continuation::related_query(wire_query::<GhGetHistoryItemQuery>(read)?).build())
 }
@@ -119,9 +119,17 @@ pub(super) fn read_commit(q: &GhSearchHistoryQuery, sha: &str) -> Option<Value> 
         "operation":"commit","owner":owner,"repo":repo,"ref":sha,"sections":["patches"]
     });
     if let Some(path) = gh_search_history_query::path(q) {
-        read["include"] = json!([path]);
+        read["include"] = path_scope(path);
     }
     Some(Continuation::related_query(wire_query::<GhGetHistoryItemQuery>(read)?).build())
+}
+
+/// History's literal path may be a file or directory. Item reads take
+/// globs, so retain the exact path and its descendants without giving
+/// metacharacters in a repository path pattern semantics.
+fn path_scope(path: &str) -> Value {
+    let literal = octocode_engine::search::glob::literal(path.trim_end_matches('/'));
+    json!([literal, format!("{literal}/**")])
 }
 
 /// A PR search whose keywords are one bare issue number (`13786`, `#13786`)

@@ -4,10 +4,7 @@ use super::*;
 fn missing_local_path_is_not_found_other_errors_are_execution() {
     assert_eq!(failure_kind(ErrorCode::NotFound), FailureKind::NotFound);
     assert_eq!(failure_kind(ErrorCode::NotFound), FailureKind::NotFound);
-    assert_eq!(
-        failure_kind(ErrorCode::NotFound),
-        FailureKind::NotFound
-    );
+    assert_eq!(failure_kind(ErrorCode::NotFound), FailureKind::NotFound);
     assert_eq!(
         failure_kind(ErrorCode::FileAccessFailed),
         FailureKind::Execution

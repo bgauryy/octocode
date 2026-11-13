@@ -23,12 +23,12 @@ mod tests;
 use document::{
     COMMITS, CONNECTION_PAGE, Connection, DISCUSSION, FILES, REVIEWS, pull_request_document,
 };
-use errors::{connection_warning, describe_errors, error_field, graphql_failure};
+use errors::error_field;
 pub(super) use projection::{
     GraphqlCollection, map_graphql_comments, map_graphql_commits, map_graphql_files,
     map_graphql_reviews,
 };
-use projection::{graphql_collection_state, map_graphql_pr_metadata};
+use projection::{files_have_complete_metadata, graphql_collection_state, map_graphql_pr_metadata};
 
 /// The first-page PR served by GraphQL: REST-shaped metadata, the raw
 /// GraphQL node, and per-collection completeness.
@@ -39,9 +39,6 @@ pub(super) struct GraphqlPr {
     pub(super) discussion: GraphqlCollection,
     pub(super) reviews: GraphqlCollection,
     pub(super) commits: GraphqlCollection,
-    /// One warning per connection GraphQL answered with `errors[]`: REST
-    /// read it instead, and the warning names each error's path and text.
-    pub(super) warnings: Vec<String>,
 }
 
 /// What GraphQL serves for one read: the wanted collections that no filter
@@ -74,21 +71,16 @@ impl GraphqlWants {
     }
 
     fn count(self) -> usize {
-        [
-            self.body,
-            self.files,
-            self.discussion,
-            self.reviews,
-            self.commits,
-        ]
-        .into_iter()
-        .filter(|wanted| *wanted)
-        .count()
+        [self.files, self.discussion, self.reviews, self.commits]
+            .into_iter()
+            .filter(|wanted| *wanted)
+            .count()
     }
 }
 
-/// GraphQL pays off only for a first page of at least two collections it
-/// serves and no patches (GraphQL returns no patch text).
+/// One first-page connection can share its GraphQL request with the PR header,
+/// replacing separate REST header and collection reads. Body-only reads stay
+/// on REST, and patches require REST because GraphQL returns no patch text.
 pub(super) fn graphql_complete_collection_eligible(query: &HistoryItemRequest) -> bool {
     if gh_get_history_item_query::operation(query) != ItemOperation::PullRequest {
         return false;
@@ -98,32 +90,25 @@ pub(super) fn graphql_complete_collection_eligible(query: &HistoryItemRequest) -
     {
         return false;
     }
-    GraphqlWants::of(query).count() >= 2
-}
-
-/// What the GraphQL fast path produced for one pull-request read.
-pub(super) enum GraphqlOutcome {
-    /// GraphQL is disabled or unavailable for this endpoint: REST serves the
-    /// read as the configured path, with nothing to report.
-    Unavailable,
-    /// GraphQL answered without a usable pull request; REST serves the read
-    /// and the reason stays observable.
-    Failed(String),
-    Served(Box<GraphqlPr>),
+    GraphqlWants::of(query).count() > 0
 }
 
 /// Fetch the PR and its wanted collections in one GraphQL request, then
 /// read on from each connection's end cursor until its first page is held.
+/// `None` leaves the whole read to REST: GraphQL is unavailable for this
+/// endpoint, or it answered without a pull request every field can trust.
+/// REST then returns the same rows, so the transport choice is not part of
+/// the answer.
 pub(super) async fn graphql_pull_request(
     source: &Source<'_>,
     query: &HistoryItemRequest,
     context: &RequestContext,
-) -> Result<GraphqlOutcome, ProviderError> {
+) -> Result<Option<GraphqlPr>, ProviderError> {
     if !source.graphql_available(context) {
-        return Ok(GraphqlOutcome::Unavailable);
+        return Ok(None);
     }
     let Some(number) = gh_get_history_item_query::number(query) else {
-        return Ok(GraphqlOutcome::Unavailable);
+        return Ok(None);
     };
     let wants = GraphqlWants::of(query);
     let (document, bound) = pull_request_document(&wants);
@@ -145,7 +130,7 @@ pub(super) async fn graphql_pull_request(
         .map(Value::take)
         .unwrap_or(Value::Null);
     if pr.is_null() {
-        return Ok(GraphqlOutcome::Failed(graphql_failure(&page.errors)));
+        return Ok(None);
     }
     let collection_page = gh_get_history_item_query::collection_page_size(query);
     let file_page = super::inventory::file_page_size(query, false);
@@ -184,29 +169,36 @@ pub(super) async fn graphql_pull_request(
         })
     };
     if !page.errors.iter().all(in_connection) {
-        return Ok(GraphqlOutcome::Failed(graphql_failure(&page.errors)));
+        return Ok(None);
     }
     // GraphQL serves section reads only, whose row names the pull request
     // and its commits: the labels are the summary read's (REST), so no
     // further label page is read here.
+    // A connection GraphQL answered with `errors[]` is left to REST, which
+    // reads it whole: the rows, and any limit REST meets, are REST's, so
+    // GraphQL's errors are not part of the answer.
     let mut states = [GraphqlCollection::Unused; 4];
-    let mut warnings = Vec::new();
     for (slot, (connection, wanted, need, max_pages)) in states.iter_mut().zip(plans) {
         if !wanted {
             continue;
         }
-        let errors = page
+        if page
             .errors
             .iter()
-            .filter(|error| error_field(error) == Some(connection.key))
-            .collect::<Vec<_>>();
-        if !errors.is_empty() {
+            .any(|error| error_field(error) == Some(connection.key))
+        {
             // Its nodes are untrusted: REST reads the connection whole.
             *slot = GraphqlCollection::Incomplete;
-            warnings.push(connection_warning(connection, &describe_errors(errors)));
             continue;
         }
-        let mut page_errors = Vec::new();
+        // A connection can be complete by count while its representation omits
+        // selected metadata. Keep the header and other connections; REST fills it.
+        let metadata_complete =
+            |pr: &Value| connection.key != FILES.key || files_have_complete_metadata(pr);
+        if !metadata_complete(&pr) {
+            *slot = GraphqlCollection::Incomplete;
+            continue;
+        }
         *slot = read_on(
             source,
             context,
@@ -214,25 +206,23 @@ pub(super) async fn graphql_pull_request(
             &mut pr,
             connection,
             (need, max_pages),
-            &mut page_errors,
         )
         .await?;
-        if !page_errors.is_empty() {
-            warnings.push(connection_warning(connection, &page_errors.join("; ")));
+        if !metadata_complete(&pr) {
+            *slot = GraphqlCollection::Incomplete;
         }
     }
     // Redacted whole, before any row is mapped, filtered or windowed.
     source.redact_bodies(&mut pr)?;
     let [files, discussion, reviews, commits] = states;
-    Ok(GraphqlOutcome::Served(Box::new(GraphqlPr {
+    Ok(Some(GraphqlPr {
         files,
         discussion,
         reviews,
         commits,
-        warnings,
         raw: map_graphql_pr_metadata(&pr),
         source: pr,
-    })))
+    }))
 }
 
 /// Read `connection` on from its end cursor, appending every page's nodes
@@ -240,8 +230,8 @@ pub(super) async fn graphql_pull_request(
 /// read (`(need, max_pages)`); then its state. A connection the PR counts is
 /// never read on: REST reads the rest in one wave ([`Connection::total`]). A
 /// continuation that fails (other than by cancellation or timeout) leaves
-/// the connection to REST; one answered with `errors[]` is not appended,
-/// and `errors` receives its described errors.
+/// the connection to REST, as does one answered with `errors[]`, which is
+/// not appended.
 async fn read_on(
     source: &Source<'_>,
     context: &RequestContext,
@@ -249,7 +239,6 @@ async fn read_on(
     pr: &mut Value,
     connection: &Connection,
     (need, max_pages): (usize, usize),
-    errors: &mut Vec<String>,
 ) -> Result<GraphqlCollection, ProviderError> {
     let mut pages = 1;
     loop {
@@ -289,7 +278,6 @@ async fn read_on(
             Err(_) => return Ok(GraphqlCollection::Incomplete),
         };
         if !answer.errors.is_empty() {
-            errors.push(describe_errors(&answer.errors));
             return Ok(GraphqlCollection::Incomplete);
         }
         let Some(page) = answer

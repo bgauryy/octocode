@@ -201,14 +201,7 @@ async fn note_empty_answer(
             Ok(report) => Some(super::ops::diagnostic_items(Some(report))),
             Err(_) => None,
         };
-    super::analysis_context::annotate_diagnostics(
-        row,
-        query,
-        report
-            .as_ref()
-            .map(|(items, truncated)| (items, *truncated)),
-        anchor_line + 1,
-    );
+    super::analysis_context::annotate_diagnostics(row, query, report.as_ref(), anchor_line + 1);
     Ok(())
 }
 

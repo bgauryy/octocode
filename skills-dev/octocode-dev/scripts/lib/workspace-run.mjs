@@ -124,7 +124,7 @@ export async function runWorkspaceScriptParallel(workspaces, scriptName, preferS
 export function runVerify(workspaces) {
   checkRequiredScripts(workspaces);
   checkLayering(workspaces);
-  runCommand('node', ['--test', 'skills-dev/octocode-dev/scripts/*.test.mjs']);
+  runCommand('node', ['--test', 'skills-dev/octocode-dev/scripts/*.test.mjs', 'skills-dev/octocode-dev/scripts/providers/*.test.mjs']);
   runCommand('node', ['skills-dev/octocode-dev/scripts/dedupe-deps.mjs']);
   runCommand('node', ['skills-dev/octocode-dev/scripts/docs-verify.mjs']);
 

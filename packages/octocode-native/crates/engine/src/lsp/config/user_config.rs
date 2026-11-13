@@ -29,6 +29,16 @@ struct UserServerSpec {
 }
 
 impl UserServerSpec {
+    /// Entries with one launch share document-ID choices; a different server
+    /// or configuration must not lend its choices to this client.
+    fn same_launch(&self, other: &Self) -> bool {
+        self.command == other.command
+            && self.args == other.args
+            && self.initialization_options == other.initialization_options
+            && self.max_memory_mb == other.max_memory_mb
+            && self.env == other.env
+    }
+
     /// A launch no entry may use: a shell, or an interpreter told to evaluate
     /// its arguments.
     fn is_rejected_launch(&self) -> bool {
@@ -312,6 +322,12 @@ pub(super) fn user_server_for_extension(
                 args: Some(args),
                 workspace_root: workspace_root.to_owned(),
                 language_id: Some(language_id),
+                document_language_ids: parsed
+                    .servers
+                    .iter()
+                    .filter(|(_, candidate)| server.same_launch(candidate))
+                    .map(|(extension, entry)| (extension.clone(), entry.language_id.clone()))
+                    .collect(),
                 initialization_options: server.initialization_options.clone(),
                 env: server.env.clone(),
                 max_memory_mb: server.max_memory_mb,

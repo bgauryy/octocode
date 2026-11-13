@@ -151,9 +151,24 @@ fn exact_edits(
     let mut edits: Vec<Edit> = Vec::new();
     let mut buffer = vec![0u8; READ_BYTES];
     for span in spans {
-        seek(file, span.range.start as u64)?;
+        // The byte before the span says whether it starts its line.
+        let before = match span.range.start.checked_sub(1) {
+            Some(at) => {
+                seek(file, at as u64)?;
+                let mut byte = [0u8];
+                (&mut &*file)
+                    .read_exact(&mut byte)
+                    .map_err(|error| error.to_string())?;
+                super::count_read(1);
+                Some(byte[0])
+            }
+            None => {
+                seek(file, 0)?;
+                None
+            }
+        };
         let text = octocode_engine::security::redaction_placeholder(span.form.pattern()).len();
-        let mut lines = super::masks::PlaceholderEdits::new(span);
+        let mut lines = super::masks::SpanEdits::new(span, before);
         let mut left = span.range.len();
         while left > 0 {
             cancel.check()?;

@@ -130,7 +130,7 @@ test('tool pages follow responsePagination first, then every row continuation, i
   const run = async (tool, input) => { seen.push(input.cursor ?? 'first'); return pages[input.cursor ?? 'first']; };
   const out = await pagedTool('astSearch', { queries: [{}] }, { run });
   assert.deepEqual(seen, ['first', 'rp', 'row']);
-  assert.deepEqual(out.flatMap((p) => p.results[0].data.symbols.map((s) => s.n)), [1, 2, 3]);
+  assert.deepEqual(out.flatMap((p) => p.results.flatMap((r) => r.data.symbols.map((s) => s.n))), [1, 2, 3]);
   assert.deepEqual(continuations(pages.row), []);
   await assert.rejects(pagedTool('x', {}, { run: async () => ({ results: [{ data: { next: { a: { kind: 'continue', input: { cursor: 'same' } } } } }] }) }), /Repeated/);
 });

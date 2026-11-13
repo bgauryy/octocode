@@ -24,7 +24,7 @@ fn an_empty_row_names_the_server_error_on_its_anchor_line() {
         "operation": "definition", "path": "/repo/k.cu",
         "symbolName": "scale", "line": 7
     }));
-    let (diagnostics, _) = diagnostic_items(Some(serde_json::json!([
+    let diagnostics = diagnostic_items(Some(serde_json::json!([
         {"severity": 1, "source": "clang", "message": "Use of undeclared identifier 'cudaConfigureCall'\n\nnote: here",
             "range": {"start": {"line": 6, "character": 2}, "end": {"line": 6, "character": 7}}},
         {"severity": 1, "message": "Unknown type name 'dim3'",
@@ -40,12 +40,7 @@ fn an_empty_row_names_the_server_error_on_its_anchor_line() {
         "definitionProvider returned no locations",
         true,
     );
-    super::super::analysis_context::annotate_diagnostics(
-        &mut row,
-        &q,
-        Some((&diagnostics, false)),
-        7,
-    );
+    super::super::analysis_context::annotate_diagnostics(&mut row, &q, Some(&diagnostics), 7);
     assert_eq!(row["isPartial"], true, "{row}");
     assert_eq!(
         row["partialReasons"],
@@ -88,12 +83,7 @@ fn an_empty_row_names_the_server_error_on_its_anchor_line() {
         "definitionProvider returned no locations",
         true,
     );
-    super::super::analysis_context::annotate_diagnostics(
-        &mut clean,
-        &q,
-        Some((&diagnostics, false)),
-        4,
-    );
+    super::super::analysis_context::annotate_diagnostics(&mut clean, &q, Some(&diagnostics), 4);
     assert_eq!(
         clean["partialReasons"],
         serde_json::json!(["documentAnalysisErrors"])
@@ -102,12 +92,7 @@ fn an_empty_row_names_the_server_error_on_its_anchor_line() {
     let mut found =
         serde_json::json!({"operation": "definition", "matches": [{"path": "/repo/k.cu"}]});
     let before = found["matches"].clone();
-    super::super::analysis_context::annotate_diagnostics(
-        &mut found,
-        &q,
-        Some((&diagnostics, false)),
-        7,
-    );
+    super::super::analysis_context::annotate_diagnostics(&mut found, &q, Some(&diagnostics), 7);
     assert_eq!(found["matches"], before);
     assert_eq!(
         found["partialReasons"],

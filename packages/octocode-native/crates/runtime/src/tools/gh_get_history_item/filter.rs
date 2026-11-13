@@ -136,14 +136,11 @@ pub(super) fn match_dropped_warning(dropped: usize, listed: usize) -> String {
 /// A `matchString` that kept none of the listed changed files it could
 /// search. It searches each file's diff text (never its path), so the
 /// function context git prints after a hunk's `@@ … @@` counts as text: a
-/// hit there is not a changed line.
-pub(super) fn match_removed_all_warning(
-    needle: &octocode_contract_types::TextMatchTerms,
-    listed: usize,
-) -> String {
-    let terms = needle.iter().map(ToString::to_string).collect::<Vec<_>>();
+/// hit there is not a changed line. The terms are the caller's own and are
+/// not echoed: a term can be part of a value the read redacted.
+pub(super) fn match_removed_all_warning(listed: usize) -> String {
     format!(
-        "matchString matched 0 of {listed} changed files (it searched {terms:?} in each file's diff text, hunk-header context included); drop matchString to list the files."
+        "matchString matched 0 of {listed} changed files (each file's diff text was searched, hunk-header context included); drop matchString to list the files."
     )
 }
 

@@ -141,7 +141,7 @@ fn a_miss_in_a_redacted_file_keeps_its_leads() {
         assert!(
             row.hints
                 .iter()
-                .any(|hint| hint == crate::tools::source_view::no_match::REDACTED_MATCH_HINT),
+                .any(|hint| hint.starts_with(crate::tools::source_view::no_match::REDACTED_MISS)),
             "{row:?}"
         );
         serde_json::to_value(row.next.as_ref().expect("next")).expect("json")

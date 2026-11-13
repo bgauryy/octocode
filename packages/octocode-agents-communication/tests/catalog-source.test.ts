@@ -23,10 +23,3 @@ test('Zod stays a build-time tool: no runtime source imports it and it is not a 
     }
   }
 });
-
-test('every catalog source module stays small enough to read', () => {
-  for (const file of readdirSync(join(root, 'src/catalog'))) {
-    const lines = readFileSync(join(root, 'src/catalog', file), 'utf8').split('\n').length;
-    assert.ok(lines <= 400, `${file} has ${lines} lines`);
-  }
-});

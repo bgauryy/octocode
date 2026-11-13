@@ -3,7 +3,7 @@ Load when the route or `--provider` is unclear, or before a broad crawl or hoste
 ## Scope
 
 - Ask only for a missing choice that changes the work. Vague request: SKILL.md defaults, no auth; return the session path and next search targets.
-- Map a site: `fetch.mjs --url <u> --crawl --max-pages 20`.
+- Map a site within the authorized page budget: `fetch.mjs --url <u> --crawl --max-pages <n>`.
 - Cheapest route that proves the claim, one per need.
 
 ## Route

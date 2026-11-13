@@ -228,6 +228,55 @@ fn yaml_blocks_are_the_same_in_any_pieces() {
     }
 }
 
+/// A Secret's block read in pieces of any size shows the values one read of it
+/// shows: the one rule a source held whole and a streamed source follow. A line
+/// past what is held of it hides from its value's start to its end, its name
+/// kept.
+#[test]
+fn yaml_block_values_are_the_same_in_any_pieces() {
+    let long = "QUJD".repeat(2_000);
+    for text in [
+        "apiVersion: v1\nkind: Secret\ndata:\n  a: QUJD # note\n  b: \"quoted\"\n  # comment\n  {{ tpl }}\nstringData:\n  config.yaml: |\n    user: admin\n    - item\n  key: -----BEGIN PRIVATE KEY-----\n".to_owned(),
+        "kind: Secret\r\ndata:\r\n  a: QUJD\r\n  b: [REDACTED-KUBERNETESSECRETS]\r\n".to_owned(),
+        format!("kind: Secret\ndata:\n  big: {long} # trailing note\n  \"q\": \"{long}\"\n  {long}\n  small: x\n"),
+    ] {
+        let blocks = yaml_secret::secret_blocks(&text);
+        assert!(!blocks.is_empty(), "{text:.80}");
+        let mut whole = Vec::new();
+        for block in &blocks {
+            yaml_secret::block_values(&text, block.clone(), &mut whole);
+        }
+        assert!(!whole.is_empty(), "{text:.80}");
+        for size in [1, 2, 3, 7, 64, 4095, 4096, 4097, text.len()] {
+            let mut pieces = Vec::new();
+            for block in &blocks {
+                let before = text.as_bytes()[..block.start].last().copied();
+                let Some(mut values) = yaml_secret::BlockValues::new(block.start, before) else {
+                    pieces.push(block.clone());
+                    continue;
+                };
+                for piece in text.as_bytes()[block.clone()].chunks(size) {
+                    values.feed(piece, &mut pieces);
+                }
+                values.finish(&mut pieces);
+            }
+            assert_eq!(pieces, whole, "{text:.80} by {size}");
+        }
+        let shown = whole.iter().map(|range| &text[range.clone()]).collect::<Vec<_>>();
+        assert!(shown.iter().all(|value| !value.starts_with(' ') && !value.contains(": ")), "{shown:.200?}");
+    }
+    let text = format!("kind: Secret\ndata:\n  big: {long} # trailing note\n");
+    let blocks = yaml_secret::secret_blocks(&text);
+    let mut values = Vec::new();
+    yaml_secret::block_values(&text, blocks[0].clone(), &mut values);
+    assert_eq!(values.len(), 1);
+    assert_eq!(
+        &text[values[0].clone()],
+        long,
+        "the long value alone: its name and note stay"
+    );
+}
+
 /// A value of any length passes with nothing kept of it but what its end asks.
 #[test]
 fn a_long_token_keeps_nothing_and_still_counts() {

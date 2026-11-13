@@ -4,7 +4,10 @@
 //! catalog lists enabled tools, and per-tool views carry `availability` and
 //! `run`.
 mod grammar;
+mod output;
 use grammar::grammar_instruction;
+pub(super) use output::output_of;
+use output::output_view;
 use serde_json::{Value, json};
 
 /// A usage error (exit 2) or an execution error (exit 5).
@@ -56,43 +59,6 @@ const CLI_INSTRUCTIONS: &str = "<cli>Listed tools are available; execution check
 /// the full catalog.
 pub(super) fn instructions(presentation: &Value, available: impl Fn(&str) -> bool) -> String {
     octocode_native::contracts::compose_instructions(presentation, available)
-}
-
-/// The statements of composed instructions that no tool text may repeat:
-/// each line split at a sentence or clause end (`. `, `; `), list and heading
-/// markers dropped, four words or more (shorter pieces are headings such as
-/// `## 2. Loop`). Core's `instructionsOnce.test.ts` splits the same way.
-#[cfg(test)]
-pub(super) fn instruction_sentences(text: &str) -> Vec<&str> {
-    text.lines()
-        .flat_map(|line| line.split_inclusive(". "))
-        .flat_map(|piece| piece.split_inclusive("; "))
-        .map(|piece| {
-            piece
-                .trim_start_matches(|c: char| c.is_whitespace() || "#-.".contains(c) || c.is_ascii_digit())
-                .trim()
-        })
-        .filter(|piece| piece.split_whitespace().count() >= 4)
-        .collect()
-}
-
-/// Every string in `value`, one per line: titles, descriptions, notes, examples.
-#[cfg(test)]
-pub(super) fn strings_of(value: &Value) -> String {
-    fn walk(value: &Value, out: &mut String) {
-        match value {
-            Value::String(text) => {
-                out.push_str(text);
-                out.push('\n');
-            }
-            Value::Array(items) => items.iter().for_each(|item| walk(item, out)),
-            Value::Object(map) => map.values().for_each(|item| walk(item, out)),
-            _ => {}
-        }
-    }
-    let mut out = String::new();
-    walk(value, &mut out);
-    out
 }
 
 /// Select a core-generated presentation using the runtime's resolved switch.
@@ -179,24 +145,6 @@ pub(super) fn catalog(machine: &Value, view: Option<&str>) -> Result<Value, Sche
     Ok(value)
 }
 
-/// What `tool`'s output fields and coverage reasons mean: the reference for
-/// a field an answer holds. A reason also says what it means when it fires.
-fn output_view(tool: &Value) -> Value {
-    json!({
-        "name": tool["name"],
-        "fields": tool["output"],
-        "partialReasons": octocode_native::contracts::partial_reasons(),
-    })
-}
-
-/// [`output_view`] of the tool named `name`, for its MCP resource.
-pub(super) fn output_of(name: &str) -> Option<Value> {
-    let presentation = presentation().ok()?;
-    tools(presentation)
-        .find(|tool| tool["name"] == name)
-        .map(output_view)
-}
-
 /// The query fields the first form of tool `name` requires, for the root
 /// help's one line per tool: `path, matchString`; an operation the form
 /// selects by its value (`operation:"search"`); `none` when every field is
@@ -251,7 +199,7 @@ pub(super) fn tool_view(
         if select.is_some() {
             return Err(usage("--select requires the query view and a tool name"));
         }
-        return Ok(output_view(tool));
+        return output_view(tool);
     }
     let configured = configured_tool(tool, machine);
     let view = view.unwrap_or("query");

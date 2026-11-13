@@ -4,13 +4,7 @@ Load when cleaning or auditing code an agent wrote or edited.
 
 ## Audit order
 
-1. Duplication and reinvention.
-2. Error masking: highest severity, report-only.
-3. Test integrity, weak oracles ([tests](tests.md)).
-4. Scope-creep leftovers, annotation churn, oversized changes.
-5. Dependency, supply-chain, credential defects.
-6. Suppressions, speculative abstraction ([code-smells](code-smells.md#checker-suppressions)).
-7. Narration residue, low-connectivity files: batch last.
+Prioritize reachable wrong results, masked failures, weakened tests and exposed credentials by impact. Then inspect duplication, scope creep, dependency defects and [unsupported suppressions](code-smells.md#checker-suppressions). Treat narration and low-connectivity files as candidates, not automatic deletions.
 
 ## Reinvention
 
@@ -21,7 +15,7 @@ Before deleting either copy, verify the availability check that caused it.
 | Self-contained algorithm (distance, parser, retry, deep-clone, date math), no imports: `astSearch` the body | a dependency or internal module provides it. |
 | Same names exported to disjoint consumers: graphQuery `dependents` of the file after `graphBuild` (tools per the [MCP/CLI guide](octocode-usage.md); else `lspSearch` references) | `lspSearch` references prove which is live. |
 | New file, zero dependents, few outgoing calls: graphQuery `dependents` + `issues` with `detectors: ["unreachable-file","unused-export"]` (else `lspSearch` + `localSearch`) | unreferenced, not only new. |
-| Third variant of one rule (validation, formatting, auth check): `localSearch` its literals | list all variants; choose canonical first. |
+| Parallel variants of one rule (validation, formatting, auth check): `localSearch` its literals | compare their meanings and consumers before choosing a canonical owner. |
 
 ## Residue to remove
 
@@ -67,7 +61,7 @@ Supply chain and credentials (verify):
 
 ## Escalation protocol
 
-1. SBAR blocker, even on cleanup-only requests: situation (file, line, class, exact failure disguised); background (correct behavior, callers depending on the current one); assessment (blast radius via `octocode-research`); recommendation (request a fix through normal development).
+1. Report blocking defects in SBAR: masked failure and location, intended behavior, affected consumers and recommended repair. Use existing evidence; request more investigation only for a material gap.
 2. Keep it out of every batch, approved ones included.
 3. Confirmed test-integrity finding → clean the test per [tests](tests.md) only after the bug is fixed.
 

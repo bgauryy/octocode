@@ -1,6 +1,5 @@
 //! `operation:"refs"` (branches and tags) and `operation:"languages"`.
 use super::*;
-use crate::response::paging::push_warnings;
 use octocode_github::MAX_PER_PAGE;
 use octocode_github::{NamedRef, RefKind, RefMatch};
 
@@ -116,12 +115,6 @@ pub(super) async fn refs(
         value["tags"] = json!(tags.names);
     }
     let tags = tags.unwrap_or_default();
-    if tags.github_order {
-        push_warnings(
-            &mut value,
-            ["Tags are in GitHub's order (reverse-lexicographic, not newest first): the whole tag list could not be read to order it.".to_owned()],
-        );
-    }
     // The default-branch read named the canonical repository: leads use it.
     let (renamed_warning, canonical) = crate::tools::gh_shared::canonical_query(
         provider,
@@ -204,15 +197,12 @@ impl RefLists {
 struct TagPage {
     names: Vec<String>,
     has_more: bool,
-    /// GitHub's own tag page (reverse-lexicographic), read when the whole
-    /// tag list could not be.
-    github_order: bool,
 }
 
 /// Page `page` of the repository's tags, newest version first: the whole
 /// tag list is read (one git-refs listing) and ordered, so every page
-/// continues one order. When that listing fails, GitHub's tag page in its
-/// own order stands in.
+/// continues one order. A failed whole-list read remains a typed failure:
+/// substituting GitHub's page order would change the cursor's ordering.
 async fn tag_page(
     transport: &octocode_github::GitHubTransport,
     owner: &str,
@@ -221,29 +211,14 @@ async fn tag_page(
     per_page: usize,
     context: &RequestContext,
 ) -> Result<TagPage, ProviderError> {
-    match transport.repository_tag_names(owner, repo, context).await {
-        Ok(mut names) => {
-            super::tag_order::newest_first(&mut names);
-            let start = page.saturating_sub(1).saturating_mul(per_page);
-            let has_more = names.len() > start.saturating_add(per_page);
-            Ok(TagPage {
-                names: names.into_iter().skip(start).take(per_page).collect(),
-                has_more,
-                github_order: false,
-            })
-        }
-        Err(error) if error.is_cancelled_or_timed_out() => Err(error),
-        Err(_) => {
-            let tags = transport
-                .repository_refs(owner, repo, RefKind::Tags, page, per_page, context)
-                .await?;
-            Ok(TagPage {
-                names: tags.refs.into_iter().map(|named| named.name).collect(),
-                has_more: tags.has_more,
-                github_order: true,
-            })
-        }
-    }
+    let mut names = transport.repository_tag_names(owner, repo, context).await?;
+    super::tag_order::newest_first(&mut names);
+    let start = page.saturating_sub(1).saturating_mul(per_page);
+    let has_more = names.len() > start.saturating_add(per_page);
+    Ok(TagPage {
+        names: names.into_iter().skip(start).take(per_page).collect(),
+        has_more,
+    })
 }
 
 /// Bytes of code per language on the default branch, largest first, with

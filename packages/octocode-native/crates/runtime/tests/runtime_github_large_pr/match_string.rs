@@ -316,9 +316,12 @@ async fn match_string_with_zero_hits_says_so() {
         with_body["pullRequests"][0].get("body").is_some(),
         "{with_body}"
     );
+    // The warning states the miss over every listed file; it does not echo
+    // the caller's terms, which can be part of a value the read redacted.
     let warnings = with_body["warnings"].to_string();
     assert!(
-        warnings.contains("matchString") && warnings.contains("absentNeedle"),
+        warnings.contains("matchString") && warnings.contains("0 of 2"),
         "{with_body}"
     );
+    assert!(!warnings.contains("absentNeedle"), "{with_body}");
 }

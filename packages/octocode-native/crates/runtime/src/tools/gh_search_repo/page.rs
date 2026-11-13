@@ -153,25 +153,22 @@ impl RepoPage {
 }
 
 /// The provider's result cap, stated once. [`apply_partial`] writes it as a
-/// warning (the only statement carrying the full match count), a
-/// `partialReasons` entry and its glossary mark; the warning stays, beside
-/// the `isPartial` and `countScope: "capped"` facts. The reason name would only
-/// restate it.
+/// warning (the only statement carrying the full match count) and a
+/// `partialReasons` entry; the warning stays, beside the `isPartial` and
+/// `countScope: "capped"` facts. The reason name would only restate it.
 fn state_cap_once(value: &mut Value) {
     const CAP: &str = "providerResultCap";
     let Some(object) = value.as_object_mut() else {
         return;
     };
-    for key in ["partialReasons", "statedReasons"] {
-        let emptied = object
-            .get_mut(key)
-            .and_then(Value::as_array_mut)
-            .is_some_and(|reasons| {
-                reasons.retain(|reason| reason != CAP);
-                reasons.is_empty()
-            });
-        if emptied {
-            object.remove(key);
-        }
+    let emptied = object
+        .get_mut("partialReasons")
+        .and_then(Value::as_array_mut)
+        .is_some_and(|reasons| {
+            reasons.retain(|reason| reason != CAP);
+            reasons.is_empty()
+        });
+    if emptied {
+        object.remove("partialReasons");
     }
 }

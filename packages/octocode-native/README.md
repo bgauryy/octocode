@@ -111,7 +111,7 @@ packages/octocode-native/
 ├─ bin/         platform map, binary resolver, registry fallback, signal-forwarding launcher (bundled into the launchers)
 ├─ npm/<p>/     one package per platform: the `octocode` binary
 └─ scripts/     build-native.cjs (build + atomic staging), stage-binary.cjs, platform-packages.cjs (derived manifests),
-               release: release-matrix.cjs, binary-identity.cjs, smoke-binary.cjs, pack-release.cjs (docs/PUBLISHING.md)
+               release: release-matrix.cjs, binary-identity.cjs, pack-release.cjs (docs/PUBLISHING.md)
 ```
 
 Cross-platform and release builds (`build:target <platform>`, `build:all`) and
@@ -254,5 +254,5 @@ guards that run.
 
 - One binary serves CLI and MCP; the MCP interface adds no tool logic (`crates/cli/src/cli/mcp_server/` lists tools from the embedded presentation and calls the shared runtime).
 - No command delegates back to Node; the CLI owns all command behavior.
-- Workspace clippy policy (root `Cargo.toml`, thresholds in `clippy.toml`) denies `unwrap_used`, `expect_used`, `panic`, `todo`, `unimplemented`, and `dbg_macro`; hand-written code suppresses a lint only with `#[expect(..., reason = "...")]`; a function stays within 150 lines; a source module is `name.rs` plus `name/` (`mod_module_files`).
+- Workspace clippy policy (root `Cargo.toml`, settings in `clippy.toml`) denies `unwrap_used`, `expect_used`, `panic`, `todo`, `unimplemented`, and `dbg_macro`; hand-written code suppresses a lint only with `#[expect(..., reason = "...")]`; a source module is `name.rs` plus `name/` (`mod_module_files`).
 - Arguments use clap v4 derive; enum-like arguments are validated at parse time, so a bad value exits `2` with the choices listed.

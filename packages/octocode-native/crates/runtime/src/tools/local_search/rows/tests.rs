@@ -9,6 +9,7 @@ fn row(first_line: u32, line: u32, value: &str) -> SearchMatch {
         window_start: None,
         byte_offset: 0,
         first_line,
+        end_line: None,
         match_lines: None,
         count: None,
         enclosing: None,
@@ -81,7 +82,7 @@ fn shown_once(
 ) -> std::collections::BTreeMap<u32, String> {
     let mut shown = std::collections::BTreeMap::new();
     for row in rows {
-        let lines = row.match_lines.clone().unwrap_or_else(|| vec![row.line]);
+        let lines = crate::tools::local_search::enclosing::row_lines(row);
         for numbered in row.value.split('\n') {
             let (number, text) = numbered.split_once('\t').expect("a numbered line");
             let number: u32 = number.parse().expect("a line number");
@@ -196,13 +197,16 @@ fn a_search_beside_a_left_out_line_shows_every_held_line_once() {
 #[test]
 fn a_multiline_match_window_is_numbered_from_its_first_context_line() {
     let mut spanned = row(2, 3, "two\nfn new()\n  -> Self\nfive");
-    spanned.match_lines = Some(vec![3, 4]);
+    spanned.end_line = Some(4);
     let merged = merge_context_windows(vec![spanned], SearchContext::symmetric(1), &[w(3, 2, 5)]);
     assert_eq!(
         merged[0].value,
         "2\ttwo\n3\tfn new()\n4\t  -> Self\n5\tfive"
     );
-    assert_eq!(merged[0].match_lines, Some(vec![3, 4]));
+    assert_eq!(
+        (merged[0].end_line, &merged[0].match_lines),
+        (Some(4), &None)
+    );
     assert_eq!(merged[0].line, 3);
 }
 
@@ -344,7 +348,7 @@ fn a_multiline_hit_and_a_nearby_hit_show_each_line_once() {
     let context = SearchContext::symmetric(3);
     let windows = [(3, 1, 7), (7, 4, 10)];
     let mut spanned = row(1, 3, "l1\nl2\nl3\nl4\nl5\nl6\nl7");
-    spanned.match_lines = Some(vec![3, 4]);
+    spanned.end_line = Some(4);
     let nearby = row(4, 7, "l4\nl5\nl6\nl7\nl8\nl9\nl10");
     let hits = [w(3, 1, 7), w(7, 4, 10)];
     let expected = (1..=10).collect::<Vec<_>>();
@@ -367,7 +371,7 @@ fn a_hit_beside_a_long_match_never_takes_its_covered_lines() {
     let context = SearchContext::symmetric(3);
     let windows = [(3, 1, 9), (7, 4, 10)];
     let mut spanned = row(1, 3, "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9");
-    spanned.match_lines = Some(vec![3, 4, 5, 6]);
+    spanned.end_line = Some(6);
     let nearby = row(4, 7, "l4\nl5\nl6\nl7\nl8\nl9\nl10");
     let hits = [
         HitWindow {
@@ -380,7 +384,10 @@ fn a_hit_beside_a_long_match_never_takes_its_covered_lines() {
     ];
     let merged = merge_context_windows(vec![spanned, nearby], context, &hits);
     shown_once(&merged, &windows, &(1..=10).collect::<Vec<_>>());
-    assert_eq!(merged[0].match_lines, Some(vec![3, 4, 5, 6]));
+    assert_eq!(
+        (merged[0].end_line, &merged[0].match_lines),
+        (Some(6), &None)
+    );
 }
 
 /// Runs a localSearch over `text` and returns every row it shows.
@@ -437,7 +444,7 @@ fn a_single_and_a_multiline_match_on_one_line_keep_the_covered_lines() {
     );
     assert!(
         rows.iter()
-            .any(|row| row.match_lines == Some(vec![3, 4]) && row.value.contains("4\t  bar)")),
+            .any(|row| row.end_line == Some(4) && row.value.contains("4\t  bar)")),
         "{rows:?}"
     );
 }
@@ -448,9 +455,9 @@ fn a_single_and_a_multiline_match_on_one_line_keep_the_covered_lines() {
 fn two_adjacent_multiline_hits_share_a_window_without_repeating_a_line() {
     let context = SearchContext::symmetric(3);
     let mut first = row(1, 3, "l1\nl2\nl3\nl4\nl5\nl6\nl7");
-    first.match_lines = Some(vec![3, 4]);
+    first.end_line = Some(4);
     let mut second = row(4, 7, "l4\nl5\nl6\nl7\nl8\nl9\nl10\nl11");
-    second.match_lines = Some(vec![7, 8]);
+    second.end_line = Some(8);
     let hits = [
         HitWindow {
             line: 3,
@@ -468,8 +475,8 @@ fn two_adjacent_multiline_hits_share_a_window_without_repeating_a_line() {
     let merged = merge_context_windows(vec![first, second], context, &hits);
     let windows = [(3, 1, 7), (7, 4, 11)];
     shown_once(&merged, &windows, &(1..=11).collect::<Vec<_>>());
-    assert_eq!(merged[0].match_lines, Some(vec![3, 4]));
-    assert_eq!(merged[1].match_lines, Some(vec![7, 8]));
+    assert_eq!(merged[0].end_line, Some(4));
+    assert_eq!(merged[1].end_line, Some(8));
 }
 
 /// A redacted multiline row stays whole (it numbers no line) beside a
@@ -478,7 +485,7 @@ fn two_adjacent_multiline_hits_share_a_window_without_repeating_a_line() {
 fn a_redacted_multiline_row_stays_whole_beside_a_trimmed_neighbour() {
     let context = SearchContext::symmetric(3);
     let mut redacted = row(1, 3, "[REDACTED: secret]");
-    redacted.match_lines = Some(vec![3, 4]);
+    redacted.end_line = Some(4);
     let nearby = row(4, 7, "l4\nl5\nl6\nl7\nl8\nl9\nl10");
     let hits = [
         HitWindow {
@@ -491,7 +498,7 @@ fn a_redacted_multiline_row_stays_whole_beside_a_trimmed_neighbour() {
     ];
     let merged = merge_context_windows(vec![redacted, nearby], context, &hits);
     assert_eq!(merged[0].value, "[REDACTED: secret]");
-    assert_eq!(merged[0].match_lines, Some(vec![3, 4]));
+    assert_eq!(merged[0].end_line, Some(4));
     assert!(merged[1].value.starts_with("5\tl5"), "{:?}", merged[1]);
 }
 
@@ -590,5 +597,68 @@ fn ranking_matches_the_specified_order_for_every_shape() {
             ranked_by_spec(&spec),
             "{len} rows"
         );
+    }
+}
+
+/// What the wire says of each row of a multiline search over
+/// [`MULTILINE_TEXT`]: its line, `endLine` and `matchedLines`.
+fn multiline_wire(pattern: &str, before: u32) -> Vec<(u64, Option<u64>, Option<Vec<u64>>)> {
+    search_rows(
+        MULTILINE_TEXT,
+        serde_json::json!({
+            "matchString": [pattern], "regexEngine": "rust",
+            "multiline": "on", "view": "content",
+            "contextLines": {"before": before, "after": 0}
+        }),
+    )
+    .iter()
+    .map(|row| {
+        let wire = serde_json::to_value(row).expect("row");
+        (
+            wire["line"].as_u64().expect("line"),
+            wire["endLine"].as_u64(),
+            serde_json::from_value(wire["matchedLines"].clone()).ok(),
+        )
+    })
+    .collect()
+}
+
+/// One-line hits on lines 1, 2, 4, 5 and 7; `fold(` opens on line 3.
+const MULTILINE_TEXT: &str = "x one\nx two\nfold(\n  y x\nx three\nmid\nx four\n";
+
+/// A multiline search: one-line hits on adjacent lines stay one hit each,
+/// never one match spanning them; a match over lines 3-4 states its extent
+/// in `endLine`. `matchedLines` only names the hits a merged context window
+/// holds, and every hit is named exactly once.
+#[test]
+fn a_multiline_row_states_its_own_extent_and_adjacent_hits_stay_separate() {
+    for before in [0, 1] {
+        // Repro A: the newline alternative never matches.
+        let rows = multiline_wire(r"\bx\b|zz\n", before);
+        assert!(rows.iter().all(|(_, end, _)| end.is_none()), "{rows:?}");
+        let hits = rows
+            .iter()
+            .flat_map(|(line, _, matched)| matched.clone().unwrap_or_else(|| vec![*line]))
+            .collect::<Vec<_>>();
+        assert_eq!(hits, [1, 2, 4, 5, 7], "before {before}: {rows:?}");
+        if before == 0 {
+            assert!(
+                rows.iter().all(|(_, _, matched)| matched.is_none()),
+                "{rows:?}"
+            );
+        }
+
+        // Repro B: `fold(` and the next line are one match.
+        let rows = multiline_wire(r"fold\(\n.*|\bx\b", before);
+        let spanned = rows
+            .iter()
+            .find(|(line, _, _)| *line == 3)
+            .expect("the match on line 3");
+        assert_eq!((spanned.1, &spanned.2), (Some(4), &None), "{rows:?}");
+        let hits = rows
+            .iter()
+            .flat_map(|(line, _, matched)| matched.clone().unwrap_or_else(|| vec![*line]))
+            .collect::<Vec<_>>();
+        assert_eq!(hits, [1, 2, 3, 5, 7], "before {before}: {rows:?}");
     }
 }

@@ -39,10 +39,7 @@ fn rate_limit_rows_have_one_shape_on_every_github_tool() {
         });
         for (_tool, result) in [
             (ToolId::GhSearchCode, search_row(error.clone())),
-            (
-                ToolId::GhSearchHistory,
-                history_error(error.clone(), true),
-            ),
+            (ToolId::GhSearchHistory, history_error(error.clone(), true)),
             (
                 ToolId::GhGetHistoryItem,
                 history_error(error.clone(), false),

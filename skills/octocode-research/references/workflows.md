@@ -2,45 +2,24 @@ Load for behavior changes and refactors. Tool choice and calls: [tool flow](tool
 
 ## Change impact
 
-### Behavior change: RED, GREEN, REFACTOR
+### Behavior change
 
-```mermaid
-flowchart LR
-  N[Name contract, trigger, consumers, smallest behavior boundary] --> K[Write or find a regression or acceptance check]
-  K --> F{Fails before the patch for the intended reason?}
-  F -- no, broken setup --> K
-  F -- yes --> P[Smallest coherent change]
-  P --> G{Same check green?}
-  G -- no --> P
-  G -- yes --> R[Refactor within scope while green]
-  R --> V[Verify per the lobby: rebuild CLI/MCP first after a tool or package change]
-```
+1. Name the contract, trigger, consumers and smallest affected boundary. Read source and local patterns; use graph/LSP impact when symbols or imports cross boundaries.
+2. Find or write a regression/acceptance check and confirm it fails for the intended reason before patching. Freeze baseline and target for an enhancement. A trivial reversible edit needs a direct check, not a test mirroring its text.
+3. Make the smallest coherent change and pass the same check; refactor within scope while it stays green.
+4. Update consumers and remove obsolete owned paths. Avoid shims, legacy aliases or duplicate owners unless required; preserve unrelated edits. After a tool/package change, rebuild and exercise the affected CLI/MCP interface.
 
-- Enhancement: freeze baseline and target first. Trivial reversible edit: a direct check; skip a test that mirrors its text.
-- Before patching, read exact source and local patterns; graph/LSP impact when imports or symbols cross boundaries.
-- No compatibility shims, legacy aliases, or duplicate paths unless required. Remove obsolete owned paths, update consumers, preserve unrelated edits, one owner per public contract.
+### Refactor
 
-### Refactor: SKELETON, CONTRACTS, BLAST, EXECUTE, VERIFY
+Map structure, entry points, move targets, preserved contracts and authorized interface changes. Discover affected users with graph dependents/path/cycles, LSP references/callers and text/AST across code, tests, scripts, configs and docs. Move rather than copy; derive path edits from proven hits and renames from semantic identity.
 
-```mermaid
-flowchart LR
-  S[Skeleton] --> C[Contracts] --> B[Blast] --> E[Execute big to small]
-  E --> D{Re-run discovery after each batch: unplanned hits?}
-  D -- yes --> B
-  D -- no --> V[Verify by size]
-```
+After each batch, rerun discovery. Unexpected users reopen the impact map. Choose checks by affected contracts:
 
-- Skeleton: structure, graph dependencies/dependents, symbols on entry points and move targets.
-- Contracts: behavior to preserve; interfaces authorized to change.
-- Blast: graph dependents/path/cycles + LSP references/callers + text/AST across code, tests, scripts, configs, docs.
-- Execute: real moves (not copies), path literals from a proven hit list, renames via semantic identity.
-- Verify by size; scale execution, never evidence quality:
-
-| Size | Scope | Verify |
-|---|---|---|
-| S | up to 3 files or one symbol | targeted check |
-| M | one package | package test + typecheck + lint |
-| L | cross-package | graph dependents/cycles, root build, final search for old names |
+| Scope | Verify |
+|---|---|
+| One behavior boundary | Targeted check |
+| Package contracts | Package tests, typecheck and lint |
+| Cross-package contracts | Dependents/cycles, affected builds and final search for old names |
 
 Report per [output](../output.md#response).
 

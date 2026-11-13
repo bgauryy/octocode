@@ -217,6 +217,66 @@ fn same_second_retention_never_reuses_a_pruned_id_or_prunes_the_newest() {
     }
 }
 
+#[test]
+fn a_pruned_snapshot_finds_a_successor_across_sequence_digit_boundaries() {
+    let dir = Fixture::new();
+    let home = dir.0.join("graphs");
+    std::fs::create_dir_all(&home).expect("graph home");
+    let root = dir.0.join("app");
+    let base = format!(
+        "20261026T070632Z-{}-{}",
+        scope_slug(&root, &dir.0),
+        root_tag(&root)
+    );
+    for (before, after) in [(9, 10), (99, 100), (999, 1000)] {
+        let previous = format!("{base}-{before}");
+        let next = format!("{base}-{after}");
+        let manifest = json!({"kind": MANIFEST_KIND, "root": root, "id": next});
+        super::super::ingest::publish(&home, &next, "20261026T070632Z", b"snapshot", &manifest)
+            .expect("publish");
+        assert_eq!(
+            successor(&home, &dir.0, &root, &previous),
+            Some(next.clone())
+        );
+        assert_eq!(successor(&home, &dir.0, &root, &next), None);
+        std::fs::remove_dir_all(home.join(next)).expect("remove successor");
+    }
+}
+
+#[test]
+fn published_manifests_remain_discoverable_with_large_scan_evidence() {
+    let dir = Fixture::new();
+    let home = dir.0.join("graphs");
+    let id = "20261026T070632Z-scope-123456";
+    let skipped = (0..16_384)
+        .map(|index| {
+            format!(
+                "nested/directory/{index}/a_file_name_with_scan_evidence_{}.txt",
+                "x".repeat(32)
+            )
+        })
+        .collect::<Vec<_>>();
+    let manifest = json!({
+        "kind": MANIFEST_KIND,
+        "root": dir.0,
+        "id": id,
+        "scope": "scope",
+        "formatVersion": format::FORMAT_VERSION,
+        "scan": {"filesSkipped": skipped},
+    });
+    super::super::ingest::publish(&home, id, "20261026T070632Z", b"snapshot", &manifest)
+        .expect("publish");
+    assert_eq!(read_manifest(&home.join(id)), Some(manifest));
+    let metadata = read_snapshot_metadata(&home.join(id)).expect("large manifest metadata");
+    assert_eq!(metadata.root.as_deref(), dir.0.to_str());
+    assert_eq!(metadata.scope.as_deref(), Some("scope"));
+    assert_eq!(
+        metadata.format_version,
+        Some(u64::from(format::FORMAT_VERSION))
+    );
+    assert_eq!(list_snapshots(&home), [id]);
+}
+
 /// A snapshot of an older format (here v4, before diagnostics named their
 /// target file) is never reused: the next ingest rebuilds it, and queries
 /// answer from the rebuilt snapshot.

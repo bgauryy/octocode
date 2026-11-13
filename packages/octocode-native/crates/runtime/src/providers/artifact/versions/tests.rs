@@ -57,8 +57,16 @@ fn cargo_ranges() {
 }
 
 /// What a repair call of `limit` rows reads of `versions` near `requested`.
-fn suggest(ecosystem: ArtifactType, requested: &str, versions: &[&str], limit: usize) -> Vec<String> {
-    let published = versions.iter().map(|version| (*version).to_owned()).collect::<Vec<_>>();
+fn suggest(
+    ecosystem: ArtifactType,
+    requested: &str,
+    versions: &[&str],
+    limit: usize,
+) -> Vec<String> {
+    let published = versions
+        .iter()
+        .map(|version| (*version).to_owned())
+        .collect::<Vec<_>>();
     let error = version_not_found(ecosystem, "pkg", requested, &published);
     suggested(ecosystem, &error, limit).0
 }
@@ -95,12 +103,21 @@ fn nearest_versions_share_the_longest_prefix() {
 /// release before its final (PEP 440), never between two finals.
 #[test]
 fn every_missing_version_gets_one_call_of_suggestions() {
-    let vite = ["8.3.4", "8.3.5", "8.3.6", "8.3.7", "8.3.8", "5.4.20", "5.4.21"];
+    let vite = [
+        "8.3.4", "8.3.5", "8.3.6", "8.3.7", "8.3.8", "5.4.20", "5.4.21",
+    ];
     assert_eq!(
         suggest(ArtifactType::Npm, "99.0.0", &vite, 5),
         ["8.3.8", "8.3.7", "8.3.6", "8.3.5", "8.3.4"]
     );
-    let requests = ["2.33.0", "2.33.1", "2.34.0.dev1", "2.34.0", "2.34.1", "2.34.2"];
+    let requests = [
+        "2.33.0",
+        "2.33.1",
+        "2.34.0.dev1",
+        "2.34.0",
+        "2.34.1",
+        "2.34.2",
+    ];
     // Final releases first: the dev release fills only a call finals cannot.
     assert_eq!(
         suggest(ArtifactType::Pypi, "2.99.1", &requests, 5),
@@ -108,7 +125,14 @@ fn every_missing_version_gets_one_call_of_suggestions() {
     );
     assert_eq!(
         suggest(ArtifactType::Pypi, "2.99.1", &requests, 6),
-        ["2.34.2", "2.34.1", "2.34.0", "2.34.0.dev1", "2.33.1", "2.33.0"]
+        [
+            "2.34.2",
+            "2.34.1",
+            "2.34.0",
+            "2.34.0.dev1",
+            "2.33.1",
+            "2.33.0"
+        ]
     );
     // A prerelease asked for: prereleases rank with the finals.
     assert_eq!(
@@ -142,12 +166,22 @@ fn each_registry_orders_by_its_own_rules() {
     );
     // RubyGems: a lettered segment is a prerelease of its release.
     assert_eq!(
-        suggest(ArtifactType::Rubygems, "3.0.0", &["2.9.0", "3.0.0.rc1", "2.10.0"], 3),
+        suggest(
+            ArtifactType::Rubygems,
+            "3.0.0",
+            &["2.9.0", "3.0.0.rc1", "2.10.0"],
+            3
+        ),
         ["3.0.0.rc1", "2.10.0", "2.9.0"]
     );
     // NuGet: four release numbers.
     assert_eq!(
-        suggest(ArtifactType::Nuget, "1.0.0.9", &["1.0.0.10", "1.0.0.2", "1.0.0"], 3),
+        suggest(
+            ArtifactType::Nuget,
+            "1.0.0.9",
+            &["1.0.0.10", "1.0.0.2", "1.0.0"],
+            3
+        ),
         ["1.0.0.10", "1.0.0.2", "1.0.0"]
     );
 }

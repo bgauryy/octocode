@@ -30,7 +30,7 @@ Follow [Caller identity and binding](coordination.md#caller-identity-and-binding
 
 ## Verify binding and delivery
 
-After reload, require an actual session-start binding receipt and successful `agents/list`. A config file alone proves no hook ran. Test a small direct message between two isolated participants or an explicitly intended peer: run a harmless recipient tool, observe one injection and acknowledge its exact message ID. Do not broadcast a setup probe.
+After reload, require an actual session-start binding receipt and successful `agents/list`. A config file alone proves no hook ran. Test a small direct message between two isolated participants or an explicitly intended peer: run a harmless recipient tool, observe one injection and acknowledge its exact message ID. Do not broadcast a setup check.
 
 For idle delivery, presence renewal and uncertain delivery follow [Requirements and recovery](coordination.md#requirements-and-recovery) and [Peers and leases](coordination.md#peers-and-leases).
 

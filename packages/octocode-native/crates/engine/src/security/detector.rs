@@ -27,13 +27,13 @@ mod split_literals;
 pub(super) mod structured;
 mod yaml_secret;
 pub use every_value::{EveryValueScan, every_value_spans};
-pub use jwk::hide_members as hide_jwk_members;
 pub use long_line::{LONG_LINE_BYTES, LongLine};
 #[cfg(feature = "test-hooks")]
 pub use long_text::set_walk_budget;
 pub use source_names::{
     Named, Objects, SecretForm, SecretSpan, SecretSpans, SourceNames, SourceWalk,
 };
+pub use yaml_secret::BlockValues;
 
 mod prescan;
 mod regex_forms;
@@ -83,7 +83,8 @@ fn file_context_regex(idx: usize) -> Option<&'static Regex> {
     }))
 }
 
-static REPLACEMENTS: LazyLock<Vec<String>> = LazyLock::new(|| {
+/// Each pattern's placeholder, by pattern index.
+pub(super) static REPLACEMENTS: LazyLock<Vec<String>> = LazyLock::new(|| {
     PATTERNS
         .iter()
         .map(|p| super::redaction_placeholder(p.name))
@@ -458,7 +459,13 @@ impl<'a> Judge<'a> {
     /// ([`named_values::field_end`]): where a source's syntax is known, only
     /// at a backslash it reads as an escape (in a raw string the backslash is
     /// the value's own); in any other text at every one.
-    fn before_inner_escape(&self, text: &str, base: usize, start: usize, end: usize) -> Option<usize> {
+    fn before_inner_escape(
+        &self,
+        text: &str,
+        base: usize,
+        start: usize,
+        end: usize,
+    ) -> Option<usize> {
         let at = start + named_values::field_end(text.get(start..end)?)?;
         (at > start
             && self
@@ -637,7 +644,10 @@ impl<'a> Judge<'a> {
         // together they spell a token a shape names (`"ghp_" \⏎ "…"`): each
         // piece goes, and what joins them (quotes, blanks, a line's
         // continuation, a hole an interpolation writes) stays as written.
-        let joined: String = parts.iter().filter_map(|part| value.get(part.clone())).collect();
+        let joined: String = parts
+            .iter()
+            .filter_map(|part| value.get(part.clone()))
+            .collect();
         if !parts.iter().any(alone) || shape_of(&joined).is_some() {
             return Some(
                 parts
@@ -1283,7 +1293,10 @@ impl RawMatch {
         // one (a block with no body) hides nothing.
         let secret = &text[self.secret.clone()];
         let hidden = if secret.contains(['\n', '\r']) {
-            let mut lines = secret.lines().map(str::trim).filter(|line| !line.is_empty());
+            let mut lines = secret
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty());
             lines.clone().next().is_some() && lines.all(is_redaction_marker)
         } else {
             is_redaction_marker(secret)
@@ -1348,16 +1361,20 @@ fn replace_secrets(
     replacement: &str,
     redacts: impl Fn(&str, &str, &std::ops::Range<usize>) -> bool,
 ) -> (String, Vec<(std::ops::Range<usize>, usize)>) {
-    replace_judged(content, |_| replacement, |found| {
-        accepted_secrets(
-            regex,
-            content,
-            line_start_of,
-            |key, secret, whole| redacts(key, &content[secret.clone()], whole),
-            |secret, _| continued_end(content, secret.end, |_| true),
-            found,
-        );
-    })
+    replace_judged(
+        content,
+        |_| replacement,
+        |found| {
+            accepted_secrets(
+                regex,
+                content,
+                line_start_of,
+                |key, secret, whole| redacts(key, &content[secret.clone()], whole),
+                |secret, _| continued_end(content, secret.end, |_| true),
+                found,
+            );
+        },
+    )
 }
 
 /// `text` is exactly one pattern's placeholder.
@@ -1519,9 +1536,13 @@ fn redact_text(content: &str, scope: Scope<'_>, limit: usize) -> Option<DetectRe
                     edits: &edits,
                 }),
             );
-            replace_judged(current, |value| kind_for(idx, value), |found| {
-                judge.secrets(regex, current, found);
-            })
+            replace_judged(
+                current,
+                |value| kind_for(idx, value),
+                |found| {
+                    judge.secrets(regex, current, found);
+                },
+            )
         };
         if result != current {
             secrets_detected.push(PATTERNS[idx].name.to_string());

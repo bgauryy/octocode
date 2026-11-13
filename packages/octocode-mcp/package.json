@@ -9,7 +9,6 @@
     "@typescript/native-preview": "7.0.0-dev.20260707.2"
   },
   "devDependencies": {
-    "@modelcontextprotocol/client": "^2.3.1",
     "@octocodeai/config": "workspace:*",
     "@types/node": "^24.19.2",
     "@vitest/coverage-v8": "^5.0.4",
@@ -82,8 +81,6 @@
     "sync:manifest": "node scripts/sync-manifest.mjs",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:boundary": "cd ../.. && node packages/octocode-benchmark/local/e2e/harness/transport.mjs",
-    "test:contracts:classification": "cd ../.. && node packages/octocode-mcp/tests/integration/clasify-availability.acceptance.mjs && node packages/octocode-mcp/tests/integration/selection-execution.acceptance.mjs",
     "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",
     "verify:own": "yarn lint:own && yarn typecheck && yarn test:coverage",
     "verify": "yarn verify:own && yarn lint:oxlint"

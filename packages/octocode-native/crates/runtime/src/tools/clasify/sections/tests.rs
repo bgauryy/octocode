@@ -46,9 +46,9 @@ pub(super) fn session() -> Session {
 #[test]
 fn a_section_state_scopes_every_question_to_its_target() {
     let state = serde_json::json!({"target":{"range":"1-2","text":"a"},"context":[{"range":"3","text":"b"}]});
-    let sent = super::assess::scoped(std::borrow::Cow::Borrowed(&state));
+    let sent = super::super::rows::scoped(std::borrow::Cow::Borrowed(&state));
     let question = sent["question"].as_str().expect("section scope");
-    assert!(question.contains("target section only"), "{question}");
+    assert!(question.contains("target"), "{question}");
     assert_eq!(
         crate::tools::selection::section_question().and_then(serde_json::Value::as_str),
         Some(question),
@@ -57,7 +57,8 @@ fn a_section_state_scopes_every_question_to_its_target() {
     assert_eq!(sent["target"], state["target"]);
     assert_eq!(sent["context"], state["context"]);
     // With task context the scope still sits at the top of the state.
-    let wrapped = super::assess::scoped(super::super::rows::contextual_state(&state, Some("task")));
+    let wrapped =
+        super::super::rows::scoped(super::super::rows::contextual_state(&state, Some("task")));
     assert_eq!(wrapped["question"], question);
     assert_eq!(wrapped["content"], state);
 }

@@ -2,8 +2,8 @@
 use super::*;
 
 /// Until the host allows build scripts (`lsp.allowBuildScripts`), the same
-/// partial row offers no rerun that would be refused: it keeps its reason and
-/// its one notice names the opt-in instead.
+/// partial row offers no rerun that would be refused: it keeps its reason,
+/// and the opt-in is the `rustContext.buildScripts` field's, said once.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn build_scripts_off_offers_no_rerun_until_allowed() {
     let dir = include_fixture();
@@ -25,12 +25,8 @@ async fn build_scripts_off_offers_no_rerun_until_allowed() {
         json!([BUILD_SCRIPTS_REASON]),
         "{refused}"
     );
-    let notice = refused["notices"][0].as_str().unwrap_or_default();
-    assert!(
-        notice.contains(crate::tools::lsp_search::receipt::BUILD_SCRIPTS_OPT_IN)
-            && notice.contains("repository code"),
-        "{refused}"
-    );
+    assert!(refused.get("notices").is_none(), "{refused}");
+    crate::tools::test_support::checks::assert_no_reason_meaning(&refused);
     assert!(
         !refused["related"]
             .as_array()
@@ -70,19 +66,11 @@ async fn unloaded_includes_flag_unanswered_files() {
         json!([BUILD_SCRIPTS_REASON]),
         "{first}"
     );
-    // The prose is the one statement of the fact and the rerun's cost
-    // and risk; the lead carries the call, so the prose does not repeat it.
-    let notice = first["notices"][0].as_str().unwrap_or_default();
-    assert!(
-        notice.contains("rustContext.buildScripts") && notice.contains("repository code"),
-        "{first}"
-    );
-    assert_eq!(
-        first["notices"].as_array().map(Vec::len),
-        Some(1),
-        "{first}"
-    );
+    // The code is the whole statement: its meaning is core's and the
+    // rerun's cost the field's; the lead carries the call.
+    assert!(first.get("notices").is_none(), "{first}");
     assert!(first.get("warnings").is_none(), "{first}");
+    crate::tools::test_support::checks::assert_no_reason_meaning(&first);
     assert_eq!(
         first["coverage"]["textOnlyFiles"], 1,
         "comments and strings are no uses: {first}"
@@ -280,14 +268,14 @@ async fn outside_includes_keep_partial_coverage_without_build_script_reruns() {
                 && call["input"]["queries"][0]["rustContext"]["buildScripts"] == true),
         "{both_row}"
     );
-    assert!(
-        both_row["notices"][1]
-            .as_str()
-            .is_some_and(|notice| notice.contains("first")
-                && notice.contains("buildScripts:true")
-                && notice.contains("repository code")),
+    // Both reasons are the whole statement; only the outside include's
+    // files are this answer's own note.
+    assert_eq!(
+        both_row["notices"].as_array().map(Vec::len),
+        Some(1),
         "{both_row}"
     );
+    crate::tools::test_support::checks::assert_no_reason_meaning(&both_row);
 
     // A workspace symbol is a found declaration: no use is missing.
     let symbols = rust_row(

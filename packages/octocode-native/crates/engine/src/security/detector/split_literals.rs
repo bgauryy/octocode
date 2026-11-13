@@ -352,7 +352,10 @@ fn holes(
         if !line.contains("${") {
             continue;
         }
-        let holes: Vec<_> = ANY_HOLE.captures_iter(line).filter_map(|hole| hole.get(0)).collect();
+        let holes: Vec<_> = ANY_HOLE
+            .captures_iter(line)
+            .filter_map(|hole| hole.get(0))
+            .collect();
         let (Some(first), Some(last)) = (holes.first(), holes.last()) else {
             continue;
         };
@@ -373,9 +376,10 @@ fn holes(
         for hole in &holes {
             around.push(start + from..start + hole.start());
             with_literals.push(start + from..start + hole.start());
-            if let Some(literal) = HOLE.captures(hole.as_str()).and_then(|literal| {
-                literal.name("dq").or_else(|| literal.name("sq"))
-            }) {
+            if let Some(literal) = HOLE
+                .captures(hole.as_str())
+                .and_then(|literal| literal.name("dq").or_else(|| literal.name("sq")))
+            {
                 let at = start + hole.start();
                 with_literals.push(at + literal.start()..at + literal.end());
             }

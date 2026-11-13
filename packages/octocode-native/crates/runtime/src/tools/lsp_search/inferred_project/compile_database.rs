@@ -13,7 +13,6 @@ use octocode_engine::lsp::types::LspLanguageServerConfig;
 use serde_json::{Value, json};
 use std::path::Path;
 
-const COMPILE_DATABASE_HINT: &str = "Generate compile_commands.json for clangd (CMake: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON), or use astSearch/localSearch.";
 /// Coverage reason of a C/C++ row answered without a compilation database.
 pub(in crate::tools::lsp_search) const NO_COMPILE_DATABASE_REASON:
     crate::response::paging::PartialReason =
@@ -49,11 +48,10 @@ pub(in crate::tools::lsp_search) fn annotate_compile_database(
     if found {
         return;
     }
+    // `noCompileDatabase` is the whole statement: what it means and its
+    // repair (generate the database) are core's, said once.
     let empty = row.get("status").and_then(Value::as_str) == Some("empty")
         || row.pointer("/status").and_then(Value::as_str) == Some("empty");
-    if empty {
-        crate::response::result::prepend_hints(row, [COMPILE_DATABASE_HINT]);
-    }
     if empty || crosses_units(lsp_search_query::operation(query)) {
         flag_partial(row, query, NO_COMPILE_DATABASE_REASON, None, scope);
     }
@@ -100,6 +98,7 @@ mod tests {
             args: Some(args.iter().map(|arg| (*arg).to_owned()).collect()),
             workspace_root: root.to_string_lossy().into_owned(),
             language_id: Some(language.into()),
+            document_language_ids: Default::default(),
             initialization_options: None,
             env: None,
             max_memory_mb: None,
@@ -125,9 +124,14 @@ mod tests {
         let cpp = clangd("cpp", dir.path(), &[]);
         let mut row = json!({"status":"empty","hints":["generic"]});
         annotate_compile_database(&mut row, &query, &cpp, &path, &root);
-        // The database hint leads and the row's own hint follows: a replace
-        // would drop "generic", an append would put it first.
-        assert_eq!(row["hints"], json!([COMPILE_DATABASE_HINT, "generic"]));
+        // The row's own hint stays and no static repair joins it: the
+        // reason's meaning names the database repair once.
+        assert_eq!(row["hints"], json!(["generic"]));
+        assert_eq!(
+            row["lsp"]["analysisContext"]["compilation"]["configuration"], "notFound",
+            "{row}"
+        );
+        crate::tools::test_support::checks::assert_no_reason_meaning(&row);
         // References found only in the opened file look complete: flag them.
         let mut found = refs_row();
         found["matches"] = json!([{"path":"a.hpp","line":1}]);

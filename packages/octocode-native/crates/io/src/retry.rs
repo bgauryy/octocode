@@ -156,14 +156,33 @@ fn header_seconds(headers: &HeaderMap, name: &str) -> Option<f64> {
 /// Provider-requested delay: `retry-after-ms`, then `Retry-After` as
 /// delta-seconds or an RFC 9110 HTTP-date (relative to `now`), each bounded
 /// by `max`.
+#[cfg_attr(
+    octocode_clippy_ratchet,
+    expect(
+        clippy::disallowed_methods,
+        reason = "Converts server-provided Retry-After values; these are not fixed work limits"
+    )
+)]
 pub fn retry_after_delay(headers: &HeaderMap, max: Duration, now: SystemTime) -> Option<Duration> {
+    if let Some(milliseconds) = header_u64(headers, "retry-after-ms") {
+        return Some(Duration::from_millis(milliseconds).min(max));
+    }
     if let Some(milliseconds) = header_seconds(headers, "retry-after-ms") {
-        return Some(Duration::from_secs_f64(
-            (milliseconds / 1000.0).min(max.as_secs_f64()),
-        ));
+        return Some(
+            Duration::try_from_secs_f64(milliseconds / 1000.0)
+                .unwrap_or(Duration::MAX)
+                .min(max),
+        );
+    }
+    if let Some(seconds) = header_u64(headers, RETRY_AFTER.as_str()) {
+        return Some(Duration::from_secs(seconds).min(max));
     }
     if let Some(seconds) = header_seconds(headers, RETRY_AFTER.as_str()) {
-        return Some(Duration::from_secs_f64(seconds.min(max.as_secs_f64())));
+        return Some(
+            Duration::try_from_secs_f64(seconds)
+                .unwrap_or(Duration::MAX)
+                .min(max),
+        );
     }
     let date = parse_http_date(headers.get(RETRY_AFTER)?.to_str().ok()?)?;
     Some(date.duration_since(now).unwrap_or(Duration::ZERO).min(max))
@@ -181,7 +200,13 @@ fn parse_http_date(value: &str) -> Option<SystemTime> {
     .iter()
     .position(|name| *name == month_name)?;
     let month = 1 + i64::try_from(month_index).ok()?;
-    let year = parts.next()?.parse::<i64>().ok()?;
+    // IMF-fixdate's year is exactly 4DIGIT. Validate that protocol bound
+    // before calendar arithmetic sees a server-controlled integer.
+    let year = parts.next()?;
+    if year.len() != 4 || !year.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let year = year.parse::<i64>().ok()?;
     let mut clock = parts.next()?.split(':').map(str::parse::<i64>);
     let (hour, minute, second) = (
         clock.next()?.ok()?,
@@ -222,7 +247,12 @@ fn full_jitter(base: Duration, attempt: u32, cap: Duration) -> Duration {
             .map(|value| value.subsec_nanos() as u64)
             .unwrap_or(0)
     };
-    Duration::from_millis(random % (ceiling + 1))
+    // When the inclusive range covers every u64, the random word already
+    // samples it: its length cannot be represented by ceiling + 1.
+    let millis = ceiling
+        .checked_add(1)
+        .map_or(random, |width| random % width);
+    Duration::from_millis(millis)
 }
 
 #[cfg(test)]

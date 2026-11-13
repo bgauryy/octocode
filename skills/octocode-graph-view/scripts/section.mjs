@@ -166,13 +166,14 @@ export async function buildSection(section, { out, jobs = 8, exclude = [], emit 
     const file = join(evidence, `${createHash('sha256').update(JSON.stringify(row)).digest('hex')}.jsonl.gz`);
     // The call count of this walk: a page states where it starts (`pagination.offset`), not its number.
     let pages = 0;
-    const save = (input, response, page) => {
+    const save = (input, response) => {
       pages += 1;
       // One gzip member per page: concatenated members are one valid gzip stream of JSON lines.
       appendFileSync(file, gzipSync(`${JSON.stringify({ input, response })}\n`));
-      if (stream && STREAMED[row.operation] && page.rows?.length) emit(stream, page.rows, { page: pages, total: totalOf(page) });
     };
-    return readGraph(row, { save });
+    return readGraph(row, { save, onPage: (page) => {
+      if (stream && STREAMED[row.operation] && page.rows?.length) emit(stream, page.rows, { page: pages, total: totalOf(page) });
+    } });
   };
   emit('snapshot', [], { id: snap.id, ingestMs, frozen, counts: snap.counts, linkage: snap.linkage?.ratio });
   // Walks that need nothing else start at once, so their cursor chains overlap the witness groups.
@@ -196,20 +197,23 @@ export async function buildSection(section, { out, jobs = 8, exclude = [], emit 
   const imports = importEdges.filter((e) => fileIds.has(e.source) && fileIds.has(e.target));
   const files = fileNodes(found.rows, imports);
   const externals = externalsOf(importEdges);
-  const outsideRoot = outside.rows.filter((d) => d.code === 'unresolved-internal').map((d) => ({ file: d.path, line: d.line, specifier: d.message.match(/"(.*)"/)?.[1] ?? null, message: d.message }));
+  const outsideRoot = outside.rows.filter((d) => d.code === 'unresolved-internal' || d.code === 'outside-root').map((d) => ({ file: d.path, line: d.line, specifier: d.message.match(/"(.*)"/)?.[1] ?? null, message: d.message }));
   const callEdges = foldEdges(rel.rows, 'calls');
   const calls = callEdges.filter((e) => fileIds.has(fileOf(e.source)) && fileIds.has(fileOf(e.target))).map((e) => ({ ...e, via: 'graph' }));
   const [[cyc, iss], sym, unresolvedCalls] = await Promise.all([independent, symbolWalk, crossCallGaps(q, { outsideRoot, externals, crossPackages, jobs })]);
   const { declarations, symbols } = symbolRows(sym.rows, fileIds, calls);
   const linked = new Set(imports.flatMap((e) => [e.source, e.target]));
+  const snapshot = { ...found.graph, id: snap.id, root: resolve(snap.root), counts: snap.counts, linkage: snap.linkage?.ratio };
+  const partialReasons = snapshot.partialReasons ?? [];
+  snapshot.isPartial = snapshot.isPartial === true || partialReasons.length > 0;
   const data = {
     section: resolve(section),
     evidence: 'tmp/evidence',
     groupWalks: Object.fromEntries([['witnesses', rel], ['symbols', sym]].map(([op, w]) => [op, { groups: w.groups, grouped: w.grouped, rows: w.rows.length, total: w.total }])),
-    coverage: { files: files.length, isolated: files.filter((n) => !linked.has(n.id)).length, imports: imports.length, calls: calls.length, callsOutside: callEdges.length - calls.length, outsideRoot: outsideRoot.length, declarations: declarations.length, symbolsInCalls: symbols.length },
+    coverage: { isPartial: snapshot.isPartial, partialReasons, files: files.length, isolated: files.filter((n) => !linked.has(n.id)).length, imports: imports.length, calls: calls.length, callsOutside: callEdges.length - calls.length, outsideRoot: outsideRoot.length, declarations: declarations.length, symbolsInCalls: symbols.length },
     frozen,
     ms: { ingest: ingestMs, total: Date.now() - t0 },
-    snapshot: { id: snap.id, root: resolve(snap.root), counts: snap.counts, linkage: snap.linkage?.ratio },
+    snapshot,
     files,
     imports,
     symbols,

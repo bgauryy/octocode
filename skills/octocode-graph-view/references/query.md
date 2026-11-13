@@ -7,12 +7,12 @@ One query language answers over the whole stitched, weighted file graph of a res
 | Query | Answer |
 |---|---|
 | `impact <file> [depth N]` | Every file that transitively depends on it (reverse breadth-first), each with its depth, the heaviest edge that reached it (`weight`, `through`) and that edge's line; counts per depth and per chunk |
-| `deps <file> [depth N]` / `dependents <file> [depth N]` | Forward / reverse neighbors, depth 1 unless given (`depth all` walks everything) |
+| `deps <file> [depth N]` / `dependents <file> [depth N]` | Forward / reverse neighbors; adjacent by default (`depth all` walks everything) |
 | `path <a> <b>` | The strongest dependency path a → b (Dijkstra, cost Σ 1/weight); every hop with its weight, import lines and symbol calls. No path: says so and checks b → a |
 | `cycle <file>` | Its strongly connected set (the `metrics.cycles` id when production), first the files of one shortest ring through it in order, then the rest by PageRank |
 | `community <file\|id>` | Members by PageRank and the weight to every other community (`links`, out and in) |
 | `callers <sym>` / `callees <sym>` | Symbol-level calls with the saved `via` value, confidence and lines. Look in `data.json` for `resolution: ["stitched-import"]` to identify calls bound by name across chunks. Use `file#name` (any file form) or a bare symbol name. |
-| `top <metric> [n\|all]` | Files ranked by `pagerank`, `betweenness`, `inWeight`, `outWeight`, `core` or `depth`; 20 unless n or `all`, and the summary says how many were ranked |
+| `top <metric> [n\|all]` | Files ranked by `pagerank`, `betweenness`, `inWeight`, `outWeight`, `core` or `depth`; use `all` for the full ranking and check the summary's coverage |
 | `find <text>` | Files whose path and symbols whose name contain the text |
 
 A file is a root-relative path, an absolute path under the root, `path:line`, a unique suffix (`pipeline.mjs`) or a node id. An ambiguous or unknown argument is an error with every candidate as a re-runnable query (`impact b/util.mjs`, `impact c/util.mjs`); nothing is guessed.
@@ -36,15 +36,6 @@ A reply can name the files it is about: `reply.mjs <out> "text" --chat <id> --no
 
 ## Wiki
 
-The wiki (one page per community, written by `wiki.mjs`) is reachable the same ways; until a copy of the skill has `scripts/wiki.mjs`, each call answers "wiki unavailable" (HTTP 501).
-
-| Action | Shell (`reply.mjs wiki <out> …`) | Channel |
-|---|---|---|
-| Read a page, or the page that holds a file | `read <slug>` / `read --file <file>` | `wiki_read({ slug?, file? })` |
-| Replace the agent notes | `note <slug> "text"\|-` | `wiki_note({ slug, text })` |
-| Append an answer with date and source | `promote [<slug>] --chat <id>` or `promote <slug> "text"` | `wiki_promote({ slug?, chat_id?, text? })` |
-| Check pages against the graph | `lint` | `wiki_lint()` |
-
-`promote` by chat id takes the latest agent reply to that message (or that reply itself) and, without a slug, the page of the file the person asked about. The page is sent to the viewer after each write. `POST /query` and `POST /wiki` take the run's token in `?t=` and refuse a foreign `Origin`, like `/reply`.
+Read, write, promote or lint community pages through `reply.mjs wiki <out> …` or the channel's `wiki_*` tools; [wiki operations](wiki.md#operations) owns the commands. `promote --chat <id>` takes the latest reply and, without a slug, the page holding the question's file. Writes update the viewer. Missing `scripts/wiki.mjs` returns HTTP 501, "wiki unavailable". `POST /query` and `/wiki` require the run token in `?t=` and refuse a foreign `Origin`.
 
 Owners: [query.mjs](../scripts/query.mjs) (language, CLI), [query-index.mjs](../scripts/query-index.mjs) (graph index, argument resolution), [query-ops.mjs](../scripts/query-ops.mjs) (answers), [serve-answers.mjs](../scripts/serve-answers.mjs) (server: data in memory, `/query`, `/wiki`, reply nodes), [live-query.js](../assets/live-query.js) (bar), [tests](../scripts/query.test.mjs).

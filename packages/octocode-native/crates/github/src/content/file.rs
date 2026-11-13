@@ -2,7 +2,7 @@
 use bytes::Bytes;
 use reqwest::header::{ACCEPT, CONTENT_TYPE, ETAG, HeaderValue};
 
-use super::payload::{DirectoryEntry, decode_content, parse_content_payload};
+use super::payload::{ContentPayload, DirectoryEntry, decode_content, parse_content_payload};
 use super::{ContentRequest, ContentResponse, GitHubProvider, is_full_sha};
 use crate::{ProviderError, ProviderErrorKind, RequestContext, RequestSpec, ResponsePage};
 
@@ -115,12 +115,7 @@ impl GitHubProvider {
     ) -> Result<(Bytes, usize, Option<String>), ProviderError> {
         let body = page.body.as_ref();
         let raw_response_bytes = body.len();
-        let raw = page
-            .headers
-            .get(CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .is_some_and(|value| value.starts_with(RAW_MEDIA_TYPE));
-        if raw {
+        if raw_response(page) {
             let blob = page
                 .headers
                 .get(ETAG)
@@ -132,22 +127,25 @@ impl GitHubProvider {
         }
         let payload = parse_content_payload(body, &request.path)?;
         let needs_blob = payload.encoding.as_deref() == Some("none")
-            || (payload.content.as_deref().is_none_or(str::is_empty)
+            || payload.content.is_none()
+            || (payload.content.as_deref().is_some_and(str::is_empty)
                 && payload.size.unwrap_or(0) > 0);
-        match payload.sha.as_deref().filter(|_| needs_blob) {
-            Some(sha) => {
-                let (bytes, blob_bytes) = self.fetch_blob(request, sha, context, owner).await?;
-                Ok((
-                    bytes,
-                    raw_response_bytes.saturating_add(blob_bytes),
-                    Some(sha.to_owned()),
-                ))
-            }
-            None => {
-                let bytes = decode_content(payload.encoding.as_deref(), payload.content)?;
-                Ok((bytes.into(), raw_response_bytes, payload.sha))
-            }
+        if needs_blob {
+            let sha = payload.sha.as_deref().ok_or_else(|| {
+                ProviderError::new(
+                    ProviderErrorKind::Decode,
+                    "GitHub file content is unavailable and no blob SHA was returned",
+                )
+            })?;
+            let (bytes, blob_bytes) = self.fetch_blob(request, sha, context, owner).await?;
+            return Ok((
+                bytes,
+                raw_response_bytes.saturating_add(blob_bytes),
+                Some(sha.to_owned()),
+            ));
         }
+        let bytes = decode_content(payload.encoding.as_deref(), payload.content)?;
+        Ok((bytes.into(), raw_response_bytes, payload.sha))
     }
 
     async fn fetch_via_directory_and_blob(
@@ -202,7 +200,12 @@ impl GitHubProvider {
     /// A body this read could not decode is no answer to keep: a retry asks
     /// GitHub again rather than meeting the same body. A file read's other
     /// failures (a directory, a submodule) are GitHub's answer and stay.
-    fn discard_undecodable(&self, spec: &RequestSpec, error: &ProviderError, context: &RequestContext) {
+    fn discard_undecodable(
+        &self,
+        spec: &RequestSpec,
+        error: &ProviderError,
+        context: &RequestContext,
+    ) {
         if error.kind == ProviderErrorKind::Decode {
             self.transport.discard(spec, context);
         }
@@ -231,10 +234,42 @@ impl GitHubProvider {
         let mut spec = owner.of(RequestSpec::get(blob_url).reading_file(&request.path));
         spec.headers
             .insert(ACCEPT, HeaderValue::from_static(RAW_MEDIA_TYPE));
-        let blob = self.transport.execute(spec, context).await?;
+        let blob = self.transport.execute(spec.clone(), context).await?;
         let size = blob.body.len();
-        Ok((blob.body, size))
+        let bytes = blob_bytes(&blob)
+            .inspect_err(|error| self.discard_undecodable(&spec, error, context))?;
+        Ok((bytes, size))
     }
+}
+
+fn blob_bytes(page: &ResponsePage) -> Result<Bytes, ProviderError> {
+    let media_type = response_media_type(page);
+    let json = media_type.eq_ignore_ascii_case("application/json")
+        || media_type
+            .rsplit_once('+')
+            .is_some_and(|(_, suffix)| suffix.eq_ignore_ascii_case("json"));
+    if raw_response(page) || !json {
+        return Ok(page.body.clone());
+    }
+    let payload: ContentPayload = serde_json::from_slice(&page.body).map_err(|_| {
+        ProviderError::new(ProviderErrorKind::Decode, "invalid GitHub blob response")
+    })?;
+    decode_content(payload.encoding.as_deref(), payload.content).map(Bytes::from)
+}
+
+fn response_media_type(page: &ResponsePage) -> &str {
+    page.headers
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .unwrap_or("")
+        .trim()
+}
+
+fn raw_response(page: &ResponsePage) -> bool {
+    response_media_type(page)
+        .get(..RAW_MEDIA_TYPE.len())
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(RAW_MEDIA_TYPE))
 }
 
 /// Who stores a file read's body: the transport's saved answers, or the
@@ -245,6 +280,9 @@ enum BodyOwner {
     Transport,
     Caller,
 }
+
+#[cfg(test)]
+mod tests;
 
 impl BodyOwner {
     fn of(self, spec: RequestSpec) -> RequestSpec {

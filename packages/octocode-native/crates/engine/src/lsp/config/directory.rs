@@ -99,7 +99,7 @@ pub fn directory_languages(directory: &str, workspace_root: &str) -> Vec<&'stati
 fn file_languages(directory: &Path) -> Vec<&'static str> {
     let mut level = vec![directory.to_path_buf()];
     while !level.is_empty() {
-        let mut counts = [0usize; SOURCE_FAMILIES.len()];
+        let mut counts = vec![0usize; SOURCE_FAMILIES.len()];
         let mut below = Vec::new();
         for dir in level {
             let Ok(entries) = std::fs::read_dir(&dir) else {
@@ -138,9 +138,6 @@ fn file_languages(directory: &Path) -> Vec<&'static str> {
 
 /// The index in [`SOURCE_FAMILIES`] of the family a file name belongs to.
 fn family_of_file(name: &str) -> Option<usize> {
-    if name.ends_with(".d.ts") {
-        return None;
-    }
     let extension = extension_of(name, true, "");
     SOURCE_FAMILIES
         .iter()

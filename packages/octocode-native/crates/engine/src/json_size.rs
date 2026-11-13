@@ -1,6 +1,35 @@
-//! Serialized JSON sizes without allocating the rendered document.
+//! JSON wire sizes without rendering, and retained heap estimates.
 use serde::Serialize;
 use std::io::{self, Write};
+use std::mem::size_of;
+
+/// Approximate allocator rounding and bookkeeping for one heap block.
+const BLOCK_BYTES: usize = 16;
+
+/// An object's entry: its hash, key and value, index slot and key allocation.
+pub const OBJECT_ENTRY_BYTES: usize =
+    size_of::<(u64, String, serde_json::Value)>() + size_of::<usize>() + BLOCK_BYTES;
+
+/// About the heap below a JSON value's slot, including structural overhead.
+/// Lengths, rather than capacities, keep a scan's budget a fact of its input.
+/// Serialized bytes alone undercount objects with many small fields.
+pub fn heap_bytes(value: &serde_json::Value) -> usize {
+    use serde_json::Value;
+    match value {
+        Value::String(text) => BLOCK_BYTES.saturating_add(text.len()),
+        Value::Array(items) => items.iter().fold(
+            BLOCK_BYTES.saturating_add(items.len().saturating_mul(size_of::<Value>())),
+            |bytes, item| bytes.saturating_add(heap_bytes(item)),
+        ),
+        Value::Object(fields) => fields.iter().fold(BLOCK_BYTES, |bytes, (key, field)| {
+            bytes
+                .saturating_add(OBJECT_ENTRY_BYTES)
+                .saturating_add(key.len())
+                .saturating_add(heap_bytes(field))
+        }),
+        Value::Null | Value::Bool(_) | Value::Number(_) => 0,
+    }
+}
 
 struct Counter {
     size: usize,
@@ -68,6 +97,24 @@ pub fn string_body_units(text: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn retained_json_weight_counts_payload_and_structural_overhead() {
+        let text = "λ東京😀".repeat(128);
+        let string = serde_json::json!(text);
+        assert!(heap_bytes(&string) >= text.len());
+        let array = serde_json::json!([null, null, string]);
+        assert!(heap_bytes(&array) >= 3 * size_of::<serde_json::Value>() + text.len());
+        let object = serde_json::json!({"small": 1, "nested": array});
+        assert!(heap_bytes(&object) >= 2 * OBJECT_ENTRY_BYTES + heap_bytes(&array));
+        let many_fields: serde_json::Value = serde_json::Value::Object(
+            (0..128)
+                .map(|index| (format!("k{index}"), serde_json::json!(0)))
+                .collect(),
+        );
+        assert!(heap_bytes(&many_fields) > bytes(&many_fields).expect("wire bytes"));
+    }
+
     #[test]
     fn json_size_matches_rendered_bytes_and_utf16() {
         for value in [

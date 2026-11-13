@@ -65,7 +65,9 @@ test('a serialized-response page continues before the row page', async () => {
   const first = { ...response({ pagination: { unit: "items", offset: 0, length: 1, total: 3, hasMore: true }, rows: [1], next: { nextPage: more('row') } }), responsePagination: { next: { tool: 'graphQuery', input: { cursor: 'rp' } } } };
   const pages = { rp: response({ pagination: { unit: "items", offset: 0, length: 1, total: 3, hasMore: true }, rows: [2], next: { nextPage: more('row') } }), row: response({ pagination: { unit: "items", offset: 0, length: 1, total: 3, hasMore: false }, rows: [3] }) };
   const received = [];
-  assert.deepEqual((await readGraph({ operation: 'hubs' }, { run: fake(first, pages, received) })).rows, [1, 2, 3]);
+  first.results[0].rowPart = { part: 1, of: 2 };
+  pages.rp.results[0].rowPart = { part: 2, of: 2 };
+  assert.deepEqual((await readGraph({ operation: 'hubs' }, { run: fake(first, pages, received), collectionPaths: ['/data/rows'] })).rows, [1, 2, 3]);
   assert.deepEqual(received.slice(1).map((r) => r.input.cursor), ['rp', 'row']);
 });
 

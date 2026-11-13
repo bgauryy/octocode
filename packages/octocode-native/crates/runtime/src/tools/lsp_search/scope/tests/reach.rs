@@ -385,10 +385,7 @@ async fn a_file_no_package_compiles_is_out_of_reach_unless_placed() {
         "pub(super) fn page_of() {}\nfn c() {\n    page_of();\n    crate_of();\n}\n",
     );
     let relocated = root.join("shared/relocated.rs");
-    write(
-        &relocated,
-        "fn r() {\n    super::executor::page_of();\n}\n",
-    );
+    write(&relocated, "fn r() {\n    super::executor::page_of();\n}\n");
     write(
         &root.join("alpha/src/other.rs"),
         "fn o() {\n    include!(\"../../shared/included.rs\");\n}\n",
@@ -409,4 +406,64 @@ async fn a_file_no_package_compiles_is_out_of_reach_unless_placed() {
         Some(vec![shown(&included)])
     );
     assert_eq!(scope.out_of_reach("crate_of").map(|out| out.files), Some(1));
+}
+
+/// A dependency names the crate its source holds, not any crate of that
+/// name: a copy of a dependent crate (a snapshot of the workspace) whose
+/// path dependency is the copy's own `alpha`, or one whose path names no
+/// directory, cannot reference the defining `alpha`, so its spelling is out
+/// of reach. A crate whose path dependency is the defining `alpha` stays in
+/// reach, and so does a registry dependency of that name, which a patch
+/// this does not read may point at it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_dependency_on_a_same_named_crate_elsewhere_is_out_of_reach() {
+    let (_dir, root) = fixture();
+    workspace(&root);
+    let lib = root.join("alpha/src/lib.rs");
+    write(&lib, "pub fn shared() {}\n");
+    let beta = root.join("beta/src/lib.rs");
+    write(&beta, "fn b() {\n    alpha::shared();\n}\n");
+    let copy = root.join("copy");
+    write(
+        &copy.join("Cargo.toml"),
+        "[workspace]\nmembers = [\"alpha\", \"beta\"]\n",
+    );
+    write(
+        &copy.join("alpha/Cargo.toml"),
+        "[package]\nname = \"alpha\"\nversion = \"0.1.0\"\n",
+    );
+    write(&copy.join("alpha/src/lib.rs"), "pub fn shared() {}\n");
+    write(
+        &copy.join("beta/Cargo.toml"),
+        "[package]\nname = \"beta\"\nversion = \"0.1.0\"\n\n[dependencies]\nalpha = { path = \"../alpha\" }\n",
+    );
+    write(
+        &copy.join("beta/src/lib.rs"),
+        "fn b() {\n    alpha::shared();\n}\n",
+    );
+    let dangling = root.join("dangling");
+    write(
+        &dangling.join("Cargo.toml"),
+        "[package]\nname = \"dangling\"\nversion = \"0.1.0\"\n\n[dependencies]\nalpha = { path = \"../missing\" }\n",
+    );
+    write(
+        &dangling.join("src/lib.rs"),
+        "fn d() {\n    alpha::shared();\n}\n",
+    );
+    let registry = root.join("registry");
+    write(
+        &registry.join("Cargo.toml"),
+        "[package]\nname = \"registry\"\nversion = \"0.1.0\"\n\n[dependencies]\nalpha = \"0.1\"\n",
+    );
+    let pinned = registry.join("src/lib.rs");
+    write(&pinned, "fn r() {\n    alpha::shared();\n}\n");
+
+    let scope = checked(&root, "shared", (&lib, 0, 7), &[&lib]).await;
+    let mut missed = scope.text_only_files("shared").expect("checked");
+    missed.sort();
+    let mut expected = vec![shown(&beta), shown(&pinned)];
+    expected.sort();
+    assert_eq!(missed, expected);
+    // The copy's `alpha` and `beta`, and the dangling dependent.
+    assert_eq!(scope.out_of_reach("shared").map(|out| out.files), Some(3));
 }

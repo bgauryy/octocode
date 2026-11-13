@@ -134,7 +134,10 @@ fn cached_symbol_pages_still_check_content_and_path_policy() {
     let restarted = run_window(&root.0, restart["input"].clone(), 1)
         .expect("execute returned restart unchanged");
     assert_eq!(outline_name(&restarted["symbols"][0]), "one");
-    assert_ne!(crate::tools::test_support::pinned_snapshot(&restarted), crate::tools::test_support::pinned_snapshot(&first));
+    assert_ne!(
+        crate::tools::test_support::pinned_snapshot(&restarted),
+        crate::tools::test_support::pinned_snapshot(&first)
+    );
     let second = run_window(
         &root.0,
         restarted["next"]["nextPage"]["input"]["queries"][0].clone(),

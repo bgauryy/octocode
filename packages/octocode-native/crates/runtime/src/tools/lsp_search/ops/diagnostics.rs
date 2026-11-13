@@ -10,7 +10,7 @@ pub(super) async fn anchor_diagnostics(
     path: &str,
     cancel: &dyn CancellationCheck,
     wait: bool,
-) -> Result<Option<(Value, bool)>, LspFailure> {
+) -> Result<Option<Value>, LspFailure> {
     let pulls = client.has_capability("diagnosticProvider".to_owned());
     let pull = async {
         let wait = std::time::Duration::from_millis(ANCHOR_DIAGNOSTICS_WAIT_MS.into());
@@ -61,24 +61,6 @@ fn report_is_superseded(report: &Value) -> bool {
     report.get("superseded").and_then(Value::as_bool) == Some(true)
 }
 
-/// rust-analyzer codes for macros it did not expand. The engine starts it
-/// headless (no build scripts or proc-macros), so these are expected noise.
-pub(super) const DISABLED_MACRO_CODES: &[&str] = &[
-    "macro-error",
-    "unresolved-proc-macro",
-    "proc-macro-disabled",
-];
-
-pub(super) const RUST_MACRO_NOTE: &str = "Proc-macros and build scripts are off by default (they run repository code), so rust-analyzer reports unexpanded macros; pass rustContext {buildScripts:true, procMacros:true} to expand them once lsp.allowBuildScripts is on (home .octocoderc, or OCTOCODE_LSP_ALLOW_BUILD_SCRIPTS=true in the process environment or the home .env); until then such a query is refused.";
-
-pub(in super::super) fn disabled_macro_diagnostics(items: &Value) -> bool {
-    super::super::render::items(items).iter().any(|item| {
-        item.get("code")
-            .and_then(Value::as_str)
-            .is_some_and(|code| DISABLED_MACRO_CODES.contains(&code))
-    })
-}
-
 /// Replace the zero-based LSP `range` on a diagnostic (and on each related
 /// location) with the one-based place (`line`, `column`, `endLine`) every
 /// other result states.
@@ -122,7 +104,11 @@ pub(in super::super) fn publish_diagnostic_ranges(mut item: Value) -> Value {
 /// carries `count` and every place, in report order, as `sites` instead of
 /// its own `line`, `column` and `endLine`.
 pub(in super::super) fn dedupe_diagnostics(items: Value) -> Value {
+    use std::hash::BuildHasher;
+
     let mut listed: Vec<(Value, Vec<Value>)> = Vec::new();
+    let hashes = std::collections::hash_map::RandomState::new();
+    let mut indices = std::collections::HashMap::<u64, Vec<usize>>::new();
     for mut item in into_items(items) {
         let range = item
             .as_object_mut()
@@ -142,9 +128,19 @@ pub(in super::super) fn dedupe_diagnostics(items: Value) -> Value {
                 }
             })
             .unwrap_or(Value::Null);
-        match listed.iter_mut().find(|(known, _)| *known == item) {
-            Some((_, ranges)) => ranges.push(range),
-            None => listed.push((item, vec![range])),
+        // Keep payloads only in `listed`: the hash narrows comparisons, and
+        // exact equality within its bucket prevents collisions merging evidence.
+        let bucket = indices.entry(hashes.hash_one(&item)).or_default();
+        match bucket
+            .iter()
+            .copied()
+            .find(|index| listed[*index].0 == item)
+        {
+            Some(index) => listed[index].1.push(range),
+            None => {
+                bucket.push(listed.len());
+                listed.push((item, vec![range]));
+            }
         }
     }
     Value::Array(
@@ -171,13 +167,12 @@ pub(in super::super) fn dedupe_diagnostics(items: Value) -> Value {
 }
 
 /// Flatten a pull (`DocumentDiagnosticReport`) or cached push report into the
-/// list of diagnostics it carries, plus whether the push cache truncated it.
+/// complete list of diagnostics it carries.
 /// `unchanged` pull reports and absent reports carry no items.
-pub(in super::super) fn diagnostic_items(report: Option<Value>) -> (Value, bool) {
+pub(in super::super) fn diagnostic_items(report: Option<Value>) -> Value {
     let Some(report) = report else {
-        return (json!([]), false);
+        return json!([]);
     };
-    let truncated = report.get("truncated").and_then(Value::as_bool) == Some(true);
     let items = match report {
         Value::Array(items) => items,
         Value::Object(mut object) => match object.remove("items") {
@@ -186,8 +181,5 @@ pub(in super::super) fn diagnostic_items(report: Option<Value>) -> (Value, bool)
         },
         _ => Vec::new(),
     };
-    (
-        Value::Array(items.into_iter().map(publish_diagnostic_ranges).collect()),
-        truncated,
-    )
+    Value::Array(items.into_iter().map(publish_diagnostic_ranges).collect())
 }

@@ -5,9 +5,12 @@ use crate::signatures::extractor::whole_file_deadline;
 use std::time::Instant;
 
 mod line_scan;
+mod occurrences;
 mod syntax;
 
 use line_scan::{scan_near_line, scan_whole_file};
+pub use occurrences::CodeOccurrences;
+pub use syntax::canonical_symbol_name;
 use syntax::{collect_symbol_candidates, pick_candidate};
 
 /// How many lines from its `line_hint` the resolver accepts a spelling: it
@@ -82,7 +85,8 @@ pub fn resolve_position_in_file_content(
 }
 
 /// Zero-based lines where `symbol_name` occurs as code in `content`: an
-/// exact identifier-like node, not inside a comment or a string literal.
+/// exact identifier-like node or quoted declaration name, excluding comments
+/// and unrelated value literals.
 /// The path selects the grammar (the file is not read). `None` when the
 /// file has no grammar, or its parse fails, has errors, or exceeds the
 /// analysis budget: the caller cannot tell code from comments then.
@@ -126,8 +130,7 @@ pub fn local_binding_lines(
     Some((line_of(scope.start), line_of(scope.end.saturating_sub(1))))
 }
 
-/// [`code_occurrence_lines`] with the parse that found them, which
-/// [`CodeOccurrences::sites`] reads rather than parse again.
+/// [`code_occurrence_lines`] with its parse, reused by [`CodeOccurrences::sites`].
 #[must_use]
 pub fn code_occurrences(
     file_path: &str,
@@ -138,6 +141,7 @@ pub fn code_occurrences(
         return None;
     }
     let deadline = whole_file_deadline();
+    let grammar = grammar_for_file(file_path)?;
     let (tree, language) = parse_as_code(file_path, content, deadline)?;
     let root = tree.root_node();
     let mut candidates = Vec::new();
@@ -147,58 +151,14 @@ pub fn code_occurrences(
         content,
         &index,
         symbol_name,
+        Some(grammar.language_id),
         &mut candidates,
         deadline,
     )
     .ok()?;
-    let mut lines = candidates
-        .into_iter()
-        .filter(|candidate| candidate.is_exact && !candidate.is_literal)
-        .map(|candidate| candidate.line_index)
-        .collect::<Vec<_>>();
-    lines.dedup();
-    Some(CodeOccurrences {
-        lines,
-        tree,
-        language,
-    })
-}
-
-/// Where a name occurs as code in one text.
-pub struct CodeOccurrences {
-    /// Zero-based lines, see [`code_occurrence_lines`].
-    pub lines: Vec<usize>,
-    tree: tree_sitter::Tree,
-    language: &'static tree_sitter::Language,
-}
-
-impl CodeOccurrences {
-    /// Where `name` is declared and called in `content` (the text these
-    /// occurrences were found in), as [`crate::signatures::extract_graph_facts`]
-    /// reads the file; `None` when only those facts can tell. Reads only the
-    /// parts of the file spelling the name, so it costs far less than the
-    /// facts on a large file.
-    #[must_use]
-    pub fn sites(
-        &self,
-        file_path: &str,
-        content: &str,
-        name: &str,
-    ) -> Option<crate::signatures::graph_facts::NamedSites> {
-        use crate::signatures::{extractor, graph_facts, graph_facts_grammar};
-        let (entry, grammar) = graph_facts_grammar(content, file_path)?;
-        let own_parse;
-        let tree = if std::ptr::eq(&entry.language, self.language) {
-            &self.tree
-        } else {
-            own_parse = extractor::parse_before(content, &entry.language, whole_file_deadline())?;
-            &own_parse
-        };
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            graph_facts::named_sites_from_tree(content, file_path, &grammar, tree, name)
-        }))
-        .unwrap_or(None)
-    }
+    Some(CodeOccurrences::from_candidates(
+        candidates, &index, content, tree, language,
+    ))
 }
 
 fn resolve_position_before(
@@ -315,9 +275,9 @@ fn resolve_position_with_grammar(
     fuzzy: &LspFuzzyPosition,
     deadline: Instant,
 ) -> Result<Option<LspResolvedSymbol>> {
-    if grammar_for_file(file_path).is_none() {
+    let Some(grammar) = grammar_for_file(file_path) else {
         return Ok(None);
-    }
+    };
     let Some((tree, _)) = parse_as_code(file_path, content, deadline) else {
         return Ok(None);
     };
@@ -330,6 +290,7 @@ fn resolve_position_with_grammar(
         content,
         &index,
         &fuzzy.symbol_name,
+        Some(grammar.language_id),
         &mut candidates,
         deadline,
     )?;

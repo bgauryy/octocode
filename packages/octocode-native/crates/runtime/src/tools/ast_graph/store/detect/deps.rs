@@ -140,9 +140,13 @@ pub(super) fn detect_boundaries(c: &mut Ctx) {
 
 pub(super) fn detect_unresolved(c: &mut Ctx) {
     let t = c.v.t;
-    let mut by_file = BTreeMap::<&str, Vec<(&str, u32)>>::new();
+    // An import that climbs above the snapshot root is a scope gap, not a
+    // broken import: its target may exist, unscanned. Its code says which.
+    let mut by_file = BTreeMap::<&str, (Vec<(&str, u32)>, Vec<(&str, u32)>)>::new();
     for diag in &t.diagnostics {
-        if t.str(diag.code) == DiagnosticCode::UnresolvedInternal.as_str() {
+        let code = t.str(diag.code);
+        let outside = code == DiagnosticCode::OutsideRoot.as_str();
+        if outside || code == DiagnosticCode::UnresolvedInternal.as_str() {
             let file = t.str(diag.file);
             // Fixtures and generated code carry deliberately broken imports.
             let production = t.by_key(file).is_none_or(|id| {
@@ -151,19 +155,18 @@ pub(super) fn detect_unresolved(c: &mut Ctx) {
                     == 0
             });
             if production {
-                by_file
-                    .entry(file)
-                    .or_default()
-                    .push((t.str(diag.message), diag.line));
+                let (out, broken) = by_file.entry(file).or_default();
+                let site = (t.str(diag.message), diag.line);
+                if outside {
+                    out.push(site)
+                } else {
+                    broken.push(site)
+                }
             }
         }
     }
-    // An import that climbs above the snapshot root is a scope gap, not a
-    // broken import: its target may exist, unscanned.
-    let outside = |site: &(&str, u32)| site.0.starts_with(OUTSIDE_ROOT);
     let mut pending = Vec::new();
-    for (file, sites) in by_file {
-        let (out, broken): (Vec<_>, Vec<_>) = sites.into_iter().partition(outside);
+    for (file, (out, broken)) in by_file {
         if !broken.is_empty() {
             pending.push((file.to_owned(), broken, false));
         }
@@ -183,7 +186,9 @@ pub(super) fn detect_unresolved(c: &mut Ctx) {
             (
                 format!("{} internal import(s) could not be resolved", sites.len()),
                 0.8,
-                vec!["relative/crate-internal specifiers only; packages are never unresolved"],
+                vec![
+                    "project specifiers only (relative, crate, alias, workspace package); third-party packages are never unresolved",
+                ],
                 &[],
             )
         };

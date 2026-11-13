@@ -260,6 +260,170 @@ fn scopes_separate_answers_and_forget_reaches_both_stores() {
     assert!(store.load("one", "secret").is_none());
 }
 
+/// Content-addressed bodies can belong to several requests and credentials:
+/// retiring one answer must not make the others request their body again.
+#[test]
+fn forgetting_an_answer_keeps_other_answers_with_the_same_body() {
+    for persistent in [false, true] {
+        let dir = tempfile::tempdir().expect("dir");
+        let store = KeptAnswers::new(persistent.then(|| dir.path().to_owned()));
+        let answer = saved("fn shared() {}\n");
+        store.save("one", "first", answer.clone());
+        store.save("one", "second", answer.clone());
+        store.save("two", "first", answer.clone());
+
+        store.forget("one", "first");
+
+        assert!(store.load("one", "first").is_none());
+        assert_eq!(store.load("one", "second"), Some(answer.clone()));
+        assert_eq!(store.load("two", "first"), Some(answer.clone()));
+        if persistent {
+            let reopened = KeptAnswers::new(Some(dir.path().to_owned()));
+            assert_eq!(reopened.load("one", "second"), Some(answer.clone()));
+            assert_eq!(reopened.load("two", "first"), Some(answer));
+        }
+    }
+}
+
+/// A shared body stays while any answer names it, for this process and the
+/// next, and leaves the directory with the last one, by forget or replacement.
+#[test]
+fn a_shared_body_leaves_with_the_last_answer_naming_it() {
+    let dir = tempfile::tempdir().expect("dir");
+    let body = "fn last_owner() {}\n";
+    let holding = || {
+        std::fs::read_dir(dir.path())
+            .expect("entries")
+            .flatten()
+            .filter(|entry| {
+                std::fs::read(entry.path())
+                    .is_ok_and(|bytes| String::from_utf8_lossy(&bytes).contains(body))
+            })
+            .count()
+    };
+    let store = KeptAnswers::new(Some(dir.path().to_owned()));
+    let owners = [("one", "first"), ("one", "second"), ("two", "first")];
+    for (scope, request) in owners {
+        store.save(scope, request, saved(body));
+    }
+    assert_eq!(holding(), 1);
+    let (last, rest) = owners.split_last().expect("owners");
+    for (scope, request) in rest {
+        KeptAnswers::new(Some(dir.path().to_owned())).forget(scope, request);
+        assert_eq!(holding(), 1, "{scope} {request}");
+    }
+    assert_eq!(store.load(last.0, last.1), Some(saved(body)));
+    store.save(last.0, last.1, saved("fn replacement() {}\n"));
+    assert_eq!(holding(), 0);
+}
+
+/// Replacing a response retires its reference, not a body another response owns.
+#[test]
+fn replacing_an_answer_keeps_other_answers_with_the_previous_body() {
+    for persistent in [false, true] {
+        let dir = tempfile::tempdir().expect("dir");
+        let store = KeptAnswers::new(persistent.then(|| dir.path().to_owned()));
+        let previous = saved("fn previous() {}\n");
+        let replacement = saved("fn replacement() {}\n");
+        store.save("one", "first", previous.clone());
+        store.save("two", "second", previous.clone());
+
+        store.save("one", "first", replacement.clone());
+
+        assert_eq!(store.load("one", "first"), Some(replacement));
+        assert_eq!(store.load("two", "second"), Some(previous.clone()));
+        if persistent {
+            let reopened = KeptAnswers::new(Some(dir.path().to_owned()));
+            assert_eq!(reopened.load("two", "second"), Some(previous));
+        }
+    }
+}
+
+/// Moving one response into memory does not revoke another response's clean
+/// body, and a new process still cannot reach the sensitive replacement.
+#[test]
+fn a_sensitive_replacement_keeps_other_answers_with_the_previous_body() {
+    let dir = tempfile::tempdir().expect("dir");
+    let store = KeptAnswers::new(Some(dir.path().to_owned()));
+    let previous = saved("fn shared_clean() {}\n");
+    let sensitive = saved(&format!("GITHUB_TOKEN=ghp_{}\n", "a".repeat(36)));
+    assert!(!gate_keeps(&store.security, &sensitive.answer));
+    store.save("one", "first", previous.clone());
+    store.save("two", "second", previous.clone());
+
+    store.save("one", "first", sensitive.clone());
+
+    assert_eq!(store.load("one", "first"), Some(sensitive));
+    assert_eq!(store.load("two", "second"), Some(previous.clone()));
+    let reopened = KeptAnswers::new(Some(dir.path().to_owned()));
+    assert!(reopened.load("one", "first").is_none());
+    assert_eq!(reopened.load("two", "second"), Some(previous));
+}
+
+/// Give each publication step its own directory and budget so a refusal can
+/// be exercised without another store's eviction hiding a stale reference.
+fn budgeted_disk_store(
+    root: &std::path::Path,
+    bodies: CacheConfig,
+    sealed: CacheConfig,
+) -> KeptAnswers {
+    KeptAnswers {
+        references: Store::new(bodies.clone(), Some(root.join("bodies"))),
+        bodies: Store::new(bodies, Some(root.join("bodies"))),
+        sealed: Store::new(sealed, Some(root.join("sealed"))),
+        ..KeptAnswers::new(None)
+    }
+}
+
+#[test]
+fn a_refused_replacement_body_retires_only_its_previous_answer() {
+    let dir = tempfile::tempdir().expect("dir");
+    let body_budget = CacheConfig { disk_bytes: 1024 };
+    let store = budgeted_disk_store(dir.path(), body_budget.clone(), CacheConfig::derived());
+    let previous = saved("fn shared_clean() {}\n");
+    store.save("one", "first", previous.clone());
+    store.save("two", "second", previous.clone());
+    assert_eq!(store.load("one", "first"), Some(previous.clone()));
+    assert_eq!(store.load("two", "second"), Some(previous.clone()));
+
+    let replacement = saved(&"new evidence\n".repeat(body_budget.disk_bytes as usize));
+    assert!(replacement.answer.body.len() as u64 > body_budget.disk_bytes);
+    assert!(gate_keeps(&store.security, &replacement.answer));
+    store.save("one", "first", replacement);
+
+    assert!(store.load("one", "first").is_none());
+    assert_eq!(store.load("two", "second"), Some(previous.clone()));
+    let reopened = budgeted_disk_store(dir.path(), body_budget, CacheConfig::derived());
+    assert!(reopened.load("one", "first").is_none());
+    assert_eq!(reopened.load("two", "second"), Some(previous));
+}
+
+#[test]
+fn a_refused_replacement_metadata_retires_only_its_previous_answer() {
+    let dir = tempfile::tempdir().expect("dir");
+    let metadata_budget = CacheConfig { disk_bytes: 1024 };
+    let store = budgeted_disk_store(dir.path(), CacheConfig::derived(), metadata_budget.clone());
+    let previous = saved("fn shared_clean() {}\n");
+    store.save("one", "first", previous.clone());
+    store.save("two", "second", previous.clone());
+    assert_eq!(store.load("one", "first"), Some(previous.clone()));
+    assert_eq!(store.load("two", "second"), Some(previous.clone()));
+
+    let mut replacement = saved("fn updated() {}\n");
+    replacement.answer.headers.push((
+        "x-note".into(),
+        "updated metadata ".repeat(metadata_budget.disk_bytes as usize),
+    ));
+    assert!(gate_keeps(&store.security, &replacement.answer));
+    store.save("one", "first", replacement);
+
+    assert!(store.load("one", "first").is_none());
+    assert_eq!(store.load("two", "second"), Some(previous.clone()));
+    let reopened = budgeted_disk_store(dir.path(), CacheConfig::derived(), metadata_budget);
+    assert!(reopened.load("one", "first").is_none());
+    assert_eq!(reopened.load("two", "second"), Some(previous));
+}
+
 /// With `storage.mode` memory, answers end with the store.
 #[test]
 fn a_memory_stores_answers_end_with_it() {

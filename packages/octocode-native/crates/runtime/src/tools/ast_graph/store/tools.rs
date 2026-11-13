@@ -84,8 +84,8 @@ fn other_homes(home: &Path, root: &Path, paths: &PathPolicy) -> Vec<PathBuf> {
         .filter(|candidate| candidate != home && paths.validate(candidate).is_ok())
         .filter(|candidate| {
             list_snapshots(candidate).iter().any(|id| {
-                read_manifest(&candidate.join(id))
-                    .is_some_and(|manifest| manifest["root"] == scanned.as_ref())
+                read_snapshot_metadata(&candidate.join(id))
+                    .is_some_and(|manifest| manifest.root.as_deref() == Some(scanned.as_ref()))
             })
         })
         .collect()
@@ -210,8 +210,8 @@ fn options(
             .into_iter()
             .rev()
             .find(|id| {
-                read_manifest(&home.join(id))
-                    .is_some_and(|m| m["root"] == root.to_string_lossy().as_ref())
+                read_snapshot_metadata(&home.join(id))
+                    .is_some_and(|m| m.root.as_deref() == Some(root.to_string_lossy().as_ref()))
             })
             .ok_or_else(|| {
                 missing_snapshot("no snapshot for this exact path", &root, &home, paths)
@@ -225,7 +225,8 @@ fn options(
         path: row["path"].as_str().unwrap_or("."),
     };
     let graph = snapshots.exact(&id)?;
-    if read_manifest(Path::new(&graph)).is_none_or(|m| m["root"] != root.to_string_lossy().as_ref())
+    if read_snapshot_metadata(Path::new(&graph))
+        .is_none_or(|m| m.root.as_deref() != Some(root.to_string_lossy().as_ref()))
     {
         return Err(failure(
             "snapshot belongs to a different path; use its original scope",

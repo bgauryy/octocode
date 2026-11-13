@@ -82,7 +82,11 @@ fn paths_under_a_metric_sort_state_that_one_metric() {
     assert_eq!(super::super::rows::line_count_reads(&root.0) - before, 2);
     assert_eq!(
         entries(&out),
-        ["z-long.rs (totalLines=3)", "a-short.rs (totalLines=1)", "dir/"]
+        [
+            "z-long.rs (totalLines=3)",
+            "a-short.rs (totalLines=1)",
+            "dir/"
+        ]
     );
     // A directory has no content size: it ranks last and states none.
     assert_eq!(
@@ -98,10 +102,21 @@ fn paths_under_a_metric_sort_state_that_one_metric() {
     assert_eq!(rows.len(), 3, "{by_time}");
     for row in rows {
         let (_, fields) = row.split_once(" (").expect("one field");
-        assert!(fields.starts_with("modified=") && !fields.contains(','), "{row}");
+        assert!(
+            fields.starts_with("modified=") && !fields.contains(','),
+            "{row}"
+        );
     }
-    for (by, order) in [("name", "asc"), ("path", "asc"), ("path", "desc"), ("traversal", "asc")] {
-        let mut names = entries(&ranked(by, order)).into_iter().map(str::to_owned).collect::<Vec<_>>();
+    for (by, order) in [
+        ("name", "asc"),
+        ("path", "asc"),
+        ("path", "desc"),
+        ("traversal", "asc"),
+    ] {
+        let mut names = entries(&ranked(by, order))
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
         names.sort_unstable();
         assert_eq!(names, ["a-short.rs", "dir/", "z-long.rs"], "{by} {order}");
     }
@@ -123,7 +138,8 @@ fn paths_pages_preserve_every_detailed_path_once_and_keep_the_view() {
         }
     }
     for operation in ["tree", "files"] {
-        let mut query = json!({"operation":operation,"view":"details", "path": root.0, "maxDepth": 4});
+        let mut query =
+            json!({"operation":operation,"view":"details", "path": root.0, "maxDepth": 4});
         let detailed = run(&root.0, query.clone()).expect("details");
         // The names-only view lists every entry the details view lists.
         let mut expected = listed(&detailed)

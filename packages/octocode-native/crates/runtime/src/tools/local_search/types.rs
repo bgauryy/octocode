@@ -37,7 +37,11 @@ pub struct SearchMatch {
     /// never shown.
     #[serde(skip)]
     pub first_line: u32,
-    /// Every matched line inside a merged context block, in order; present
+    /// The last line of a match spanning several (multiline mode): the
+    /// match covers `line..=endLine`; absent for a one-line match.
+    #[serde(rename = "endLine", skip_serializing_if = "Option::is_none")]
+    pub end_line: Option<u32>,
+    /// Every hit line inside a merged context block, in order; present
     /// only when overlapping/adjacent windows were merged into this one.
     #[serde(rename = "matchedLines", skip_serializing_if = "Option::is_none")]
     pub match_lines: Option<Vec<u32>>,

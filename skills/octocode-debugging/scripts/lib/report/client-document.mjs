@@ -1,7 +1,6 @@
 // Page view: the library listing, document decoration (headings, chips, links, code blocks),
 // and the cited-sources rail. Inlined into the page via Function#toString: it may use only ctx
 // and browser globals.
-// oxlint-disable-next-line max-lines-per-function -- serialized whole via Function#toString
 export function documentView(ctx) {
   const { kit, $, $$, esc, slugify, decode, href, resolvePath, editorUrl, copy, files, byPath, siteTitle, diagramLabel } = ctx;
   const { toneOf } = kit;

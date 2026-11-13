@@ -1,6 +1,8 @@
 //! The rows a search or listing returns: typed rows, read targets and next-hop anchors.
 use super::*;
 
+mod path_scope;
+
 #[tokio::test]
 async fn commit_search_read_targets_the_first_sha_without_a_candidate_list() {
     use wiremock::MockServer;
@@ -42,51 +44,6 @@ async fn commit_search_read_targets_the_first_sha_without_a_candidate_list() {
     // Commit search pages use the shared pagination: the first page starts
     // at offset 0.
     assert_eq!(data["pagination"]["offset"], 0, "{data}");
-}
-
-/// A commit listing names its row kind like commit search: `type` is
-/// `commits`, whether `path` names a file, a directory, or nothing.
-#[tokio::test]
-async fn commit_listing_rows_are_typed_commits() {
-    use wiremock::MockServer;
-
-    let server = MockServer::builder().start().await;
-    mount_json(
-        &server,
-        "/api/v3/repos/o/r/commits",
-        200,
-        json!([{
-            "sha": "aaa", "commit": {"message": "Fix cache",
-            "committer": {"date": "2026-01-01T00:00:00Z"}}, "author": {"login": "dev"}
-        }]),
-    )
-    .await;
-    let provider = one_shot_provider(&server);
-    for scope in [json!("src/lib.rs"), json!("src/"), Value::Null] {
-        let mut query = json!({"operation":"commit","owner":"o","repo":"r"});
-        if !scope.is_null() {
-            query["path"] = scope.clone();
-        }
-        let query = serde_json::from_value(query).expect("query");
-        let data = execute(&provider, &query, &default_context(), &Passthrough)
-            .await
-            .expect("commit listing");
-        assert!(data.get("type").is_none(), "{scope}: {data}");
-        assert_eq!(data["commits"][0]["commitSha"], "aaa", "{data}");
-        // The listed path is the caller's own input: not restated.
-        assert!(data.get("path").is_none(), "{scope}: {data}");
-        // The commit read scopes its patches with the published `include`.
-        let read =
-            &crate::tools::test_support::checks::related_call(&data, "ghGetHistoryItem", |input| {
-                input["queries"][0]["operation"] == "commit"
-            })["input"]["queries"][0];
-        assert!(read.get("path").is_none(), "{read}");
-        if scope.is_null() {
-            assert!(read.get("include").is_none(), "{read}");
-        } else {
-            assert_eq!(read["include"], json!([scope]), "{read}");
-        }
-    }
 }
 
 /// A plain issue listing pages `is:issue` search results, so every
@@ -159,75 +116,6 @@ async fn plain_issue_listing_pages_issue_search_without_pr_gaps() {
     assert_eq!(empty["status"], "empty", "{empty}");
     assert!(empty.get("pagination").is_none(), "{empty}");
     assert!(empty["next"].get("nextPage").is_none(), "{empty}");
-}
-
-/// A path commit listing leads to the first `(#N)` row's PR
-/// scoped to that path, and the envelope neither echoes owner/repo nor
-/// restates its page facts.
-#[tokio::test]
-async fn commit_listing_leads_to_the_squash_pull_request() {
-    use wiremock::MockServer;
-
-    let server = MockServer::builder().start().await;
-    let commit = |sha: &str, message: &str| {
-        json!({"sha": sha, "commit": {"message": message,
-            "author": {"name": "Dev", "date": "2026-01-01T00:00:00Z"}}, "author": {"login": "dev"}})
-    };
-    mount_json(
-        &server,
-        "/api/v3/repos/o/r/commits",
-        200,
-        json!([commit("aaa", "Bump deps"), commit("bbb", "Fix cache (#9)")]),
-    )
-    .await;
-    mount_json(
-        &server,
-        "/api/v3/search/issues",
-        200,
-        json!({"total_count": 1, "incomplete_results": false,
-            "items": [{"number": 3, "title": "Bug", "state": "open", "comments": 4}]}),
-    )
-    .await;
-    let provider = one_shot_provider(&server);
-    let query = serde_json::from_value(
-        json!({"operation":"commit","owner":"o","repo":"r","path":"src/lib.rs"}),
-    )
-    .expect("query");
-    let data = execute(&provider, &query, &default_context(), &Passthrough)
-        .await
-        .expect("commit listing");
-    assert!(data["commits"][1].get("prNumber").is_none(), "{data}");
-    let read =
-        &crate::tools::test_support::checks::related_call(&data, "ghGetHistoryItem", |input| {
-            input["queries"][0]["operation"] == "pullRequest"
-        })["input"]["queries"][0];
-    assert_eq!(read["number"], 9, "{data}");
-    assert_eq!(read["include"], json!(["src/lib.rs"]), "{data}");
-    assert!(
-        data.get("owner").is_none() && data.get("repo").is_none(),
-        "{data}"
-    );
-
-    let query = serde_json::from_value(
-        json!({"operation":"issue","owner":"o","repo":"r","keywords":["bug"]}),
-    )
-    .expect("query");
-    let data = execute(&provider, &query, &default_context(), &Passthrough)
-        .await
-        .expect("issue search");
-    assert!(
-        data.get("owner").is_none() && data.get("repo").is_none(),
-        "{data}"
-    );
-    // A comment count is a `fields` pick, not a default row's.
-    assert!(data["issues"][0].get("commentsCount").is_none(), "{data}");
-    let query = serde_json::from_value(json!({"operation":"issue","owner":"o","repo":"r",
-        "keywords":["bug"],"fields":["commentsCount"]}))
-    .expect("query");
-    let picked = execute(&provider, &query, &default_context(), &Passthrough)
-        .await
-        .expect("issue search");
-    assert_eq!(picked["issues"][0]["commentsCount"], 4, "{picked}");
 }
 
 /// The happy-path anchors of each operation's row: the id the next hop

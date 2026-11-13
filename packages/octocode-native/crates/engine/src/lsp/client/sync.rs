@@ -176,7 +176,14 @@ impl NativeLspClient {
         };
 
         let notification = if next_version == 1 {
-            let language_id = crate::lsp::config::detect_language_id(&file_path)
+            let extension = format!(".{}", crate::text::extension_of(&file_path, true, ""));
+            let language_id = self
+                .inner
+                .config
+                .document_language_ids
+                .get(&extension)
+                .cloned()
+                .or_else(|| crate::lsp::config::detect_language_id(&file_path))
                 .or_else(|| self.inner.config.language_id.clone())
                 .unwrap_or_else(|| "plaintext".to_owned());
             let params = json!({

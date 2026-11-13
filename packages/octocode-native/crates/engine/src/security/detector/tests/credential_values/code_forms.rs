@@ -109,8 +109,14 @@ fn a_value_after_an_interpolation_or_a_seam_is_the_named_value() {
     const VALUE: &str = "DvR8R8i4INNejI81pSk6GW";
     const KEY: &str = "Qm7Hx2LpT9vRk4Wn8sZcYb";
     for (content, kept) in [
-        (format!("const a = `password=${{x}}{VALUE}`;\n"), ["const a = `password=${x}", "`;\n"]),
-        (format!("const b = `API_KEY=${{env}}{KEY}`;\n"), ["const b = `API_KEY=${env}", "`;\n"]),
+        (
+            format!("const a = `password=${{x}}{VALUE}`;\n"),
+            ["const a = `password=${x}", "`;\n"],
+        ),
+        (
+            format!("const b = `API_KEY=${{env}}{KEY}`;\n"),
+            ["const b = `API_KEY=${env}", "`;\n"],
+        ),
         (
             format!("const d = `password=${{\"x\"}}{VALUE}`;\n"),
             ["const d = `password=${\"x\"}", "`;\n"],
@@ -126,13 +132,17 @@ fn a_value_after_an_interpolation_or_a_seam_is_the_named_value() {
     ] {
         for path in [Some("src/app.ts"), Some("notes.txt"), None] {
             let shown = detect(&content, path).sanitized;
-            assert!(!shown.contains(VALUE) && !shown.contains(KEY), "{path:?}: {shown:?}");
+            assert!(
+                !shown.contains(VALUE) && !shown.contains(KEY),
+                "{path:?}: {shown:?}"
+            );
             let [head, tail] = kept;
             assert!(shown.starts_with(head), "{path:?}: {shown:?}");
             assert!(shown.ends_with(tail), "{path:?}: {shown:?}");
             let placeholder = &shown[head.len()..shown.len() - tail.len()];
             assert!(
-                placeholder.starts_with("[REDACTED-") && placeholder.ends_with(']')
+                placeholder.starts_with("[REDACTED-")
+                    && placeholder.ends_with(']')
                     && placeholder.matches('[').count() == 1,
                 "{path:?}: {shown:?}"
             );
@@ -938,7 +948,10 @@ fn a_key_in_a_yaml_block_scalar_keeps_its_armor() {
     for (head, path) in [
         ("stringData:\n", Some("tls.yaml")),
         ("stringData:\n", None),
-        ("apiVersion: v1\nkind: Secret\nstringData:\n", Some("tls.yaml")),
+        (
+            "apiVersion: v1\nkind: Secret\nstringData:\n",
+            Some("tls.yaml"),
+        ),
     ] {
         let content = format!(
             "{head}  tls.key: |\n    -----BEGIN PRIVATE KEY-----\n    {body}\n    -----END PRIVATE KEY-----\n  other: plain\n"
@@ -949,7 +962,10 @@ fn a_key_in_a_yaml_block_scalar_keeps_its_armor() {
             shown.contains("  tls.key: |\n    -----BEGIN PRIVATE KEY-----\n"),
             "{path:?}: {shown:?}"
         );
-        assert!(shown.contains("]\n    -----END PRIVATE KEY-----\n"), "{path:?}: {shown:?}");
+        assert!(
+            shown.contains("]\n    -----END PRIVATE KEY-----\n"),
+            "{path:?}: {shown:?}"
+        );
         assert!(shown.contains("\n  other: "), "{path:?}: {shown:?}");
     }
 }

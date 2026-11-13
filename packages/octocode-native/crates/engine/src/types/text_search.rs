@@ -265,7 +265,8 @@ pub struct TextSearchOptions {
     pub row_window: Option<RowWindow>,
     /// The text each file is searched as, in place of its bytes, when its
     /// judge replaced any of them ([`SourceJudge`]); `None` searches every
-    /// file's bytes as they are.
+    /// file's bytes as they are. A file whose own bytes prove the text it
+    /// serves holds no match is not judged ([`JudgeWrites`]).
     pub judge: Option<SourceJudge>,
 }
 
@@ -275,13 +276,23 @@ pub struct TextSearchOptions {
 /// bytes are searched as they are. A hit is then never made by bytes a read
 /// withholds, and every count, listing and file-level term sees the same
 /// text. An error leaves the file unsearched, recorded as a failed path. The
-/// judge reads the file from its start, and the search reads it again after.
+/// judge is handed the file at its start, and the search reads it again from
+/// its start after.
 pub type JudgeSource =
     dyn Fn(&std::path::Path, &std::fs::File) -> std::io::Result<Option<Vec<u8>>> + Send + Sync;
 
-/// A shared [`JudgeSource`].
+/// Whether a match of `literal` could take text a [`JudgeSource`] writes or
+/// moves in place of a source's own bytes (compared ignoring case when
+/// `fold`): a match that cannot is the source's own bytes at their place, so
+/// a file whose bytes hold no match is searched without its judge.
+pub type JudgeWrites = dyn Fn(&str, bool) -> bool + Send + Sync;
+
+/// A shared [`JudgeSource`], with what it writes ([`JudgeWrites`]).
 #[derive(Clone)]
-pub struct SourceJudge(pub std::sync::Arc<JudgeSource>);
+pub struct SourceJudge {
+    pub serve: std::sync::Arc<JudgeSource>,
+    pub writes: std::sync::Arc<JudgeWrites>,
+}
 
 impl std::fmt::Debug for SourceJudge {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

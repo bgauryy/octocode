@@ -30,6 +30,67 @@ async fn a_partial_search_is_never_kept() {
     assert_eq!(memory.len(), 0);
 }
 
+/// A raw repository file is source evidence, not a GitHub search envelope:
+/// its own field names do not decide whether its response can be reused.
+#[tokio::test]
+async fn a_pinned_raw_json_file_with_a_search_named_field_is_kept() {
+    let server = MockServer::start().await;
+    let body = r#"{"incomplete_results":true,"data":[1,2,3]}"#;
+    Mock::given(path("/api/v3/repos/a/b/contents/data.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(body))
+        .mount(&server)
+        .await;
+    let (transport, endpoint, memory) = keeping(&server);
+    let mut url = endpoint
+        .rest(&["repos", "a", "b", "contents", "data.json"])
+        .unwrap();
+    url.query_pairs_mut().append_pair("ref", &"c".repeat(40));
+    let mut spec = RequestSpec::get(url);
+    spec.headers.insert(
+        reqwest::header::ACCEPT,
+        reqwest::header::HeaderValue::from_static("application/vnd.github.raw+json"),
+    );
+
+    let first = transport
+        .execute(spec.clone(), &request("t"))
+        .await
+        .unwrap();
+    assert_eq!(first.body.as_ref(), body.as_bytes());
+    assert_eq!(memory.len(), 1);
+    let repeated = transport.execute(spec, &request("t")).await.unwrap();
+    assert_eq!(repeated.body, first.body);
+    assert_eq!(requests(&server).await.len(), 1);
+}
+
+/// SAML-withheld evidence is incomplete on a non-search endpoint too.
+#[tokio::test]
+async fn a_saml_partial_pinned_read_is_never_kept() {
+    let server = MockServer::start().await;
+    let sha = "c".repeat(40);
+    Mock::given(path(format!("/api/v3/repos/a/b/commits/{sha}")))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("x-github-sso", "partial-results; organizations=7")
+                .set_body_string("{}"),
+        )
+        .mount(&server)
+        .await;
+    let (transport, endpoint, memory) = keeping(&server);
+    let spec = RequestSpec::get(
+        endpoint
+            .rest(&["repos", "a", "b", "commits", &sha])
+            .unwrap(),
+    );
+
+    transport
+        .execute(spec.clone(), &request("t"))
+        .await
+        .unwrap();
+    transport.execute(spec, &request("t")).await.unwrap();
+    assert_eq!(memory.len(), 0);
+    assert_eq!(requests(&server).await.len(), 2);
+}
+
 /// `no-store` is the origin's refusal, even for an immutable resource.
 #[tokio::test]
 async fn no_store_is_never_kept() {

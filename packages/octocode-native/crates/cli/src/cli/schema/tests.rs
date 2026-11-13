@@ -1,3 +1,5 @@
+mod output;
+
 use super::{TOOL_FLOW_COMMAND, catalog, grammar_instruction, tool_view};
 use serde_json::{Value, json};
 
@@ -347,18 +349,6 @@ fn views_a_request_cannot_have_are_usage_errors() {
     );
 }
 
-/// The output view is the meaning of each output field and coverage reason,
-/// the same one the MCP resource serves.
-#[test]
-fn the_output_view_is_the_tools_output_reference() {
-    let m = machine(&[]);
-    let view = tool_view(&m, "localSearch", Some("output"), None).expect("output view");
-    assert_eq!(view["name"], "localSearch");
-    assert!(!view["fields"].is_null());
-    assert_eq!(super::output_of("localSearch"), Some(view));
-    assert_eq!(super::output_of("noSuchTool"), None);
-}
-
 /// Without a tool entry in the runtime's catalog a tool is reported disabled.
 #[test]
 fn a_tool_the_runtime_does_not_list_is_disabled() {
@@ -372,14 +362,16 @@ fn a_tool_the_runtime_does_not_list_is_disabled() {
 /// repeats one of their statements.
 #[test]
 fn cli_views_state_the_instructions_once() {
-    use super::{instruction_sentences, strings_of};
+    use crate::cli::test_support::{instruction_sentences, strings_of};
     let machine = machine(&[]);
     let full = catalog(&machine, Some("full")).expect("catalog");
     let instructions = full["instructions"].as_str().expect("instructions");
     let sentences = instruction_sentences(instructions);
     assert!(sentences.len() > 20, "{sentences:?}");
     let mut rest = full.clone();
-    rest.as_object_mut().expect("catalog").remove("instructions");
+    rest.as_object_mut()
+        .expect("catalog")
+        .remove("instructions");
     let mut exposed = vec![("catalog".to_owned(), strings_of(&rest))];
     for tool in full["tools"].as_array().expect("tools") {
         let name = tool["name"].as_str().expect("name");
@@ -389,7 +381,11 @@ fn cli_views_state_the_instructions_once() {
         }
     }
     for sentence in &sentences {
-        assert_eq!(instructions.matches(sentence).count(), 1, "stated twice: {sentence}");
+        assert_eq!(
+            instructions.matches(sentence).count(),
+            1,
+            "stated twice: {sentence}"
+        );
         for (place, text) in &exposed {
             assert!(!text.contains(sentence), "{place} repeats: {sentence}");
         }

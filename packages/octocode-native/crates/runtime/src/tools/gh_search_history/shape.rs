@@ -11,6 +11,9 @@ use crate::tools::gh_shared::{
 use octocode_github::HistoryPage;
 use serde_json::{Value, json};
 
+mod detail;
+use detail::{COMMIT_DETAIL, ISSUE_DETAIL, PULL_REQUEST_DETAIL, detail_unless_sorted};
+
 /// Where a page sits in the result.
 pub(super) struct Paging {
     page: usize,
@@ -217,32 +220,6 @@ pub(super) fn shape(
         fields.remove("effectiveQuery");
     }
     value
-}
-
-/// What a history row leaves to a `fields` pick. A default row names the
-/// item (number or SHA), dates it and states its title or headline (a pull
-/// request or issue also its `state`, a commit its `merge` mark): enough to
-/// choose the one to read. Who wrote it, its labels, its comment count and
-/// its target branch are read by `fields`, or by ghGetHistoryItem.
-const PULL_REQUEST_DETAIL: &[&str] = &["author", "labels", "commentsCount", "baseRef"];
-const ISSUE_DETAIL: &[&str] = &["author", "labels", "commentsCount"];
-const COMMIT_DETAIL: &[&str] = &["author", "committer"];
-
-/// `detail` less the field the rows are sorted by: a page ranked by comment
-/// count states each row's count, since the order is the answer.
-fn detail_unless_sorted(
-    query: &HistorySearch,
-    detail: &'static [&'static str],
-) -> Vec<&'static str> {
-    let sorted = match gh_search_history_query::sort(query).as_deref() {
-        Some("comments") => Some("commentsCount"),
-        _ => None,
-    };
-    detail
-        .iter()
-        .copied()
-        .filter(|field| Some(*field) != sorted)
-        .collect()
 }
 
 /// Whether pull-request rows keep `createdAt` beside `mergedAt`: when they

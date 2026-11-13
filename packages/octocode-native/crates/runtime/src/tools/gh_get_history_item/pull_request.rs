@@ -1,9 +1,7 @@
 //! `operation: "pullRequest"`: concurrent collection loads (GraphQL first page
 //! or REST windows), metadata row, and assembly of the shaped sections.
 use super::filter::{FileFilter, FileScope};
-use super::graphql::{
-    GraphqlOutcome, GraphqlPr, graphql_complete_collection_eligible, graphql_pull_request,
-};
+use super::graphql::{GraphqlPr, graphql_complete_collection_eligible, graphql_pull_request};
 use super::pr_finish::finish_pr;
 use super::text::needle;
 use super::util::str_at;
@@ -34,7 +32,7 @@ pub(super) async fn pull_request(
     let plan = PrPlan::new(query)?;
     // Review comments are REST-only: when GraphQL serves the rest of the
     // read, their first window loads beside it instead of after its answer.
-    let ((mut graphql, graphql_fallback), inline) =
+    let (graphql, inline) =
         if graphql_complete_collection_eligible(query) && wants.has(Section::ReviewComments) {
             let (fast, inline) = tokio::try_join!(
                 fast_path(source, query, context),
@@ -47,11 +45,6 @@ pub(super) async fn pull_request(
                 InlineWindow::Pending,
             )
         };
-    // What GraphQL answered with errors and REST read instead.
-    let graphql_warnings = graphql
-        .as_mut()
-        .map(|served| std::mem::take(&mut served.warnings))
-        .unwrap_or_default();
     let loads = load_pr(
         source,
         query,
@@ -76,13 +69,7 @@ pub(super) async fn pull_request(
         )));
     }
     let shaped = shape_pr(source, query, context, &wants, &plan, loads).await?;
-    let mut data = finish_pr(
-        query,
-        &wants,
-        &plan,
-        shaped,
-        (graphql_fallback, graphql_warnings),
-    );
+    let mut data = finish_pr(query, &wants, &plan, shaped);
     if let (Some(head), Some(number)) = (head, gh_get_history_item_query::number(query)) {
         pin_head_pages(&mut data.data, &head, number);
     }
@@ -129,22 +116,21 @@ fn pin_head_pages(value: &mut Value, head: &str, number: u64) {
     }
 }
 
-/// The GraphQL fast path. REST serves whatever GraphQL could not; a failed
-/// fast path keeps its reason, and a cancelled or expired request stops here.
+/// The GraphQL fast path. REST serves whatever GraphQL could not, a failed
+/// fast path included; a cancelled or expired request stops here.
 async fn fast_path(
     source: &Source<'_>,
     query: &HistoryItemRequest,
     context: &RequestContext,
-) -> Result<(Option<GraphqlPr>, Option<String>), ProviderError> {
+) -> Result<Option<GraphqlPr>, ProviderError> {
     if !graphql_complete_collection_eligible(query) {
-        return Ok((None, None));
+        return Ok(None);
     }
     match graphql_pull_request(source, query, context).await {
-        Ok(GraphqlOutcome::Served(pr)) => Ok((Some(*pr), None)),
-        Ok(GraphqlOutcome::Unavailable) => Ok((None, None)),
-        Ok(GraphqlOutcome::Failed(reason)) => Ok((None, Some(reason))),
         Err(error) if error.is_cancelled_or_timed_out() => Err(error),
-        Err(error) => Ok((None, Some(error.message.to_string()))),
+        // REST serves the whole read and answers any failure itself.
+        Err(_) => Ok(None),
+        served => served,
     }
 }
 

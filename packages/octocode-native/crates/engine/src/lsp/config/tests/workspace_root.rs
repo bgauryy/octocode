@@ -1,5 +1,73 @@
 use super::*;
 
+/// Every built-in file route must also be discoverable from its containing
+/// directory, including type stubs and build-definition dialects.
+#[test]
+fn every_routed_extension_can_root_a_directory_query() {
+    for extension in crate::lsp::config::ROUTED_EXTENSIONS {
+        let directory = tempfile::tempdir().expect("directory");
+        let file = directory.path().join(format!("source{extension}"));
+        std::fs::write(&file, "").expect("source");
+        let root = directory.path().to_string_lossy();
+        assert_eq!(
+            directory_languages(&root, &root).len(),
+            1,
+            "{extension}: a routed source must identify its server family"
+        );
+        assert_eq!(
+            directory_representative(&root, &root).as_deref(),
+            Some(file.to_string_lossy().as_ref()),
+            "{extension}: the directory query must open its source"
+        );
+    }
+}
+
+#[test]
+fn declaration_modules_root_directory_queries_with_implementation_preference() {
+    for name in ["api.d.ts", "api.d.mts", "api.d.cts"] {
+        let directory = tempfile::tempdir().expect("directory");
+        let declaration = directory.path().join("src").join(name);
+        std::fs::create_dir_all(declaration.parent().expect("parent")).expect("source directory");
+        std::fs::write(&declaration, "export declare const target: number;").expect("declaration");
+        let root = directory.path().to_string_lossy();
+        assert_eq!(directory_languages(&root, &root), vec![".ts"], "{name}");
+        assert_eq!(
+            directory_representative(&root, &root).as_deref(),
+            Some(declaration.to_string_lossy().as_ref()),
+            "{name}: declarations are usable when no implementation exists"
+        );
+        let extension = declaration.extension().expect("extension");
+        let implementation = directory
+            .path()
+            .join("lib/implementation")
+            .with_extension(extension);
+        std::fs::create_dir_all(implementation.parent().expect("parent")).expect("lib directory");
+        std::fs::write(&implementation, "export const target = 1;").expect("implementation");
+        assert_eq!(
+            directory_representative(&root, &root).as_deref(),
+            Some(implementation.to_string_lossy().as_ref()),
+            "{name}: implementation outside the preferred source directory still wins"
+        );
+    }
+}
+
+#[test]
+fn deeply_nested_sources_can_root_directory_queries() {
+    let directory = tempfile::tempdir().expect("directory");
+    let mut nested = directory.path().to_path_buf();
+    for level in 0..32 {
+        nested.push(format!("level{level}"));
+    }
+    std::fs::create_dir_all(&nested).expect("nested directory");
+    let source = nested.join("source.py");
+    std::fs::write(&source, "def target(): pass").expect("source");
+    let root = directory.path().to_string_lossy();
+    assert_eq!(
+        directory_representative(&root, &root).as_deref(),
+        Some(source.to_string_lossy().as_ref())
+    );
+}
+
 #[test]
 fn workspace_root_infers_its_server_from_project_markers() {
     let base = std::env::temp_dir().join(format!(

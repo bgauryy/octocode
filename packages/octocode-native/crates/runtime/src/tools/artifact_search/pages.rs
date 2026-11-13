@@ -58,8 +58,6 @@ pub(super) fn discovery_page(
             )
         });
         paging::terminal_limit(data, limit.reason, &[warning]);
-        // The warning states the reach: no glossary line restates the reason.
-        paging::mark_stated(data, limit.reason);
         return;
     }
     if !more {
@@ -87,10 +85,6 @@ pub(super) fn discovery_page(
             format!(
                 "{artifact_type} matched {total} results; paging reaches only the first {reach} (through page {last})."
             ),
-        );
-        paging::mark_stated(
-            data,
-            crate::response::paging::PartialReason::ProviderResultCap,
         );
     }
 }

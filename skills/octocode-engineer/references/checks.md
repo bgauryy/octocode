@@ -4,7 +4,7 @@ Load when reviewing the affected architecture paths for protocols, boundaries, c
 
 ## Review angles
 
-Review strengths and failure hypotheses together. A healthy signal needs evidence just as a defect does; preserve the useful invariant when fixing its neighbor. For whole-system audits account for every angle, marking an angle not applicable only with a reason. For bounded work cover affected concerns without inventing unrelated work.
+Review strengths and failure hypotheses together; preserve useful invariants while fixing their neighbors. Cover the requested audit scope and affected concerns. The angles below guide investigation, not a required report checklist.
 
 | Angle | Healthy signal to preserve | Failure hypothesis | Distinguishing evidence |
 |---|---|---|---|
@@ -24,9 +24,9 @@ Review strengths and failure hypotheses together. A healthy signal needs evidenc
   - pre/postconditions, invariants, authorization, side effects, transaction boundary;
   - errors, partial success, retries, timeouts, cancellation, idempotency, replay;
   - compatibility with deployed versions, persisted records, generated clients, events, external consumers;
-  - one valid and one invalid example through the real provider and consumer, plus a test at the owning seam.
+  - representative accepted and rejected inputs through the real provider and consumer, with regression coverage at the owning seam.
 - Static types prove only checked call sites, runtime schemas only their boundary, shared field names not shared meaning. If provider and consumer cannot run together, report a candidate risk naming the missing evidence.
-- Tool contracts: follow input schema → adapter arguments → result shape and evidence → executable `next` pages and `hints` leads; separate measured from expected reliability. Across tools, compare shared field names and meanings; run one composition case not used in design.
+- Tool contracts: follow input schema → adapter arguments → result shape and evidence → executable `next` pages and `hints` leads. Compare shared field meanings and exercise downstream composition when interoperability is claimed.
 
 ## Protocol state and delivery
 

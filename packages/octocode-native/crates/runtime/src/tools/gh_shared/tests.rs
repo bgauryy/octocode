@@ -87,8 +87,8 @@ fn incomplete_and_cap_are_losslessly_typed() {
 }
 
 /// A capped search page's own warning states the match count and the
-/// reach, so the response stage adds no `providerResultCap` glossary line
-/// beside it, on a continuing page or the last reachable one.
+/// reach beside the `providerResultCap` code, on a continuing page or the
+/// last reachable one, and no response says what the code means.
 #[test]
 fn a_capped_search_page_states_the_cap_once() {
     let query = serde_json::from_str::<GhSearchCodeQuery>(r#"{"owner":"o","keywords":["x"]}"#)
@@ -109,8 +109,8 @@ fn a_capped_search_page_states_the_cap_once() {
             },
         );
         let mut staged = json!({"results": [{"index": 0, "data": value}]});
-        crate::response::notices::explain_codes(&mut staged, "results");
         crate::response::notices::place(&mut staged, "results");
+        crate::tools::test_support::checks::assert_no_reason_meaning(&staged);
         let warnings = staged["results"][0]["data"]["warnings"]
             .as_array()
             .cloned()

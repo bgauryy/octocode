@@ -12,6 +12,13 @@ fn a_guessed_field_with_one_reading_runs_and_is_named() {
             "matchString",
             json!(["x"]),
         ),
+        // `-` is literal outside a class: the regex reading spells the text.
+        (
+            "localSearch",
+            json!({"path":".","pattern":"defects-queue"}),
+            "matchString",
+            json!(["defects-queue"]),
+        ),
         (
             "localSearch",
             json!({"path":".","matchString":"x","mode":"literal"}),
@@ -216,8 +223,8 @@ fn a_guessed_field_with_several_readings_names_the_field_to_use() {
 /// `pattern` names a regex in most tools and `matchString` is literal text
 /// unless `regexEngine` says otherwise: a value that also reads as a regex
 /// has two readings, so it is refused with both fields named. A value with
-/// no regex reading (no regex syntax, or syntax that does not compile) is
-/// the literal it spells.
+/// no other regex reading (its regex reading spells it, as `-` outside a
+/// class does, or it does not compile) is the literal it spells.
 #[test]
 fn a_pattern_that_reads_as_a_regex_is_refused_naming_both_fields() {
     for value in [
@@ -253,6 +260,8 @@ fn a_pattern_that_reads_as_a_regex_is_refused_naming_both_fields() {
     for (value, read) in [
         (json!("plain words"), json!(["plain words"])),
         (json!("call("), json!(["call("])),
+        (json!("defects-queue"), json!(["defects-queue"])),
+        (json!(["#tag", "a&b", "x~y"]), json!(["#tag", "a&b", "x~y"])),
         (json!(["a", "b"]), json!(["a", "b"])),
     ] {
         let sent = json!({"path":".","pattern":value});

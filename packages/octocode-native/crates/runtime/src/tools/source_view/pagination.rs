@@ -4,9 +4,9 @@ use octocode_contract_types::{LocalFetchQuery, ReadProgressUnit};
 
 mod long_lines;
 mod source_lines;
-pub(super) use long_lines::{LongLines, Placement};
 #[cfg(test)]
 pub(crate) use long_lines::placed_pieces;
+pub(super) use long_lines::{LongLines, Placement};
 use long_lines::{MatchFirst, filled_page, oversized_line_end};
 pub(super) use source_lines::SourceLines;
 
@@ -37,6 +37,31 @@ pub(super) struct LineBudget {
     /// Characters each line's gutter (`<line>\t`) adds when it renders; 0 for
     /// a view that is not numbered.
     pub(super) gutter: usize,
+}
+
+/// Where a view's text sits in the view it was cut from: a streamed window
+/// holds part of a larger view, and a line it starts or ends inside is longer
+/// than the window shows.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct Edges {
+    /// Bytes of the text's first line before its first byte.
+    pub(super) lead: usize,
+    /// The view goes on past the text's last byte.
+    pub(super) more: bool,
+}
+
+impl Edges {
+    /// A view held whole.
+    pub(super) const WHOLE: Self = Self {
+        lead: 0,
+        more: false,
+    };
+}
+
+/// The characters a line's gutter (`<line>\t`, the tab escaped) takes at most
+/// in a source of `total_lines` lines.
+pub(crate) fn gutter_chars(total_lines: usize) -> usize {
+    total_lines.max(1).to_string().len() + 2
 }
 
 impl LineBudget {
@@ -83,16 +108,17 @@ pub(super) fn page_within(
     budget: LineBudget,
     source: Option<&SourceLines>,
     long_lines: Option<LongLines<'_>>,
+    edges: Edges,
 ) -> Page {
     let Some(source) = source else {
-        return view_page(content, q, budget, long_lines);
+        return view_page(content, q, budget, long_lines, edges);
     };
     if local_fetch_query::unit(q) == ReadProgressUnit::Lines {
         return raw_line_page(content, q, budget, source);
     }
     // A byte page of an oversized view line resumes line paging after it, in
     // the raw lines a line page counts, never at the view line's own index.
-    let mut page = view_page(content, q, budget, None);
+    let mut page = view_page(content, q, budget, None, edges);
     page.pagination.resume_line = page
         .pagination
         .resume_line
@@ -129,7 +155,7 @@ fn raw_line_page(
             offset: wire_count(first),
         }),
     );
-    let mut page = view_page_limited(content, &view_q, budget, count.max(1), None);
+    let mut page = view_page_limited(content, &view_q, budget, count.max(1), None, Edges::WHOLE);
     page.out_of_range = offset > 0 && offset >= source.total;
     let pagination = &mut page.pagination;
     if pagination.unit == ReadProgressUnit::Bytes {
@@ -162,6 +188,7 @@ fn view_page(
     q: &LocalFetchQuery,
     budget: LineBudget,
     long_lines: Option<LongLines<'_>>,
+    edges: Edges,
 ) -> Page {
     view_page_limited(
         content,
@@ -169,6 +196,7 @@ fn view_page(
         budget,
         local_fetch_query::line_limit(q),
         long_lines,
+        edges,
     )
 }
 
@@ -182,6 +210,7 @@ fn view_page_limited(
     budget: LineBudget,
     limit: usize,
     long_lines: Option<LongLines<'_>>,
+    edges: Edges,
 ) -> Page {
     let kind = local_fetch_query::unit(q);
     let offset = local_fetch_query::offset(q).unwrap_or(0);
@@ -202,7 +231,7 @@ fn view_page_limited(
             // pair or a redaction marker.
             let mut end = crate::response::cut::window_end(content, offset, chunk_size);
             let first = octocode_engine::text::line_containing(content, offset);
-            let resume = oversized_line_end(content, first, offset, end, budget.line);
+            let resume = oversized_line_end(content, first, offset, end, budget.line, edges);
             if let Some((line_end, _)) = resume {
                 end = line_end;
             }
@@ -273,7 +302,7 @@ fn view_page_limited(
                         offset: wire_count(matched.unwrap_or(byte_offset)),
                     }),
                 );
-                let page = view_page(content, &byte_query, budget, long_lines);
+                let page = view_page(content, &byte_query, budget, long_lines, edges);
                 return match matched {
                     Some(_) => page,
                     None => whole_line_page(page, offset),

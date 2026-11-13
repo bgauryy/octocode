@@ -61,12 +61,13 @@ fn failed_hierarchy_expansion_is_an_error_or_a_marked_partial_row() {
     let mut row = items_payload(&q, "callers", serde_json::json!(items), TEST_BUDGET);
     mark_partial_expansion(&mut row, &q, &failures, &repo_paths());
     // The failures are stated once, in `expansionFailures`: no warning
-    // restates them and no glossary line explains the reason again.
+    // restates them, and the row names its reason by code alone.
     assert!(row.get("warnings").is_none(), "{row}");
     assert_eq!(
-        row["statedReasons"],
+        row["partialReasons"],
         serde_json::json!(["callHierarchyExpansionFailed"])
     );
+    crate::tools::test_support::checks::assert_no_reason_meaning(&row);
     let listed = row["expansionFailures"]
         .as_array()
         .cloned()

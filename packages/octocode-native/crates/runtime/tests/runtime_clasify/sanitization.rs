@@ -151,7 +151,10 @@ async fn a_captured_source_names_its_workspace_path_to_the_provider() {
     let server = provider(2).await;
     let runtime = crate::support::clasify_runtime(&workspace, &server, &[]);
     let path = workspace.write("src/deep/notes.txt", "plain line\nsecond line\n");
-    for named in [path.to_string_lossy().into_owned(), "src/deep/notes.txt".to_owned()] {
+    for named in [
+        path.to_string_lossy().into_owned(),
+        "src/deep/notes.txt".to_owned(),
+    ] {
         let result = clasify(
             &runtime,
             vec![json!({
@@ -161,13 +164,19 @@ async fn a_captured_source_names_its_workspace_path_to_the_provider() {
             })],
         )
         .await;
-        assert!(result["results"][0]["data"]["answers"]["a"].is_object(), "{result}");
+        assert!(
+            result["results"][0]["data"]["answers"]["a"].is_object(),
+            "{result}"
+        );
     }
     let bodies = sent(&server).await;
     assert!(!bodies.is_empty());
     let root = workspace.workspace.to_string_lossy().into_owned();
     for body in &bodies {
-        assert_eq!(body["state"]["source"]["path"], "src/deep/notes.txt", "{body}");
+        assert_eq!(
+            body["state"]["source"]["path"], "src/deep/notes.txt",
+            "{body}"
+        );
         assert!(!body.to_string().contains(&root), "{body}");
     }
     runtime.close().await;

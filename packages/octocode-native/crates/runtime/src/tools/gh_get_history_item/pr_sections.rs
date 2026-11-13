@@ -4,7 +4,7 @@ use super::axis::Axis;
 use super::filter::{FileFilter, FileScope};
 use super::inventory::compact_inventory;
 use super::remaining::BodyWindows;
-use super::text::{body_matches, delivered_earlier, needle, shape_comment, window_body};
+use super::text::{delivered_earlier, shape_comment, window_body};
 use super::util::{str_at, string};
 use super::window::{WindowState, lift_page_limits};
 use super::{HistoryItemRequest, validation};
@@ -136,11 +136,6 @@ pub(super) fn shape_pr_comments(
     query: &HistoryItemRequest,
     windows: &mut BodyWindows,
 ) -> Vec<Value> {
-    let needle = needle(query);
-    let comments = comments
-        .into_iter()
-        .filter(|v| body_matches(v, needle.as_deref()))
-        .collect::<Vec<_>>();
     let (slice, page) = state.paginate(
         comments,
         gh_get_history_item_query::page(query),
@@ -189,11 +184,6 @@ pub(super) fn shape_pr_reviews(
     query: &HistoryItemRequest,
     windows: &mut BodyWindows,
 ) {
-    let needle = needle(query);
-    let reviews = reviews
-        .into_iter()
-        .filter(|v| body_matches(v, needle.as_deref()))
-        .collect::<Vec<_>>();
     let (slice, page) = state.paginate(
         reviews,
         gh_get_history_item_query::page(query),

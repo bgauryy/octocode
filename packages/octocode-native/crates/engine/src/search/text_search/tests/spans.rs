@@ -306,7 +306,10 @@ fn empty_matches_end_with_their_line() {
         .collect();
     assert_eq!(
         rows,
-        [(1, "nothing secret here".to_owned()), (2, "just words".to_owned())]
+        [
+            (1, "nothing secret here".to_owned()),
+            (2, "just words".to_owned())
+        ]
     );
     assert_eq!(result.stats.match_count, Some(2));
     // `x*` matches empty at each of a line's characters and at its end:

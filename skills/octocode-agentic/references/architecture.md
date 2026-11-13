@@ -5,7 +5,6 @@ Load when choosing how to structure an agent or harness: its components, loop sh
 ## Contents
 
 - [The big picture](#the-big-picture)
-- [Core concepts](#core-concepts)
 - [Choose a pattern](#choose-a-pattern)
 - [Reference control loop](#reference-control-loop)
 - [Execution policy](#execution-policy)
@@ -28,28 +27,6 @@ flowchart TD
 ```
 
 Default: one bounded agent loop. Add agents only when the work genuinely benefits from specialization, parallelism or isolated context ([delegate only separable work](models-and-delegation.md#delegate-only-separable-work)).
-
-## Core concepts
-
-| Concept | Purpose |
-|---|---|
-| Agent loop | Observe → decide → act → evaluate |
-| ReAct | Interleave reasoning and tool actions |
-| Plan-and-execute | Separate planning from execution |
-| Planner–executor | Specialized planning and action components |
-| Router agent | Choose the model, tool, skill or subagent |
-| Supervisor–worker | Delegate bounded tasks to specialist agents |
-| Evaluator–optimizer | Critique and improve outputs |
-| Reflection | Reassess work using new evidence |
-| Human-in-the-loop | Request approval for consequential actions |
-| Tool-calling agent | Execute typed external operations |
-| Stateful agent | Keep task state between steps |
-| Stateless agent | Reconstruct the needed state per request |
-| Agent handoff | Transfer responsibility and relevant context |
-| Checkpoint / resume | Persist progress across interruptions |
-| Durable execution | Recover running workflows without blindly repeating actions |
-| Agent sandbox | Isolate execution and limit permissions |
-| Agent termination | Stop after success, failure or budget exhaustion |
 
 ## Choose a pattern
 

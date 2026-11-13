@@ -283,3 +283,94 @@ async fn no_read_is_offered_of_utf16_past_the_read_limit() {
     );
     runtime.close().await;
 }
+
+/// Owner decision 2026-11-12: every repair of an undeclared local input name
+/// runs, and the response carries one warning naming the real field to send.
+#[tokio::test]
+async fn every_local_input_repair_runs_and_names_the_real_field() {
+    let workspace = Workspace::new();
+    workspace.write("src/a.txt", "defects-queue\nother\n");
+    let runtime = workspace.runtime(&[]);
+    let root = workspace.workspace.clone();
+    let file = root.join("src/a.txt");
+    for (tool, row, field) in [
+        (
+            "localSearch",
+            json!({"path":root,"pattern":"defects-queue"}),
+            "matchString",
+        ),
+        (
+            "localSearch",
+            json!({"path":root,"matchString":"defects","mode":"literal"}),
+            "regexEngine",
+        ),
+        (
+            "localSearch",
+            json!({"path":root,"matchString":"defects","mode":"discovery"}),
+            "view",
+        ),
+        (
+            "localSearch",
+            json!({"path":root,"matchString":"defects","literal":true}),
+            "regexEngine",
+        ),
+        (
+            "localSearch",
+            json!({"path":root,"matchString":"defects","filesOnly":true}),
+            "view",
+        ),
+        (
+            "localSearch",
+            json!({"path":root,"matchString":"defects","countOnly":true}),
+            "view",
+        ),
+        (
+            "localSearch",
+            json!({"path":root,"matchString":"defects","perFileCount":true}),
+            "view",
+        ),
+        (
+            "localSearch",
+            json!({"path":root,"matchString":"defects","excludeDir":"x"}),
+            "exclude",
+        ),
+        (
+            "localFetch",
+            json!({"path":file,"startLine":1,"endLine":1}),
+            "ranges",
+        ),
+        (
+            "localFetch",
+            json!({"path":file,"ranges":[[1,1]]}),
+            "ranges",
+        ),
+    ] {
+        let found = call(&runtime, tool, row.clone()).await.expect("runs");
+        assert_eq!(
+            row_status(&found),
+            "success",
+            "{tool} {row}: {}",
+            found.structured_content
+        );
+        let warnings = found.structured_content["warnings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|warning| warning.as_str())
+            .filter(|warning| warning.contains("next time"))
+            .collect::<Vec<_>>();
+        assert!(
+            matches!(warnings.as_slice(), [one] if one.contains(&format!("send `{field}"))),
+            "{tool} {row}: {}",
+            found.structured_content
+        );
+        // It ran: the hit's file (search views) or its line (reads) is shown.
+        let shown = row_data(&found).to_string();
+        assert!(
+            shown.contains("a.txt") || shown.contains("defects-queue"),
+            "{tool} {row}: {}",
+            found.structured_content
+        );
+    }
+    runtime.close().await;
+}

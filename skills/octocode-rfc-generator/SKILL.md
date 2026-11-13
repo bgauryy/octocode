@@ -1,46 +1,28 @@
 ---
 name: octocode-rfc-generator
-description: "Use when writing, revising or reviewing an RFC, design document, migration proposal or implementation plan. Capture a proposed decision, alternatives, validation, dependencies, rollout, risks and rollback in one document; octocode-documentation owns explanations of settled decisions."
+description: "Use when writing, revising or reviewing an RFC, design proposal, migration plan or implementation plan with decisions, alternatives, validation and rollout. Use octocode-documentation for settled explanations."
 ---
 
 # Octocode RFC Generator
 
-**Start:** read this lobby, map the task to the references it names, and read each one the task needs before acting. Keep the decision and its implementation plan in one RFC. Produce additional deliverables only on explicit request. For a settled decision and a plan-only request, write one plan. An RFC does not authorize implementation.
+Pin the requested decision; when prior RFCs may own it, find them with `--manifest` ([commands](references/report-output.md#render-and-retrieve)). Review-only returns findings against current code. A settled decision with a plan-only request needs one plan. Otherwise keep the decision and implementation plan in one RFC; extra deliverables require a request. Writing an RFC grants no implementation authority.
 
-```mermaid
-flowchart LR
-  P["Find prior RFCs with --manifest"] --> X{Request}
-  X -- review or audit --> F[Findings against current code]
-  X -- settled decision, plan only --> I[Implementation plan]
-  X -- open choice --> O[Frame, gather evidence, compare alternatives] --> D[Record decision and reversal check] --> I
-  I --> R{Sources, dependencies and acceptance verified?}
-  R -- deciding blocker --> Q[Provisional direction, open questions, next checks]
-  R -- yes --> S[Save the RFC, offer HTML]
-```
+## Work loop
 
-| Trigger / stage | Action | Completion check |
-|---|---|---|
-| Existing decision or review | Find prior RFCs with `--manifest` ([commands](references/report-output.md#render-and-retrieve)); revise the selected RFC or mark it `Superseded`. [Audit existing RFCs](references/workflow.md#audit-an-existing-rfc) against current code. | Review-only returns findings; reuse authorization for scoped saves/edits. |
-| Open choice | Frame problem, users, current behavior, goals and constraints. Use [evidence workflow](references/workflow.md) and [MCP/CLI guide](references/octocode-usage.md); compare viable alternatives, including status quo when useful. | Record ADR context, decision, header `status`, consequences, supporting evidence and reversal check. |
-| Implementation plan | Order by dependency; name each change, compatibility, check, rollout and rollback. Use a Premortem for risky plans and a [diagram](references/checklist.md#diagrams) or example for difficult boundaries. | Success is observable; text preserves the meaning. |
-| Readiness | Verify sources, dependencies, acceptance and project checks; follow [closure rules](references/checklist.md#before-declaring-ready). | Resolve deciding blockers or deliver provisional direction, open questions and next checks. |
+1. Frame the problem, users, current behavior, goals and constraints. Verify deciding claims in original sources. Compare viable alternatives, including the status quo when useful.
+2. Record the decision, evidence, consequences and what would reverse it. Try the strongest counterargument; keep unsupported likelihoods unknown.
+3. Order implementation by dependency. Name compatibility, acceptance, rollout and rollback for each material change. For risky plans, work backward from failure: what escapes containment, affects downstream consumers or cannot roll back? Prefer a reversible trial when it resolves uncertainty.
+4. Check real outcomes independently of success metrics. Resolve decision blockers with evidence; otherwise deliver provisional direction, the gaps and the next deciding checks. Execution details may be deferred only with an owner and a trigger that cannot reverse the decision.
 
-## Thinking modes
+## Conditional detail
 
-| Intent | Thinking mode | Action / check |
-|---|---|---|
-| Decide with incomplete evidence | Bayesian / Knightian | State what would invalidate the proposal and keep unsupported likelihoods unknown. |
-| Choose a rollout | Optionality / Second-Order | Compare a reversible trial and its downstream consequences. |
-| Challenge acceptance | Inversion / Goodhart / Tail Risk | Trace harmful failures; keep containment independent from success scores. |
+| Need | Read or run |
+|---|---|
+| Evidence gathering, auditing an existing RFC or unresolved disagreement | [Workflow](references/workflow.md); use optional `clasify` review only when source review and direct checks cannot settle a consequential disagreement |
+| Completeness, blocker closure or a useful diagram | [Checklist](references/checklist.md) |
+| Octocode invocation or recovery | [MCP/CLI guide](references/octocode-usage.md) |
+| Required sections, saving or rendering | [Output](output.md); [render-report.mjs](scripts/render-report.mjs) for accepted HTML or catalog discovery |
 
-Use the [shared guide](references/mental-models.md) for definitions and deciding checks.
+Keep `status: Proposed` until the owner accepts. A ready recommendation has no unresolved decision blocker; report remaining risks, confidence and unchecked scope. Save every authored RFC using [delivery](output.md#delivery) and lead with the proposal and effect. Render HTML when requested or accepted.
 
-Continue while a useful evidence check remains. Only a consequential disagreement surviving source review without a direct test may warrant [optional clasify review](references/workflow.md#optional-clasify-review); only that branch needs a classification key.
-
-## Output
-
-Follow [output.md](output.md) for the required sections and [delivery](output.md#delivery). Lead with the proposal and its effect. Link original sources and report material verification gaps in the handoff. [Save every RFC](output.md#saved-report), then offer HTML. Use [render-report.mjs](scripts/render-report.mjs) for accepted rendering or catalog discovery.
-
-## Related skills
-
-Use `octocode-research` to verify current behavior and option claims, `octocode-engineer` when a boundary or design trade-off decides the choice, and `octocode-brainstorming` when the option space is open. Use `octocode-documentation` for readability or a settled ADR, `octocode-agentic` for deciding measurements, and `octocode-workflows` for multi-actor work.
+Neighbors: `octocode-research` verifies current behavior; `octocode-engineer` evaluates design trade-offs; `octocode-brainstorming` expands options; `octocode-documentation` explains settled decisions; `octocode-agentic` designs measurements; `octocode-workflows` coordinates actors.

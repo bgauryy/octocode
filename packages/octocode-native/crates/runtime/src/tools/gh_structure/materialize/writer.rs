@@ -47,7 +47,9 @@ impl MaterializeWriter<'_> {
             }
             Acquired::Oversized => {
                 self.cursor += 1;
-                self.skips.oversized.push(entry.path.clone());
+                self.skips
+                    .oversized
+                    .push((entry.path.clone(), self.skips.read_limit));
                 return Ok(true);
             }
             Acquired::Kept(identity) => {
@@ -76,9 +78,7 @@ impl MaterializeWriter<'_> {
             }
             // One unreadable file (binary, unsupported entry) must not abort
             // the batch; only auth/rate/timeout/cancel failures propagate.
-            Acquired::Read(Err(error))
-                if !access_failure(&error) && !error.is_cancelled_or_timed_out() =>
-            {
+            Acquired::Read(Err(error)) if !terminal_failure(&error) => {
                 self.cursor += 1;
                 if error.reason == Some(ProviderErrorReason::BinaryFile) {
                     self.skips.binary.push(entry.path.clone());
@@ -119,11 +119,20 @@ pub(in crate::tools::gh_structure) fn write_error(
 
 /// Files a materialize call did not write. `location.skipped` names each
 /// path once; the warnings carry counts and each distinct read error once.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub(super) enum SkippedFile {
+    Oversized { read_limit: usize },
+    Unreadable { message: String },
+    Binary,
+    Withheld,
+}
+
 #[derive(Default)]
 pub(in crate::tools::gh_structure) struct MaterializeSkips {
     /// The body limit an oversized file passed.
     pub(in crate::tools::gh_structure) read_limit: usize,
-    pub(in crate::tools::gh_structure) oversized: Vec<String>,
+    pub(in crate::tools::gh_structure) oversized: Vec<(String, usize)>,
     pub(in crate::tools::gh_structure) unreadable: Vec<(String, String)>,
     /// Not text: nothing a local text tool could read is missing.
     pub(in crate::tools::gh_structure) binary: Vec<String>,
@@ -140,6 +149,51 @@ impl MaterializeSkips {
         }
     }
 
+    pub(super) fn restore(&mut self, path: &str, skipped: &SkippedFile) {
+        match skipped {
+            SkippedFile::Oversized { read_limit } => {
+                self.oversized.push((path.to_owned(), *read_limit));
+            }
+            SkippedFile::Unreadable { message } => {
+                self.unreadable.push((path.to_owned(), message.clone()));
+            }
+            SkippedFile::Binary => self.binary.push(path.to_owned()),
+            SkippedFile::Withheld => self.withheld.push(path.to_owned()),
+        }
+    }
+
+    pub(super) fn recorded(&self) -> std::collections::BTreeMap<String, SkippedFile> {
+        self.oversized
+            .iter()
+            .map(|(path, read_limit)| {
+                (
+                    path.clone(),
+                    SkippedFile::Oversized {
+                        read_limit: *read_limit,
+                    },
+                )
+            })
+            .chain(self.unreadable.iter().map(|(path, message)| {
+                (
+                    path.clone(),
+                    SkippedFile::Unreadable {
+                        message: message.clone(),
+                    },
+                )
+            }))
+            .chain(
+                self.binary
+                    .iter()
+                    .map(|path| (path.clone(), SkippedFile::Binary)),
+            )
+            .chain(
+                self.withheld
+                    .iter()
+                    .map(|path| (path.clone(), SkippedFile::Withheld)),
+            )
+            .collect()
+    }
+
     pub(in crate::tools::gh_structure) fn is_empty(&self) -> bool {
         self.binary.is_empty() && self.withheld.is_empty() && !self.leaves_a_gap()
     }
@@ -152,7 +206,7 @@ impl MaterializeSkips {
     pub(in crate::tools::gh_structure) fn paths(&self) -> Vec<&str> {
         self.oversized
             .iter()
-            .map(String::as_str)
+            .map(|(path, _)| path.as_str())
             .chain(self.unreadable.iter().map(|(path, _)| path.as_str()))
             .chain(self.binary.iter().map(String::as_str))
             .chain(self.withheld.iter().map(String::as_str))
@@ -180,11 +234,15 @@ impl MaterializeSkips {
 
     pub(in crate::tools::gh_structure) fn warnings(&self) -> Vec<String> {
         let mut warnings = Vec::new();
-        if !self.oversized.is_empty() {
+        let mut oversized_counts = std::collections::BTreeMap::<usize, usize>::new();
+        for (_, limit) in &self.oversized {
+            *oversized_counts.entry(*limit).or_default() += 1;
+        }
+        for (limit, count) in oversized_counts {
             warnings.push(format!(
-                "Skipped {} file(s) larger than this call's {} MiB read limit (location.skipped).",
-                self.oversized.len(),
-                self.read_limit / (1024 * 1024)
+                "Skipped {} file(s) larger than their {} byte materialize read limit (location.skipped).",
+                count,
+                limit
             ));
         }
         if !self.unreadable.is_empty() {

@@ -488,7 +488,10 @@ fn an_unquoted_value_ends_at_its_first_blank() {
     const VALUE: &str = "Qm7Hx2LpT9vRk4Wn8sZcYb";
     const B64: &str = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYzQ8vT3kLm2";
     for (content, kept) in [
-        (format!("password={VALUE} build42 then text\n"), " build42 then text\n"),
+        (
+            format!("password={VALUE} build42 then text\n"),
+            " build42 then text\n",
+        ),
         (format!("token: {VALUE} release1\n"), " release1\n"),
         (format!("DB_PASSWORD={VALUE} v2 # note\n"), " v2 # note\n"),
         (format!("secret_key={B64} mark8m\n"), " mark8m\n"),
@@ -501,7 +504,10 @@ fn an_unquoted_value_ends_at_its_first_blank() {
             assert!(!shown.contains(secret), "{path:?}: {shown:?}");
             assert!(shown.ends_with(kept), "{path:?}: {shown:?}");
             let placeholder = &shown[shown.find("[REDACTED-").expect("placeholder")..];
-            assert!(placeholder.contains(&format!("]{kept}")), "{path:?}: {shown:?}");
+            assert!(
+                placeholder.contains(&format!("]{kept}")),
+                "{path:?}: {shown:?}"
+            );
         }
     }
     // Words of a value's make a blank apart: each judged alone.

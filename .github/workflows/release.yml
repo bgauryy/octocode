@@ -96,9 +96,9 @@ jobs:
           path: packages/octocode-native/npm/${{ matrix.platform }}
           if-no-files-found: error
 
-  # Each binary on its own OS and CPU (scripts/smoke-binary.cjs: identity,
-  # --version, fingerprint, schema, CLI and stdio MCP tool calls). Every gnu
-  # platform also runs in an image whose glibc is the floor.
+  # Each binary on its own OS and CPU: its version, its contract fingerprint, its
+  # schema and one localSearch call. Every gnu platform also runs in an image
+  # whose glibc is the floor. pack-release.cjs checks each binary's identity.
   verify:
     name: Verify ${{ matrix.name }}
     needs: [setup, build]
@@ -137,23 +137,41 @@ jobs:
           first=$(docker run --rm "$CONTAINER" ldd --version | sed -n 1p)
           echo "$first"
           [[ "$first" == *" $GLIBC" ]]
-      # binutils' reading of the symbol versions, beside smoke-binary.cjs's own.
+      # binutils' reading of the symbol versions, beside pack-release.cjs's own.
       - if: matrix.glibc
         name: No GLIBC_ symbol version above the floor (readelf)
         run: |
           newest=$(readelf -V "$RUNNER_TEMP/npm/$PLATFORM/octocode" | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)*' | sed 's/^GLIBC_//' | sort -uV | tail -n 1)
           echo "newest GLIBC_$newest, floor $GLIBC"
           [ "$(printf '%s\n' "$newest" "$GLIBC" | sort -V | tail -n 1)" = "$GLIBC" ]
-      - name: Smoke
-        run: >-
-          node packages/octocode-native/scripts/smoke-binary.cjs "$RUNNER_TEMP/npm/$PLATFORM"
-          --json "$RUNNER_TEMP/smoke-${{ matrix.id }}.json" ${CONTAINER:+--container "$CONTAINER"}
-      - if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: smoke-${{ matrix.id }}
-          path: ${{ runner.temp }}/smoke-${{ matrix.id }}.json
-          if-no-files-found: warn
+      # The binary runs on the host, or inside the image for a glibc-floor entry, in a
+      # temporary workspace and home with in-process storage, so no warm server outlives it.
+      - name: Run the binary
+        run: |
+          set -euo pipefail
+          pkg="$RUNNER_TEMP/npm/$PLATFORM"
+          work="$RUNNER_TEMP/run-binary"
+          mkdir -p "$work/src" "$work/home"
+          printf 'smoke fixture\nconst octocodeSmokeNeedle = 1;\n' > "$work/src/smoke.txt"
+          bin=octocode; [ -f "$pkg/octocode.exe" ] && bin=octocode.exe
+          octo() {
+            if [ -n "$CONTAINER" ]; then
+              docker run --rm -i -v "$pkg:/pkg:ro" -v "$work:/work" -w /work \
+                -e OCTOCODE_HOME=/work/home -e OCTOCODE_STORAGE_MODE=memory "$CONTAINER" "/pkg/$bin" "$@"
+            else
+              (cd "$work" && OCTOCODE_HOME="$work/home" OCTOCODE_STORAGE_MODE=memory "$pkg/$bin" "$@")
+            fi
+          }
+          version=$(node -p 'require(process.argv[1]).version' "$pkg/package.json")
+          reported=$(octo --version | tr -d '\r')
+          echo "$reported"
+          [ "$reported" = "octocode $version" ]
+          fingerprint=$(node -p 'require(process.argv[1]).contractFingerprint' "$PWD/packages/octocode-config/contract/provenance.json")
+          printf '{"expectedFingerprint":"%s","operation":"inspect"}' "$fingerprint" | octo config --manage > /dev/null
+          echo "contract fingerprint $fingerprint"
+          octo schema > /dev/null
+          printf '{"queries":[{"path":".","matchString":["octocodeSmokeNeedle"]}]}' | octo localSearch --json --input - | grep -q 'const octocodeSmokeNeedle = 1'
+          echo "localSearch found the fixture line"
 
   # The verified binaries, packed as the owner publishes them, with SHA256SUMS.
   pack:

@@ -68,7 +68,12 @@ impl Ranking {
                 let path = self.delivered[at]
                     .take()
                     .unwrap_or_else(|| Row::listed_path(&entries[at], root, security));
-                Row::of(&entries[at], path, lines.get(at).copied().flatten(), self.key)
+                Row::of(
+                    &entries[at],
+                    path,
+                    lines.get(at).copied().flatten(),
+                    self.key,
+                )
             })
             .collect()
     }

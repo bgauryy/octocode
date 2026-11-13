@@ -86,7 +86,7 @@ pub(super) fn cut_page<'a>(
         fill: fill.unwrap_or(facts.window.unwrap_or(line_page_bytes)),
         line: line_page_bytes,
         gutter: if numbered {
-            gutter_chars(facts.file_lines.unwrap_or(source.total_lines))
+            super::super::pagination::gutter_chars(facts.file_lines.unwrap_or(source.total_lines))
         } else {
             0
         },
@@ -121,6 +121,13 @@ pub(super) fn cut_page<'a>(
         budget,
         source_lines: source_lines.as_ref(),
         long_lines,
+        edges: facts.byte_origin.as_ref().map_or(
+            super::super::pagination::Edges::WHOLE,
+            |origin| super::super::pagination::Edges {
+                lead: origin.lead,
+                more: origin.base + view.text.len() < origin.total,
+            },
+        ),
     };
     let mut scanned = page_of(&window);
     if let Some(origin) = &facts.byte_origin
@@ -144,12 +151,6 @@ pub(super) fn cut_page<'a>(
         scanned,
         budget,
     })
-}
-
-/// The characters a line's gutter (`<line>\t`, the tab escaped) takes at most
-/// in a source of `total_lines` lines.
-fn gutter_chars(total_lines: usize) -> usize {
-    total_lines.max(1).to_string().len() + 2
 }
 
 /// A byte offset of `q` inside `view` that no window of it ends at: inside

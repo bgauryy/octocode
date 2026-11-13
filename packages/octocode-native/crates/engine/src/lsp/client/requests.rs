@@ -155,7 +155,7 @@ impl NativeLspClient {
         Ok(Arc::unwrap_or_clone(full))
     }
 
-    /// Return the latest bounded `textDocument/publishDiagnostics` payload for
+    /// Return the latest complete `textDocument/publishDiagnostics` payload for
     /// a file, waiting briefly when the server has not published one yet.
     pub async fn get_push_diagnostics(
         &self,

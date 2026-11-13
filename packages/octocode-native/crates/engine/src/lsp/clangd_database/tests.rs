@@ -7,6 +7,7 @@ fn config(root: &Path, args: &[&str], init: Option<serde_json::Value>) -> LspLan
         args: Some(args.iter().map(|arg| (*arg).to_owned()).collect()),
         workspace_root: root.to_string_lossy().into_owned(),
         language_id: Some("cpp".into()),
+        document_language_ids: Default::default(),
         initialization_options: init,
         env: None,
         max_memory_mb: None,

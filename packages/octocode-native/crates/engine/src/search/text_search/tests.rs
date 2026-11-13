@@ -21,6 +21,7 @@ use std::sync::{Arc, Mutex};
 
 mod coverage;
 mod digests;
+mod judge_gate;
 mod limits;
 mod listed;
 mod matching;

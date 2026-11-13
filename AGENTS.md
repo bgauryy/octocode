@@ -81,7 +81,7 @@ The MCP launcher, CLI launcher and VS Code extension are thin adapters with no t
 | `packages/octocode-agents-communication` | `@octocodeai/octocode-agents-communication` | MCP server and CLI for cross-agent coordination: session identity, path leases, messages |
 | `packages/octocode-chrome-devtools` | `@octocodeai/octocode-chrome-devtools` | Chrome DevTools MCP server and CLI for live-browser work |
 | `packages/octocode-mcp-cli` | `octocode-mcp-cli` (private) | Library that maps MCP tools and instructions to a Zod CLI and back |
-| `packages/octocode-benchmark` | `@octocodeai/octocode-benchmark` (private) | Research benchmark: Octocode MCP versions against other tools, blind-judged, measured in characters and time |
+| `packages/octocode-benchmark` | none (docs, not a workspace) | The one home of checks and benchmarks, as behavioral docs: tool, security and skill checks, Octocode against rg, ast-grep, gh and lean gh, registries and compressors, a per-round readiness scorecard and the version timeline |
 
 Package versions are independent; the release line is listed under Release.
 
@@ -91,8 +91,7 @@ Package versions are independent; the release line is listed under Release.
   on this repo. `.agents/skills/` entries are symlinks
   to those folders: edit the canonical folder.
 - `.claude-plugin/`, `.agents/plugins/`: plugin marketplace entries. `releases/`: packed plugin
-  archives. `packages/octocode-benchmark/local/e2e/`: end-to-end suites against the built MCP server and CLI.
-  `test-utils/`: shared test helpers. `assets/`: images. `MANIFEST.md`: the
+  archives. `test-utils/`: shared test helpers, fixtures and recorded provider answers. `assets/`: images. `MANIFEST.md`: the
   research-driven-development vision.
 
 ## Setup, run, develop
@@ -121,8 +120,8 @@ cross-platform work.
 
 Without `setup`, `@octocodeai/octocode-core` resolves from npm at the version pinned in
 `packages/octocode-config/package.json`. The local MCP server is the stdio command
-`node packages/octocode-mcp/dist/index.js`. End-to-end suites:
-`node packages/octocode-benchmark/local/e2e/harness/run-all.mjs`. CI runs `$DEV lint:ci`, `$DEV typecheck:ci` and `$DEV test:ci` (which starts with the skill checks; run `$DEV skills:check` after editing anything under `skills/`).
+`node packages/octocode-mcp/dist/index.js`. Sanity and end-to-end checks are agent prompts, not
+scripts: [tool checks](packages/octocode-benchmark/CHECKS.md). CI runs `$DEV lint:ci`, `$DEV typecheck:ci` and `$DEV test:ci` (which starts with the skill checks; run `$DEV skills:check` after editing anything under `skills/`).
 
 Change rules:
 

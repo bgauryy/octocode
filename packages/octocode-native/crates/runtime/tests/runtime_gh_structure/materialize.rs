@@ -3,8 +3,9 @@
 use super::*;
 
 /// octocode-mcp 19.x rewrites `tmp/tree/<owner>/<repo>/<sha>/`; a
-/// materialize never shares it or the size-only v2 layout. Neither old cache
-/// is treated as a content-verified snapshot or modified.
+/// materialize never shares it or an earlier snapshot layout (the size-only
+/// v2, the skip-less v3 manifest). No old cache is treated as a
+/// content-verified snapshot or modified.
 #[tokio::test]
 async fn materialize_never_trusts_a_foreign_directory() {
     let server = tree_server(1).await;
@@ -12,11 +13,13 @@ async fn materialize_never_trusts_a_foreign_directory() {
     let legacy = workspace.home.join("tmp/tree/a/b").join(SHA);
     std::fs::create_dir_all(&legacy).expect("legacy dir");
     std::fs::write(legacy.join("one.rs"), "prod 19.x content").expect("legacy file");
-    let old = workspace.home.join("tmp/materialize/v2/a/b").join(SHA);
-    let own = workspace.home.join("tmp/materialize/v3/a/b").join(SHA);
-    std::fs::create_dir_all(old.join("stale")).expect("foreign dir");
-    std::fs::write(old.join("one.rs"), "// foreign").expect("foreign file");
-    std::fs::write(old.join("stale/ghost.rs"), "not at this commit").expect("foreign extra");
+    let layouts = workspace.home.join("tmp/materialize");
+    let foreign = ["v2", "v3"].map(|layout| layouts.join(layout).join("a/b").join(SHA));
+    for old in &foreign {
+        std::fs::create_dir_all(old.join("stale")).expect("foreign dir");
+        std::fs::write(old.join("one.rs"), "// foreign").expect("foreign file");
+        std::fs::write(old.join("stale/ghost.rs"), "not at this commit").expect("foreign extra");
+    }
 
     let runtime = github(&workspace, &server);
     let outcome = call(
@@ -33,9 +36,20 @@ async fn materialize_never_trusts_a_foreign_directory() {
         outcome.structured_content
     );
     let data = row_data(&outcome);
-    let local =
-        std::path::PathBuf::from(data["location"]["path"].as_str().expect("path"));
-    assert_eq!(local, own, "{data}");
+    let local = std::path::PathBuf::from(data["location"]["path"].as_str().expect("path"));
+    // The snapshot sits at `<layout>/owner/repo/commit` in a layout of its own.
+    let own = local.clone();
+    let layout = own
+        .strip_prefix(&layouts)
+        .ok()
+        .and_then(|rest| rest.components().next())
+        .map(|layout| layouts.join(layout))
+        .unwrap_or_else(|| panic!("snapshot outside {}: {data}", layouts.display()));
+    assert_eq!(own, layout.join("a/b").join(SHA), "{data}");
+    assert!(
+        !foreign.contains(&own),
+        "a foreign layout was reused: {data}"
+    );
     assert_eq!(data["location"]["coverage"]["state"], "complete", "{data}");
     assert_eq!(
         std::fs::read_to_string(local.join("one.rs")).expect("one"),
@@ -46,10 +60,16 @@ async fn materialize_never_trusts_a_foreign_directory() {
         "// two.rs\n"
     );
     assert!(!local.join("stale").exists(), "a foreign file survived");
-    assert_eq!(
-        std::fs::read_to_string(old.join("stale/ghost.rs")).unwrap(),
-        "not at this commit"
-    );
+    for old in &foreign {
+        assert_eq!(
+            std::fs::read_to_string(old.join("stale/ghost.rs")).unwrap(),
+            "not at this commit"
+        );
+        assert_eq!(
+            std::fs::read_to_string(old.join("one.rs")).unwrap(),
+            "// foreign"
+        );
+    }
     assert_eq!(
         std::fs::read_to_string(legacy.join("one.rs")).expect("legacy kept"),
         "prod 19.x content",
@@ -119,11 +139,8 @@ async fn a_second_materialize_restores_every_file_reading_only_the_changed_one()
     let first = call(&runtime, "ghStructure", query.clone())
         .await
         .expect("first");
-    let local = std::path::PathBuf::from(
-        row_data(&first)["location"]["path"]
-            .as_str()
-            .expect("path"),
-    );
+    let local =
+        std::path::PathBuf::from(row_data(&first)["location"]["path"].as_str().expect("path"));
     // An atomic write replaces the file (a new inode): an untouched file
     // keeps its own, a tampered one gets a new one.
     #[cfg(unix)]
@@ -236,8 +253,7 @@ async fn materialize_skips_credential_named_files_without_reading_them() {
         outcome.structured_content
     );
     let data = row_data(&outcome);
-    let local =
-        std::path::PathBuf::from(data["location"]["path"].as_str().expect("path"));
+    let local = std::path::PathBuf::from(data["location"]["path"].as_str().expect("path"));
     assert!(local.join("one.rs").exists(), "{data}");
     assert!(
         !local.join(".env").exists(),

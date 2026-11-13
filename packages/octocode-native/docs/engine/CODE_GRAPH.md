@@ -93,7 +93,14 @@ same `graphBuild` with exactly those flags lifted. A build that lost a race with
 concurrent edit is not a tool failure: its hint and `related` lead run the same
 build again (`GraphOutput.retry`). The `unresolved-import` issue groups each file's
 sites by message with every line (`sites: [{message, lines}]`); `count` stays the
-total. A file whose own step panics is a `graph.scan.panicked`
+total. An unlinked import whose code the project places beyond the scan root is a
+separate `outsideRoot` finding, a scope gap ranked below a broken import; both count
+as `unresolvedInternal`. That is a relative path climbing out of the root; a JS/TS
+workspace sibling or path dependency outside it, or a `paths` alias or `baseUrl` module
+above it; a Go package of the enclosing module, or a local `replace` or `go.work`
+member outside it; a Java class above it; a Rust path dependency outside it; a Python
+module above it, of the enclosing package, or of a local path dependency its
+`pyproject.toml` names (uv or Poetry `path`, `name @ file:`). A file whose own step panics is a `graph.scan.panicked`
 skip naming the step: `read`, `decode`, `keep`, `parse`, `extract`, `map` or
 `weigh`. A secret scan that unwinds fails the build with no snapshot; the error
 names the files whose string unwinds when scanned alone. A file whose linking
@@ -165,8 +172,10 @@ external test package), never a method, and non-test files never see
 symbols using high-confidence production edges and report `callConfidence`.
 `cycles` and `hubs` exclude test edges. Import cycles include type imports;
 `runtime: false` means that group contains no detected eager module-loading cycle; `runtime: "unknown"` means a loop closes only through an edge whose load is not established: a parser-fallback import, or a `type-use-import` (a TypeScript value import whose bindings the file reads only in type positions or not at all; TypeScript's emit elides it unless the project keeps value imports with `verbatimModuleSyntax` or decorator metadata, which the graph does not read; a JSX tag, an export clause or any expression read keeps the import `static-import`). List operations
-accept `limit` (default 50, maximum 1,000); `stats`, `node` and `path` do not.
-Depth is bounded to 1–20 where supported. `impact` uses its own impact analysis
+accept `limit` (minimum 1, no contract maximum) to control the row window; omit
+it for the automatic window. `responseChars` can end a page sooner. `stats`,
+`node` and `path` do not accept `limit`. Where supported, `depth`
+has a minimum of 1 and no contract maximum. `impact` uses its own impact analysis
 and does not accept edge or direction overrides.
 
 An ambiguous reference returns a candidate preview and its complete total. Its
@@ -1004,7 +1013,7 @@ cargo test --manifest-path packages/octocode-native/Cargo.toml -p octocode-nativ
 The language battery ingests one pinned repository per grammar
 (`packages/octocode-benchmark/local/repos`) and compares the files `callers`
 returns for a probe function with the files ripgrep finds calling it
-([graph-bench.mjs](../../../../skills-dev/octocode-graph-dev/scripts/graph-bench.mjs); the
+(the [battery guide](../../../../skills-dev/octocode-graph-dev/references/battery.md) of the
 [octocode-graph-dev skill](../../../../skills-dev/octocode-graph-dev/SKILL.md) owns running and
 comparing it). Since 2026-11-01 the oracle drops the probe's own declaration
 sites, each case's `exclude` globs (vendored copies, amalgamations) and hits

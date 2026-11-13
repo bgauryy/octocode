@@ -214,6 +214,7 @@ pub fn canonical_lsp_key(config: &LspLanguageServerConfig) -> Result<String> {
         "env": env,
         "languageId": pool_language(config.language_id.as_deref()),
         "initializationOptions": initialization_options,
+        "documentLanguageIds": config.document_language_ids,
         "maxMemoryMb": config.max_memory_mb,
     }))
     .map_err(|error| Error::new(format!("Failed to serialize LSP pool key: {error}")))

@@ -177,7 +177,10 @@ pub(super) fn retraction_warning(artifact: &ArtifactItem) -> Option<String> {
         .reason
         .as_deref()
         .map_or(String::new(), |reason| {
-            format!(": {}", crate::security::quoted(reason.trim_end_matches('.')))
+            format!(
+                ": {}",
+                crate::security::quoted(reason.trim_end_matches('.'))
+            )
         });
     Some(format!(
         "{} {} is retracted by its module's latest go.mod{reason}.",

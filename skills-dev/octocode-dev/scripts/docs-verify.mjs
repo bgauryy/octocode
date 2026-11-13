@@ -324,13 +324,6 @@ function validateToolCatalog() {
     'docs/OCTOCODE_MCP.md': [`The contract has ${CATALOG_TOOL_COUNT} tools.`],
     'docs/OCTOCODE_CLI.md': [`The CLI lists ${CLI_DEFAULT_TOOL_COUNT} tools`],
     'docs/CONFIGURATION.md': [`The CLI has ${CLI_DEFAULT_TOOL_COUNT} tools`, `MCP starts with ${DEFAULT_TOOL_COUNT}`],
-    'skills-dev/octocode-dev/docs/TOOL_QUALITY.md': [
-      `CLI exposes ${CLI_DEFAULT_TOOL_COUNT} tools`, `MCP has ${DEFAULT_TOOL_COUNT} enabled by default`,
-    ],
-    'skills/common/references/octocode-usage.md': [
-      `## ${CATALOG_TOOL_COUNT} public tools`,
-      `The default catalog contains ${defaults}`,
-    ],
   };
   for (const [file, required] of Object.entries(counts)) {
     const content = fs.readFileSync(path.join(ROOT, file), 'utf8');

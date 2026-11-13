@@ -12,7 +12,7 @@ async fn search(
         .iter()
         .map(|name| {
             json!({"name":name,"path":format!("extensions/{name}"),"sha":"1",
-             "html_url":"https://x",
+             "html_url":format!("https://github.com/a/b/blob/{SHA}/extensions/{name}"),
              "repository":{"full_name":"a/b","html_url":"https://x","url":"https://x"}})
         })
         .collect::<Vec<_>>();
@@ -23,6 +23,15 @@ async fn search(
         })))
         .mount(&server)
         .await;
+    for name in names {
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v3/repos/a/b/contents/extensions%2F{name}")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "type":"file","encoding":"base64","content":STANDARD.encode("lockfileVersion: yaml\n")
+            })))
+            .mount(&server)
+            .await;
+    }
     let provider = one_shot_provider(&server);
     let query: GhSearchCodeQuery = serde_json::from_value(query).expect("query");
     execute(

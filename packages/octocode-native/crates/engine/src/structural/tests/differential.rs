@@ -4,8 +4,8 @@
 //!
 //! The queries are every pattern and rule the structural test sources spell
 //! (read from those sources when the test runs, so a new test's query joins
-//! the corpus), the astSearch queries of the e2e suites
-//! (`packages/octocode-benchmark/local/e2e`), and the RFC's measured patterns
+//! the corpus), the astSearch queries the retired e2e suites sent over the
+//! shared fixtures (`test-utils/fixtures`), and the RFC's measured patterns
 //! (`.octocode/octocode-rfc-generator/2026-11-08-ast-search-misses`, M2).
 
 use super::*;
@@ -15,8 +15,7 @@ use std::path::{Path, PathBuf};
 /// One match, as a scan reports it.
 type MatchKey = (String, u32, u32, u32, u32, String);
 
-/// The grammar fixtures of the e2e grammar suite
-/// (`e2e/harness/grammar-fixtures.mjs`), one per grammar.
+/// One small source per grammar, as the retired e2e grammar suite wrote them.
 const GRAMMAR_FIXTURES: [(&str, &str); 13] = [
     (
         "ts",
@@ -168,7 +167,7 @@ const M2_PATTERNS: [&str; 5] = [
     "tracing::debug!($$$)",
 ];
 
-/// The queries the e2e suites send astSearch, and conjunctions that hold
+/// The queries the retired e2e suites sent astSearch, and conjunctions that hold
 /// literals in several places.
 fn fixed_queries() -> Vec<(Option<String>, Option<Value>)> {
     let mut queries: Vec<(Option<String>, Option<Value>)> = [
@@ -443,15 +442,15 @@ fn match_keys(result: &StructuralSearchFilesDetailedResult) -> BTreeSet<MatchKey
         .collect()
 }
 
-/// The corpus roots: the e2e grammar fixtures (written to a temporary
-/// folder), the e2e suites' fixture folder and the structural tests.
+/// The corpus roots: the grammar fixtures (written to a temporary folder),
+/// the repository's shared test fixtures and the structural tests.
 fn fixture_roots(grammars: &TmpDir) -> Vec<PathBuf> {
     write_fixtures(grammars);
-    let e2e = engine_dir().join("../../../octocode-benchmark/local/e2e/fixtures");
-    assert!(e2e.is_dir(), "the e2e fixtures folder: {}", e2e.display());
+    let shared = engine_dir().join("../../../../test-utils/fixtures");
+    assert!(shared.is_dir(), "the shared fixtures folder: {}", shared.display());
     vec![
         grammars.0.clone(),
-        e2e,
+        shared,
         engine_dir().join("src/structural/tests"),
         engine_dir().join("src/structural/octo/tests"),
         engine_dir().join("src/structural/query"),
@@ -557,7 +556,7 @@ fn compare_all(queries: &[(Option<String>, Option<Value>)], roots: &[PathBuf]) -
     total
 }
 
-/// The default-run differential: the fixed queries (e2e, M2, conjunctions,
+/// The default-run differential: the fixed queries (retired e2e, M2, conjunctions,
 /// macro rules) over the grammar and macro fixtures.
 #[test]
 fn the_literal_gates_keep_every_match_of_the_fixed_queries() {

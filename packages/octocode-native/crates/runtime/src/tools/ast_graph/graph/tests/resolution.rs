@@ -1,6 +1,7 @@
 //! Import resolution: Python packages, JS/TS extensions and aliases, C
 //! include directories.
 use super::*;
+use crate::tools::import_resolution::aliases::BareTarget;
 use crate::tools::test_support::Fixture;
 
 #[test]
@@ -108,7 +109,7 @@ fn unsupported_languages_do_not_use_javascript_package_resolution() {
 fn alias_looking_bare_specifiers_are_internal_gaps_not_external() {
     let mut b = super::super::BuiltGraph::default();
     let security = crate::security::ContentSecurity::new();
-    let record = |b: &mut super::super::BuiltGraph, spec: &str, internal: bool| {
+    let record = |b: &mut super::super::BuiltGraph, spec: &str, bare: BareTarget| {
         super::super::record_resolution(
             b,
             "src/a.ts",
@@ -117,18 +118,37 @@ fn alias_looking_bare_specifiers_are_internal_gaps_not_external() {
             super::super::Linker::JsTs,
             &None,
             false,
-            internal,
+            bare,
             &security,
         )
     };
-    assert!(record(&mut b, "react", false), "third-party stays external");
-    assert!(!record(&mut b, "@/missing", true));
-    assert!(!record(&mut b, "@acme/core/package.json", true));
-    assert_eq!(b.imports, [0, 1, 1, 0, 1, 0]);
     assert!(
-        b.diagnostics.iter().any(
-            |d| d.code == DiagnosticCode::UnresolvedInternal && d.message.contains("@/missing")
-        )
+        record(&mut b, "react", BareTarget::External),
+        "third-party stays external"
+    );
+    assert!(!record(&mut b, "@/missing", BareTarget::Internal));
+    assert!(!record(
+        &mut b,
+        "@acme/core/package.json",
+        BareTarget::Internal
+    ));
+    assert!(!record(&mut b, "@acme/sibling", BareTarget::OutsideRoot));
+    assert_eq!(b.imports, [0, 1, 2, 0, 1, 0]);
+    // The code says which kind; an outside import's message is its
+    // specifier alone, with no static framing.
+    let code = |spec: &str| {
+        b.diagnostics
+            .iter()
+            .find(|d| d.message.contains(spec))
+            .map(|d| (d.code, d.message.clone()))
+    };
+    assert_eq!(
+        code("@/missing").map(|(code, _)| code),
+        Some(DiagnosticCode::UnresolvedInternal)
+    );
+    assert_eq!(
+        code("@acme/sibling"),
+        Some((DiagnosticCode::OutsideRoot, "\"@acme/sibling\"".to_owned()))
     );
 }
 

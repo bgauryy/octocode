@@ -20,6 +20,7 @@ use std::sync::Arc;
 mod collect;
 mod file_search;
 mod file_terms;
+mod judge_gate;
 mod listed;
 mod mode;
 mod ordered;

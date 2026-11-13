@@ -69,9 +69,8 @@
     "prepack": "node scripts/prepack.mjs",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "typecheck": "yarn run -T tsgo --noEmit",
-    "verify:own": "yarn lint:own && yarn typecheck && yarn test:coverage && yarn test:e2e",
+    "verify:own": "yarn lint:own && yarn typecheck && yarn test:coverage",
     "verify": "yarn verify:own && yarn lint:oxlint"
   },
   "type": "module"

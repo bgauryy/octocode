@@ -146,7 +146,10 @@ fn local_rows_exit_by_outcome() {
 fn root_help_states_the_batch_exit_rule_the_cli_applies() {
     let workspace = Workspace::new();
     let help = workspace.cli().arg("--help").output().expect("help");
-    let help = String::from_utf8_lossy(&help.stdout).split_whitespace().collect::<Vec<_>>().join(" ");
+    let help = String::from_utf8_lossy(&help.stdout)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
     assert!(
         help.contains(
             "A batch exits 2 if any row rejected its input, else its failed rows' code (5 if they differ), else 1 only when every row is empty or out of range, else 0; stdout still carries every row's result."
@@ -162,9 +165,21 @@ fn root_help_states_the_batch_exit_rule_the_cli_applies() {
         .into_owned();
     let rejected = json!({"path":root,"bogus":1});
     for (tool, rows, expected) in [
-        ("localSearch", json!([search(&root, "needle"), search(&root, "zzqqxx")]), 0),
-        ("localSearch", json!([search(&root, "zzqqxx"), search(&root, "qqzzxx")]), 1),
-        ("localFetch", json!([fetch(&missing), fetch(&file.to_string_lossy())]), 3),
+        (
+            "localSearch",
+            json!([search(&root, "needle"), search(&root, "zzqqxx")]),
+            0,
+        ),
+        (
+            "localSearch",
+            json!([search(&root, "zzqqxx"), search(&root, "qqzzxx")]),
+            1,
+        ),
+        (
+            "localFetch",
+            json!([fetch(&missing), fetch(&file.to_string_lossy())]),
+            3,
+        ),
         ("localSearch", json!([search(&root, "zzqqxx"), rejected]), 2),
     ] {
         let input = json!({"queries": rows});

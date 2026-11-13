@@ -3,7 +3,7 @@
 mod options;
 
 #[cfg(test)]
-pub(crate) use options::test_held_limit;
+pub(crate) use options::{JUDGED_PATHS, test_held_limit};
 pub(crate) use options::{judge, search_options};
 
 use super::super::cursor::{fingerprint, malformed_snapshot, query_key, stale_snapshot};

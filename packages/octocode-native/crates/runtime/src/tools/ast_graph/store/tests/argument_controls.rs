@@ -30,20 +30,12 @@ fn recovered_and_dynamic_scope_arguments_do_not_create_bindings() {
         let linked = ask(&dir.0, "witnesses", Some(target), |o| {
             o.edges = vec!["passes".into()];
         });
-        assert_eq!(
-            linked.value["pagination"]["total"], 0,
-            "{}",
-            linked.value
-        );
+        assert_eq!(linked.value["pagination"]["total"], 0, "{}", linked.value);
     }
     let healthy = ask(&dir.0, "witnesses", Some("scope.js#healthy"), |o| {
         o.edges = vec!["passes".into()];
     });
-    assert_eq!(
-        healthy.value["pagination"]["total"], 1,
-        "{}",
-        healthy.value
-    );
+    assert_eq!(healthy.value["pagination"]["total"], 1, "{}", healthy.value);
     assert!(
         built.value["argumentCoverage"]["byLanguage"]["javascript"]
             .get("counts")

@@ -145,7 +145,12 @@ pub(super) fn publish_snapshot(
     let mut receipt = receipt(&id, &dir, &manifest, started);
     if !pruned.is_empty() {
         let warnings = pruned_warnings(&pruned, job.options.keep);
-        receipt["pruned"] = json!(pruned.into_iter().map(|pruned| pruned.id).collect::<Vec<_>>());
+        receipt["pruned"] = json!(
+            pruned
+                .into_iter()
+                .map(|pruned| pruned.id)
+                .collect::<Vec<_>>()
+        );
         crate::response::paging::push_warnings(&mut receipt, warnings);
     }
     GraphOutput::ok(receipt)
@@ -216,9 +221,18 @@ mod pruned_tests {
     #[test]
     fn a_prune_names_each_removed_snapshot_and_its_reason() {
         let pruned = [
-            Pruned { id: "20261109T163855Z-a".into(), outdated: false },
-            Pruned { id: "20261109T181915Z-a".into(), outdated: false },
-            Pruned { id: "20250101T000000Z-b".into(), outdated: true },
+            Pruned {
+                id: "20261109T163855Z-a".into(),
+                outdated: false,
+            },
+            Pruned {
+                id: "20261109T181915Z-a".into(),
+                outdated: false,
+            },
+            Pruned {
+                id: "20250101T000000Z-b".into(),
+                outdated: true,
+            },
         ];
         let warnings = pruned_warnings(&pruned, 1);
         assert_eq!(warnings.len(), 2, "{warnings:?}");
@@ -228,7 +242,8 @@ mod pruned_tests {
             "{warnings:?}"
         );
         assert!(
-            warnings[1].contains("older graph format") && warnings[1].contains("20250101T000000Z-b"),
+            warnings[1].contains("older graph format")
+                && warnings[1].contains("20250101T000000Z-b"),
             "{warnings:?}"
         );
     }

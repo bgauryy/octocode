@@ -141,6 +141,10 @@ pub(super) fn walk_scope<'a>(
         words: ranks_by_relevance(opts)
             .then(|| alternation_words(opts))
             .flatten(),
+        judge_gate: super::judge_gate::JudgeGate::of(
+            opts,
+            &super::rust_spelling(opts, &opts.pattern),
+        ),
     };
     Ok((walk_builder, scope))
 }
@@ -186,5 +190,6 @@ pub(super) fn file_searcher<'a, M: Matcher>(
         copy: scope.file_terms.is_some(),
         words: scope.words.as_ref(),
         terms,
+        gate: &scope.judge_gate,
     }
 }

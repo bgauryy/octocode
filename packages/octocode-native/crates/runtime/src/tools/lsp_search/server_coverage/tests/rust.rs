@@ -211,3 +211,134 @@ async fn an_own_project_file_left_out_is_not_counted_on_a_complete_row() {
         "a counted file must be flagged and led to: {row}"
     );
 }
+
+/// The row of `references` on `pub fn shared` in package `pkg` (the server's
+/// root) of a repository that gitignores `scratch/`, after `prepare` laid out
+/// files there. The server answered only the declaration's file; the check
+/// runs as a request runs it: dependents, text scan, code uses, then the
+/// ignored files.
+async fn ignored_row(prepare: impl FnOnce(&Path)) -> (tempfile::TempDir, Value) {
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().canonicalize().expect("root");
+    let write = |path: &Path, text: &str| {
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("dirs");
+        std::fs::write(path, text).expect("write");
+    };
+    std::fs::create_dir_all(root.join(".git")).expect("repository marker");
+    write(&root.join(".gitignore"), "scratch/\n");
+    let package = root.join("pkg");
+    write(
+        &package.join("Cargo.toml"),
+        "[package]\nname = \"pkg\"\nversion = \"0.1.0\"\n",
+    );
+    let lib = package.join("src/lib.rs");
+    write(&lib, "pub fn shared() {}\n");
+    prepare(&root);
+    let (lib_text, package_text) = (
+        lib.to_string_lossy().into_owned(),
+        package.to_string_lossy().into_owned(),
+    );
+    let policy = crate::tools::test_support::workspace_policy(&root);
+    let cancel = crate::execution::cancel::NeverCancel;
+    let scope = Scope::new(root.to_string_lossy().into_owned(), vec!["*.rs".into()]);
+    scope.anchor_site(&lib_text, 0, 7);
+    scope.asks(crate::tools::lsp_search::scope::Question::Uses);
+    scope
+        .dependents(&package_text, &lib_text, "rs", &cancel)
+        .await
+        .expect("dependents");
+    scope
+        .text_files("shared", &policy, &cancel)
+        .await
+        .expect("scan");
+    scope.answer([lib_text.as_str()]);
+    scope
+        .check_code_uses("shared", &cancel)
+        .await
+        .expect("code uses");
+    scope
+        .check_ignored_spellings("shared", &policy, &cancel)
+        .await
+        .expect("ignored");
+    let q = query(json!({"path": lib_text, "operation": "references",
+        "symbolName": "shared", "line": 1}));
+    let mut row = json!({"operation": "references", "matches": [{"path": "pkg/src/lib.rs"}]});
+    annotate(
+        &mut row,
+        &q,
+        Some("rust"),
+        Server {
+            anchor: &lib_text,
+            root: &package_text,
+        },
+        &scope,
+    );
+    (dir, row)
+}
+
+/// The leading count of the row's warning about ignored files; `None` when
+/// the row has none.
+fn ignored_count(row: &Value) -> Option<usize> {
+    row["warnings"]
+        .as_array()?
+        .iter()
+        .filter_map(Value::as_str)
+        .find(|warning| warning.contains("gitignored or hidden"))?
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()
+}
+
+/// Gitignored files outside the server's project count as the visible ones
+/// do: only one in a project that may use the anchor. A file under no Cargo
+/// package belongs to no project that depends on `pkg`, and a snapshot of a
+/// dependent whose path dependency is the snapshot's own `pkg` cannot
+/// reference this one: neither makes the row partial. A gitignored crate
+/// whose path dependency is this `pkg` may: it alone is counted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ignored_files_count_only_in_projects_that_may_use_the_anchor() {
+    fn write(path: &Path, text: &str) {
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("dirs");
+        std::fs::write(path, text).expect("write");
+    }
+    let copies = |root: &Path| {
+        let scratch = root.join("scratch");
+        write(&scratch.join("loose.rs"), "fn l() {\n    shared();\n}\n");
+        write(
+            &scratch.join("copy/Cargo.toml"),
+            "[workspace]\nmembers = [\"pkg\", \"user\"]\n",
+        );
+        write(
+            &scratch.join("copy/pkg/Cargo.toml"),
+            "[package]\nname = \"pkg\"\nversion = \"0.1.0\"\n",
+        );
+        write(&scratch.join("copy/pkg/src/lib.rs"), "pub fn shared() {}\n");
+        write(
+            &scratch.join("copy/user/Cargo.toml"),
+            "[package]\nname = \"user\"\nversion = \"0.1.0\"\n\n[dependencies]\npkg = { path = \"../pkg\" }\n",
+        );
+        write(
+            &scratch.join("copy/user/src/lib.rs"),
+            "fn u() {\n    pkg::shared();\n}\n",
+        );
+    };
+    let (_dir, row) = ignored_row(copies).await;
+    assert!(row.get("isPartial").is_none(), "{row}");
+    assert_eq!(ignored_count(&row), None, "{row}");
+
+    let (_dir, row) = ignored_row(|root| {
+        copies(root);
+        write(
+            &root.join("scratch/real/Cargo.toml"),
+            "[package]\nname = \"real\"\nversion = \"0.1.0\"\n\n[dependencies]\npkg = { path = \"../../pkg\" }\n",
+        );
+        write(
+            &root.join("scratch/real/src/lib.rs"),
+            "fn r() {\n    pkg::shared();\n}\n",
+        );
+    })
+    .await;
+    assert_eq!(row["isPartial"], true, "{row}");
+    assert_eq!(ignored_count(&row), Some(1), "{row}");
+}

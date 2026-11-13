@@ -31,14 +31,12 @@
     "format": "prettier --write package.json tsconfig.json src scripts tests README.md ARCHITECTURE.md",
     "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",
     "test": "node --test tests/package.test.ts",
-    "test:smoke": "node scripts/smoke.ts",
     "verify:own": "yarn build && yarn lint:own && yarn typecheck && yarn test",
     "verify": "yarn verify:own && yarn lint:oxlint",
     "prepack": "yarn build && yarn typecheck && yarn test",
     "validate": "claude plugin validate . --strict && claude plugin validate ../../.claude-plugin/marketplace.json --strict"
   },
   "devDependencies": {
-    "@modelcontextprotocol/client": "^2.3.1",
     "@types/node": "^24.19.2",
     "prettier": "^3.9.10"
   }

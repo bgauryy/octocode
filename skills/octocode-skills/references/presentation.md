@@ -1,15 +1,13 @@
-Load when composing a document, report or substantive answer.
+Load when choosing the format of a substantive answer, document or report.
 
-# Visual-first, content-only output
+# Choose an informative format
 
-Prefer visuals over prose whenever they convey the result accurately: Mermaid for flows, logic, states, relationships and handoffs; charts for value comparisons and trends; tables for exact values. Keep a short conclusion, meaningful labels and nearby evidence; do not repeat the diagram as paragraphs. Use prose for nuance or a simple fact that a graphic would obscure.
+Lead with the conclusion and decision-relevant evidence. Use a table for exact comparisons, a chart for measured relationships, and Mermaid for branching, topology or state when clearer than prose. Keep simple answers in prose. Do not repeat a visual as paragraphs or add decorative diagrams.
 
-Publish task content only: no probes, tool dumps, run/session IDs, worker rosters, telemetry, author/status tables or process narration. Keep diagnostic artifacts in scratch files; include only decision-relevant evidence, substantive measurements, limitations and necessary reproduction steps.
-
-Preserve the requested artifact format and required sections. Use short conclusions, captions and source links around visuals; retain accessible text equivalents and exact values. A diagram must not replace copyable code, a necessary caveat or reproducible instructions.
+Preserve the requested format, required sections, exact values, copyable code and necessary caveats. Put sources and meaningful labels near claims; retain accessible text equivalents. Include reproduction details and measurements needed to assess the result, with unchecked scope. Keep raw tool dumps and incidental coordination logs in linked diagnostics unless requested.
 
 ## HTML delivery
 
-Deliver the main task first, then offer HTML once and wait for acceptance. If HTML or an interactive viewer was already requested, render without asking again. A declined or unanswered offer does not block the delivered task.
+Render HTML when requested or already accepted. Otherwise offer it only when the additional view would help; an unanswered offer does not block delivery.
 
-Use the skill's renderer, or discover an installed one before promising it. Keep source/data artifacts. Check layout, diagrams, links, keyboard access and narrow screens in a browser; distinguish generated from visually verified HTML and disclose missing checks.
+Use the skill's renderer, or discover one before promising it. Keep source/data artifacts. Check layout, diagrams, links, keyboard access and narrow screens in a browser. Distinguish generated from visually verified HTML and disclose missing checks.

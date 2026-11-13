@@ -1,15 +1,15 @@
 ---
 name: octocode-messages-proxy
-description: "Use when relaying messages and replies between Claude Code or Codex CLI agents through a small-model proxy, including cross-vendor exchanges and A2A peers."
+description: "Use when relaying messages and replies between Claude Code, Codex CLI or A2A agents through a small-model proxy, including cross-vendor exchanges."
 ---
 
 # Octocode messages proxy
 
-Run **operator ↔ small proxy ↔ worker**. Give the proxy its own identity and keep task execution with the worker. Read this file; no previous conversation or other instruction file is required. Run the [launcher](scripts/relay.py); it calls the [Claude sender](scripts/claude_send.py) or [A2A adapter](scripts/a2a_tools.py) when needed. Routine use does not require reading helper source.
+Run **operator ↔ small proxy ↔ worker** with a separate proxy identity. The worker executes the task. This file contains the full procedure and injected prompts; run the [launcher](scripts/relay.py) without reading helper source ([Claude sender](scripts/claude_send.py), [A2A adapter](scripts/a2a_tools.py)).
 
 ## Prepare
 
-1. Resolve the repository, operator's own binding, authorized worker IDs, message and whether a reply is required. Reuse an existing live proxy for that scope. Discover missing identities; ask only when recipients or authorization remain ambiguous.
+1. Resolve repository, operator binding, authorized workers, message and reply requirement. Discover missing identities and reuse a live proxy for the scope; clarify only unresolved recipients or authority.
 2. Set `SKILL_DIR` to this file's directory, `REPO` to the checkout and `RELAY="$SKILL_DIR/scripts/relay.py"`. Require Python 3.10+ and a signed-in Claude Code or Codex CLI.
 3. Run `python3 "$RELAY" detect`. Installation does not prove authentication or reachability.
 
@@ -18,13 +18,13 @@ Run **operator ↔ small proxy ↔ worker**. Give the proxy its own identity and
 | Claude Code | `haiku` | `claude auth status` must report `loggedIn: true`. |
 | Codex CLI | First visible Luna, Mini or Nano from `codex debug models` | `codex login status` must succeed. |
 
-Use `--vendor claude` or `--vendor codex`; `auto` tries Claude, then Codex. If discovery fails, specify an account-verified inexpensive ID with `--vendor VENDOR --model ID`. Never substitute a larger default. Verify the observed model and available usage; names do not prove price. The worker keeps its own model.
+Select `--vendor claude` or `--vendor codex`; `auto` tries Claude first. If discovery fails, use an account-verified inexpensive ID with `--vendor VENDOR --model ID`, never a larger default. Verify observed model and usage; names do not prove price. Worker models remain their own.
 
 ## Start a managed proxy
 
-Use this route for ongoing or correlated exchanges, including Claude ↔ Codex. All participants need live bindings in the same Octocode store and repository scope; linked worktrees share that scope. Establish a missing worker binding from that worker's host.
+For ongoing or correlated exchanges, including Claude ↔ Codex, require live bindings in the same Octocode store and repository scope (linked worktrees share scope). Establish missing worker bindings from their own hosts.
 
-Require Node.js supported by `@octocodeai/octocode-agents-communication` (`^24.15.0` in this release). Use the same package installation for every call:
+Require the communication package’s supported Node.js (`^24.15.0` in this release); use one package installation throughout:
 
 ```sh
 comm() (
@@ -45,7 +45,7 @@ Set `OPERATOR` to the invoking agent's existing binding. If none exists, run `co
 comm peers --session "$OPERATOR" --json
 ```
 
-Set `WORKER` to the discovered worker ID and `VENDOR` to `claude` or `codex`. Supply concrete identities and scope in the startup task; a new CLI does not inherit this conversation. The launcher injects the proxy prompts below automatically.
+Set discovered `WORKER` and `VENDOR` (`claude` or `codex`). The startup task supplies identities and scope; the new CLI inherits no conversation. The launcher injects the prompts below.
 
 ```sh
 TASK="Operator: $OPERATOR. Authorized worker: $WORKER. Relay only between these identities and return the worker's actual replies and outcomes."
@@ -55,11 +55,11 @@ python3 "$RELAY" start --vendor "$VENDOR" --workspace "$REPO" --task "$TASK" >"$
 PROXY_PID=$!
 ```
 
-The dry run reports the planned vendor, model and command; it does not prove model execution or measure usage. Retain the launcher's PID and the `session` from its `ready` event as `PROXY`. Read the log for startup failures. If using an explicit store, pass the same `--database PATH` on every launcher and `comm` call.
+Dry run shows the planned command and model, not execution or usage. Read startup logs; retain `PROXY_PID` and the ready event’s `session` as `PROXY`. With an explicit store, pass the same `--database PATH` on every launcher and `comm` call.
 
 ## Send through the proxy
 
-Write `request.json` with the real discovered IDs. The outer `to` addresses the proxy; the data part addresses the worker. Preserve the operator's exact ordered message parts.
+Write `request.json` with discovered IDs: outer `to` is the proxy; data `to` is the worker. Preserve exact ordered parts.
 
 ```json
 {"to":"PROXY_ID","parts":[{"data":{"to":"WORKER_ID","parts":[{"text":"Which check is still running?"}]}}],"reasoning":"Get worker status","replyRequired":true,"contextId":"build-status","key":"build-status-1"}
@@ -70,11 +70,11 @@ comm send_message - --session "$OPERATOR" --json < request.json
 comm inbox-wait --session "$OPERATOR" --json
 ```
 
-Retain the operator send receipt. The final answer's `replyTo` must match that receipt's `id`. Acknowledge the handled answer with `comm complete '{"message":ANSWER_ID}' --session "$OPERATOR" --json`, substituting its numeric ID. Keep the same key only for unchanged input. Silence, a timeout or a queued receipt does not prove handling.
+Match the final answer’s `replyTo` to the send receipt’s `id`, then acknowledge with `comm complete '{"message":ANSWER_ID}' --session "$OPERATOR" --json` using its numeric ID. Reuse keys only for unchanged input. Silence, timeout or queuing proves no handling.
 
 ## Proxy prompts
 
-Keep these blocks as the single source of the launched proxy's instructions. The launcher sends the common block on every route and adds the Octocode block only for managed local relays.
+These blocks own the launched instructions: common on every route, local only for managed relays.
 
 <!-- relay-prompt:common -->
 ```text
@@ -115,7 +115,7 @@ Check the selected CLI's installed help before using native or cloud commands. K
 
 ## Result and cleanup
 
-Return the route, operator/proxy/worker identities, strongest observed state, actual worker reply and outcome, and IDs connecting both hops. Distinguish discovered, queued, received, replied and blocked. Report requested versus observed proxy model; use unknown for unobserved model, cost or usage. Include pending work and its next action.
+Return route, operator/proxy/worker identities, actual reply/outcome and both hops’ correlation IDs. State the strongest observation: discovered, queued, received, replied or blocked. Give requested/observed proxy model, pending work and next action; unobserved model, cost or usage stays unknown.
 
 Stop only the processes you started, by their recorded PIDs (`kill "$PROXY_PID"` for the managed launcher). Clean temporary inputs/logs after retaining needed evidence. Save a receipt only when requested, at the named destination or `<workspace>/.octocode/octocode-messages-proxy/`.
 

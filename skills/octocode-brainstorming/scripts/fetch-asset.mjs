@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * Plan or download source assets (PDFs, office documents, data files, images) into a brainstorm run folder.
- * Planning is the default and saves nothing; a download needs --approve, which the agent passes only after the
- * user has approved the plan. Only HTTPS URLs on public hosts, allowed content types, and files under the size
+ * Planning is the default and saves nothing; pass --approve only for URLs covered by the user's authorization
+ * after inspecting the plan. Only HTTPS URLs on public hosts, allowed content types, and files under the size
  * cap are accepted.
  */
 import { fail } from './lib/fail.mjs';
@@ -16,7 +16,7 @@ const USAGE = `Usage: fetch-asset.mjs --run-dir <workspace>/.octocode/octocode-b
 
 Without --approve: checks each URL and prints the plan (host, content type, size, file name, or the reason it is refused). Nothing is saved.
 With --approve: downloads the accepted URLs into <run-dir>/assets/ and records each in <run-dir>/assets/manifest.jsonl.
-Show the plan to the user and pass --approve only for the URLs the user approved.
+Inspect the plan and pass --approve only for authorized URLs; ask the user if scope, spend, or authority is unresolved.
 Accepted: HTTPS on a public host; PDF, Word, Excel, PowerPoint, OpenDocument, CSV, JSON, text, Markdown, HTML, PNG, JPEG, GIF, WebP, SVG; at most --max-mb (default 25).
 Exit 0 when every URL is accepted, 1 when any is refused or fails, 2 for invalid input.`;
 

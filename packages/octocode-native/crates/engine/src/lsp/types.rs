@@ -8,6 +8,11 @@ pub struct LspLanguageServerConfig {
     pub args: Option<Vec<String>>,
     pub workspace_root: String,
     pub language_id: Option<String>,
+    /// Explicit extension-to-protocol-ID choices from the selected custom
+    /// server configuration. Sibling extensions without a choice retain their
+    /// built-in document IDs even when they share this server.
+    #[serde(default)]
+    pub document_language_ids: std::collections::BTreeMap<String, String>,
     pub initialization_options: Option<Value>,
     /// Extra environment variables to inject into the language server process.
     pub env: Option<HashMap<String, String>>,

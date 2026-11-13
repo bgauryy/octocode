@@ -1,6 +1,32 @@
 //! Shared assertions for typed continuations and complete evidence page walks.
-use super::{publish_for_assertion, validate_output, validate_test_input};
+use super::{partial_reasons, publish_for_assertion, validate_output, validate_test_input};
 use serde_json::Value;
+
+/// No text of `response` says what a partial reason means: a row carries the
+/// code, and what each code means is said once, by the output reference.
+pub fn assert_no_reason_meaning(response: &Value) {
+    fn texts<'a>(value: &'a Value, out: &mut Vec<&'a str>) {
+        match value {
+            Value::String(text) => out.push(text),
+            Value::Array(items) => items.iter().for_each(|item| texts(item, out)),
+            Value::Object(map) => map.values().for_each(|item| texts(item, out)),
+            _ => {}
+        }
+    }
+    let meanings = partial_reasons()
+        .and_then(Value::as_object)
+        .expect("the embedded contract declares every partial reason");
+    let mut said = Vec::new();
+    texts(response, &mut said);
+    for (code, meaning) in meanings {
+        let meaning = meaning.as_str().filter(|meaning| !meaning.is_empty());
+        let explained = meaning.and_then(|meaning| said.iter().find(|text| text.contains(meaning)));
+        assert!(
+            explained.is_none(),
+            "a response explains {code}: {explained:?}\n{response}"
+        );
+    }
+}
 
 pub fn assert_output_contract(tool: &str, output: &Value) {
     let published = publish_for_assertion(tool, output);

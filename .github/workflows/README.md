@@ -2,14 +2,14 @@
 
 | Workflow | Trigger | Purpose |
 |---|---|---|
-| `ci.yml` | Pull requests and pushes to `main` | Lint, typecheck and test; Rust checks; Windows process containment; native script tests; end-to-end tool health and native Node tests |
-| `release.yml` | Manual dispatch (optional `ref`) | Builds every platform binary, runs each on its own OS and CPU (`smoke-binary.cjs`; gnu also at glibc 2.28), packs the npm tarballs into `release-packages` with `SHA256SUMS`, and runs the upgrade-path check on Linux, macOS and Windows |
+| `ci.yml` | Pull requests and pushes to `main` | Lint, typecheck and test; Rust checks; Windows process containment; native script tests; native Node tests on a debug build |
+| `release.yml` | Manual dispatch (optional `ref`) | Builds every platform binary, runs each on its own OS and CPU (version, contract fingerprint, schema, one `localSearch`; gnu also at glibc 2.28), packs the npm tarballs into `release-packages` with `SHA256SUMS`, and runs the upgrade-path check on Linux, macOS and Windows |
 | `nightly.yml` | Daily schedule and manual dispatch | The full union, pager and read_share matrices (`*_full_matrix`), which the default run only samples |
 
-No workflow publishes. `ci.yml` builds no release artifacts: its `e2e` job builds the packages, a throwaway debug build
-(`build:dev`) that `test:tools` drives through the CLI and MCP server and the
-native package's Node tests load. It runs on Linux, macOS and Windows after the
-`native` job passes. The
+No workflow publishes. `ci.yml` builds no release artifacts: its `native-node` job builds the packages, a throwaway
+debug build (`build:dev`) that the native package's Node tests load. It runs on Linux, macOS and Windows after the
+`native` job passes. Tool behavior is checked by an agent per the
+[tool checks](../../skills-dev/octocode-dev/references/tool-checks.md), not by a workflow. The
 `native-windows` job runs the process-containment tests on Windows
 (a bounded-run timeout, a cancelled `gh` token lookup, the job object and the
 LSP memory cap each leave no surviving process); the
@@ -29,8 +29,7 @@ Run the same checks locally:
 node skills-dev/octocode-dev/scripts/dev.mjs lint:ci
 node skills-dev/octocode-dev/scripts/dev.mjs typecheck:ci
 node skills-dev/octocode-dev/scripts/dev.mjs test:ci
-node skills-dev/octocode-dev/scripts/dev.mjs build:dev && node skills-dev/octocode-dev/scripts/dev.mjs test:tools
-yarn workspace @octocodeai/octocode-native test:node
+node skills-dev/octocode-dev/scripts/dev.mjs build:dev && yarn workspace @octocodeai/octocode-native test:node
 yarn workspace @octocodeai/octocode-native typecheck && yarn workspace @octocodeai/octocode-native test:scripts && node --test packages/octocode-native/tests/audit-native.test.mjs
 # needs the pinned cargo-typify: cargo install --locked $(node skills-dev/octocode-dev/scripts/rust-quality.mjs pins cargo-typify)
 yarn workspace @octocodeai/config check:tool-contract && yarn workspace @octocodeai/config check:config-contract

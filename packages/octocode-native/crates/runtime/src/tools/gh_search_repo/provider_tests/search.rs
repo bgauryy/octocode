@@ -203,10 +203,9 @@ async fn capped_search_states_the_full_match_count() {
 }
 
 /// GitHub silently drops a `language:` it does not know and returns
-/// unfiltered rows. A page where no row is that language says so when the
-/// rows mix languages, or when they share one and the same search without
-/// the qualifier counts the same; an alias GitHub honors (`js` → JavaScript
-/// rows, a smaller total) does not trip it.
+/// unfiltered rows. Neither mixed language metadata nor equal totals prove
+/// this happened; disclose ambiguity. An alias that narrows the total does
+/// not need a warning.
 #[tokio::test]
 async fn an_ignored_language_filter_is_named() {
     let item = |name: &str, language: &str| {
@@ -233,9 +232,33 @@ async fn an_ignored_language_filter_is_named() {
         "{}",
         out.data
     );
+    assert!(warnings.contains("unverified"), "{}", out.data);
+    assert!(
+        !warnings.contains("GitHub ignored language"),
+        "{}",
+        out.data
+    );
+    let requests = ignored
+        .received_requests()
+        .await
+        .expect("recorded requests");
+    let queries = requests
+        .iter()
+        .filter_map(|request| {
+            request
+                .url
+                .query_pairs()
+                .find(|(key, _)| key == "q")
+                .map(|(_, value)| value.into_owned())
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(queries.len(), 2, "search and advisory probe: {queries:?}");
+    assert!(queries[0].contains("language:zz-nolang"), "{queries:?}");
+    assert!(!queries[1].contains("language:"), "{queries:?}");
+    assert!(queries[1].contains('x'), "{queries:?}");
 
-    // Ignored, but the unfiltered rows share one language (the live case):
-    // the probe without the qualifier counts the same.
+    // A one-language page with equal totals still discloses the filter
+    // ambiguity, without asserting that an alias was ignored.
     let agreeing = MockServer::builder().start().await;
     mount_json(
         &agreeing,

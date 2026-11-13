@@ -185,7 +185,8 @@ fn failures_carry_one_repair_lead() {
 /// fewer, a hint says so, and a full call needs none.
 #[test]
 fn a_missing_version_repair_fills_one_call_or_says_why_not() {
-    let limit = crate::contracts::batch_limit(crate::id::ToolId::ArtifactSearch).expect("batch limit");
+    let limit =
+        crate::contracts::batch_limit(crate::id::ToolId::ArtifactSearch).expect("batch limit");
     let pinned = typed(
         &json!({"operation":"resolve","ecosystem":"npm","packageName":"vite","version":"99.0.0"}),
     );
@@ -223,7 +224,10 @@ fn a_missing_version_repair_fills_one_call_or_says_why_not() {
     let error = leads::with_repair(few, &pinned);
     assert_eq!(versions(&error), ["8.3.1", "8.3.0"]);
     assert!(
-        error.hints.iter().any(|hint| hint.starts_with("Only 2 published")),
+        error
+            .hints
+            .iter()
+            .any(|hint| hint.starts_with("Only 2 published")),
         "{:?}",
         error.hints
     );

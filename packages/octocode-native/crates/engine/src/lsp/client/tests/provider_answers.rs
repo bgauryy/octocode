@@ -62,6 +62,7 @@ fn fresh_requests_observe_each_provider_answer() {
             args: Some(Vec::new()),
             workspace_root: root.canonicalize().unwrap().to_string_lossy().into_owned(),
             language_id: Some("typescript".into()),
+            document_language_ids: Default::default(),
             initialization_options: Some(json!({"token": "INIT_OPTION_SECRET"})),
             env: Some(std::collections::HashMap::from([(
                 "REGISTRY_TOKEN".into(),
@@ -225,6 +226,7 @@ fn open_documents_follow_their_files_and_never_replay_older_answers() {
             args: Some(Vec::new()),
             workspace_root: root.to_string_lossy().into_owned(),
             language_id: Some("typescript".into()),
+            document_language_ids: Default::default(),
             initialization_options: None,
             env: None,
             max_memory_mb: None,

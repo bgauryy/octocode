@@ -7,13 +7,13 @@ use serde_json::{Value, json};
 pub(super) fn annotate_diagnostics(
     row: &mut Value,
     query: &LspSearchQuery,
-    report: Option<(&Value, bool)>,
+    report: Option<&Value>,
     anchor_line: u32,
 ) {
     if !row.is_object() || row.get("status").and_then(Value::as_str) == Some("error") {
         return;
     }
-    let Some((items, truncated)) = report else {
+    let Some(items) = report else {
         context(row)["diagnostics"] = json!("unavailable");
         return;
     };
@@ -35,16 +35,9 @@ pub(super) fn annotate_diagnostics(
     } else {
         "errors"
     });
-    assessment["diagnosticsComplete"] = json!(!truncated);
+    assessment["diagnosticsComplete"] = json!(true);
     assessment["errorCount"] = json!(errors.len());
     assessment["anchorErrorCount"] = json!(anchor_errors);
-    if truncated {
-        crate::response::paging::mark_partial(
-            row,
-            crate::response::paging::PartialReason::DiagnosticsTruncated,
-            &[],
-        );
-    }
     if errors.is_empty() {
         return;
     }

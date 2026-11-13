@@ -1,27 +1,20 @@
-Load when writing a paste-ready task prompt or when several questions could change a decision.
+Load when several questions could change a decision or when writing a reusable task prompt.
 
 # Choose questions from several directions
 
-Which answer would change what happens next? For a release, product may ask what the user was promised, engineering what breaks on retry, operations whether rollback restores data, and a skeptic what would disprove the leading explanation. Choose the cheapest observation that separates consequential alternatives. Merge questions answered by the same check. Inspect available evidence first. Ask the user only about unresolved choices they own. Stop when another answer would leave the action unchanged.
+Identify the decision and ask which missing answer could change the next action. Inspect available evidence first; merge questions answered by the same check. Use distinct perspectives when useful: promised outcome, retry failure, recovery, or the strongest disproof. Choose the cheapest observation that separates consequential alternatives. Ask the user only about unresolved choices they own. Stop when another answer would leave the action unchanged.
 
 ## Specify the input and output
 
-Name the decision, relevant input and smallest usable result. For “improve,” specify the KPI, comparable baseline and a guardrail. Put every acceptance condition in the body. Preserve requested evidence and exact formats.
+Name the relevant input, authorized action, smallest usable result and observable acceptance. For an improvement claim, state the metric, comparable baseline and quality guardrail. Preserve required evidence and exact receiver formats. Put material checks in the prompt itself rather than relying on a model name or label to imply them.
 
 ## Labels on copyable task prompts
 
-Give each authored standalone task prompt or meta-prompt its own `text` fence. End it with exactly one `labels: ` line of one to five distinct, comma-separated cues. Replace an existing footer when revising. Leave verbatim submissions and host or machine formats intact.
-
-Choose a cue for the **additional check** it suggests. In the first example, the labels suggest checking duplicated policy, dependency direction and repeated I/O. In the second, a practitioner’s name can cue inspection of an actual failing input. Narrow a name if its intended lens is unclear. Consider other failures that could overturn the result.
+Use a separate `text` fence for a standalone prompt when it helps copying. Add a labels footer only if requested or required by the receiver's contract; preserve that contract and verbatim submissions. Ordinary prompts need no footer.
 
 ```text
-Reduce modules touched per policy change. Preserve historical totals. Return the smallest refactor and its test.
-labels: clean code, dependency inversion, efficiency
+Reduce modules touched per policy change. Preserve historical totals.
+Return the smallest refactor, consumer evidence and regression-check result.
 ```
 
-```text
-Cut context tokens. Preserve verified policy answers on the same tasks.
-labels: karpathy, attention, context management
-```
-
-For prompt work, `prompt engineering` cues a wording or format check. `context engineering` cues inspection of retrieved, retained or truncated input. To test a cue, compare the same cases with it omitted, labeled and made explicit in the body. Count useful findings, false alarms and input/output tokens including retries per verified completion. These comparisons measure observable behavior. They cannot identify which neurons activated.
+To measure whether wording or cues help, compare the same cases with and without them. Count verified outcomes, false alarms and tokens including retries. An editorial rewrite or a cue's name does not establish a behavioral gain or reveal internal model activity.

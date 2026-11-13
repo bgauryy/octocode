@@ -2,41 +2,42 @@
 
 Load when measuring a graph change, reading a battery row, or adding a grammar case.
 
-The battery ingests one pinned repository per grammar and compares the files `callers` returns for a probe function with the files ripgrep finds calling it. It also records the agent workflow on each snapshot: `stats`, `find`, `impact`, `issues`, `cycles` and `unresolved`.
+The battery checks the graph on one pinned repository per grammar: the files `callers` returns for a probe function against the files a text oracle (ripgrep) finds calling it, plus the agent workflow on each snapshot. An agent runs it by hand through the built CLI and judges each row by reading it ([method](../../../packages/octocode-benchmark/CHECKS.md)); keep no runner script.
 
 ## Run
 
-```bash
-node skills-dev/octocode-graph-dev/scripts/graph-bench.mjs --out <dir>/before.json
-# change, rebuild ($DEV build:dev), then
-node skills-dev/octocode-graph-dev/scripts/graph-bench.mjs --out <dir>/after.json
-node skills-dev/octocode-graph-dev/scripts/bench-compare.mjs <dir>/before.json <dir>/after.json
-```
+Clones live in `packages/octocode-benchmark/local/repos` at the commits the [local benchmark README](../../../packages/octocode-benchmark/local/README.md) pins. Point `OCTOCODE_NATIVE_BIN` at the binary under test and name its hash. Run every row once before the change (`before`) and once after the rebuild (`after`); save both receipts under `.octocode/octocode-graph-dev/<date>-battery/`.
 
-- Clones: `packages/octocode-benchmark/local/repos`; recreate missing ones at the pinned commits in its README. A missing clone becomes a row with an ingest error, not a skipped row.
-- `--only c,rust` reruns named rows; compare only rows both runs contain.
-- `--bin` (or `OCTO_BIN`) points at a lane's native binary, so a worktree build can be measured without touching the main launcher.
-- `--jobs 1` for timing claims: the default runs four ingests at once, and machine load moves `ingest.ms` far more than most changes. Re-time on an idle machine before reporting a speed change.
-- A full run takes minutes; each row runs `graphBuild` with `refresh: true`, which rebuilds every snapshot under each clone's `.octocode/graph/`, then reads `graphQuery` pages with `responseChars: 50000`.
-- `--edges` adds every call edge into the probe (`witnesses`: from, to, line, confidence) to each row.
-- Per-edge agreement with LSP: [lsp-crosscheck.mjs](../scripts/lsp-crosscheck.mjs) `--peer <graph-view data.json> --crates <dir,...> --out <file>` compares every `witnesses` call edge of each crate with an octocode-graph-view LSP cross-check.
+| Row | Clone | Ingest dir | Probe | Oracle extensions | Exclude |
+|---|---|---|---|---|---|
+| asm+c | asm | `.` | `jpeg_std_error` | c | |
+| c | c | `src` | `createStringObject` | c | |
+| cpp | cpp | `.` | `skip_whitespace` | hpp | `single_include/**` |
+| csharp | csharp | `Src/Newtonsoft.Json` | `ArgumentNotNull` | cs | |
+| go | go | `.` | `FromStrings` | go | |
+| java | java | `guava/src` | `checkNotNull` | java | |
+| javascript | javascript | `.` | `isObject` | js | `vendor/**` |
+| javascript-cjs | nextjs | `scripts` | `getGitHubToken` | js | |
+| javascript-lazy | huge-ts | `scripts/chat-simulation` | `startServer` | js, ts | |
+| python | python | `django` | `force_str` | py | |
+| rust | rust | `tokio` | `poll_proceed` | rs | |
+| scala | scala | `core` | `tailRecM` | scala | |
+| typescript | typescript | `packages` | `areTestsFiltered` | ts | |
+| cuda | cuda | `tools/library` | `make_gemm_real_canonical_layouts` | cu, cpp, h, hpp, cuh | |
+| tsx | tsx | `packages` | `mutateElement` | ts, tsx | |
 
-Use [graph-bench.mjs](../scripts/graph-bench.mjs) `--help` for flags. Inspect failed input before relying on a partial measurement.
+The javascript-cjs probe is the exported name with the most caller files among modules two or more files load by relative `require`; the javascript-lazy probe is the export called most through function-scope or inline relative `require` across 2+ files. Both were picked mechanically before measuring (2026-11-07).
 
-| Command / condition | Result |
-|---|---|
-| Battery: failed call, oracle error or incomplete callers pages | Exit 1; failed oracle keeps diagnostic, produces no ratios. A successful empty ripgrep result is valid. |
-| [bench-compare.mjs](../scripts/bench-compare.mjs): invalid measurement in either run | Exit 2; validates both runs under battery failure rules. |
-| Valid comparison: precision drop or previously successful workflow stage missing | Exit 1. |
-| Valid comparison: recall change | Report for source review; ratios retain full precision. |
+Per row:
 
-When changing the runner, oracle or comparison gate, run these suites from the skill directory:
+- [ ] `graphBuild` the ingest dir with `refresh: true`; then `graphQuery` `stats` with `view: "details"`: note the build time, the call-site count, the link rate (linked ÷ sites) and `unresolvedByReason`.
+- [ ] `find` the probe (`kind: "symbol"`), then `callers` of its id, following every page. The graph's caller files are the set the ratios use.
+- [ ] Oracle: `rg -n '\bPROBE\s*[(<\[]' DIR` over the row's extensions, minus the probe's own declaration lines, the `exclude` globs and hits inside strings and comments. Recall = files both found ÷ oracle files; precision = files both found ÷ graph caller files.
+- [ ] For each missed file, `unresolved` with `target` set to that file and `edges: ["calls"]`: the reason the graph gives at the oracle's line, or none.
+- [ ] Workflow: `impact` on the probe's id, `issues`, `cycles` and `unresolved` each answer without an error.
+- [ ] A second `graphBuild` without `refresh` on the unchanged tree reuses the snapshot (same id) and is faster.
 
-```bash
-node --test scripts/bench-compare.test.mjs scripts/battery-status.test.mjs scripts/graph-bench.test.mjs
-```
-
-[Comparison and oracle tests](../scripts/bench-compare.test.mjs) cover per-language metrics and matched sites. [Battery status tests](../scripts/battery-status.test.mjs) distinguish an empty result from a failed call, incomplete paging or a missing workflow stage. [Command tests](../scripts/graph-bench.test.mjs) exercise failed continuations, a missing oracle and a successful empty search through the runner and comparison CLI.
+Judge before against after: precision must hold on every row; a recall drop, a stage that answered before and now fails, or reuse turning off is a regression to explain from source. For a timing claim, run one row at a time on an idle machine; machine load moves build time more than most changes. For per-edge agreement with LSP, compare `graphQuery` `witnesses` call edges of a crate with an octocode-graph-view LSP cross-check (`via: lsp | both | graph`).
 
 ## Reading a row
 
@@ -48,10 +49,10 @@ node --test scripts/bench-compare.test.mjs scripts/battery-status.test.mjs scrip
 | `recall.dropped` | Oracle hits removed as the probe's own declarations, `exclude`d files, or text inside strings and comments |
 | `ingest.callLinkRate` | Linked call sites ÷ all extracted sites: syntax coverage, not semantic recall |
 | `ingest.unresolvedByReason` | Why sites stayed unlinked; a moved count shows which rule a change touched |
-| `incremental` | A second `graphBuild` without `refresh` on the unchanged tree: `ms`, and `reused` (same snapshot id). `bench-compare.mjs` tabulates `Reuse ms` and treats `reused` going true → false as a regression |
+| `incremental` | A second `graphBuild` without `refresh` on the unchanged tree: `ms`, and `reused` (same snapshot id). `reused` going true → false is a regression |
 | `callers.pagesComplete` | Every callers page was followed; `false` means the ratios are partial |
 
-The oracle ([lib/oracle.mjs](../scripts/lib/oracle.mjs)) matches text, not bindings (`\bname\s*[(<\[]`; never `rg -w` with a trailing `(`, which matches nothing), then drops:
+The oracle matches text, not bindings (`\bname\s*[(<\[]`; never `rg -w` with a trailing `(`, which matches nothing), then drops:
 
 - hits at a `find` declaration's name (`selectionByteRange`), so a declaration-only file is not a miss;
 - files matching the case's `exclude` globs (vendored copies, amalgamations), on both sides of the ratio;
@@ -66,4 +67,4 @@ What stays text-level:
 
 ## Adding a case
 
-Add a row to `CASES` in `graph-bench.mjs`: the clone directory, the ingest `dir`, a probe function with callers in several files, the oracle extensions, and `exclude` globs for vendored or amalgamated copies. Prefer a probe with one definition. Run the new row twice to confirm it is stable, then add it to the CODE_GRAPH.md evaluation table.
+Add a row to the table above: the clone directory, the ingest dir, a probe function with callers in several files, the oracle extensions, and `exclude` globs for vendored or amalgamated copies. Prefer a probe with one definition. Run the new row twice to confirm it is stable, then add it to the CODE_GRAPH.md evaluation table.

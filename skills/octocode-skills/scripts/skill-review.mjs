@@ -88,12 +88,9 @@ function checkFrontmatter({ dir, name, skill, add }) {
   if (fm.description && [...fm.description].length > 1024) add('ERROR', 'description-length', 'Description exceeds the Agent Skills limit of 1024 characters (code points).');
 }
 
-function checkLayout({ dir, name, files, texts, skill, add }) {
-  // One instruction document can own its output inline, even with executable helpers.
-  if ([...texts.keys()].some(path => path !== 'SKILL.md')) {
-    if (!files.includes('output.md')) add('ERROR', 'output-missing', 'output.md is missing.');
-    if (![...localPaths(skill)].some((path) => resolve(dir, path) === join(dir, 'output.md'))) add('WARN', 'output-route-missing', 'Link the output format from SKILL.md using any descriptive label.');
-  }
+function checkLayout({ dir, files, texts, skill, add }) {
+  // Result contracts may stay inline; route a separate output guide when one exists.
+  if (files.includes('output.md') && ![...localPaths(skill)].some((path) => resolve(dir, path) === join(dir, 'output.md'))) add('WARN', 'output-route-missing', 'Link the output format from SKILL.md using any descriptive label.');
   const common = resolve(dir, '..', 'common');
   for (const resource of ['scripts/render-report.mjs', 'references/report-output.md']) {
     const source = join(common, resource), installed = join(dir, resource);
@@ -103,7 +100,6 @@ function checkLayout({ dir, name, files, texts, skill, add }) {
   const output = texts.get('output.md');
   if (output === undefined) return;
   if (files.includes('scripts/render-report.mjs') && !/^## Saved report\b[\s\S]*(?:--manifest|references\/report-output\.md)/m.test(output)) add('WARN', 'saved-report-missing', 'output.md needs a Saved report section linking shared report guidance.');
-  if (!output.includes('.octocode/')) add('WARN', 'output-location-missing', `output.md should name where saved results go: <workspace>/.octocode/${name}/ (scratch under <workspace>/.octocode/${name}/tmp/).`);
 }
 
 // Every file a skill writes stays under <workspace>/.octocode/<skill-name>/ (scratch in its tmp/), never a shared .octocode/tmp/.
@@ -111,10 +107,7 @@ const SHARED_TMP = /\.octocode\/tmp\/[A-Za-z0-9<{_-]|['"]\.octocode['"],\s*['"]t
 // These two hold the rule's own test fixtures.
 const SHARED_TMP_FIXTURES = ['scripts/lib/report/self-test.mjs', 'scripts/skill-review.mjs'];
 
-function checkConventions({ dir, name, files, texts, skill, add }) {
-  // The lobby routes resources through one table whose columns say when to load each file and why.
-  const resources = skill.match(/^## Resources\b[\s\S]*?^\|([^\n]*)\|\s*$/m);
-  if (resources && !/^\s*When\s*\|\s*Read[^|]*\|\s*Why\s*$/.test(resources[1])) add('WARN', 'resources-columns', 'SKILL.md Resources table should have the columns When | Read | Why.');
+function checkConventions({ name, files, texts, dir, add }) {
   for (const path of files.filter((item) => /\.(md|mjs|js|cjs|sh|py)$/.test(item) && !SHARED_TMP_FIXTURES.includes(item))) {
     const source = texts.get(path) ?? readFileSync(join(dir, path), 'utf8');
     if (SHARED_TMP.test(source)) add('WARN', 'output-outside-skill-folder', `${path} writes or points to <workspace>/.octocode/tmp/; use <workspace>/.octocode/${name}/tmp/ so every output stays in the skill's own folder.`);
@@ -184,12 +177,12 @@ function review(dir) {
   return { skill: name, path: dir, findings };
 }
 
-// Self-test, part 1: output location, JSON descriptions in public skills, saved report, missing paths.
+// Self-test, part 1: generic output guides, public descriptions, saved report, missing paths.
 function selfTestBasics(dir, skill) {
   writeFileSync(join(skill, 'SKILL.md'), '---\nname: example-skill\ndescription: "Use when an example needs review."\n---\n\n# Example\n\n## Related skills\n\n- `other-skill`: For another job.\n\n## Output\n\nSee [output.md](output.md).\n');
   writeFileSync(join(skill, 'README.md'), '# Example\n');
   writeFileSync(join(skill, 'output.md'), '# Output\n\nAn answer.\n');
-  if (!review(skill).findings.some((item) => item.code === 'output-location-missing')) throw new Error('missing output location was not found');
+  if (review(skill).findings.length) throw new Error('a generic output guide was forced to name an Octocode destination');
   writeFileSync(join(skill, 'output.md'), '# Output\n\nAn answer. Save requested files under `<workspace>/.octocode/example-skill/`.\n');
   if (review(skill).findings.length) throw new Error('valid skill failed');
   const publicRoot = join(dir, 'public', 'skills');
@@ -257,9 +250,9 @@ function selfTestContent(skill, source) {
   writeFileSync(join(skill, 'SKILL.md'), source.replace('description: |-\n  Review an example.', 'description:\nlicense: MIT'));
   if (!review(skill).findings.some((item) => item.code === 'description-missing')) throw new Error('empty description consumed the next field');
   writeFileSync(join(skill, 'SKILL.md'), `${source}\n## Resources\n\n| When | Read |\n|---|---|\n| Saving | [output.md](output.md) |\n`);
-  if (!review(skill).findings.some((item) => item.code === 'resources-columns')) throw new Error('a Resources table without Why was not flagged');
+  if (review(skill).findings.length) throw new Error('a conditional two-column Resources table was rejected');
   writeFileSync(join(skill, 'SKILL.md'), `${source}\n## Resources\n\n| When | Read or run | Why |\n|---|---|---|\n| Saving | [output.md](output.md) | Format |\n`);
-  if (review(skill).findings.some((item) => item.code === 'resources-columns')) throw new Error('a valid Resources table was flagged');
+  if (review(skill).findings.length) throw new Error('a three-column Resources table was rejected');
   writeFileSync(join(skill, 'SKILL.md'), source);
 }
 
@@ -291,8 +284,9 @@ function selfTestCollections(dir, skill) {
   if (review(single).findings.length) throw new Error(`a single instruction file with an executable helper was rejected: ${JSON.stringify(review(single).findings)}`);
   writeFileSync(join(single, 'notes.md'), '# Notes\n');
   if (skillDirs(join(single, 'notes.md'), true)[0] !== join(single, 'notes.md')) throw new Error('non-directory collection root was silently skipped');
-  if (!review(single).findings.some((item) => item.code === 'output-missing')) throw new Error('a multi-file skill without output.md passed');
+  if (review(single).findings.length) throw new Error('an inline result contract required a separate output.md because another document exists');
   writeFileSync(join(single, 'output.md'), '# Output\n\nSave under .octocode/single-skill/.\n');
+  if (!review(single).findings.some((item) => item.code === 'output-route-missing')) throw new Error('an existing unlinked output guide was missed');
   writeFileSync(join(single, 'SKILL.md'), `${readFileSync(join(single, 'SKILL.md'), 'utf8')}\nSee [output](output.md).\n`);
   if (review(single).findings.length) throw new Error(`a multi-file skill with a linked output guide needs no README: ${JSON.stringify(review(single).findings)}`);
 }

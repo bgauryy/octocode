@@ -2,6 +2,120 @@
 use super::super::leads::unsearched_ref_read;
 use super::*;
 
+/// Path projection avoids blob reads but preserves the indexed commit in its read lead.
+#[test]
+fn path_only_handoffs_preserve_index_commits_without_using_blob_shas() {
+    let commit = "a".repeat(40);
+    let blob = "b".repeat(40);
+    for repo in [Some("r"), None] {
+        for requested in [None, Some("release/v1")] {
+            for indexed in [commit.as_str(), "main", "0123"] {
+                let query: GhSearchCodeQuery = serde_json::from_value(json!({
+                    "owner":"o", "repo":repo, "keywords":["needle"],
+                    "fields":["path"], "ref":requested
+                }))
+                .expect("query");
+                let mut items = vec![json!({
+                    "owner":"o", "repo":"r", "path":"src/lib.rs",
+                    "fragments":[{"highlight":"needle"}]
+                })];
+                let found: CodeSearchItem = serde_json::from_value(json!({
+                    "name":"lib.rs", "path":"src/lib.rs", "sha":blob,
+                    "html_url":format!("https://github.com/o/r/blob/{indexed}/src/lib.rs"),
+                    "repository":{
+                        "full_name":"o/r", "html_url":"https://github.com/o/r",
+                        "url":"https://api.github.com/repos/o/r"
+                    }
+                }))
+                .expect("provider item");
+                index_commits(&mut items, &[found], &query);
+                let reads = shape_files(
+                    &mut items,
+                    &query,
+                    &crate::policy::discovery::is_sensitive_repository_file,
+                    None,
+                );
+                assert!(reads.hits.is_empty(), "paths do not require source reads");
+                let lead = reads.top.expect("top path has an executable read");
+                crate::contracts::validate_built("ghGetFileContent", lead["input"].clone())
+                    .expect("read follows the published contract");
+                let next = &lead["input"]["queries"][0];
+                let expected =
+                    requested.or_else(|| (indexed == commit.as_str()).then_some(indexed));
+                assert_eq!(
+                    next["ref"].as_str(),
+                    expected,
+                    "{repo:?}, {requested:?}, {indexed}"
+                );
+                assert_ne!(
+                    next["ref"].as_str(),
+                    Some(blob.as_str()),
+                    "blob identity is not a revision"
+                );
+                assert_eq!(next["path"], "src/lib.rs");
+                if expected.is_none() {
+                    assert!(
+                        items[0].get("commitSha").is_none(),
+                        "no immutable identity was proven"
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Missing commit metadata cannot silently remove the requested source lines.
+/// Every unresolved row retains its own read, without an invented immutable ref.
+#[test]
+fn unresolved_code_rows_keep_required_reads_without_inventing_commits() {
+    use super::super::lines::FileHits;
+    let query: GhSearchCodeQuery = serde_json::from_value(json!({
+        "owner":"o", "keywords":["needle"]
+    }))
+    .expect("query");
+    for planned in [false, true] {
+        let mut items = vec![
+            json!({"owner":"o","repo":"r","path":"a.rs","fragments":[]}),
+            json!({"owner":"o","repo":"s","path":"README.md","fragments":[]}),
+        ];
+        let resolution = planned.then(|| Resolution {
+            sha: None,
+            reference: None,
+            hits: vec![(String::new(), FileHits::Unavailable); items.len()],
+        });
+        let reads = shape_files(
+            &mut items,
+            &query,
+            &crate::policy::discovery::is_sensitive_repository_file,
+            resolution,
+        );
+        assert_eq!(reads.hits.len(), items.len(), "{planned}: {items:?}");
+        assert_eq!(reads.unanchored, items.len());
+        let mut page = json!({});
+        super::super::page_facts::disclose_reads(
+            &mut page,
+            &reads,
+            &crate::tools::gh_shared::test_support::default_context(),
+        );
+        assert!(
+            page["warnings"]
+                .to_string()
+                .contains("cannot verify the historical index snapshot"),
+            "{page}"
+        );
+        for (row, read) in items.iter().zip(&reads.hits) {
+            assert_eq!(row["lineResolved"], false, "{row}");
+            assert!(row.get("commitSha").is_none(), "{row}");
+            assert_eq!(read["kind"], "continue", "{read}");
+            let input = &read["input"];
+            crate::contracts::validate_built("ghGetFileContent", input.clone())
+                .expect("required read is executable");
+            assert_eq!(input["queries"][0]["path"], row["path"]);
+            assert!(input["queries"][0].get("ref").is_none(), "{read}");
+        }
+    }
+}
+
 /// Shaping preserves source identity for both repository and owner scopes,
 /// with or without resolved source lines.
 #[test]

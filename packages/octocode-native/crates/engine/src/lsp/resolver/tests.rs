@@ -12,7 +12,9 @@ fn fuzzy(name: &str, line_hint: Option<u32>) -> LspFuzzyPosition {
 mod anchors;
 mod declarations;
 mod declared_lines;
+mod escaped_identifiers;
 mod line_arithmetic;
 mod lines_and_budget;
 mod local_bindings;
 mod named_heritage;
+mod raw_identifiers;

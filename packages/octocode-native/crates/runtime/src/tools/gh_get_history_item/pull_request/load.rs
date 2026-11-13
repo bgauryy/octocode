@@ -9,7 +9,6 @@ use crate::tools::gh_get_history_item::graphql::{
 };
 use crate::tools::gh_get_history_item::inventory::file_page_size;
 use crate::tools::gh_get_history_item::sections::Section;
-use crate::tools::gh_get_history_item::text::body_matches;
 use crate::tools::gh_get_history_item::window::{
     Batch, Loaded, MAX_COLLECTION_BATCHES, MAX_FILE_BATCHES, MAX_PR_COMMIT_BATCHES, WindowSpec,
     load_window,
@@ -53,14 +52,12 @@ pub(super) struct PrLoads {
 
 /// Requests that run before the collections: the PR itself, beside the
 /// first batch of a file window that may need more than one batch (the PR's
-/// `changed_files` then sizes the rest, which load at once), or alone when a
-/// later comment page that `matchString` filters needs the PR's counts.
+/// `changed_files` then sizes the rest, which load at once).
 async fn first_requests(
     source: &Source<'_>,
     context: &RequestContext,
     pulls: &[&str],
     file_batch: Option<usize>,
-    later_comments: bool,
 ) -> Result<(Option<Value>, Option<(usize, Batch)>), ProviderError> {
     if let Some(batch) = file_batch {
         let files_path = [pulls, &["files"]].concat();
@@ -74,17 +71,13 @@ async fn first_requests(
         )?;
         return Ok((Some(raw), Some((batch, files))));
     }
-    if later_comments {
-        return Ok((Some(fetch(source, pulls, &[], context).await?.0), None));
-    }
     Ok((None, None))
 }
 
 /// The PR fetched before its collections, beside the first batch of its
 /// file window, when they need its counts: a selected or match-filtered file
 /// scan cannot jump to a batch by index, a page whose files cross a batch
-/// boundary needs the count to read its batches at once, and a later
-/// comment page that `matchString` filters cannot jump either. The held
+/// boundary needs the count to read its batches at once. The held
 /// batch is the window's own first batch, never read again; when it ends
 /// the list (most PRs), the read costs one round trip.
 async fn prefetch(
@@ -100,11 +93,6 @@ async fn prefetch(
         return Ok((None, None));
     }
     let file_batch = (wants.lists_files() && files.spans_batches()).then(|| files.first_batch());
-    // Only a `matchString` filters comments; an unfiltered later page jumps
-    // straight to its provider batch.
-    let later_comments = (wants.has(Section::Comments) || wants.has(Section::ReviewComments))
-        && plan.needle.is_some()
-        && gh_get_history_item_query::page(query).is_some_and(|page| page > 1);
     let pulls = [
         "repos",
         gh_get_history_item_query::owner(query),
@@ -112,7 +100,7 @@ async fn prefetch(
         "pulls",
         plan.number.as_str(),
     ];
-    first_requests(source, context, &pulls, file_batch, later_comments).await
+    first_requests(source, context, &pulls, file_batch).await
 }
 
 /// The PR itself: from GraphQL, the prefetch, or one REST read.
@@ -147,7 +135,6 @@ pub(super) async fn load_inline(
     plan: &PrPlan,
     provider_total: Option<usize>,
 ) -> Result<Option<Loaded>, ProviderError> {
-    let needle = plan.needle.as_deref();
     let path = [
         "repos",
         gh_get_history_item_query::owner(query),
@@ -166,11 +153,11 @@ pub(super) async fn load_inline(
             max_batches: MAX_COLLECTION_BATCHES,
             page: gh_get_history_item_query::page(query).unwrap_or(1),
             page_size: gh_get_history_item_query::collection_page_size(query),
-            filtered: needle.is_some(),
+            filtered: false,
             provider_total,
             prefetched: None,
         },
-        |value| body_matches(value, needle),
+        |_| true,
         context,
     )
     .await
@@ -195,9 +182,8 @@ pub(super) async fn load_pr(
     graphql: Option<&GraphqlPr>,
     inline: InlineWindow,
 ) -> Result<PrLoads, ProviderError> {
-    let (file_filter, needle) = (plan.file_filter(), plan.needle.as_deref());
+    let file_filter = plan.file_filter();
     let page_size = gh_get_history_item_query::collection_page_size(query);
-    let comment_filter = |value: &Value| body_matches(value, needle);
     let spec = |max_batches, page: Option<usize>, filtered| WindowSpec {
         batch_size: MAX_PER_PAGE,
         max_batches,
@@ -262,10 +248,10 @@ pub(super) async fn load_pr(
                 ..spec(
                     MAX_COLLECTION_BATCHES,
                     gh_get_history_item_query::page(query),
-                    needle.is_some()
+                    false
                 )
             },
-            comment_filter,
+            |_| true,
             context,
         ),
         async {
@@ -286,9 +272,9 @@ pub(super) async fn load_pr(
             spec(
                 MAX_COLLECTION_BATCHES,
                 gh_get_history_item_query::page(query),
-                needle.is_some()
+                false
             ),
-            comment_filter,
+            |_| true,
             context,
         ),
         load_collection(

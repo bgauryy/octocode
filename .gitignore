@@ -14,17 +14,9 @@ campaigns
 *.dxt
 # npm pack output
 *.tgz
-# packages/octocode-benchmark/local/e2e: the harness, fixtures and validation reports are tracked;
-# cloned repos and regenerable or raw run output are not.
+# Cloned benchmark repositories are not tracked; their README is.
 packages/octocode-benchmark/local/repos/*
 !packages/octocode-benchmark/local/repos/README.md
-packages/octocode-benchmark/local/e2e/seeded/
-packages/octocode-benchmark/local/e2e/bigfiles/
-packages/octocode-benchmark/local/e2e/fixtures/large/
-packages/octocode-benchmark/local/e2e/fixtures/scratch/
-packages/octocode-benchmark/local/e2e/fixtures/rating-*/
-packages/octocode-benchmark/local/e2e/results/
-packages/octocode-benchmark/local/e2e/.octocode/
 # Package READMEs are authored source and must remain trackable.
 !packages/*/README.md
 
@@ -64,7 +56,11 @@ AUDIT.md
 autoresearch.*
 
 devScripts
-packages/octocode-benchmark/results
+# Stored benchmark data is local; the index, per-question baselines and round scorecards are tracked.
+packages/octocode-benchmark/results/*
+!packages/octocode-benchmark/results/README.md
+!packages/octocode-benchmark/results/baselines/
+!packages/octocode-benchmark/results/rounds/
 .agents/*
 !.agents/plugins/
 .agents/plugins/*
@@ -73,5 +69,4 @@ output
 __pycache__
 releases/**
 tmp
-packages/octocode-benchmark/compare
 *.log

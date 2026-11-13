@@ -10,6 +10,7 @@ fn rust_context_overlays_the_engine_headless_defaults() {
         args: None,
         workspace_root: "/repo".into(),
         language_id: Some("rust".into()),
+        document_language_ids: Default::default(),
         initialization_options: Some(
             octocode_engine::lsp::config::rust_analyzer_headless_options(),
         ),
@@ -49,6 +50,7 @@ pub(super) fn rust_server_config(
         args: None,
         workspace_root: "/repo".into(),
         language_id: Some("rust".into()),
+        document_language_ids: Default::default(),
         initialization_options: Some(
             octocode_engine::lsp::config::rust_analyzer_headless_options(),
         ),

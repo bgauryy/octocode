@@ -40,7 +40,7 @@ Ladder: `candidate → exact evidence → claim-specific corroboration → verif
 
 ## Root cause
 
-[Hypothesis test](../SKILL.md#rules-that-always-apply); a suspicious line, commit, or correlation stays a candidate until all four hold:
+Apply the [research loop](../SKILL.md#research-loop); a suspicious line, commit, or correlation stays a candidate until all four hold:
 
 1. Expected vs actual, and the contract behind it.
 2. Reproduce (or equivalent runtime evidence); first divergent boundary.
@@ -52,8 +52,8 @@ Report per [output](../output.md#response).
 ## Campaigns
 
 - Loop: `frame one question → cheapest call that can change the answer → observe status → learn → next call`.
-- Start: set corpus, question, mode, surfaces, and a Stop condition (done when the class's Definition of Done holds; escalate when the budget is spent or a prerequisite is missing); check reach ([tool flow](tool-flow.md)). Measure claims resolved, not calls.
-- Ledger: goal, anchors (paths, lines, ids, refs, `next.*`/`hints`; never invented), open hypothesis tests (rivals, cheapest distinguishing check), tried shapes.
+- Set the question, corpus and evidence needed to decide. Respect the task's actual budget and prerequisites; stop when further work cannot change the decision. Measure claims resolved, not calls.
+- For work spanning sessions or actors, retain only what recovery needs: goal, source anchors, unresolved alternatives, next checks and emitted continuation calls.
 - Direct research may pursue independent directions sequentially. When an orchestrator selects a multi-actor workflow, it assigns only directions with distinct observations, keeps one ledger and the merged verdict, and gives each actor an authorized Task contract: objective (purpose), constraints, output (`claim, evidence, verdict, confidence` per finding), and a Definition of Done. Actors pick the domain method and return evidence; they do not select more actors. Disagreement is evidence; the orchestrator re-checks each load-bearing anchor. See [workflow composition](../../octocode-workflows/references/composition.md).
 - At decision boundaries and when stopping, report per [output](../output.md#response), naming verification and open gaps (unresolved alternatives, exhausted budgets, missing prerequisites).
 
@@ -67,9 +67,4 @@ Pick the protocol by what the receiver must do:
 | Unfinished work moves to another actor or session | Handoff packet | current state (question, scope/ref, checks run), evidence (anchors), blockers (gaps), next action, constraints, next-call ids (`next.*` calls copied unchanged) |
 
 - Durable handoff (authorized, or [output](../output.md#saved-report) says save): the saved report; no evidence records.
-- Machine consumer: save `<report-stem>.evidence.jsonl` beside the report with the header's `status` and `confidence` values; summarize in chat and link it:
-
-```json
-{"id":"ev1","type":"exact-file","source":"local","locator":"src/example.ts:42","quoteOrFact":"X calls Y","quality":"primary"}
-{"id":"cl1","claim":"A supports X","status":"Likely","confidence":"medium","supportingEvidenceIds":["ev1"],"counterEvidenceIds":[],"nextCheck":"read tests"}
-```
+- Export structured evidence only for a named machine consumer, using its actual schema and required source anchors.

@@ -42,7 +42,7 @@ fn mark_unmatched(
     let literal = gh_get_history_item_query::match_strings(query).filter(|_| plan.needle.is_some());
     let literal_warning = literal
         .filter(|_| files.in_scope > 0)
-        .map(|literal| super::filter::match_removed_all_warning(literal, files.in_scope));
+        .map(|_| super::filter::match_removed_all_warning(files.in_scope));
     if literal.is_some() && plan.scope.is_none() && other_evidence {
         return literal_warning;
     }
@@ -86,7 +86,6 @@ pub(super) fn finish_pr(
     wants: &Sections,
     plan: &PrPlan,
     shaped: ShapedPr,
-    (graphql_fallback, graphql_warnings): (Option<String>, Vec<String>),
 ) -> ToolData {
     let ShapedPr {
         row,
@@ -146,14 +145,12 @@ pub(super) fn finish_pr(
     // A miss already leads to its recovery reads; the menu would offer the
     // whole-PR patches the miss was narrowing away from.
     let menu = menu.filter(|_| out["status"] != "empty");
-    let coverage = menu.as_ref().and_then(|menu| selected_coverage_hint(menu, &out));
+    let coverage = menu
+        .as_ref()
+        .and_then(|menu| selected_coverage_hint(menu, &out));
     crate::response::result::add_hints(&mut out, coverage);
     attach_leads(&mut out, files.side_reads, menu, merge_read);
     lead_with_comment_reads(&mut out, comment_reads);
-    push_warnings(&mut out, graphql_warnings);
-    if let Some(reason) = graphql_fallback {
-        out["graphqlFallback"] = json!(reason);
-    }
     ToolData::from(out)
 }
 

@@ -31,8 +31,8 @@ flowchart LR
 | Query ops, ranking, paging | `store/query/` (`find.rs`, `traverse.rs`, `evidence.rs`, `paging.rs`) | `store/tests/queries.rs`, `pagination.rs`, `find_ranking.rs` |
 | `issues` detectors, cycles, dead code | `store/detect/`, `algorithms.rs` (the one cycle engine) | `store/tests/detectors.rs`, `store/tests/detectors/`, `link_tests/dead_code.rs` |
 | `impact`, `drift` | `store/impact/`, `store/impact.rs`, `store/drift.rs` | `store/tests/impact.rs`, `impact_since.rs` |
-| CLI text, flags, exit codes | `cli/src/cli/graph.rs` | `$DEV test:tools graphBuild,graphQuery` |
-| MCP tool pages and snapshot selection | `store/tools.rs`; schemas and descriptions in core | `$DEV test:tools graphBuild,graphQuery` |
+| CLI text, flags, exit codes | the generic tool command `cli/src/cli/tool_call.rs`, text in `cli/src/cli/lines.rs`, graph help in `cli/src/cli.rs` and `cli/src/cli/schema.rs` | `cli/tests/cli_output/terminal.rs`; the graph calls of [tool checks](../../../packages/octocode-benchmark/CHECKS.md#graphbuild-and-graphquery) |
+| MCP tool pages and snapshot selection | `store/tools.rs`; schemas and descriptions in core | `cli/tests/mcp_server/graph_parity.rs`; the graph calls of [tool checks](../../../packages/octocode-benchmark/CHECKS.md#graphbuild-and-graphquery) |
 
 ## Versions
 

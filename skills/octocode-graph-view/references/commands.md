@@ -2,7 +2,9 @@ Load when building, serving or replaying a graph, reading events, or changing a 
 
 # Commands
 
-Run from the target workspace (octocode resolves paths and allowed roots from it). `--help` on each script owns the accepted flags. Inside the octocode checkout the scripts run the native binary the local launcher would start, found by the launcher's own resolver (`packages/octocode-native/bin/resolve-binary.cjs`), which saves the launcher's Node startup on every call; `OCTOCODE_CLI` overrides.
+Requires Node 24+, an Octocode CLI and a browser for the viewer; `rsync` supports the frozen-copy fallback. The viewer loads d3 7.9.0 from cdnjs. `preflight.mjs` reports available layers.
+
+Run from the target workspace, which defines paths and allowed roots. Each script's `--help` owns its flags. CLI selection: `OCTOCODE_CLI`, the checkout's launcher-resolved native binary (`packages/octocode-native/bin/resolve-binary.cjs`), then `octocode` on PATH.
 
 | Goal | Command |
 |---|---|
@@ -16,17 +18,17 @@ Run from the target workspace (octocode resolves paths and allowed roots from it
 
 1. **Files**: `structureSearch` (`operation: files`, `view: paths`) pages the section; each page is a `skeleton` event, so nodes appear before any ingest finishes (`git ls-files` when the tool is unavailable).
 2. **Plan**: a directory with `package.json` or `Cargo.toml` is a chunk; files outside every package form loose chunks that exclude the package directories by name. `--whole` plans one chunk.
-3. **Graph**: chunks build with `graphBuild`, `--ingest-jobs` at a time (default a quarter of the cores); builds overlap because the engine locks only publication. One slot always holds the largest remaining chunk, which bounds the run, and the others take the smallest so the viewer fills in early. Each build's stderr progress (`parsed N/M files`, `linked`, `published`) updates its chunk row. A chunk the graph refuses with `scopeTooBroad` splits one level and the parts rejoin the queue. Every `graphQuery` call sends `responseChars: 50000` and follows the tool's own continuations (`responsePagination.next`, `next.nextPage`, list and cycle-member pages); each page (files, witnesses, symbols) streams as a `rows` event with root-relative ids. Queries that need nothing else start at once; witnesses, symbols and call gaps are walked as concurrent groups of source files (multi-target `target`, about four groups per `--jobs` worker, default the core count), and each union must equal its whole walk's `pagination.total` with every id once, else the single walk runs. A tree that changes during a build is graphed from a frozen copy under the chunk's `tmp/`.
+3. **Graph**: chunks build with `graphBuild`, with concurrency controlled by `--ingest-jobs`; `--jobs` controls query workers. Stderr progress (`parsed N/M files`, `linked`, `published`) updates each chunk. Paused builds follow `next.expandScan` unchanged until a snapshot is published. A `scopeTooBroad` refusal splits that chunk and queues its parts. Response pages finish and `rowPart` fragments reassemble before tool pages, evidence lists or cycle-member pages; rows stream once with root-relative IDs. Grouped query unions must match the full walk's `pagination.total`, every ID once, otherwise the pipeline runs a single walk. A tree that changes during a build is graphed from a frozen copy under the chunk's `tmp/`.
 4. **Stitch**: imports between chunks from out-of-root relative imports, Rust paths into other workspace crates (`octocode_io::memo::Memo` to that crate's deepest module file; the crate name is the Cargo `[lib] name`, else the package name) and workspace package names; calls bound by exact top-level name through those imports or by a workspace crate path to its module file (`stitched`, medium). Call gaps are read only for the files that import another chunk: one graphQuery `unresolved` per group of files (as many as the schema's `target` list allows) with `edges: ["calls"]` and `reasons: ["not-declared-in-repo", "external-package"]`, filtered before paging; none for a single chunk. Cycles and findings stay per chunk.
 5. **LSP**: callees of every function in the hub files and of every stitched call source, batched by the published `lspSearch` limit, continuations followed per query. Graph calls it confirms become `both`, unconfirmed probed ones stay `graph`, callees only the server reports join as `lsp`. A language without a server is reported and skipped; no step has a fixed timeout.
 6. **Verify** each file against its declarations, recorded edge lines and the snapshot. For status and line problems, read the `check` object on each saved file. If `verification.staleCheck` failed, freshness is unknown even for a file marked `ok`. The viewer lists stale, missing and out-of-range results in Insights.
-7. **Metrics**: one weighted file graph (`graph-model.mjs`: w = [imports] + Σ call sites × evidence, evidence 1 when LSP resolved the call, else confidence high 1 / medium 0.5 / low 0.25; test-only edges excluded) measured with standard algorithms (`algorithms.mjs`): Tarjan strongly connected components (cycles across the whole stitched graph, with languages and chunks), dependency depth on the condensation DAG, weighted PageRank to convergence, Brandes betweenness, Louvain communities with modularity, k-core, and Martin package coupling (Ca, Ce, instability). Values land on `files[].metrics`, sets on `metrics`, weighted edges on `fileEdges`; then the briefs, facts only.
+7. **Metrics**: the production file graph weights imports and call sites by binding evidence; [graph-model.mjs](../scripts/graph-model.mjs) owns that formula. [algorithms.mjs](../scripts/algorithms.mjs) computes cycles, dependency depth, PageRank, betweenness, communities, k-core and package coupling. Values land on `files[].metrics`, sets on `metrics`, weighted edges on `fileEdges`, then in the briefs. They measure structure, not runtime frequency.
 
 ## Viewer and server
 
 The viewer can chat with the agent that opened it (click a node, ask; the reply appears in the drawer) and refresh after code changes: `node <skill>/scripts/reply.mjs <dir> "answer" --chat <id> [--refresh]` or the channel's `reply`/`refresh_graph` tools. Details and the security notes: [chat](chat.md).
 
-Event batches travel as gzipped binary WebSocket frames (lossless; a full-repo replay is about 20× smaller), decoded in arrival order by the page. `serve.mjs` binds 127.0.0.1 on a random (or `--port`) port, serves only its own assets, and requires the run's random token in the page URL and the WebSocket URL plus a same-server `Origin`. The pipeline starts with the server; a page opened later (or reconnecting) sends `hello {since}` and receives every missed event. The server stays up after `done` so the page can ask for AST outlines (`astSearch symbols`) and LSP `callers`, `callees` or `references`; those answers are events too.
+Event batches travel as lossless gzipped WebSocket frames, decoded in arrival order. `serve.mjs` binds 127.0.0.1 on a random (or `--port`) port, serves only its own assets, and requires the run token in the page and WebSocket URLs plus a same-server `Origin`. The pipeline starts with the server; a reconnecting page sends `hello {since}` to recover missed events. The server remains available after `done` for AST outlines (`astSearch symbols`) and LSP `callers`, `callees` or `references`; those answers are events too.
 
 Events (one JSON object per line in `events.jsonl`, each with `seq` and `t` ms):
 
@@ -54,12 +56,12 @@ Events (one JSON object per line in `events.jsonl`, each with `seq` and `t` ms):
 | CLI calls, tool-call hook, worker pool | [lib.mjs](../scripts/lib.mjs) |
 | One chunk's graph pages and data | [section.mjs](../scripts/section.mjs), [graph-pages.mjs](../scripts/graph-pages.mjs) |
 | Chunk boundaries and refinement | [plan.mjs](../scripts/plan.mjs) |
-| Joining chunks | [stitch.mjs](../scripts/stitch.mjs) |
-| LSP cross-check | [lsp.mjs](../scripts/lsp.mjs) |
+| Joining chunks and preserving partial coverage | [stitch.mjs](../scripts/stitch.mjs), [coverage.mjs](../scripts/coverage.mjs) |
+| LSP cross-check | [lsp.mjs](../scripts/lsp.mjs), [batch and coverage tests](../scripts/lsp.test.mjs) |
 | Each node checked against its file | [verify.mjs](../scripts/verify.mjs) |
-| Following tool continuations, tool-call summaries | [tools.mjs](../scripts/tools.mjs) |
+| Following tool continuations, tool-call summaries | [tools.mjs](../scripts/tools.mjs), [fragment tests](../scripts/tools.test.mjs) |
 | Local server and WebSocket | [serve.mjs](../scripts/serve.mjs), [ws.mjs](../scripts/ws.mjs) |
 | Viewer | [live.html](../assets/live.html), [live.js](../assets/live.js) (store), [live-graph.js](../assets/live-graph.js) (canvas), [live-panels.js](../assets/live-panels.js) (panels) |
 | Weighted graph and its algorithms | [graph-model.mjs](../scripts/graph-model.mjs), [algorithms.mjs](../scripts/algorithms.mjs), [metrics.mjs](../scripts/metrics.mjs), [tests](../scripts/algorithms.test.mjs) |
 | Briefs (facts only), model overlay | [render.mjs](../scripts/render.mjs), [model.mjs](../scripts/model.mjs) |
-| Tests | `node --test scripts/*.test.mjs`: [live](../scripts/live.test.mjs), [graph pages](../scripts/graph-pages.test.mjs), [stitch](../scripts/stitch.test.mjs), [temp dirs](../scripts/test-tmp.mjs) |
+| Tests | `node --test scripts/*.test.mjs`: [live](../scripts/live.test.mjs), [graph pages](../scripts/graph-pages.test.mjs), [stitch](../scripts/stitch.test.mjs), [partial coverage](../scripts/partial.test.mjs), [temp dirs](../scripts/test-tmp.mjs) |

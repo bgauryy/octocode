@@ -48,14 +48,25 @@ fn a_long_line_is_one_row_per_window_each_placed_by_its_start() {
         }
         assert_eq!(
             long[0].value,
-            format!("{}needle{}needle{}", "a".repeat(10), "b".repeat(14), "c".repeat(10))
+            format!(
+                "{}needle{}needle{}",
+                "a".repeat(10),
+                "b".repeat(14),
+                "c".repeat(10)
+            )
         );
-        assert_eq!((long[0].window_start, long[0].byte_offset, long[0].column), (Some(290), 300, 300));
+        assert_eq!(
+            (long[0].window_start, long[0].byte_offset, long[0].column),
+            (Some(290), 300, 300)
+        );
         assert_eq!(
             long[1].value,
             format!("{}needle{}", "c".repeat(10), "d".repeat(10))
         );
-        assert_eq!((long[1].window_start, long[1].byte_offset), (Some(890), 900));
+        assert_eq!(
+            (long[1].window_start, long[1].byte_offset),
+            (Some(890), 900)
+        );
         // The short line is its whole text, as without windows.
         let short = rows.iter().find(|row| row.line == 1).expect("line 1");
         assert_eq!(short.window_start, None);
@@ -94,7 +105,10 @@ fn windows_that_join_into_the_whole_line_and_lines_that_fit_stay_whole() {
     let result = search(line_search(t.path(), "needle")).expect("search ok");
     let rows = &result.files[0].matches;
     assert_eq!(rows.len(), 2);
-    assert!(rows.iter().all(|row| row.window_start.is_none()), "{rows:?}");
+    assert!(
+        rows.iter().all(|row| row.window_start.is_none()),
+        "{rows:?}"
+    );
 }
 
 #[test]

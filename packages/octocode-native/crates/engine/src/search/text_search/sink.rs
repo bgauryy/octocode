@@ -29,6 +29,58 @@ fn past_block_end(bytes: &[u8], found: grep_matcher::Match) -> bool {
     found.is_empty() && bytes.ends_with(b"\n") && found.start() >= bytes.len()
 }
 
+/// One row's part of a matched block: its whole lines (`bytes`, a range of
+/// the block), its first line's index in the block, and where its first
+/// match starts.
+struct LineGroup {
+    bytes: std::ops::Range<usize>,
+    first_line: u32,
+    first_start: Option<usize>,
+}
+
+/// A matched block's rows. Multiline mode joins matches on adjacent lines
+/// into one block; a row is one match, or the matches that share a line (as
+/// a line holding several hits is one row), each with its own lines, so a
+/// match's extent is never the block's. A block with no enumerated match is
+/// one row.
+fn line_groups(bytes: &[u8], spans: &[(usize, usize)]) -> Vec<LineGroup> {
+    // Each line's first byte in the block.
+    let starts = std::iter::once(0)
+        .chain(memchr::memchr_iter(b'\n', bytes).map(|at| at + 1))
+        .filter(|&at| at < bytes.len())
+        .collect::<Vec<_>>();
+    let line_at = |at: usize| {
+        starts
+            .partition_point(|&start| start <= at)
+            .saturating_sub(1)
+    };
+    let end_of = |line: usize| starts.get(line + 1).copied().unwrap_or(bytes.len());
+    let mut groups: Vec<(usize, usize, usize)> = Vec::new();
+    for &(start, end) in spans {
+        // A match ending in its line's newline ends on that line.
+        let (first, last) = (line_at(start), line_at(end.saturating_sub(1).max(start)));
+        match groups.last_mut() {
+            Some(group) if first <= group.1 => group.1 = group.1.max(last),
+            _ => groups.push((first, last, start)),
+        }
+    }
+    if groups.is_empty() {
+        return vec![LineGroup {
+            bytes: 0..bytes.len(),
+            first_line: 0,
+            first_start: None,
+        }];
+    }
+    groups
+        .into_iter()
+        .map(|(first, last, start)| LineGroup {
+            bytes: starts[first]..end_of(last),
+            first_line: saturating_u32(first),
+            first_start: Some(start),
+        })
+        .collect()
+}
+
 /// `grep_searcher::Sink` that accumulates matches/contexts for one file and,
 /// using the matcher, derives the 0-based UTF-16 column of the first submatch.
 pub(super) struct CollectSink<'a, M: Matcher> {
@@ -187,6 +239,42 @@ impl<M: Matcher> CollectSink<'_, M> {
         Ok(count)
     }
 
+    /// The row of `bytes`, whole lines from `line_number` holding one group
+    /// of matches ([`line_groups`]), its first hit at `first_start`.
+    fn line_row(&mut self, bytes: &[u8], line_number: u32, first_start: Option<usize>) {
+        let (line_text, not_utf8) = block_text(bytes);
+        self.not_utf8 |= not_utf8;
+        let line_text = strip_trailing_newline(line_text);
+        let start = first_start.unwrap_or(0);
+        let byte = interior_offset(bytes, start).min(line_text.len());
+        let column = saturating_u32(byte_to_utf16_offset(&line_text, byte));
+        let byte_offset = saturating_u32(byte);
+        if self.work.deferred_line {
+            let mut hit = crate::search::text_parser::line_match(
+                &line_text,
+                line_number,
+                column,
+                byte_offset,
+            );
+            if let Some((inspector, path)) = self.inspect_deferred {
+                (inspector.0)(path, &mut hit);
+            } else {
+                hit.value = String::new();
+                hit.deferred = Some(0);
+            }
+            self.entry.prepared.push(hit);
+        } else {
+            self.entry.raw_matches.push(RawMatch {
+                line_text,
+                line_number,
+                column,
+                byte_offset,
+                rank: relevance::line_rank(bytes, start),
+                window_start: None,
+            });
+        }
+    }
+
     /// Hold `bytes` more of this file's rows; past the search's bound the
     /// whole search stops (and is refused), so nothing more is kept.
     fn hold(&mut self, bytes: usize) -> bool {
@@ -297,7 +385,7 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
         } else if self.work.collect_spans {
             count = self.collect_spans(bytes, line_number, &mut first_start)?;
         } else if self.work.enumerate_submatches {
-            let counts_terms = !self.terms.is_empty();
+            let keeps_spans = !self.terms.is_empty() || self.work.materialize_line;
             self.matcher
                 .find_iter(bytes, |matched| {
                     if past_block_end(bytes, matched) {
@@ -305,47 +393,26 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
                     }
                     count = count.saturating_add(1);
                     first_start.get_or_insert(matched.start());
-                    if counts_terms {
+                    if keeps_spans {
                         spans.push((matched.start(), matched.end()));
                     }
                     true
                 })
                 .map_err(|error| std::io::Error::other(error.to_string()))?;
-            if self.work.materialize_line && long_line {
-                self.long_line_row(bytes, line_number, first_start)?;
-            } else if self.work.materialize_line && self.window_rows(bytes, line_number)? {
-                // Kept as its windows.
-            } else if self.work.materialize_line {
-                let (line_text, not_utf8) = block_text(bytes);
-                self.not_utf8 |= not_utf8;
-                let line_text = strip_trailing_newline(line_text);
-                let start = first_start.unwrap_or(0);
-                let byte = interior_offset(bytes, start).min(line_text.len());
-                let column = saturating_u32(byte_to_utf16_offset(&line_text, byte));
-                let byte_offset = saturating_u32(byte);
-                if self.work.deferred_line {
-                    let mut hit = crate::search::text_parser::line_match(
-                        &line_text,
-                        line_number,
-                        column,
-                        byte_offset,
+            if self.work.materialize_line {
+                // One row per group of matches; a group that is one line
+                // past a row's bound is shown as a line of one-line mode is.
+                for group in line_groups(bytes, &spans) {
+                    let first = group.first_start.map(|start| start - group.bytes.start);
+                    let (bytes, line) = (
+                        &bytes[group.bytes],
+                        line_number.saturating_add(group.first_line),
                     );
-                    if let Some((inspector, path)) = self.inspect_deferred {
-                        (inspector.0)(path, &mut hit);
-                    } else {
-                        hit.value = String::new();
-                        hit.deferred = Some(0);
+                    if long_line::is_long(bytes) {
+                        self.long_line_row(bytes, line, first)?;
+                    } else if !self.window_rows(bytes, line)? {
+                        self.line_row(bytes, line, first);
                     }
-                    self.entry.prepared.push(hit);
-                } else {
-                    self.entry.raw_matches.push(RawMatch {
-                        line_text,
-                        line_number,
-                        column,
-                        byte_offset,
-                        rank: relevance::line_rank(bytes, start),
-                        window_start: None,
-                    });
                 }
             }
         }

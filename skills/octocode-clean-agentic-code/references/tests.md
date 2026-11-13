@@ -47,13 +47,13 @@ Prove by behavioral overlap and coverage after reading both tests; "the suite st
 - Unused setup: `beforeEach`/`afterEach` state no `it` in the block touches.
 - Environment coupling: `spawnSync` without explicit `env:`, unreset `process.env` reads, cwd dependence → passes with the variable set and unset.
 
-Excision: list candidates, diff each suffixed file against its base; keep blocks exercising paths the base misses; delete in one batch, run the package's tests; replace lost coverage or revise the delete; never relax acceptance or widen a mock to pass.
+Excision: compare candidates with their retained coverage; keep blocks exercising distinct paths. Delete in reviewable batches and run affected tests. Replace lost coverage or revise the deletion; never relax acceptance or widen a mock to pass.
 
 ## Replacement tests
 
 - Assert the outcome, not the call: a `db.exec` spy count passes with a wrong schema → query `sqlite_master` on `new DatabaseSync(':memory:')`.
 - Prompt or doc text: check real parser fields, links and declared limits; evaluate behavior with representative requests when meaning changes. A full-sentence or keyword regex assertion does not prove instruction compliance.
 - Isolate and control time, env, cwd, fixtures: explicit `env`/`cwd` for `spawnSync`; `mkdtempSync` dirs removed in `afterEach`; capture each `process.env` value before overwriting, restore or delete in teardown; no shared state; declare platform or service dependencies.
-- Name by outcome: `it('test case 3')` → `it('returns 404 when the key is missing')`; files `<domain>-<what-is-under-test>.test.ts`, no iteration number or date.
+- Name by outcome: `it('test case 3')` → `it('returns 404 when the key is missing')`. Follow the project's domain naming instead of temporary iteration names.
 - Minimal fixtures; failures name expected and actual.
 - Compare coverage and behavioral cases before and after; restore losses via a public contract.

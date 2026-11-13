@@ -7,6 +7,7 @@ mod answer_gaps;
 mod c_family;
 mod call_sites;
 mod identity;
+mod importer_root;
 mod markup;
 mod pages;
 mod per_binding;
@@ -264,9 +265,7 @@ fn reference_rows(row: &serde_json::Value) -> Vec<(String, u64, u64)> {
             (
                 name,
                 site["line"].as_u64().expect("line"),
-                site["column"]
-                    .as_u64()
-                    .expect("column"),
+                site["column"].as_u64().expect("column"),
             )
         })
         .collect()

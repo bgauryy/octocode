@@ -59,8 +59,6 @@ pub(in super::super) fn still_indexing(query: &LspSearchQuery) -> Value {
     );
     let reason = crate::response::paging::PartialReason::LanguageServerIndexing;
     partial_with_related_rerun(&mut row, query, reason, &[]);
-    // The row's reason and its rerun state the reason's meaning.
-    crate::response::paging::mark_stated(&mut row, reason);
     row
 }
 
@@ -120,32 +118,30 @@ pub(in super::super) fn annotate_empty_includes(
         {
             let reason = super::super::server_coverage::OUTSIDE_INCLUDE_REASON;
             crate::response::paging::mark_partial(row, reason, &[]);
-            crate::response::paging::mark_stated(row, reason);
             let target = found.target.to_string_lossy().into_owned();
             if let Some(lead) =
                 text_search_lead(name, &target, &[], Some(std::slice::from_ref(&target)))
             {
                 crate::response::result::attach_related(row, lead.build());
             }
+            // `includeOutsidePackage` says why no build context resolves it;
+            // the hint names this answer's own facts.
             crate::response::result::add_hints(
                 row,
                 [format!(
-                    "`{name}` is declared in a file crate {} include!s from outside its directory, which rust-analyzer never loads: no build context gives it a location. The related localSearch reads it there.",
+                    "`{name}` is declared in a file crate {} include!s from outside its directory.",
                     found.package
                 )],
             );
             return;
         }
         if let Some(includes) = super::super::server_coverage::package_includes(&anchor, stopped) {
-            // Each cause a tip states is the row's partial reason too, as on
-            // incoming rows (`server_coverage`): empty is no absence there.
-            let mut tips = Vec::new();
-            // Each tip states its reason's meaning: no glossary line repeats it.
+            // Each cause is the row's partial reason, as on incoming rows
+            // (`server_coverage`): empty is no absence there, and what each
+            // reason means is core's, said once.
             if !includes.outside.is_empty() {
-                tips.push(OUTSIDE_INCLUDE_TIP.to_owned());
                 let reason = super::super::server_coverage::OUTSIDE_INCLUDE_REASON;
                 crate::response::paging::mark_partial(row, reason, &[]);
-                crate::response::paging::mark_stated(row, reason);
             }
             // A build script generates the names no source declares: a name
             // the package declares is no generated name, whatever scripts
@@ -158,54 +154,19 @@ pub(in super::super) fn annotate_empty_includes(
                     });
             if generated && !rust.build_scripts {
                 // With an outside include as well, the name may be defined
-                // there: the ~2 GB rerun is no repair to lead with, so the
-                // tip names it instead. Alone, the executable rerun is the
-                // lead, and the tip states what running it costs.
+                // there: the ~2 GB rerun is no repair to lead with. Alone,
+                // the executable rerun is the lead.
                 let allowed = rust.build_scripts_allowed;
                 let rerun = includes.outside.is_empty() && allowed;
                 let reason = super::super::server_coverage::BUILD_SCRIPTS_REASON;
                 crate::response::paging::mark_partial(row, reason, &[]);
-                crate::response::paging::mark_stated(row, reason);
                 if rerun && let Some(action) = next_action(query, reason) {
                     crate::response::result::attach_related(row, action);
                 }
-                tips.push(build_script_tip(rerun, allowed));
             }
-            crate::response::result::add_hints(row, tips);
         }
     }
 }
-
-/// What running a package's build scripts costs and risks: the one
-/// statement every build-script note ends with.
-pub(in super::super) const BUILD_SCRIPTS_COST: &str =
-    "executes this workspace's build scripts (repository code) in a separate rust-analyzer (~2 GB)";
-
-/// rust-analyzer runs without build scripts by default, so in a package
-/// with one, a name the script generates (`include!(concat!(env!("OUT_DIR"),
-/// …))`) has no location until they run. With an executable rerun offered,
-/// the note names its setting and cost; without it, the note names the flag,
-/// and while the host has not allowed build scripts, the opt-in.
-pub(super) fn build_script_tip(rerun_offered: bool, allowed: bool) -> String {
-    if !allowed {
-        let opt_in = super::super::receipt::BUILD_SCRIPTS_OPT_IN;
-        format!(
-            "A name a build script generates (include! of OUT_DIR) has no location while build scripts do not run; rustContext {{buildScripts:true}}, which {BUILD_SCRIPTS_COST}, is refused until you opt in: {opt_in}."
-        )
-    } else if rerun_offered {
-        format!(
-            "A name a build script generates (include! of OUT_DIR) has no location until build scripts run; the rerun with rustContext.buildScripts enabled {BUILD_SCRIPTS_COST}."
-        )
-    } else {
-        format!(
-            "A name a build script generates (include! of OUT_DIR) resolves only with rustContext {{buildScripts:true}}, which {BUILD_SCRIPTS_COST}."
-        )
-    }
-}
-
-/// rust-analyzer loads only the package's own directory: what a file
-/// `include!`d from outside it defines never resolves.
-pub(super) const OUTSIDE_INCLUDE_TIP: &str = "A name defined in source this package include!s from outside its directory never resolves in rust-analyzer: read it with localSearch.";
 
 /// The one next action of each partial reason that offers one, as an
 /// executable `lspSearch` lead from the walk's first page: `buildScriptsOff`
@@ -264,7 +225,7 @@ pub(in super::super) fn stamp_coverage(row: &mut Value) {
     }
 }
 
-/// An empty diagnostics row whose server pushed nothing within `wait_ms`: the
+/// An empty diagnostics row with no retained report within `wait_ms`: the
 /// document may still have diagnostics, so the row is partial with a retry.
 pub(in super::super) fn mark_diagnostics_unpublished(
     row: &mut Value,
@@ -276,7 +237,7 @@ pub(in super::super) fn mark_diagnostics_unpublished(
     }
     row["category"] = json!("diagnosticsNotPublished");
     row["reason"] = json!(format!(
-        "The language server published no diagnostics for this document within {wait_ms} ms."
+        "No diagnostic report was available for this document within {wait_ms} ms; the server may not have published one, or the shared memory budget could not retain it."
     ));
     partial_with_related_rerun(
         row,

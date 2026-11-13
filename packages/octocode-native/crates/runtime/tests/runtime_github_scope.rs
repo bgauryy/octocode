@@ -39,9 +39,10 @@ fn reviews_query() -> Value {
         "sections":["body","reviews"]})
 }
 
-/// A GraphQL document GitHub rejects falls back to REST with the cause in
-/// `diagnostics` output; the served GraphQL path returns the same reviews with
-/// stable identities and skips the REST collections it replaces.
+/// A GraphQL document GitHub rejects falls back to REST, observable as the
+/// one GraphQL request before the REST reads; the served GraphQL path returns
+/// the same reviews with stable identities and skips the REST collections it
+/// replaces.
 #[tokio::test]
 async fn pull_request_graphql_fallback_is_observable_and_equivalent() {
     let rejected = MockServer::builder().start().await;
@@ -73,8 +74,14 @@ async fn pull_request_graphql_fallback_is_observable_and_equivalent() {
         .expect("REST fallback");
     let data = row_data(&outcome);
     assert_eq!(row_status(&outcome), "success", "{data}");
-    let reason = data["graphqlFallback"].as_str().expect("fallback reason");
-    assert!(reason.starts_with("undefinedField:"), "{data}");
+    let requested = requested_paths(&rejected).await;
+    assert_eq!(requested.first().map(String::as_str), Some("/api/graphql"));
+    assert!(
+        requested
+            .iter()
+            .any(|path| path == "/api/v3/repos/a/b/pulls/7/reviews"),
+        "REST read the reviews GraphQL could not: {requested:?}"
+    );
     let rest_reviews = data["pullRequests"][0]["reviews"].clone();
     assert_eq!(rest_reviews[0]["id"], "11", "{data}");
     assert_eq!(rest_reviews[1]["id"], "12", "{data}");
@@ -109,7 +116,6 @@ async fn pull_request_graphql_fallback_is_observable_and_equivalent() {
         .expect("GraphQL read");
     let data = row_data(&outcome);
     assert_eq!(row_status(&outcome), "success", "{data}");
-    assert!(data.get("graphqlFallback").is_none(), "{data}");
     assert_eq!(
         data["pullRequests"][0]["reviews"], rest_reviews,
         "GraphQL and REST reviews agree: {data}"

@@ -110,15 +110,7 @@ pub(super) fn fetch_ranges(
         };
         let (start, end) = (span.first, span.requested_last);
         let part_share = text_left.map(|left| left + around.unwrap_or(0));
-        let mut part = serve_window(
-            &one,
-            streamed,
-            span,
-            source,
-            part_share,
-            security,
-            cancel,
-        );
+        let mut part = serve_window(&one, streamed, span, source, part_share, security, cancel);
         if part.status == ReadStatus::Error {
             return part;
         }
@@ -229,9 +221,7 @@ fn join_parts(result: &mut LocalFetchResult, parts: impl Iterator<Item = LocalFe
         spans_served.extend(span);
         result.source_line_ranges.extend(part.source_line_ranges);
         for warning in part.warnings {
-            if !result.warnings.contains(&warning) {
-                result.warnings.push(warning);
-            }
+            super::page::join_warning(&mut result.warnings, warning);
         }
         for hint in part.hints {
             if !result.hints.contains(&hint) {

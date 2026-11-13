@@ -543,6 +543,7 @@ fn the_read_handoff_windows_hits_without_reading_the_file() {
             window_start: None,
             byte_offset: 0,
             first_line: hit,
+            end_line: None,
             match_lines: None,
             count: None,
             enclosing: None,
@@ -861,3 +862,52 @@ fn match_only_uniqueness_counts_complete_values_per_file() {
 }
 
 mod large_scan;
+
+/// A multiline search walked one row a page: every hit is reached exactly
+/// once, one-line hits on adjacent lines as one hit each, a match over lines
+/// 3-4 as one row stating `endLine` 4; with context, a merged window names
+/// its hits in `matchedLines` and the walk still reaches each once.
+#[test]
+fn a_multiline_walk_reaches_every_hit_and_match_extent_once() {
+    let root = tempfile::tempdir().expect("fixture");
+    fs::write(
+        root.path().join("a.txt"),
+        "x one\nx two\nfold(\n  y x\nx three\nmid\nx four\n",
+    )
+    .expect("file");
+    for (pattern, hits, extents) in [
+        (r"\bx\b|zz\n", vec![1, 2, 4, 5, 7], vec![]),
+        (r"fold\(\n.*|\bx\b", vec![1, 2, 3, 5, 7], vec![(3, 4)]),
+    ] {
+        for before in [0, 1] {
+            let (_, pages) = walk_search(
+                root.path(),
+                serde_json::json!({"path":root.path(),"matchString":[pattern],
+                    "regexEngine":"rust","multiline":"on","limit":1,
+                    "contextLines":{"before":before,"after":0}}),
+                None,
+            );
+            let (mut seen, mut spans) = (Vec::new(), Vec::new());
+            for page in &pages {
+                for file in page["files"].as_array().into_iter().flatten() {
+                    for row in file["matches"].as_array().into_iter().flatten() {
+                        let line = row["line"].as_u64().expect("line");
+                        if let Some(end) = row["endLine"].as_u64() {
+                            spans.push((line, end));
+                        }
+                        match row["matchedLines"].as_array() {
+                            Some(lines) => {
+                                seen.extend(lines.iter().filter_map(serde_json::Value::as_u64));
+                            }
+                            None => seen.push(line),
+                        }
+                    }
+                }
+            }
+            seen.sort_unstable();
+            assert_eq!(seen, hits, "{pattern} before {before}: {pages:?}");
+            assert_eq!(spans, extents, "{pattern} before {before}: {pages:?}");
+            assert!(pages.len() > 1, "the walk must cross pages");
+        }
+    }
+}

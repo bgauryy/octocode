@@ -5,6 +5,44 @@ use tree_sitter::Node;
 use crate::graph::{GraphPosition, GraphRange};
 use crate::num::saturating_u32;
 
+/// Last source token of a declaration. An indentation-based grammar can own
+/// the following blank lines and comment extras until its dedent. Follow only
+/// the rightmost syntax branch, retaining delimiters and literal bytes.
+pub(super) fn declaration_end_byte(node: Node<'_>) -> usize {
+    let mut cursor = node.walk();
+    let start = node.start_position();
+    loop {
+        if !cursor.goto_last_child() {
+            return cursor.node().end_byte();
+        }
+        loop {
+            let child = cursor.node();
+            let comment = crate::signatures::node_kinds::is_comment_kind(child.kind());
+            let at = child.start_position();
+            // An inline comment or a body-indented trailing comment belongs
+            // to this declaration. Only outdented comment extras can belong
+            // to the next declaration whose dedent ended this node.
+            if comment && (at.row == start.row || at.column > start.column) {
+                return child.end_byte();
+            }
+            if !child.is_extra()
+                && !child.is_missing()
+                && child.start_byte() < child.end_byte()
+                && !child.kind().trim().is_empty()
+                && !comment
+            {
+                break;
+            }
+            if !cursor.goto_previous_sibling() {
+                // A malformed or empty wrapper with only trivia cannot name
+                // a smaller source token. Keep its observed extent.
+                cursor.goto_parent();
+                return cursor.node().end_byte();
+            }
+        }
+    }
+}
+
 /// Graph positions of syntax-tree nodes: the shared [`LineIndex`] under the
 /// tree-sitter rule (`\n` only), with UTF-16 columns.
 ///
@@ -29,19 +67,13 @@ impl<'a> NodePositions<'a> {
         }
     }
 
-    /// A declaration's range (see [`declaration_extent_from_parents`]), ending at its last character: a node that
-    /// owns its line terminator (C `#define`, every `preproc_*`) would
-    /// otherwise end at column 0 of the next line, which a line-based
-    /// reader takes as the next declaration's line.
+    /// A declaration's range, ending at its final syntax token rather than
+    /// trailing comments or an indentation-based grammar's dedent position.
     pub(super) fn declaration_range(&self, node: Node<'_>, header: Option<usize>) -> GraphRange {
         let start = node.start_byte();
-        let trimmed = self.content.as_bytes()[start..node.end_byte()]
-            .iter()
-            .rposition(|byte| !matches!(byte, b'\n' | b'\r'))
-            .map_or(start, |last| start + last + 1);
         GraphRange {
             start: self.position(header.map_or(start, |at| at.min(start))),
-            end: self.position(trimmed),
+            end: self.position(declaration_end_byte(node)),
         }
     }
 

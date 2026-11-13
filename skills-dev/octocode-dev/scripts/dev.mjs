@@ -9,7 +9,7 @@ import { skillTestCommand } from './lib/skill-tests.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // CI never builds native: native artifacts are built locally (`build:all` / `build:publish`).
-const CI_EXCLUDE = ['--exclude', '@octocodeai/octocode-benchmark', '--exclude', '@octocodeai/octocode-native'];
+const CI_EXCLUDE = ['--exclude', '@octocodeai/octocode-native'];
 
 const script = (name, ...args) => ['node', [path.join(HERE, name), ...args]];
 const health = (...args) => script('workspace-health.mjs', ...args);
@@ -23,8 +23,8 @@ const skillChecks = () => [
   skill('octocode-skills/scripts/skill-sync.mjs', '--self-test'),
   skillTestCommand(ROOT),
 ];
-// Shrink-only ratchets: 400-line files (.ts/.js/.rs) and the oxlint violations that predate a rule.
-const BASELINES = [script('check-file-length.mjs'), script('oxlint-baseline.mjs')];
+// Shrink-only ratchet: the oxlint violations that predate a rule (the one repo-wide oxlint run).
+const OXLINT_BASELINE = script('oxlint-baseline.mjs');
 // The shared skill workspace's own lint/test; test:ci and lint:ci reach them through the workspace run.
 const SKILLS_COMMON = [yarn('workspace', '@octocodeai/skills-common', 'lint'), yarn('workspace', '@octocodeai/skills-common', 'test')];
 
@@ -32,30 +32,20 @@ const SKILLS_COMMON = [yarn('workspace', '@octocodeai/skills-common', 'lint'), y
 const TASKS = {
   build: ['Release-mode build of every workspace (native host only, slow)', [health('run', 'build', '--parallel')]],
   'build:dev': ['Fast debug build of every workspace (native host only, default locally); shared cache cleanup is a separate explicit task', [health('run', 'build', '--parallel', '--prefer', 'build:dev')]],
-  'build:ci': ['Resolution check, then release build without benchmark or native', [script('prepublish.mjs'), health('run', 'build', '--parallel', ...CI_EXCLUDE)]],
+  'build:ci': ['Resolution check, then release build without native', [script('prepublish.mjs'), health('run', 'build', '--parallel', ...CI_EXCLUDE)]],
   'build:publish': ['Resolution check, all-platform native build, MCP publish build', [script('prepublish.mjs'), yarn('workspace', '@octocodeai/octocode-native', 'build:all'), yarn('workspace', 'octocode-mcp', 'build')]],
   test: ['Run every workspace test script', [health('run', 'test')]],
-  'test:ci': ['Skill checks, then tests without benchmark or native, each under its coverage floors when it declares test:coverage', () => [...skillChecks(), health('run', 'test', '--prefer', 'test:coverage', ...CI_EXCLUDE)]],
+  'test:ci': ['Skill checks, then tests without native, each under its coverage floors when it declares test:coverage', () => [...skillChecks(), health('run', 'test', '--prefer', 'test:coverage', ...CI_EXCLUDE)]],
   'skills:check': ['Skill lint, shared report viewer, and skill script tests', () => [...skillChecks(), ...SKILLS_COMMON]],
-  // Not in test:ci: it drives the built native binary, so CI runs it in its own `e2e` job after build:dev.
-  'test:tools': ['End-to-end health of every tool via CLI and MCP, hermetic: harness self-tests, transport and classification retry, then every lead explored (needs build:dev; [tool,...] [--deep])', [
-    ['node', [path.join(ROOT, 'packages/octocode-benchmark/local/e2e/harness/run-all.mjs'), 'acceptance,transport,classification-retry,provider-shapes']],
-    ['node', [path.join(ROOT, 'packages/octocode-benchmark/local/e2e/harness/tool-health.mjs')]],
-  ]],
-  'test:e2e': ['Every hermetic end-to-end suite, grammar battery included: slower than test:tools (needs build:dev; [suite,...])', [
-    ['node', [path.join(ROOT, 'packages/octocode-benchmark/local/e2e/harness/run-all.mjs')]],
-  ]],
-  'answers:record': ['Re-record provider answers live, read-only and public (test-utils/provider-answers); [--accept-unread id,...] declares what a tool does not show (needs build:dev; [id,...])', [
-    ['node', [path.join(ROOT, 'packages/octocode-benchmark/local/e2e/harness/provider-answers.mjs'), '--record']],
-  ]],
-  check: ['Fast local static check: baselines, rustfmt, the clippy ratchet, every other workspace lint:own and typecheck, in parallel. No build, no tests: pair it with a focused test', [...BASELINES, yarn('workspace', '@octocodeai/octocode-native', 'fmt:rust:check'), script('rust-lint.mjs'), health('run', 'lint:own', '--parallel', '--exclude', '@octocodeai/octocode-native'), health('run', 'typecheck', '--parallel')]],
+  'answers:record': ['Re-record the provider answers native mocks replay, live, read-only and public (test-utils/provider-answers; needs build:dev; [id,...])', [script('providers/record.mjs')]],
+  check: ['Fast local static check: oxlint baseline, rustfmt, the clippy ratchet, every other workspace lint:own and typecheck, in parallel. No build, no tests: pair it with a focused test', [OXLINT_BASELINE, yarn('workspace', '@octocodeai/octocode-native', 'fmt:rust:check'), script('rust-lint.mjs'), health('run', 'lint:own', '--parallel', '--exclude', '@octocodeai/octocode-native'), health('run', 'typecheck', '--parallel')]],
   'lint:rust': ['Local clippy ratchet: plain clippy plus production-only bans and lints, whose old findings may only shrink ([--write], [--adopt])', [script('rust-lint.mjs')]],
-  lint: ['File-length and oxlint baselines (the one oxlint run), then every workspace lint:own script', [...BASELINES, health('run', 'lint:own', '--parallel')]],
-  'lint:ci': ['Lint without benchmark or native workspace scripts (the oxlint baseline still covers them)', [...BASELINES, health('run', 'lint:own', ...CI_EXCLUDE)]],
+  lint: ['Oxlint baseline (the one oxlint run), then every workspace lint:own script', [OXLINT_BASELINE, health('run', 'lint:own', '--parallel')]],
+  'lint:ci': ['Lint without native workspace scripts (the oxlint baseline still covers them)', [OXLINT_BASELINE, health('run', 'lint:own', ...CI_EXCLUDE)]],
   format: ['Fix the formatting lint checks: every workspace `format` script (prettier --write)', [yarn('workspaces', 'foreach', '-Apt', 'run', 'format')]],
   typecheck: ['Run every workspace typecheck script', [health('run', 'typecheck', '--parallel')]],
-  'typecheck:ci': ['Typecheck without benchmark or native', [health('run', 'typecheck', ...CI_EXCLUDE)]],
-  verify: ['Full repo contract: baselines (the one oxlint run), core lint-copy sync, dedupe, docs, per-package verify:own', [...BASELINES, script('core-lint-sync.mjs'), health('verify')]],
+  'typecheck:ci': ['Typecheck without native', [health('run', 'typecheck', ...CI_EXCLUDE)]],
+  verify: ['Full repo contract: oxlint baseline (the one oxlint run), core lint-copy sync, dedupe, docs, per-package verify:own', [OXLINT_BASELINE, script('core-lint-sync.mjs'), health('verify')]],
   'health:check': ['Required workspace scripts exist', [health('check')]],
   'health:report': ['Workspace script matrix', [health('report')]],
   'check-outputs': ['Build outputs and host native version/contract match (--all checks every staged platform)', [health('check-outputs')]],

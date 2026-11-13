@@ -1,6 +1,5 @@
 // Page view: interactive graph (Cytoscape.js) and chart (ECharts) widgets with data tables.
 // Inlined into the page via Function#toString: it may use only ctx and browser globals.
-// oxlint-disable-next-line max-lines-per-function -- serialized whole via Function#toString
 export function widgetView(ctx) {
   const { kit, $, $$, esc, slugify, copy } = ctx;
   const widgetDisposers = new Set();

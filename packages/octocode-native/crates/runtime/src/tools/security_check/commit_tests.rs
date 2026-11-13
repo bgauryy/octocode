@@ -117,7 +117,10 @@ async fn a_commit_summary_leaves_githubs_facts_to_the_details() {
     assert!(!answer.contains("GitHub"), "{summary}");
     let details = row(&github).await;
     assert!(
-        details["answer"].as_str().unwrap_or_default().contains("signed and verified"),
+        details["answer"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("signed and verified"),
         "{details}"
     );
     let missing = Double::repo(found())

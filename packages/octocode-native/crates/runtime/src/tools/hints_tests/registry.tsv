@@ -40,7 +40,6 @@ shared	providers/classification/transport/errors.rs	Retry later; the evidence st
 shared	providers/classification/transport/errors.rs	Split it: narrower ranges, one row per part, or operation:"sections" with the source under resources.
 shared	providers/classification/transport/request.rs	Reduce the supplied state or question count.
 shared	providers/github/auth/resolver.rs	[octocode] warning: no GitHub credential for {host} and the secure credential store is unavailable; GitHub tools run unauthenticated (60 requests/hour). Set GITHUB_TOKEN or run octocode auth login for a higher limit.
-shared	response/notices.rs	{code}: {meaning}
 shared	response/notices.rs	{seconds:.1} s
 shared	response/output.rs	Check the exact name, where it was looked up and access to it; for a path, list its parent directory (the related[] listing request when one is given), then retry with the exact listed path.
 shared	response/output.rs	Outside allowed roots (the workspace is WORKSPACE_ROOT, else the directory octocode started in): run from inside that project or set WORKSPACE_ROOT to it, or add the dir to ALLOWED_PATHS (comma list) in the env or ~/.octocode/.env, not a workspace file.
@@ -57,7 +56,6 @@ shared	response/rows/recovery.rs	Correct the missing configuration named in the 
 shared	response/rows/recovery.rs	Inspect octocode config --json and correct the setting named in the error before retrying.
 shared	response/rows/recovery.rs	Inspect the git error, repository access and revision; retry only after correcting the cause.
 shared	response/rows/recovery.rs	Inspect the graphQuery schema and correct the rejected operation or fields; do not retry the same query unchanged.
-shared	response/rows/recovery.rs	The refusal follows the user's configuration: use an authorized source, and leave any opt-in it names to the user.
 shared	response/rows/recovery.rs	Inspect the requested scope, filters and coverage; no matches in this scope do not establish repository-wide absence.
 shared	response/rows/recovery.rs	Inspect the scan failure and access to its scope. Retry only after fixing the cause; report unscanned paths as a coverage gap.
 shared	response/rows/recovery.rs	Inspect the source acquisition error and use an emitted source read. Unavailable or unjudged evidence is not irrelevant.
@@ -81,6 +79,7 @@ shared	response/rows/recovery.rs	Run octocode auth login or set GH_TOKEN/GITHUB_
 shared	response/rows/recovery.rs	Start a fresh runtime or MCP session before retrying the original request.
 shared	response/rows/recovery.rs	The provider blocks this resource for legal reasons; retrying will not help.
 shared	response/rows/recovery.rs	The provider returned an invalid classification. Inspect original sources; do not treat unclassified candidates as excluded.
+shared	response/rows/recovery.rs	The refusal follows the user's configuration: use an authorized source, and leave any opt-in it names to the user.
 shared	response/rows/recovery.rs	The source could not be processed safely. Choose a smaller supported source; do not bypass the security check.
 shared	response/rows/recovery.rs	Use a reader for this file format or inspect its metadata with structureSearch; text and AST tools cannot read binary content.
 shared	response/rows/recovery.rs	Use localFetch for exact text or document outlines and localSearch for text candidates; these do not verify semantic identity.
@@ -187,6 +186,7 @@ ghSearchCode	tools/gh_search_code/code_output/index_ref.rs	; `matches` read at {
 ghSearchCode	tools/gh_search_code/code_output/index_ref.rs	Files from the default-branch index{index}, not {reference}{lines}.
 ghSearchCode	tools/gh_search_code/empty.rs	keywords hold OR, which code search does not support: run the related[] ghSearchCode request, one row per alternative.
 ghSearchCode	tools/gh_search_code/page_facts.rs	GitHub reported an incomplete search index result; retry, narrow the scope, or verify locally before concluding absence.
+ghSearchCode	tools/gh_search_code/page_facts.rs	{} file(s) have no resolved index commit; their required reads resolve the ref when run and cannot verify the historical index snapshot.
 ghSearchCode	tools/gh_search_code/page_facts.rs	{} file(s) on this page are larger than the line-scan read bound ({} bytes: the scan limit, or the request's smaller response budget), so their lines were not resolved (`lineResolved:false`): read them with ghGetFileContent at the commit.
 ghSearchCode	tools/gh_search_code/page_facts.rs	{} file(s) on this page are withheld by the security path policy (a credential file name or a sensitive directory): their rows list the path only, with no lines, and nothing of them was read. No query field lifts it.
 ghSearchCode	tools/gh_search_code/page_facts.rs	{} file(s) on this page failed inside the line scan (a defect, not an unreadable file; please report it): their lines were not resolved (`lineResolved:false`): read them with ghGetFileContent at the commit.
@@ -268,11 +268,7 @@ lspSearch	tools/lsp_search/failure/anchors.rs	Symbol anchor not found: locate th
 lspSearch	tools/lsp_search/failure/leads.rs	coverage.outOfReachFiles counts files that spell `{name}` outside its reach ({}): they cannot reference it, so they are neither missed sites nor leads.
 lspSearch	tools/lsp_search/failure/paging.rs	{stage}: {total} server {requests} failed ({} distinct errors; most frequent, {count}×: {message}); the locations they would add are missing.
 lspSearch	tools/lsp_search/failure/paging.rs	{stage}: {total} server {requests} failed: {message}; the locations they would add are missing.
-lspSearch	tools/lsp_search/failure/rows.rs	A name a build script generates (include! of OUT_DIR) has no location until build scripts run; the rerun with rustContext.buildScripts enabled {BUILD_SCRIPTS_COST}.
-lspSearch	tools/lsp_search/failure/rows.rs	A name a build script generates (include! of OUT_DIR) has no location while build scripts do not run; rustContext {{buildScripts:true}}, which {BUILD_SCRIPTS_COST}, is refused until you opt in: {opt_in}.
-lspSearch	tools/lsp_search/failure/rows.rs	A name a build script generates (include! of OUT_DIR) resolves only with rustContext {{buildScripts:true}}, which {BUILD_SCRIPTS_COST}.
-lspSearch	tools/lsp_search/failure/rows.rs	A name defined in source this package include!s from outside its directory never resolves in rust-analyzer: read it with localSearch.
-lspSearch	tools/lsp_search/failure/rows.rs	`{name}` is declared in a file crate {} include!s from outside its directory, which rust-analyzer never loads: no build context gives it a location. The related localSearch reads it there.
+lspSearch	tools/lsp_search/failure/rows.rs	`{name}` is declared in a file crate {} include!s from outside its directory.
 lspSearch	tools/lsp_search/importers.rs	Gitignored or hidden files could not be checked for an import of this name (unreadable, too large to parse, or unparsable); they are outside this answer's scope.
 lspSearch	tools/lsp_search/importers.rs	The scan for gitignored or hidden files that spell this name did not finish, so files there may be uncounted; they are outside this answer's scope.
 lspSearch	tools/lsp_search/importers/coverage.rs	1 imports it
@@ -282,12 +278,10 @@ lspSearch	tools/lsp_search/importers/coverage.rs	The scan for gitignored files d
 lspSearch	tools/lsp_search/importers/coverage.rs	hidden directories or ignore rules
 lspSearch	tools/lsp_search/importers/coverage.rs	{count} import it
 lspSearch	tools/lsp_search/importers/coverage.rs	{count} nested repositories
-lspSearch	tools/lsp_search/inferred_project/compile_database.rs	Generate compile_commands.json for clangd (CMake: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON), or use astSearch/localSearch.
 lspSearch	tools/lsp_search/level.rs	No {name} server answered: {hint}.
-lspSearch	tools/lsp_search/ops/diagnostics.rs	Proc-macros and build scripts are off by default (they run repository code), so rust-analyzer reports unexpanded macros; pass rustContext {buildScripts:true, procMacros:true} to expand them once lsp.allowBuildScripts is on (home .octocoderc, or OCTOCODE_LSP_ALLOW_BUILD_SCRIPTS=true in the process environment or the home .env); until then such a query is refused.
 lspSearch	tools/lsp_search/ops/lookups.rs	Directory search found no {searched} source file to load a project; pass path for a file in the symbol's project.
-lspSearch	tools/lsp_search/ops/lookups.rs	This directory search used the {searched} server; its {} sources were not searched (related).
 lspSearch	tools/lsp_search/ops/lookups.rs	Directory search: the {searched} server searched the project of {}; for another project, pass path there.
+lspSearch	tools/lsp_search/ops/lookups.rs	This directory search used the {searched} server; its {} sources were not searched (related).
 lspSearch	tools/lsp_search/ops/references.rs	{withheld} reference(s) outside the allowed read roots were omitted; add the path to ALLOWED_PATHS to read them.
 lspSearch	tools/lsp_search/output.rs	Configure the server's project (clangd: compile_commands.json, compile_flags.txt or .clangd); the next call reloads it.
 lspSearch	tools/lsp_search/output.rs	Provide path for a representative workspace source file so Octocode can select its language server.
@@ -299,9 +293,7 @@ lspSearch	tools/lsp_search/output.rs	Use astSearch symbols/match or localSearch 
 lspSearch	tools/lsp_search/output.rs	Use the advertised LSP operations, or fall back to astSearch/localSearch and exact source reads.
 lspSearch	tools/lsp_search/output.rs	Use the related source read or text search; semantic results remain unavailable. Retry LSP only after configuring a server for this file.
 lspSearch	tools/lsp_search/responses.rs	The language server was still loading the project after {} ms; results may be incomplete.
-lspSearch	tools/lsp_search/server_coverage.rs	Files that import the name are missing from the answer: the server did not resolve their import here.
 lspSearch	tools/lsp_search/server_coverage.rs	No .git or workspace file says where this project ends, so only the server's root was searched
-lspSearch	tools/lsp_search/server_coverage.rs	workspace/symbol has no completeness marker: declarations the server did not index or return are unknown, and no page of this list completes it; confirm with a localSearch of the name.
 lspSearch	tools/lsp_search/server_coverage.rs	{base}; projects beside it may use this name: {names}. Widen (not narrow) workspaceRoot to {} to search them, or search them with the related text search.
 lspSearch	tools/lsp_search/server_coverage.rs	{base}; the projects beside it were not looked for, as the request stopped first. Widen workspaceRoot to the folder that holds the repository to include them.
 lspSearch	tools/lsp_search/session/waits.rs	The language server pool holds about {} MiB, over its {} MiB budget, because servers busy with requests are never stopped; the pool stops them once they are idle.

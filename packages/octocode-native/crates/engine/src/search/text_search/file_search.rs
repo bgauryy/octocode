@@ -247,6 +247,8 @@ pub(super) struct FileSearcher<'a, M: Matcher> {
     /// One matcher per searched term, counted per term by a count view
     /// (empty: no per-term counts).
     pub(super) terms: &'a [M],
+    /// Which files the search's judge need not judge.
+    pub(super) gate: &'a super::judge_gate::JudgeGate,
 }
 
 impl<M: Matcher> FileSearcher<'_, M> {
@@ -255,17 +257,37 @@ impl<M: Matcher> FileSearcher<'_, M> {
     /// the NUL, so the NUL-free prefix is searched again from byte 0 and its
     /// matches replace the first pass. A file its judge replaced bytes of
     /// is searched as the text the judge serves ([`crate::types::SourceJudge`]).
+    /// When the search's gate allows it, the file's own bytes are searched
+    /// first: a file they prove holds no match in the text its judge serves
+    /// is not judged ([`super::judge_gate`]), and that search is the answer
+    /// too when the judge replaces nothing.
     pub(super) fn search(
         &mut self,
         file: &std::fs::File,
         path: &Path,
     ) -> std::io::Result<FileOutcome> {
+        let own = if self.opts.judge.is_some() && self.gate.gates() {
+            let own = self.search_read(file, path)?;
+            if self
+                .gate
+                .proves_unmatched(file, own.matched_lines, own.binary)?
+            {
+                return Ok(own);
+            }
+            Some(own)
+        } else {
+            None
+        };
         let mut outcome = match self.judged(file, path)? {
             Some(text) => {
+                drop(own);
                 let work = self.work_for(file)?;
                 self.search_bytes(&text, path, work)?
             }
-            None => self.search_read(file, path)?,
+            None => match own {
+                Some(own) => own,
+                None => self.search_read(file, path)?,
+            },
         };
         // Only a matched file's values and positions are shown.
         if outcome.matched_lines > 0 {
@@ -277,8 +299,9 @@ impl<M: Matcher> FileSearcher<'_, M> {
     }
 
     /// The text the search's judge serves of `file` in place of its bytes
-    /// (`None`: no judge, or it replaced nothing); the file is read from its
-    /// start after.
+    /// (`None`: no judge, or it replaced nothing). The judge is handed the
+    /// file at its start, wherever an earlier read left it, and the file is
+    /// read from its start after.
     pub(super) fn judged(
         &self,
         file: &std::fs::File,
@@ -287,7 +310,8 @@ impl<M: Matcher> FileSearcher<'_, M> {
         let Some(judge) = &self.opts.judge else {
             return Ok(None);
         };
-        let judged = (judge.0)(path, file)?;
+        std::io::Seek::seek(&mut &*file, std::io::SeekFrom::Start(0))?;
+        let judged = (judge.serve)(path, file)?;
         std::io::Seek::seek(&mut &*file, std::io::SeekFrom::Start(0))?;
         Ok(judged)
     }

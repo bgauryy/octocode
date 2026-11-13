@@ -302,7 +302,7 @@ impl Operation<'_, '_> {
             .and_then(|report| report.get("superseded"))
             .and_then(Value::as_bool)
             .unwrap_or(false);
-        let (items, truncated) = diagnostic_items(report);
+        let items = diagnostic_items(report);
         let mut row = items_payload(query, "diagnostics", dedupe_diagnostics(items), self.budget);
         if !published {
             mark_diagnostics_unpublished(&mut row, query, PUSH_DIAGNOSTICS_WAIT_MS);
@@ -315,18 +315,9 @@ impl Operation<'_, '_> {
                 )],
             );
         }
-        if truncated {
-            crate::response::paging::terminal_limit(
-                &mut row,
-                crate::response::paging::PartialReason::DiagnosticsTruncated,
-                &["The server published more diagnostics than one report keeps (2000 items, 256 KiB); fix the listed ones and rerun.".to_owned()],
-            );
-        }
-        // Success rows drop `hints` (response hint policy), so this note is a
-        // warning: it explains results, it is not a recovery step.
-        if disabled_macro_diagnostics(&row["matches"]) {
-            crate::response::paging::push_warnings(&mut row, [RUST_MACRO_NOTE.to_owned()]);
-        }
+        // What rust-analyzer's unexpanded-macro codes mean, and the
+        // rustContext that expands them, is the tool description's: the
+        // codes on the listed diagnostics are this answer's whole statement.
         Ok(row)
     }
 }

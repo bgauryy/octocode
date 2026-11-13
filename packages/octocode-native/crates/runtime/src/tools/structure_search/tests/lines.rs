@@ -45,7 +45,11 @@ fn file_metadata_is_available_without_a_projection_switch() {
         let rows = listed(&out);
         assert_eq!(rows[0]["size"], 7, "{out}");
         assert_eq!(rows[0]["totalLines"], 1, "{out}");
-        assert_eq!(rows[0]["modifiedMs"].as_i64().expect("mtime"), expected, "{out}");
+        assert_eq!(
+            rows[0]["modifiedMs"].as_i64().expect("mtime"),
+            expected,
+            "{out}"
+        );
     }
 }
 

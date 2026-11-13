@@ -94,7 +94,10 @@ fn a_changed_directory_restarts_the_continuation() {
         let root = Fixture::new();
         settled_files(&root.0);
         let first = empty_outline(&root.0, json!({"limit":3}));
-        assert!(crate::tools::test_support::pinned_snapshot(&first).is_string(), "{first}");
+        assert!(
+            crate::tools::test_support::pinned_snapshot(&first).is_string(),
+            "{first}"
+        );
         match change {
             "edit" => {
                 std::fs::write(
@@ -249,7 +252,10 @@ fn a_test_scoped_file_outline_follows_its_parent_module() {
     octocode_engine::stamp::settle_written_so_far();
     let row = json!({"operation":"symbols","path":file,"testCode":"exclude","limit":3});
     let first = run_lead(&root.0, row.clone());
-    assert!(crate::tools::test_support::pinned_snapshot(&first).is_string(), "{first}");
+    assert!(
+        crate::tools::test_support::pinned_snapshot(&first).is_string(),
+        "{first}"
+    );
     let mut next = row;
     next["page"] = json!(2);
     next["snapshot"] = crate::tools::test_support::pinned_snapshot(&first).clone();
@@ -290,7 +296,10 @@ fn a_test_scoped_directory_outline_follows_a_parent_outside_its_scope() {
         let parent = module_beside_its_parent(&root.0, before);
         let row = json!({"operation":"symbols","path":root.0.join("src/sub"),"testCode":test_code,"limit":3});
         let first = run_lead(&root.0, row.clone());
-        assert!(crate::tools::test_support::pinned_snapshot(&first).is_string(), "{test_code}: {first}");
+        assert!(
+            crate::tools::test_support::pinned_snapshot(&first).is_string(),
+            "{test_code}: {first}"
+        );
         let mut next = row;
         next["page"] = json!(2);
         next["snapshot"] = crate::tools::test_support::pinned_snapshot(&first).clone();

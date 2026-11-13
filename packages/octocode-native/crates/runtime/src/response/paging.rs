@@ -162,21 +162,6 @@ pub(crate) fn terminal_limit(row: &mut impl RowFields, reason: PartialReason, wa
     }
 }
 
-/// The key naming the partial reasons whose meaning the row's own warning,
-/// note or hint already states: the response stage sends no glossary line
-/// for them (`response::notices::explain_codes`), and no such key reaches
-/// a caller.
-pub(crate) const STATED_REASONS: &str = "statedReasons";
-
-/// Record that `row`'s own text states what `reason` means, with its
-/// repair, so the glossary line for it would only restate that text.
-pub(crate) fn mark_stated(row: &mut impl RowFields, reason: PartialReason) {
-    let Some(object) = row.fields() else {
-        return;
-    };
-    append_once(object, STATED_REASONS, [reason.to_string().as_str()]);
-}
-
 /// Writes a static notice: a note that reads the same on every page and
 /// every row of a result (a scope or parse caveat, a classification
 /// reminder). The response stage says it once, on the first row that

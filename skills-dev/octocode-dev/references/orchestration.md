@@ -81,7 +81,7 @@ df -h .
 
 | Work | Rule |
 |---|---|
-| Heavy: any cargo build, check, clippy or test; `$DEV` gates; the e2e harness; benchmarks | One at a time on the shared `target/`, granted by the build owner. Cargo locks the whole build directory, so a second job only waits, and a different `-p` or feature selection compiles another copy of our crates (a lane's bare `cargo test -p octocode-native --test integration` did that on 2026-11-12; `cargo dev-test -- <filter>` reuses the `test:rust` selection). Grant the next job when the running one's PID has exited, the pressure level is 1 and load is below the core count. At level 2, or with swapouts rising between two `vm_stat` reads, run it with `CARGO_BUILD_JOBS` = available memory ÷ the largest `rustc`/`clippy-driver` footprint of the last run. |
+| Heavy: any cargo build, check, clippy or test; `$DEV` gates; benchmarks | One at a time on the shared `target/`, granted by the build owner. Cargo locks the whole build directory, so a second job only waits, and a different `-p` or feature selection compiles another copy of our crates (a lane's bare `cargo test -p octocode-native --test integration` did that on 2026-11-12; `cargo dev-test -- <filter>` reuses the `test:rust` selection). Grant the next job when the running one's PID has exited, the pressure level is 1 and load is below the core count. At level 2, or with swapouts rising between two `vm_stat` reads, run it with `CARGO_BUILD_JOBS` = available memory ÷ the largest `rustc`/`clippy-driver` footprint of the last run. |
 | Light: research, docs and skill edits, Octocode tool calls, a pinned binary's checks | Parallel, while the pressure level is below 4. |
 | Other sessions' load (Ollama, vitest, their builds) | Counts against the budget; report it, never stop it, never start Ollama. |
 
@@ -189,7 +189,7 @@ Do not poll. An agent that finishes notifies; a status question to a busy agent 
 ## 5a. Checks are calls, not scripts
 
 Verifiers and retesters check tools with direct calls judged by reading the output, as
-[tool checks](tool-checks.md) describes. Do not ask an agent to build a battery, a harness script or a
+[tool checks](../../../packages/octocode-benchmark/CHECKS.md) describes. Do not ask an agent to build a battery, a harness script or a
 comparison script, and do not keep one: hard-coded inputs break when a field or default changes and then
 report their own error as the tool's. An agent that wrote a one-off script deletes it before it reports.
 

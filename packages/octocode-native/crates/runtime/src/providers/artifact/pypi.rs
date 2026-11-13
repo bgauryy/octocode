@@ -16,7 +16,9 @@ mod pep440;
 /// PEP 440 ordering (`2.34.0.dev1` before `2.34.0`).
 pub(super) const ORDER: super::versions::VersionOrder = super::versions::VersionOrder {
     cmp: |left, right| Some(pep440::Version::parse(left)?.cmp(&pep440::Version::parse(right)?)),
-    prerelease: |value| pep440::Version::parse(value).is_some_and(|version| version.is_prerelease()),
+    prerelease: |value| {
+        pep440::Version::parse(value).is_some_and(|version| version.is_prerelease())
+    },
 };
 
 pub(crate) async fn pypi(

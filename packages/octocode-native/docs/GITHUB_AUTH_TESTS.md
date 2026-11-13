@@ -3,14 +3,13 @@
 Authentication crosses configuration, OAuth HTTP, credential persistence, and
 optional GitHub CLI discovery. Tests use synthetic credentials and local HTTP
 fixtures. They do not log in to a real GitHub account or save OS credentials.
-The packaged acceptance test deletes only its unique fictional OS-store hostname.
 
 ## Coverage matrix
 
 | Flow | Test location | Check |
 |---|---|---|
 | Process, workspace, global `.env` | `src/config.rs`; `packages/octocode-config/tests/dotenv-fallback.test.ts` | Source precedence across aliases, blank fallback, classification opt-out, bootstrap protection, redaction |
-| Outgoing credential selection through CLI/MCP | `packages/octocode-config/tests/token-precedence.acceptance.mjs` | Synthetic GitHub token names and the classification key reach a loopback provider from the winning source |
+| Outgoing credential selection through CLI/MCP | [Packaged checks](#packaged-checks) | Synthetic GitHub token names and the classification key reach a loopback provider from the winning source |
 | Explicit token and host selection | `auth/resolver/tests.rs` | Override wins; environment token is host-scoped; no storage or subprocess work when environment wins |
 | Stored credential selection | `auth/resolver/tests.rs`; `auth/credential_store.rs` | Home wins over OS store; OS compatibility fallback remains; read-only inspection does not refresh |
 | No usable credentials | `auth/resolver/tests.rs` | Anonymous selection with absent sources; storage errors remain visible when no fallback succeeds |
@@ -24,7 +23,7 @@ The packaged acceptance test deletes only its unique fictional OS-store hostname
 | Main encrypted home credentials | `auth/home_store/tests.rs`; `tests/auth_discovery.rs` | Native reads an independent Node fixture; CLI selects it before gh |
 | CLI logout | `src/cli/system.rs::auth_tests` (relative to `crates/cli`) | Configured-host selection, deletion error propagated, environment credentials unchanged |
 | Home persistence | `auth/home_store/tests.rs`; `auth/credential_store.rs` | Save/load/update/delete, host isolation, key cleanup, corruption, wrong/missing key, bounded size, Unix permissions, symlink/hard-link rejection, concurrent writers, partial logout failure |
-| Packaged interfaces | `packages/octocode-native/tests/auth-home.acceptance.mjs` | Native reads a Node-written home and Node decrypts the native rewrite; CLI, N-API `executeMcp`, stdio MCP; explicit home isolation; home logout and OS-delete failure reporting; corrupt-home gh fallback |
+| Packaged interfaces | [Packaged checks](#packaged-checks) | Native reads a Node-written home and Node decrypts the native rewrite; CLI and stdio MCP; explicit home isolation; home logout and OS-delete failure reporting; corrupt-home gh fallback |
 
 Paths without a package prefix are relative to
 `crates/runtime/src/providers/github`, except `src/config.rs` and `tests/`,
@@ -42,12 +41,19 @@ cargo test -p octocode-cli --test integration cli::auth_
 cargo test -p octocode-cli --bin octocode auth_tests
 ```
 
-From the repository root, after rebuilding native, CLI, and MCP:
+## Packaged checks
 
-```sh
-node packages/octocode-native/tests/auth-home.acceptance.mjs
-yarn workspace @octocodeai/config test:tokens:acceptance
-yarn workspace octocode-mcp test:contracts:classification
-```
+An agent runs these by hand on the built CLI and MCP server, in a fresh `OCTOCODE_HOME` and `HOME` with
+synthetic tokens, judging each answer by reading it ([method](../../octocode-benchmark/CHECKS.md)).
+GitHub calls go to a loopback server (`GITHUB_API_URL`) that logs the `Authorization` header it receives.
 
-A real OS credential-store save and load is not covered: it needs an isolated credential-store environment. OS-store compatibility uses injected store boundaries, and the packaged test reports OS availability separately, so a denied keychain delete is reported as a partial failure, not as success.
+- [ ] Token precedence: set `GITHUB_TOKEN`, `GH_TOKEN`, a home `.env` and a workspace `.env` to different
+  fake values, then remove them one at a time; the loopback log shows the value the configuration docs rank
+  first, on CLI and MCP. `auth status` names the same source. The classification key reaches its loopback
+  provider the same way.
+- [ ] Stored login: a credential saved in the home is used by a second CLI process and a new MCP server; `auth logout` removes it, and a token in the environment still wins.
+- [ ] Corrupt home credential: the next call falls back to `gh auth token` (a stub `gh` on `PATH`) and says so.
+
+A real OS credential-store save and load is not covered: it needs an isolated credential-store environment.
+OS-store compatibility uses injected store boundaries, so a denied keychain delete is reported as a partial
+failure, not as success.

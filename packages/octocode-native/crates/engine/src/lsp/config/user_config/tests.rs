@@ -108,6 +108,76 @@ fn an_entry_routes_its_language_family() {
 }
 
 #[test]
+fn document_language_ids_follow_only_the_selected_custom_launch() {
+    let home = tempfile::tempdir().expect("home");
+    std::fs::write(
+        home.path().join("lsp-servers.json"),
+        r#"{"languageServers":{
+            ".ts":{"command":"custom-server","languageId":"typescript"},
+            ".tsx":{"command":"custom-server","languageId":"typescriptreact"},
+            ".js":{"command":"custom-server","args":["--other"],"languageId":"custom-js"},
+            ".h":{"command":"other-server","languageId":"cpp"}
+        }}"#,
+    )
+    .expect("config");
+    let options = LspDiscoveryOptions {
+        octocode_home: Some(home.path().to_path_buf()),
+        ..Default::default()
+    };
+    let root = home.path().to_string_lossy();
+    let expected = std::collections::BTreeMap::from([
+        (".ts".to_owned(), "typescript".to_owned()),
+        (".tsx".to_owned(), "typescriptreact".to_owned()),
+    ]);
+    for extension in [".ts", ".tsx", ".mts"] {
+        let routed = user_server_for_extension(extension, &root, &options).expect("route");
+        assert_eq!(routed.config.document_language_ids, expected, "{extension}");
+    }
+    let other = user_server_for_extension(".js", &root, &options).expect("other route");
+    assert_eq!(
+        other.config.document_language_ids,
+        std::collections::BTreeMap::from([(".js".to_owned(), "custom-js".to_owned())])
+    );
+}
+
+#[test]
+fn document_language_ids_keep_project_configuration_precedence() {
+    let home = tempfile::tempdir().expect("home");
+    let project = tempfile::tempdir().expect("project");
+    std::fs::create_dir_all(project.path().join(".octocode")).expect("config directory");
+    std::fs::write(
+        home.path().join("lsp-servers.json"),
+        r#"{"languageServers":{
+            ".js":{"command":"custom-server","languageId":"home-js"},
+            ".jsx":{"command":"custom-server","languageId":"home-jsx"}
+        }}"#,
+    )
+    .expect("home config");
+    std::fs::write(
+        project.path().join(PROJECT_CONFIG),
+        r#"{"languageServers":{
+            ".js":{"command":"custom-server","languageId":"project-js"}
+        }}"#,
+    )
+    .expect("project config");
+    let options = LspDiscoveryOptions {
+        trust_project_config: true,
+        octocode_home: Some(home.path().to_path_buf()),
+        ..Default::default()
+    };
+    let routed = user_server_for_extension(".jsx", &project.path().to_string_lossy(), &options)
+        .expect("project sibling route");
+    assert_eq!(
+        routed.config.language_id.as_deref(),
+        Some("javascriptreact")
+    );
+    assert_eq!(
+        routed.config.document_language_ids,
+        std::collections::BTreeMap::from([(".js".to_owned(), "project-js".to_owned())])
+    );
+}
+
+#[test]
 fn a_project_file_nothing_trusts_is_reported_ignored() {
     let root = tempfile::tempdir().expect("root");
     std::fs::create_dir_all(root.path().join(".octocode")).expect("dir");

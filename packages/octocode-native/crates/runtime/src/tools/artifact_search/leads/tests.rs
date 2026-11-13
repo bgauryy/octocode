@@ -362,10 +362,16 @@ fn a_retraction_reason_is_quoted_as_judged() {
         reason: Some(format!("leaked GITHUB_TOKEN={token}.")),
     });
     let warning = retraction_warning(&row).expect("warning");
-    assert!(!warning.contains(&token) && warning.contains("[REDACTED-"), "{warning}");
+    assert!(
+        !warning.contains(&token) && warning.contains("[REDACTED-"),
+        "{warning}"
+    );
     row.retraction = Some(Retraction {
         reason: Some("published by mistake".into()),
     });
     let warning = retraction_warning(&row).expect("warning");
-    assert!(warning.ends_with("go.mod: published by mistake."), "{warning}");
+    assert!(
+        warning.ends_with("go.mod: published by mistake."),
+        "{warning}"
+    );
 }

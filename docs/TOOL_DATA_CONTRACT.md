@@ -84,6 +84,8 @@ Cursors are bound to the tool, configuration, access context and saved state. Re
 | Byte windows | Reassemble by `offset`. A matched window on a long line can arrive before its preceding bytes. Offsets count the decoded, redacted representation as served. |
 | `rowPart` | Join parts in order for the same result. Keep repeated identities and required scalar values once. Append new list elements. Use `rowPart.continues` to merge a resumed array element, and append resumed text at the JSON pointer in `rowPart.text`. Missing prior text or an empty list on a later part preserves the earlier evidence. |
 
+Programmatic consumers can read `collectionPaths` and, when present, recursive `collectionRefs` from `octocode schema <tool> --view output --json` or the tool's MCP output-reference resource. These routes come from the embedded contract: append declared collections, retain repeated context arrays once, and reconstruct each `rowPart` before treating it as a complete row. A response continuation can also carry later complete rows with the same query index; consume every row before advancing its remaining tool continuations.
+
 ## Evidence boundaries
 
 A complete page can belong to a partial search. Inspect `isPartial`, `partialReasons`, skipped paths, unassessed candidates, warnings and terminal provider limits before reporting a total or absence. GitHub code search covers its index. A classification result covers assessed candidates. An empty `securityCheck` result means the advisory lookup found no known match for the supplied target. A failed check is a separate error.

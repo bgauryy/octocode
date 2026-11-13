@@ -51,7 +51,16 @@ use crate::tools::import_resolution::{aliases, js_paths, paths};
 /// local variable, a closure) links nothing and stays unresolved as
 /// `local-binding`, in every language that records the fact; a JS/TS call
 /// bound to a declaration (`bound_declaration`) links that one, high.
-const ANALYSIS_VERSION: u32 = 34;
+/// 35: an unlinked bare JS/TS specifier whose code the configuration places
+/// beyond the snapshot root (a workspace sibling or path dependency outside
+/// it, an alias or `baseUrl` module above it) is diagnosed as outside the
+/// root, like a relative import climbing out of it.
+/// 36: so is every language's: a Go module of the enclosing module, a local
+/// `replace` or `go.work` member outside the root; a Java class above it; a
+/// Rust path dependency outside it; a Python module above it, of the enclosing
+/// package, or of a local path dependency a `pyproject.toml` names (until now
+/// external). One recorder diagnoses all of them.
+const ANALYSIS_VERSION: u32 = 36;
 
 /// graphBuild's and graphQuery's recovery for the shared response stages.
 pub(crate) struct Output;

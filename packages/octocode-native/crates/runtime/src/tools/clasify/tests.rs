@@ -375,7 +375,10 @@ fn evaluate_usage_spells_tokens_like_selection_usage() {
 #[test]
 fn evaluate_answers_name_their_type_by_key_only() {
     let row = resources_row(json!({"a":local("a.rs")}));
-    let RowOutcome::Judgment { judged: Ok(judged), .. } = answered_by("jev-1.14.0", 0.9) else {
+    let RowOutcome::Judgment {
+        judged: Ok(judged), ..
+    } = answered_by("jev-1.14.0", 0.9)
+    else {
         unreachable!()
     };
     let out = reply::answered(&row, judged, None, None);

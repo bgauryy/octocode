@@ -75,17 +75,17 @@ pub(super) fn choose_snapshot(
     }
     let manifests = ids
         .iter()
-        .filter_map(|id| Some((id, super::super::read_manifest(&home.join(id))?)))
+        .filter_map(|id| Some((id, super::super::read_snapshot_metadata(&home.join(id))?)))
         .collect::<Vec<_>>();
     let scoped = manifests
         .iter()
-        .filter(|(_, manifest)| manifest["scope"] == spec)
+        .filter(|(_, manifest)| manifest.scope.as_deref() == Some(spec))
         .collect::<Vec<_>>();
     if !scoped.is_empty() {
         // Newest snapshot of each root carrying that scope.
         let mut newest = BTreeMap::<String, &String>::new();
         for (id, manifest) in &scoped {
-            let root = manifest["root"].as_str().unwrap_or_default().to_owned();
+            let root = manifest.root.as_deref().unwrap_or_default().to_owned();
             newest.insert(root, id);
         }
         let candidates = newest.into_values().cloned().collect::<Vec<_>>();
@@ -100,7 +100,7 @@ pub(super) fn choose_snapshot(
         .collect::<Vec<_>>();
     let roots = matching
         .iter()
-        .map(|(_, manifest)| manifest["root"].as_str().unwrap_or_default())
+        .map(|(_, manifest)| manifest.root.as_deref().unwrap_or_default())
         .collect::<std::collections::BTreeSet<_>>();
     match matching.as_slice() {
         [] => Ok(None),

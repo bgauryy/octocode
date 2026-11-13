@@ -13,11 +13,9 @@ fn diagnostic_reports_are_listed_as_individual_diagnostics() {
             {"message": "second", "range": {"start": {"line": 1, "character": 0}, "end": {"line": 1, "character": 1}}}
         ],
         "version": 3,
-        "source": "push",
-        "truncated": false
+        "source": "push"
     });
-    let (items, truncated) = diagnostic_items(Some(report));
-    assert!(!truncated);
+    let items = diagnostic_items(Some(report));
     let envelope = items_payload(&q, "diagnostics", items, TEST_BUDGET);
     let listed = envelope["matches"].as_array().expect("matches");
     assert_eq!(listed.len(), 2, "{envelope}");
@@ -30,15 +28,60 @@ fn diagnostic_reports_are_listed_as_individual_diagnostics() {
         Some(serde_json::json!({"kind": "full", "items": []})),
         Some(serde_json::json!({"kind": "unchanged", "resultId": "1"})),
     ] {
-        let (items, _) = diagnostic_items(report);
+        let items = diagnostic_items(report);
         let envelope = with_next(&q, items_payload(&q, "diagnostics", items, TEST_BUDGET));
         assert_eq!(envelope["status"], "empty", "{envelope}");
         assert_eq!(envelope["category"], "noDiagnostics");
     }
-    let (_, truncated) = diagnostic_items(Some(serde_json::json!({
-        "kind": "full", "items": [{"message": "x"}], "truncated": true
-    })));
-    assert!(truncated);
+}
+
+/// A full report is a paginated list, including reports larger than the old
+/// push cache's item quota. Copy each continuation unchanged and reconstruct
+/// the complete selected evidence in order, once.
+#[test]
+fn diagnostic_pages_reconstruct_large_reports_and_tiny_windows() {
+    for (count, limit) in [(31, 1), (4_097, 97)] {
+        let first = query(serde_json::json!({
+            "operation": "diagnostic", "path": "/repo/a.ts", "limit": limit
+        }));
+        let expected = diagnostic_items(Some(serde_json::json!({
+            "kind": "full",
+            "items": (0..count).map(|index| serde_json::json!({
+                "message": format!("diagnostic {index}: λ 東京"),
+                "range": {"start": {"line": index, "character": 2}, "end": {"line": index, "character": 3}}
+            })).collect::<Vec<_>>()
+        })));
+        let mut current = first;
+        let mut collected = Vec::new();
+        loop {
+            let row = items_payload(&current, "diagnostics", expected.clone(), TEST_BUDGET);
+            assert!(row.get("errorCode").is_none(), "{row}");
+            assert!(row.get("terminalLimit").is_none(), "{row}");
+            let page = row["matches"].as_array().expect("diagnostic page");
+            assert!(!page.is_empty() && page.len() <= limit);
+            collected.extend(page.iter().cloned());
+            assert!(collected.len() <= count, "continuation repeated evidence");
+            let Some(next) = row.pointer("/next/nextPage/input/queries/0") else {
+                assert_eq!(row["pagination"]["hasMore"], false);
+                break;
+            };
+            assert_eq!(row["pagination"]["hasMore"], true);
+            current = serde_json::from_value(next.clone()).expect("executable continuation");
+        }
+        assert_eq!(serde_json::Value::Array(collected), expected);
+    }
+}
+
+#[test]
+fn a_large_indivisible_diagnostic_is_kept_whole() {
+    let q = query(serde_json::json!({"operation": "diagnostic", "path": "/repo/a.ts"}));
+    let items = diagnostic_items(Some(serde_json::json!({"kind": "full", "items": [{
+        "message": "λ東京".repeat(100_000), "data": {"evidence": "complete"}
+    }]})));
+    let row = items_payload(&q, "diagnostics", items.clone(), 1);
+    assert_eq!(row["matches"], items);
+    assert_eq!(row["pagination"]["hasMore"], false);
+    assert!(row.get("terminalLimit").is_none());
 }
 
 /// Identical diagnostics (the same message, code, severity, source, link
@@ -61,7 +104,7 @@ fn identical_diagnostics_are_listed_once_with_every_range() {
         item(4, "proc-macro expansion is disabled"),
         item(7, "proc-macro expansion is disabled"),
     ]});
-    let (items, _) = diagnostic_items(Some(report));
+    let items = diagnostic_items(Some(report));
     let listed = dedupe_diagnostics(items);
     let listed = listed.as_array().expect("diagnostics");
     assert_eq!(listed.len(), 2, "{listed:?}");
@@ -82,6 +125,35 @@ fn identical_diagnostics_are_listed_once_with_every_range() {
 }
 
 #[test]
+fn diagnostic_deduplication_preserves_first_order_and_complete_values() {
+    let message = "λ東京 diagnostic detail\n".repeat(4_096);
+    let first = serde_json::json!({
+        "message": message, "severity": "error", "data": {"first": 1, "second": [2, 3]},
+        "line": 9, "column": 2
+    });
+    // Object field order does not change diagnostic identity.
+    let repeated: serde_json::Value = serde_json::from_str(&format!(
+        "{{\"data\":{{\"second\":[2,3],\"first\":1}},\"severity\":\"error\",\"message\":{},\"line\":3,\"column\":4}}",
+        serde_json::to_string(&message).expect("JSON text")
+    ))
+    .expect("reordered diagnostic");
+    let second = serde_json::json!({"message": "second", "line": 2, "column": 1});
+    let third = serde_json::json!({"message": message, "severity": "warning", "line": 5});
+    let listed = dedupe_diagnostics(serde_json::json!([first, second, repeated, third]));
+    assert_eq!(listed.as_array().expect("diagnostics").len(), 3);
+    assert_eq!(listed[0]["message"], message);
+    assert_eq!(listed[0]["count"], 2);
+    assert_eq!(
+        listed[0]["sites"],
+        serde_json::json!([
+            {"line": 9, "column": 2}, {"line": 3, "column": 4}
+        ])
+    );
+    assert_eq!(listed[1], second);
+    assert_eq!(listed[2], third);
+}
+
+#[test]
 fn diagnostics_use_the_one_based_public_coordinates() {
     let report = serde_json::json!({"kind": "full", "items": [{
         "message": "m",
@@ -90,7 +162,7 @@ fn diagnostics_use_the_one_based_public_coordinates() {
         "relatedInformation": [{"message": "r", "location": {"uri": "file:///repo/a.rs",
             "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 2}}}}]
     }]});
-    let (items, _) = diagnostic_items(Some(report));
+    let items = diagnostic_items(Some(report));
     let item = &items[0];
     assert!(item.get("range").is_none(), "{item}");
     assert_eq!(
@@ -104,10 +176,6 @@ fn diagnostics_use_the_one_based_public_coordinates() {
     let related = &item["relatedInformation"][0]["location"];
     assert!(related.get("range").is_none(), "{related}");
     assert_eq!(related["line"], 1);
-    assert!(disabled_macro_diagnostics(&items));
-    assert!(!disabled_macro_diagnostics(
-        &serde_json::json!([{"code": "E0308"}])
-    ));
 }
 
 /// A server that pushed nothing inside the wait has not said "no
@@ -135,6 +203,12 @@ fn unpublished_diagnostics_are_partial_not_clean() {
             .as_str()
             .is_some_and(|reason| reason.contains("5000 ms")),
         "{row}"
+    );
+    assert!(
+        row["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("shared memory budget")),
+        "a memory-evicted report is unavailable rather than clean: {row}"
     );
     crate::contracts::validate_output("lspSearch", &public_row(&row))
         .expect("an unpublished-diagnostics row satisfies the output contract");
@@ -170,7 +244,7 @@ fn empty_diagnostics_carry_no_read_recovery_and_symbol_reads_are_matched() {
 
 #[test]
 fn diagnostic_severity_is_published_by_name() {
-    let (items, _) = diagnostic_items(Some(serde_json::json!([
+    let items = diagnostic_items(Some(serde_json::json!([
         {"severity": 1, "message": "e", "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}},
         {"severity": 2, "message": "w"},
         {"severity": 3, "message": "i"},

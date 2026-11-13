@@ -30,6 +30,8 @@ pub(super) struct WalkScope<'a> {
     pub(super) file_terms: Option<FileTerms>,
     pub(super) attributes: Option<relevance::GitAttributes>,
     pub(super) words: Option<AhoCorasick>,
+    /// Which files the search's judge need not judge.
+    pub(super) judge_gate: super::judge_gate::JudgeGate,
 }
 
 impl WalkScope<'_> {

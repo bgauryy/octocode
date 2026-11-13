@@ -1,6 +1,7 @@
 use super::*;
+use crate::cache::disk::DiskHeader;
 #[cfg(unix)]
-use crate::cache::disk::{DiskHeader, now_unix};
+use crate::cache::disk::now_unix;
 
 #[test]
 fn disk_tier_keeps_immutable_entries_and_expires_volatile_ones() {
@@ -24,6 +25,82 @@ fn disk_tier_keeps_immutable_entries_and_expires_volatile_ones() {
         fs::remove_file(file).unwrap();
     }
     assert!(reader.get(&key("pinned", "x")).is_none());
+}
+
+/// Expiry needs only the entry header: decoding a large expired value must
+/// not allocate a body the reader immediately discards. Live corrupt bodies
+/// still go through the codec and are removed when decoding fails.
+#[test]
+fn expired_entries_are_rejected_before_decoding_their_values() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static DECODES: AtomicUsize = AtomicUsize::new(0);
+    struct Counted;
+    impl DiskCodec<String> for Counted {
+        fn encode(value: &String) -> Option<Vec<u8>> {
+            JsonCodec::encode(value)
+        }
+
+        fn decode(bytes: &[u8]) -> Option<String> {
+            DECODES.fetch_add(1, Ordering::SeqCst);
+            JsonCodec::decode(bytes)
+        }
+    }
+
+    let dir = tempfile::tempdir().expect("cache directory");
+    let store = Store::<String, Counted>::new(CacheConfig::derived(), Some(dir.path().into()));
+    for (name, class) in [
+        ("volatile", volatile(60)),
+        (
+            "idle",
+            CacheClass::Idle {
+                ttl: Duration::from_secs(60),
+            },
+        ),
+    ] {
+        assert!(
+            store
+                .put_confirmed(key(name, "x"), "body".repeat(1024), 4096, class)
+                .1
+        );
+    }
+    age_disk_entries(dir.path(), 86_400);
+    let old = std::time::SystemTime::now() - Duration::from_secs(86_400);
+    for file in entry_files(dir.path()) {
+        fs::File::options()
+            .write(true)
+            .open(file)
+            .expect("entry")
+            .set_modified(old)
+            .expect("age idle entry");
+    }
+    assert!(store.get(&key("volatile", "x")).is_none());
+    assert!(store.get(&key("idle", "x")).is_none());
+    assert_eq!(
+        DECODES.load(Ordering::SeqCst),
+        0,
+        "expired values are never decoded"
+    );
+    assert!(entry_files(dir.path()).is_empty());
+
+    let live = key("live", "x");
+    assert!(
+        store
+            .put_confirmed(live.clone(), "body".into(), 4, CacheClass::Immutable)
+            .1
+    );
+    assert_eq!(store.get(&live).expect("live value").value.as_str(), "body");
+    assert_eq!(DECODES.load(Ordering::SeqCst), 1);
+    let file = store.disk.as_ref().expect("disk store").file(&live);
+    let before_corrupt = DECODES.load(Ordering::SeqCst);
+    let bytes = fs::read(&file).expect("live entry");
+    let (header, _) = DiskHeader::split(&bytes).expect("header");
+    let mut corrupt = serde_json::to_vec(&header).expect("header bytes");
+    corrupt.extend_from_slice(b"\ninvalid JSON body");
+    fs::write(&file, corrupt).expect("corrupt value");
+    assert!(store.get(&live).is_none());
+    assert!(DECODES.load(Ordering::SeqCst) > before_corrupt);
+    assert!(!file.exists(), "a live corrupt body is still evicted");
 }
 
 #[test]
@@ -372,4 +449,59 @@ fn refreshing_an_expired_idle_entry_restarts_nothing() {
         later.get(&key("plan", "x")).is_none(),
         "the refresh did not revive it"
     );
+}
+
+/// A reader of an old corrupt file must not unlink a new atomic publication.
+#[test]
+fn invalid_old_disk_read_preserves_a_replacement() {
+    use std::cell::RefCell;
+    thread_local! {
+        static REPLACE: RefCell<Option<Box<dyn FnOnce()>>> = RefCell::new(None);
+    }
+    struct Replacing;
+    impl DiskCodec<u32> for Replacing {
+        fn encode(value: &u32) -> Option<Vec<u8>> {
+            JsonCodec::encode(value)
+        }
+        fn decode(bytes: &[u8]) -> Option<u32> {
+            if bytes == b"corrupt" {
+                let replace = REPLACE.with(|hook| hook.borrow_mut().take());
+                if let Some(replace) = replace {
+                    replace();
+                }
+                return None;
+            }
+            JsonCodec::decode(bytes)
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::<u32, Replacing>::new(
+        CacheConfig::derived(),
+        Some(dir.path().into()),
+    ));
+    let entry = key("replaced", "x");
+    store.put_confirmed(entry.clone(), 1, 4, CacheClass::Immutable);
+    let path = store.disk.as_ref().unwrap().file(&entry);
+    let bytes = fs::read(&path).unwrap();
+    let (header, _) = crate::cache::disk::DiskHeader::split(&bytes).unwrap();
+    let mut bytes = serde_json::to_vec(&header).unwrap();
+    bytes.extend_from_slice(b"\ncorrupt");
+    fs::write(&path, bytes).unwrap();
+    let writer = Arc::clone(&store);
+    let replacement_key = entry.clone();
+    REPLACE.with(|hook| {
+        *hook.borrow_mut() = Some(Box::new(move || {
+            assert!(
+                writer
+                    .put_confirmed(replacement_key, 2, 4, CacheClass::Immutable)
+                    .1
+            );
+        }));
+    });
+    assert!(store.get(&entry).is_none());
+    assert!(
+        path.exists(),
+        "old read must preserve the freshly published entry"
+    );
+    assert_eq!(*store.get(&entry).unwrap().value, 2);
 }

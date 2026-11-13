@@ -106,3 +106,48 @@ fn a_write_above_the_repository_keeps_the_read() {
     assert!(read(&root).is_some());
     assert_eq!(reads::of(&root), 1);
 }
+
+/// A Cargo project depends on the anchor's package only through a
+/// dependency whose source is that package: a snapshot of the workspace,
+/// whose crate depends on the snapshot's own same-named package by path, is
+/// another project, while one whose path dependency is the anchor's package
+/// depends on it, directly or through another local package.
+#[test]
+fn a_cargo_snapshot_depending_on_its_own_copy_is_no_dependent() {
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().canonicalize().expect("canonical");
+    std::fs::create_dir_all(root.join(".git")).expect("git");
+    let package = |name: &str, deps: &str| {
+        format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n\n[dependencies]\n{deps}")
+    };
+    write(&root.join("a/Cargo.toml"), &package("a", ""));
+    write(&root.join("a/src/lib.rs"), "pub fn shared() {}\n");
+    write(
+        &root.join("b/Cargo.toml"),
+        &package("b", "a = { path = \"../a\" }\n"),
+    );
+    write(
+        &root.join("c/Cargo.toml"),
+        &package("c", "b = { path = \"../b\" }\n"),
+    );
+    write(
+        &root.join("copy/Cargo.toml"),
+        "[workspace]\nmembers = [\"a\", \"b\"]\n",
+    );
+    write(&root.join("copy/a/Cargo.toml"), &package("a", ""));
+    write(
+        &root.join("copy/b/Cargo.toml"),
+        &package("b", "a = { path = \"../a\" }\n"),
+    );
+    let found = kept_or_read(
+        &root,
+        &root.join("a"),
+        &root.join("a/src/lib.rs"),
+        "rs",
+        &|| false,
+    )
+    .expect("read");
+    assert!(found.includes(&root.join("b")), "{found:?}");
+    assert!(found.includes(&root.join("c")), "through b: {found:?}");
+    assert!(!found.includes(&root.join("copy")), "{found:?}");
+}

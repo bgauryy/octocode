@@ -7,7 +7,6 @@ mod memo;
 mod output;
 mod probe;
 mod selected;
-pub(crate) use selected::Output;
 use crate::response::result::Continuation;
 use cut::Move;
 use listing::Listing;
@@ -16,6 +15,7 @@ use octocode_contract_types::{
     StructureSearchQuery, StructureSearchQueryTree, StructureSearchQueryTreeOperation,
     StructureSearchView,
 };
+pub(crate) use selected::Output;
 mod resume;
 mod rows;
 mod standing;

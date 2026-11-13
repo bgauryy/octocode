@@ -211,7 +211,7 @@ Pattern B tests must prove:
 
 Test the applicable process env, home/project `.env` and workspace/home `.octocoderc` precedence (see `packages/octocode-native/crates/runtime/src/config/layering_tests.rs`).
 
-After you build CLI/MCP, run `yarn workspace @octocodeai/config test:tokens:acceptance` to verify outgoing credential selection with synthetic keys and a loopback provider.
+After you build CLI/MCP, check outgoing credential selection with synthetic keys and a loopback provider by hand: the token precedence item of the [packaged auth checks](../../../packages/octocode-native/docs/GITHUB_AUTH_TESTS.md#packaged-checks).
 
 ### API keys and endpoints a skill or script uses
 

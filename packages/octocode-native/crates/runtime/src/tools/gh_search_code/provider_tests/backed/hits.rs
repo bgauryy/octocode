@@ -147,8 +147,9 @@ async fn owner_wide_hits_keep_fragments_without_offsets() {
 }
 
 /// GitHub's fragments reach no row. The one thing taken from them is the top
-/// file's read lead, and that term is one the caller searched for: a highlight
-/// spelling anything else, a key's body line here, reaches no output.
+/// file's related read, and that term is one the caller searched for: a
+/// highlight spelling anything else, a key's body line here, reaches no
+/// output. Every read the page leads to names only searched terms.
 #[tokio::test]
 async fn a_fragment_reaches_no_row_and_its_lead_only_names_a_searched_term() {
     const BODY: &str = "MIIEpAIBAAKCAQEAfakebodylinefakebodylinefakebodyline00000";
@@ -175,7 +176,37 @@ async fn a_fragment_reaches_no_row_and_its_lead_only_names_a_searched_term() {
             .expect("search");
         let shown = serde_json::to_string(&out.data).expect("data");
         assert!(!shown.contains(BODY), "{shown}");
-        assert_eq!(shown.contains("wrap_app"), led, "{shown}");
+        let fragment_lead = out.data["related"].to_string();
+        assert_eq!(fragment_lead.contains("wrap_app"), led, "{shown}");
+        let mut terms = Vec::new();
+        match_strings(&out.data, &mut terms);
+        assert!(
+            terms.iter().all(|term| term.eq_ignore_ascii_case(keyword)),
+            "{terms:?}: {shown}"
+        );
+    }
+}
+
+/// Every `matchString` term under `value`.
+fn match_strings(value: &serde_json::Value, terms: &mut Vec<String>) {
+    match value {
+        serde_json::Value::Object(fields) => {
+            for (key, field) in fields {
+                if key == "matchString" {
+                    terms.extend(
+                        field
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|term| term.as_str().map(str::to_owned)),
+                    );
+                } else {
+                    match_strings(field, terms);
+                }
+            }
+        }
+        serde_json::Value::Array(items) => items.iter().for_each(|item| match_strings(item, terms)),
+        _ => {}
     }
 }
 

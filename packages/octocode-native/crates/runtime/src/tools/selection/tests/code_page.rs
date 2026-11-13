@@ -189,7 +189,8 @@ fn selected_page_rejects_null_evidence_drift_but_accepts_key_reordering() {
     assert_eq!(calls.load(Ordering::SeqCst), 1, "replay does not rescore");
 
     let mut changed = original;
-    changed["results"][0]["data"]["files"][0]["matches"] = json!([{"line":1,"value":"changed evidence"}]);
+    changed["results"][0]["data"]["files"][0]["matches"] =
+        json!([{"line":1,"value":"changed evidence"}]);
     let mut changed_response = replay_query.clone();
     apply_code_rows(&mut changed, replay_query, &mut changed_response, &runtime)
         .expect("changed source is reported in its row");

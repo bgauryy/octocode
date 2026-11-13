@@ -43,7 +43,7 @@ Skip generated, vendored, fixture, third-party suppressions. Keep when → else:
 Sweep:
 
 1. Self-reporting: `#[allow]` → `#[expect]` (`unfulfilled_lint_expectations`); `@ts-ignore` → `@ts-expect-error`; ESLint `--report-unused-disable-directives`; mypy `warn_unused_ignores`; ruff `RUF100`; golangci-lint `nolintlint`.
-2. Run the checker under every built configuration (features, targets, test and non-test).
+2. Run the checker for affected supported features, targets and test/production configurations.
 3. Delete what none needs; else fix the local cause (feature-gated literal, map for a struct with an unread field, written-out macro arm, dropped import-path hack).
 4. Blanket test allowances → tool config (`allow-expect-in-tests`, `allow-panic-in-tests`, ESLint test-glob override).
 5. Revert self-reporting forms some configuration leaves unfulfilled; each survivor carries `reason = "..."` or a comment.
@@ -74,10 +74,10 @@ Sweep:
 
 | Signal | Check / action |
 |---|---|
-| Mixed responsibilities (IO, parsing, formatting, domain policy) | one file per responsibility under its owning layer; update callers; build and test. Size is no signal; large pure data is fine. |
+| Mixed responsibilities (IO, parsing, formatting, domain policy) | Group cohesive behavior at its owning layer; split only when consumers benefit. Update callers and verify. Size is no signal; large pure data is fine. |
 | Prefixed flat names (`user-api.ts`, `user-db.ts`) | group only when shared ownership or navigation improves; naming alone does not justify a move. |
 | One document | split only when readers load distinct parts for different tasks; otherwise keep the single entry. |
-| Wrong layer (`utils/auth-logic.ts` | `domain/auth/`, `api/db-queries.ts` → `repositories/`) → move, update imports, verify with build and LSP; rename only a wrong name. |
+| Wrong layer (`utils/auth-logic.ts`, `api/db-queries.ts`) | Move to the owning domain or repository layer, update imports, verify with build and LSP; rename only a wrong name. |
 
 ## Spaghetti
 

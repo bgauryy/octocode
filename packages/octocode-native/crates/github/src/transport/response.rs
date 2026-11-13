@@ -13,6 +13,9 @@ use octocode_io::{
 use super::RequestContext;
 use crate::{ProviderError, ProviderErrorKind, ProviderErrorReason};
 
+#[cfg(test)]
+mod pagination_tests;
+
 /// An error response's body, and why it is empty when it could not be read.
 /// A cancel while reading it is a cancel, not an empty body classified by
 /// status; an oversized body keeps the status classification.
@@ -64,18 +67,26 @@ pub(super) async fn read_bounded(
 
 /// The target of the `Link` header part carrying `relation`
 /// (`rel="next"`), if any.
-fn link_target<'a>(value: &'a str, relation: &str) -> Option<&'a str> {
-    value
-        .split(',')
-        .find(|part| part.contains(relation))
-        .map(|part| {
-            part.trim()
-                .split(';')
-                .next()
-                .unwrap_or_default()
-                .trim()
-                .trim_start_matches('<')
-                .trim_end_matches('>')
+fn link_target<'a>(headers: &'a HeaderMap, relation: &str) -> Option<&'a str> {
+    headers
+        .get_all("link")
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| super::headers::list(value, ','))
+        .find_map(|part| {
+            let (target, parameters) = part.strip_prefix('<')?.split_once('>')?;
+            let matches = super::headers::list(parameters, ';').any(|parameter| {
+                let Some((name, value)) = parameter.split_once('=') else {
+                    return false;
+                };
+                name.trim().eq_ignore_ascii_case("rel")
+                    && value
+                        .trim()
+                        .trim_matches('"')
+                        .split_ascii_whitespace()
+                        .any(|value| value.eq_ignore_ascii_case(relation))
+            });
+            matches.then_some(target)
         })
 }
 
@@ -90,8 +101,7 @@ fn link_page(url: &Url) -> Option<u64> {
 /// pages the list holds at the request's `per_page`. `None` when the header
 /// names none (a single page, or a provider that omits it).
 pub(crate) fn last_page(headers: &HeaderMap) -> Option<usize> {
-    let value = headers.get("link")?.to_str().ok()?;
-    let last = Url::parse(link_target(value, "rel=\"last\"")?).ok()?;
+    let last = Url::parse(link_target(headers, "last")?).ok()?;
     link_page(&last).and_then(|page| usize::try_from(page).ok())
 }
 
@@ -101,11 +111,7 @@ pub(crate) fn last_page(headers: &HeaderMap) -> Option<usize> {
 /// request is bound to the configured origin
 /// ([`crate::GitHubEndpoint::permits`]), and callers page by their own URL.
 pub(super) fn parse_next(headers: &HeaderMap) -> Result<Option<Url>, ProviderError> {
-    let Some(value) = headers.get("link").and_then(|v| v.to_str().ok()) else {
-        return Ok(None);
-    };
-    let link = |relation: &str| link_target(value, relation);
-    let Some(raw) = link("rel=\"next\"") else {
+    let Some(raw) = link_target(headers, "next") else {
         return Ok(None);
     };
     let next = Url::parse(raw).map_err(|_| {
@@ -114,7 +120,7 @@ pub(super) fn parse_next(headers: &HeaderMap) -> Result<Option<Url>, ProviderErr
     let page = link_page;
     // GitHub may advertise next=N+1 alongside last=N on a full final page.
     // Only comparable numbered links establish that next is past the end.
-    if let Some(last) = link("rel=\"last\"").and_then(|raw| Url::parse(raw).ok())
+    if let Some(last) = link_target(headers, "last").and_then(|raw| Url::parse(raw).ok())
         && last.origin() == next.origin()
         && last.path() == next.path()
         && last

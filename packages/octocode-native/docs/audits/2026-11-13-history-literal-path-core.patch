@@ -1,0 +1,40 @@
+--- a/packages/octocode-core/src/toolContract/tools/ghSearchHistory.ts
++++ b/packages/octocode-core/src/toolContract/tools/ghSearchHistory.ts
+@@ -24,7 +24,7 @@
+   FilterTextSchema,
+   FilterPhraseSchema,
+   FILTER_SELECTION_RULE,
+-  LiteralPathSchema,
++  RepositoryPathSchema,
+   githubKeywords,
+   githubOwner,
+   githubRepo,
+@@ -236,7 +236,7 @@
+ const commitHistory = z
+   .strictObject({
+     ...commitBase,
+-    path: LiteralPathSchema.optional(),
++    path: RepositoryPathSchema.optional(),
+     ref: optionalRef(),
+     filters: commitHistoryFilters.optional(),
+   })
+--- a/packages/octocode-core/src/__tests__/githubSchemaAlignment.test.ts
++++ b/packages/octocode-core/src/__tests__/githubSchemaAlignment.test.ts
+@@ -241,3 +241,17 @@
+     for (const [tool, query] of locators(text)) accepts(tool, query, false);
+   },
+ );
++
++it.each(["src/[id]", "src/a?.rs", "src/{one,two}.rs", "src/a*.rs"])(
++  "accepts literal metacharacters in a commit-history path (%s)",
++  (path) => accepts(ghSearchHistory, { operation: "commit", ...repo, path }),
++);
++it.each([
++  "../outside",
++  "/absolute",
++  "src/../outside",
++  "src/\\file",
++  "src/\u0000file",
++])("rejects unsafe commit-history paths (%j)", (path) => {
++  accepts(ghSearchHistory, { operation: "commit", ...repo, path }, false);
++});

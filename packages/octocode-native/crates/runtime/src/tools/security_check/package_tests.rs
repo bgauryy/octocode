@@ -208,7 +208,9 @@ async fn an_unpublished_version_is_never_sent() {
             .as_array()
             .into_iter()
             .flatten()
-            .any(|hint| hint.as_str().is_some_and(|hint| hint.starts_with("Only 2 published"))),
+            .any(|hint| hint
+                .as_str()
+                .is_some_and(|hint| hint.starts_with("Only 2 published"))),
         "{data}"
     );
     // Nothing known about the name is still not a verdict on the version.

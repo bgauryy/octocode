@@ -29,6 +29,8 @@ pub(super) struct PageReads {
     pub(super) oversized: usize,
     /// Rows whose scan panicked: a defect to report, not a missing blob.
     pub(super) panicked: usize,
+    /// Required reads without an immutable index commit to verify against.
+    pub(super) unanchored: usize,
 }
 
 /// Whether source lines must be read before projecting the returned fields.
@@ -94,12 +96,21 @@ pub(super) fn shape_files(
     let mut withheld = 0;
     let mut oversized = 0;
     let mut panicked = 0;
+    let mut unanchored = 0;
     for row in items.iter_mut() {
-        if withheld_row(query, withholds, row)
-            && let Some(row) = row.as_object_mut()
-        {
+        let unread = withheld_row(query, withholds, row);
+        let Some(row) = row.as_object_mut() else {
+            continue;
+        };
+        if unread {
             withheld += 1;
             row.insert("lineResolved".into(), json!(false));
+        } else if resolution.is_none() && reads_lines(query) {
+            row.insert("lineResolved".into(), json!(false));
+            if let Some(read) = hits_read(query, row, "") {
+                hit_reads.push(read);
+                unanchored += 1;
+            }
         }
     }
     // One read lead: the top resolved hit's lines; only without them, the
@@ -165,13 +176,12 @@ pub(super) fn shape_files(
                     panicked += usize::from(matches!(hits, super::lines::FileHits::Panicked));
                     // Not read here (over the scan limit, binary, a failed
                     // read): lead to the keyword lines at the commit, on the
-                    // default branch as at a ref. Without a commit there is
-                    // nothing to pin the read to.
+                    // default branch as at a ref. Without a commit, the
+                    // read stays reachable and its mutable identity is disclosed.
                     row.insert("lineResolved".into(), json!(false));
-                    if !sha.is_empty()
-                        && let Some(read) = hits_read(query, row, sha)
-                    {
+                    if let Some(read) = hits_read(query, row, sha) {
                         hit_reads.push(read);
+                        unanchored += usize::from(sha.is_empty());
                     }
                 }
                 _ => {
@@ -194,6 +204,7 @@ pub(super) fn shape_files(
         withheld,
         oversized,
         panicked,
+        unanchored,
     }
 }
 

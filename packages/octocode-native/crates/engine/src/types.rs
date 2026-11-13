@@ -94,7 +94,7 @@ pub use ignore::IgnorePolicy;
 pub use test_code::{PathTest, TestCodeExcluded, TestCodeScope, WHOLE_FILE, wholly_left_out};
 pub use text_search::{
     BinaryExtensionCount, CapReason, CaseRule, DeferredInspector, InspectDeferred, JudgeSource,
-    PatternSyntax, RowWindow, SearchContext, SearchOutput, SearchSort, SearchedSource,
-    SourceJudge, SourceValues, SpanValues, TextSearchFile, TextSearchMatch, TextSearchOptions,
-    TextSearchResult, TextSearchStats,
+    PatternSyntax, RowWindow, SearchContext, SearchOutput, SearchSort, SearchedSource, SourceJudge,
+    SourceValues, SpanValues, TextSearchFile, TextSearchMatch, TextSearchOptions, TextSearchResult,
+    TextSearchStats,
 };

@@ -9,7 +9,7 @@ pub(in super::super) fn pack(tag: &[u8; 4], flat: &[u8]) -> Result<Vec<u8>, Tool
     let mut bodies = Vec::new();
     let start = (PREFIX + rows.div_ceil(ROWS) * ENTRY) as u64;
     let mut emit = |body: Body<'_>| {
-        let stored = seal(tag, body.bytes)?;
+        let stored = seal(tag, body.bytes, LIMITS.snapshot_bytes as u64)?;
         let body = Body {
             bytes: &stored,
             ..body
@@ -71,7 +71,7 @@ fn sealed_blocks_round_trip_and_shrink() {
     let raw = br#"{"recipient":"a.go:1:9:recipient","group":0,"assessment":{"status":"parsed"}}"#
         .repeat(64);
     for tag in [b"STRE", b"SRCO"] {
-        let stored = seal(tag, &raw).expect("seal");
+        let stored = seal(tag, &raw, LIMITS.snapshot_bytes as u64).expect("seal");
         assert!(
             stored.len() * 4 < raw.len(),
             "{} of {}",
@@ -81,9 +81,12 @@ fn sealed_blocks_round_trip_and_shrink() {
         assert_eq!(open(&stored).expect("open"), raw);
     }
     for tag in [b"NODE", b"DECL"] {
-        assert_eq!(seal(tag, &raw).expect("seal"), raw);
+        assert_eq!(
+            seal(tag, &raw, LIMITS.snapshot_bytes as u64).expect("seal"),
+            raw
+        );
     }
-    let mut stored = seal(b"STRE", &raw).expect("seal");
+    let mut stored = seal(b"STRE", &raw, LIMITS.snapshot_bytes as u64).expect("seal");
     let mut longer = Vec::new();
     writer::put(&mut longer, raw.len() as u64 + 1);
     let header = {
@@ -98,4 +101,19 @@ fn sealed_blocks_round_trip_and_shrink() {
     let mut huge = Vec::new();
     writer::put(&mut huge, LIMITS.snapshot_bytes as u64 + 1);
     assert!(open(&huge).is_err(), "a length past the snapshot bound");
+}
+
+#[test]
+fn every_sealed_section_admits_exactly_its_expanded_byte_bound() {
+    let raw = b"compressible evidence\n".repeat(64);
+    let limit = raw.len() as u64;
+    for tag in [b"STRE", b"SRCO", b"WITN", b"UNRS"] {
+        let stored = seal(tag, &raw, limit).expect("raw body at the bound fits");
+        assert_eq!(open(&stored).expect("open"), raw);
+        let error = seal(tag, &raw, limit - 1).expect_err("raw body past the bound is refused");
+        assert_eq!(
+            error.code,
+            octocode_contract_types::ErrorCode::ScopeTooBroad
+        );
+    }
 }

@@ -4,6 +4,7 @@
 
 use super::collect::byte_ceiling;
 use super::file_search::{FileSearcher, SEARCH_HEAP_LIMIT_BYTES, build_searcher};
+use super::judge_gate::JudgeGate;
 use super::mode::{Mode, match_work};
 use super::{rust_matcher_builder, rust_spelling, to_engine_err};
 use crate::error::{Error, ErrorKind, Result};
@@ -71,6 +72,10 @@ pub fn count_listed(
                 .map_err(to_engine_err)
         })
         .collect::<Result<Vec<_>>>()?;
+    let gates = alternates
+        .iter()
+        .map(|opts| JudgeGate::of(opts, &rust_spelling(opts, &opts.pattern)))
+        .collect::<Vec<_>>();
     let found = alternates
         .iter()
         .map(|_| AtomicUsize::new(0))
@@ -82,7 +87,8 @@ pub fn count_listed(
         let mut searchers = alternates
             .iter()
             .zip(&matchers)
-            .map(|(opts, matcher)| FileSearcher {
+            .zip(&gates)
+            .map(|((opts, matcher), gate)| FileSearcher {
                 opts,
                 matcher,
                 searcher: build_searcher(
@@ -100,6 +106,7 @@ pub fn count_listed(
                 copy: false,
                 words: None,
                 terms: &[],
+                gate,
             })
             .collect::<Vec<_>>();
         let mut held = Vec::new();
@@ -145,19 +152,17 @@ fn count_in(
         if (&file).take(heap).read_to_end(held).is_err() {
             return;
         }
-        // The text the search's judge serves is what every matcher sees.
-        match searchers[0].judged(&file, path) {
-            Ok(Some(text)) => *held = text,
-            Ok(None) => {}
-            Err(_) => return,
-        }
     }
-    for (searcher, found) in searchers.iter_mut().zip(found) {
+    // The text the search's judge serves is what every matcher sees: judged
+    // once, when the first matcher whose gate does not prove the file
+    // unmatched needs it.
+    let mut judged = Judged::Pending;
+    for (searcher, found) in searchers.iter_mut().zip(found.iter()) {
         if meta.len() > byte_ceiling(searcher.opts) {
             continue;
         }
         let outcome = if shared {
-            searcher.search_held(held)
+            held_outcome(searcher, (&file, path), held, &mut judged)
         } else {
             note_read();
             (&file)
@@ -166,8 +171,54 @@ fn count_in(
         };
         // Binary from its leading bytes is outside a text search, whatever
         // its bytes matched.
-        if outcome.is_ok_and(|outcome| outcome.matched_lines > 0 && !outcome.opaque) {
-            found.fetch_add(1, Ordering::Relaxed);
+        match outcome {
+            Ok(outcome) if outcome.matched_lines > 0 && !outcome.opaque => {
+                found.fetch_add(1, Ordering::Relaxed);
+            }
+            Ok(_) => {}
+            // A judge that failed leaves the file unsearched by every matcher.
+            Err(_) if shared && matches!(judged, Judged::Pending) => return,
+            Err(_) => {}
         }
+    }
+}
+
+/// What the search's judge made of one held file.
+enum Judged {
+    /// Not judged yet: every matcher so far was proved unmatched by its gate.
+    Pending,
+    /// Judged, and the judge replaced nothing: the held bytes are its text.
+    Unchanged,
+    /// Judged: the text the judge serves in place of the held bytes.
+    Replaced(Vec<u8>),
+}
+
+/// `searcher`'s outcome over `held`, the bytes of `file` read once: the
+/// search of those bytes when its gate proves the text the judge serves
+/// holds no match, else the search of that text, judged into `judged` once.
+fn held_outcome(
+    searcher: &mut FileSearcher<'_, RegexMatcher>,
+    (file, path): (&std::fs::File, &Path),
+    held: &[u8],
+    judged: &mut Judged,
+) -> std::io::Result<super::file_search::FileOutcome> {
+    if matches!(judged, Judged::Pending) {
+        if searcher.opts.judge.is_some() && searcher.gate.gates() {
+            let own = searcher.search_held(held)?;
+            if searcher
+                .gate
+                .proves_unmatched(file, own.matched_lines, own.binary)?
+            {
+                return Ok(own);
+            }
+        }
+        *judged = match searcher.judged(file, path)? {
+            Some(text) => Judged::Replaced(text),
+            None => Judged::Unchanged,
+        };
+    }
+    match judged {
+        Judged::Replaced(text) => searcher.search_held(text),
+        Judged::Pending | Judged::Unchanged => searcher.search_held(held),
     }
 }

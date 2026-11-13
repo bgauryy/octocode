@@ -15,7 +15,7 @@ fn document_errors_are_not_limited_to_the_anchor_and_keep_context() {
         {"severity":"error","message":"generated input unavailable",
          "line":1}
     ]);
-    annotate_diagnostics(&mut row, &query(), Some((&items, false)), 20);
+    annotate_diagnostics(&mut row, &query(), Some(&items), 20);
     assert_eq!(
         row["lsp"]["analysisContext"],
         json!({
@@ -38,7 +38,7 @@ fn document_errors_are_not_limited_to_the_anchor_and_keep_context() {
 }
 
 #[test]
-fn unavailable_clean_and_truncated_diagnostics_stay_distinct() {
+fn unavailable_and_complete_clean_diagnostics_stay_distinct() {
     let q = query();
     let mut unavailable = json!({"status":"empty"});
     annotate_diagnostics(&mut unavailable, &q, None, 20);
@@ -50,21 +50,13 @@ fn unavailable_clean_and_truncated_diagnostics_stay_distinct() {
 
     let items = json!([]);
     let mut clean = json!({"status":"empty"});
-    annotate_diagnostics(&mut clean, &q, Some((&items, false)), 20);
+    annotate_diagnostics(&mut clean, &q, Some(&items), 20);
     assert_eq!(
         clean["lsp"]["analysisContext"]["diagnostics"],
         "noErrorsReported"
     );
     assert_eq!(clean["lsp"]["analysisContext"]["diagnosticsComplete"], true);
     assert!(clean.get("isPartial").is_none());
-
-    let mut truncated = json!({"status":"empty"});
-    annotate_diagnostics(&mut truncated, &q, Some((&items, true)), 20);
-    assert_eq!(
-        truncated["lsp"]["analysisContext"]["diagnosticsComplete"],
-        false
-    );
-    assert_eq!(truncated["partialReasons"], json!(["diagnosticsTruncated"]));
 }
 
 #[test]
@@ -73,7 +65,7 @@ fn successful_answers_retain_their_evidence_when_diagnostics_degrade_coverage() 
         json!({"operation":"definition", "matches":[{"path":"/repo/target.rs","line":4}]});
     let expected = row["matches"].clone();
     let items = json!([{"severity":"error", "message":"bad configuration"}]);
-    annotate_diagnostics(&mut row, &query(), Some((&items, false)), 20);
+    annotate_diagnostics(&mut row, &query(), Some(&items), 20);
     assert_eq!(row["matches"], expected);
     assert_eq!(row["partialReasons"], json!(["documentAnalysisErrors"]));
 
@@ -92,8 +84,9 @@ fn an_anchor_errors_message_is_quoted_as_judged() {
     let token = format!("ghp_{}", "a1B2".repeat(9));
     let warning = |message: String| {
         let mut row = json!({"status":"empty", "path":"/repo/src/main.rs"});
-        let items = json!([{"severity":"error", "message": message, "line": 20, "source": "rustc"}]);
-        annotate_diagnostics(&mut row, &query(), Some((&items, false)), 20);
+        let items =
+            json!([{"severity":"error", "message": message, "line": 20, "source": "rustc"}]);
+        annotate_diagnostics(&mut row, &query(), Some(&items), 20);
         row["warnings"]
             .as_array()
             .into_iter()
@@ -104,7 +97,13 @@ fn an_anchor_errors_message_is_quoted_as_judged() {
             .unwrap_or_else(|| panic!("no anchor warning: {row}"))
     };
     let quoted = warning(format!("expected `;`, found `GITHUB_TOKEN = \"{token}\"`"));
-    assert!(!quoted.contains(&token) && quoted.contains("[REDACTED-"), "{quoted}");
+    assert!(
+        !quoted.contains(&token) && quoted.contains("[REDACTED-"),
+        "{quoted}"
+    );
     let plain = warning("mismatched types".into());
-    assert!(plain.contains("line 20: mismatched types (rustc)."), "{plain}");
+    assert!(
+        plain.contains("line 20: mismatched types (rustc)."),
+        "{plain}"
+    );
 }

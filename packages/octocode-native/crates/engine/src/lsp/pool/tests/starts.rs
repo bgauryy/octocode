@@ -1,5 +1,43 @@
 use super::*;
 
+/// Failure metadata is retained work too: visiting many unavailable workspaces
+/// must not retain every key and error for the lifetime of the server.
+#[tokio::test(start_paused = true)]
+async fn failed_start_cache_uses_the_pool_capacity_and_keeps_recent_keys() {
+    let pool = pool(3, 60_000);
+    let capacity = pool.options.max_entries;
+    for index in 0..capacity {
+        let key = format!("failed-{index}");
+        assert!(
+            pool.acquire(key.clone(), key, || async {
+                Err(shared_error("unavailable"))
+            })
+            .await
+            .is_err()
+        );
+    }
+    // Refresh the oldest failure before inserting a new one.
+    assert!(
+        pool.acquire("failed-0".into(), "failed-0".into(), || async {
+            panic!("the active backoff must be reused")
+        })
+        .await
+        .is_err()
+    );
+    assert!(
+        pool.acquire("new-failure".into(), "new-failure".into(), || async {
+            Err(shared_error("unavailable"))
+        })
+        .await
+        .is_err()
+    );
+    let state = pool.state.lock().await;
+    assert_eq!(state.backoff.len(), capacity);
+    assert!(state.backoff.contains("failed-0"));
+    assert!(!state.backoff.contains("failed-1"));
+    assert!(state.backoff.contains("new-failure"));
+}
+
 #[tokio::test(start_paused = true)]
 async fn blocked_start_does_not_block_another_key_and_cancelled_waiter_keeps_owner() {
     let pool = Arc::new(pool(4, 60_000));

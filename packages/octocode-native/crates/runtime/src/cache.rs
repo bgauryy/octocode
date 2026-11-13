@@ -291,6 +291,27 @@ impl<V: Send + Sync + 'static, C: DiskCodec<V>> Store<V, C> {
         self.disk.as_ref().map(|disk| disk.entry_lock(key))
     }
 
+    /// Run `update` holding `key`'s entry lock, so a read-modify-write of the
+    /// entry excludes writers in other processes sharing the directory; a
+    /// store in memory has none, and its caller orders its own writers. `None`
+    /// when the lock stays busy past [`disk::REUSE_LOCK_WAIT`] or cannot be taken.
+    pub(crate) fn with_entry_lock<T>(
+        &self,
+        key: &CacheKey,
+        update: impl FnOnce() -> T,
+    ) -> Option<T> {
+        use octocode_io::lock::{LOCK_POLL, lock_within, open_lock_file};
+        let _lock = match self.entry_lock(key) {
+            Some(path) => {
+                octocode_io::atomic::create_private_dir_all(path.parent()?).ok()?;
+                let file = open_lock_file(&path).ok()?;
+                Some(lock_within(file, disk::REUSE_LOCK_WAIT, LOCK_POLL).ok()?)
+            }
+            None => None,
+        };
+        Some(update())
+    }
+
     /// The value bytes of this store's link for `key`.
     pub(crate) fn read_link(&self, key: &CacheKey) -> Option<Vec<u8>> {
         self.disk.as_ref()?.read_link(key, &self.config)

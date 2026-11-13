@@ -7,7 +7,7 @@
 use bytes::Bytes;
 use reqwest::header::{ACCEPT, HeaderMap, HeaderName, HeaderValue, SET_COOKIE};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex, PoisonError};
 use url::Url;
 
@@ -214,15 +214,26 @@ pub(super) fn answer_of(request: &str, page: &ResponsePage) -> Option<ProviderAn
 }
 
 struct Recorded {
-    request: String,
+    request: Arc<str>,
     answer: Result<ResponsePage, ProviderError>,
+}
+
+/// Keep the observed request order, while new requests need no scan of all
+/// earlier pages. Keys share their allocation with the ordered entries.
+#[derive(Default)]
+struct RecordedPages {
+    requests: HashSet<Arc<str>>,
+    answers: Vec<Recorded>,
 }
 
 /// One request's journal; clones of its [`super::RequestContext`] share it.
 #[derive(Default)]
 pub(crate) struct Journal {
     saved: Option<Arc<ProviderEvidence>>,
-    recorded: Mutex<Vec<Recorded>>,
+    /// Only still-usable saved entries are indexed: forgetting a replayed
+    /// response must prevent another replay of the same unreadable body.
+    saved_requests: Mutex<HashMap<String, usize>>,
+    recorded: Mutex<RecordedPages>,
     notes: Mutex<BTreeMap<String, String>>,
 }
 
@@ -230,20 +241,29 @@ impl Journal {
     /// A journal resuming `saved`: its facts hold from the start, and its
     /// answers answer the requests they recorded.
     pub(crate) fn resuming(saved: Arc<ProviderEvidence>) -> Self {
+        let mut saved_requests = HashMap::with_capacity(saved.answers.len());
+        for (index, answer) in saved.answers.iter().enumerate() {
+            saved_requests
+                .entry(answer.request.clone())
+                .or_insert(index);
+        }
         Self {
             notes: Mutex::new(saved.notes.clone()),
             saved: Some(saved),
+            saved_requests: Mutex::new(saved_requests),
             recorded: Mutex::default(),
         }
     }
 
     /// The saved answer recorded for `request` (a [`request_key`]).
     fn saved_answer(&self, request: &str) -> Option<&ProviderAnswer> {
-        self.saved
-            .as_ref()?
-            .answers
-            .iter()
-            .find(|answer| answer.request == request)
+        let saved = self.saved.as_ref()?;
+        let index = *self
+            .saved_requests
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(request)?;
+        saved.answers.get(index)
     }
 
     /// Whether a saved answer answers `spec`: [`Self::replay`] sends nothing
@@ -294,18 +314,27 @@ impl Journal {
     /// differently when asked again, so a continuation asks again.
     pub(crate) fn forget(&self, spec: &RequestSpec) {
         let request = request_key(spec);
-        self.recorded
+        self.saved_requests
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .retain(|entry| entry.request != request);
+            .remove(&request);
+        let mut recorded = self.recorded.lock().unwrap_or_else(PoisonError::into_inner);
+        if recorded.requests.remove(request.as_str()) {
+            recorded
+                .answers
+                .retain(|entry| entry.request.as_ref() != request);
+        }
     }
 
     /// The last answer to a request stands (a GraphQL request retried after
     /// an answer with errors keeps its retry's answer).
     fn push(&self, request: String, answer: Result<ResponsePage, ProviderError>) {
         let mut recorded = self.recorded.lock().unwrap_or_else(PoisonError::into_inner);
-        recorded.retain(|entry| entry.request != request);
-        recorded.push(Recorded { request, answer });
+        let request: Arc<str> = request.into();
+        if recorded.requests.replace(Arc::clone(&request)).is_some() {
+            recorded.answers.retain(|entry| entry.request != request);
+        }
+        recorded.answers.push(Recorded { request, answer });
     }
 
     pub(crate) fn note(&self, name: &str) -> Option<String> {
@@ -336,11 +365,12 @@ impl Journal {
         let recorded = self.recorded.lock().unwrap_or_else(PoisonError::into_inner);
         ProviderEvidence {
             answers: recorded
+                .answers
                 .iter()
                 .filter_map(|Recorded { request, answer }| match answer {
                     Ok(page) => answer_of(request, page),
                     Err(error) => Some(ProviderAnswer {
-                        request: request.clone(),
+                        request: request.to_string(),
                         status: error.status.unwrap_or(404),
                         headers: Vec::new(),
                         body: AnswerBody::default(),
@@ -361,6 +391,68 @@ impl Journal {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn forgetting_a_replayed_answer_requires_a_fresh_read() {
+        let spec = RequestSpec::get(Url::parse("https://api.github.com/repos/a/b").expect("url"));
+        let page = ResponsePage {
+            status: 200,
+            headers: HeaderMap::new(),
+            body: Bytes::from_static(b"{\"id\":1}"),
+            next: None,
+            redirected: false,
+        };
+        let saved = ProviderEvidence {
+            answers: vec![answer_of(&request_key(&spec), &page).expect("answer")],
+            notes: BTreeMap::new(),
+        };
+        let journal = Journal::resuming(Arc::new(saved));
+        assert!(journal.answers(&spec));
+        assert!(journal.replay(&spec).expect("replay").is_ok());
+        journal.forget(&spec);
+        assert!(journal.evidence().is_empty());
+        assert!(
+            !journal.answers(&spec),
+            "forgotten evidence cannot answer again"
+        );
+        assert!(
+            journal.replay(&spec).is_none(),
+            "a retry must read the origin"
+        );
+    }
+
+    #[test]
+    fn replacing_and_forgetting_answers_preserve_the_last_request_order() {
+        let journal = Journal::default();
+        let page = |value: &'static [u8]| ResponsePage {
+            status: 200,
+            headers: HeaderMap::new(),
+            body: Bytes::from_static(value),
+            next: None,
+            redirected: false,
+        };
+        let first =
+            RequestSpec::get(Url::parse("https://api.github.com/repos/a/first").expect("url"));
+        let second =
+            RequestSpec::get(Url::parse("https://api.github.com/repos/a/second").expect("url"));
+        journal.record_page(&first, &page(b"old"));
+        journal.record_page(&second, &page(b"second"));
+        journal.record_page(&first, &page(b"new"));
+        let evidence = journal.evidence();
+        assert_eq!(evidence.answers.len(), 2);
+        assert_eq!(evidence.answers[0].request, request_key(&second));
+        assert_eq!(evidence.answers[1].request, request_key(&first));
+        assert_eq!(evidence.answers[1].body, "new");
+
+        journal.forget(&second);
+        journal.forget(&second);
+        journal.record_page(&second, &page(b"returned"));
+        let evidence = journal.evidence();
+        assert_eq!(evidence.answers.len(), 2);
+        assert_eq!(evidence.answers[0].request, request_key(&first));
+        assert_eq!(evidence.answers[1].request, request_key(&second));
+        assert_eq!(evidence.answers[1].body, "returned");
+    }
 
     /// A body written and read as JSON is the JSON string a `String` was, and
     /// every hand-off from a page to an answer and back shares its bytes.

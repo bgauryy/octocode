@@ -8,6 +8,7 @@ fn server_languages_keep_catalog_order_and_drop_unresolved_servers() {
         args: Some(Vec::new()),
         workspace_root: "/w".to_owned(),
         language_id: None,
+        document_language_ids: Default::default(),
         initialization_options: None,
         env: None,
         max_memory_mb: None,
@@ -40,6 +41,7 @@ fn a_rustup_proxy_resolves_only_when_the_toolchain_rustup_selects_ships_the_comp
         args: None,
         workspace_root: workspace.to_string_lossy().into_owned(),
         language_id: None,
+        document_language_ids: Default::default(),
         initialization_options: None,
         env: None,
         max_memory_mb: None,
@@ -239,6 +241,7 @@ fn a_users_clangd_fallback_flags_replace_the_cuda_default() {
         args: None,
         workspace_root: "/workspace".to_owned(),
         language_id: Some("cuda".to_owned()),
+        document_language_ids: Default::default(),
         initialization_options: Some(
             json!({ "fallbackFlags": ["-xcuda", "--cuda-path=/opt/cuda"] }),
         ),

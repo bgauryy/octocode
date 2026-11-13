@@ -26,14 +26,20 @@ fn a_field_at_its_default_beside_another_form_runs_without_it() {
     let wider = json!({"queries":[{"path":".","matchString":["x"],"view":"matchOnly",
         "contextLines":{"before":1,"after":0}}]});
     let (input, _) = normalized_input("localSearch", wider);
-    assert_eq!(input["queries"][0]["contextLines"], json!({"before":1,"after":0}));
+    assert_eq!(
+        input["queries"][0]["contextLines"],
+        json!({"before":1,"after":0})
+    );
     let refused = match prepare_rows("localSearch", input) {
         Err(error) => error,
         Ok(mut rows) => rows.remove(0).expect_err("refused"),
     };
     let shown = crate::contracts::format_input_error("localSearch", &refused, &[], &Value::Null)
         .to_string();
-    assert!(shown.contains("contextLines") && shown.contains("content"), "{shown}");
+    assert!(
+        shown.contains("contextLines") && shown.contains("content"),
+        "{shown}"
+    );
 }
 
 #[test]

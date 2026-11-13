@@ -331,7 +331,7 @@ fn request_chars(
     // The widest location any section of this source states.
     let (end, lines) = (text.len(), octocode_engine::text::line_starts(text).len());
     let empty = json!({"target":{"range":{"bytes":[end,end],"lines":{"startLine":lines,"endLine":lines}},"text":""},"context":[]});
-    let state = super::assess::scoped(super::super::rows::contextual_state(
+    let state = super::super::rows::scoped(super::super::rows::contextual_state(
         &empty,
         row.context.as_deref(),
     ));

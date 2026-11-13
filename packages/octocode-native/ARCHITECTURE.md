@@ -16,7 +16,7 @@ Neither interface loads JavaScript. The CLI commands and `octocode mcp` run in t
 
 GitHub materialization separates acquisition from persistence. `tools/gh_structure/materialize`
 owns listing order, provider reads, limits, and continuations; its `snapshot` module owns
-the v3 snapshot manifest, SHA-256 verification, and a kernel file lock held through
+the v4 snapshot manifest, retained skip outcomes, SHA-256 verification, and a kernel file lock held through
 publication. The lock coordinates batch rows and native processes; its asynchronous wait
 uses the request deadline and cancellation budget. The shared `private_file::BeneathDir`
 capability creates descendants and atomically replaces files through held directory
@@ -87,12 +87,13 @@ credential selection and generated tool contracts; `crates/cli` owns the native
 CLI and MCP server. All six crates inherit one workspace version and remain
 unpublished Cargo packages.
 
-Fresh tool calls compute their results afresh. There are no reusable judgment,
-prepared-source, sanitized-source, outline, parsed-facts or decoded-graph result
-stores. A request carries the commit it actually resolved through both success and
-recovery paths; returned files and capture paths remain inspectable outputs.
+Fresh tool calls validate source identity and policy before reusing derived work.
+Content-digest memos can reuse outlines, parsed declarations and name mentions;
+scan memos revalidate watched files, directories and ignore rules. Fresh judgments
+still call their provider. A request carries the commit it actually resolved through
+both success and recovery paths; returned files and capture paths remain inspectable outputs.
 
-Provider answers are the exception, because the origin can vouch for them.
+Provider-answer reuse additionally follows the origin's freshness rules.
 `providers::saved_answers` keeps GitHub and registry responses by origin and exact
 credential, and `SavedAnswer::reuse` applies the origin's rule: a SHA-named read
 needs no question, `max-age` holds until it lapses, a validator asks (GitHub's 304
@@ -105,7 +106,8 @@ Continuation storage has one authoritative location. Persistent stores read disk
 on every access and hold no duplicate in-process copy; memory-only stores retain
 state only within their runtime. `cache::Directory` inventories persisted work.
 The shared bounded memory store uses an LRU and ordered expiry index to retire
-issued work; it never answers a fresh query with a previous query's result.
+retained work. Issued continuations select their captured evidence; fresh requests
+reuse derived state only while its source and policy proof remains current.
 
 Disk admission holds a per-store OS lock and reserves entry bytes before atomic
 publication. Headers and bodies are written separately without another body-sized
@@ -135,8 +137,8 @@ specific evidence and progress addressed by issued continuations.
 work, and removes inventoried home state and workspace extraction checkpoints.
 The CLI first requests acknowledged shutdown of warm servers. Separate MCP
 processes must stop and restart. Published graphs, clone outputs, credentials,
-installations and rate-limit coordination remain intact. Daily maintenance ages
-inspectable captures and materializations according to their retention policy.
+installations and rate-limit coordination remain intact. Maintenance due at persistent-runtime startup ages inspectable captures and
+materializations according to their retention policy.
 
 Public continuations use one issued-handle registry (`runtime/engine/cursors`). Each
 opaque handle selects a target tool, the complete normalized request, and either

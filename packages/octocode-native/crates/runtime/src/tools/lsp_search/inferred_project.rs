@@ -27,7 +27,6 @@ pub(super) const REASON: crate::response::paging::PartialReason =
 /// Importer recovery failed a step, so some importers are unverified.
 pub(in crate::tools::lsp_search) const FAILED_REASON: crate::response::paging::PartialReason =
     crate::response::paging::PartialReason::ImporterScanFailed;
-const INFERRED_WARNING: &str = "No tsconfig.json or jsconfig.json covers this file, so the TypeScript server used an inferred project that sees only opened files and their imports; results from other files are missing. Add a tsconfig.json/jsconfig.json at the workspace root, or confirm with a localSearch of the name.";
 
 /// Operations whose answer depends on files the server has not opened.
 pub(super) fn is_incoming(operation: &str) -> bool {
@@ -58,19 +57,20 @@ pub(super) fn annotate(
     // name, so an inferred project no longer hides importers. A window with
     // later windows left was flagged by `Importers::annotate`, which names
     // the window and its `next.nextImporterWindow`.
-    let (reason, warning) = match row
-        .pointer("/coverage/importerScan")
-        .and_then(Value::as_str)
+    // A failed scan was flagged with its cause by `Importers::annotate`.
+    // A scan that skipped files says so itself (`disclose_ignored`).
+    if matches!(
+        row.pointer("/coverage/importerScan")
+            .and_then(Value::as_str),
+        Some(SCAN_COMPLETE | SCAN_CAPPED | SCAN_FAILED | SCAN_SKIPPED)
+    ) || !typescript
+        || typescript_project_dir(anchor_dir(Path::new(anchor_path))).is_some()
     {
-        // A failed scan was flagged with its cause by `Importers::annotate`.
-        // A scan that skipped files says so itself (`disclose_ignored`).
-        Some(SCAN_COMPLETE | SCAN_CAPPED | SCAN_FAILED | SCAN_SKIPPED) => return,
-        _ if typescript && typescript_project_dir(anchor_dir(Path::new(anchor_path))).is_none() => {
-            (REASON, INFERRED_WARNING.to_owned())
-        }
-        _ => return,
-    };
-    flag_partial(row, query, reason, Some(&warning), scope);
+        return;
+    }
+    // `inferredProject` is the whole statement: what it means (and the
+    // tsconfig.json repair) is core's, said once in the output reference.
+    flag_partial(row, query, REASON, None, scope);
 }
 
 pub(in crate::tools::lsp_search) mod compile_database;
@@ -117,12 +117,10 @@ mod tests {
         // The reason is stated once, in partialReasons.
         assert_eq!(row["partialReasons"], json!([REASON]));
         assert!(row.pointer("/coverage/reason").is_none(), "{row}");
-        assert!(
-            row["warnings"][0]
-                .as_str()
-                .is_some_and(|w| w.contains("tsconfig.json")),
-            "{row}"
-        );
+        // The code is the whole statement: the tsconfig.json repair is the
+        // reason's meaning, said once by core.
+        assert!(row.get("warnings").is_none(), "{row}");
+        crate::tools::test_support::checks::assert_no_reason_meaning(&row);
         let next = row["related"]
             .as_array()
             .unwrap()

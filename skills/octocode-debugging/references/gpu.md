@@ -1,6 +1,6 @@
 # Frame and GPU timelines
 
-Start with a missed frame, slow batch or other observable unit. Record the frame/request ID, input size, viewport or device, warmup and build. Keep the display mode, GPU selection and workload the user experienced. Rendering can belong to the browser GPU process, compositor or terminal emulator even when the application PID is quiet.
+Start with a missed frame, slow batch or other observable unit. Identify the affected work and preserve the environment needed to reproduce it; record device, viewport, warmup or build differences when they affect the comparison. Rendering can belong to the browser GPU process, compositor or terminal emulator even when the application PID is quiet.
 
 | Workload | Capture the interval | Follow the work |
 |---|---|---|

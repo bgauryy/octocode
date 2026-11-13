@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { posix } from 'node:path';
 import { cliCommand, octocode } from './lib.mjs';
+import { readResponse } from './tools.mjs';
 
 // Bulk reads let the row `limit` end a page, not the response budget: the budget has no maximum (the default
 // 20,000 suits an agent's context; this skill writes pages to disk), and 1,000 lean rows stay well under it.
@@ -43,7 +44,7 @@ export function totalOf(data) {
 
 // The exact total of a graphQuery row from its first page alone (no walk).
 export async function graphTotal(row, { run = graphCall } = {}) {
-  const total = totalOf(dataOf('graphQuery', await run('graphQuery', envelope({ ...row, limit: 1 }))));
+  const total = totalOf(dataOf('graphQuery', await readResponse('graphQuery', envelope({ ...row, limit: 1 }), { run })));
   if (total === undefined) throw new Error(`graphQuery ${row.operation} returned no total`);
   return total;
 }
@@ -51,7 +52,15 @@ export async function graphTotal(row, { run = graphCall } = {}) {
 // A build's stderr progress notes (`# graphBuild: parsed 120/400 files`) reach `onProgress` without the note mark and tool prefix.
 export async function graphBuild(row, { run = graphCall, onProgress = () => {} } = {}) {
   const onStderr = (line) => onProgress(line.replace(/^# graphBuild: /, ''));
-  return dataOf('graphBuild', await run('graphBuild', envelope(row), { onStderr }));
+  let input = envelope(row);
+  for (;;) {
+    const response = await readResponse('graphBuild', input, { run: (tool, args) => run(tool, args, { onStderr }) });
+    const data = dataOf('graphBuild', {results:response.results.slice(-1)});
+    const next = data.next?.expandScan;
+    if (next?.kind === 'continue' && next.input) { input = next.input; continue; }
+    if (!data.id) throw new Error('graphBuild returned no published snapshot or resume continuation');
+    return data;
+  }
 }
 
 // A graph answer names every file and directory from the workspace root, as every tool does: each `path`, each
@@ -98,7 +107,7 @@ export function scopePaths(data) {
 
 // The continuation of a response, in the order the contract reads them: the serialized-response page first,
 // then the row's own `next.nextPage`. List and cycle-member continuations are read separately.
-const pageContinuation = (response, data) => response?.responsePagination?.next?.input ?? data.next?.nextPage?.input;
+const pageContinuation = (_response, data) => data.next?.nextPage?.input;
 
 // The array a `next.<name>` continuation extends: a cycle row's members, or a summary/baseline evidence list.
 function listOf(name, first, rows, pageStart) {
@@ -122,16 +131,18 @@ function listOf(name, first, rows, pageStart) {
 // checked by count: a list's rows, the ones already shown included, must end equal to its `total`. A repeated
 // input, a count mismatch or a missing continuation rejects: the result is complete or there is none. The result
 // is the first page's data with `rows` holding every row and no `pagination` or `next`.
-export async function readGraph(row, { run = graphCall, save = () => {} } = {}) {
+export async function readGraph(row, { run = graphCall, save = () => {}, onPage = () => {}, collectionPaths, collectionRefs } = {}) {
   const seen = new Set();
   async function read(input) {
     const key = JSON.stringify(input);
     if (seen.has(key)) throw new Error('Repeated graph continuation; evidence is incomplete');
     seen.add(key);
-    const response = await run('graphQuery', input);
-    const data = scopePaths(structuredClone(dataOf('graphQuery', response)));
-    save(input, response, data);
-    return { response, data };
+    const response = await readResponse('graphQuery', input, { run, collectionPaths, collectionRefs, onPage: (raw, call) => save(call.input, raw, scopePaths(structuredClone(dataOf('graphQuery', raw)))) });
+    return response.results.map((result) => {
+      const data = scopePaths(structuredClone(dataOf('graphQuery', {results:[result]})));
+      onPage(data);
+      return data;
+    });
   }
   async function extras(data, first, rows, pageStart) {
     for (const [name, call] of Object.entries(data.next ?? {})) {
@@ -143,20 +154,26 @@ export async function readGraph(row, { run = graphCall, save = () => {} } = {}) 
   }
   // `shown`: rows of this list an earlier page already carried (a summary list or a cycle's first members).
   async function collect(input, shown = 0) {
-    let { response, data } = await read(input);
-    const first = data;
-    const total = data.pagination?.total;
+    let slices = await read(input);
+    const first = slices[0];
+    const total = first.pagination?.total;
     const rows = [];
     for (;;) {
       // A page without `rows` is a contract change, not an empty answer: fail rather than build an empty graph.
-      if (!Array.isArray(data.rows)) throw new Error(`graphQuery page has no rows array: ${Object.keys(data).join(',')}`);
-      const pageStart = rows.length;
-      rows.push(...data.rows);
-      if (Number.isInteger(total) && shown + rows.length > total) throw new Error('Graph pages repeat rows: more rows than pagination.total');
-      await extras(data, first, rows, pageStart);
-      const next = pageContinuation(response, data);
-      if (!next) break;
-      ({ response, data } = await read(next));
+      for (const data of slices) {
+        if (!Array.isArray(data.rows)) throw new Error(`graphQuery page has no rows array: ${Object.keys(data).join(',')}`);
+        const pageStart = rows.length;
+        rows.push(...data.rows);
+        if (Number.isInteger(total) && shown + rows.length > total) throw new Error('Graph pages repeat rows: more rows than pagination.total');
+        await extras(data, first, rows, pageStart);
+      }
+      const data = slices.at(-1);
+      const next = pageContinuation(undefined, data);
+      if (!next) {
+        if (data.pagination?.hasMore) throw new Error('Graph evidence ends without a required continuation');
+        break;
+      }
+      slices = await read(next);
     }
     if (Number.isInteger(total) && shown + rows.length !== total) throw new Error('Graph evidence ends without a required continuation');
     first.rows = rows;

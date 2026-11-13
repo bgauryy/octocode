@@ -66,11 +66,7 @@ pub(super) fn map_pr(v: Value) -> Value {
     if !labels.is_empty() {
         row["labels"] = json!(labels);
     }
-    // A count GitHub states is a fact, 0 included: only a count it does not
-    // state is absent.
-    if let Some(count) = v.get("comments").and_then(Value::as_u64) {
-        row["commentsCount"] = json!(count);
-    }
+    state_counts(&mut row, &v);
     remove_null_fields(&mut row);
     row
 }
@@ -131,6 +127,19 @@ pub(super) fn state_updated(row: &mut Value, item: &Value) {
     }
 }
 
+/// Counts GitHub states are facts, zero included; an absent count stays
+/// unknown. The page decides which of these a default row needs.
+fn state_counts(row: &mut Value, item: &Value) {
+    for (pointer, key) in [
+        ("/comments", "commentsCount"),
+        ("/reactions/total_count", "reactionCount"),
+    ] {
+        if let Some(count) = item.pointer(pointer).and_then(Value::as_u64) {
+            row[key] = json!(count);
+        }
+    }
+}
+
 /// An issue row: `updatedAt` only when the rows are sorted by it; labels
 /// only when present.
 pub(super) fn map_issue(v: Value, by_update: bool) -> Value {
@@ -142,11 +151,7 @@ pub(super) fn map_issue(v: Value, by_update: bool) -> Value {
     if by_update {
         row["updatedAt"] = utc_value(v.get("updated_at"));
     }
-    // A count GitHub states is a fact, 0 included: only a count it does not
-    // state is absent.
-    if let Some(count) = v.get("comments").and_then(Value::as_u64) {
-        row["commentsCount"] = json!(count);
-    }
+    state_counts(&mut row, &v);
     remove_null_fields(&mut row);
     row
 }

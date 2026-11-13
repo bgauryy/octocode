@@ -1,5 +1,63 @@
 use super::*;
 
+#[cfg(feature = "tree-sitter-scala")]
+#[test]
+fn declaration_ranges_exclude_indented_trivia_and_preserve_syntax() {
+    let source = "object Example {\n  def first =\n    \"/* literal */ // text\"\n\n  /** The second declaration. */\n  def second = {\n    \"// still a literal\"\n  }\n}\n";
+    let value = facts(source, "ranges.scala");
+    let declarations = value["declarations"].as_array().expect("declarations");
+    for (name, expected) in [
+        ("first", "def first =\n    \"/* literal */ // text\""),
+        ("second", "def second = {\n    \"// still a literal\"\n  }"),
+    ] {
+        let declaration = declarations
+            .iter()
+            .find(|declaration| declaration["name"] == name)
+            .expect("declaration");
+        let span = &declaration["sourceRange"]["range"];
+        let start = span["start_byte"].as_u64().expect("start") as usize;
+        let end = span["end_byte"].as_u64().expect("end") as usize;
+        assert_eq!(&source[start..end], expected, "{name}");
+        assert_eq!(
+            declaration["parseAssessment"]["range"], declaration["range"],
+            "{name}: byte, line and assessment extents agree"
+        );
+        let index = crate::text::LineIndex::tree_sitter(source);
+        let (line, character) = index.byte_to_position(source, end as u32);
+        assert_eq!(declaration["range"]["end"]["line"], line);
+        assert_eq!(declaration["range"]["end"]["character"], character);
+    }
+}
+
+#[test]
+fn declaration_ranges_preserve_trailing_body_comments() {
+    for (path, source, expected) in [
+        (
+            "ranges.py",
+            "def first():\n  return 1\n  # body comment\n\n# next declaration\ndef second():\n  return 2\n",
+            "def first():\n  return 1\n  # body comment",
+        ),
+        #[cfg(feature = "tree-sitter-scala")]
+        (
+            "ranges.scala",
+            "object Example {\n  def first =\n    1\n    // body comment\n\n  /** Next declaration. */\n  def second = 2\n}\n",
+            "def first =\n    1\n    // body comment",
+        ),
+    ] {
+        let value = facts(source, path);
+        let first = value["declarations"]
+            .as_array()
+            .expect("declarations")
+            .iter()
+            .find(|declaration| declaration["name"] == "first")
+            .expect("first declaration");
+        let span = &first["sourceRange"]["range"];
+        let start = span["start_byte"].as_u64().expect("start") as usize;
+        let end = span["end_byte"].as_u64().expect("end") as usize;
+        assert_eq!(&source[start..end], expected, "{path}");
+    }
+}
+
 #[test]
 fn carried_ancestors_preserve_wrapped_assessments_and_module_assignments() {
     for (path, source, wrapper_line, declaration_line) in [

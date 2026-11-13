@@ -363,6 +363,75 @@ fn every_item_form_scans_as_it_parses() {
     }
 }
 
+/// A `#[cfg(test)]` field, struct-literal field or statement written over
+/// several lines is test code to its last line, in the parse and in the scan
+/// alike: a value continued by an operator or a method call on the next line
+/// belongs to the field.
+#[test]
+fn a_multi_line_test_field_or_statement_spans_to_its_last_line() {
+    for (content, span) in [
+        // Struct-literal fields: a binary operator, a method chain, a nested
+        // literal, a comparison, after code on the attribute's line.
+        (
+            "fn f() -> P {\n    P {\n        a: 1,\n        #[cfg(test)]\n        b: x\n            - y,\n        c: 2,\n    }\n}\n",
+            [4, 6],
+        ),
+        (
+            "fn f() -> P {\n    P {\n        #[cfg(test)]\n        b: x\n            .f()\n            .g(),\n        c: 2,\n    }\n}\n",
+            [3, 6],
+        ),
+        (
+            "fn f() -> P {\n    P {\n        #[cfg(test)]\n        b: Q {\n            x: 1,\n        }\n        .f(),\n        c: 2,\n    }\n}\n",
+            [3, 7],
+        ),
+        (
+            "fn f() -> P {\n    P {\n        #[cfg(test)]\n        b: x\n            < y,\n        c: 2,\n    }\n}\n",
+            [3, 5],
+        ),
+        (
+            "fn f() -> P {\n    P {\n        a: 1, #[cfg(test)]\n        b: x\n            + y,\n        c: 2,\n    }\n}\n",
+            [4, 5],
+        ),
+        (
+            "fn f() -> P {\n    P {\n        #[cfg(test)]\n        // note\n        b,\n        c: 2,\n    }\n}\n",
+            [3, 5],
+        ),
+        // Struct and tuple-struct fields of a type over several lines.
+        (
+            "struct S {\n    #[cfg(test)]\n    a: HashMap<\n        u8,\n        u8,\n    >,\n    b: u8,\n}\n",
+            [2, 6],
+        ),
+        (
+            "struct S(\n    #[cfg(test)]\n    pub Vec<\n        u8,\n    >,\n    u8,\n);\n",
+            [2, 5],
+        ),
+        // Statements and a call argument.
+        (
+            "fn f() {\n    #[cfg(test)]\n    let x = a\n        + b;\n    g();\n}\n",
+            [2, 4],
+        ),
+        (
+            "fn f() {\n    #[cfg(test)]\n    a\n        .f()\n        .g();\n    g();\n}\n",
+            [2, 5],
+        ),
+        (
+            "fn f() {\n    #[cfg(test)]\n    x = a\n        - b;\n    g();\n}\n",
+            [2, 4],
+        ),
+        (
+            "fn f() {\n    g(\n        #[cfg(test)]\n        a\n            + b,\n        c,\n    );\n}\n",
+            [3, 5],
+        ),
+    ] {
+        let document =
+            crate::tools::declarations::file_document(content, "a.rs").expect("a Rust parse");
+        let parsed = facts(document.test_lines.clone(), &document.modules, content).0;
+        let scanned = rust_scan::scan(content);
+        let scanned = facts(scanned.test_lines, &scanned.modules, content).0;
+        assert_eq!((&parsed, &scanned), (&vec![span], &vec![span]), "{content}");
+    }
+}
+
 /// Text that is no Rust scans to an end.
 #[test]
 fn broken_text_scans_to_an_end() {

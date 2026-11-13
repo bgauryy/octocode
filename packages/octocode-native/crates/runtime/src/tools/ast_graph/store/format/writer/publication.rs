@@ -108,7 +108,7 @@ pub(super) fn write_snapshot(
             continue;
         }
         let flat = if blocks::sealed(tag) {
-            blocks::seal(tag, &flat)?
+            blocks::seal(tag, &flat, limit)?
         } else {
             flat
         };
@@ -187,7 +187,7 @@ impl<'o, O: std::io::Write + std::io::Seek> BlockedSection<'o, O> {
 
     /// [`Self::body`] of the stored form of `body`, a block of `tag`.
     fn sealed(&mut self, tag: &[u8; 4], body: blocks::Body<'_>) -> Result<(), ToolError> {
-        let stored = blocks::seal(tag, body.bytes)?;
+        let stored = blocks::seal(tag, body.bytes, self.limit)?;
         self.body(&blocks::Body {
             bytes: &stored,
             ..body
@@ -326,6 +326,24 @@ mod tests {
                 bytes: &[1; 9],
             })
             .expect_err("over limit");
+        assert_eq!(
+            error.code,
+            octocode_contract_types::ErrorCode::ScopeTooBroad
+        );
+        assert!(output.into_inner().is_empty());
+    }
+
+    #[test]
+    fn compressed_blocks_cannot_hide_oversized_encoded_bodies() {
+        let limit = (blocks::PREFIX + blocks::ENTRY) as u64 * 16;
+        let text = "x".repeat(limit as usize);
+        let mut output = std::io::Cursor::new(Vec::new());
+        let mut section =
+            BlockedSection::begin(&mut output, 0, 1, limit, &NeverCancel).expect("directory fits");
+        // The string itself fits; its front-coding varints push the raw
+        // encoded body beyond the bound that the reader can inflate.
+        let error = blocks::string_blocks(&[text], &mut |body| section.sealed(b"STRE", body))
+            .expect_err("compression cannot make an unreadable raw body publishable");
         assert_eq!(
             error.code,
             octocode_contract_types::ErrorCode::ScopeTooBroad

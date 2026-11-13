@@ -81,7 +81,11 @@ fn a_shared_error_hint_is_stated_once_per_response() {
     );
     assert_eq!(hints(1), None, "said once: {structured}");
     assert_eq!(hints(2), Some(json!(["own"])), "{structured}");
-    assert_eq!(hints(3), Some(json!([CANCELLED_HINT])), "another note: {structured}");
+    assert_eq!(
+        hints(3),
+        Some(json!([CANCELLED_HINT])),
+        "another note: {structured}"
+    );
     assert!(!structured.to_string().contains("notices"), "{structured}");
 }
 

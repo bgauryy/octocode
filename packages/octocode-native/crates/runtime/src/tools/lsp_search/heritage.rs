@@ -13,6 +13,7 @@ use super::failure::LspFailure;
 use super::source::read_bounded_source;
 use octocode_contract_types::ErrorCode;
 use octocode_engine::graph::{GraphFactCode, GraphFactsDocument};
+use octocode_engine::lsp::resolver::canonical_symbol_name;
 use octocode_engine::lsp::types::{LspCodeSnippet, LspExactPosition, LspRange};
 use octocode_engine::signatures::TYPE_DECLARATION_KINDS;
 use std::collections::BTreeSet;
@@ -53,10 +54,13 @@ async fn scan_workspace(
     else {
         return Ok(None);
     };
-    let Some(files) = scope.text_files(base, policy, cancel).await? else {
+    let language = super::lsp_search_query::path(query)
+        .and_then(octocode_engine::lsp::config::detect_language_id);
+    let wanted = canonical_symbol_name(language.as_deref(), base);
+    let Some(files) = scope.text_files(wanted, policy, cancel).await? else {
         return Ok(None);
     };
-    let name = base.to_owned();
+    let name = wanted.to_owned();
     let scanned = files.clone();
     let Some((found, unread)) = super::blocking_cancellable(cancel, move |stopped| {
         scan_subtypes(&scanned, &name, stopped)
@@ -96,10 +100,10 @@ impl Scannable {
 /// `line` of `content`; `None` for an anchor no heritage clause reaches (a
 /// function, a variable, a member of an impl block).
 pub(super) fn scannable(content: &str, file: &str, line: u32, name: &str) -> Option<Scannable> {
-    if anchors_type_declaration(content, file, line, name) {
+    if scan::anchors_type_declaration(content, file, line, name) {
         return Some(Scannable::Subtypes);
     }
-    member_owner(content, file, line, name).map(|owner| Scannable::Members { owner })
+    scan::member_owner(content, file, line, name).map(|owner| Scannable::Members { owner })
 }
 
 /// The scan `what` names for the query's symbol ([`scan_workspace`] for a
@@ -122,6 +126,9 @@ pub(super) async fn scan_for(
     };
     // A subtype that declares the member spells its name: the files that
     // spell it hold every such declaration.
+    let language = super::lsp_search_query::path(query)
+        .and_then(octocode_engine::lsp::config::detect_language_id);
+    let member = canonical_symbol_name(language.as_deref(), member);
     let Some(files) = scope.text_files(member, policy, cancel).await? else {
         return Ok(None);
     };
@@ -354,49 +361,6 @@ pub(super) fn type_document(
         ));
     }
     Ok(document)
-}
-
-/// Whether the zero-based `line` holds the declaration of the type `name`:
-/// the only anchor whose subtypes a heritage scan can list. A member, a
-/// function or a variable has no extends/implements clause naming it, so a
-/// scan for it would report "no implementations" instead of "unanswered".
-fn anchors_type_declaration(content: &str, file: &str, line: u32, name: &str) -> bool {
-    let Some(document) = crate::tools::declarations::file_document(content, file) else {
-        return false;
-    };
-    document.declarations.iter().any(|declaration| {
-        declaration.name == name
-            && declaration.selection_range.start.line == line
-            && TYPE_DECLARATION_KINDS.contains(&declaration.kind.as_str())
-    })
-}
-
-/// The type that declares the member `name` at the zero-based `line`: the
-/// innermost declaration around it, when that is a type a heritage clause
-/// can name (a trait, an interface, a class). `None` for a member of an
-/// impl block (nothing implements it) and for a name that is no member.
-fn member_owner(content: &str, file: &str, line: u32, name: &str) -> Option<String> {
-    let document = crate::tools::declarations::file_document(content, file)?;
-    let holds_bodies =
-        |kind: &str| TYPE_DECLARATION_KINDS.contains(&kind) || kind == "impl" || kind == "module";
-    let member = document.declarations.iter().find(|declaration| {
-        declaration.name == name
-            && declaration.selection_range.start.line == line
-            && !holds_bodies(declaration.kind.as_str())
-    })?;
-    let owner = document
-        .declarations
-        .iter()
-        .filter(|declaration| {
-            declaration.id != member.id
-                && declaration.range.start <= member.range.start
-                && member.range.end <= declaration.range.end
-        })
-        // The innermost: the declaration that starts last around the member.
-        .max_by(|left, right| left.range.start.cmp(&right.range.start))?;
-    TYPE_DECLARATION_KINDS
-        .contains(&owner.kind.as_str())
-        .then(|| owner.name.clone())
 }
 
 /// Whether a failed `textDocument/implementation` request leaves the syntax

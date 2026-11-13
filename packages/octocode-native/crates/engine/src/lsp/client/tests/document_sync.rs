@@ -81,12 +81,59 @@ pub(super) async fn read_client_frame(reader: &mut BufReader<tokio::io::DuplexSt
     serde_json::from_slice(&body).expect("json")
 }
 
+#[tokio::test]
+async fn did_open_preserves_custom_extension_language_ids_and_builtin_siblings() {
+    let directory = tempfile::tempdir().expect("directory");
+    std::fs::write(
+        directory.path().join("lsp-servers.json"),
+        r#"{"languageServers":{
+            ".h":{"command":"custom-server","languageId":"cpp"},
+            ".js":{"command":"custom-server","languageId":"custom-javascript"},
+            ".ts":{"command":"custom-server","languageId":"typescript"}
+        }}"#,
+    )
+    .expect("custom routes");
+    let options = crate::lsp::config::LspDiscoveryOptions {
+        octocode_home: Some(directory.path().to_path_buf()),
+        ..Default::default()
+    };
+    let root = directory.path().to_string_lossy();
+    for (anchor, opened, expected) in [
+        ("anchor.h", "source.h", "cpp"),
+        ("anchor.js", "source.js", "custom-javascript"),
+        ("anchor.ts", "source.tsx", "typescriptreact"),
+        ("anchor.tsx", "source.ts", "typescript"),
+    ] {
+        let anchor = directory.path().join(anchor);
+        let config =
+            crate::lsp::config::default_server_for_file(&anchor.to_string_lossy(), &root, &options)
+                .expect("custom route");
+        let (client, mut server, _server_w) = client_with_fake_server_for(config, 64 * 1024).await;
+        client
+            .open_document(
+                directory.path().join(opened).to_string_lossy().into_owned(),
+                "",
+            )
+            .await
+            .expect("didOpen");
+        let frame = read_client_frame(&mut server).await;
+        assert_eq!(frame["method"], "textDocument/didOpen");
+        assert_eq!(
+            frame["params"]["textDocument"]["languageId"],
+            expected,
+            "{opened} opened from {}",
+            anchor.display()
+        );
+    }
+}
+
 fn clangd_config(root: &Path, language_id: &str) -> LspLanguageServerConfig {
     LspLanguageServerConfig {
         command: "clangd".into(),
         args: None,
         workspace_root: root.to_string_lossy().into_owned(),
         language_id: Some(language_id.into()),
+        document_language_ids: Default::default(),
         initialization_options: None,
         env: None,
         max_memory_mb: None,

@@ -105,7 +105,9 @@ fn reversed_metadata_bounds_fail_before_the_walk() {
         .expect_err("reversed range");
         assert_eq!(error.kind(), &ErrorKind::InvalidInput);
         assert!(
-            error.to_string().starts_with(&format!("{field} lower bound")),
+            error
+                .to_string()
+                .starts_with(&format!("{field} lower bound")),
             "{error}"
         );
     }

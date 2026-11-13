@@ -57,6 +57,28 @@ fn continuation_keeps_the_scope_path_and_snapshot() {
     );
 }
 
+#[test]
+fn evidence_continuation_reserves_the_named_target_filter() {
+    let symbol_name = "target_".repeat(128);
+    for operation in ["witnesses", "unresolved"] {
+        let options = QueryOptions {
+            op: operation.into(),
+            path: Some("packages/app".into()),
+            symbol_name: Some(symbol_name.clone()),
+            ..Default::default()
+        };
+        let resume = Resume::Row {
+            offset: 1,
+            list: None,
+            cycle: None,
+        };
+        let next = Value::Object(resume_row(&options, "snapshot-id", &resume));
+        assert_eq!(next["symbolName"], symbol_name);
+        assert_eq!(next["operation"], operation);
+        assert_eq!(next["offset"], 1);
+    }
+}
+
 /// A default witness or unresolved row states what differs between rows: its
 /// digest `id` is provenance (`includeProvenance:true` returns it), `test`
 /// appears only when true, and `evidence` is the page's.

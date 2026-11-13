@@ -111,11 +111,8 @@ pub(super) fn shape_file_page(
         {
             push_warnings(out, [super::filter::include_kept_warning(in_scope, loaded)]);
         }
-        if match_removed_all && let Some(needle) = gh_get_history_item_query::match_strings(query) {
-            push_warnings(
-                out,
-                [super::filter::match_removed_all_warning(needle, in_scope)],
-            );
+        if match_removed_all && gh_get_history_item_query::match_strings(query).is_some() {
+            push_warnings(out, [super::filter::match_removed_all_warning(in_scope)]);
             out["status"] = json!("empty");
             // A literal alone resolved the sections to patches: without it,
             // the read lists the files.

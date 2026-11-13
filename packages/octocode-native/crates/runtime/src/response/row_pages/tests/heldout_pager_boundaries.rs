@@ -89,7 +89,10 @@ fn first_only_oversized_context_does_not_enlarge_later_nested_pages() {
             }
         }
     }
-    assert_eq!(description_windows, description, "every description char once, in order");
+    assert_eq!(
+        description_windows, description,
+        "every description char once, in order"
+    );
     assert_eq!(
         seen, expected,
         "nested evidence is delivered exactly once in order"

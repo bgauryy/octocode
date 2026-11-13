@@ -3,6 +3,8 @@
 
 use super::*;
 
+mod ancestry;
+
 #[test]
 fn single_file_symbols_are_compact_and_path_free() {
     let root = Fixture::new();
@@ -247,13 +249,11 @@ fn directory_symbols_keep_row_paths_without_static_notes() {
     assert!(diagnostics.is_empty(), "{out}");
 }
 
-/// A one-line `typedef struct X X;` declares
-/// `type X` and `struct X` on one name line. The struct is the typedef's
-/// sibling, never its own parent's member, and no row is dropped. A
-/// multi-line `typedef struct Y {…} Y;` keeps its struct nested (different
-/// name lines), and a struct field keeps its struct parent.
+/// Tag and alias syntax nodes can share a name and line while remaining
+/// distinct declarations. Preserve their real AST ancestry and every row;
+/// display-name equality must not flatten the tree or create a cycle.
 #[test]
-fn c_one_line_typedef_struct_is_not_its_own_parent() {
+fn c_typedef_tag_rows_preserve_distinct_identity() {
     let root = Fixture::new();
     let source = root.0.join("module.c");
     std::fs::write(
@@ -286,20 +286,26 @@ fn c_one_line_typedef_struct_is_not_its_own_parent() {
     ] {
         assert!(named.contains(&want), "{want:?} missing: {out}");
     }
-    for row in &flat {
-        assert!(
-            !(row.get("parent") == row.get("symbolName")
-                && row.get("parentLine") == row.get("line")),
-            "self-parented row {row}: {out}"
-        );
-    }
     let parent_of = |name: &str, kind: &str, line: u64| {
         flat.iter()
             .find(|row| row["symbolName"] == name && row["kind"] == kind && row["line"] == line)
             .and_then(|row| row.get("parent").cloned())
     };
-    assert_eq!(parent_of("Api", "struct", 4), None, "{out}");
-    assert_eq!(parent_of("Fwd", "struct", 5), None, "{out}");
+    for (name, line) in [("Api", 4), ("Fwd", 5)] {
+        assert_eq!(parent_of(name, "struct", line), Some(json!(name)), "{out}");
+        let alias = rows
+            .as_array()
+            .expect("rows")
+            .iter()
+            .find(|row| row["symbolName"] == name && row["kind"] == "type" && row["line"] == line)
+            .expect("alias");
+        assert_eq!(alias["members"][0]["kind"], "struct", "{out}");
+        assert_eq!(alias["members"][0]["symbolName"], name, "{out}");
+        assert!(alias["members"][0].get("members").is_none(), "{out}");
+    }
+    assert_eq!(named.len(), 9, "{out}");
+    assert!(!out.to_string().contains("_declarationIndex"), "{out}");
+    assert!(!out.to_string().contains("_parentIndex"), "{out}");
 }
 
 /// An empty one-file outline counts "1 file", not "1 files".

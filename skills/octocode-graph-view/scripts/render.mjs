@@ -38,10 +38,21 @@ function rankedCommunities(D) {
 
 const communityLine = (c) => `${c.label} (${c.size} files, PageRank ${Number(c.pagerank.toPrecision(3))}, ${Math.round(c.purity * 100)}% in ${c.chunk}, top ${c.lead})`;
 
+function partialLines(D) {
+  const coverage = D.coverage, snapshot = D.snapshot;
+  const reasons = [...new Set([...(coverage.partialReasons ?? []), ...(snapshot?.partialReasons ?? [])])];
+  const missing = coverage.notBuilt ?? [];
+  if (!coverage.isPartial && !snapshot?.isPartial && !reasons.length && !missing.length) return [];
+  const why = reasons.length ? reasons.join(', ') : 'reason not supplied';
+  const chunks = missing.length ? `; chunks not built: ${missing.join(', ')}` : '';
+  return [`COVERAGE PARTIAL: ${why}${chunks}. Counts and metrics cover observed evidence. Details: data.json coverage.partialChunks, coverage.notBuilt and snapshot.partialReasons.`];
+}
+
 function factLines(D, n) {
   const C = D.coverage, M = D.metrics, s = M.stats, v = D.verification, cs = D.callStats;
   return [
     `SECTION ${D.section}: ${C.files} files, ${C.imports} imports, ${D.symbols.length} functions, ${C.calls} calls${C.chunks > 1 ? `, ${C.built}/${C.chunks} chunks (${C.crossChunkImports} imports and ${C.crossChunkCalls} calls between chunks)` : ''}. Paths are relative to the section.`,
+    ...partialLines(D),
     `GRAPH ${s.nodes} nodes, ${s.edges} weighted production edges, total weight ${s.weight}; depth 0-${s.maxDepth}; max k-core ${s.maxCore}; modularity ${s.modularity} over ${s.communities} communities (+${s.isolated} isolated files)`,
     `COMMUNITIES by summed PageRank: ${rankedCommunities(D).slice(0, n).map(communityLine).join('; ')}`,
     `PAGERANK (weighted, importance flows to dependencies): ${top(D, 'pagerank', n)}`,

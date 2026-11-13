@@ -41,10 +41,7 @@ fn authentication_errors_preserve_typed_failure_and_status() {
     for (_tool, result) in [
         (ToolId::GhSearchCode, search_row(error())),
         (ToolId::GhSearchHistory, history_error(error(), true)),
-        (
-            ToolId::GhGetHistoryItem,
-            history_error(error(), false),
-        ),
+        (ToolId::GhGetHistoryItem, history_error(error(), false)),
         (
             ToolId::GhGetFileContent,
             file_row(error(), json!({"owner":"a","repo":"b","path":"x"})),

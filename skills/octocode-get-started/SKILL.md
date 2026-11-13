@@ -1,28 +1,17 @@
 ---
 name: octocode-get-started
-description: "Use when learning Octocode or installing and configuring its CLI, MCP connection, tools and skills. Covers product onboarding, credentials, settings, home/workspace folders and verifying a first tool call."
+description: "Use when learning Octocode, setting up its CLI, MCP connection or skills, configuring credentials and settings, or verifying a first tool call."
 metadata:
   excluded-hosts: "octocode-code"
 ---
 
 # Get started with Octocode
 
-**Start:** read this lobby, map the task to the references it names, and read each one the task needs before acting. [Octocode](https://github.com/bgauryy/octocode) searches local code, GitHub repositories and history, and package registries. Its [tools](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) read files, inspect syntax and navigate symbols. An AI client calls them through [MCP](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md). The [CLI](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md) runs the same research tools in a terminal and manages setup. [Skills](https://github.com/bgauryy/octocode/blob/main/skills/README.md) guide an agent through tasks such as research or code review. Each `SKILL.md` gives the name, description and instructions the agent reads when the skill applies. Supporting files hold details. Optional tools and services have their own installation requirements.
-
-```mermaid
-flowchart LR
-  A{"Already installed: plugin, MCP entry, skills?"} -- no --> I[Install for the actual client] --> R[Reload its MCP connection]
-  A -- yes --> V
-  R --> V{localFetch a known file through that client}
-  V -- fails --> I
-  V -- works --> K{Task needs GitHub, classification, web search or scraping?}
-  K -- yes --> C[Add only that key, restart, confirm with a call]
-  K -- no --> D["Answer; hand code questions to octocode-research"]
-```
+[Octocode](https://github.com/bgauryy/octocode) searches local code, GitHub history and package registries. The [CLI](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md) and [MCP connection](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md) expose the same research tools; [skills](https://github.com/bgauryy/octocode/blob/main/skills/README.md) guide tasks such as research or review. Identify the user's client and reuse an existing installation or plugin before adding anything.
 
 ## Install and verify
 
-Reuse the existing installation. A plugin may already supply both MCP and skills. The npm launchers require Node.js 22+. The standalone native binary runs without Node, though optional skill scripts may need it.
+A plugin may already supply MCP and skills. npm launchers require Node.js 22+; the standalone native binary needs no Node, though optional skill scripts may.
 
 ```bash
 npx -y octocode --help                       # run without a global install
@@ -37,10 +26,6 @@ Choose the actual skill platform. For a project install, replace `--global` with
 
 ## Configure and deliver
 
-Local tools need no keys. GitHub tools use `octocode auth login`; any other key is typed by the user into `octocode config set <KEY> --stdin`. `octocode config list` shows every setting with its value, source and default. Folders, precedence, each key and its commands are in [configure](references/configure.md). Ask before saving anything, then answer per [output.md](output.md).
+Add only keys needed by the task. GitHub tools use `octocode auth login`; the user enters other secrets through `octocode config set <KEY> --stdin`. Keep secrets out of chat and version control. `octocode config list` shows values, sources and defaults; `config unset` restores defaults. Read [configure](references/configure.md) for folders, precedence and individual keys. Save settings within the user's requested setup scope; resolve missing authority before changing credentials or destinations.
 
-| Intent | Thinking mode | Action / check |
-|---|---|---|
-| Install | Via Negativa | Reuse the existing installation or plugin; add only what the task needs. |
-| Claim it works | Goodhart | Installed or listed is not working: only a successful call through the client proves the connection. |
-| Change a setting or key | Optionality | Prefer a reversible step (`config unset` restores the default); keep secrets out of chat and version control. |
+Answer briefly with applicable commands, references, checks performed and gaps. Installation or listing alone does not prove a working connection; require a successful call through the client. Hand code questions to `octocode-research` afterward. Save a setup note only when requested, under `<workspace>/.octocode/octocode-get-started/` (scratch in `tmp/`) unless a path was named.

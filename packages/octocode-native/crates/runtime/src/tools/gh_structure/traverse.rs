@@ -47,14 +47,15 @@ pub(super) struct Listing<'a> {
     pub(super) max_depth: usize,
 }
 
-/// A failure no fallback read can recover: credentials, access, or rate.
-pub(super) fn access_failure(error: &ProviderError) -> bool {
-    matches!(
-        error.kind,
-        ProviderErrorKind::Authentication
-            | ProviderErrorKind::Permission
-            | ProviderErrorKind::RateLimited
-    )
+/// A failure no fallback read can recover within the same request.
+pub(super) fn terminal_failure(error: &ProviderError) -> bool {
+    error.is_cancelled_or_timed_out()
+        || matches!(
+            error.kind,
+            ProviderErrorKind::Authentication
+                | ProviderErrorKind::Permission
+                | ProviderErrorKind::RateLimited
+        )
 }
 
 pub(super) async fn traverse(
@@ -212,7 +213,7 @@ async fn fetch_tree(
     {
         Ok(tree) if !tree.truncated => Ok(TreeRead::Whole(tree)),
         Ok(_) => Ok(TreeRead::Truncated),
-        Err(error) if access_failure(&error) => Err(error),
+        Err(error) if terminal_failure(&error) => Err(error),
         Err(_) => Ok(TreeRead::Unavailable),
     }
 }

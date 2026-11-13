@@ -55,13 +55,19 @@ impl LongLine {
         self.with_placeholders(text, hit)
     }
 
-    /// A row's value for a hit at `hit` of `text`: the bytes around it, marked as a
-    /// window of the line.
+    /// The bytes of `text` a row of a hit at `hit` shows: the hit and the bytes
+    /// on each side of it, on character boundaries.
+    #[must_use]
+    pub fn window_of(text: &str, hit: Range<usize>) -> Range<usize> {
+        text.floor_char_boundary(hit.start.saturating_sub(WINDOW_SIDE_BYTES))
+            ..text.ceil_char_boundary(hit.end.saturating_add(WINDOW_SIDE_BYTES).min(text.len()))
+    }
+
+    /// A context line's head: the bytes [`Self::window_of`] a hit at `hit`
+    /// shows, marked as a window of the line.
     #[must_use]
     pub fn window(&self, text: &str, hit: Range<usize>) -> String {
-        let start = text.floor_char_boundary(hit.start.saturating_sub(WINDOW_SIDE_BYTES));
-        let end =
-            text.ceil_char_boundary(hit.end.saturating_add(WINDOW_SIDE_BYTES).min(text.len()));
+        let Range { start, end } = Self::window_of(text, hit);
         let shown = self.with_placeholders(text, start..end);
         let mut value = String::with_capacity(shown.len() + 6);
         if start > 0 {

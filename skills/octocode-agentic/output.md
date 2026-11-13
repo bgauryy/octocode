@@ -2,7 +2,7 @@
 
 <!-- report-contract {"statuses":["Proposed","Ready","Needs work","Keep","Discard","Accept","Revert","Inconclusive","Invalid","Resolved","Waiting","Blocked"],"required":[],"anyOf":[["Findings","Changes","Decision","Outcome"]]} -->
 
-Answer in chat unless the [saved-report rule](#saved-report) applies or the user asks to save. Deliver task content only: no probe output, traces, receipts, run IDs or process metadata in prose. Run-folder files are evidence, so link them instead of pasting them. Keep assumptions and uncertainty next to the claims they affect.
+Answer in chat unless a [saved report](#saved-report) is needed. Lead with the result; keep raw traces in linked evidence and include operational identifiers only when the receiver needs them. Put assumptions and uncertainty beside affected claims.
 
 ## Response
 
@@ -11,7 +11,7 @@ BLUF: lead with the decision, verdict or outcome and its confidence. Then give w
 | Work | After the lead |
 |---|---|
 | Design or audit | The layer it affects (context, tools, loop, routing, communication, trust), evidence, trade-offs, limits |
-| Prompt or instruction | The prompt in the requested format. For an edit: a full replacement, a change summary and verification. For a review: the affected text, its behavioral effect and a repair. Ready-to-paste task prompts follow [question selection and prompt labels](references/question-selection.md) |
+| Prompt or instruction | The prompt in the requested format. For an edit: a full replacement, a change summary and verification. For a review: the affected text, its behavioral effect and a repair. Ready-to-paste task prompts include the deciding checks from [question selection](references/question-selection.md) |
 | Measurement | The question and checks, then for a comparison: baseline and candidate conditions (scope, budget), metrics, guardrails, uncertainty, coverage, failures, cost |
 | Coordination | Any pending conflict and who must act. Message and lease identifiers stay in the protocol unless another agent must act on them ([Pending](#pending)) |
 
@@ -31,28 +31,28 @@ Order findings worst first. Give each its location (file, tool, prompt section o
 
 ## Saved result
 
-Approved edits to the project's own code, prompts or skills stay at their source paths. Everything else goes under `<workspace>/.octocode/octocode-agentic/`. `<workspace>` is the repository root, else the current directory, and is never inside an existing `.octocode/`. Scratch files go in its `tmp/`. A path the user or a parent names wins. A scratch folder does not: save here and link from the scratch notes.
+Approved edits to the project's own code, prompts or skills stay at their source paths. When saving other artifacts, use `<workspace>/.octocode/octocode-agentic/`. `<workspace>` is the repository root, else the current directory, and is never inside an existing `.octocode/`. Scratch files go in its `tmp/`. A path the user or a parent names wins. Reuse existing durable evidence rather than copying it into another record.
 
 | Result | Path |
 |---|---|
 | Design, audit, prompt review, standalone prompt, coordination status, interview report | `<YYYY-MM-DD>-<slug>.md` |
 | [Cold interview](references/interview.md) rounds | `tmp/<run>/round-<n>/`, linked from the report |
 | [Conversation audit](references/conversation-audit.md) | `<YYYY-MM-DD>-<slug>/` with `prompting-practices.md` and the private `user-messages.md` |
-| Measured run, including a smoke test | `<YYYY-MM-DD>-<slug>/`, with `README.md` as its entry point. Lay it out as in [run folders](references/eval-harness.md#suite-and-run-folders) |
+| Measured result evidence | Link native runner output; create `<YYYY-MM-DD>-<slug>/` only when evidence needs a new home. See [run folders](references/eval-harness.md#suite-and-run-folders). |
 
 Never save inside the installed skill. A small chat edit needs no file.
 
 ## Saved report
 
-Save when the result has a table, a diagram, about 40 lines or five findings, or when the user or project instructions (`AGENTS.md`) ask to keep every result. Save every measured run. For coordination, the database holds messages and evidence, and a chat summary naming `activity`, `locks` or `view` usually suffices. Save a coordination report only when the outcome spans several agents or open conflicts, or the user asks for multi-agent status.
+Save when requested, required by project instructions or needed to preserve durable evidence across steps. Retain the evidence supporting measured results; existing durable runner output suffices. Coordination messages and evidence already live in the database; a chat summary naming `activity`, `locks` or `view` usually suffices. Save a separate coordination report when its open conflicts or multi-agent outcome need a durable handoff.
 
-Use the [shared header](references/report-output.md#report-header). After it comes the `#` title, then a lead paragraph that states the answer. Accepted `status` values: `Proposed`, `Ready`, `Needs work`, `Keep`, `Discard`, `Accept`, `Revert`, `Inconclusive`, `Invalid`, `Resolved`, `Waiting`, `Blocked`. Pick the status and sections by report type:
+Use the [shared header](references/report-output.md#report-header), a `#` title and a lead stating the answer. Accepted `status` values: `Proposed`, `Ready`, `Needs work`, `Keep`, `Discard`, `Accept`, `Revert`, `Inconclusive`, `Invalid`, `Resolved`, `Waiting`, `Blocked`. Choose status and sections by report type:
 
 | Report | `status` | Sections |
 |---|---|---|
 | Design or audit | `Proposed` (design not yet built), `Ready` (audit passed or design verified), `Needs work` | `## Findings`, then `## Checks` |
 | Prompt or instruction | `Ready`, `Needs work` | `## Findings` for a review, or `## Changes` (one row per edit) for a change report. Put a requested rewrite in full in a fenced block under `## Replacement` |
-| Measurement | `Keep`, `Discard` (development evidence); `Accept`, `Revert`, `Inconclusive`, `Invalid` ([final verdict](references/eval-design.md#verdict)) | `## Question`, `## Conditions`, `## Results`, `## Guardrails`, `## Limits`, `## Decision` |
+| Measurement | `Keep`, `Discard` (development evidence); `Accept`, `Revert`, `Inconclusive`, `Invalid` ([final verdict](references/evaluation.md#verdict)) | `## Question`, `## Conditions`, `## Results`, `## Guardrails`, `## Limits`, `## Decision` |
 | Coordination | `Resolved`, `Waiting`, `Blocked` | `## Outcome`, `## Pending` |
 
 Write `None.` under a required section that does not apply.
@@ -80,13 +80,5 @@ Add one row per open item, in plain words:
 Include a message or lease identifier only when another agent must act on it.
 
 ## Presentation
-
-| Format | Use when |
-|---|---|
-| `flowchart` | An agent loop, loader or instruction precedence has three or more hops. Mark unverified edges |
-| `sequenceDiagram` | Message order, acknowledgements, retries or tool interactions matter |
-| `swimlane-beta` | Responsibility and handoffs span several agents |
-| Short comparison table or `diff` fence | Old and new rules are compared; keep replacement text in its own language-tagged fence |
-| `chart` bar or line | Measured outcomes under identical conditions; never invented severity scores |
 
 Use the [shared format guide](references/report-output.md#choose-the-format), and load its Mermaid or widget reference only for that syntax. After delivery, follow the [HTML offer](references/presentation.md#html-delivery). Use the [report commands](references/report-output.md#render-and-retrieve) for accepted rendering and for `--manifest` discovery.

@@ -251,9 +251,14 @@ pub(super) fn outline_of(
     Some(Outline::clone(&outline))
 }
 
-/// Lines a shown row stands for: every matched line of a merged block.
+/// Lines a shown row stands for: every hit line of a merged block, or every
+/// line a match spanning several covers.
 pub(super) fn row_lines(row: &SearchMatch) -> Vec<u32> {
-    row.match_lines.clone().unwrap_or_else(|| vec![row.line])
+    match (&row.match_lines, row.end_line) {
+        (Some(lines), _) => lines.clone(),
+        (None, Some(last)) => (row.line..=last.max(row.line)).collect(),
+        (None, None) => vec![row.line],
+    }
 }
 
 /// Name the enclosing declaration of every hit row of a page's files

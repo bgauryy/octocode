@@ -309,7 +309,9 @@ pub(super) fn assemble(sections: Vec<Section>) -> (Vec<u8>, String) {
                 section.bytes =
                     blocks::pack(&section.tag, &section.bytes).expect("fixture record blocks");
             } else if blocks::sealed(&section.tag) {
-                section.bytes = blocks::seal(&section.tag, &section.bytes).expect("fixture seal");
+                section.bytes =
+                    blocks::seal(&section.tag, &section.bytes, LIMITS.snapshot_bytes as u64)
+                        .expect("fixture seal");
             }
             section
         })

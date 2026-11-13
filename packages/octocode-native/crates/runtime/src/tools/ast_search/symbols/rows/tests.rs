@@ -6,6 +6,8 @@ use crate::tools::test_support::Fixture;
 use octocode_contract_types::AstSearchQuerySymbols;
 use serde_json::{Value, json};
 
+mod ancestry;
+
 fn rows(name: &str, source: &str, provenance: bool) -> Vec<String> {
     let root = Fixture::new();
     let path = root.write(name, source).canonicalize().expect("canonical");
@@ -85,7 +87,7 @@ fn rust_rows_with_provenance_keep_key_order_and_bytes() {
     let rows = rows("a.rs", RUST, true);
     assert_eq!(
         masked(&rows[0]),
-        r#"{"name":"Foo","kind":"struct","line":3,"occurrenceId":"H","sourceRange":{"endByte":41,"startByte":9},"selectionByteRange":{"endByte":40,"startByte":37},"parseAssessment":{"status":"parsed","scope":"declaration","range":{"start":{"line":2,"character":0},"end":{"line":2,"character":15}}},"startLine":2,"docStartLine":1,"exported":true,"sourceOrigin":{"analysisUnitId":"H","segments":[{"analysis":"included","branches":[{"kind":"copied","origin":{"rawRange":{"endByte":41,"startByte":9},"sourceId":"H"}}],"sourceRange":{"endByte":41,"startByte":9}}]},"sourceDigest":"H","selectionOrigin":{"analysisUnitId":"H","segments":[{"analysis":"included","branches":[{"kind":"copied","origin":{"rawRange":{"endByte":40,"startByte":37},"sourceId":"H"}}],"sourceRange":{"endByte":40,"startByte":37}}]}}"#
+        r#"{"name":"Foo","kind":"struct","line":3,"occurrenceId":"H","sourceRange":{"endByte":41,"startByte":9},"selectionByteRange":{"endByte":40,"startByte":37},"parseAssessment":{"status":"parsed","scope":"declaration","range":{"start":{"line":1,"character":0},"end":{"line":2,"character":15}}},"startLine":2,"docStartLine":1,"exported":true,"sourceOrigin":{"analysisUnitId":"H","segments":[{"analysis":"included","branches":[{"kind":"copied","origin":{"rawRange":{"endByte":41,"startByte":9},"sourceId":"H"}}],"sourceRange":{"endByte":41,"startByte":9}}]},"sourceDigest":"H","selectionOrigin":{"analysisUnitId":"H","segments":[{"analysis":"included","branches":[{"kind":"copied","origin":{"rawRange":{"endByte":40,"startByte":37},"sourceId":"H"}}],"sourceRange":{"endByte":40,"startByte":37}}]}}"#
     );
     let keys: Vec<Vec<String>> = rows.iter().map(|row| keys_of(row)).collect();
     let expected: &[&[&str]] = &[
@@ -216,6 +218,34 @@ fn rust_rows_with_provenance_keep_key_order_and_bytes() {
         assert_eq!(got, want);
     }
     assert_eq!(keys.len(), expected.len());
+}
+
+/// A declaration's assessed range is its own range, parsed or recovered:
+/// zero-based, it starts on the row's `startLine` (its attribute header, else
+/// `line`) and ends on its `endLine` (else `line`), the lines its
+/// `sourceRange` bytes cover.
+#[test]
+fn provenance_assessment_ranges_agree_with_the_row_lines() {
+    const BROKEN: &str = "#[inline]\nfn broken( {\n    let x = ;\n}\n#[inline]\nfn ok() {}\n";
+    let mut statuses = std::collections::BTreeSet::new();
+    for (source, row) in [RUST, BROKEN].into_iter().flat_map(|source| {
+        rows("a.rs", source, true)
+            .into_iter()
+            .map(move |row| (source, row))
+    }) {
+        let row: Value = serde_json::from_str(&row).expect("row");
+        statuses.insert(row["parseAssessment"]["status"].to_string());
+        let range = &row["parseAssessment"]["range"];
+        let line = |key: &str| row.get(key).unwrap_or(&row["line"]).as_u64();
+        let start = range["start"]["line"].as_u64().map(|at| at + 1);
+        let end = range["end"]["line"].as_u64().map(|at| at + 1);
+        assert_eq!(start, line("startLine"), "{row}");
+        assert_eq!(end, line("endLine"), "{row}");
+        let start_byte = row["sourceRange"]["startByte"].as_u64().expect("start") as usize;
+        let lines_before = source[..start_byte].matches('\n').count() as u64;
+        assert_eq!(start, Some(lines_before + 1), "{row}");
+    }
+    assert!(statuses.contains("\"recovered\""), "{statuses:?}");
 }
 
 #[test]

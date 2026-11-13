@@ -52,6 +52,7 @@ pub(super) fn scan(content: &str) -> Scanned {
         scope: Vec::new(),
         pending: Pending::default(),
         node_line: None,
+        node_keyword: None,
         span: None,
         whole: false,
         inline_name: None,
@@ -95,8 +96,12 @@ struct Frame {
     in_macro: bool,
     /// A macro body the parse does not read as items: its tokens mean nothing.
     opaque: bool,
+    /// It holds types (a struct's fields, a `fn`'s parameters), where `<`
+    /// opens generic arguments; in an expression only a turbofish `::<` does.
+    types: bool,
     outer_pending: Pending,
     outer_node_line: Option<u32>,
+    outer_node_keyword: Option<&'static str>,
 }
 
 /// How the node a test span covers ends, past `;` and the closing of what
@@ -110,7 +115,9 @@ enum Ends {
     /// Only at `;`: its braces are part of a value (`const X: T = T { .. };`).
     Semicolon,
     /// At a `}` or, outside `<...>`, a `,`: a field, variant, arm or argument.
-    Listed { angles: u32 },
+    /// A `name: value` field ends only at its `,` or with what holds it: a
+    /// `}` inside its value (`a: Q { .. }.f()`) does not end it.
+    Listed { angles: u32, field: bool },
 }
 
 struct Span {
@@ -127,6 +134,9 @@ struct Pass<'t> {
     pending: Pending,
     /// The line of the first token of the node being read.
     node_line: Option<u32>,
+    /// The item keyword the node being read has shown (`struct`, `enum`,
+    /// `union`, `fn`): what the delimiters it opens hold.
+    node_keyword: Option<&'static str>,
     span: Option<Span>,
     /// An inner `cfg` of the file holds all of it.
     whole: bool,
@@ -175,17 +185,19 @@ impl<'t> Pass<'t> {
             }
             Token::Punct(b',') => {
                 let before = self.last_end;
-                self.end_span_at(before, |ends| matches!(ends, Ends::Listed { angles: 0 }));
+                self.end_span_at(before, |ends| {
+                    matches!(ends, Ends::Listed { angles: 0, .. })
+                });
                 self.next_node();
             }
-            Token::Punct(b'<') => self.count_angle(true),
+            Token::Punct(b'<') => self.count_angle(true, lexeme),
             // The parse gates a match arm's pattern, not its body.
             Token::Punct(b'>') if self.tokens.follows(lexeme.start, b'=') => {
                 let before = self.last_end;
                 self.end_span_at(before, |ends| matches!(ends, Ends::Listed { .. }));
             }
             Token::Punct(b'>') if !self.tokens.follows(lexeme.start, b'-') => {
-                self.count_angle(false);
+                self.count_angle(false, lexeme);
             }
             Token::Word(word) => self.word(word, lexeme),
             _ => {}
@@ -212,12 +224,13 @@ impl<'t> Pass<'t> {
                 ends: Ends::Undecided,
             });
         }
-        if let Some(span) = self.span.as_mut()
-            && span.depth == self.stack.len()
-            && span.ends == Ends::Undecided
+        if self
+            .span
+            .as_ref()
+            .is_some_and(|span| span.depth == self.stack.len() && span.ends == Ends::Undecided)
         {
             let ahead = self.tokens.clone().next().map(|next| next.token);
-            span.ends = match lexeme.token {
+            let ends = match lexeme.token {
                 Token::Word("pub") | Token::Punct(b'(') => Ends::Undecided,
                 Token::Word("const")
                     if matches!(
@@ -232,24 +245,50 @@ impl<'t> Pass<'t> {
                     "fn" | "impl" | "struct" | "enum" | "trait" | "union" | "mod" | "extern"
                     | "unsafe" | "async" | "macro_rules",
                 ) => Ends::Item,
-                _ => Ends::Listed { angles: 0 },
+                _ => Ends::Listed {
+                    angles: 0,
+                    field: self.is_field(lexeme, ahead),
+                },
             };
+            if let Some(span) = self.span.as_mut() {
+                span.ends = ends;
+            }
         }
     }
 
     fn next_node(&mut self) {
         self.node_line = None;
+        self.node_keyword = None;
         self.pending = Pending::default();
         self.inline_name = None;
     }
 
-    fn count_angle(&mut self, opens: bool) {
+    /// `name: value`: a word, then one `:` (not `::`).
+    fn is_field(&self, lexeme: Lexeme<'t>, ahead: Option<Token<'t>>) -> bool {
+        if !matches!(lexeme.token, Token::Word(_)) || ahead != Some(Token::Punct(b':')) {
+            return false;
+        }
+        let mut after = self.tokens.clone();
+        let colon = after.next();
+        let next = after.next();
+        !matches!(
+            (colon, next),
+            (Some(colon), Some(next))
+                if next.token == Token::Punct(b':') && next.start == colon.start + 1
+        )
+    }
+
+    /// A `<` opens generic arguments, or `>` closes them, in a span that
+    /// counts them: in types, and after a turbofish `::` in an expression.
+    fn count_angle(&mut self, opens: bool, lexeme: Lexeme<'t>) {
+        let types = self.stack.last().is_some_and(|frame| frame.types);
         if let Some(Span {
             depth,
-            ends: Ends::Listed { angles },
+            ends: Ends::Listed { angles, .. },
             ..
         }) = self.span.as_mut()
             && *depth == self.stack.len()
+            && (types || !opens || *angles > 0 || self.tokens.follows(lexeme.start, b':'))
         {
             *angles = if opens {
                 angles.saturating_add(1)
@@ -270,6 +309,15 @@ impl<'t> Pass<'t> {
     }
 
     fn word(&mut self, word: &'t str, lexeme: Lexeme<'t>) {
+        if self.node_keyword.is_none() {
+            self.node_keyword = match word {
+                "struct" => Some("struct"),
+                "enum" => Some("enum"),
+                "union" => Some("union"),
+                "fn" => Some("fn"),
+                _ => None,
+            };
+        }
         if word == "mod"
             && !self.opaque()
             && self
@@ -336,6 +384,11 @@ impl<'t> Pass<'t> {
 
     fn open(&mut self, opener: u8, lexeme: Lexeme<'t>, opaque: bool) {
         let module = opener == b'{' && self.inline_name.is_some();
+        // A struct's, enum's or union's body, a `fn`'s parameters, and
+        // whatever these hold.
+        let types = self.stack.last().is_some_and(|frame| frame.types)
+            || matches!(self.node_keyword, Some("struct" | "enum" | "union"))
+            || opener == b'(' && self.node_keyword == Some("fn");
         if let Some(name) = self.inline_name.take().filter(|_| module) {
             self.scope.push(name);
         }
@@ -350,8 +403,10 @@ impl<'t> Pass<'t> {
             items: module,
             in_macro: self.stack.last().is_some_and(|frame| frame.in_macro),
             opaque: opaque || self.opaque(),
+            types,
             outer_pending: std::mem::take(&mut self.pending),
             outer_node_line: self.node_line.take(),
+            outer_node_keyword: self.node_keyword.take(),
         });
     }
 
@@ -371,6 +426,7 @@ impl<'t> Pass<'t> {
             if self.stack.len() == at {
                 self.pending = frame.outer_pending;
                 self.node_line = frame.outer_node_line;
+                self.node_keyword = frame.outer_node_keyword;
             }
             // What the frame held ends with it.
             if let Some(span) = &self.span
@@ -381,10 +437,20 @@ impl<'t> Pass<'t> {
             }
         }
         if closer == b'}' {
-            let continues =
-                self.tokens.clone().next().map(|next| next.token) == Some(Token::Word("else"));
+            // `else` continues an `if`; `.` and `?` continue any value.
+            let continues = matches!(
+                self.tokens.clone().next().map(|next| next.token),
+                Some(Token::Word("else") | Token::Punct(b'.' | b'?'))
+            );
             if !continues {
-                self.end_span_at(lexeme.end_line, |ends| ends != Ends::Semicolon);
+                // A field, and any element of a `(..)` or `[..]` list, ends
+                // at its `,` or with what holds it, past a value's `}`.
+                let element = self.stack.last().is_some_and(|frame| frame.closer != b'}');
+                self.end_span_at(lexeme.end_line, |ends| match ends {
+                    Ends::Semicolon => false,
+                    Ends::Listed { field, .. } => !field && !element,
+                    Ends::Undecided | Ends::Item => true,
+                });
                 let value = self
                     .span
                     .as_ref()

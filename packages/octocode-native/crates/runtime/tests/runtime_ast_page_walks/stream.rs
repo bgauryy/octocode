@@ -111,8 +111,7 @@ fn fixture(workspace: &Workspace, big: Option<&str>) -> String {
 const MATCHES: usize = FILES * FUNCTIONS_PER_FILE;
 
 #[tokio::test]
-async fn a_match_walk_through_the_response_pager_reads_each_match_once_page_after_page()
-{
+async fn a_match_walk_through_the_response_pager_reads_each_match_once_page_after_page() {
     let workspace = Workspace::new();
     let root = fixture(&workspace, None);
     let runtime = workspace.runtime(&[]);

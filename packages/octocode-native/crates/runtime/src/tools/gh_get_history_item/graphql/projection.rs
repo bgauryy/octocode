@@ -89,18 +89,38 @@ fn nodes(pr: &Value, pointer: &str, row: impl Fn(&Value) -> Value) -> Vec<Value>
         .collect()
 }
 
+fn file_status(node: &Value) -> Option<&'static str> {
+    match str_at(node, "/changeType")? {
+        "ADDED" => Some("added"),
+        "DELETED" => Some("removed"),
+        "MODIFIED" => Some("modified"),
+        "RENAMED" => Some("renamed"),
+        _ => None,
+    }
+}
+
+/// The GraphQL file representation must preserve every selected inventory field.
+/// It has no old path for renames; those and unsupported statuses require REST.
+pub(super) fn files_have_complete_metadata(pr: &Value) -> bool {
+    pr.pointer("/files/nodes")
+        .and_then(Value::as_array)
+        .is_some_and(|files| {
+            files.iter().all(|file| {
+                file_status(file).is_some_and(|status| status != "renamed")
+                    && str_at(file, "/path").is_some_and(|path| !path.is_empty())
+                    && file.get("additions").is_some_and(Value::is_u64)
+                    && file.get("deletions").is_some_and(Value::is_u64)
+            })
+        })
+}
+
 pub(in crate::tools::gh_get_history_item) fn map_graphql_files(pr: &Value) -> Vec<Value> {
     nodes(pr, "/files/nodes", |node| {
         json!({
             "filename": str_at(node, "/path").unwrap_or(""),
             "additions": node.get("additions"),
             "deletions": node.get("deletions"),
-            "status": match str_at(node, "/changeType").unwrap_or("MODIFIED") {
-                "ADDED" => "added",
-                "DELETED" => "removed",
-                "RENAMED" => "renamed",
-                _ => "modified",
-            }
+            "status": file_status(node).unwrap_or("modified")
         })
     })
 }

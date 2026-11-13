@@ -108,6 +108,17 @@ impl MemoryBudget {
         self.used.fetch_add(bytes, Ordering::Relaxed);
     }
 
+    /// Admit bytes only when they fit without eviction. The check and charge
+    /// are one atomic update, including charges made by different memos.
+    pub(super) fn try_charge(&self, bytes: usize) -> bool {
+        let limit = self.limit();
+        self.used
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
+                used.checked_add(bytes).filter(|total| *total <= limit)
+            })
+            .is_ok()
+    }
+
     pub(super) fn release(&self, bytes: usize) {
         // Saturating: a release never underflows a concurrent charge's view.
         let _ = self

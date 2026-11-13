@@ -36,7 +36,7 @@ Prefer the local checkout for code and GitHub for discussion. Trace `entry → t
 | Inferred type | `lspSearch hover`; definition alone only locates source |
 | One change | History `sections` + `include`, then matching patch lines |
 | Read comment-heavy code | `view:compact`; quote or edit from `view:content` |
-| Minified text | plain `localSearch` content: a hit in a line over 4 KB comes as a window with its `column`; read the whole line with the emitted localFetch |
+| Minified text | Inspect the returned window and `column`; use the emitted `localFetch` call when the claim needs the whole line |
 
 Views select evidence: files have no bodies, symbols no implementations, compact no exact quotes. Widen only when the claim needs more; smaller pages never replace completing the selected evidence.
 
@@ -59,7 +59,7 @@ Use exact tools for literal facts, counts, identity and absence. Narrow by path,
 | Images | `clasify evaluate` + assets | Presence before `box`; inspect the image for layout claims |
 | Long command output: tests, builds, CI or service logs, `git log`, `ps` | Save it under the workspace; `clasify evaluate` with that path as `source` for whether, why and where (the answer's `lines`), `sections` for every place or the order | A known marker: `localSearch` on the saved file; else the answer's `next.read` of its `lines` |
 
-- Ask one observable fact per question, with enough context and a clear exclusion for near misses. The provider has no conversation history or sibling answers. Include an unknown choice and use it for absence: over a sectioned source a `none` label from a section without the fact can outrank the section with it. Confidence is not correctness.
+- Keep questions independently answerable, with enough context and exclusions for near misses. The provider has no conversation history or sibling answers. Include an unknown choice and use it for absence: over a sectioned source a `none` label from a section without the fact can outrank the section with it. Confidence is not correctness.
 - Inline predicates judge captured evidence, not hidden whole files. Listing predicates can see paths only. Match context must include the condition being judged; `responseChars` changes output pages, not provider context.
 - `evaluate` uses typed `questions` (`noul`, `choice`, `score`, `box`); use the live schema for mutually exclusive source/content/assets shapes. A path inside literal `content` is not fetched. A box alone does not establish target presence.
 - Finish response pages first, then candidate/section pages needed for the claim. `classificationUnknown`, `unassessed`, `error` and excluded candidates are not negative proof. Use emitted `next.unfilteredUnknown` for unresolved candidates and `next.unfiltered` before counts or absence claims.
@@ -87,9 +87,9 @@ Use exact tools for literal facts, counts, identity and absence. Narrow by path,
 - **Version in use beats latest.** Omitting `version` resolves the latest stable release, so pass the lockfile's version and read installed files first.
 - **A CVE question goes to `securityCheck` when it is listed:** `package` at the lockfile's version, `url`, `advisory` with an id, or `commit`. `status:"empty"` is none known to OSV, not proof the version is safe; `status:"error"` is not checked. When it is not listed (MCP without `OCTOCODE_SECURITY_CHECKS`; the CLI always offers it), memory is not evidence: name the gap. `artifactSearch` carries `advisories` only for PyPI and NuGet, from the registry, and elsewhere the state is unknown, never clean. With a CVE already named, prove the fix from source: the release's `ref`, then `ghSearchHistory` and `ghGetHistoryItem` compare.
 - **Trust the ref by `verification`.** `provenance` and `tag` tie it to the version; with `registryRef` or `defaultBranch`, check that tree's manifest before citing. PyPI resolves only; custom registries are npm only.
-- **`ghSearchCode` sees only the default branch.** Its `ref` re-reads hits and never widens the search: at zod `v3.23.8` it returned `packages/zod/src/v3/types.ts`, but the file there is `src/types.ts`. For a past revision, use `ghStructure` at that ref. One hit is not the only definition. An empty index result is not absence.
+- **`ghSearchCode` sees only the default branch.** Its `ref` re-reads hits without widening the search. For another revision, use `ghStructure` at that ref; paths may differ. An empty index result is not absence.
 - **`ghSearchCode` requires `owner`.** With no owner, start from `artifactSearch` or `ghSearchRepo`; never guess.
-- **Only LSP crosses your scope.** `references` on one package's symbol also found its importers in two other packages; graph, AST and text stayed inside the `path` they were given.
+- **Match search scope to the claim.** LSP references can reach workspace importers beyond the anchor package; graph, AST and text stay within their requested paths.
 - **AST and graph edges are candidates.** Check grammar capabilities, parse assessment and scan coverage, then confirm with LSP. Empty LSP while `analysisContext` reports errors is not absence.
 - **Graph needs the workspace.** When listed, `graphBuild` rejects a materialized or cloned path outside it; use AST and text there.
 - **Materialize until `coverage.state` is `complete`.** A large selection returns `partial`; follow `next.continueMaterialize`.
@@ -130,7 +130,7 @@ Read every row's `errorCode`, message, `hints` and recovery calls, even in a suc
 | Unsupported grammar or declarations | Use the related outline or text read; set `parser` only for source written in that grammar |
 | Missing language server or capability | Inspect related text candidates and report semantic verification as unavailable; retry after configuration changes |
 | Missing path, identifier or revision | Verify the observed identity and access; use an emitted discovery call; never substitute another revision for a claim about it |
-| Timeout or transient provider failure | Retry at most once when it can help; respect `retryable:false`; state the remaining scope |
+| Timeout or transient provider failure | Retry when the failure is transient and another attempt can add evidence; follow reported backoff and `retryable:false`. Stop unchanged failures and state the remaining scope |
 | Authentication, permission or rate limit | Correct access or wait for the reported reset; repeats do not restore it |
 | Stale or expired continuation | Use its restart call or repeat the original request; never construct a cursor. `responseSnapshotExpired` covers unknown or expired saved work; a malformed cursor, or one sent to another tool, is `invalidInput`; the message names the cause |
 | Tool or contract failure | Keep the failing call and error code, use applicable recovery, report the gap |

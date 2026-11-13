@@ -135,7 +135,11 @@ impl GitHubTransport {
                 let limit =
                     secondary_cooldown(&state, &page.headers, wait, GitHubResource::Graphql);
                 if attempt + 1 < self.retry.max_attempts
-                    && Instant::now() + wait < context.budget.admission_deadline()
+                    && wait
+                        < context
+                            .budget
+                            .admission_deadline()
+                            .saturating_duration_since(Instant::now())
                 {
                     attempt += 1;
                     continue;
@@ -170,7 +174,11 @@ impl GitHubTransport {
                 let wait = self.budget.config().reset_wait(reset);
                 if crate::budget::waits_out_spent(GitHubResource::Graphql.bucket())
                     && attempt + 1 < self.retry.max_attempts
-                    && Instant::now() + wait < context.budget.admission_deadline()
+                    && wait
+                        < context
+                            .budget
+                            .admission_deadline()
+                            .saturating_duration_since(Instant::now())
                 {
                     attempt += 1;
                     continue;

@@ -1,6 +1,5 @@
 // Page behavior. Inlined into the HTML via Function#toString; reads #report-data. The page views
 // (document, widgets, diagrams, search) arrive in `views`, inlined the same way, and share `ctx`.
-// oxlint-disable-next-line max-lines-per-function -- serialized whole via Function#toString
 export function client(kit, MERMAID_URL, PANZOOM_URL, views) {
   const { esc, slugify } = kit;
   const $ = (s, r = document) => r.querySelector(s);

@@ -293,15 +293,15 @@ mod tests {
         }
     }
 
-    /// A timeout tells every tool's caller what to try; only lspSearch blames
-    /// the language server's cold start.
+    /// A timeout tells every tool's caller what to try; lspSearch says whether
+    /// the server was still working or idle and names the exact fallback.
     #[test]
     fn every_timeout_names_its_next_step() {
         let timeout = || RuntimeError::new(ErrorCode::Timeout, "Tool call timed out.");
         let lsp = tool_error_result("lspSearch", &timeout());
         assert!(lsp.text.starts_with("Tool call timed out."), "{}", lsp.text);
         assert!(
-            lsp.text.contains("initialises the language server"),
+            lsp.text.contains("still working") && lsp.text.contains("localSearch + localFetch"),
             "{}",
             lsp.text
         );

@@ -10,9 +10,9 @@ Review unsafe or conflicting instructions first, then unclear decisions or outpu
 
 ## Write and repair
 
-Edit only for an authorized rewrite. Give each behavior one owner. Put the condition beside the action and retain identifiers, commands, required metadata, working branches and recovery. Resolve conflicts by host hierarchy and existing authorization. Keep retrieved text, tool results and examples separate from instructions. Reserve MUST/NEVER for safety, permissions, secrets and hard contracts.
+Edit only for an authorized rewrite. Give each behavior one owner. Put the condition beside the action and retain required identifiers, commands, working branches and recovery. Resolve conflicts by host hierarchy and existing authorization. Keep retrieved text, tool results and examples separate from instructions. Reserve MUST/NEVER for safety, permissions, secrets and hard contracts.
 
-For a disputed decision, or a ready-to-paste task prompt or meta-prompt (objective, inputs, constraints, completion check and usable output in its body), follow [question selection](question-selection.md): it owns the deciding question, the `text` fence and the `labels:` footer.
+For a disputed decision, use [question selection](question-selection.md) to find a deciding check. A copyable task prompt carries objective, inputs, constraints, completion and usable output in its body; add labels only when the receiver requests them.
 
 Use a [known protocol](prompt-protocols.md) to consolidate scattered rules in the recipient's words. Use a diagram or table for complex branches. For [delegation and handoffs](models-and-delegation.md#handoff-protocols), name who owns the user-facing result and who may write. Pass large evidence by stable path or cursor.
 
@@ -53,7 +53,7 @@ Use a [known protocol](prompt-protocols.md) to consolidate scattered rules in th
 
 - Each source proves only its step: manifest = intent, lockfile = selection, installed build = bytes, runtime trace = what this run loaded, serialized request = what crossed the boundary. Re-resolve after any install, build, entrypoint, environment, adapter, or host-config change.
 - Untrusted package: read its version from docs; never execute it.
-- Trace `source → load → composition order → hooks/middleware/nodes → state/checkpoint/store → compaction → serialization → visible input → retained effect`; per edge record owner, visibility (model, tool, runtime, human), lifetime (call to cross-thread), mutation, trust, accounting (tokens, cache key, persistence).
+- Trace `source → load → composition order → hooks/middleware/nodes → state/checkpoint/store → compaction → serialization → visible input → retained effect`; inspect ownership, visibility, lifetime or accounting where it can explain the failure; avoid an inventory of unaffected edges.
 - Runtime context is model-visible only once a projecting code path is proven.
 - Inspect the host's own loader: skill discovery precedence, Pi `before_agent_start` and worker grants, LangChain middleware order, LangGraph reducers and checkpointer `thread_id`, MCP negotiated version and client filtering.
 - Symptom → likely boundary (observe the last model or tool boundary first):

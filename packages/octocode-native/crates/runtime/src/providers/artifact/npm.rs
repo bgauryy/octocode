@@ -91,8 +91,7 @@ async fn exact(
     // version's publish time in the full packument. A packument that cannot
     // be read leaves the date unknown, and the row says so.
     if artifact.published_at.is_none() {
-        match packument_published_at(&encoded, &version, registry, client, dns_pin.clone()).await
-        {
+        match packument_published_at(&encoded, &version, registry, client, dns_pin.clone()).await {
             Ok(date) => artifact.published_at = date,
             Err(error) if error.code == ErrorCode::Cancelled => return Err(error),
             Err(error) => note_unread(
@@ -360,7 +359,9 @@ async fn packument_published_at(
             time_view,
         )
         .await?;
-    Ok(times.as_ref().and_then(|times| publish_date(times, version)))
+    Ok(times
+        .as_ref()
+        .and_then(|times| publish_date(times, version)))
 }
 
 /// The date part of `version`'s publish instant in a packument `time` map.

@@ -6,29 +6,58 @@ fn embedded_catalog_and_workflows_need_no_node_or_installed_skills() {
     let catalog = report(&run(&workspace, &["list"]), 0);
     assert!(catalog["count"].as_u64().unwrap() > 10);
     assert_eq!(catalog["installedCount"], 0);
-    let info = report(&run(&workspace, &["info", SKILL]), 0);
-    assert_eq!(info["skill"]["name"], SKILL);
-    let instructions = info["skill"]["skillMd"].as_str().unwrap();
-    for reference in [
-        "runtime-surgery.md",
-        "single-actor-traversal.md",
-        "ast-lsp-workflows.md",
-        "verification.md",
-    ] {
-        assert!(instructions.contains(reference));
-    }
-    let engineer = report(&run(&workspace, &["info", ENGINEER]), 0);
-    assert_eq!(engineer["skill"]["name"], ENGINEER);
-    let engineer_instructions = engineer["skill"]["skillMd"].as_str().unwrap();
-    for reference in [
-        "../octocode-workflows/references/runtime-surgery.md",
-        "../octocode-workflows/references/single-actor-traversal.md",
-        "../octocode-workflows/references/ast-lsp-workflows.md",
-        "../octocode-workflows/references/verification.md",
-    ] {
-        assert!(engineer_instructions.contains(reference));
-    }
+    let served = catalog["skills"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|skill| {
+            let name = skill["name"].as_str().unwrap();
+            let info = report(&run(&workspace, &["info", name]), 0);
+            assert_eq!(info["skill"]["name"], name);
+            let instructions = info["skill"]["skillMd"].as_str().unwrap().to_owned();
+            (name.to_owned(), instructions)
+        })
+        .collect::<Vec<_>>();
     assert!(!workspace.home.join("skills").exists());
+    // Every relative link the served instructions hold, a neighbor skill's
+    // file included, names a file the embedded bundle ships.
+    report(
+        &run(
+            &workspace,
+            &[
+                "install",
+                "--all",
+                "--platform",
+                "codex",
+                "--global",
+                "--mode",
+                "copy",
+            ],
+        ),
+        0,
+    );
+    let mut links = 0;
+    for (name, instructions) in &served {
+        let root = workspace.home.join("skills").join(name);
+        assert_eq!(
+            &fs::read_to_string(root.join("SKILL.md")).unwrap(),
+            instructions,
+            "{name}"
+        );
+        for target in relative_links(instructions) {
+            links += 1;
+            assert!(root.join(target).is_file(), "{name} links {target}");
+        }
+    }
+    assert!(links > 0);
+}
+/// Relative Markdown link targets, without their fragment.
+fn relative_links(markdown: &str) -> impl Iterator<Item = &str> {
+    markdown.split("](").skip(1).filter_map(|rest| {
+        let target = rest.split(')').next()?.split('#').next()?;
+        (!target.is_empty() && !target.contains(':') && !target.contains(char::is_whitespace))
+            .then_some(target)
+    })
 }
 #[test]
 fn install_check_repair_and_remove_use_the_embedded_bundle() {

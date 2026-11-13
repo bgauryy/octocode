@@ -86,18 +86,18 @@ impl Request<'_> {
             path: self.path.to_owned(),
             uri: octocode_engine::lsp::uri::path_to_uri(self.path).ok()?,
             content,
+            language_id: octocode_engine::lsp::config::detect_language_id(self.path),
         };
         file.outline()?;
         let anchor =
             anchor::resolve_anchor(self.query, &file.path, &file.uri, Some(&file.content)).ok()?;
         let (workspace, _) = resolve_workspace(self.query, self.path, self.paths).ok()?;
-        let language = octocode_engine::lsp::config::detect_language_id(self.path);
         let scope = Scope::resolve(
             self.path,
             &workspace,
             lsp_search_query::workspace_root(self.query),
             self.paths,
-            language.as_deref(),
+            file.language_id.as_deref(),
         );
         scope.anchor_site(self.path, anchor.line, anchor.character);
         scope.asks(scope::Question::of(lsp_search_query::op(self.query)));
@@ -110,6 +110,7 @@ impl Request<'_> {
 
     /// The files of the scope that spell `name`, the anchor file among them.
     async fn spelling(&self, site: &Site, name: &str) -> Result<BTreeSet<String>, Exit> {
+        let name = site.file.canonical_name(name);
         let mut files = site
             .scope
             .text_files(name, self.paths, self.cancel)
@@ -158,7 +159,7 @@ impl Request<'_> {
                     .file
                     .facts()
                     .map_or(json!([]), |f| facts::syntax_errors(&f));
-                let (items, _) = super::ops::diagnostic_items(Some(errors));
+                let items = super::ops::diagnostic_items(Some(errors));
                 Ok(items_payload(query, "diagnostics", items, self.budget))
             }
             Op::Hover => Ok(self.hover(site, &name)),
@@ -178,14 +179,25 @@ impl Request<'_> {
             }
             Op::Definition | Op::TypeDefinition | Op::References | Op::Implementation => {
                 let files = self.spelling(site, &name).await?;
-                let found = self
+                let (found, unread) = self
                     .blocking(move |stopped| match op {
-                        Op::References => facts::occurrences(&files, &name, stopped).0,
-                        Op::Implementation => heritage::scan_subtypes(&files, &name, stopped).0,
-                        _ => facts::declared(&files, &name, stopped).0,
+                        Op::References => facts::occurrences(&files, &name, stopped),
+                        Op::Implementation => heritage::scan_subtypes(&files, &name, stopped),
+                        _ => facts::declared(&files, &name, stopped),
                     })
                     .await?;
-                self.locations(op, found).await
+                let mut row = self.locations(op, found).await?;
+                if !unread.is_empty() {
+                    let warnings = unread.iter().map(|path| format!(
+                        "Syntax scan unread source: {path}. Its code occurrences could not be established; use the related text search to inspect it."
+                    )).collect::<Vec<_>>();
+                    crate::response::paging::mark_partial(
+                        &mut row,
+                        crate::response::paging::PartialReason::ServerUnanswered,
+                        &warnings,
+                    );
+                }
+                Ok(row)
             }
             Op::Callers | Op::Callees | Op::Supertypes | Op::Subtypes => {
                 self.hierarchy(site, op, &name).await

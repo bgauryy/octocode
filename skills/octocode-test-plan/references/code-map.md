@@ -1,15 +1,26 @@
-Load at step 2 of the skill, to understand the code before designing cases. The CLI prints text by default; add `--json` to read the fields named here. Each query also takes `mainGoal` (the plan's target) and `reasoning` (why this call). Live schemas own exact fields: `octocode schema <tool> --view variants`. [Usage](octocode-usage.md) owns invocation, paging and recovery.
+Load to pin an unfamiliar input or map code and tests before designing cases. The CLI prints text by default; add `--json` to read the fields named here. Each query also takes `mainGoal` (the plan's target) and `reasoning` (why this call). Live schemas own exact fields: `octocode schema <tool> --view variants`. [Usage](octocode-usage.md) owns invocation, paging and recovery.
 
 # Map the code for a test plan
 
 Ask small first (paths, outlines, counts), then read the deciding spans. Batch independent queries; reuse observed paths, symbols and lines in the next call.
+
+## Pin by input
+
+| Input | Scope and revision |
+|---|---|
+| Feature/module | Public surface and direct consumers; `git rev-parse HEAD` |
+| Dirty working tree | Identify relevant local diff and untracked inputs alongside the base revision |
+| Branch/diff | Changed files and dependents; `git diff <base>...HEAD` and base SHA |
+| PR | Head revision (`headCommitSha`); retrieve like `octocode-pr-review` |
+| Bug report | Failing path and supplied reproduction, marked unverified |
+| Spec/ticket/RFC only | Requirements and document version; code mapping stays a gap until code exists |
 
 ## Layout and entry points
 
 | Need | Call |
 |---|---|
 | Packages, manifests, test and build config | `structureSearch` `operation:"files"`, `include:["**/package.json","**/Cargo.toml","**/pyproject.toml","**/go.mod","**/*.config.*"]`, `view:"paths"` |
-| Directory shape of the target | `structureSearch` `operation:"tree"`, `path:<target>`, `maxDepth:2`, `testCode:"exclude"` |
+| Directory shape of the target | `structureSearch` `operation:"tree"`, `path:<target>`, choose depth for the layout question, or `operation:"files"` for recursive discovery |
 | Public surface of one file | `localFetch` `view:"symbols"` |
 | Public surface of a directory | `astSearch` `operation:"symbols"`, `path:<target>` |
 | Commands, routes, handlers, flags | `localSearch` for the registration term (route method, `command(`, `#[arg`, `argparse`), then `localFetch` with `matchString` and `block:true` |
@@ -36,7 +47,7 @@ For a diff, branch or PR, list changed files with `git diff --name-only <base>..
 
 | Need | Call |
 |---|---|
-| Build the graph once per scope | `graphBuild` `path:<smallest directory holding the change and its consumers>`; it writes `.octocode/graph`, so the host prompt is the approval |
+| Build the graph once per scope | `graphBuild` `path:<smallest directory holding the change and its consumers>`; include its `.octocode/graph` cache write in the authorized scope |
 | What depends on the change | `graphQuery` `operation:"impact"`, `changed:[paths]` or `since:"<base>"` |
 | Files that change together, often a test and its subject | `graphQuery` `operation:"cochange"`, `target:<path>` |
 | Callers of a changed symbol | `lspSearch` `callers`; graph rows are syntax candidates until LSP confirms them |
@@ -59,11 +70,11 @@ Record each claim with its source line. A claim the code contradicts goes under 
 |---|---|
 | Test files in scope | `structureSearch` `operation:"files"`, `path:<target>`, `testCode:"only"`, `view:"paths"` |
 | Tests that name a symbol | `localSearch` `matchString:["<symbol>"]`, `testCode:"only"`, `view:"files"` |
-| Code no test mentions | Search the symbol with `testCode:"only"`; an empty result with `filesScanned` > 0 is a candidate gap, not proof; confirm with `lspSearch references` |
+| Code no test mentions | Search the symbol with `testCode:"only"`; inspect scan coverage and confirm with `lspSearch references` before claiming a gap |
 | Test outline: names and groups | `localFetch` `view:"symbols"` on the test file |
 | Fixtures, mocks, helpers | `localSearch` for the fixture name or `mock`, `stub`, `fixture` with `testCode:"only"` |
 
-`testCode` covers test files and directories by convention plus Rust `#[cfg(test)]` items; it misses self-test modes inside a program and test helpers with ordinary names, so also check `--help` for `--self-test` or `--check` and search for the runner's import (`node:test`, `vitest`, `pytest`). To confirm a command exists without running tests, use the runner's list or dry-run mode when it has one (for example `cargo test -- --list`, `pytest --collect-only -q`, `vitest list`, `go test -list .`), and record its output.
+`testCode` covers test files and directories by convention plus Rust `#[cfg(test)]` items; it misses self-test modes inside a program and test helpers with ordinary names, so also check `--help` for `--self-test` or `--check` and search for the runner's import (`node:test`, `vitest`, `pytest`). To confirm command syntax, read manifests and runner help first. List/collection modes such as `cargo test -- --list`, `pytest --collect-only -q`, `vitest list` and `go test -list .` can build code, run initialization or load project plugins; use them only when those effects are authorized, and record the result. They do not establish that the cases passed.
 
 ## Done
 

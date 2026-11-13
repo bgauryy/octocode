@@ -1,5 +1,6 @@
 //! Content-verified materialization snapshots and their filesystem transaction.
-use super::{Snapshot, materialize_root, write_error};
+use super::writer::SkippedFile;
+use super::{EntryKind, MaterializeSkips, Snapshot, TreeEntry, materialize_root, write_error};
 use crate::private_file::{BeneathDir, read_limited};
 use octocode_github::{ProviderError, ProviderErrorKind, RequestContext};
 use octocode_io::lock::{LockError, LockedFile, lock_within};
@@ -13,7 +14,7 @@ use std::{
     time::Duration,
 };
 
-const FORMAT: &str = "octocode-materialize/v3";
+const FORMAT: &str = "octocode-materialize/v4";
 const MANIFEST_BYTES: u64 = 16 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -38,6 +39,7 @@ struct Manifest {
     repo: String,
     commit: String,
     files: BTreeMap<String, FileIdentity>,
+    skipped: BTreeMap<String, SkippedFile>,
 }
 
 pub(super) struct Store {
@@ -132,6 +134,7 @@ impl Store {
                 repo: snapshot.repo.into(),
                 commit: snapshot.commit.into(),
                 files: BTreeMap::new(),
+                skipped: BTreeMap::new(),
             },
         };
         directory(&home, &root).await?;
@@ -169,22 +172,67 @@ impl Store {
         let identity = self.manifest.files.get(relative)?.clone();
         let (home, file) = (home.to_path_buf(), self.root.join(relative));
         tokio::task::spawn_blocking(move || {
+            use std::io::Read;
             let directory = BeneathDir::open(&home, file.parent()?).ok()?;
-            let bytes =
-                read_limited(directory.open_file(file.file_name()?).ok()?, identity.bytes).ok()?;
-            (FileIdentity::of(&bytes) == identity).then_some(identity)
+            let file = directory.open_file(file.file_name()?).ok()?;
+            let (bytes, sha256) = octocode_engine::digest::copy_hashed(
+                file.take(identity.bytes.saturating_add(1)),
+                io::sink(),
+            )
+            .ok()?;
+            (bytes == identity.bytes && sha256 == identity.sha256).then_some(identity)
         })
         .await
         .ok()
         .flatten()
     }
 
+    /// Skips before a saved cursor, restricted to this selection. A snapshot
+    /// may also hold outcomes from materializing another path or filter.
+    pub(super) fn prior_skips(&self, entries: &[TreeEntry], read_limit: usize) -> MaterializeSkips {
+        let mut skips = MaterializeSkips::new(read_limit);
+        for entry in entries {
+            if let Some(skipped) = self.manifest.skipped.get(&entry.path) {
+                skips.restore(&entry.path, skipped);
+            }
+        }
+        skips
+    }
+
+    /// A cursor only advances past prior files that this snapshot still
+    /// verifies, or an explicitly recorded skip. A new, edited or incomplete
+    /// snapshot resumes from its first missing identity instead.
+    pub(super) async fn resume_offset(
+        &self,
+        home: &Path,
+        entries: &[TreeEntry],
+        requested: usize,
+        context: &RequestContext,
+    ) -> Result<usize, ProviderError> {
+        for (index, entry) in entries[..requested].iter().enumerate() {
+            context.budget.check()?;
+            if entry.kind == EntryKind::File
+                && !self.manifest.skipped.contains_key(&entry.path)
+                && self.kept(home, &entry.path).await.is_none()
+            {
+                return Ok(index);
+            }
+        }
+        Ok(requested)
+    }
+
     pub(super) async fn record(
         &mut self,
         files: Vec<(String, FileIdentity)>,
+        skips: &MaterializeSkips,
     ) -> Result<(), ProviderError> {
-        if !files.is_empty() {
+        let skipped = skips.recorded();
+        if !files.is_empty() || !skipped.is_empty() {
+            for (path, _) in &files {
+                self.manifest.skipped.remove(path);
+            }
             self.manifest.files.extend(files);
+            self.manifest.skipped.extend(skipped);
             self.save().await?;
         }
         Ok(())
@@ -239,16 +287,25 @@ pub(super) async fn write_file(
 /// Whether the file `name` in `directory` is there and holds exactly `bytes`.
 fn holds_exactly(directory: &BeneathDir, name: &std::ffi::OsStr, bytes: &[u8]) -> bool {
     use std::io::Read;
-    let Ok(file) = directory.open_file(name) else {
+    let Ok(mut file) = directory.open_file(name) else {
         return false;
     };
+    let mut block = vec![0_u8; bytes.len().clamp(1, 64 * 1024)];
+    for expected in bytes.chunks(block.len()) {
+        let found = &mut block[..expected.len()];
+        if file.read_exact(found).is_err() || found != expected {
+            return false;
+        }
+    }
     // One byte past the expected length proves a longer file without
-    // reading all of it.
-    let mut found = Vec::with_capacity(bytes.len());
-    file.take(bytes.len() as u64 + 1)
-        .read_to_end(&mut found)
-        .is_ok()
-        && found == bytes
+    // reading all of it. Interrupted reads do not change its identity.
+    loop {
+        match file.read(&mut block[..1]) {
+            Ok(read) => return read == 0,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(_) => return false,
+        }
+    }
 }
 
 async fn directory(home: &Path, path: &Path) -> Result<BeneathDir, ProviderError> {

@@ -41,8 +41,8 @@ mod hierarchy;
 mod index_answer;
 mod lookups;
 mod references;
-use diagnostics::{RUST_MACRO_NOTE, anchor_diagnostics};
-pub(super) use diagnostics::{dedupe_diagnostics, diagnostic_items, disabled_macro_diagnostics};
+use diagnostics::anchor_diagnostics;
+pub(super) use diagnostics::{dedupe_diagnostics, diagnostic_items};
 pub(super) use gaps::verify_answer_gaps;
 use lookups::*;
 
@@ -317,9 +317,7 @@ impl Operation<'_, '_> {
                 super::analysis_context::annotate_diagnostics(
                     &mut row,
                     query,
-                    diagnostics
-                        .as_ref()
-                        .map(|(items, truncated)| (items, *truncated)),
+                    diagnostics.as_ref(),
                     line + 1,
                 );
             }

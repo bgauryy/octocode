@@ -93,9 +93,12 @@ impl QualifiedPattern {
 
     /// The pattern with a fresh capture and the separator before each name
     /// `qualified` lists (indexes into [`names`](Self::names)): it matches
-    /// the sites that qualify exactly those names.
-    pub fn spelling(&self, qualified: &[usize]) -> String {
-        let captures = free_captures(&self.pattern, QUALIFIER, qualified.len());
+    /// the sites that qualify exactly those names. The captures are free in
+    /// `beside` too, the rest of a rule the spelling goes in: a rule binds
+    /// one capture name to one text wherever it is spelled.
+    pub fn spelling(&self, qualified: &[usize], beside: &str) -> String {
+        let taken = format!("{}\n{beside}", self.pattern);
+        let captures = free_captures(&taken, QUALIFIER, qualified.len());
         let mut at: Vec<(usize, &str)> = qualified
             .iter()
             .zip(&captures)

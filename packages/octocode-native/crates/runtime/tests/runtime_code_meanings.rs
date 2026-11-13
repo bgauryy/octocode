@@ -1,28 +1,12 @@
-//! A partial reason says what it means when it fires, once per response; a
-//! response whose rows hold no reason carries none of that text.
+//! A partial reason reaches a caller as its code alone, on every row that
+//! carries it: what the code means is said once, by the output reference
+//! (`schema <tool> --view output`), never in a response.
+use crate::support::checks::assert_no_reason_meaning;
 use crate::support::{Run as _, Workspace};
-use serde_json::{Value, json};
-
-fn warnings_of(output: &Value) -> Vec<String> {
-    output["results"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .flat_map(|row| {
-            ["warnings", "hints"].into_iter().flat_map(|key| {
-                row["data"][key]
-                    .as_array()
-                    .cloned()
-                    .unwrap_or_default()
-                    .into_iter()
-            })
-        })
-        .filter_map(|text| text.as_str().map(str::to_owned))
-        .collect()
-}
+use serde_json::json;
 
 #[tokio::test]
-async fn a_reason_is_explained_once_when_it_fires_and_never_otherwise() {
+async fn a_fired_reason_is_its_code_and_no_response_explains_it() {
     let workspace = Workspace::new();
     workspace.write("broken/a.ts", "function ok() { return 1 }\nclass {{{ (\n");
     workspace.write("broken/b.ts", "function ok2() { return 2 }\nclass {{{ (\n");
@@ -45,12 +29,7 @@ async fn a_reason_is_explained_once_when_it_fires_and_never_otherwise() {
             "{result}"
         );
     }
-    let said = warnings_of(&fired)
-        .into_iter()
-        .filter(|text| text.starts_with("parseRecovered: "))
-        .collect::<Vec<_>>();
-    assert_eq!(said.len(), 1, "once per response: {fired}");
-    assert!(said[0].contains("recovered from syntax errors"), "{said:?}");
+    assert_no_reason_meaning(&fired);
 
     let clean = runtime
         .run(
@@ -62,9 +41,6 @@ async fn a_reason_is_explained_once_when_it_fires_and_never_otherwise() {
         .expect("row")
         .structured_content;
     assert!(clean["results"][0]["data"].get("partialReasons").is_none());
-    assert!(
-        !clean.to_string().contains("recovered from syntax errors"),
-        "{clean}"
-    );
+    assert_no_reason_meaning(&clean);
     runtime.close().await;
 }

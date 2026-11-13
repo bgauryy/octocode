@@ -20,8 +20,6 @@ pub(super) fn flag_still_loading(
         let reason = crate::response::paging::PartialReason::LanguageServerIndexing;
         partial_with_related_rerun(result, query, reason, &[]);
         crate::response::paging::push_notice(result, still_loading_notice());
-        // The note and the rerun state the reason's meaning.
-        crate::response::paging::mark_stated(result, reason);
     }
 }
 
@@ -40,9 +38,9 @@ mod still_loading_tests {
 
     /// Two rows answered while the project loaded and one after: the note is
     /// said once (R2), both flagged rows keep their reason and rerun, and no
-    /// glossary line restates it (R1).
+    /// response says what the reason means (R1).
     #[test]
-    fn the_still_loading_note_is_said_once_without_its_glossary_line() {
+    fn the_still_loading_note_is_said_once_without_the_reason_meaning() {
         let query: LspSearchQuery = serde_json::from_value(json!({
             "operation": "references", "path": "/w/a.rs", "symbolName": "f", "line": 1
         }))
@@ -64,7 +62,7 @@ mod still_loading_tests {
             1,
             "{response}"
         );
-        assert!(!text.contains("languageServerIndexing: "), "{response}");
+        crate::tools::test_support::checks::assert_no_reason_meaning(&response);
         for index in 0..2 {
             assert_eq!(
                 response["results"][index]["data"]["partialReasons"],

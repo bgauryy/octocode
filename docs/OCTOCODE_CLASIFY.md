@@ -28,7 +28,7 @@ In `answers`, find your question key (`tests`). Its `noul` value is the model's 
 |---|---|---|
 | Too many search hits or rows | Add `classification.predicates` to a supported search, listing or read | Selected evidence plus a `selection` receipt counting the rest. [Supported tools](OCTOCODE_TOOLS.md#context-selection) |
 | One unread file or public HTTPS page | `evaluate` with `source` pointing to `localFetch`, `ghGetFileContent`, or `{"url":"https://…"}` | Answers and a read of the captured source. Local and GitHub readers accept line `ranges`. |
-| Search hits, paths, history items or packages | `evaluate` with `source: {tool, query}`. Use the named tool's own query fields. | Answers for each listed row under `units`. `next.nextPage` judges the next source page. A path or commit title can only answer questions about that text. |
+| Search hits, paths, history items or packages | `evaluate` with `source: {tool, query}`. Use the named tool's own query fields. | Answers for each listed row under `units`; a search hit is its own unit, `path:line`, judged with its line marked, its own `contextLines` window and the declaration around it, even where the tool joined nearby windows. `next.nextPage` judges the next source page. A path or commit title can only answer questions about that text. |
 | Several unread files | `evaluate` with named `resources`, including local globs | An answer set for each file |
 | A question whose answer could be anywhere in several files | `sections` with named `resources` and `questions` | Sections with line ranges, answers, and coverage for each resource |
 | Long command output: a test run, build or CI log, `git log`, `ps` | Save it to a file under the workspace (`<cmd> > .octocode/out.log 2>&1`), then `evaluate` with that path as `source`. From the CLI, a pipe can send it as `content` instead: [from a pipe](#from-a-pipe-cli). Use `sections` to learn every place or the order. A path outside the workspace, such as `/tmp`, is refused with `outsideAllowedRoots`. | Answers for the whole output in one request when it fits one window, each yes with its deciding `lines`. Use [command output](#command-output-november-12-2026) to choose the route. |
@@ -262,15 +262,17 @@ The results point to these routes:
 
 ### Deciding lines of a whole-window answer, November 12, 2026
 
-Synthetic `cargo test` output (1,422 lines, 71,076 bytes) held one failing test at line 917 and its panic report at lines 1409–1418. One run each, with the configured key and model, from a local development build; the provider received 3 requests in total.
+Synthetic `cargo test` output (1,422 lines, 71,076 bytes) held one failing test at line 917 and its panic report at lines 1409–1418. One run each, with the configured key and model, from a local development build; the provider received 5 requests in total.
 
 | Route, Nov 12 | Answer | Deciding `lines` | Requests | Tokens in / out | What the agent reads next |
 |---|---|---|---:|---:|---|
 | Before: `content` built with `jq -Rs`, piped to `--input -` (installed 20.2.0) | `noul` 0.99 | None | 1 | 24,685 / 20 | No read for `content`; for a saved file, `next.read` opened all 71,076 bytes, or `sections` billed one request per section |
-| `--content -`, the same pipe | `noul` 0.99 | 913–918, which holds line 917 | 1 | 27,848 / 2,309 | The 6 lines, by number |
-| Saved file as `source`: `noul` plus a `choice` of the failing module | `noul` 0.99; `choice` `net` (right) | 913–918 for both | 1 | 30,052 / 4,676 | `next.read`: 408 characters, the 6 lines with their gutter |
+| First cut, 237 parts (one per 6 lines), `--content -` | `noul` 0.99 | 913–918 | 1 | 27,848 / 2,309 | The 6 lines |
+| First cut, saved file, `noul` plus a `choice` of the failing module | 0.99; `net` (right) | 913–918 for both | 1 | 30,052 / 4,676 | 408 characters |
+| Parts of one read page (5 parts), `--content -` | `noul` 0.99 | 852–1134, which holds line 917 | 1 | 24,796 / 85 | The 283 lines, by number |
+| Parts of one read page, saved file, the same two questions | 0.99; `net` (right) | 852–1134 for both | 1 | 25,010 / 228 | `next.read`: one page, 16,173 characters, with no next page |
 
-The parts cost 3,163 more input tokens (13%) and about 2,300 output tokens per question in this text of 237 parts: the provider returns a probability for every part label. A smaller part count would cost less and point less precisely.
+Parts are sized to one line page of the automatic read, so the deciding lines are one `next.read` call. Against the request without parts, that cost 111 input tokens (0.4%) and about 65 output tokens per question here. Parts of a few lines cost 13% more input and about 2,300 output tokens per question, because the provider returns a probability for every part label, and named lines the agent could have found on the same single page.
 
 ### What is measured
 
@@ -282,7 +284,7 @@ The parts cost 3,163 more input tokens (13%) and about 2,300 output tokens per q
 | Large sources judged whole in the long window | Measured on four sources with 6 questions each |
 | Absence and event order on a sectioned source | Shown on one source. Absence was answered low. Order was answered wrong. |
 | Saved-page replay, repeated evaluations and changed sources | Measured on one 3-section source |
-| Deciding `lines` of a whole-window answer | Measured once on one synthetic test log, with 2 questions; both pointed at the failing line |
+| Deciding `lines` of a whole-window answer | Measured once per part size on one synthetic test log, with up to 2 questions; every answer pointed at the part with the failing line |
 | `box` IoU and image presence | Measured on 5 boxes and 4 questions over simple synthetic shapes |
 | `choice` and `score` precision and recall on items | Not measured. They were tested only on the five large sources (15 answers). |
 | Run-to-run variance | Not measured. One repeated evaluation moved from 0.98 to 0.99. |
@@ -296,7 +298,6 @@ These historical single runs on November 3, 2026 estimated main-agent tokens fro
 
 | Task | Baseline main-agent tokens | With Jev | Jev tokens |
 |---|---:|---:|---:|
-| Find one named fact in a 33 KB document | 8.4k, full read | 0.15k, `evaluate` | 8.1k |
 | Filter three questions over 28 local guides | 6.8k, exact search hits | 4.0k, inline selection | 23k |
 | Filter three questions over 30 Vite files | 4.7k, GitHub search | 2.4k, inline selection | 12k |
 | Filter three questions over 100 Java files | 26.8k, exact hits, or 2.2k for filenames alone | 4.1k, inline selection | 131k |
@@ -305,6 +306,8 @@ These historical single runs on November 3, 2026 estimated main-agent tokens fro
 | Check one literal in a small file | 0.09k, direct read | 0.07k, `evaluate` | 3.2k |
 
 The Java corpus had 26 known matching files. Section assessment found 25 with two extra candidates. Filtering just the search hits found 14. Exact filename search used the least context when only filenames were needed.
+
+A row for one named fact in a large document was withdrawn: its source document has changed since, and a later re-check found that the reported `evaluate` size came from four questions, not one. To measure it again, sum the response characters of every page of a whole read (`octocode localFetch '{"queries":[{"path":"<document>"}]}'`, following `responsePagination.next`) and compare them with the response characters of one `evaluate` question on the same `localFetch` source, as in the [quick start](#quick-start); take Jev tokens from that call's provider usage. Each `evaluate` is billed.
 
 ### What the model found
 

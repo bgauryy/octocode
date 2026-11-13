@@ -46,8 +46,7 @@ pub(super) fn scan_file(
     // rule, as a read shows it ([`super::super::source::admitted_for_match`]).
     let stop = || cancel.check().is_err();
     let mut maps = super::super::source::mapping_budget(cancel, &stop);
-    let (admitted, shown) =
-        super::super::source::admitted_for_match(canonical, &bytes, &mut maps)?;
+    let (admitted, shown) = super::super::source::admitted_for_match(canonical, &bytes, &mut maps)?;
     let source = admitted.text();
     let source_path = canonical.to_string_lossy();
     let mut r = octocode_engine::structural::search_detailed(

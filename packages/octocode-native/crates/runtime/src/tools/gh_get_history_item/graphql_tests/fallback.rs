@@ -44,8 +44,8 @@ async fn an_unreadable_graphql_collection_is_read_by_rest() {
 }
 
 /// A GraphQL answer without the pull request (an `errors[]` reply) falls
-/// back to REST; the reason is kept and shown only with the diagnostics
-/// extra.
+/// back to REST. REST returns the same rows, so the transport is not part of
+/// the answer: the row holds only fields the output contract declares.
 #[tokio::test]
 async fn a_failed_graphql_read_falls_back_to_rest() {
     let server = MockServer::builder().start().await;
@@ -55,7 +55,7 @@ async fn a_failed_graphql_read_falls_back_to_rest() {
             "errors": [{"type": "FORBIDDEN", "message": "Resource not accessible by integration"}]}),
     )
     .await;
-    mount_rest_pr(&server, 2).await;
+    mount_rest_pr(&server, 1).await;
     mount_json(
         &server,
         "/api/v3/repos/a/b/pulls/7/files",
@@ -71,40 +71,64 @@ async fn a_failed_graphql_read_falls_back_to_rest() {
             "created_at": "2026-01-01T00:00:00Z"}]),
     )
     .await;
-    let row = || {
+    let out = read(
+        &server,
         json!({"operation":"pullRequest","owner":"a","repo":"b","number":7,
-            "sections":["files","comments"]})
-    };
-    let quiet = read(&server, row()).await;
+            "sections":["files","comments"]}),
+    )
+    .await;
     assert_eq!(
-        quiet.data.pointer("/pullRequests/0/comments/0/body"),
+        out.data.pointer("/pullRequests/0/comments/0/body"),
         Some(&json!("Looks good.")),
         "{}",
-        quiet.data
+        out.data
     );
-    assert!(quiet.data["graphqlFallback"].is_string());
-    let shown = read(&server, row()).await;
-    let reason = shown.data["graphqlFallback"].as_str().unwrap_or_default();
-    assert!(reason.contains("not accessible"), "{}", shown.data);
+    assert_declared(&out.data);
 }
 
-/// The response's warnings, joined.
-fn warnings(data: &Value) -> String {
-    data["warnings"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .collect::<Vec<_>>()
-        .join("\n")
+/// The row as published meets the canonical output contract, which
+/// rejects any key the core schema does not declare.
+fn assert_declared(data: &Value) {
+    let shaped = crate::response::rows::result_row(0, data.clone(), None);
+    if let Err(error) = crate::tools::test_support::validate_sealed(
+        "ghGetHistoryItem",
+        &json!({"results": [shaped]}),
+    ) {
+        panic!("{error}\n{data}");
+    }
+}
+
+/// The row of the same read when GraphQL could not read `files` at all
+/// (`null`): REST lists them, beside the header `header` overrides.
+async fn files_read_by_rest(header: Value) -> Value {
+    let server = MockServer::builder().start().await;
+    let mut connections = header;
+    connections["files"] = Value::Null;
+    connections["commentsConn"] = json!({"pageInfo": {"hasNextPage": false}, "nodes": []});
+    mount_graphql(&server, graphql_pr(connections)).await;
+    mount_json(
+        &server,
+        "/api/v3/repos/a/b/pulls/7/files",
+        200,
+        json!([changed("a.rs"), changed("b.rs"), changed("c.rs")]),
+    )
+    .await;
+    read(
+        &server,
+        json!({"operation":"pullRequest","owner":"a","repo":"b","number":7,
+            "sections":["files","comments"]}),
+    )
+    .await
+    .data
 }
 
 /// A GraphQL `errors[]` entry inside a connection beside non-null data (a
 /// node field GitHub nulled) makes that connection untrusted: REST reads it
-/// whole, an untouched connection is not read again, and a warning names the
-/// error's path and text.
+/// whole and an untouched connection is not read again. REST's rows are the
+/// evidence, so the row is the one GraphQL's `null` connection gives: the
+/// transport's errors are not part of the answer.
 #[tokio::test]
-async fn graphql_errors_beside_a_connection_send_it_to_rest_and_are_warned() {
+async fn graphql_errors_beside_a_connection_send_it_to_rest() {
     let server = MockServer::builder().start().await;
     let mut answer = graphql_pr(json!({
         "files": {"pageInfo": {"hasNextPage": false}, "nodes": [
@@ -141,18 +165,13 @@ async fn graphql_errors_beside_a_connection_send_it_to_rest_and_are_warned() {
         "{}",
         out.data
     );
-    let warned = warnings(&out.data);
-    assert!(
-        warned.contains("repository.pullRequest.files.nodes.1.path")
-            && warned.contains("Path withheld"),
-        "{}",
-        out.data
-    );
+    assert_eq!(out.data, files_read_by_rest(json!({})).await);
+    assert_declared(&out.data);
 }
 
 /// A GraphQL error outside every collection (a nulled PR field) leaves the
-/// GraphQL header untrusted: REST serves the whole read, and the fallback
-/// reason names every error's path and text.
+/// GraphQL header untrusted: REST serves the whole read, its connections
+/// included.
 #[tokio::test]
 async fn graphql_errors_beside_the_pr_fields_fall_back_to_rest() {
     let server = MockServer::builder().start().await;
@@ -193,12 +212,14 @@ async fn graphql_errors_beside_the_pr_fields_fall_back_to_rest() {
         "{}",
         out.data
     );
-    let reason = out.data["graphqlFallback"].as_str().unwrap_or_default();
-    assert!(
-        reason.contains("repository.pullRequest.body") && reason.contains("Body withheld"),
+    // GraphQL listed one file; REST lists all three.
+    assert_eq!(
+        out.data.pointer("/pullRequests/0/files"),
+        Some(&json!(["A +1 -0 a.rs", "A +1 -0 b.rs", "A +1 -0 c.rs"])),
         "{}",
         out.data
     );
+    assert_declared(&out.data);
 }
 
 /// A later GraphQL page that carries `errors[]` is not appended: the
@@ -256,11 +277,56 @@ async fn graphql_errors_on_a_later_page_leave_the_connection_to_rest() {
         "{}",
         out.data
     );
-    let warned = warnings(&out.data);
-    assert!(
-        warned.contains("repository.pullRequest.files.nodes.3.path")
-            && warned.contains("Path withheld"),
-        "{}",
-        out.data
+    assert_eq!(
+        out.data,
+        files_read_by_rest(json!({"changedFiles": null})).await
     );
+    assert_declared(&out.data);
+}
+
+/// A connection GraphQL answered with errors is REST's to read. When REST's
+/// list then ends short of the count the pull request reports, the row
+/// says so as partial evidence with its provider limit.
+#[tokio::test]
+async fn a_short_rest_list_after_a_graphql_connection_error_is_partial() {
+    let server = MockServer::builder().start().await;
+    let mut answer = graphql_pr(json!({
+        "commitsCount": {"totalCount": 5},
+        "commits": {"pageInfo": {"hasNextPage": false}, "nodes": [{"commit": null}]}
+    }));
+    answer["errors"] = json!([{"message": "Commit withheld",
+        "path": ["repository", "pullRequest", "commits", "nodes", 0, "commit"]}]);
+    mount_graphql(&server, answer).await;
+    let commit = |n: usize| {
+        json!({"sha": format!("{n:040x}"), "commit": {"message": format!("commit {n}"),
+            "author": {"name": "Ada", "email": "a@x", "date": "2026-01-01T00:00:00Z"}},
+            "author": {"login": "ada"}})
+    };
+    mount_json(
+        &server,
+        "/api/v3/repos/a/b/pulls/7/commits",
+        200,
+        json!((0..3).map(commit).collect::<Vec<_>>()),
+    )
+    .await;
+    let out = read(
+        &server,
+        json!({"operation":"pullRequest","owner":"a","repo":"b","number":7,
+            "sections":["commits"]}),
+    )
+    .await;
+    let data = &out.data;
+    assert_eq!(
+        data["pullRequests"][0]["commits"].as_array().map(Vec::len),
+        Some(3),
+        "{data}"
+    );
+    assert_eq!(data["isPartial"], true, "{data}");
+    assert_eq!(data["pullRequests"][0]["commitCount"], 5, "{data}");
+    assert_eq!(
+        data["pullRequests"][0]["sectionPagination"]["commits"]["countScope"], "partial",
+        "{data}"
+    );
+    assert!(data["providerLimit"]["reason"].is_string(), "{data}");
+    assert_declared(data);
 }

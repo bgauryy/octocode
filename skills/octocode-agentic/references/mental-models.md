@@ -1,65 +1,50 @@
 # Mental models for decisions and issue discovery
 
-Load when a hidden assumption, uncertain choice, misleading metric or consequential failure needs a better question. Use these as investigation lenses, not proof or a mandatory checklist. Keep the domain skill's scope, permissions, verification and output.
+Load when a hidden assumption, uncertain choice, misleading metric or consequential failure needs a better question. These lenses select checks; they are neither proof nor a checklist to recite. Keep the domain skill's scope, permissions and output.
 
 ## Choose the lens
 
-Start with the exposed assumption. Select only models that could change the next action; stop adding lenses when they repeat the same check.
+Ask what is missing, what could go wrong, what follows, what would change the conclusion, and whether a simpler approach works. Select only questions whose answers could change the next action; scale effort to the consequence.
 
-| Model | Trigger and deciding question | Action / proof |
-|---|---|---|
-| Black Swan | Familiar benchmarks: which environmental assumption could fail outside the examples? | Perturb inputs, ordering and dependencies in isolation; check containment and record blind spots. Finite tests cannot cover unknown events. |
-| Antifragility | Recurring failure: what mechanism would turn it into durable improvement? | Keep the reproducer; validate a regression case or proposed policy change on the failure and different cases. Recovery alone is resilience; a recorded lesson is not demonstrated improvement. |
-| Via Negativa | Added complexity: what could be removed while preserving required behavior? | Compare a simpler baseline; establish owners and consumers before deletion and replay acceptance/failure checks. Preserve evidence, validation and required recovery. |
-| Optionality | Closing future paths: which reversible step would buy deciding evidence? | State recovery cost; verify restoration and effects rollback cannot undo. Preserve useful options without delaying settled work. |
-| Second-Order Thinking | Local improvement: what happens when consumers or other agents react? | Trace retries, queues, caches and downstream transitions. Measure the full path to detect shifted cost, risk or work. |
-| Inversion | Convincing happy path: what reachable chain could cause a forbidden outcome? | Work backward to guards and invariants, then trace actual entry points. Test the strongest explanation that would make the suspected failure harmless. |
-| Goodhart's Law | Better score: could it rise without achieving the goal? | Freeze external acceptance and a quality guardrail; test a shortcut against them. Include failures, omissions and retries. A proxy increase alone proves no gain. |
-| Bayesian Thinking | Conflicting evidence: is the observation more likely under the leading explanation or its rival? | Choose a distinguishing observation; update the conclusion and reason. Count a shared source once. Use qualitative confidence when priors or likelihoods are unjustified. |
-| Knightian Uncertainty | Unknown likelihoods: which choice avoids unacceptable loss across plausible conditions? | Vary assumptions; report where the choice changes and the next deciding observation. Keep unsupported probabilities unknown; unknown is not negligible. |
-| OODA Loop | Invalidated plan: what changed, and which next action would distinguish explanations? | Observe, orient to goal/constraints, decide, act and compare with expectation. After a non-informative repeat, change hypothesis or method. Stop on verified acceptance or a named blocker. |
-| Lindy Effect | Novelty-driven complexity: does a proven approach satisfy the current workload? | Compare maintained, supported alternatives under the same constraints and failures. Account for survivorship bias; age alone proves neither correctness nor fit. |
-| Tail-Risk Thinking | Good averages: which reachable severe failure could cascade or become irreversible? | Probe containment in isolation; verify state, recovery and affected scope. Keep impact, likelihood and confidence separate. Severity requires evidence. |
+| Lens | Deciding question → check |
+|---|---|
+| First Principles / Occam / Via Negativa | Which requirement needs this complexity? Compare the simplest viable path against the same acceptance, safety and recovery checks; establish consumers before removal. |
+| Inversion / Pre-Mortem / Red Teaming | How could this fail despite a convincing happy path? Trace a reachable failure and test the strongest rival that would make the suspected defect harmless. |
+| Systems / Second-Order Thinking | What happens when consumers react? Trace downstream state, retries, queues and caches; check whether cost or risk merely moved. |
+| Black Swan / Tail Risk | Which environmental assumption could fail with severe consequences? Perturb inputs, ordering or dependencies in isolation; test containment. Known edge cases are not automatically Black Swans, and finite tests cannot cover unknown events. |
+| Optionality | Which reversible step buys deciding evidence? Check restoration and effects rollback cannot undo; avoid delaying settled work. |
+| Antifragility | What would turn this failure into validated improvement? Keep a reproducer and test the regression or policy change on different cases too. Recovery alone is resilience. |
+| Bayesian / Knightian Uncertainty | Which observation separates leading explanations, and where does the decision change? Update from independent evidence; vary unsupported assumptions and leave unjustified probabilities unknown. |
+| Goodhart / Opportunity Cost | Could the score improve while the user outcome worsens? Hold acceptance and quality guardrails constant; include omissions, retries and the work displaced. |
+| OODA | What changed, and which next action resolves it? Observe, orient, decide, act, compare. After a non-informative repeat, change the hypothesis or method. |
+| Lindy | Does a maintained proven approach satisfy the workload? Compare under current constraints; age alone proves neither correctness nor fit. |
 
 ## Uncertainty, reversibility and survival
 
-Apply these checks when consequences or a changing environment make a wrong assumption costly. Continue useful authorized work; ask only for a missing decision or authority that evidence cannot supply.
+Name the observation that would invalidate the current understanding. When it appears, refresh evidence or change the hypothesis before the affected action; continue unaffected authorized work. Ask only for a missing decision or authority that evidence cannot supply.
 
-| Concern | Action | Evidence to require |
-|---|---|---|
-| Detect a wrong understanding | Name observations that would invalidate the current model. When one appears, refresh evidence, narrow the claim or change the hypothesis before the affected action. Hold that action if a necessary precondition cannot be established. | The contradiction, changed assumption, next deciding observation and unaffected work that can continue |
-| Preserve reversibility | Prefer a preview, draft, isolated trial or staged change when it can answer the question before commitment. Check restoration against the actual state; account for effects that rollback cannot undo. | Recovery mechanism, its limits and a proving check proportionate to the consequence |
-| Separate success from survival | Track task success and failure containment independently. Treat required security, integrity and authorization invariants as acceptance conditions; faster or more frequent success cannot offset violating them. Use the owner's limits, not invented quotas. | Violations, worst observed consequence, affected scope and recovery result beside success, cost and latency; untested risks remain unknown |
+Track task success and failure containment separately. A faster outcome cannot offset violating authorization, security or integrity. Keep impact, likelihood and confidence distinct; no observed severe failure does not imply zero risk. Use the owner's limits rather than invented quotas.
 
-For long-running work, recheck relevant state before consequential transitions and after interruption. Preserve pending effects and cumulative exposure through checkpoints; reconcile uncertain outcomes before retrying. Revalidate conclusions whose inputs changed. A run with no observed severe failure does not establish zero risk.
+Before consequential transitions or resumed work, reconcile stale inputs, pending effects and uncertain outcomes before retrying. Verify recovery against actual state and disclose its limits.
 
 ## Issue-hunting loop
 
-Use this technique inside the existing hypothesis-checking workflow; one agent can perform it sequentially. Scale the work to the consequence and unresolved evidence.
-
-| Step | Do | Keep |
-|---|---|---|
-| Frame | State the intended outcome, invariant, scope and observable acceptance condition. Separate the real goal from its proxy. | Contract or requirement and current evidence |
-| Challenge | Select a relevant lens. Write a reachable failure hypothesis, the assumption it challenges and the strongest rival. | Candidate, not a finding |
-| Probe | Choose the smallest authorized check whose possible results separate the explanations. Exact-read source; confirm callers when identity matters; use execution for runtime claims. | Expected observation, actual result and source or run identity |
-| Update | Mark the hypothesis confirmed, refuted or unresolved. Follow new evidence rather than trying every model. | Disproof, remaining gap and next deciding check |
-| Improve | For an authorized repair, change the cause and replay the reproducer plus affected acceptance checks. In a review or test plan, hand off the repair or case without executing it. | Before/after evidence or an explicitly unexecuted proposal |
-| Close | Finish when acceptance is verified and no deciding gap remains within scope, or report a blocker and unchecked scope. Propose durable learning only from validated results and within authority. | Domain output; unresolved risks remain separate from proven defects |
-
-For a design without code, replace execution with an explicit scenario walk and label the result inferred or untested. A severe hypothetical consequence sets investigation priority; it does not turn a possibility into a confirmed defect. Report conclusions, evidence and uncertainty without printing private deliberation or the full lens checklist.
+1. Frame the intended outcome, invariant, scope and observable acceptance.
+2. Name a failure hypothesis, challenged assumption, strongest rival and smallest authorized check that distinguishes them. A hypothetical consequence sets priority, not severity as a proven finding.
+3. Exact-read the deciding source; resolve identity/callers when needed. Runtime claims require execution evidence. Record expected and observed results with source or run identity.
+4. Mark confirmed, refuted or unresolved; follow new evidence. For an authorized repair, fix the cause and replay the reproducer plus affected checks. Reviews and plans hand off proposals within their scope.
+5. Close on verified acceptance or a named blocker; state unchecked scope. A design scenario walk remains inferred or untested. Report conclusions and evidence without private deliberation.
 
 ## Turn a lens into a check
 
-| Observation | Useful lenses | Next check |
-|---|---|---|
-| A faster research agent reads fewer result pages | Goodhart + Via Negativa | Hold the requested evidence constant and reconstruct the selected results. Compare time only after completeness and correctness pass. |
-| A write succeeds remotely but its acknowledgment is lost | Inversion + Second-Order + Tail Risk | In a sandbox, drop the acknowledgment and retry. Inspect durable state for duplicate effects; reconcile an uncertain outcome before replaying it. |
-| A new dependency is proposed while usage is uncertain | Optionality + Knightian + Lindy | Compare the existing approach with a reversible prototype under explicit workload scenarios; record which missing evidence would justify adoption. |
+- A faster research agent reads fewer pages: reconstruct the same requested evidence before comparing time.
+- A write acknowledgment is lost: inspect durable state and reconcile before retrying; test duplicate-effect containment in isolation.
+- A dependency is proposed for an uncertain workload: compare a reversible prototype with the existing approach and name the observation that would justify adoption.
 
 ## Concept boundaries and sources
 
-These are engineering applications, not evidence that naming models improves agents. Known edge cases are not automatically Black Swans; incident learning alone does not demonstrate mathematical antifragility.
+These are engineering applications, not evidence that naming models improves agents.
 
-- [Taleb: The Black Swan, prologue](https://www.fooledbyrandomness.com/TheBlackSwan.pdf): unexpected events with extreme impact and retrospective explanations.
-- [Taleb: Antifragile](https://www.fooledbyrandomness.com/Antifragile.htm): benefiting from variability goes beyond merely resisting it.
-- [Google DeepMind: Specification gaming](https://deepmind.google/blog/specification-gaming-the-flip-side-of-ai-ingenuity/): satisfying an objective's specification can miss the intended outcome.
+- [Taleb: The Black Swan, prologue](https://www.fooledbyrandomness.com/TheBlackSwan.pdf)
+- [Taleb: Antifragile](https://www.fooledbyrandomness.com/Antifragile.htm)
+- [Google DeepMind: Specification gaming](https://deepmind.google/blog/specification-gaming-the-flip-side-of-ai-ingenuity/)

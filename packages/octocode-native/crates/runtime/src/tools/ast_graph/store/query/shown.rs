@@ -8,8 +8,8 @@
 //! ([`ROLE_HIDDEN_VALUE`]); that file's rows are placed by path and line
 //! alone. The snapshot keeps its digests for staleness checks; no row of
 //! such a file shows them.
-use super::Graph;
 use super::super::format::NodeRec;
+use super::Graph;
 use crate::tools::ast_graph::classify::ROLE_HIDDEN_VALUE;
 
 impl Graph {

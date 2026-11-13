@@ -236,6 +236,11 @@ impl FileFacts {
 pub(crate) enum DiagnosticCode {
     /// The one default prune left out this directory.
     DefaultExcluded,
+    /// An import of project code climbs above the snapshot root: a scope
+    /// gap, not a broken import (its target may exist, unscanned). It
+    /// counts as an unresolved internal import, as [`Self::UnresolvedInternal`]
+    /// does; what the code means is graphQuery's `diagnostics` text.
+    OutsideRoot,
     ParseRecovery,
     /// oxc could not parse a JS/TS file; the tree-sitter lane read it.
     ParserFallback,
@@ -252,6 +257,7 @@ impl DiagnosticCode {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::DefaultExcluded => "default-excluded",
+            Self::OutsideRoot => "outside-root",
             Self::ParseRecovery => "parse-recovery",
             Self::ParserFallback => "parser-fallback",
             Self::PathPolicyWithheld => "path-policy-withheld",

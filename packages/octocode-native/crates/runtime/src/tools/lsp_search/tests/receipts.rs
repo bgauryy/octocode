@@ -11,6 +11,7 @@ fn server(args: &[&str], source: ServerSource) -> LspLanguageServerConfig {
         args: Some(args.iter().map(|arg| (*arg).to_owned()).collect()),
         workspace_root: "/repo".into(),
         language_id: Some("rust".into()),
+        document_language_ids: Default::default(),
         initialization_options: None,
         env: None,
         max_memory_mb: None,

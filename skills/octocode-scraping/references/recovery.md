@@ -23,22 +23,13 @@ Load when a scrape fails, blocks, times out, or overflows, or when legality, pri
 | `423` anti-bot | Only an authorized route that respects its pacing or access rule. |
 | Thin 200 or JS shell | Follow `next.route` ([browser-scraping](browser-scraping.md)); hosted only by explicit choice. |
 | Robots disallow, or 5xx on robots | Skip and report; never route around robots with Chrome. |
-| `429`/`503` with `Retry-After` | Wait once only if ≤10 seconds; else report and stop. |
+| `429`/`503` with `Retry-After` | Direct HTTP already handles a short server-requested delay. If still blocked, report the returned delay; continue only within the authorized deadline and pacing. |
 | Timeout | Find the cause (connection, rendering, scope); adjust before retrying. |
 | Huge output | Follow continuations; size parts with `--chunk-bytes`, `--max-text-bytes`; `--no-raw` drops raw audit. |
 
 ## Retries
 
-Bounded retry: a retry needs a changed diagnosis or input; the only wait is one `Retry-After` of ≤10 seconds; anything else is reported and stops (SBAR below).
-
-```mermaid
-flowchart LR
-  F["Failure"] --> C{"Diagnosis or input changed?"}
-  C -- "yes" --> R["Retry with the change"] --> F
-  C -- "no" --> H{"429/503 with Retry-After ≤10 s, not yet waited?"}
-  H -- "yes" --> W["Wait once, retry"] --> F
-  H -- "no" --> S["Report and stop"]
-```
+Retry after changing the diagnosis or input, or when a server-requested delay and the remaining authorized time justify another attempt. Do not repeat unchanged failed calls; report a blocking delay or unresolved cause (SBAR below).
 
 ## On a stop
 

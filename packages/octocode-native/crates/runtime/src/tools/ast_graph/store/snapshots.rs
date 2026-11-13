@@ -156,9 +156,9 @@ pub(super) fn successor(home: &Path, workspace: &Path, root: &Path, id: &str) ->
     let root = root.to_string_lossy();
     // IDs order by build time: only a later build of the scope replaced `id`.
     list_snapshots(home).into_iter().rev().find(|candidate| {
-        candidate.as_str() > id
-            && read_manifest(&home.join(candidate))
-                .is_some_and(|manifest| manifest["root"] == root.as_ref())
+        snapshot_order(candidate) > snapshot_order(id)
+            && read_snapshot_metadata(&home.join(candidate))
+                .is_some_and(|manifest| manifest.root.as_deref() == Some(root.as_ref()))
     })
 }
 
@@ -168,16 +168,35 @@ pub(super) fn utc_now() -> (String, String) {
     (iso.replace(['-', ':'], ""), iso)
 }
 
-/// Whether `dir` is a published snapshot (has a manifest of our kind).
-pub(super) fn read_manifest(dir: &Path) -> Option<Value> {
-    crate::tools::source::read_bounded(&dir.join(MANIFEST_FILE), 1024 * 1024)
+fn read_snapshot<T: serde::de::DeserializeOwned>(dir: &Path) -> Option<T> {
+    std::fs::File::open(dir.join(MANIFEST_FILE))
         .ok()
-        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-        .filter(|manifest| manifest["kind"] == MANIFEST_KIND)
+        .and_then(|file| serde_json::from_reader(std::io::BufReader::new(file)).ok())
+}
+
+/// The complete manifest, for reuse and freshness consumers that need its
+/// evidence. Discovery reads only [`SnapshotMetadata`].
+pub(super) fn read_manifest(dir: &Path) -> Option<Value> {
+    read_snapshot::<Value>(dir).filter(|manifest| manifest["kind"] == MANIFEST_KIND)
+}
+
+/// Discovery and retention need only these fields. Serde skips every other
+/// value directly from the reader, without allocating its scan evidence.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SnapshotMetadata {
+    kind: String,
+    pub(super) root: Option<String>,
+    pub(super) scope: Option<String>,
+    pub(super) format_version: Option<u64>,
+}
+
+pub(super) fn read_snapshot_metadata(dir: &Path) -> Option<SnapshotMetadata> {
+    read_snapshot::<SnapshotMetadata>(dir).filter(|manifest| manifest.kind == MANIFEST_KIND)
 }
 
 pub(super) fn is_snapshot(dir: &Path) -> bool {
-    read_manifest(dir).is_some()
+    read_snapshot_metadata(dir).is_some()
 }
 
 /// Allocate after every surviving same-second id, including unpublished entries.
@@ -263,15 +282,15 @@ pub(super) fn prune_with(
     let mut same_scope = Vec::new();
     let mut outdated = Vec::new();
     for id in list_snapshots(home) {
-        let Some(manifest) = read_manifest(&home.join(&id)) else {
+        let Some(manifest) = read_snapshot_metadata(&home.join(&id)) else {
             continue;
         };
-        if manifest["formatVersion"]
-            .as_u64()
+        if manifest
+            .format_version
             .is_some_and(|version| version < u64::from(format::FORMAT_VERSION))
         {
             outdated.push(id);
-        } else if manifest["root"] == root.as_ref() {
+        } else if manifest.root.as_deref() == Some(root.as_ref()) {
             same_scope.push(id);
         }
     }

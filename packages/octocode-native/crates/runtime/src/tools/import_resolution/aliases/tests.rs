@@ -151,9 +151,13 @@ fn tsconfig_paths_resolve_through_relative_extends_chains() {
             .as_deref(),
         Some("packages/other/src/x/y.ts")
     );
-    assert!(context.is_internal_bare_js("@lib/none", importer));
-    assert!(!context.is_internal_bare_js("react", importer));
-    assert!(context.is_internal_bare_js("~/anything", importer));
+    for (spec, expected) in [
+        ("@lib/none", BareTarget::Internal),
+        ("react", BareTarget::External),
+        ("~/anything", BareTarget::Internal),
+    ] {
+        assert_eq!(context.bare_target_js(spec, importer), expected, "{spec}");
+    }
 }
 
 #[test]
@@ -246,8 +250,13 @@ fn workspace_packages_prefer_sources_over_build_output() {
             .as_deref(),
         Some("packages/core/src/internal/secret.ts")
     );
-    assert!(context.is_internal_bare_js("@acme/core/nope", importer));
-    assert!(context.is_internal_bare_js("#internal/x", importer));
+    for spec in ["@acme/core/nope", "#internal/x"] {
+        assert_eq!(
+            context.bare_target_js(spec, importer),
+            BareTarget::Internal,
+            "{spec}"
+        );
+    }
 }
 
 #[test]

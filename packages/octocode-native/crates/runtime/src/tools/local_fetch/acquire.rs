@@ -140,19 +140,10 @@ pub(super) fn resolve_file(
     }
 }
 
-/// The opened file's binary-sniff sample, which starts the buffer of the
-/// whole read (sized from the handle's stat).
-pub(super) fn read_sample(
-    mut file: fs::File,
-    len: u64,
-    in_memory: bool,
-) -> std::io::Result<(fs::File, Vec<u8>)> {
-    let capacity = if in_memory {
-        usize::try_from(len).map_or(BINARY_SAMPLE_BYTES, |len| len + 1)
-    } else {
-        BINARY_SAMPLE_BYTES
-    };
-    let mut bytes = Vec::with_capacity(capacity.max(BINARY_SAMPLE_BYTES));
+/// The opened file's binary-sniff sample. Reserve only the sniff until the
+/// executor admits the source as text and chooses a whole-file read.
+pub(super) fn read_sample(mut file: fs::File) -> std::io::Result<(fs::File, Vec<u8>)> {
+    let mut bytes = Vec::with_capacity(BINARY_SAMPLE_BYTES);
     let mut sample = [0_u8; BINARY_SAMPLE_BYTES];
     let read = file.read(&mut sample)?;
     bytes.extend_from_slice(&sample[..read]);
@@ -181,15 +172,8 @@ pub(super) fn fetch_streamed(
         return stale_snapshot(q);
     }
     let path = &file.canonical;
-    let mut result = crate::tools::large_source::fetch_window(
-        q,
-        path,
-        source,
-        meta,
-        share,
-        security,
-        cancel,
-    );
+    let mut result =
+        crate::tools::large_source::fetch_window(q, path, source, meta, share, security, cancel);
     if let Err(error) = name_read_file(&mut result, q, file) {
         return LocalFetchResult::error(
             local_fetch_query::path(q).to_owned(),

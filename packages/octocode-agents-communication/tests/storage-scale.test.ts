@@ -1,6 +1,6 @@
 // Hot coordination paths use indexed lookups, not scans of every lease, record, message or delivery: every statement the
-// store runs for them is checked with EXPLAIN QUERY PLAN against a seeded database. The wall-clock variant over 10^5
-// records is opt-in (yarn test:nightly, tests/nightly/storage-timing.test.ts).
+// store runs for them is checked with EXPLAIN QUERY PLAN against a seeded database. Wall-clock time at scale is an
+// agent check (docs/OPERATIONS.md#verify-concurrent-native-workers).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';

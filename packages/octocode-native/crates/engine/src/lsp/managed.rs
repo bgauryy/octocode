@@ -303,22 +303,43 @@ fn read_cache_marker(marker_path: &Path) -> Option<CacheMarker> {
     })
 }
 
-/// File identity of a binary whose hash already matched its marker. A changed
-/// size or mtime forces a rehash, so each LSP spawn does not hash a large
-/// binary again (review M7).
+/// A settled file identity whose hash matched its marker. Unix change time
+/// and inode distinguish writes and replacements preserving size and mtime.
 #[derive(Clone, PartialEq)]
 struct VerifiedBinary {
-    size: u64,
-    modified: std::time::SystemTime,
+    stamp: crate::stamp::SourceStamp,
     binary_sha256: String,
 }
 
-fn verified_binaries()
--> &'static std::sync::Mutex<std::collections::HashMap<PathBuf, VerifiedBinary>> {
-    static VERIFIED: OnceLock<
-        std::sync::Mutex<std::collections::HashMap<PathBuf, VerifiedBinary>>,
-    > = OnceLock::new();
-    VERIFIED.get_or_init(Default::default)
+impl VerifiedBinary {
+    fn of(metadata: &std::fs::Metadata, binary_sha256: &str) -> Option<Self> {
+        // Stable non-Unix metadata does not carry the change time and file
+        // object identity needed for this executable-verification shortcut.
+        // Rehash there, and while a Unix file is still racily clean.
+        if !cfg!(unix) {
+            return None;
+        }
+        Some(Self {
+            stamp: crate::stamp::SourceStamp::settled(metadata, crate::stamp::settle_clock())?,
+            binary_sha256: binary_sha256.to_owned(),
+        })
+    }
+}
+
+fn verified_binaries() -> &'static std::sync::Mutex<lru::LruCache<PathBuf, VerifiedBinary>> {
+    static VERIFIED: OnceLock<std::sync::Mutex<lru::LruCache<PathBuf, VerifiedBinary>>> =
+        OnceLock::new();
+    VERIFIED.get_or_init(|| std::sync::Mutex::new(new_verification_memo()))
+}
+
+fn new_verification_memo() -> lru::LruCache<PathBuf, VerifiedBinary> {
+    // One full manifest working set; switching cache homes evicts old
+    // paths in constant time rather than retaining every past install.
+    let capacity = manifest()
+        .values()
+        .map(|server| server.platforms.len())
+        .sum();
+    lru::LruCache::new(std::num::NonZeroUsize::new(capacity).unwrap_or(std::num::NonZeroUsize::MIN))
 }
 
 /// The installed binary for `name`, only when it is present AND its `.ok`
@@ -337,11 +358,7 @@ pub fn resolve_cached_server(root: &Path, name: &str, platform: &str) -> Option<
     if metadata.len() != marker.size {
         return None;
     }
-    let identity = metadata.modified().ok().map(|modified| VerifiedBinary {
-        size: metadata.len(),
-        modified,
-        binary_sha256: marker.binary_sha256.clone(),
-    });
+    let identity = VerifiedBinary::of(&metadata, &marker.binary_sha256);
     let cache = verified_binaries();
     if let Some(identity) = &identity
         && cache
@@ -352,21 +369,27 @@ pub fn resolve_cached_server(root: &Path, name: &str, platform: &str) -> Option<
     {
         return Some(bin_path);
     }
-    let bytes = std::fs::read(&bin_path).ok()?;
+    let file = std::fs::File::open(&bin_path).ok()?;
     #[cfg(test)]
     HASH_CALLS.with(|calls| calls.set(calls.get() + 1));
-    let matches =
-        bytes.len() as u64 == marker.size && crate::digest::sha256(&bytes) == marker.binary_sha256;
+    let (size, digest) = crate::digest::copy_hashed(&file, std::io::sink()).ok()?;
+    // Do not publish a memo for another file than the one hashed, or for a
+    // file whose metadata changed while it was read.
+    let stamp = crate::stamp::cache_stamp(&metadata);
+    let matches = size == marker.size
+        && digest == marker.binary_sha256
+        && stamp == crate::stamp::cache_stamp(&file.metadata().ok()?)
+        && stamp == crate::stamp::cache_stamp(&std::fs::metadata(&bin_path).ok()?);
     {
         let mut map = cache
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         match identity {
             Some(identity) if matches => {
-                map.insert(bin_path.clone(), identity);
+                map.put(bin_path.clone(), identity);
             }
             _ => {
-                map.remove(&bin_path);
+                map.pop(&bin_path);
             }
         }
     }

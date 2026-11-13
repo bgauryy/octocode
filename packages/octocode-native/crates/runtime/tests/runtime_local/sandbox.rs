@@ -193,7 +193,7 @@ async fn a_path_outside_the_workspace_names_the_relative_path_that_works() {
     let error = row_data(&outcome)["error"].as_str().expect("error");
     assert!(error.contains("\"docs/guide.md\""), "{error}");
     assert!(error.contains("relative to the workspace root"), "{error}");
-    for internal in ["~/clones", "materialize/v3", "capture/url", "allowed:"] {
+    for internal in ["~/clones", "tmp/materialize", "capture/url", "allowed:"] {
         assert!(!error.contains(internal), "{internal} in {error}");
     }
     let unknown = call(

@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 
 mod cargo;
 mod rust;
-pub(in super::super) use cargo::{local_packages, package_name, package_of};
+pub(in super::super) use cargo::{depends_on, local_packages, package_name, package_of};
 
 /// The module files of `relocated` (declaring file, module file) that
 /// belong to `territory`: declared from one of its files, or from a module

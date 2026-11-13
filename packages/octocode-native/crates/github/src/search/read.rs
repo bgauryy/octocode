@@ -227,7 +227,10 @@ mod tests {
                 let held = (provider_page - 1) * size..provider_page * size;
                 let asked = (page - 1) * per_page..page * per_page;
                 assert!(held.start <= asked.start && asked.end <= held.end);
-                assert!(size <= asked.start, "page {page} asks for more than was read");
+                assert!(
+                    size <= asked.start,
+                    "page {page} asks for more than was read"
+                );
                 assert!(size <= SEARCH_PAGE);
             }
         }

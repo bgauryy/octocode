@@ -71,3 +71,88 @@ fn multiline_span_preserves_a_matched_terminal_newline() {
         assert_eq!(result.stats.matched_lines, Some(2));
     }
 }
+
+/// Multiline mode joins matches on adjacent lines into one searched block;
+/// a row is still one match, or the matches that share a line, with its own
+/// first and last line: separate one-line hits stay separate rows, and a
+/// match over several lines states its last.
+#[test]
+fn a_multiline_block_is_one_row_per_group_of_matches_sharing_lines() {
+    let t = TmpDir::new();
+    t.write(
+        "hits.txt",
+        "x one\nx two\nfold(\n  y x\nx three\nmid\nx four\n",
+    );
+    for syntax in [PatternSyntax::Regex, PatternSyntax::Pcre2] {
+        for context in [
+            crate::types::SearchContext::default(),
+            crate::types::SearchContext::symmetric(1),
+        ] {
+            // A newline alternative that never matches still makes the
+            // search multiline: the one-line hits stay one row each.
+            let mut options = opts(t.path(), r"\bx\b|zz\n");
+            options.syntax = syntax;
+            options.multiline = Some(true);
+            options.context = context;
+            let result = search(options).expect("multiline lines");
+            let rows: Vec<_> = result.files[0]
+                .matches
+                .iter()
+                .map(|m| (m.line, m.last_line))
+                .collect();
+            assert_eq!(
+                rows,
+                [(1, None), (2, None), (4, None), (5, None), (7, None)],
+                "{syntax:?} {context:?}"
+            );
+            assert_eq!(result.stats.match_count, Some(5), "{syntax:?}");
+            assert_eq!(result.stats.matched_lines, Some(5), "{syntax:?}");
+
+            // A match over lines 3-4 that shares line 4 with no other: its
+            // own row, beside the one-line hits around it.
+            let mut options = opts(t.path(), r"fold\(\n.*|\bx\b");
+            options.syntax = syntax;
+            options.multiline = Some(true);
+            options.context = context;
+            let result = search(options).expect("multiline lines");
+            let matches = &result.files[0].matches;
+            let rows: Vec<_> = matches.iter().map(|m| (m.line, m.last_line)).collect();
+            assert_eq!(
+                rows,
+                [(1, None), (2, None), (3, Some(4)), (5, None), (7, None)],
+                "{syntax:?} {context:?}"
+            );
+            assert_eq!(result.stats.match_count, Some(5), "{syntax:?}");
+            assert_eq!(result.stats.matched_lines, Some(6), "{syntax:?}");
+            if context.is_empty() {
+                assert_eq!(matches[2].value, "fold(\n  y x");
+                assert_eq!(matches[0].value, "x one");
+            }
+        }
+    }
+}
+
+/// A long line's row in a multiline block is the window one-line mode shows,
+/// at the hit's own byte, beside its neighbour's own row.
+#[test]
+fn a_long_line_in_a_multiline_block_keeps_its_window() {
+    let t = TmpDir::new();
+    let filler = "y".repeat(crate::security::LONG_LINE_BYTES + 1);
+    let long = format!("{filler} needle");
+    t.write("hits.txt", format!("needle one\n{long}\nzz\n"));
+    for context in [
+        crate::types::SearchContext::default(),
+        crate::types::SearchContext::symmetric(1),
+    ] {
+        let mut options = opts(t.path(), r"needle|zz\nqq");
+        options.syntax = PatternSyntax::Regex;
+        options.multiline = Some(true);
+        options.context = context;
+        let result = search(options).expect("multiline lines");
+        let matches = &result.files[0].matches;
+        let rows: Vec<_> = matches.iter().map(|m| (m.line, m.last_line)).collect();
+        assert_eq!(rows, [(1, None), (2, None)], "{context:?}");
+        assert!(matches[1].value.len() < long.len(), "{context:?}: a window");
+        assert_eq!(matches[1].byte_offset as usize, filler.len() + 1);
+    }
+}

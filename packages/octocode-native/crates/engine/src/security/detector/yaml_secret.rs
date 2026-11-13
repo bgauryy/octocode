@@ -52,58 +52,297 @@ pub(super) fn secret_values(text: &str) -> Vec<Range<usize>> {
 
 /// Adds to `values` the values the lines of `block` hold in `text`, each
 /// without the name before it, the quotes around it and the comment after
-/// it: a member's value, and each line of a value that runs over several (a
-/// block scalar's, where a line that reads as a member keeps its name too).
-/// The names, the indentation, a comment, a template directive, a
-/// placeholder and a key's armor line (`-----BEGIN PRIVATE KEY-----`, which
-/// names its block and holds none of it) stay. A block that starts within
-/// its line is a flow value: all of it is one.
+/// it: what [`BlockValues`] reads of each line.
 pub(super) fn block_values(text: &str, block: Range<usize>, values: &mut Vec<Range<usize>>) {
     let bytes = text.as_bytes();
-    if block.start > 0 && bytes.get(block.start - 1) != Some(&b'\n') {
+    let before = block
+        .start
+        .checked_sub(1)
+        .and_then(|at| bytes.get(at))
+        .copied();
+    let Some(mut lines) = BlockValues::new(block.start, before) else {
         values.push(block);
         return;
-    }
-    let mut line = block.start;
-    while line < block.end {
-        let Some(rest) = bytes.get(line..block.end) else {
+    };
+    lines.feed(bytes.get(block).unwrap_or_default(), values);
+    lines.finish(values);
+}
+
+/// Bytes of a block's line held to read its value. A longer line is read from
+/// what its head shows: its value runs to the line's end, and a head that shows
+/// no name hides all the line holds past its indentation.
+const VALUE_HEAD_BYTES: usize = LINE_HEAD_BYTES;
+
+/// The values of a Secret's `data` or `stringData` block, read line by line as
+/// the block's bytes pass, in pieces of any size, through a bounded buffer: the
+/// one rule a source held whole and a source streamed past both follow.
+///
+/// Each line's value goes, without the name before it, the quotes around it and
+/// the comment after it: a member's value, and each line of a value that runs
+/// over several (a block scalar's, where a line that reads as a member keeps its
+/// name too). The names, the indentation, a comment, a template directive, a
+/// placeholder and a key's armor line (`-----BEGIN PRIVATE KEY-----`, which
+/// names its block and holds none of it) stay.
+pub struct BlockValues {
+    /// The block's first byte in the source.
+    base: usize,
+    /// Bytes fed so far.
+    at: usize,
+    /// Where the current line starts, counted from `base`.
+    line: usize,
+    /// The current line's first bytes, up to [`VALUE_HEAD_BYTES`].
+    head: Vec<u8>,
+    /// The current line outran its head.
+    long: Option<PastHead>,
+}
+
+/// What a line past its head shows of its value.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Reading {
+    /// The head says the line holds no value: a comment or a template directive.
+    Nothing,
+    /// The head shows a member's name: its value starts after it, and a comment
+    /// after the value stays.
+    Value,
+    /// The head shows no name: all the line holds past its indentation.
+    All,
+}
+
+/// A line past its head, read a byte at a time from where its value may start.
+struct PastHead {
+    reading: Reading,
+    /// The line's byte its value starts at, once a byte that is no indent came.
+    start: Option<usize>,
+    /// Its value's first byte.
+    first: u8,
+    /// Past the value's last byte that is no blank, before any comment.
+    end: usize,
+    /// That byte.
+    last: u8,
+    /// A comment started: what follows is no value.
+    comment: bool,
+    /// The byte before this one.
+    previous: u8,
+}
+
+impl PastHead {
+    fn take(&mut self, at: usize, byte: u8) {
+        if self.reading == Reading::Nothing {
             return;
-        };
-        let end = rest
-            .iter()
-            .position(|byte| *byte == b'\n')
-            .map_or(block.end, |at| line + at);
-        let Some(body) = bytes.get(line..end) else {
-            return;
-        };
-        let body = body.strip_suffix(b"\r").unwrap_or(body);
-        let mut member = trim_start(body);
-        while member == b"-" || member.starts_with(b"- ") || member.starts_with(b"-\t") {
-            member = trim_start(&member[1..]);
         }
-        let value = match name_and_value(member) {
-            Some((_, value_at)) => before_comment(trim_start(&member[value_at..])),
-            None => member,
+        let Some(start) = self.start else {
+            if !matches!(byte, b' ' | b'\t') {
+                (self.start, self.first, self.end, self.previous) = (Some(at), byte, at, byte);
+                if !byte.is_ascii_whitespace() {
+                    (self.end, self.last) = (at + 1, byte);
+                }
+            }
+            return;
         };
-        let armor = std::str::from_utf8(value).is_ok_and(super::credential_values::is_armor_line);
-        if !(value.is_empty()
-            || member.starts_with(b"#")
-            || member.starts_with(b"{{")
-            || armor
-            || opens_a_block_scalar(value))
+        if self.comment {
+            return;
+        }
+        if self.reading == Reading::Value && at > start && byte == b'#' && self.previous == b' ' {
+            self.comment = true;
+            return;
+        }
+        if !byte.is_ascii_whitespace() {
+            (self.end, self.last) = (at + 1, byte);
+        }
+        self.previous = byte;
+    }
+
+    /// The value of the line whose head is `head`, as bytes of the line.
+    fn value(&self, head: &[u8]) -> Option<Range<usize>> {
+        let start = self.start?;
+        if self.reading == Reading::Nothing
+            || self.end <= start
+            || (self.reading == Reading::Value && self.first == b'#')
         {
-            // `value` is a slice of the line: where it lies in the text.
-            let start = line + (value.as_ptr() as usize).saturating_sub(body.as_ptr() as usize);
+            return None;
+        }
+        if let Some(value) = head.get(start..self.end) {
+            // A value the head holds whole is judged as a short line's is.
+            let armor =
+                std::str::from_utf8(value).is_ok_and(super::credential_values::is_armor_line);
+            if armor || opens_a_block_scalar(value) {
+                return None;
+            }
             let inner = unquoted(value);
             let quote = usize::from(inner.len() < value.len());
             let range = start + quote..start + quote + inner.len();
-            // What an earlier pass left in a value's place is none.
-            if !text.get(range.clone()).is_some_and(super::is_placeholder) {
-                values.push(range);
+            return (!head
+                .get(range.clone())
+                .and_then(|text| std::str::from_utf8(text).ok())
+                .is_some_and(super::is_placeholder))
+            .then_some(range);
+        }
+        let quoted = matches!(self.first, b'"' | b'\'') && self.last == self.first;
+        let quote = usize::from(quoted && self.reading == Reading::Value);
+        Some(start + quote..self.end - quote)
+    }
+}
+
+/// How a line whose head is `head` and that runs past it is read, and the
+/// head's byte its value may start from.
+fn read_head(head: &[u8]) -> (Reading, usize) {
+    let indent = |from: usize| {
+        from + head
+            .get(from..)
+            .unwrap_or_default()
+            .iter()
+            .take_while(|byte| matches!(byte, b' ' | b'\t'))
+            .count()
+    };
+    let mut at = indent(0);
+    // A list item's `- ` markers; a `-` the head ends on may start a value.
+    while head.get(at) == Some(&b'-') && matches!(head.get(at + 1), Some(b' ' | b'\t')) {
+        at = indent(at + 1);
+    }
+    let member = head.get(at..).unwrap_or_default();
+    if member.starts_with(b"#") || member.starts_with(b"{{") {
+        return (Reading::Nothing, at);
+    }
+    // The name the head shows whole, with the byte after its colon.
+    let name_end = match member.first() {
+        Some(quote @ (b'"' | b'\'')) => member
+            .iter()
+            .skip(1)
+            .position(|byte| byte == quote)
+            .map(|closing| closing + 2)
+            .filter(|after| member.get(*after) == Some(&b':') && member.len() > after + 1)
+            .map(|after| after + 1),
+        _ => member
+            .iter()
+            .enumerate()
+            .find(|(colon, byte)| {
+                **byte == b':' && matches!(member.get(colon + 1), Some(b' ' | b'\t'))
+            })
+            .map(|(colon, _)| colon + 1),
+    };
+    match name_end {
+        Some(value_at) => (Reading::Value, at + value_at),
+        None => (Reading::All, at),
+    }
+}
+
+impl BlockValues {
+    /// The reader of a block that starts at source byte `base`, after `before`.
+    /// `None` when the block starts within its line: it is a flow value, all
+    /// one value.
+    #[must_use]
+    pub fn new(base: usize, before: Option<u8>) -> Option<Self> {
+        before.is_none_or(|byte| byte == b'\n').then(|| Self {
+            base,
+            at: 0,
+            line: 0,
+            head: Vec::new(),
+            long: None,
+        })
+    }
+
+    /// The block's next `bytes`: the values of the lines they end go to `out`,
+    /// as ranges of the source, one per line at most.
+    pub fn feed(&mut self, mut bytes: &[u8], out: &mut Vec<Range<usize>>) {
+        while !bytes.is_empty() {
+            let (piece, ended) = match bytes.iter().position(|byte| *byte == b'\n') {
+                Some(at) => (&bytes[..at], true),
+                None => (bytes, false),
+            };
+            self.take(piece);
+            if ended {
+                self.close(out);
+                self.at += 1;
+                self.line = self.at;
+                bytes = &bytes[piece.len() + 1..];
+            } else {
+                bytes = &[];
             }
         }
-        line = end + 1;
     }
+
+    /// The last line's value, once the whole block was fed.
+    pub fn finish(mut self, out: &mut Vec<Range<usize>>) {
+        self.close(out);
+    }
+
+    fn take(&mut self, piece: &[u8]) {
+        let room = VALUE_HEAD_BYTES
+            .saturating_sub(self.head.len())
+            .min(piece.len());
+        self.head.extend_from_slice(&piece[..room]);
+        let rest = &piece[room..];
+        let mut from = self.at - self.line + room;
+        self.at += piece.len();
+        if rest.is_empty() {
+            return;
+        }
+        let long = self.long.get_or_insert_with(|| {
+            let (reading, value_at) = read_head(&self.head);
+            let mut long = PastHead {
+                reading,
+                start: None,
+                first: 0,
+                end: 0,
+                last: 0,
+                comment: false,
+                previous: 0,
+            };
+            for (at, byte) in self.head.iter().enumerate().skip(value_at) {
+                long.take(at, *byte);
+            }
+            long
+        });
+        for &byte in rest {
+            long.take(from, byte);
+            from += 1;
+        }
+    }
+
+    fn close(&mut self, out: &mut Vec<Range<usize>>) {
+        let value = match self.long.take() {
+            Some(long) => long.value(&self.head),
+            None => line_value(&self.head),
+        };
+        if let Some(value) = value {
+            let at = self.base + self.line;
+            out.push(at + value.start..at + value.end);
+        }
+        self.head.clear();
+    }
+}
+
+/// The value a block's line that its head holds whole holds, as bytes of it.
+fn line_value(line: &[u8]) -> Option<Range<usize>> {
+    let body = line.strip_suffix(b"\r").unwrap_or(line);
+    let mut member = trim_start(body);
+    while member == b"-" || member.starts_with(b"- ") || member.starts_with(b"-\t") {
+        member = trim_start(&member[1..]);
+    }
+    let value = match name_and_value(member) {
+        Some((_, value_at)) => before_comment(trim_start(&member[value_at..])),
+        None => member,
+    };
+    let armor = std::str::from_utf8(value).is_ok_and(super::credential_values::is_armor_line);
+    if value.is_empty()
+        || member.starts_with(b"#")
+        || member.starts_with(b"{{")
+        || armor
+        || opens_a_block_scalar(value)
+    {
+        return None;
+    }
+    // `value` is a slice of the line: where it lies in it.
+    let start = (value.as_ptr() as usize).saturating_sub(body.as_ptr() as usize);
+    let inner = unquoted(value);
+    let quote = usize::from(inner.len() < value.len());
+    let range = start + quote..start + quote + inner.len();
+    // What an earlier pass left in a value's place is none.
+    (!body
+        .get(range.clone())
+        .and_then(|text| std::str::from_utf8(text).ok())
+        .is_some_and(super::is_placeholder))
+    .then_some(range)
 }
 
 /// Whether `value` is a block scalar's header (`|`, `>-`, `|2+`): its text

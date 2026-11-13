@@ -212,10 +212,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 let weak = weak_gate_literals(pattern.regex)
                     .map_err(|error| format!("secret pattern {}: {error}", pattern.name))?
                     .unwrap_or_default();
-                let literals: Vec<String> = weak
-                    .iter()
-                    .map(|literal| format!("{literal:?}"))
-                    .collect();
+                let literals: Vec<String> =
+                    weak.iter().map(|literal| format!("{literal:?}")).collect();
                 let _ = writeln!(fallback_gates, "    ({index}, &[{}]),", literals.join(", "));
             }
         }

@@ -33,25 +33,21 @@ fn cases() -> Vec<Case> {
         (
             ToolId::LocalSearch,
             search.clone(),
-            one(
-                json!({"matchCount":58,"filesScanned":9,
+            one(json!({"matchCount":58,"filesScanned":9,
                 "files":[{"path":format!("{dir}/outline/tests.rs"),"matches":[
                     {"line":6,"value":"fn leaves(value: &Value) {"},
                     {"line":17,"value":"fn count_lines() {"}],
                     "pagination":{"unit":"matches","offset":0,"length":2,"total":9,"hasMore":true}}],
                 "pagination":{"unit":"lines","offset":0,"length":3,"total":58,"hasMore":true},
                 "next":next("localSearch","cursor2.search-page"),
-                "related":related("localFetch","src/a.rs")}),
-            ),
+                "related":related("localFetch","src/a.rs")})),
         ),
         (
             ToolId::LocalSearch,
             search.clone(),
             with_status(
-                one(
-                    json!({"matchCount":0,"filesScanned":9,
-                    "related":related("localSearch",".")}),
-                ),
+                one(json!({"matchCount":0,"filesScanned":9,
+                    "related":related("localSearch",".")})),
                 "empty",
             ),
         ),

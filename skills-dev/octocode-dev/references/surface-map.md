@@ -8,7 +8,7 @@ Paths beginning `crates/` are relative to `packages/octocode-native/`; other pat
 
 | Layer | Owner path | Audit question |
 |---|---|---|
-| Tool definition (authored) | `CORE/src/toolContract/tools/<tool>.ts` (one `{ name, title, description, schema }` per tool; `tools/<tool>/` sub-files when over 400 lines), shared builders in `CORE/src/toolContract/tools/_{fields,read,local,concepts}.ts` | Fields, defaults, bounds, variants, cross-field rules, description |
+| Tool definition (authored) | `CORE/src/toolContract/tools/<tool>.ts` (one `{ name, title, description, schema }` per tool; larger tools split into `tools/<tool>/` sub-files), shared builders in `CORE/src/toolContract/tools/_{fields,read,local,concepts}.ts` | Fields, defaults, bounds, variants, cross-field rules, description |
 | Native rule catalog | `CORE/src/toolContract/nativeRules/` (opcode list per tool, parity fixtures) | Rules that native replays at prepare time |
 | Descriptions | each tool file's `description` (`<when>…</when><workflow>…</workflow>`); field `.describe()` text; `CORE/src/toolContract/published{,Forms,Json}.ts` publishes the exact admitted forms | Tool/field prose shown to agents |
 | MCP + CLI instructions | `CORE/src/toolContract/instructions.ts` (`MCP_INSTRUCTIONS`, plus `MCP_TOOL_INSTRUCTIONS` per available optional tool); the native CLI appends its `<cli>` line (`crates/cli/src/cli/schema.rs`) | Shared workflow guidance |
@@ -35,7 +35,7 @@ Paths beginning `crates/` are relative to `packages/octocode-native/`; other pat
 |---|---|
 | Core contract | `CORE/src/__tests__/*` (e.g. `publishedSchemaAlignment`, `toolContracts`, `routingContracts`, `publishedSurfaceBudget`) |
 | Native integration | `crates/runtime/tests/runtime_{local,github,clasify,batch_response}.rs`; native CLI `crates/cli/tests/{cli_tool_contract,cli_catalog}.rs` |
-| CLI/MCP execution and replay | `packages/octocode-benchmark/local/e2e/harness/{tool-health,transport}.mjs` (registered by MCP `test:acceptance`); classification capability and recovery in `packages/octocode-mcp/tests/integration/` |
+| CLI/MCP execution and replay | the behavioral checks in [tool checks](../../../packages/octocode-benchmark/CHECKS.md); classification capability and recovery in `packages/octocode-mcp/tests/integration/` |
 
 ## Live views
 

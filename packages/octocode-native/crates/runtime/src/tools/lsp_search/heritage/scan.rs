@@ -2,6 +2,47 @@
 //! coverage is described.
 use super::*;
 
+/// Whether `line` declares the type `name`, whose subtypes a scan can list.
+pub(super) fn anchors_type_declaration(content: &str, file: &str, line: u32, name: &str) -> bool {
+    let Some(document) = crate::tools::declarations::file_document(content, file) else {
+        return false;
+    };
+    let language = octocode_engine::lsp::config::detect_language_id(file);
+    let name = canonical_symbol_name(language.as_deref(), name);
+    document.declarations.iter().any(|declaration| {
+        canonical_symbol_name(language.as_deref(), &declaration.name) == name
+            && declaration.selection_range.start.line == line
+            && TYPE_DECLARATION_KINDS.contains(&declaration.kind.as_str())
+    })
+}
+
+/// The innermost type declaring `name` at `line`; an impl block has no owner
+/// that another declaration can extend or implement.
+pub(super) fn member_owner(content: &str, file: &str, line: u32, name: &str) -> Option<String> {
+    let document = crate::tools::declarations::file_document(content, file)?;
+    let holds_bodies =
+        |kind: &str| TYPE_DECLARATION_KINDS.contains(&kind) || kind == "impl" || kind == "module";
+    let language = octocode_engine::lsp::config::detect_language_id(file);
+    let name = canonical_symbol_name(language.as_deref(), name);
+    let member = document.declarations.iter().find(|declaration| {
+        canonical_symbol_name(language.as_deref(), &declaration.name) == name
+            && declaration.selection_range.start.line == line
+            && !holds_bodies(declaration.kind.as_str())
+    })?;
+    let owner = document
+        .declarations
+        .iter()
+        .filter(|declaration| {
+            declaration.id != member.id
+                && declaration.range.start <= member.range.start
+                && member.range.end <= declaration.range.end
+        })
+        .max_by(|left, right| left.range.start.cmp(&right.range.start))?;
+    TYPE_DECLARATION_KINDS
+        .contains(&owner.kind.as_str())
+        .then(|| owner.name.clone())
+}
+
 /// What the heritage scan read: the subtypes of `base` among the `files`
 /// that spell it, and the `unread` files (canonical paths) it could not read.
 pub(in super::super) struct HeritageScan {
@@ -92,6 +133,8 @@ pub(in super::super) fn subtype_snippets(
     if !octocode_engine::signatures::may_name_supertypes(content, file) {
         return Vec::new();
     }
+    let language = octocode_engine::lsp::config::detect_language_id(file);
+    let base = canonical_symbol_name(language.as_deref(), base);
     let Some(document) = crate::tools::declarations::named_heritage(content, file, base)
         .or_else(|| crate::tools::declarations::graph_facts(content, file))
     else {
@@ -106,7 +149,12 @@ pub(in super::super) fn subtype_snippets(
         .edges
         .iter()
         .filter(|edge| matches!(edge.relation.as_str(), "extends" | "implements"))
-        .filter(|edge| edge.to.rsplit(['.', ':']).next() == Some(base))
+        .filter(|edge| {
+            edge.to
+                .rsplit(['.', ':'])
+                .next()
+                .is_some_and(|name| canonical_symbol_name(language.as_deref(), name) == base)
+        })
     {
         let Some(declaration) = document
             .declarations
@@ -167,17 +215,27 @@ pub(in super::super) fn member_snippets(
     let Ok(uri) = octocode_engine::lsp::uri::path_to_uri(file) else {
         return Vec::new();
     };
+    let language = octocode_engine::lsp::config::detect_language_id(file);
+    let base = canonical_symbol_name(language.as_deref(), base);
+    let member = canonical_symbol_name(language.as_deref(), member);
     let subtypes = document
         .edges
         .iter()
         .filter(|edge| matches!(edge.relation.as_str(), "extends" | "implements"))
-        .filter(|edge| edge.to.rsplit(['.', ':']).next() == Some(base))
+        .filter(|edge| {
+            edge.to
+                .rsplit(['.', ':'])
+                .next()
+                .is_some_and(|name| canonical_symbol_name(language.as_deref(), name) == base)
+        })
         .map(|edge| edge.from.as_str())
         .collect::<BTreeSet<_>>();
     let mut found = document
         .declarations
         .iter()
-        .filter(|declaration| declaration.name == member)
+        .filter(|declaration| {
+            canonical_symbol_name(language.as_deref(), &declaration.name) == member
+        })
         .filter(|declaration| {
             document
                 .declarations

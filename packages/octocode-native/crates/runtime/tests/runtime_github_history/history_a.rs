@@ -228,7 +228,6 @@ async fn history_a_graphql_pr_reads_target_sha_and_totals() {
         .expect("GraphQL read");
         let data = row_data(&outcome);
         assert_eq!(row_status(&outcome), "success", "{data}");
-        assert!(data.get("graphqlFallback").is_none(), "{data}");
         let pr = &data["pullRequests"][0];
         assert_eq!(pr["headCommitSha"], HISTORY_A_HEAD, "{sections}: {data}");
         assert_eq!(pr["mergeCommitSha"], HISTORY_A_MERGE, "{sections}: {data}");

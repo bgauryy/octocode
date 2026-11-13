@@ -76,6 +76,7 @@ mod masks;
 mod reads;
 mod scans;
 mod secrets;
+mod value_masks;
 
 /// One stream re-reads its handle from the start, wherever an earlier
 /// read left it.

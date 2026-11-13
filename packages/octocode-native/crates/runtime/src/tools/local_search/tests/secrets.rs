@@ -6,6 +6,7 @@ mod context_spans;
 mod failures;
 mod guard;
 mod hits;
+mod judged_files;
 mod key_formats;
 mod large_sources;
 mod long_lines;

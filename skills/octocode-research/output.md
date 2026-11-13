@@ -2,7 +2,7 @@
 
 <!-- report-contract {"statuses":["Confirmed","Likely","Refuted","Open"],"required":["Answer","Scope","Evidence","Gaps","Checks"],"anyOf":[]} -->
 
-Task content only; no probe output or process metadata. Plain text or Markdown with source links; tables only to compare evidence.
+Use plain text or Markdown with source links; tables help compare evidence.
 
 ## Response
 
@@ -12,7 +12,7 @@ BLUF with Claim–evidence: answer and confidence first, then each claim beside 
 |---|---|
 | Decision | verdict, risk, verification |
 | Root cause | cause, affected contract, fix, verification |
-| Refactor | mode and tier, invariants, changes, and verification commands with exit codes |
+| Refactor | scope, preserved invariants, changes, and verification commands with exit codes |
 
 ## Saved result
 

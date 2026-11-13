@@ -22,9 +22,7 @@
 //! Cargo workspace: code outside it is not compiled, so no gate there hides
 //! a use.
 
-use super::failure::{
-    BUILD_SCRIPTS_COST, FILE_LEVEL_REASONS, TEXT_CHECK, flag_partial, flagged_with,
-};
+use super::failure::{FILE_LEVEL_REASONS, flag_partial, flagged_with};
 use super::inferred_project::is_incoming;
 use super::scope::{Scope, imports_in_code};
 use super::{LspSearchQuery, Op};
@@ -56,8 +54,6 @@ const HEALTH_REASON: crate::response::paging::PartialReason =
 /// resolve to the anchor's module.
 pub(super) const UNRESOLVED_IMPORT_REASON: crate::response::paging::PartialReason =
     crate::response::paging::PartialReason::ImportUnresolved;
-/// Why an `importUnresolved` row is partial; it reads the same on every page.
-const UNRESOLVED_IMPORT_NOTE: &str = "Files that import the name are missing from the answer: the server did not resolve their import here.";
 pub(super) const CFG_REASON: crate::response::paging::PartialReason =
     crate::response::paging::PartialReason::CfgGatedFiles;
 pub(super) const CFG_NEGATED_REASON: crate::response::paging::PartialReason =
@@ -71,16 +67,9 @@ pub(super) const OUTSIDE_INCLUDE_REASON: crate::response::paging::PartialReason 
 /// File-level: the anchor file is a module of several crates.
 pub(super) const SHARED_MODULE_REASON: crate::response::paging::PartialReason =
     crate::response::paging::PartialReason::SharedModuleFile;
-/// The server's inference limit is stated once in the tool description.
-const PYTHON_WARNING: &str = "Files that spell the name are missing from the answer.";
 /// Largest file the gate scan reads; generated sources (a 2.4 MB
 /// `tool_types.rs`) fit, so they never make every answer partial.
 const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
-
-/// The lexical `findText` check, named by its search.
-fn text_check() -> String {
-    TEXT_CHECK.to_owned()
-}
 
 pub(super) fn annotate(
     row: &mut Value,
@@ -301,19 +290,17 @@ pub(super) struct Server<'a> {
 /// Partial reason of a workspace-symbol answer the server's result limit cut.
 const WORKSPACE_SYMBOL_CAPPED_REASON: crate::response::paging::PartialReason =
     crate::response::paging::PartialReason::WorkspaceSymbolCoverageUnknown;
-/// Why no workspace-symbol answer proves completeness, and what checks the rest.
-const WORKSPACE_SYMBOL_NOTE: &str = "workspace/symbol has no completeness marker: declarations the server did not index or return are unknown, and no page of this list completes it; confirm with a localSearch of the name.";
 
 /// Workspace-symbol arrays have no total, cursor, or completeness marker.
 /// Native pagination covers the returned array; it cannot establish that
 /// the provider returned every matching declaration in its project. That
-/// holds for every workspace/symbol answer, so it is a static notice, not
-/// a partial flag: the row says it once and leads to the lexical search of
-/// `name` over `scope`, the check no page of this answer can make.
+/// holds for every workspace/symbol answer, so the tool description says it
+/// once and no row does: the row leads to the lexical search of `name` over
+/// `scope`, the check no page of this answer can make.
 /// `capped_at` is the server's own result limit when its answer reached it
 /// ([`octocode_engine::lsp::config::workspace_symbol_limit`]): a fact of this
-/// answer, so the row is partial and a warning says it outright. The note
-/// and both leads are the whole answer's: a later page of `query` (whose
+/// answer, so the row is partial and a warning says it outright. Both
+/// leads are the whole answer's: a later page of `query` (whose
 /// first page carried them) repeats none of them.
 pub(super) fn workspace_symbols(
     row: &mut Value,
@@ -339,7 +326,8 @@ pub(super) fn workspace_symbols(
     if continues_a_page(query) {
         return;
     }
-    crate::response::paging::push_notice(row, WORKSPACE_SYMBOL_NOTE);
+    // That no page completes a workspace-symbol list is the tool
+    // description's, said once; the row leads to the check.
     if let Some(lead) = super::failure::term_search_lead(name, &scope.root, &scope.include) {
         crate::response::result::attach_related(row, lead.build());
     }
@@ -359,12 +347,10 @@ pub(super) fn workspace_symbols(
     }
 }
 
-/// [`flag_partial`] with `note`, prose that reads the same on every page and
-/// row of the answer: a static notice, said once, on the first page
-/// ([`crate::response::paging::push_notice`]), and only when the row is flagged.
 /// A Python row's misses by cause: files that import the name name an
 /// unresolved import, the rest (or misses no text scan listed) the dynamic
-/// dispatch the server cannot type.
+/// dispatch the server cannot type. Each code is the whole statement: what
+/// it means is core's, said once in the output reference.
 fn annotate_python(row: &mut Value, query: &LspSearchQuery, scope: &Scope) {
     let name = lsp_search_query::symbol_name(query).filter(|name| !name.trim().is_empty());
     let missed = name.and_then(|name| Some((name, scope.text_only_files(name)?)));
@@ -375,22 +361,21 @@ fn annotate_python(row: &mut Value, query: &LspSearchQuery, scope: &Scope) {
             .count()
     });
     if importers > 0 {
-        flag_stated(
-            row,
-            query,
-            UNRESOLVED_IMPORT_REASON,
-            UNRESOLVED_IMPORT_NOTE.into(),
-            scope,
-        );
+        flag_partial(row, query, UNRESOLVED_IMPORT_REASON, None, scope);
     }
     if missed
         .as_ref()
         .is_none_or(|(_, files)| files.len() > importers || importers == 0)
     {
-        flag_noted(row, query, DYNAMIC_REASON, PYTHON_WARNING.into(), scope);
+        flag_partial(row, query, DYNAMIC_REASON, None, scope);
     }
 }
 
+/// [`flag_partial`] with `note`, this answer's own facts (the files that
+/// cause the gap), which read the same on every page and row of the answer:
+/// a notice, said once, on the first page
+/// ([`crate::response::paging::push_notice`]), and only when the row is
+/// flagged. What the reason means is core's, never the note's.
 fn flag_noted(
     row: &mut Value,
     query: &LspSearchQuery,
@@ -401,21 +386,6 @@ fn flag_noted(
     flag_partial(row, query, reason, None, scope);
     if lists_reason(row, reason) {
         crate::response::paging::push_notice(row, note);
-    }
-}
-
-/// [`flag_noted`] with a note that states what `reason` means (and its
-/// repair): the reason's glossary line would only restate it.
-fn flag_stated(
-    row: &mut Value,
-    query: &LspSearchQuery,
-    reason: crate::response::paging::PartialReason,
-    note: String,
-    scope: &Scope,
-) {
-    flag_noted(row, query, reason, note, scope);
-    if lists_reason(row, reason) {
-        crate::response::paging::mark_stated(row, reason);
     }
 }
 

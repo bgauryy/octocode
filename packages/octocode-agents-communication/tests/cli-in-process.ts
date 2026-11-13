@@ -1,6 +1,6 @@
 // Runs one CLI call in a long-lived worker: the same `main`, arguments, environment and exit status as a process, for the
 // synchronous call shape tests use. Starting Node and loading the runtime for each call was nearly all of this suite's time.
-// Set COMMUNICATION_REAL_CLI=1 to spawn every call for real; the release smoke (src/release-smoke.ts) always does.
+// Set COMMUNICATION_REAL_CLI=1 to spawn every call for real.
 import { join } from 'node:path';
 import { MessageChannel, receiveMessageOnPort, Worker } from 'node:worker_threads';
 import type { MessagePort } from 'node:worker_threads';

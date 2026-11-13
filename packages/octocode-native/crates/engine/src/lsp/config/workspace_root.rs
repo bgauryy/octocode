@@ -1,25 +1,29 @@
-use crate::text::{JS_TS_EXTENSIONS, extension_of};
+use crate::text::extension_of;
 use serde_json::Value;
 use std::path::Path;
 
 /// Each language a directory can route by: its representative-source
 /// extension (as [`WORKSPACE_ROOT_MARKERS`] names it) and the file
 /// extensions of its sources, in server-selection order.
-pub(super) const SOURCE_FAMILIES: &[(&str, &[&str])] = &[
-    (".ts", JS_TS_EXTENSIONS),
-    (".rs", &["rs"]),
-    (".go", &["go"]),
-    (".py", &["py"]),
-    (
-        ".cpp",
-        &[
-            "cpp", "cc", "cxx", "c", "hpp", "hh", "hxx", "h", "cu", "cuh",
-        ],
-    ),
-    (".java", &["java"]),
-    (".scala", &["scala", "sc"]),
-    (".cs", &["cs"]),
-];
+pub(super) static SOURCE_FAMILIES: std::sync::LazyLock<Vec<(&str, Vec<&str>)>> =
+    std::sync::LazyLock::new(|| {
+        use super::catalog::{ROUTED_EXTENSIONS, spec_for_extension};
+        [".ts", ".rs", ".go", ".py", ".cpp", ".java", ".scala", ".cs"]
+            .into_iter()
+            .filter_map(|representative| {
+                let server = spec_for_extension(representative)?;
+                let extensions = ROUTED_EXTENSIONS
+                    .iter()
+                    .filter(|extension| {
+                        spec_for_extension(extension)
+                            .is_some_and(|spec| spec.command == server.command)
+                    })
+                    .filter_map(|extension| extension.strip_prefix('.'))
+                    .collect();
+                Some((representative, extensions))
+            })
+            .collect()
+    });
 
 /// Directories a representative or language walk does not enter.
 /// Deliberately not the runtime prune policy (`policy::prune`): these walks
@@ -79,7 +83,7 @@ pub fn workspace_root_marker_names() -> impl Iterator<Item = &'static str> {
 /// roots, then `src/` — so a root-level script outside the compiled project
 /// (`build.mjs`, `*.config.js`) does not become the representative and load
 /// an inferred project that knows none of the workspace symbols. Each search
-/// is a bounded breadth-first walk that skips hidden, vendored, and build dirs.
+/// is a breadth-first walk that skips hidden, vendored, and build dirs.
 pub fn workspace_root_representative_source(workspace_root: &str) -> Option<String> {
     let extension = workspace_root_languages(workspace_root)
         .into_iter()
@@ -167,20 +171,25 @@ pub fn representative_source_for(workspace_root: &str, extension: &str) -> Optio
     // (`packages/a/vitest.config.ts`). Any source only when none matches.
     // A translation unit before a header: a header opened alone is no
     // compiled file (clangd parses it without its includer's context).
-    let compiled = |path: &Path| project.compiles(root, path);
-    let units = family
-        .iter()
-        .copied()
-        .filter(|extension| !HEADER_EXTENSIONS.contains(extension))
-        .collect::<Vec<_>>();
-    [units.as_slice(), family].iter().find_map(|family| {
+    let is_unit = |path: &Path| {
+        !HEADER_EXTENSIONS.contains(&extension_of(&path.to_string_lossy(), true, "").as_str())
+    };
+    let is_implementation = |path: &Path| {
+        is_unit(path)
+            && !oxc_span::SourceType::from_path(path)
+                .is_ok_and(oxc_span::SourceType::is_typescript_definition)
+    };
+    let any = |_: &Path| true;
+    let categories: [&dyn Fn(&Path) -> bool; 3] = [&is_implementation, &is_unit, &any];
+    categories.into_iter().find_map(|category| {
+        let compiled = |path: &Path| category(path) && project.compiles(root, path);
         preferred
             .iter()
             .find_map(|candidate| first_source_under(candidate, family, &compiled))
             .or_else(|| {
                 preferred
                     .iter()
-                    .find_map(|candidate| first_source_under(candidate, family, &|_| true))
+                    .find_map(|candidate| first_source_under(candidate, family, category))
             })
     })
 }
@@ -289,38 +298,26 @@ fn first_source_under(
     family: &[&str],
     accept: &dyn Fn(&Path) -> bool,
 ) -> Option<String> {
-    const MAX_ENTRIES: usize = 2_000;
-    const MAX_DEPTH: usize = 6;
-    let is_source = |name: &str| {
-        !name.ends_with(".d.ts") && family.contains(&extension_of(name, true, "").as_str())
-    };
+    let is_source = |name: &str| family.contains(&extension_of(name, true, "").as_str());
     if start.is_file() {
         let name = start.file_name()?.to_string_lossy();
         return (is_source(&name) && accept(start)).then(|| start.to_string_lossy().into_owned());
     }
-    let mut queue = std::collections::VecDeque::from([(start.to_path_buf(), 0usize)]);
-    let mut seen = 0usize;
-    while let Some((dir, depth)) = queue.pop_front() {
+    let mut queue = std::collections::VecDeque::from([start.to_path_buf()]);
+    while let Some(dir) = queue.pop_front() {
         let Ok(entries) = std::fs::read_dir(&dir) else {
             continue;
         };
         let mut entries = entries.filter_map(Result::ok).collect::<Vec<_>>();
         entries.sort_by_key(std::fs::DirEntry::file_name);
         for entry in entries {
-            seen += 1;
-            if seen > MAX_ENTRIES {
-                return None;
-            }
             let name = entry.file_name().to_string_lossy().into_owned();
             let Ok(file_type) = entry.file_type() else {
                 continue;
             };
             if file_type.is_dir() {
-                if depth < MAX_DEPTH
-                    && !name.starts_with('.')
-                    && !SKIPPED_DIRS.contains(&name.as_str())
-                {
-                    queue.push_back((entry.path(), depth + 1));
+                if !name.starts_with('.') && !SKIPPED_DIRS.contains(&name.as_str()) {
+                    queue.push_back(entry.path());
                 }
             } else if file_type.is_file() && is_source(&name) && accept(&entry.path()) {
                 return Some(entry.path().to_string_lossy().into_owned());

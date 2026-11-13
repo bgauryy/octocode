@@ -1,6 +1,7 @@
 use super::*;
 
 mod hedge;
+mod raw_identifiers;
 
 /// Callers hold canonical absolute paths; a node's URI needs one.
 fn absolute(file: &str) -> String {
@@ -238,7 +239,8 @@ fn a_repeat_scan_parses_nothing_and_go_files_never() {
 #[test]
 fn only_a_type_declaration_anchors_a_subtype_scan() {
     let source = "export interface IDisposable {\n  dispose(): void;\n}\nexport class Box {\n  run(): void {}\n}\nexport function make(): void {}\n";
-    let on = |line: u32, name: &str| anchors_type_declaration(source, "/work/a.ts", line, name);
+    let on =
+        |line: u32, name: &str| scan::anchors_type_declaration(source, "/work/a.ts", line, name);
     assert!(on(0, "IDisposable"), "an interface");
     assert!(on(3, "Box"), "a class");
     assert!(

@@ -13,15 +13,18 @@
 //! rewrites no body, and a continuation's evidence links the same file
 //! ([`crate::cache::Store::link`]). The credential keys the answer that names a
 //! body, so a body is reached only through a credential that received it.
+//! Answers that share content share its body, listed by each body's
+//! references: a body leaves with the last answer that names it.
 use crate::cache::{CacheClass, CacheConfig, CacheKey, DiskCodec, Store};
 use crate::security::{ContentSecurity, sanitize_json};
 use octocode_engine::num::saturating_i64;
 use octocode_github::{AnswerBody, ProviderAnswer, SavedAnswer, SavedAnswers};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
-use std::sync::LazyLock;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{LazyLock, Mutex, PoisonError};
 use std::time::Duration;
 
 /// An answer unused this long is dropped: a later request reads it again. This
@@ -67,10 +70,32 @@ pub(crate) fn body_key(digest: &str) -> CacheKey {
     }
 }
 
+/// Where the answers naming the body with this digest are listed.
+fn references_key(digest: &str) -> CacheKey {
+    CacheKey {
+        namespace: "provider-answer-body-references".into(),
+        scope: String::new(),
+        resource: digest.into(),
+    }
+}
+
+/// How a body's references name one answer, without its request text.
+fn reference(scope: &str, request: &str) -> String {
+    octocode_engine::digest::sha256(format!("{}:{scope}{request}", scope.len()).as_bytes())
+}
+
 /// The store behind [`SavedAnswers`].
 pub(crate) struct KeptAnswers {
     sealed: Store<Sealed>,
+    /// Shared by content across requests and credentials.
     bodies: Store<AnswerBody, BodyCodec>,
+    /// The answers naming each body, beside it. A body without a list is
+    /// named by answers this store cannot tell, so only retention and the
+    /// byte budget retire it.
+    references: Store<BTreeSet<String>>,
+    /// Orders this process's reference updates; the entry lock orders other
+    /// processes' ([`Store::with_entry_lock`]).
+    listing: Mutex<()>,
     held: Store<SavedAnswer>,
     security: ContentSecurity,
 }
@@ -80,7 +105,9 @@ impl KeptAnswers {
     pub(crate) fn new(disk: Option<PathBuf>) -> Self {
         Self {
             sealed: Store::new(CacheConfig::derived(), disk.clone()),
-            bodies: Store::new(CacheConfig::derived(), disk),
+            bodies: Store::new(CacheConfig::derived(), disk.clone()),
+            references: Store::new(CacheConfig::derived(), disk),
+            listing: Mutex::new(()),
             held: Store::new(CacheConfig::derived(), None),
             security: ContentSecurity::new(),
         }
@@ -105,11 +132,73 @@ impl KeptAnswers {
         Some((*body).clone())
     }
 
-    fn drop_sealed(&self, key: &CacheKey) {
-        if let Some(kept) = self.sealed.get(key) {
-            self.bodies.remove(&body_key(&kept.value.body));
-        }
-        self.sealed.remove(key);
+    /// Run `update` while no other writer changes `digest`'s references.
+    fn exclusive<T>(&self, digest: &str, update: impl FnOnce(CacheKey) -> T) -> Option<T> {
+        let _turn = self.listing.lock().unwrap_or_else(PoisonError::into_inner);
+        let key = references_key(digest);
+        self.references
+            .with_entry_lock(&key, || update(key.clone()))
+    }
+
+    /// Keep `body` under `digest` for the answer `reference`. False leaves the
+    /// answer without it: the body or its reference could not be kept.
+    fn retain(&self, digest: &str, reference: &str, body: AnswerBody) -> bool {
+        self.exclusive(digest, |key| {
+            let stored = body_key(digest);
+            let existed = self.bodies.refresh(&stored);
+            let length = body.len();
+            if !existed
+                && !self
+                    .bodies
+                    .put_confirmed(stored.clone(), body, length, UNUSED_RETENTION)
+                    .1
+            {
+                return false;
+            }
+            let listed = self.references.get(&key);
+            // A kept body nobody lists is named by answers this store cannot
+            // tell: listing only this one would retire theirs with it.
+            if existed && listed.is_none() {
+                return true;
+            }
+            let mut names = listed.map_or_else(BTreeSet::new, |listed| (*listed.value).clone());
+            if !names.insert(reference.to_owned()) {
+                // Already listed: a confirmation only keeps the list alive.
+                return self.references.refresh(&key);
+            }
+            let bytes = names.iter().map(String::len).sum();
+            let listed = self
+                .references
+                .put_confirmed(key, names, bytes, UNUSED_RETENTION)
+                .1;
+            if !listed && !existed {
+                self.bodies.remove(&stored);
+            }
+            listed
+        })
+        .unwrap_or(false)
+    }
+
+    /// The answer `reference` no longer names `digest`'s body, which leaves
+    /// with the last answer listed for it.
+    fn release(&self, digest: &str, reference: &str) {
+        self.exclusive(digest, |key| {
+            let Some(listed) = self.references.get(&key) else {
+                return;
+            };
+            let mut names = (*listed.value).clone();
+            if !names.remove(reference) {
+                return;
+            }
+            if names.is_empty() {
+                self.references.remove(&key);
+                self.bodies.remove(&body_key(digest));
+                return;
+            }
+            let bytes = names.iter().map(String::len).sum();
+            self.references
+                .put_confirmed(key, names, bytes, UNUSED_RETENTION);
+        });
     }
 }
 
@@ -122,6 +211,7 @@ impl SavedAnswers for KeptAnswers {
         let kept = self.sealed.get(&key)?.value;
         let Some(body) = self.body(&kept.body) else {
             self.sealed.remove(&key);
+            self.release(&kept.body, &reference(scope, request));
             return None;
         };
         let mut saved = kept.saved.clone();
@@ -131,6 +221,8 @@ impl SavedAnswers for KeptAnswers {
 
     fn save(&self, scope: &str, request: &str, mut saved: SavedAnswer) {
         let key = Self::key(scope, request);
+        let reference = reference(scope, request);
+        let previous = self.sealed.get(&key).map(|kept| kept.value.body.clone());
         let bytes = saved.answer.request.len()
             + saved
                 .answer
@@ -140,47 +232,49 @@ impl SavedAnswers for KeptAnswers {
                 .sum::<usize>();
         // The other store's older answer must not outlive this one.
         if !gate_keeps(&self.security, &saved.answer) {
-            self.drop_sealed(&key);
+            self.sealed.remove(&key);
+            if let Some(previous) = previous {
+                self.release(&previous, &reference);
+            }
             let bytes = bytes + saved.answer.body.len();
             self.held.put_confirmed(key, saved, bytes, UNUSED_RETENTION);
             return;
         }
         self.held.remove(&key);
         let digest = body_digest(&saved.answer.body);
-        let stored = body_key(&digest);
-        let replaced = self
-            .sealed
-            .get(&key)
-            .map(|kept| kept.value.body.clone())
-            .filter(|previous| *previous != digest);
         let body = std::mem::take(&mut saved.answer.body);
-        let length = body.len();
-        if !self.bodies.refresh(&stored)
-            && !self
-                .bodies
-                .put_confirmed(stored, body, length, UNUSED_RETENTION)
-                .1
-        {
-            return;
+        let kept = self.retain(&digest, &reference, body)
+            && self
+                .sealed
+                .put_confirmed(
+                    key.clone(),
+                    Sealed {
+                        saved,
+                        body: digest.clone(),
+                    },
+                    bytes,
+                    UNUSED_RETENTION,
+                )
+                .1;
+        if !kept {
+            // The newer origin answer superseded the older one even when it
+            // cannot be kept itself.
+            self.sealed.remove(&key);
+            self.release(&digest, &reference);
         }
-        self.sealed.put_confirmed(
-            key,
-            Sealed {
-                saved,
-                body: digest,
-            },
-            bytes,
-            UNUSED_RETENTION,
-        );
-        if let Some(previous) = replaced {
-            self.bodies.remove(&body_key(&previous));
+        if let Some(previous) = previous.filter(|previous| *previous != digest) {
+            self.release(&previous, &reference);
         }
     }
 
     fn forget(&self, scope: &str, request: &str) {
         let key = Self::key(scope, request);
         self.held.remove(&key);
-        self.drop_sealed(&key);
+        let previous = self.sealed.get(&key).map(|kept| kept.value.body.clone());
+        self.sealed.remove(&key);
+        if let Some(previous) = previous {
+            self.release(&previous, &reference(scope, request));
+        }
     }
 }
 

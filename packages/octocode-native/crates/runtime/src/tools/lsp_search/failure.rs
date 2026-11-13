@@ -15,8 +15,8 @@ mod rows;
 pub(super) use anchors::{anchor_recovery, attach_recovery_next, path_failure};
 use leads::symbol_search_lead;
 pub(super) use leads::{
-    FILE_LEVEL_REASONS, LISTED_TEXT_FILES, TEXT_CHECK, flag_answer_gaps, flag_partial,
-    flagged_with, record_text_only, shown_paths, term_search_lead, text_search_lead,
+    FILE_LEVEL_REASONS, LISTED_TEXT_FILES, flag_answer_gaps, flag_partial, flagged_with,
+    record_text_only, shown_paths, term_search_lead, text_search_lead,
 };
 pub(super) use paging::{
     ALIAS_RECOVERY_FAILED, IMPORTER_REQUEST_FAILED, RequestFailures, offer_next_page, with_next,
@@ -25,9 +25,8 @@ use rows::attach_text_search;
 #[cfg(test)]
 pub(super) use rows::same_query_rerun;
 pub(super) use rows::{
-    BUILD_SCRIPTS_COST, annotate_empty_includes, empty, mark_anchor_line_errors,
-    mark_diagnostics_unpublished, next_action, no_answer, partial_with_related_rerun,
-    stamp_coverage, still_indexing,
+    annotate_empty_includes, empty, mark_anchor_line_errors, mark_diagnostics_unpublished,
+    next_action, no_answer, partial_with_related_rerun, stamp_coverage, still_indexing,
 };
 
 /// A request-level failure `execute` could not render as a row. The

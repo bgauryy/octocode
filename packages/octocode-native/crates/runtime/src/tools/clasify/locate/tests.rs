@@ -32,17 +32,18 @@ fn unmarked(marked: &str) -> (String, Vec<String>) {
 /// The automatic read page a part is sized by.
 const PAGE: usize = crate::execution::RuntimeLimits::DEFAULT.auto_page_chars;
 
-/// The characters a read shows of `text`: each line and its gutter.
-fn shown_chars(text: &str) -> usize {
+/// The characters a read renders of `text`: each line's JSON text and its
+/// gutter.
+fn rendered_chars(text: &str) -> usize {
+    let gutter = crate::tools::source_view::pagination::gutter_chars(text.lines().count());
     text.split_inclusive('\n')
-        .enumerate()
-        .map(|(index, line)| shown(index + 1, line))
+        .map(|line| rendered(line, gutter))
         .sum()
 }
 
 /// Every line sits in exactly one part, in order; a part is a run of whole
-/// lines of about one read page, so the part count is the pages the text
-/// fills, at least two and at most the labels one choice may list.
+/// lines of about one read page, so the part count is the line pages the
+/// text fills as a read renders it, at least two and at most the labels one choice may list.
 #[test]
 fn parts_cover_every_line_once_at_about_one_read_page_each() {
     for (lines, page) in [
@@ -57,7 +58,7 @@ fn parts_cover_every_line_once_at_about_one_read_page_each() {
         let (marked, parts) = mark(&text, page).expect("parts");
         let (restored, labels) = unmarked(&marked);
         assert_eq!(restored, text, "{lines} lines");
-        let pages = shown_chars(&text).div_ceil(page).clamp(2, LABELS - 1);
+        let pages = rendered_chars(&text).div_ceil(page).clamp(2, LABELS - 1);
         assert_eq!(parts.len(), pages.min(lines), "{lines} lines at {page}");
         assert_eq!(labels.len(), parts.len());
         assert_eq!(parts.first().map(|part| part.0), Some(1));
@@ -67,11 +68,12 @@ fn parts_cover_every_line_once_at_about_one_read_page_each() {
         }
         // Balanced: no part holds much more than its share of a page.
         let all: Vec<&str> = text.split_inclusive('\n').collect();
-        let share = shown_chars(&text).div_ceil(parts.len());
+        let gutter = crate::tools::source_view::pagination::gutter_chars(lines);
+        let share = rendered_chars(&text).div_ceil(parts.len());
         for &(start, end) in &parts {
-            let size: usize = (start..=end).map(|n| shown(n, all[n - 1])).sum();
+            let size: usize = (start..=end).map(|n| rendered(all[n - 1], gutter)).sum();
             assert!(
-                size <= share + shown(end, all[end - 1]),
+                size <= share + rendered(all[end - 1], gutter),
                 "{lines}: {start}-{end}"
             );
         }
@@ -81,9 +83,13 @@ fn parts_cover_every_line_once_at_about_one_read_page_each() {
     let (marked, parts) = mark("a\nb", PAGE).expect("two lines");
     assert_eq!(marked, "[p1]\na\n[p2]\nb\n");
     assert_eq!(parts, vec![(1, 1), (2, 2)]);
-    // A text whose last line holds nearly all of it cannot be cut in two.
+    // A line longer than a page is one part; the text still has two.
     let lopsided = format!("a\n{}\n", "b".repeat(10 * PAGE));
-    assert!(mark(&lopsided, PAGE).is_none());
+    assert_eq!(
+        mark(&lopsided, PAGE).expect("two parts").1,
+        vec![(1, 1), (2, 2)]
+    );
+    assert!(mark("one line\n", PAGE).is_none());
 }
 
 #[test]

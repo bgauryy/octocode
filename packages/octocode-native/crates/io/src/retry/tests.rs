@@ -41,6 +41,21 @@ fn retry_delay_prefers_milliseconds_then_seconds_and_is_bounded() {
 }
 
 #[test]
+fn retry_after_large_durations_saturate_without_panicking() {
+    for name in ["retry-after", "retry-after-ms"] {
+        for value in [u64::MAX.to_string(), "1e300".to_owned()] {
+            let map = headers(&[(name, &value)]);
+            assert!(retry_after_delay(&map, Duration::MAX, SystemTime::UNIX_EPOCH).is_some());
+        }
+    }
+    let map = headers(&[("retry-after", &u64::MAX.to_string())]);
+    assert_eq!(
+        retry_after_delay(&map, Duration::MAX, SystemTime::UNIX_EPOCH),
+        Some(Duration::from_secs(u64::MAX))
+    );
+}
+
+#[test]
 fn retry_after_accepts_an_http_date_relative_to_now() {
     let max = Duration::from_secs(24 * 60 * 60);
     let now = SystemTime::UNIX_EPOCH + Duration::from_secs(784_111_777);
@@ -65,6 +80,24 @@ fn retry_after_accepts_an_http_date_relative_to_now() {
         parse_http_date("Tue, 29 Feb 2028 12:00:00 GMT"),
         Some(SystemTime::UNIX_EPOCH + Duration::from_secs(1_835_438_400))
     );
+}
+
+#[test]
+fn an_http_date_year_cannot_overflow_calendar_arithmetic() {
+    for year in [i64::MIN.to_string(), i64::MAX.to_string(), "10000".into()] {
+        let value = format!("Sun, 06 Nov {year} 08:49:37 GMT");
+        let map = headers(&[("retry-after", &value)]);
+        assert_eq!(
+            retry_after_delay(&map, Duration::from_secs(60), UNIX_EPOCH),
+            None,
+            "an HTTP date has a four-digit year: {value}"
+        );
+    }
+}
+
+#[test]
+fn jitter_accepts_the_full_duration_range_without_overflow() {
+    let _ = full_jitter(Duration::MAX, 0, Duration::MAX);
 }
 
 #[test]

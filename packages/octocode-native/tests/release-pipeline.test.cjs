@@ -7,7 +7,6 @@ const path = require('node:path');
 const { tmpdir } = require('node:os');
 const { PLATFORMS, platformPackageName } = require('../bin/platform.cjs');
 const { identityChecks, maxGlibc, readHeader } = require('../scripts/binary-identity.cjs');
-const { FIXTURE, checkCatalog, checkFetch, checkSearch } = require('../scripts/smoke-binary.cjs');
 const { RUNNERS, releaseMatrix } = require('../scripts/release-matrix.cjs');
 
 /** A minimal ELF64 executable: one PT_INTERP and one `.gnu.version_r` need on libc.so.6. */
@@ -95,23 +94,6 @@ test('identityChecks hold a gnu binary to the glibc floor and the embedded ident
   assert.deepEqual(failing(), ['binary']);
 });
 
-test('smoke result checks require the fixture line through each surface', () => {
-  const search = file => ({ results: [{ index: 0, data: { files: [{ path: file, matches: [{ line: FIXTURE.line, value: 'const octocodeSmokeNeedle = 1;' }] }] } }] });
-  assert.equal(checkSearch(search(FIXTURE.path)), `${FIXTURE.path}:${FIXTURE.line}`);
-  assert.equal(checkSearch(search(FIXTURE.path.replace('/', '\\'))), `${FIXTURE.path}:${FIXTURE.line}`);
-  assert.throws(() => checkSearch(search('src/other.txt')), /not matched/);
-  assert.throws(() => checkSearch({ results: [{ index: 0, error: { code: 'X' } }] }), /no result data/);
-
-  const fetched = { results: [{ data: { content: '2\tconst octocodeSmokeNeedle = 1;\n', matchedLines: [FIXTURE.line] } }] };
-  assert.equal(checkFetch(fetched), `matchedLines ${FIXTURE.line}`);
-  assert.throws(() => checkFetch({ results: [{ data: { content: '', matchedLines: [] } }] }), /not fetched/);
-
-  const tools = ['localSearch', 'localFetch', 'lspSearch'].map(name => ({ name }));
-  assert.equal(checkCatalog({ kind: 'octocode.toolCatalog', toolCount: 3, tools }), '3 tools');
-  assert.throws(() => checkCatalog({ kind: 'octocode.toolCatalog', toolCount: 4, tools }), /consistent/);
-  assert.throws(() => checkCatalog({ kind: 'octocode.toolCatalog', toolCount: 1, tools: [{ name: 'lspSearch' }] }), /missing localSearch, localFetch/);
-});
-
 test('the release matrix builds every platform once and verifies it on its own OS and CPU', () => {
   const { build, verify, platforms } = releaseMatrix();
   const runnerTarget = Object.fromEntries(
@@ -146,7 +128,7 @@ test('the release workflow derives its matrices and never publishes', () => {
   const workflow = readFileSync(path.join(__dirname, '..', '..', '..', '.github', 'workflows', 'release.yml'), 'utf8');
   assert.match(workflow, /^ {2}workflow_dispatch:$/m);
   assert.match(workflow, /scripts\/release-matrix\.cjs/);
-  assert.match(workflow, /scripts\/smoke-binary\.cjs/);
+  assert.match(workflow, /config --manage/);
   assert.match(workflow, /scripts\/pack-release\.cjs/);
   assert.doesNotMatch(workflow, /npm publish|secrets\.|git push|NODE_AUTH_TOKEN|id-token: write/);
 });

@@ -107,7 +107,7 @@ Rollout uses a fresh database for all collaborating participants and the matchin
 
 [README.md](README.md#documentation-map) maps every guide to its reader. [OPERATING.md](OPERATING.md) is the runtime operating guide: `skill` returns it and managed workers receive it, so edit it there only. `db protocol` serves [DB.md](docs/DB.md) verbatim.
 
-The package manifest owns build, typecheck, regression and smoke commands; the repo-root `docs:verify` checks Markdown links and anchors. `src/release-smoke.ts` exercises real CLI/MCP replies, leases, export and restore against the packed package. Crash tests exercise real transaction and process boundaries; the opt-in `src/live.ts` harness (graders, worker mechanics and options in `src/live/`) runs real Pi, Claude and Codex workers (single-host trials and a three-host soak across request waves) ([operations](docs/OPERATIONS.md#verify-concurrent-native-workers)). Checks prove their named paths on the local platform, not arbitrary vendor versions or OS isolation.
+The package manifest owns build, typecheck and regression commands; the repo-root `docs:verify` checks Markdown links and anchors. Crash tests exercise real transaction and process boundaries. The packed package and real Pi, Claude and Codex workers are checked by hand ([operations](docs/OPERATIONS.md#verify-concurrent-native-workers)). Checks prove their named paths on the local platform, not arbitrary vendor versions or OS isolation.
 
 ## npm interfaces
 

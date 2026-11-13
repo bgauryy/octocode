@@ -173,7 +173,7 @@ pub(super) struct Snapshot<'a> {
 
 /// Where materialized checkouts live under the Octocode home, versioned so
 /// a layout change never shares a path with another writer's files.
-pub(super) const MATERIALIZE_LAYOUT: [&str; 3] = ["tmp", "materialize", "v3"];
+pub(super) const MATERIALIZE_LAYOUT: [&str; 3] = ["tmp", "materialize", "v4"];
 
 /// How deep each snapshot sits under [`materialize_root`]:
 /// `owner/repo/commit`.
@@ -205,6 +205,10 @@ pub(super) async fn materialize_tree(
         return Ok(None);
     }
     let mut store = Store::open(snapshot, context).await?;
+    let requested_offset = offset;
+    let offset = store
+        .resume_offset(snapshot.root, entries, requested_offset, context)
+        .await?;
     let root = store.root.clone();
     let now = std::time::Instant::now();
     let time_left = context
@@ -219,7 +223,7 @@ pub(super) async fn materialize_tree(
         written: 0,
         cursor: offset,
         stopped: None,
-        skips: MaterializeSkips::new(read_limit),
+        skips: store.prior_skips(&entries[..offset], read_limit),
         recorded: Vec::new(),
     };
     {
@@ -277,7 +281,9 @@ pub(super) async fn materialize_tree(
             }
         }
     }
-    store.record(std::mem::take(&mut writer.recorded)).await?;
+    store
+        .record(std::mem::take(&mut writer.recorded), &writer.skips)
+        .await?;
     let has_more = writer.cursor < entries.len();
     let local = if listed.is_empty() {
         root.clone()
@@ -290,6 +296,11 @@ pub(super) async fn materialize_tree(
         "path": local.to_string_lossy(),
         "coverage": {"state": if has_more { "partial" } else { "complete" }}});
     let mut warnings = writer.skips.warnings();
+    if offset != requested_offset {
+        warnings.push(format!(
+            "A previous materialize file was missing or changed; resumed from entry {offset} instead of {requested_offset}."
+        ));
+    }
     warnings.extend(writer.stopped.take());
     if !writer.skips.is_empty() {
         location["skipped"] = json!(writer.skips.paths());

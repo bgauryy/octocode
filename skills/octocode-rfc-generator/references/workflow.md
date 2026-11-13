@@ -24,21 +24,9 @@ Only when a consequential disagreement survives source review, no direct check s
 - Delegated reviewers (when authorized): Delphi: same evidence, independent first positions, then share; keep dissent. Task contract for each: objective a different question, inputs the shared evidence, constraints read-only (you keep write authority and judgment), output a position; keep partial returns.
 - Credential: `OCTOCODE_CLASSIFICATION_API` or `classification.api` in `.octocoderc`; use [shared configuration handling](configuration.md) and [live tool availability](octocode-usage.md#availability).
 
-```mermaid
-flowchart TD
-  N[Note the intended next action] --> S["Run: npx -y octocode schema clasify --view query"]
-  S --> K{"Credential configured (key or classification.api)? Check without displaying it"}
-  K -- no --> P[Partial, not approved]
-  K -- yes --> Q["Submit typed questions over the exact evidence and competing arguments; uncertainty outcome where needed"]
-  Q --> I["Inspect every result page, error, coverage limit"]
-  I -- "failed call" --> R{"Useful repair or new evidence?"}
-  R -- yes --> Q
-  R -- no --> P
-  I -- ok --> V[Verify the deciding source] --> U[Update the same RFC]
-```
-
-- Confidence is not correctness: verify the deciding source before updating. A provider answer never grants implementation authority.
-- Update the same RFC with supported conclusion, dissent, remaining uncertainty; omit requests, receipts, timing, usage.
+1. Name the next action this judgment could change; inspect the live query: `npx -y octocode schema clasify --view query`. Check credentials without displaying them; missing access leaves review partial, never approved.
+2. Submit typed questions over the pinned evidence and competing arguments, including an uncertainty outcome. Inspect every page, error and coverage limit. Retry only for a useful repair or new evidence; otherwise preserve the partial result.
+3. Verify the deciding original source before updating the same RFC with conclusion, dissent and uncertainty. Confidence is not correctness; a provider answer grants no implementation authority. Omit requests, receipts, timing and usage.
 - Measuring whether assisted review helps: `octocode-agentic`; no evaluation report in the RFC.
 
 Next: close deciding gaps with the [checklist](checklist.md).

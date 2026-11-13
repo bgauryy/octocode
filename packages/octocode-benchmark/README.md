@@ -1,26 +1,54 @@
-# Octocode benchmark - v20
+# Octocode benchmark
 
 Does Octocode give an AI agent correct, source-backed answers with less context and less
-waiting? This package measures every Octocode version, and the GitHub CLI (`gh`), on the same
-30 GitHub research questions.
+waiting than the tools an expert would otherwise use, and is each version ready? This package is the one
+home of Octocode's checks and benchmarks, as behavioral docs (what to check, what to compare it against,
+how to judge, what to record), with the question sets, the per-question baselines and the version timeline
+of stored results. Agents run it by direct calls and judgement;
+there are no driver scripts.
 
-## TL;DR
+| Doc | What it owns |
+|---|---|
+| [CHECKS.md](CHECKS.md) | Every check of Octocode, core tools first: the 8-dimension tool review, end to end, per tool, workflows, security, skills, and the areas other packages own |
+| [METHOD.md](METHOD.md) | Benchmark rounds: arms, isolation, what to measure, blind judging, aggregation, comparing a new version, what a round records |
+| [COMPARISONS.md](COMPARISONS.md) | Each Octocode tool and workflow against its expert competitor (rg, ast-grep, graphify, gh and gh-lean, registries, OSV, RTK, Headroom), and what "better" means |
+| [briefs/](briefs/) | What an agent is handed: [runner](briefs/runner.md), [judge](briefs/judge.md), [arm briefs](briefs/arms/), [check-local](briefs/check-local.md) and [check-github](briefs/check-github.md) capability rounds, and the [scorecard](briefs/SCORECARD.md) every round fills in |
+| [questions/](questions/README.md) | Question sets as data: 30 GitHub, 30 + 40 + 12 local, 30 local scenarios |
+| [results/README.md](results/README.md) | The version timeline, per-question [baselines](results/baselines/) and the index of every stored round |
+| [local/](local/README.md) | The pinned clones (repositories, commits, clone form) and the [local flows benchmark](local/FLOWS.md) |
 
-- **Octocode v20 is the best setup measured:** the most correct (9.57 out of 10) and the leanest. It uses 29% fewer characters than v18, and 3–6× fewer than the `gh` CLI setups.
-- **Speed:** v20 is about 2× faster than v18 per call once its session server is warm, and about 2× slower on a single cold call.
-- **Next targets:** cold start, structural search on large repos, and the characters spent on file and history reads.
+## Run a round
+
+```mermaid
+flowchart LR
+  P[Pick the comparison and question set] --> B[Pin the Octocode build; preflight every arm]
+  B --> R[Fresh agent per question: runner brief + one arm brief]
+  R --> J[Blind judge per question; swap-confirm big gaps]
+  J --> A[Aggregate per question: correctness first, then characters and time]
+  A --> W[Fill the scorecard: results/rounds/VERSION-DATE/]
+```
+
+1. **Pick** the comparison from [COMPARISONS.md](COMPARISONS.md) and the question set that tests
+   it. A tool change gets a capability round; a release headline gets a research round.
+2. **Reuse stored baselines.** Run only the Octocode arm being improved; gh, gh-lean, RTK,
+   Headroom and older Octocode builds are already stored ([METHOD.md](METHOD.md#arms)).
+3. **Pin** one build, name its SHA-256, and check every arm answers one real call.
+4. **Answer, judge, aggregate and record** as [METHOD.md](METHOD.md) describes; for a release, also run
+   every area of [CHECKS.md](CHECKS.md). Fill in one [scorecard](briefs/SCORECARD.md) in
+   `results/rounds/<version>-<date>/` and add the version to the
+   [timeline](results/README.md#version-timeline). A new headline also updates [Results](#results).
 
 ## Results
 
-Campaign questions, wrappers and raw results under `compare/` are local, gitignored artifacts.
-The paths below document that local campaign; a clean checkout does not contain them.
-Reproducing its commands requires the campaign files.
+### GitHub research, 30 questions
 
-Every setup answered the same `compare/github-questions/`. The newest Octocode version is on top, and each new version adds a row.
+Every setup answered the same [30 GitHub questions](questions/github/README.md). The newest
+Octocode version is on top; each new version adds a row and becomes the reference column.
 
 | Setup | Run | Correctness (of 10) | Characters per question, mean | Characters per question, median | Characters vs Octocode v20 (95% CI) | Questions where v20 used fewer characters | Speed in a session vs v18 | Speed of a cold call vs v18 | Verdict |
 |---|---|---:|---:|---:|---:|---:|---|---|---|
-| **Octocode v20** (Rust) | 2026-10-29 · 1 pass · Opus 5.5 judge | **9.57** | **15,590** | **13,872** | **1.0×** | — | **1.5–2.3× faster** | 1.3–2.0× slower | Most correct and leanest. Cold start is the regression. |
+| **Octocode v20** (Rust) | 2026-10-29 · 1 pass · Opus 5.5 judge | **9.57** | 15,590 | 13,872 | 1.0× | — | **1.5–2.3× faster** | 1.3–2.0× slower | Most correct. Leaner than every setup except gh-lean. Cold start is the regression. |
+| `gh` lean (`--json`, `--jq`, raw regions) | answers 2026-10-09 · 1 pass · same Opus 5.5 judge as v20, blind in the same pairs | 8.83 | **7,577** | **6,068** | **0.47× (0.39–0.57)** | 2 / 30 | not measured | not measured | The leanest setup, about 2× fewer characters than v20, and less correct: v20 scored higher on 13 questions and lower on 2 (by more than one point: 7 and 1, with 22 tied). |
 | Octocode v18 (TypeScript) | 2026-08-07 · 3 passes · gpt-5.5 judge | 9.26 | 22,111 | 16,233 | 1.43× (1.21–1.70) | 23 / 30 | baseline | baseline | Tied `gh` on correctness with far fewer characters. |
 | plain `gh` | 2026-08 · 3 passes · gpt-5.5 judge | 9.28 | 114,849 | 37,560 | 2.91× (1.78–4.69) | 22 / 30 | not measured | not measured | Correct, but reads whole files. |
 | `gh` + [RTK](https://github.com/rtk-ai/rtk) | 2026-08 · 3 passes · gpt-5.5 judge | 9.40 | 368,586 | 68,395 | 5.57× (3.33–9.57) | 24 / 30 | not measured | not measured | The most correct `gh` setup, and the most characters. |
@@ -29,37 +57,38 @@ Every setup answered the same `compare/github-questions/`. The newest Octocode v
 ```mermaid
 xychart-beta
     title "Characters sent to the model (Octocode v20 = 100, lower is better)"
-    x-axis ["Octocode v20", "Octocode v18", "plain gh", "gh + Headroom", "gh + RTK"]
+    x-axis ["gh lean", "Octocode v20", "Octocode v18", "plain gh", "gh + Headroom", "gh + RTK"]
     y-axis "relative characters" 0 --> 600
-    bar [100, 143, 291, 500, 557]
+    bar [47, 100, 143, 291, 500, 557]
 ```
 
-### Reading the table
+#### Reading the table
 
 | Column | Meaning and measurement |
 |---|---|
-| **Setup** | The tool the agent was given. Octocode runs through `compare/bin/octoc`. `gh` is read-only (`gh api`, `gh search`, `gh pr view`). RTK filters and compresses `gh` output. Headroom compresses `gh` output before the model reads it. |
+| **Setup** | The tool the agent was given, per its [arm brief](briefs/arms/). Every `gh` setup is read-only. gh lean projects fields and reads regions; RTK filters and compresses `gh` output; Headroom compresses `gh` output before the model reads it. |
 | **Run** | The date, the number of passes over the 30 questions, and the blind judge model. |
-| **Correctness** | The judge's mean score, 0–10. The judge checks every claim against the source at the commit the answer cites. Correctness is scored first, so a wrong answer never wins on characters. |
-| **Characters per question** | Text that reached the model: tool output plus the agent's commands and final answer, counted from per-call logs. Characters ≈ tokens, so fewer means a leaner context and lower cost. |
-| **Characters vs Octocode v20** | How many times more characters the setup used than the newest Octocode. It is the per-question ratio, averaged as a geometric mean (which resists outliers), with a bootstrap 95% confidence interval. |
-| **Questions where v20 used fewer characters** | On how many of the 30 questions the newest Octocode used fewer characters than this setup. |
-| **Speed** | From a paired timing run on one machine, explained in [Speed](#speed). **In a session** means v20's warm `octocode serve` process is running; a **cold call** has nothing running yet. **not measured:** there is no fair `gh` timing, because the 2026-08 campaign timed Octocode through an `npx` start on every call. |
+| **Correctness** | The judge's mean score, 0–10, checked against the source at the commit the answer cites. Correctness is scored first, so a wrong answer never wins on characters. |
+| **Characters per question** | Text that reached the model: tool output plus the agent's commands and final answer. Characters ≈ tokens, so fewer means a leaner context and lower cost. |
+| **Characters vs Octocode v20** | The setup's characters divided by v20's, per question, averaged as a geometric mean (which resists outliers), with a bootstrap 95% interval. Below 1× means the setup was leaner. |
+| **Questions where v20 used fewer characters** | On how many of the 30 questions v20 used fewer characters than this setup. |
+| **Speed** | From a paired timing run on one machine ([Speed](#speed)). **In a session** means v20's warm `octocode serve` process is running; a **cold call** has nothing running yet. **not measured:** no fair `gh` timing exists, because the 2026-08 campaign timed Octocode through an `npx` start on every call. |
 
-Where the `gh` numbers come from: the `gh` setups were not rerun beside v20. v20's ratios against them use their stored answers from the 2026-08 campaign.
+Where the comparison numbers come from:
 
-The `gh` ratios are large for two reasons:
-- **Whole-file reads:** plain `gh` has no region read, so it fetches whole files where Octocode reads only the lines it needs.
-- **Occasional huge dumps:** some answers pulled whole trees or files. For example, Q28 alone took 1.47M characters on plain `gh`.
+- **gh lean** is the only setup judged together with v20: each v20 answer was paired blind with
+  the stored gh-lean answer to the same question, by one judge. The answers are 20 days apart
+  (both Sonnet 5.5 runners), and gh-lean's characters were counted from its transcripts while
+  v20's came from per-call logs; both count tool output, the agent's commands and its answer.
+  The judge's winner, with ties decided by fewer characters, was gh-lean on 17 questions and
+  v20 on 13.
+- **plain gh, RTK and Headroom** were not rerun: their ratios use per-question numbers stored
+  from the 2026-08 campaign, judged by another model on another date. Their raw answers are not
+  kept, so they cannot be judged again beside a new build.
+- The large `gh` ratios have two causes: plain `gh` has no region read, so it fetches whole files,
+  and some answers pulled whole trees or files (Q28 alone took 1.47M characters on plain `gh`).
 
-### Adding a new version
-
-1. Run the 30 questions with the new build, following [Run the CLI matchup](#run-the-cli-matchup), into a new run folder such as `compare/github-questions_v21/`.
-2. Add a row at the top of the table. Rename the ratio column to the new version (for example, *Characters vs Octocode v21*), and recompute every row's ratio and confidence interval against it.
-3. Rerun `compare/bin/version_timing.mjs` against the previous version to fill the speed columns.
-4. Keep the older rows; they are the history.
-
-## Evaluation
+#### Evaluation
 
 | Question | Evidence | Verdict |
 |---|---|---|
@@ -67,46 +96,34 @@ The `gh` ratios are large for two reasons:
 | Does v20 use fewer characters than v18? | 1.43× fewer per question (95% CI 1.21–1.70); leaner on 23 of 30 | **Accept** |
 | Is v20 faster than v18 in a session? | 1.5–2.3× faster per task group, warm | **Accept** |
 | Is v20 faster than v18 on a cold call? | 1.3–2.0× slower | **Regression**: fix cold start |
-| Is v20 leaner than the `gh` CLI setups? | 2.9–5.6× fewer characters, at higher correctness | **Accept** (against stored August answers) |
+| Is v20 leaner than the plain `gh`, RTK and Headroom setups? | 2.9–5.6× fewer characters, at higher correctness | **Accept** (against stored August numbers) |
+| Is v20 more correct than gh lean? | 9.57 vs 8.83, same judge; by more than one point v20 is ahead on 7 questions and behind on 1, 22 tied (sign test p ≈ 0.07) | **Inconclusive**: the direction favors v20; one pass |
+| Is v20 as lean as gh lean? | gh lean used 0.47× v20's characters (95% CI 0.39–0.57); v20 leaner on 2 of 30 | **Reject**: gh lean is about 2× leaner |
 | Is the v18 comparison like-for-like? | Different judge model and pass count, runs 11 weeks apart | **Inconclusive** for exact sizes; confirm with a same-day rerun |
 
-What the verdicts mean:
-- **Accept:** the evidence supports the claim.
-- **Regression:** v20 is measurably worse.
-- **Inconclusive:** the direction holds, but the size needs a cleaner run.
+The full v20 run is in `results/github30-v20-2026-10-29/` (`REPORT.md`, `per-question.md`, verdicts,
+logs, timing). Totals: 467,696 characters over all 30 questions, against v18's 663,319.
 
-As in the [octocode-agentic evaluation](../../skills/octocode-agentic/references/evaluation.md) rules, correctness is decided first; cost (characters and time) counts only when correctness holds.
+### Local code against a lean shell, 30 questions
 
-### How it was evaluated
+Octocode's local tools against a lean shell, on the [local-core](questions/local-core/README.md) questions over pinned repositories (2026-10-10, one pass, a pre-release v20 build, one fresh Sonnet 5.5 agent per question, gpt-5.5 blind judge). The shell arm could use `rg`, `grep`, `find`, `ls`, `cat`, `sed -n`, `head`, `tail`, `wc`, `sort`, `uniq`, `cut`, read-only `git` and `ast-grep`.
 
-```mermaid
-flowchart LR
-  Q[30 shared questions] --> R[One isolated agent per question and tool]
-  R --> L[Per-call logs: characters and time]
-  R --> A[Answers]
-  A --> P[Blind packet: tool names removed, order shuffled]
-  P --> J[Judge checks the source, scores correctness first]
-  J --> S[Summary: correctness, then characters and time]
-  L --> S
-```
+| | Octocode | Lean shell | Octocode 19.1.0 |
+|---|---:|---:|---:|
+| Correctness (of 10) | 10.0 | 9.60 | 9.63 |
+| More correct than Octocode on | — | 0 (Octocode on 8; p = 0.01) | 1 (Octocode on 7) |
+| Median characters per question | 3,839 | 3,339 | 9,261 |
+| Characters vs Octocode, geometric mean (95% CI) | 1× | 0.81× (0.68–0.96) | 2.32× (2.01–2.69) |
+| Median seconds per question | 7.0 | 7.3 | 10.4 |
+| Time vs Octocode (95% CI) | 1× | 1.01× (0.93–1.09) | 1.67× (1.50–1.89) |
 
-- **Characters** are counted by the call wrappers in `compare/bin/`, never self-reported. The fixed tool primer each agent gets is excluded.
-- **Re-judging:** a question whose two answers differ by 2 or more points is judged again by a fresh judge, with the answer order swapped. All 8 such v20 questions kept their result.
-- **Fairness:** every tool takes its leanest legitimate path: targeted reads, snippets, minimal fields. Dumping a whole tree or file where a targeted read would answer invalidates the comparison.
+By question kind, the shell's characters against Octocode's: basic 0.70×, advanced 0.99×, edge cases 0.53×, workflow 1.04×. Correctness differs slightly by pair because each pair is a separate blind verdict; the table shows Octocode's score from the pair against the shell.
 
-> [!NOTE]
-> **Limits of the v20 comparison:**
-> - The runs differ in judge model and in number of passes; see the *Run* column in [Results](#results).
-> - They are 11 weeks apart, so moving branches such as `canary` resolve differently.
-> - Pooled character sums, which outliers dominate, are in the campaign write-ups. This page uses per-question geometric means.
 
-## v20 vs v18
+### Package lookup
 
-### Characters and correctness
-
-- **Totals:** 467,696 characters over all 30 questions, against v18's 663,319.
-- **Per-question numbers:** `compare/github-questions/README.md#per-question-results-v18-vs-v20`.
-- **The full v20 run** (answers, judge verdicts, logs): `compare/github-questions_v20/REPORT.md`.
+`artifactSearch` against `npm view` and the registries' JSON (2026-11-04, characters only):
+see [COMPARISONS.md](COMPARISONS.md#artifactsearch).
 
 ### Speed
 
@@ -126,7 +143,7 @@ v20 is timed two ways:
 | Local tools, tokio | 1,378 | 2,823 | **710** | **2.30× faster** | 2.0× slower |
 | Local tools, 19k-file TypeScript repo | 2,668 | 4,868 | **2,645** | **1.51× faster** | 1.9× slower |
 
-The two ratio columns are geometric means of the seven tasks' own ratios, so they differ from a ratio of the summed medians, which gives warm 1.40×, 1.94× and 1.01×. The gains are uneven. On GitHub, file outline (13×) and package lookup (8×) carry the mean through v20's response cache, while repo lookup (805 → 1,296 ms) and repo tree (515 → 870 ms) got slower even when warm. Raw per-task medians: `compare/github-questions_v20/timing/v18-vs-v20.json`.
+The two ratio columns are geometric means of the seven tasks' own ratios, so they differ from a ratio of the summed medians, which gives warm 1.40×, 1.94× and 1.01×. The gains are uneven. On GitHub, file outline (13×) and package lookup (8×) carry the mean through v20's response cache, while repo lookup (805 → 1,296 ms) and repo tree (515 → 870 ms) got slower even when warm. Raw per-task medians: `results/github30-v20-2026-10-29/timing/v18-vs-v20.json`.
 
 The chart shows v20's speed relative to v18 (1.0 = the same; higher is faster):
 
@@ -156,56 +173,12 @@ Single calls, v20 warm against v18:
 > [!NOTE]
 > **Part of the GitHub speedup is caching.** Warm GitHub times include v20's response cache, which v18 does not have. For example, the outline task re-read files the previous task had just fetched: 65 ms vs 852 ms.
 
-Raw data: `compare/github-questions_v20/timing/v18-vs-v20.json` and `compare/github-questions_v20/timing/v18-vs-v20.log`. To rerun the timing:
-
-```bash
-npm install --prefix /tmp/octo18 octocode@18.2.2
-node compare/bin/version_timing.mjs \
-  --v18 /tmp/octo18/node_modules/octocode/out/octocode.js \
-  --v20 ../octocode/out/octocode.js \
-  --corpus rust=$PWD/local/repos/rust --corpus huge-ts=$PWD/local/repos/huge-ts \
-  --out timing.json
-```
+Raw data: `results/github30-v20-2026-10-29/timing/v18-vs-v20.json` and `v18-vs-v20.log`. To time a new release the same way: fresh CLI processes, 5 reps per task with the order rotated and a different query each rep, GitHub reads pinned to one commit plus the `rust` and `huge-ts` clones, and each version timed warm and cold ([COMPARISONS.md](COMPARISONS.md#version-against-version)).
 
 > [!IMPORTANT]
 > Run `node skills-dev/octocode-dev/scripts/dev.mjs build` (the release build) before timing. `build:dev` installs a **debug** binary, which is several times slower.
 
-## Local code vs a shell
-
-Octocode's local tools against a lean shell, on the same 30 questions over pinned repositories (2026-10-10, one pass, a pre-release v20 build, one fresh Sonnet 5.5 agent per question, gpt-5.5 blind judge). The shell arm could use `rg`, `grep`, `find`, `ls`, `cat`, `sed -n`, `head`, `tail`, `wc`, `sort`, `uniq`, `cut`, read-only `git` and `ast-grep`.
-
-| | Octocode | Lean shell | Octocode 19.1.0 |
-|---|---:|---:|---:|
-| Correctness (of 10) | 10.0 | 9.60 | 9.63 |
-| More correct than Octocode on | — | 0 (Octocode on 8; p = 0.01) | 1 (Octocode on 7) |
-| Median characters per question | 3,839 | 3,339 | 9,261 |
-| Characters vs Octocode, geometric mean (95% CI) | 1× | 0.81× (0.68–0.96) | 2.32× (2.01–2.69) |
-| Median seconds per question | 7.0 | 7.3 | 10.4 |
-| Time vs Octocode (95% CI) | 1× | 1.01× (0.93–1.09) | 1.67× (1.50–1.89) |
-
-By question kind, the shell's characters against Octocode's: basic 0.70×, advanced 0.99×, edge cases 0.53×, workflow 1.04×. Correctness differs slightly by pair because each pair is a separate blind verdict; the table shows Octocode's score from the pair against the shell.
-
-## Package lookup
-
-`artifactSearch` against each registry's own interface, for one lookup of the latest version, repository and dependencies (2026-11-04, one run). Characters only, counted from stdout; answer quality was not judged, and time was not compared because a development build was used.
-
-| Package | `artifactSearch` | Registry's full JSON | `npm view` with named fields |
-|---|---:|---:|---:|
-| `zod` (npm) | 731 | 89,723 | 147 |
-| `typescript` (npm) | 1,637 | 318,171 | 1,198 |
-| `react` (npm) | 686 | 337,209 | 145 |
-| `requests` (PyPI) | 695 | 192,961 | not applicable |
-| `serde` (crates.io) | 732 | 440,993 | not applicable |
-
-```bash
-octocode artifactSearch '{"queries":[{"operation":"resolve","ecosystem":"npm","packageName":"zod"}]}' --json | wc -c
-npm view zod --json | wc -c
-npm view zod version repository.url gitHead dependencies --json | wc -c
-curl -sL https://pypi.org/pypi/requests/json | wc -c
-curl -sL -A octocode-benchmark https://crates.io/api/v1/crates/serde | wc -c
-```
-
-## Classification
+### Classification
 
 Main-agent token savings per task are owned by the [classification guide](../../docs/OCTOCODE_CLASIFY.md#main-agent-tokens-with-and-without-jev).
 
@@ -227,163 +200,24 @@ Offering it is not the same as using it. In a paired run over 40 local and 30 Gi
    - Fix: accept those spellings, or teach them in the primer.
 5. **Benchmark hygiene:**
    - **Build:** time release builds only.
-   - **Primer:** regenerate the Octocode primer from `octocode <tool> --help` for each release.
+   - **Primer:** check the [Octocode arm brief](briefs/arms/octocode.md) against `octocode schema` for each release.
    - **Concurrency:** keep GitHub runners to about 7 at once, because GitHub rate-limits code search.
 
-## Choose the benchmark and evaluation method
 
-Use the [octocode-agentic evaluation guide](../../skills/octocode-agentic/references/evaluation.md)
-to design and assess a comparison. Before launching agents, freeze the following in the campaign plan, and keep the plan beside the raw run:
-- the primary metric and correctness guardrails;
-- which questions are exposed, and how the judge is calibrated;
-- budgets, retry policy and the decision rule.
-
-| Comparison | Follow | Runs with |
-|---|---|---|
-| Octocode CLI vs `gh` setups, or one Octocode build vs another | [Benchmark skill](skills/octocode-benchmark/SKILL.md) + `compare/` | A fresh agent per question through the `compare/bin/` wrappers; blind X/Y judge |
-| Speed, v18 vs v20 | `compare/bin/version_timing.mjs` | Fresh CLI processes, interleaved; v20 timed cold and warm |
-| GitHub research, scripted | [External cookbook](external/README.md) | Claude or Pi for MCP vs `gh`/shell; Codex for MCP arms |
-| Pinned local repositories | [Local cookbook](local/README.md) | Fresh Codex MCP workers; existing Claude/Pi local shell arms |
-| Installed local models with the native tools | [Local model cookbook](local/README.md#compare-installed-local-models-with-the-native-tools) | FreeLlama MCP inference and six native local tools |
-| Native binary vs `rg` | [Recorded exploration](local/README.md#reproduce-the-native-cli-versus-shell-exploration) | Saved-run audit |
-
-Don't substitute one execution lane for another without recording the harness change and rerunning both arms.
-- **Verdicts:** finish with `Accept`, `Revert`, `Inconclusive` or `Invalid`.
-- **No win without both:** missing quality data or noncomparable usage cannot establish a win.
-
-## Run the CLI matchup
-
-Octocode is the anchor. Each `gh` setup is a separate pairwise matchup over the same questions, and a new Octocode build is compared with the last one on the same questions.
-
-```bash
-cd packages/octocode-benchmark
-bash skills/octocode-benchmark/scripts/check-prereqs.sh       # non-zero exit = fix first
-
-CAMP=compare/github-questions_v21; mkdir -p "$CAMP/answers/parts" "$CAMP/judge"
-# One fresh agent per question; every research call goes through the wrapper:
-OCTO_LOG="$CAMP/octocode-p1-Q4.jsonl" ./compare/bin/octoc ghGetFileContent \
-  '{"queries":[{"owner":"axios","repo":"axios","path":"lib/adapters/http.js","matchString":["follow-redirects"]}]}'
-python3 compare/bin/record_answer.py --log "$CAMP/octocode-p1-Q4.jsonl" --question Q4 --file answer.txt
-
-# After every answer exists: validate, build the blind packet, then one judge per question.
-python3 compare/bin/validate_campaign.py "$CAMP" --question-count 30 --arms octocode,rtk > "$CAMP/metrics.json"
-python3 compare/bin/build_blind_packet.py "$CAMP" "$CAMP/metrics.json" "$CAMP/blind-packet.md" \
-  --passes 1 --baseline rtk --seed <seed> --map "$CAMP/judge/.MAP.secret.txt"
-```
-
-The protocol, step by step:
-- **Runner brief:** [RUNNER.md](skills/octocode-benchmark/references/RUNNER.md) plus the arm's primer from [RUNNER_TOOL_CONTEXT.md](skills/octocode-benchmark/references/RUNNER_TOOL_CONTEXT.md).
-- **Judging:** [JUDGING.md](skills/octocode-benchmark/references/JUDGING.md).
-- **Write-up:** [REPORT_TEMPLATE.md](skills/octocode-benchmark/references/REPORT_TEMPLATE.md).
-- **Reusing stored answers:** copy a stored campaign's answers and logs rather than rerunning that tool; `compare/github-questions_v20/` shows the layout.
-- **Comparing against v18 itself:** run the published pin `compare/bin/octoc-npm` (`OCTO_SPEC`, with [primer-octocode-18.md](skills/octocode-benchmark/references/primer-octocode-18.md)).
-
-<details>
-<summary><b>Scripted GitHub comparison</b> (MCP vs <code>gh</code>, run by <code>scripts/</code>)</summary>
-
-Run from `packages/octocode-benchmark` with an authenticated Claude, Pi or Codex installation. Codex supports MCP arms only; use Claude or Pi for shell and `gh` arms.
-
-```bash
-bash scripts/preflight.sh mcp,gh
-python3 scripts/leak_check.py
-
-CAMP=campaigns/github-comparison
-RUNNER=claude bash scripts/run_campaign.sh "$CAMP" mcp,gh 1 all 4
-
-python3 scripts/question_catalog.py external/questions |
-  xargs -P 4 -I{} env JUDGE_RUNNER=codex JUDGE_MODEL=gpt-6.1-sol \
-    bash scripts/judge_pair.sh "$CAMP" mcp gh 1 {}
-
-python3 scripts/campaign_summary.py "$CAMP" --question-set github-v2 --judge-model gpt-6.1-sol
-python3 scripts/matrix_summary.py --question-set github-v2
-python3 dashboard/build_datasets.py --static results/overview/index.html
-```
-
-Before scored runs, freeze the build, question set, source revisions, model, reasoning effort, budgets and retry policy.
-- MCP arms snapshot the local build unless `OCTO_MCP_CMD` selects another server.
-- Match `RUNNER_MODEL` between arms.
-- Never rerun a valid answer just because it scored poorly.
-
-</details>
-
-<details>
-<summary><b>Local comparison</b> (pinned repositories)</summary>
-
-The [local cookbook](local/README.md) covers the language questions, the pinned datasets, native CLI exploration and saved-run audits. For a fresh local MCP worker:
-
-```bash
-export LOCAL_REPOS="$PWD/local/repos"
-export QUESTION_DIR="$PWD/local/questions"
-export QUESTION_REPO_MAP="$PWD/local/repositories.json"
-RUNNER=codex RUNNER_MODEL=gpt-5.6-terra bash scripts/preflight.sh local-mcp
-RUNNER=codex RUNNER_MODEL=gpt-5.6-terra \
-  bash scripts/run_campaign.sh campaigns/local-comparison local-mcp 1 all 1
-```
-
-The manifest pins revisions and assigns repository scope outside the question text, and a dirty tracked tree fails closed. For a two-arm version comparison, see the [paired local run](local/README.md#run-a-paired-local-mcp-comparison).
-
-</details>
-
-## Workers, judges and measurements
-
-- **Workers** get one shared research brief ([GitHub](prompts/runner.md) or [local](prompts/local-runner.md)), one primer for their tool, and one question.
-- **Judges** follow [source-backed judging](docs/judging.md). Workers never see private rubrics or competing answers.
-- **Judging rules:**
-  - calibrate the judge;
-  - shuffle answer order;
-  - withhold costs until quality is locked;
-  - keep uncertainty, and review disagreements.
-- **Reporting:** report provider token usage separately. Unknown timing stays unknown.
-- **Evidence vs correctness:** a citation that exists, or a snippet whose bytes match, does not by itself make an answer correct.
-
-More detail: [method and isolation](docs/method.md), [runner configuration](docs/running.md), [harness components](docs/harness.md), [output accounting](docs/outputs.md).
-
-## Find and save results
-
-| Where | What |
-|---|---|
-| `compare/github-questions_v20/` | The v20 run: answers, per-call logs, blind packet, verdicts, timing, REPORT.md |
-| `results/README.md` | Index of campaign write-ups, one directory and README per result |
-| `results/overview/README.md` | Default matrix, dashboard and historical aggregate data |
-| `campaigns/<name>/` | Raw transcripts, sealed answers, receipts and judge attempts (gitignored) |
-
-Preserve existing reports and raw records. For a separate question set, pass `--question-set` to the summaries, and never overwrite the GitHub overview with local results.
-
-## Add a question
-
-A GitHub question goes in the shared `compare/github-questions/` folder, which every tool uses. A corpus-local question goes in that corpus's `questions/` folder. Create `Q<n>.md` with exactly:
-
-```markdown
-# Q<n> — Short title
-
-**id:** `unique-kebab-id`
-
-## Question
-
-One self-contained, objectively checkable prompt. Name the repo(s)/ref(s) or `$CORPUS`
-path, and say exactly what to report. No hints, no approach, no answer.
-```
-
-Then add its row to that folder's `README.md`.
-
-## Package layout and checks
+## Layout and checks
 
 ```text
-compare/       CLI matchups: bin/ wrappers and timing, github-questions/, per-run folders
-skills/        octocode-benchmark skill: protocol, primers, judging, preflight
-scripts/       scripted harness: runners, guards, measurement, judges and tests
-prompts/       worker briefs and primers; check-local.md and check-github.md: hand checks vs smart rg/ast-grep and gh lean
-local/         local cookbook, repos/, e2e/, questions, pinned datasets, saved-run review
-external/      GitHub cookbook and questions
-dashboard/     dashboard source, data builder and release notes
-docs/          method, judging, outputs, harness guide
-experiments/   scoped benchmark experiments
-results/       one directory and README per result; overview aggregates
-campaigns/     raw campaign evidence (gitignored)
+README.md        purpose, how to run a round, headline results
+CHECKS.md        every check: core tools, security, skills, areas owned elsewhere
+METHOD.md        benchmark rounds and version-to-version comparison
+COMPARISONS.md   Octocode against each expert competitor
+briefs/          runner, judge, arm briefs, capability-round briefs, SCORECARD template
+questions/       question sets (data), the repositories they use, judge rubrics
+local/           README (repositories, commits, clone form), FLOWS (the local flows benchmark), repos/ (clones, gitignored)
+docs/articles/   the published benchmark article
+results/         README (version timeline and index), baselines/ and rounds/ tracked; all other data gitignored
+campaigns/       raw campaign evidence (gitignored)
 ```
 
-```bash
-# From the monorepo root:
-yarn workspace @octocodeai/octocode-benchmark verify
-node skills-dev/octocode-dev/scripts/dev.mjs docs:verify
-```
+The package has no build, tests or scripts. From the monorepo root,
+`node skills-dev/octocode-dev/scripts/dev.mjs docs:verify` checks its links.

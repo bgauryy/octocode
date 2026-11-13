@@ -75,8 +75,8 @@ async fn npm_provenance_pins_the_attested_commit_only_when_bound() {
 async fn an_unread_attestation_is_disclosed_and_keeps_the_git_head_lead() {
     const BUNDLE: &str = "/-/npm/v1/attestations/zod@4.6.5";
     let resolve = json!({"operation":"resolve","packageName": "zod", "version": "4.6.5"});
-    let failing = routes(vec![("/zod/4.6.5", JSON, manifest("4.6.5", true))])
-        .status(BUNDLE, 503, json!({}));
+    let failing =
+        routes(vec![("/zod/4.6.5", JSON, manifest("4.6.5", true))]).status(BUNDLE, 503, json!({}));
     let page = lookup(&failing, resolve.clone())
         .await
         .expect("an unread attestation keeps the row");
@@ -84,9 +84,11 @@ async fn an_unread_attestation_is_disclosed_and_keeps_the_git_head_lead() {
     assert!(!item.source_attested);
     assert_eq!(item.source_ref.as_deref(), Some("aaaaaaa1"));
     assert!(
-        item.disclosures.iter().any(|said| said.contains("zod 4.6.5")
-            && said.contains("provenance")
-            && said.contains("not attested")),
+        item.disclosures
+            .iter()
+            .any(|said| said.contains("zod 4.6.5")
+                && said.contains("provenance")
+                && said.contains("not attested")),
         "{:?}",
         item.disclosures
     );

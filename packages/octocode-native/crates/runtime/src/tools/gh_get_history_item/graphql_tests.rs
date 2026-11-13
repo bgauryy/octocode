@@ -14,6 +14,8 @@ mod fallback;
 mod pages;
 mod redaction;
 mod references;
+mod representation;
+mod single_connection;
 
 const BASE: &str = "1111111111111111111111111111111111111111";
 const HEAD: &str = "2222222222222222222222222222222222222222";

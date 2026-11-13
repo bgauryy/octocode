@@ -5,7 +5,8 @@ use super::*;
 /// Branches and tags page together: each page
 /// holds the same page number of both lists, and `next.nextPage` continues
 /// while either has more, so every ref is listed exactly once. Tags are
-/// names (each is a ref); the default branch's head is `commitSha`.
+/// names (each is a ref) from the repository's whole git tag-ref list,
+/// paged in one order; the default branch's head is `commitSha`.
 #[tokio::test]
 async fn refs_list_every_branch_and_tag_once_with_the_default_branch() {
     let server = MockServer::builder().start().await;
@@ -29,13 +30,6 @@ async fn refs_list_every_branch_and_tag_once_with_the_default_branch() {
             json!([{"name":"release","commit":{"sha":sha(3)}}]),
             false,
         ),
-        (
-            "tags",
-            "1",
-            json!([{"name":"v1.0.0","commit":{"sha":sha(4)}}]),
-            false,
-        ),
-        ("tags", "2", json!([]), false),
     ];
     for (kind, page, body, more) in pages {
         let mut response = ResponseTemplate::new(200).set_body_json(body);
@@ -57,6 +51,13 @@ async fn refs_list_every_branch_and_tag_once_with_the_default_branch() {
             .mount(&server)
             .await;
     }
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/git/matching-refs/tags"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {"ref":"refs/tags/v1.0.0","object":{"sha":sha(4),"type":"commit"}}
+        ])))
+        .mount(&server)
+        .await;
     let workspace = Workspace::new();
     let runtime = github(&workspace, &server);
     let first = call(

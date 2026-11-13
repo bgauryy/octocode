@@ -154,8 +154,12 @@ async fn a_large_pr_patch_lead_names_one_call_of_files_and_its_coverage() {
     let files = (0..120)
         .map(|index| rest_file(&format!("src/m{index}.rs"), hunk, 30 + index, 30))
         .collect::<Vec<_>>();
-    mount_file_batches(&server, vec![files[..100].to_vec(), files[100..].to_vec()], Duration::ZERO)
-        .await;
+    mount_file_batches(
+        &server,
+        vec![files[..100].to_vec(), files[100..].to_vec()],
+        Duration::ZERO,
+    )
+    .await;
     let data = run(&server, json!({"sections":["files"]})).await;
     let lead = support::checks::related_call(&data, "ghGetHistoryItem", |input| {
         input["queries"][0]["sections"] == json!(["patches"])
@@ -171,7 +175,9 @@ async fn a_large_pr_patch_lead_names_one_call_of_files_and_its_coverage() {
         include.len()
     );
     assert!(
-        data["hints"].as_array().is_some_and(|hints| hints.contains(&json!(coverage))),
+        data["hints"]
+            .as_array()
+            .is_some_and(|hints| hints.contains(&json!(coverage))),
         "{data}"
     );
     let read = run(&server, lead["input"]["queries"][0].clone()).await;

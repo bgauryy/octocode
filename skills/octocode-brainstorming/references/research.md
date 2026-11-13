@@ -31,7 +31,7 @@ Cross-provider rank shows relevance, not truth; `citedBy` shows attention, not q
 
 ## Momentum
 
-A trend surface alone earns `low`; `medium` or `high` needs an independent source or direct repository, package, or paper data. Record the dated signal.
+A trend listing is weak evidence for effectiveness or adoption. Check the dated primary signal and independent support before generalizing; use the [confidence rubric](critical-thinking.md#calibrated-confidence).
 
 | Need | Sources |
 |---|---|

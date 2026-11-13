@@ -2,7 +2,7 @@
 
 <!-- report-contract {"statuses":["APPROVE","COMMENT","REQUEST_CHANGES"],"required":["Answer","Scope","Findings","Evidence","Gaps","Checks"],"anyOf":[]} -->
 
-Task content only; no probe output or process metadata. Cite full blob URLs remotely and `file:line` locally. Label findings `SEC-1`, never `#1`, because GitHub auto-links `#N`.
+Cite full blob URLs remotely and `file:line` locally. When findings need cross-references, use labels such as `SEC-1`; bare `#N` auto-links GitHub issues.
 
 ## Response
 
@@ -10,13 +10,13 @@ Lead with the verdict, the main risk and what was verified. Then give the most c
 
 ## Findings
 
-One table per review, ordered by severity:
+Order findings by severity; a table helps compare several:
 
 | ID | Location | Finding and evidence | Impact | Severity | Confidence | Fix |
 |---|---|---|---|---|---|---|
 | `SEC-1` | `src/auth.ts:42` | `issue (blocking):` the mechanism, with its exact source anchor | Who or what breaks, and when | `High` | `high` | The smallest repair |
 
-- **Finding:** a Conventional Comment. Open with its label (`issue`, `suggestion`, `question`, `nitpick`, `praise`) and mark whether it blocks.
+- **Finding:** state the defect and whether it blocks. Use Conventional Comments labels when the review destination expects them.
 - **Severity** measures impact: `Critical`, `High`, `Medium`, `Low`.
 - **Confidence** measures proof: `high` confirmed, `medium` likely, `low` uncertain.
 - **No findings:** say so under `## Findings` and name the scope that makes that claim hold.
@@ -29,7 +29,7 @@ Path: `<workspace>/.octocode/octocode-pr-review/<YYYY-MM-DD>-pr-<number>.md`, or
 
 Use the [shared header](references/report-output.md#report-header). `status` is the verdict. Accepted `status` values: `APPROVE`, `COMMENT`, `REQUEST_CHANGES`.
 
-`question` is `"Review of PR #<number>: <title>"`, or the branch or path reviewed. Title it `# PR #<number> review: <one-line verdict>`, then a lead paragraph with the recommendation, main risk and what was verified.
+Title the report with the reviewed target and verdict; lead with the recommendation, main risk and what was verified.
 
 Include, in this order:
 

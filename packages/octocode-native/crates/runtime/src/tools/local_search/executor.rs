@@ -25,7 +25,7 @@ pub(super) use scanned::scan;
 #[cfg(test)]
 pub(super) use scanned::scan_query;
 #[cfg(test)]
-pub(super) use scanned::test_held_limit;
+pub(super) use scanned::{JUDGED_PATHS, test_held_limit};
 pub(super) use scanned::{Scanned, scan_resumed, search_options};
 use serde_json::json;
 pub(super) use settle::search_stats;
@@ -82,13 +82,7 @@ fn check_each_term(query: &LocalSearchQuery) -> Result<(), ToolError> {
         return Ok(());
     }
     for term in terms {
-        let Ok(mut row) = serde_json::to_value(query) else {
-            return Ok(());
-        };
-        row["matchString"] = serde_json::json!([term.as_str()]);
-        if let Ok(single) = serde_json::from_value::<LocalSearchQuery>(row) {
-            super::pattern::check_pattern(&single)?;
-        }
+        super::pattern::check_expression(query, term.as_str())?;
     }
     Ok(())
 }

@@ -14,6 +14,7 @@
 //! heritage clause naming a same-package class links to its file. Go
 //! same-package references produce no edge.
 
+use super::aliases::BareTarget;
 use super::linking::Linker;
 use super::paths::{dirname, dirs_above_within_repository};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -33,9 +34,10 @@ pub(super) struct PackageIndex {
     go_module_missing: bool,
     /// Each Go file's package clause: the name a plain import of it binds.
     go_package_names: HashMap<String, String>,
-    /// Module paths local to the repository but outside the scan: the module
-    /// enclosing the scan root, a local `replace`, a `go.work` member.
-    go_local_modules: Vec<String>,
+    /// Module paths local to the repository but not scanned: the module
+    /// enclosing the scan root, a local `replace`, a `go.work` member; each
+    /// with whether its directory lies outside the scan root.
+    go_local_modules: Vec<(String, bool)>,
     /// Every trailing run of a scanned Java directory's components: the package
     /// paths the scan may hold (`com/acme` for `src/main/java/com/acme`).
     java_packages: HashSet<String>,
@@ -50,9 +52,10 @@ pub(super) struct PackageIndex {
 /// How a package import resolved.
 pub(super) enum PackageLink {
     Files(Vec<String>),
-    /// Names a scanned module/package that holds no linkable file.
-    UnresolvedInternal,
-    External,
+    /// Links no file: a third-party package, or project code the scan should
+    /// hold (a scanned module/package with no linkable file) or that lies
+    /// beyond the scan root.
+    Unlinked(BareTarget),
 }
 
 fn join(dir: &str, rest: &str) -> String {
@@ -75,11 +78,12 @@ fn go_module_path(text: &str) -> Option<String> {
 const MAX_GO_MODULE_ANCESTORS: usize = 16;
 
 /// The module enclosing `root` from an ancestor directory, `root`'s path below
-/// that module's directory, and the modules its `go.mod` replaces locally.
+/// that module's directory, and the modules its `go.mod` replaces locally
+/// with whether each lies outside `root`.
 fn enclosing_go_module(
     root: &Path,
     read: &dyn Fn(&Path) -> Option<String>,
-) -> Option<(String, String, Vec<String>)> {
+) -> Option<(String, String, Vec<(String, bool)>)> {
     if octocode_engine::search::repository::is_root(root) {
         return None;
     }
@@ -96,7 +100,7 @@ fn enclosing_go_module(
             return Some((
                 module,
                 below.join("/"),
-                go_modules::local_replacements(&text),
+                go_modules::local_replacements(&text, dir, root),
             ));
         }
         // A repository boundary ends the search: its go.mod would belong
@@ -176,9 +180,10 @@ impl PackageIndex {
                 root.join(&dir).join("go.mod")
             };
             if let Some(text) = read(&manifest) {
+                let directory = manifest.parent().unwrap_or(root);
                 index
                     .go_local_modules
-                    .extend(go_modules::local_replacements(&text));
+                    .extend(go_modules::local_replacements(&text, directory, root));
                 if let Some(module) = go_module_path(&text) {
                     index.go_modules.push((module, dir));
                 }
@@ -192,7 +197,8 @@ impl PackageIndex {
                 index
                     .go_modules
                     .push((format!("{module}/{below}"), ".".to_owned()));
-                index.go_local_modules.push(module);
+                // Its other packages lie above the scan root.
+                index.go_local_modules.push((module, true));
                 index.go_local_modules.extend(replaced);
             }
         }
@@ -266,7 +272,7 @@ impl PackageIndex {
         match lang {
             super::linking::Linker::Go => self.resolve_go(spec),
             super::linking::Linker::Java => self.resolve_java(spec, importer),
-            _ => PackageLink::External,
+            _ => PackageLink::Unlinked(BareTarget::External),
         }
     }
 
@@ -310,21 +316,28 @@ impl PackageIndex {
                     .split('/')
                     .next()
                     .is_some_and(|host| host.contains('.'));
-            return if unknowable
-                || self
-                    .go_local_modules
+            if unknowable {
+                return PackageLink::Unlinked(BareTarget::Internal);
+            }
+            // The longest local module the path names decides where it lies.
+            return PackageLink::Unlinked(
+                self.go_local_modules
                     .iter()
-                    .any(|module| spec == module || spec.starts_with(&format!("{module}/")))
-            {
-                PackageLink::UnresolvedInternal
-            } else {
-                PackageLink::External
-            };
+                    .filter(|(module, _)| spec == module || spec.starts_with(&format!("{module}/")))
+                    .max_by_key(|(module, _)| module.len())
+                    .map_or(BareTarget::External, |(_, outside)| {
+                        if *outside {
+                            BareTarget::OutsideRoot
+                        } else {
+                            BareTarget::Internal
+                        }
+                    }),
+            );
         };
         let rest = spec[module.len()..].trim_start_matches('/');
         let files = self.package_files(&join(dir, rest), ".go");
         if files.is_empty() {
-            PackageLink::UnresolvedInternal
+            PackageLink::Unlinked(BareTarget::Internal)
         } else {
             PackageLink::Files(files)
         }

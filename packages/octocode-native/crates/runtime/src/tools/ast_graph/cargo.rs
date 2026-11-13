@@ -1,3 +1,4 @@
+use super::aliases::BareTarget;
 use super::paths::normalize;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -11,9 +12,10 @@ pub(super) use workspaces::{enclosing_manifests, load_cargo_crates};
 #[derive(Default)]
 pub(super) struct CargoCrates {
     packages: BTreeMap<String, BTreeMap<String, String>>,
-    /// Package directory → the import names its path dependencies take: local
-    /// code, inside the scan or not.
-    path_dependencies: BTreeMap<String, BTreeSet<String>>,
+    /// Package directory → the import names its path dependencies take (local
+    /// code, inside the scan or not), each with whether its package lies
+    /// outside the scan root.
+    path_dependencies: BTreeMap<String, BTreeMap<String, bool>>,
     pub(super) roots: BTreeSet<String>,
     /// The scan root's module path when the root lies inside a crate whose
     /// root (`src/lib.rs`, `src/main.rs`) is above it: `crate::a::b::x`
@@ -50,14 +52,20 @@ impl CargoCrates {
         nearest_package(&self.packages, importer).and_then(|dependencies| dependencies.get(name))
     }
 
-    /// Whether the crate `name` may be local to the package holding `importer`: a
-    /// path dependency of it, or anything other than the standard crates when no
-    /// manifest was read to say what it depends on.
-    pub(super) fn may_name_local_crate(&self, importer: &str, name: &str) -> bool {
-        nearest_package(&self.path_dependencies, importer)
-            .map_or(!matches!(name, "std" | "core" | "alloc"), |dependencies| {
-                dependencies.contains(name)
-            })
+    /// What the crate `name` is to the package holding `importer`: a path
+    /// dependency of it is local code, beyond the scan root when its package
+    /// lies there; with no manifest read to say what it depends on, anything
+    /// other than the standard crates may be local.
+    pub(super) fn local_crate(&self, importer: &str, name: &str) -> BareTarget {
+        match nearest_package(&self.path_dependencies, importer) {
+            None if matches!(name, "std" | "core" | "alloc") => BareTarget::External,
+            None => BareTarget::Internal,
+            Some(dependencies) => match dependencies.get(name) {
+                None => BareTarget::External,
+                Some(true) => BareTarget::OutsideRoot,
+                Some(false) => BareTarget::Internal,
+            },
+        }
     }
 }
 
@@ -131,7 +139,7 @@ pub(super) fn parse_cargo_crates(root: &Path, value: &serde_json::Value) -> Carg
         };
         crates
             .path_dependencies
-            .insert(scope.clone(), path_dependency_names(package));
+            .insert(scope.clone(), path_dependency_names(package, &root));
         crates
             .packages
             .insert(scope, package_dependencies(package, directory, &libraries));
@@ -185,19 +193,21 @@ fn package_library(
     found
 }
 
-/// The names a package's path dependencies import as.
-fn path_dependency_names(package: &serde_json::Value) -> BTreeSet<String> {
+/// The names a package's path dependencies import as, each with whether the
+/// dependency's directory (absolute in `cargo metadata`) lies outside `root`.
+fn path_dependency_names(package: &serde_json::Value, root: &Path) -> BTreeMap<String, bool> {
     package["dependencies"]
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|dependency| dependency["path"].is_string())
         .filter_map(|dependency| {
-            dependency["rename"]
+            let path = Path::new(dependency["path"].as_str()?);
+            let name = dependency["rename"]
                 .as_str()
-                .or(dependency["name"].as_str())
+                .or(dependency["name"].as_str())?;
+            let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+            Some((name.replace('-', "_"), !path.starts_with(root)))
         })
-        .map(|name| name.replace('-', "_"))
         .collect()
 }
 

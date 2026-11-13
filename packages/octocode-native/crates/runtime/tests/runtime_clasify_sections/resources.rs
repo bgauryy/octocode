@@ -428,7 +428,10 @@ async fn a_local_resource_states_no_digest_or_byte_of_a_hidden_value() {
     workspace.write("notes.txt", file(long, "fast"));
     let other = run("other", json!({"queries":[row("details")]})).await;
     assert!(!other.to_string().contains(long), "{other:#}");
-    assert!(!other.to_string().contains(&raw(&file(long, "fast"))), "{other:#}");
+    assert!(
+        !other.to_string().contains(&raw(&file(long, "fast"))),
+        "{other:#}"
+    );
     assert_eq!(
         shown(&other),
         (digest.clone(), bytes),

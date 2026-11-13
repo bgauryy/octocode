@@ -43,6 +43,9 @@ struct Entry<V, M> {
     used: u64,
 }
 
+/// Collections detached while locked and destroyed after the lock is released.
+type Cleared<K, V, M> = (LruCache<K, Entry<V, M>>, BTreeSet<(Instant, K)>);
+
 struct Inner<K, V, M> {
     entries: LruCache<K, Entry<V, M>>,
     /// Only expiring entries occupy this index; removal also removes the deadline.
@@ -52,13 +55,13 @@ struct Inner<K, V, M> {
 }
 
 impl<K: Hash + Eq + Ord + Clone, V, M> Inner<K, V, M> {
-    fn remove<Q: Hash + Eq + ?Sized>(&mut self, key: &Q) -> Option<Entry<V, M>>
+    fn remove<Q: Hash + Eq + ?Sized>(&mut self, key: &Q) -> Option<(K, Entry<V, M>)>
     where
         K: Borrow<Q>,
     {
         let (key, entry) = self.entries.pop_entry(key)?;
         self.forget(&key, &entry);
-        Some(entry)
+        Some((key, entry))
     }
 
     fn forget(&mut self, key: &K, entry: &Entry<V, M>) {
@@ -90,11 +93,13 @@ impl<K: Hash + Eq + Ord + Clone, V, M> Inner<K, V, M> {
         expired
     }
 
-    fn clear(&mut self) {
-        self.entries = LruCache::unbounded();
-        self.expiry.clear();
+    /// Detach retained state under the lock; its destructors run after unlock.
+    fn clear(&mut self) -> Cleared<K, V, M> {
+        let entries = std::mem::replace(&mut self.entries, LruCache::unbounded());
+        let expiry = std::mem::take(&mut self.expiry);
         self.budget.release(self.weight);
         self.weight = 0;
+        (entries, expiry)
     }
 }
 
@@ -159,7 +164,9 @@ impl<
             .expires_at
             .is_some_and(|deadline| deadline <= now)
         {
-            inner.remove(key);
+            let expired = inner.remove(key);
+            drop(inner);
+            drop(expired);
             return None;
         }
         let entry = inner.entries.get_mut(key)?;
@@ -234,13 +241,15 @@ impl<
         stored_at: Instant,
     ) -> (Arc<V>, bool) {
         let value = value.into();
-        let (expired, deadline) = {
+        let (expired, replaced, deadline) = {
             let mut inner = self.lock();
-            inner.remove(&key);
+            let replaced = inner.remove(&key);
             let now = Instant::now();
             if weight > self.budget.limit()
                 || ttl.is_some_and(|ttl| now.saturating_duration_since(stored_at) >= ttl)
             {
+                drop(inner);
+                drop(replaced);
                 return (value, false);
             }
             let expired = inner.expire(now);
@@ -251,7 +260,7 @@ impl<
             inner.weight = inner.weight.saturating_add(weight);
             self.budget.charge(weight);
             inner.entries.put(
-                key,
+                key.clone(),
                 Entry {
                     value: Arc::clone(&value),
                     meta,
@@ -261,22 +270,31 @@ impl<
                     used: next_use(),
                 },
             );
-            (expired, expires_at)
+            (expired, replaced, expires_at)
         };
+        drop(replaced);
         drop(expired);
         // Outside this memo's lock: reclaiming locks each memo in turn.
         if let Some(deadline) = deadline {
             self.budget.note_deadline(deadline);
         }
         self.budget.reclaim();
-        (value, true)
+        // Reclaim can evict this insertion; a concurrent writer can also
+        // replace its key, so key presence alone does not prove retention.
+        let kept = self
+            .lock()
+            .entries
+            .peek(&key)
+            .is_some_and(|entry| Arc::ptr_eq(&entry.value, &value));
+        (value, kept)
     }
 
     pub fn remove<Q: Hash + Eq + ?Sized>(&self, key: &Q)
     where
         K: Borrow<Q>,
     {
-        self.lock().remove(key);
+        let removed = self.lock().remove(key);
+        drop(removed);
     }
 
     /// Charge `extra` more bytes to the live entry for `key`, for what its
@@ -291,25 +309,22 @@ impl<
     {
         let mut inner = self.lock();
         let now = Instant::now();
-        let fits = self
-            .budget
-            .used()
-            .checked_add(extra)
-            .is_some_and(|used| used <= self.budget.limit());
         let Some(entry) = inner.entries.peek_mut(key) else {
             return false;
         };
-        if !fits || entry.expires_at.is_some_and(|deadline| deadline <= now) {
+        if entry.expires_at.is_some_and(|deadline| deadline <= now)
+            || !self.budget.try_charge(extra)
+        {
             return false;
         }
         entry.weight += extra;
         inner.weight = inner.weight.saturating_add(extra);
-        self.budget.charge(extra);
         true
     }
 
     pub fn clear(&self) {
-        self.lock().clear();
+        let removed = self.lock().clear();
+        drop(removed);
     }
 
     /// Entries held, expired ones included until they are released.
@@ -337,7 +352,8 @@ impl<
 
 impl<K: Hash + Eq + Ord + Clone + Send, V: Send + Sync, M: Send> Held for Mutex<Inner<K, V, M>> {
     fn clear(&self) {
-        self.lock().unwrap_or_else(PoisonError::into_inner).clear();
+        let removed = self.lock().unwrap_or_else(PoisonError::into_inner).clear();
+        drop(removed);
     }
 
     fn oldest(&self) -> Option<u64> {
@@ -358,6 +374,8 @@ impl<K: Hash + Eq + Ord + Clone + Send, V: Send + Sync, M: Send> Held for Mutex<
             return false;
         };
         inner.forget(&key, &entry);
+        drop(inner);
+        drop((key, entry));
         true
     }
 

@@ -36,6 +36,22 @@ fn rust_heritage_links_impl_trait_and_supertraits() {
     );
 }
 
+/// A raw identifier (`r#Trait`) names a type like any other: an impl or a
+/// supertrait bound spelled raw links to it, under the spelling written.
+#[test]
+fn rust_heritage_links_raw_identifiers() {
+    let source =
+        "trait r#Shape: r#Base {}\nstruct S;\nimpl r#Trait for S {}\nimpl a::r#Trait<T> for S {}\n";
+    assert_eq!(
+        heritage(source, "lib.rs"),
+        vec![
+            edge("extends", "r#Shape", "r#Base", 1),
+            edge("implements", "S", "r#Trait", 3),
+            edge("implements", "S", "a::r#Trait", 4),
+        ]
+    );
+}
+
 #[test]
 fn python_heritage_skips_keywords_splats_and_object() {
     let source = "class A(Base, pkg.Mixin, Generic[T], metaclass=Meta):\n    pass\nclass B(object):\n    pass\nclass C(*bases, **kw):\n    pass\n";

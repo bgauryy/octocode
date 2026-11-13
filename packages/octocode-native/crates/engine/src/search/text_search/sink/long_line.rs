@@ -1,5 +1,6 @@
 //! A matched line past [`LONG_LINE_BYTES`]: a row shows a window of it around its hit,
-//! and the line is judged whole for secrets, so only a secret's own bytes are hidden.
+//! with the byte it starts at, and the line is judged whole for secrets, so only a
+//! secret's own bytes are hidden.
 //! Its text is borrowed where it is UTF-8, so the line is held once.
 use super::CollectSink;
 use crate::num::saturating_u32;
@@ -50,7 +51,11 @@ impl<M: Matcher> CollectSink<'_, M> {
             ..text.ceil_char_boundary(interior_offset(bytes, end).min(text.len()));
         let column = saturating_u32(byte_to_utf16_offset(text, hit.start));
         let byte_offset = saturating_u32(hit.start);
-        let value = self.judged(text).window(text, hit);
+        // A window of the line states where it starts, as a row window does
+        // ([`super::row_window`]); one that holds the whole line is its row.
+        let shown = LongLine::window_of(text, hit);
+        let window_start = (shown != (0..text.len())).then(|| saturating_u32(shown.start));
+        let value = self.judged(text).cut(text, shown);
         if self.work.deferred_line {
             self.entry.prepared.push(TextSearchMatch {
                 deferred: None,
@@ -63,7 +68,7 @@ impl<M: Matcher> CollectSink<'_, M> {
                 value,
                 count: None,
                 rank: Some(relevance::line_rank(bytes, start)),
-                window_start: None,
+                window_start,
             });
         } else {
             self.entry
@@ -74,7 +79,7 @@ impl<M: Matcher> CollectSink<'_, M> {
                     column,
                     byte_offset,
                     rank: relevance::line_rank(bytes, start),
-                    window_start: None,
+                    window_start,
                 });
         }
         Ok(())

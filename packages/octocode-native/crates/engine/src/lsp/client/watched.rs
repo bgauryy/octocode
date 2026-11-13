@@ -104,6 +104,7 @@ mod tests {
             args: None,
             workspace_root: "/w".into(),
             language_id: Some("go".into()),
+            document_language_ids: Default::default(),
             initialization_options: None,
             env: None,
             max_memory_mb: None,

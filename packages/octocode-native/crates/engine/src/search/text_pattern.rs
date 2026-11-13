@@ -68,9 +68,33 @@ pub fn matches_line_break(pattern: &str, fixed_string: bool) -> bool {
             .is_err()
 }
 
+/// Whether `pattern`, read as a regex, matches exactly the text it spells:
+/// it parses to that one literal. Escaping marks characters that are literal
+/// outside a class (`-`, `#`, `&`, `~`), so `a-b` holds no regex syntax by
+/// this reading, while `a.b` and `a\.b` each read as other text.
+#[must_use]
+pub fn regex_spells_itself(pattern: &str) -> bool {
+    use regex_syntax::hir::HirKind;
+    regex_syntax::parse(pattern).is_ok_and(|hir| match hir.kind() {
+        HirKind::Literal(literal) => *literal.0 == *pattern.as_bytes(),
+        HirKind::Empty => pattern.is_empty(),
+        _ => false,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_regex_spells_itself_only_when_it_parses_to_its_own_text() {
+        for pattern in ["defects-queue", "plain words", "#tag", "a&b", "x~y", "é-ü"] {
+            assert!(regex_spells_itself(pattern), "{pattern}");
+        }
+        for pattern in ["a.b", r"a\.b", "a|b", "x[0-9]", "^fn", "a+", "(a)", "call("] {
+            assert!(!regex_spells_itself(pattern), "{pattern}");
+        }
+    }
 
     #[test]
     fn line_breaks_are_named_only_where_the_line_search_rejects_them() {

@@ -1,5 +1,6 @@
 //! The searched repository: renamed ones followed, an inaccessible one stated.
 use super::*;
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use octocode_github::ProviderErrorKind;
 use octocode_github::mock_http::mount_json;
 use serde_json::json;
@@ -8,7 +9,8 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// A renamed repository is followed, as ghSearchHistory does: the same
 /// search (every filter) runs against the canonical name and says so,
-/// instead of an empty, partial row with a retry lead.
+/// instead of an empty, partial row with a retry lead. The hit's lines are
+/// read at its indexed commit in the canonical repository.
 #[tokio::test]
 async fn renamed_repository_is_followed_with_every_filter() {
     let server = MockServer::builder().start().await;
@@ -17,12 +19,20 @@ async fn renamed_repository_is_followed_with_every_filter() {
         .and(query_param_contains("q", "repo:c/d"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "total_count":1,"incomplete_results":false,"items":[
-                {"name":"lib.rs","path":"src/lib.rs","sha":"1","html_url":"https://x",
+                {"name":"lib.rs","path":"src/lib.rs","sha":"1",
+                 "html_url":format!("https://github.com/c/d/blob/{SHA}/src/lib.rs"),
                  "repository":{"full_name":"c/d","html_url":"https://x","url":"https://x"},
                  "text_matches":[{"fragment":"fn needle() {}","matches":[{"text":"needle","indices":[3,9]}]}]}
             ]})))
         .mount(&server)
         .await;
+    mount_json(
+        &server,
+        "/api/v3/repos/c/d/contents/src%2Flib.rs",
+        200,
+        json!({"type":"file","encoding":"base64","content":STANDARD.encode("fn needle() {}\n")}),
+    )
+    .await;
     empty_code_search(&server, true).await;
     renamed_to_c_d(&server).await;
     let out = run(

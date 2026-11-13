@@ -72,6 +72,7 @@ fn first_open_waits_for_the_project_load_the_open_triggers() {
             args: Some(Vec::new()),
             workspace_root: root_path.to_string_lossy().into_owned(),
             language_id: Some("typescript".into()),
+            document_language_ids: Default::default(),
             initialization_options: None,
             env: None,
             max_memory_mb: None,

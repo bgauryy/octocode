@@ -82,7 +82,7 @@ A separate 30×3 validation on published `octocode@18.2.2` showed the same direc
 3. **Blind judging** — a neutral model scored answers labeled only “Agent X” and “Agent Y,” against ground truth.
 4. **Character accounting** — Unicode characters to and from the model. This is **not** tokens, latency, or dollar cost.
 
-To run that comparison correctly between agents—fresh isolated runners per question and tool arm, plus a blind judge—we published the [`octocode-benchmark` skill](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/docs). It encodes the preflight, spawn packets, leanest-path rules, and character measurement so others can re-run or adapt the suite.
+To run that comparison correctly between agents—fresh isolated runners per question and tool arm, plus a blind judge—we published the [benchmark method](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/METHOD.md). It describes the preflight, the agent briefs, the leanest-path rules and character measurement, so others can re-run or adapt the suite.
 
 ## How Octocode controls context
 
@@ -133,9 +133,9 @@ Bigger windows expand what agents can attempt. They do not remove the need to ch
 **Explore the evidence:**
 
 - [octocode.ai](https://octocode.ai)
-- [Benchmark guide](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/docs)
-- [Benchmark questions](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/external/questions)
-- [Benchmark report](https://raw.githack.com/bgauryy/octocode/main/packages/octocode-benchmark/results/overview/index.html)
+- [Benchmark guide](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/README.md)
+- [Benchmark questions](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/questions/github)
+- [Benchmark results](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/README.md#results)
 - [Research Driven Development Manifest](https://github.com/bgauryy/octocode/blob/main/MANIFEST.md)
 
 If you liked this docs/articles/benchmark, feel free to explore — and add a ⭐ to the [Octocode repo](https://github.com/bgauryy/octocode) 🐙

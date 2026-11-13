@@ -1,6 +1,6 @@
 //! Java imports: a class by its package path under any source root, and what an
 //! import no scanned file answers says about where the class is.
-use super::{PackageIndex, PackageLink, closeness};
+use super::{BareTarget, PackageIndex, PackageLink, closeness};
 
 impl PackageIndex {
     pub(super) fn resolve_java(&self, spec: &str, importer: &str) -> PackageLink {
@@ -20,7 +20,7 @@ impl PackageIndex {
                 Some(dir) => {
                     let files = self.package_files(dir, ".java");
                     if files.is_empty() {
-                        PackageLink::UnresolvedInternal
+                        PackageLink::Unlinked(BareTarget::Internal)
                     } else {
                         PackageLink::Files(files)
                     }
@@ -83,14 +83,16 @@ impl PackageIndex {
     }
 
     /// How an import no scanned file answers links: internal when the scan
-    /// holds its `package` (the class may share another file, or be generated)
-    /// or a file above the scan root spells `file`, else external.
+    /// holds its `package` (the class may share another file, or be generated),
+    /// beyond the scan root when a file above it spells `file`, else external.
     fn java_unscanned(&self, package: &str, file: &str) -> PackageLink {
-        if self.java_packages.contains(package) || self.java_above_root(file) {
-            PackageLink::UnresolvedInternal
+        PackageLink::Unlinked(if self.java_packages.contains(package) {
+            BareTarget::Internal
+        } else if self.java_above_root(file) {
+            BareTarget::OutsideRoot
         } else {
-            PackageLink::External
-        }
+            BareTarget::External
+        })
     }
 
     fn java_above_root(&self, path: &str) -> bool {

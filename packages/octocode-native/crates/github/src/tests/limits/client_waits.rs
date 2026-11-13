@@ -128,7 +128,11 @@ async fn a_fixed_spacing_is_recorded_on_the_spaced_request_alone() {
         "{:?}",
         second.waits.summed()
     );
-    assert_eq!(second.client_waits(), Vec::new(), "spacing is not disclosed");
+    assert_eq!(
+        second.client_waits(),
+        Vec::new(),
+        "spacing is not disclosed"
+    );
 }
 
 /// A quota-paced lane holds a search until the one ahead reports its quota:
@@ -169,7 +173,12 @@ async fn a_search_held_for_its_lane_is_recorded_as_spacing() {
     );
     assert!(paced[1] >= 300, "the held search: {paced:?}");
     for context in [&one, &two] {
-        assert_eq!(context.client_waits(), Vec::new(), "{:?}", context.waits.summed());
+        assert_eq!(
+            context.client_waits(),
+            Vec::new(),
+            "{:?}",
+            context.waits.summed()
+        );
     }
 }
 
@@ -279,7 +288,11 @@ async fn a_row_reading_the_warm_up_carries_its_admission_waits_once() {
         .resolve_reference("acme", "repo", Some("main"), &other)
         .await
         .expect("the warm-up's answer");
-    assert_eq!(other.client_waits(), Vec::new(), "stated once, on the first row");
+    assert_eq!(
+        other.client_waits(),
+        Vec::new(),
+        "stated once, on the first row"
+    );
     assert!(
         server
             .received_requests()

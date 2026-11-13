@@ -54,7 +54,9 @@ async fn materialize_never_writes_a_provider_path_outside_its_root() {
 fn materialize_skips_name_each_path_once_and_warn_with_counts() {
     let skips = MaterializeSkips {
         read_limit: 16 * 1024 * 1024,
-        oversized: (0..30).map(|n| format!("big/{n}.bin")).collect(),
+        oversized: (0..30)
+            .map(|n| (format!("big/{n}.bin"), 16 * 1024 * 1024))
+            .collect(),
         unreadable: vec![
             ("a.dat".into(), "binary".into()),
             ("b.dat".into(), "binary".into()),

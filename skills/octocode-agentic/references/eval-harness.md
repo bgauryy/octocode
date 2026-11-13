@@ -10,44 +10,24 @@ Load when building a runner, laying out a suite or run folder, dispatching worke
 
 ## Suite and run folders
 
-- A reusable suite lives in the controller's workspace with representative cases: `README.md` (purpose, data, use, limitations), `questions/` (tasks, split provenance), `fixtures/` (permitted inputs), `instructions/` (worker, judge, optional optimizer), `evaluator/` (rubric, references, graders).
-- A run folder sits at the [saved-result path](../output.md#saved-result):
+Reuse the project's runner and native result files. Keep tasks and permitted inputs separate from evaluator-only references, rubrics and graders. Document real setup/run/analysis commands; a starter without a runner says so. Worker-visible labels must not reveal answers.
 
-```text
-<run-folder>/
-├── README.md                        # entry point
-├── dev/<run-id>/                    # development, validation
-│   ├── run.json
-│   ├── results.jsonl                # one graded row per trial
-│   └── trials/<trial-id>/           # only when trials run
-│       ├── input.json               # exported worker input
-│       ├── output.json              # answer/artifact ref, status
-│       ├── grade.json               # grading evidence, status
-│       └── trace.jsonl              # actions, tool results
-└── held-out/<run-id>/               # sealed test, same layout
-```
-
-- Omit unused folders; link native runner logs, don't copy them; store large artifacts once by hash.
+Keep development/validation evidence separate from sealed-test evidence at the [saved-result path](../output.md#saved-result). Link large artifacts and native logs instead of copying them or imposing a second directory/schema.
 
 ## Run identity
 
-- Unique run directory per execution (UTC timestamp plus random suffix); refuse collisions; never overwrite or reuse completed runs.
-- `run.json` records what actually ran: definition, subject, and grader versions, task selection, model, runtime and tool settings, budget, sampling, environment, start/end status, and when relevant resource limits and calibration evidence.
-- One trial ID per task × arm × repetition × attempt; record repairs and retries without replacing the original attempt.
-- Grader-only change: new assessment with the parent run identity and reused output hashes; keep old grades.
+Preserve enough to associate each result with its task, baseline/candidate, attempt, actual inputs, outputs, grading evidence and relevant conditions. Reuse native run handles and version records; create identifiers or hashes only when needed to disambiguate attempts, detect replacement or reproduce a claim. Keep original attempts and grades; do not overwrite them with retries or reassessments.
 
 ## Adapt a suite
 
-- Keep only pieces that affect execution or interpretation.
-- Match task and reference records by ID; worker-visible IDs must not reveal the outcome (`q-001`, not `q-refund-denied`).
-- The suite README holds real setup, run, and analysis commands; a starter without a runner says so, with no null-filled manifest or fake commands.
+Keep only pieces that affect execution or interpretation. Include/exclude cases for recorded reasons; resolve material reviewer disagreement or mark the case ambiguous. Match task and reference records without exposing outcomes to the solver.
 
 ## Roles and access
 
 - **Solver** sees user task, frozen subject instructions, allowed tools, raw task inputs; never grader questions, references, private tests, failure labels, previous solutions, or orchestrator research conclusions.
 - **Developer or optimizer** sees development tasks, traces, feedback, budgeted validation summaries; never sealed test contents or per-case tuning feedback.
 - **Evaluator or judge** sees task, frozen rubric, submitted artifact, permitted evidence, evaluator-only references; never candidate identity, preferred winner, optimizer commentary.
-- Build the solver packet from an allowlist, never by stripping keys; the controller keeps the full manifest.
+- Build the solver packet from an allowlist, never by stripping keys; the controller retains the evaluator material.
 
 ## Before each trial
 
@@ -55,7 +35,7 @@ Load when building a runner, laying out a suite or run folder, dispatching worke
 - Isolated workspace; reset fixtures, services, writable caches (warm-cache or memory conditions are separate arms); audit git history, sibling folders, home memory, caches, indexes, logs, environment variables, shared channels for prior-trial or evaluator material.
 - Inspect the runner's real export, environment included. Private tests, answer keys, grader scripts, reports stay unreadable to the solver's filesystem and credentials, verified with the worker's own tool identity (names and ignore rules are no boundary).
 - Freeze tool and network policy; online research only when production needs it, answer-retrieval risk recorded.
-- Hash solver input, subject, fixtures, catalog, access configuration; audit unexpected fields; keep access receipts and tool traces.
+- Inspect the actual solver input and access configuration; retain the evidence needed to establish what was visible and whether isolation held.
 - Seal answer and final state before grading; feedback never re-enters a scored attempt.
 - Host cannot restrict shared storage or inherited context: label the run isolation-limited and exploratory; no clean held-out acceptance.
 

@@ -43,8 +43,7 @@ async fn a_large_tree_lists_every_entry_once_through_opaque_continuations() {
         }
         assert_eq!(data["commitSha"], SHA, "page {}: {data}", sizes.len() + 1);
         assert!(
-            data.get("ref")
-                .is_none_or(|resolved| resolved == "main"),
+            data.get("ref").is_none_or(|resolved| resolved == "main"),
             "page {}: {data}",
             sizes.len() + 1
         );
@@ -203,7 +202,9 @@ async fn walk_sorted(
     sort: serde_json::Value,
     limit: u64,
 ) -> (Vec<String>, usize) {
-    let mut pending = Some(json!({"queries":[{"operation":"tree","owner":"a","repo":"b","limit":limit,"sort":sort}]}));
+    let mut pending = Some(
+        json!({"queries":[{"operation":"tree","owner":"a","repo":"b","limit":limit,"sort":sort}]}),
+    );
     let (mut listed, mut pages) = (Vec::new(), 0);
     while let Some(input) = pending.take() {
         let outcome = call(runtime, "ghStructure", input).await.expect("listing");
@@ -248,19 +249,47 @@ async fn a_sorted_tree_ranks_the_whole_listing_and_pages_it_stably() {
     for (sort, expected) in [
         (
             json!({"by":"sizeBytes","order":"desc"}),
-            ["b.rs (500)", "a.rs (30)", "c.rs (30)", "e.rs (7)", "docs/", "src/"],
+            [
+                "b.rs (500)",
+                "a.rs (30)",
+                "c.rs (30)",
+                "e.rs (7)",
+                "docs/",
+                "src/",
+            ],
         ),
         (
             json!({"by":"sizeBytes","order":"asc"}),
-            ["e.rs (7)", "a.rs (30)", "c.rs (30)", "b.rs (500)", "docs/", "src/"],
+            [
+                "e.rs (7)",
+                "a.rs (30)",
+                "c.rs (30)",
+                "b.rs (500)",
+                "docs/",
+                "src/",
+            ],
         ),
         (
             json!({"by":"path","order":"desc"}),
-            ["src/", "e.rs (7)", "docs/", "c.rs (30)", "b.rs (500)", "a.rs (30)"],
+            [
+                "src/",
+                "e.rs (7)",
+                "docs/",
+                "c.rs (30)",
+                "b.rs (500)",
+                "a.rs (30)",
+            ],
         ),
         (
             json!({"by":"path","order":"asc"}),
-            ["a.rs (30)", "b.rs (500)", "c.rs (30)", "docs/", "e.rs (7)", "src/"],
+            [
+                "a.rs (30)",
+                "b.rs (500)",
+                "c.rs (30)",
+                "docs/",
+                "e.rs (7)",
+                "src/",
+            ],
         ),
     ] {
         for limit in [1, 2, 4, 6] {
@@ -322,7 +351,12 @@ async fn an_unknown_tree_sort_key_is_refused() {
 /// partial, and the sort is over what was read.
 #[tokio::test]
 async fn a_sort_over_a_partial_walk_says_what_it_ranked() {
-    let server = sized_server(&[("a.rs", "file", 30), ("b.rs", "file", 500), ("sub", "dir", 0)]).await;
+    let server = sized_server(&[
+        ("a.rs", "file", 30),
+        ("b.rs", "file", 500),
+        ("sub", "dir", 0),
+    ])
+    .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/sub"))
         .respond_with(ResponseTemplate::new(500))
@@ -332,12 +366,14 @@ async fn a_sort_over_a_partial_walk_says_what_it_ranked() {
         .await;
     let workspace = Workspace::new();
     let runtime = github(&workspace, &server);
-    let query = |sort: serde_json::Value| {
-        json!({"queries":[{"operation":"tree","owner":"a","repo":"b","maxDepth":2,"sort":sort}]})
-    };
-    let ranked = call(&runtime, "ghStructure", query(json!({"by":"sizeBytes","order":"desc"})))
-        .await
-        .expect("ranked");
+    let query = |sort: serde_json::Value| json!({"queries":[{"operation":"tree","owner":"a","repo":"b","maxDepth":2,"sort":sort}]});
+    let ranked = call(
+        &runtime,
+        "ghStructure",
+        query(json!({"by":"sizeBytes","order":"desc"})),
+    )
+    .await
+    .expect("ranked");
     let data = row_data(&ranked);
     assert_eq!(data["isPartial"], true, "{data}");
     let warned = |data: &serde_json::Value| {
@@ -345,14 +381,22 @@ async fn a_sort_over_a_partial_walk_says_what_it_ranked() {
             .as_array()
             .into_iter()
             .flatten()
-            .any(|warning| warning.as_str().is_some_and(|text| text.starts_with("sort ranks only")))
+            .any(|warning| {
+                warning
+                    .as_str()
+                    .is_some_and(|text| text.starts_with("sort ranks only"))
+            })
     };
     assert!(warned(data), "{data}");
     assert_eq!(data["files"][0]["files"][0], "b.rs (500)", "{data}");
     // Path order claims no rank, so it adds no such warning.
-    let listed = call(&runtime, "ghStructure", query(json!({"by":"path","order":"asc"})))
-        .await
-        .expect("listed");
+    let listed = call(
+        &runtime,
+        "ghStructure",
+        query(json!({"by":"path","order":"asc"})),
+    )
+    .await
+    .expect("listed");
     let data = row_data(&listed);
     assert_eq!(data["isPartial"], true, "{data}");
     assert!(!warned(data), "{data}");

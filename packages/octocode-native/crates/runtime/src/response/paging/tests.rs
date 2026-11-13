@@ -193,11 +193,10 @@ fn candidate_page_keeps_the_query_snapshot_and_drops_progress() {
     assert!(page.get("readProgress").is_none(), "{page}");
 }
 
-/// A reason whose meaning the row's own note already states gets no
-/// glossary line; a reason no text of the row explains keeps its line, and
-/// no `statedReasons` key reaches a caller (R1).
+/// A partial reason reaches a caller as its code alone: the row's own note
+/// stays, and no response says what any code means (R1).
 #[test]
-fn a_stated_reason_gets_no_glossary_line() {
+fn a_reason_reaches_a_caller_as_its_code_alone() {
     let mut row = json!({"files": [], "matchCount": 0});
     mark_partial(
         &mut row,
@@ -213,13 +212,17 @@ fn a_stated_reason_gets_no_glossary_line() {
         &mut row,
         "rust-analyzer did not run this package's build scripts.",
     );
-    super::mark_stated(
-        &mut row,
-        crate::response::paging::PartialReason::BuildScriptsOff,
-    );
     let response = crate::tools::test_support::staged_response(ToolId::LspSearch, vec![row]);
-    let text = response.to_string();
-    assert!(!text.contains("buildScriptsOff: "), "{response}");
-    assert!(text.contains("cfgGatedFiles: "), "{response}");
-    assert!(!text.contains(super::STATED_REASONS), "{response}");
+    assert_eq!(
+        response["results"][0]["data"]["partialReasons"],
+        json!(["buildScriptsOff", "cfgGatedFiles"]),
+        "{response}"
+    );
+    assert!(
+        response
+            .to_string()
+            .contains("rust-analyzer did not run this package's build scripts."),
+        "the row's own note stays: {response}"
+    );
+    crate::tools::test_support::checks::assert_no_reason_meaning(&response);
 }

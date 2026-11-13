@@ -58,7 +58,10 @@ fn declared_nested_collections_preserve_atomic_answers_and_shared_definitions() 
                     assert!(section["target"]["lines"]["endLine"].is_u64());
                     let id = section["id"].as_str().expect("id").to_owned();
                     // `context` is a details field: it arrives once.
-                    if section.get("context").is_some_and(|context| *context != json!([])) {
+                    if section
+                        .get("context")
+                        .is_some_and(|context| *context != json!([]))
+                    {
                         assert_eq!(section["context"][0]["bytes"], json!([0, 5]));
                         *contexts.entry((resource.clone(), id.clone())).or_insert(0) += 1;
                     }

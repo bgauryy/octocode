@@ -146,8 +146,9 @@ impl RustAnalysis {
     }
 }
 
-/// How to opt in to build scripts: the one statement every note and the
-/// refusal share. Home-only, as `lsp.trustFetchedCode` is.
+/// How to opt in to build scripts, stated by the refusal (the
+/// `rustContext.buildScripts` field says only that the user's home
+/// configuration decides). Home-only, as `lsp.trustFetchedCode` is.
 pub(super) const BUILD_SCRIPTS_OPT_IN: &str = "set lsp.allowBuildScripts in the home .octocoderc, or OCTOCODE_LSP_ALLOW_BUILD_SCRIPTS=true in the process environment or the home .env; a workspace cannot";
 
 /// Whether the query's `rustContext` asks to run build scripts or proc

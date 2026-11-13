@@ -4,6 +4,8 @@
 use super::*;
 use crate::security::ContentSecurity;
 
+mod patch_match;
+
 fn secret() -> String {
     format!("ghp_{}", "Zq7".repeat(12))
 }
@@ -117,55 +119,6 @@ async fn offsets_count_the_redacted_body_and_windows_keep_markers_whole() {
     assert_eq!(windows[0], format!("{} ", "z".repeat(window - 6)));
     assert!(windows[1].starts_with("[REDACTED"), "{windows:?}");
     assert!(windows[1].ends_with(" end"), "{windows:?}");
-}
-
-/// A `matchString` inside a secret finds nothing: it runs on the redacted
-/// text, so the secret's bytes are neither matched nor echoed.
-#[tokio::test]
-async fn a_match_string_inside_a_secret_matches_nothing() {
-    let server = MockServer::builder().start().await;
-    mount_json(
-        &server,
-        "/api/v3/repos/o/r/pulls/1",
-        200,
-        json!({"number":1,"title":"Fix","state":"open","user":{"login":"ada"},
-            "head":{"sha":HEAD,"ref":"fix"},"base":{"sha":BASE,"ref":"main"},
-            "changed_files":0,"additions":0,"deletions":0,
-            "created_at":"2024-01-01T00:00:00Z","comments":2}),
-    )
-    .await;
-    mount_json(
-        &server,
-        "/api/v3/repos/o/r/issues/1/comments",
-        200,
-        json!([
-            {"id":1,"user":{"login":"a"},"body":format!("token {}", secret()),
-                "created_at":"2024-01-01T00:00:00Z"},
-            {"id":2,"user":{"login":"b"},"body":"plain note",
-                "created_at":"2024-01-01T00:00:00Z"}
-        ]),
-    )
-    .await;
-    let inside = &secret()[8..20];
-    let out = read_secure(
-        &server,
-        json!({"operation":"pullRequest","owner":"o","repo":"r","number":1,
-            "sections":["comments"],"matchString":[inside]}),
-    )
-    .await;
-    let comments = out["pullRequests"][0]["comments"].as_array();
-    assert!(comments.is_none_or(Vec::is_empty), "{out}");
-    assert!(!leaks(&out.to_string()), "{out}");
-    // The same read matching the redacted marker's neighbour still finds the comment.
-    let out = read_secure(
-        &server,
-        json!({"operation":"pullRequest","owner":"o","repo":"r","number":1,
-            "sections":["comments"],"matchString":["token"]}),
-    )
-    .await;
-    let shown = out["pullRequests"][0]["comments"].to_string();
-    assert!(shown.contains("[REDACTED"), "{out}");
-    assert!(!leaks(&shown), "{out}");
 }
 
 /// The redaction the read made states itself on the call.

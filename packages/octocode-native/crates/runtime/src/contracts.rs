@@ -1,9 +1,9 @@
 //! Generated public tool contracts and transport-neutral input preparation.
 
+pub(crate) mod envelope;
 pub(crate) mod generated;
 mod instructions;
 pub(crate) mod listing_roles;
-pub(crate) mod envelope;
 mod normalize;
 mod prepare;
 mod private_state;
@@ -54,16 +54,8 @@ pub(crate) fn classification_notice(key: &str) -> &'static str {
         .unwrap_or_default()
 }
 
-/// What a `partialReasons` value means, authored once in core.
-pub(crate) fn partial_reason_meaning(code: &str) -> Option<&'static str> {
-    parsed_contract()
-        .ok()?
-        .get("partialReasons")?
-        .get(code)?
-        .as_str()
-}
-
-/// Every `partialReasons` value and what it means.
+/// Every `partialReasons` value and what it means, authored once in core and
+/// served only by the output reference: a response carries the code alone.
 pub fn partial_reasons() -> Option<&'static serde_json::Value> {
     parsed_contract().ok()?.get("partialReasons")
 }
@@ -94,10 +86,8 @@ pub(crate) fn tool_contract(tool: ToolId) -> Result<&'static serde_json::Value, 
         .map_err(String::as_str)
 }
 
-/// [`tool_contract`] by wire name; `None` for a name the contract lacks.
-pub(crate) fn tool_contract_named(
-    name: &str,
-) -> Option<Result<&'static serde_json::Value, &'static str>> {
+/// The embedded tool contract by wire name; `None` for a name the contract lacks.
+pub fn tool_contract_named(name: &str) -> Option<Result<&'static serde_json::Value, &'static str>> {
     ToolId::from_name(name).map(tool_contract)
 }
 
@@ -107,7 +97,9 @@ pub(crate) fn batch_limit(tool: ToolId) -> Option<usize> {
     let input = &tool_contract(tool).ok()?["inputSchema"];
     schema_facts::property_schemas(input, &input["$defs"], "queries")
         .into_iter()
-        .find_map(|queries| schema_facts::schema_keyword(queries, &input["$defs"], "maxItems")?.as_u64())
+        .find_map(|queries| {
+            schema_facts::schema_keyword(queries, &input["$defs"], "maxItems")?.as_u64()
+        })
         .and_then(|maximum| usize::try_from(maximum).ok())
 }
 

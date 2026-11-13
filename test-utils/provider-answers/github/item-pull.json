@@ -10,7 +10,7 @@
    "files"
   ]
  },
- "recordedAt": "2026-11-05",
+ "recordedAt": "2026-11-13",
  "unread": [
   "[*].blob_url",
   "[*].contents_url",
@@ -230,444 +230,102 @@
  "exchanges": [
   {
    "request": {
-    "method": "GET",
-    "url": "https://api.github.com/repos/octocat/Hello-World/pulls/1",
-    "accept": "application/vnd.github+json"
+    "method": "POST",
+    "url": "https://api.github.com/graphql",
+    "accept": "application/vnd.github+json",
+    "body": {
+     "query": "query($owner:String!,$repo:String!,$number:Int!,$files:Int!){ repository(owner:$owner,name:$repo){ pullRequest(number:$number){ number title url state isDraft author { login } baseRefName baseRefOid headRefName headRefOid createdAt updatedAt closedAt mergedAt mergeCommit { oid } comments { totalCount } changedFiles additions deletions commitsCount: commits { totalCount } reviewThreads { totalCount } files(first:$files){ pageInfo{ hasNextPage endCursor } nodes{ path additions deletions changeType } } } } }",
+     "variables": {
+      "owner": "octocat",
+      "repo": "Hello-World",
+      "number": 1,
+      "files": 100
+     }
+    }
    },
    "status": 200,
    "headers": [
     [
-     "cache-control",
-     "private, max-age=60, s-maxage=60"
-    ],
-    [
      "content-type",
      "application/json; charset=utf-8"
-    ],
-    [
-     "etag",
-     "\"af2866a21081b8706c950fdd67dfacf3d5520ac166fd61f60ba54fc7afe1af5f\""
     ]
    ],
-   "digest": "sha256:4df2fb149eb22c40c5d7c71e12318f2ff2b01fdb1d2a899b4793ef1899c1df1f",
+   "digest": "sha256:b292653578c18f946f731081bffc30a1c4f86b50411ff6d2867e1452b7c39e63",
    "body": {
-    "url": "https://api.github.com/repos/octocat/Hello-World/pulls/1",
-    "id": 140900,
-    "node_id": "MDExOlB1bGxSZXF1ZXN0MTQwOTAw",
-    "html_url": "https://github.com/octocat/Hello-World/pull/1",
-    "diff_url": "https://github.com/octocat/Hello-World/pull/1.diff",
-    "patch_url": "https://github.com/octocat/Hello-World/pull/1.patch",
-    "issue_url": "https://api.github.com/repos/octocat/Hello-World/issues/1",
-    "commits_url": "https://api.github.com/repos/octocat/Hello-World/pulls/1/commits",
-    "review_comments_url": "https://api.github.com/repos/octocat/Hello-World/pulls/1/comments",
-    "review_comment_url": "https://api.github.com/repos/octocat/Hello-World/pulls/comments{/number}",
-    "comments_url": "https://api.github.com/repos/octocat/Hello-World/issues/1/comments",
-    "statuses_url": "https://api.github.com/repos/octocat/Hello-World/statuses/7044a8a032e85b6ab611033b2ac8af7ce85805b2",
-    "number": 1,
-    "state": "closed",
-    "locked": false,
-    "title": "Edited README via GitHub",
-    "user": {
-     "login": "unoju",
-     "id": 777449,
-     "node_id": "MDQ6VXNlcjc3NzQ0OQ==",
-     "avatar_url": "https://avatars.githubusercontent.com/u/777449?v=4",
-     "gravatar_id": "",
-     "url": "https://api.github.com/users/unoju",
-     "html_url": "https://github.com/unoju",
-     "followers_url": "https://api.github.com/users/unoju/followers",
-     "following_url": "https://api.github.com/users/unoju/following{/other_user}",
-     "gists_url": "https://api.github.com/users/unoju/gists{/gist_id}",
-     "starred_url": "https://api.github.com/users/unoju/starred{/owner}{/repo}",
-     "subscriptions_url": "https://api.github.com/users/unoju/subscriptions",
-     "organizations_url": "https://api.github.com/users/unoju/orgs",
-     "repos_url": "https://api.github.com/users/unoju/repos",
-     "events_url": "https://api.github.com/users/unoju/events{/privacy}",
-     "received_events_url": "https://api.github.com/users/unoju/received_events",
-     "type": "User",
-     "user_view_type": "public",
-     "site_admin": false
-    },
-    "body": "",
-    "labels": [],
-    "milestone": null,
-    "active_lock_reason": null,
-    "created_at": "2011-05-09T19:10:00Z",
-    "updated_at": "2026-10-18T01:10:06Z",
-    "closed_at": "2011-05-18T20:00:25Z",
-    "merged_at": null,
-    "merge_commit_sha": "f13731c44acf96f2e5d6f0080f54e09215e36248",
-    "assignee": null,
-    "assignees": [],
-    "requested_reviewers": [],
-    "requested_teams": [],
-    "head": {
-     "label": "unoju:patch-1",
-     "ref": "patch-1",
-     "repo": {
-      "id": 1724195,
-      "node_id": "MDEwOlJlcG9zaXRvcnkxNzI0MTk1",
-      "name": "Hello-World",
-      "full_name": "unoju/Hello-World",
-      "owner": {
-       "login": "unoju",
-       "id": 777449,
-       "node_id": "MDQ6VXNlcjc3NzQ0OQ==",
-       "avatar_url": "https://avatars.githubusercontent.com/u/777449?v=4",
-       "gravatar_id": "",
-       "url": "https://api.github.com/users/unoju",
-       "html_url": "https://github.com/unoju",
-       "followers_url": "https://api.github.com/users/unoju/followers",
-       "following_url": "https://api.github.com/users/unoju/following{/other_user}",
-       "gists_url": "https://api.github.com/users/unoju/gists{/gist_id}",
-       "starred_url": "https://api.github.com/users/unoju/starred{/owner}{/repo}",
-       "subscriptions_url": "https://api.github.com/users/unoju/subscriptions",
-       "organizations_url": "https://api.github.com/users/unoju/orgs",
-       "repos_url": "https://api.github.com/users/unoju/repos",
-       "events_url": "https://api.github.com/users/unoju/events{/privacy}",
-       "received_events_url": "https://api.github.com/users/unoju/received_events",
-       "type": "User",
-       "user_view_type": "public",
-       "site_admin": false
-      },
-      "private": false,
-      "fork": true,
-      "archived": false,
-      "disabled": false,
-      "description": "This your first repo!",
-      "homepage": "repo 1",
-      "language": null,
-      "visibility": "public",
-      "is_template": false,
-      "topics": [],
-      "forks_count": 0,
-      "forks": 0,
-      "stargazers_count": 2,
-      "watchers_count": 2,
-      "watchers": 2,
-      "open_issues_count": 1,
-      "open_issues": 1,
-      "size": 305,
-      "default_branch": "master",
-      "has_issues": false,
-      "has_projects": true,
-      "has_wiki": true,
-      "has_pages": false,
-      "has_downloads": false,
-      "has_discussions": false,
-      "has_pull_requests": true,
-      "pushed_at": "2018-11-30T08:29:27Z",
-      "created_at": "2011-05-09T19:07:52Z",
-      "updated_at": "2026-01-22T11:21:02Z",
-      "allow_forking": true,
-      "web_commit_signoff_required": false,
-      "pull_request_creation_policy": "all",
-      "license": null,
-      "url": "https://api.github.com/repos/unoju/Hello-World",
-      "html_url": "https://github.com/unoju/Hello-World",
-      "archive_url": "https://api.github.com/repos/unoju/Hello-World/{archive_format}{/ref}",
-      "assignees_url": "https://api.github.com/repos/unoju/Hello-World/assignees{/user}",
-      "blobs_url": "https://api.github.com/repos/unoju/Hello-World/git/blobs{/sha}",
-      "branches_url": "https://api.github.com/repos/unoju/Hello-World/branches{/branch}",
-      "collaborators_url": "https://api.github.com/repos/unoju/Hello-World/collaborators{/collaborator}",
-      "comments_url": "https://api.github.com/repos/unoju/Hello-World/comments{/number}",
-      "commits_url": "https://api.github.com/repos/unoju/Hello-World/commits{/sha}",
-      "compare_url": "https://api.github.com/repos/unoju/Hello-World/compare/{base}...{head}",
-      "contents_url": "https://api.github.com/repos/unoju/Hello-World/contents/{+path}",
-      "contributors_url": "https://api.github.com/repos/unoju/Hello-World/contributors",
-      "deployments_url": "https://api.github.com/repos/unoju/Hello-World/deployments",
-      "downloads_url": "https://api.github.com/repos/unoju/Hello-World/downloads",
-      "events_url": "https://api.github.com/repos/unoju/Hello-World/events",
-      "forks_url": "https://api.github.com/repos/unoju/Hello-World/forks",
-      "git_commits_url": "https://api.github.com/repos/unoju/Hello-World/git/commits{/sha}",
-      "git_refs_url": "https://api.github.com/repos/unoju/Hello-World/git/refs{/sha}",
-      "git_tags_url": "https://api.github.com/repos/unoju/Hello-World/git/tags{/sha}",
-      "git_url": "git://github.com/unoju/Hello-World.git",
-      "issue_comment_url": "https://api.github.com/repos/unoju/Hello-World/issues/comments{/number}",
-      "issue_events_url": "https://api.github.com/repos/unoju/Hello-World/issues/events{/number}",
-      "issues_url": "https://api.github.com/repos/unoju/Hello-World/issues{/number}",
-      "keys_url": "https://api.github.com/repos/unoju/Hello-World/keys{/key_id}",
-      "labels_url": "https://api.github.com/repos/unoju/Hello-World/labels{/name}",
-      "languages_url": "https://api.github.com/repos/unoju/Hello-World/languages",
-      "merges_url": "https://api.github.com/repos/unoju/Hello-World/merges",
-      "milestones_url": "https://api.github.com/repos/unoju/Hello-World/milestones{/number}",
-      "notifications_url": "https://api.github.com/repos/unoju/Hello-World/notifications{?since,all,participating}",
-      "pulls_url": "https://api.github.com/repos/unoju/Hello-World/pulls{/number}",
-      "releases_url": "https://api.github.com/repos/unoju/Hello-World/releases{/id}",
-      "ssh_url": "person@example.test:unoju/Hello-World.git",
-      "stargazers_url": "https://api.github.com/repos/unoju/Hello-World/stargazers",
-      "statuses_url": "https://api.github.com/repos/unoju/Hello-World/statuses/{sha}",
-      "subscribers_url": "https://api.github.com/repos/unoju/Hello-World/subscribers",
-      "subscription_url": "https://api.github.com/repos/unoju/Hello-World/subscription",
-      "tags_url": "https://api.github.com/repos/unoju/Hello-World/tags",
-      "teams_url": "https://api.github.com/repos/unoju/Hello-World/teams",
-      "trees_url": "https://api.github.com/repos/unoju/Hello-World/git/trees{/sha}",
-      "clone_url": "https://github.com/unoju/Hello-World.git",
-      "mirror_url": null,
-      "hooks_url": "https://api.github.com/repos/unoju/Hello-World/hooks",
-      "svn_url": "https://github.com/unoju/Hello-World"
-     },
-     "sha": "7044a8a032e85b6ab611033b2ac8af7ce85805b2",
-     "user": {
-      "login": "unoju",
-      "id": 777449,
-      "node_id": "MDQ6VXNlcjc3NzQ0OQ==",
-      "avatar_url": "https://avatars.githubusercontent.com/u/777449?v=4",
-      "gravatar_id": "",
-      "url": "https://api.github.com/users/unoju",
-      "html_url": "https://github.com/unoju",
-      "followers_url": "https://api.github.com/users/unoju/followers",
-      "following_url": "https://api.github.com/users/unoju/following{/other_user}",
-      "gists_url": "https://api.github.com/users/unoju/gists{/gist_id}",
-      "starred_url": "https://api.github.com/users/unoju/starred{/owner}{/repo}",
-      "subscriptions_url": "https://api.github.com/users/unoju/subscriptions",
-      "organizations_url": "https://api.github.com/users/unoju/orgs",
-      "repos_url": "https://api.github.com/users/unoju/repos",
-      "events_url": "https://api.github.com/users/unoju/events{/privacy}",
-      "received_events_url": "https://api.github.com/users/unoju/received_events",
-      "type": "User",
-      "user_view_type": "public",
-      "site_admin": false
+    "data": {
+     "repository": {
+      "pullRequest": {
+       "number": 1,
+       "title": "Edited README via GitHub",
+       "url": "https://github.com/octocat/Hello-World/pull/1",
+       "state": "CLOSED",
+       "isDraft": false,
+       "author": {
+        "login": "unoju"
+       },
+       "baseRefName": "master",
+       "baseRefOid": "553c2077f0edc3d5dc5d17262f6aa498e69d6f8e",
+       "headRefName": "patch-1",
+       "headRefOid": "7044a8a032e85b6ab611033b2ac8af7ce85805b2",
+       "createdAt": "2011-05-09T19:10:00Z",
+       "updatedAt": "2026-11-10T21:37:53Z",
+       "closedAt": "2011-05-18T20:00:25Z",
+       "mergedAt": null,
+       "mergeCommit": null,
+       "comments": {
+        "totalCount": 2494
+       },
+       "changedFiles": 1,
+       "additions": 6,
+       "deletions": 1,
+       "commitsCount": {
+        "totalCount": 1
+       },
+       "reviewThreads": {
+        "totalCount": 32
+       },
+       "files": {
+        "pageInfo": {
+         "hasNextPage": false,
+         "endCursor": "MQ"
+        },
+        "nodes": [
+         {
+          "path": "README",
+          "additions": 6,
+          "deletions": 1,
+          "changeType": "MODIFIED"
+         }
+        ]
+       }
+      }
      }
-    },
-    "base": {
-     "label": "octocat:master",
-     "ref": "master",
-     "repo": {
-      "id": 1296269,
-      "node_id": "MDEwOlJlcG9zaXRvcnkxMjk2MjY5",
-      "name": "Hello-World",
-      "full_name": "octocat/Hello-World",
-      "owner": {
-       "login": "octocat",
-       "id": 583231,
-       "node_id": "MDQ6VXNlcjU4MzIzMQ==",
-       "avatar_url": "https://avatars.githubusercontent.com/u/583231?v=4",
-       "gravatar_id": "",
-       "url": "https://api.github.com/users/octocat",
-       "html_url": "https://github.com/octocat",
-       "followers_url": "https://api.github.com/users/octocat/followers",
-       "following_url": "https://api.github.com/users/octocat/following{/other_user}",
-       "gists_url": "https://api.github.com/users/octocat/gists{/gist_id}",
-       "starred_url": "https://api.github.com/users/octocat/starred{/owner}{/repo}",
-       "subscriptions_url": "https://api.github.com/users/octocat/subscriptions",
-       "organizations_url": "https://api.github.com/users/octocat/orgs",
-       "repos_url": "https://api.github.com/users/octocat/repos",
-       "events_url": "https://api.github.com/users/octocat/events{/privacy}",
-       "received_events_url": "https://api.github.com/users/octocat/received_events",
-       "type": "User",
-       "user_view_type": "public",
-       "site_admin": false
-      },
-      "private": false,
-      "fork": false,
-      "archived": false,
-      "disabled": false,
-      "description": "My first repository on GitHub!",
-      "homepage": "",
-      "language": null,
-      "visibility": "public",
-      "is_template": false,
-      "topics": [],
-      "forks_count": 7388,
-      "forks": 7388,
-      "stargazers_count": 3899,
-      "watchers_count": 3899,
-      "watchers": 3899,
-      "open_issues_count": 7524,
-      "open_issues": 7524,
-      "size": 1,
-      "default_branch": "master",
-      "has_issues": true,
-      "has_projects": true,
-      "has_wiki": true,
-      "has_pages": false,
-      "has_downloads": false,
-      "has_discussions": false,
-      "has_pull_requests": true,
-      "pushed_at": "2024-08-20T23:54:42Z",
-      "created_at": "2011-01-26T19:01:12Z",
-      "updated_at": "2026-11-05T14:07:57Z",
-      "allow_forking": true,
-      "web_commit_signoff_required": false,
-      "pull_request_creation_policy": "all",
-      "license": null,
-      "url": "https://api.github.com/repos/octocat/Hello-World",
-      "html_url": "https://github.com/octocat/Hello-World",
-      "archive_url": "https://api.github.com/repos/octocat/Hello-World/{archive_format}{/ref}",
-      "assignees_url": "https://api.github.com/repos/octocat/Hello-World/assignees{/user}",
-      "blobs_url": "https://api.github.com/repos/octocat/Hello-World/git/blobs{/sha}",
-      "branches_url": "https://api.github.com/repos/octocat/Hello-World/branches{/branch}",
-      "collaborators_url": "https://api.github.com/repos/octocat/Hello-World/collaborators{/collaborator}",
-      "comments_url": "https://api.github.com/repos/octocat/Hello-World/comments{/number}",
-      "commits_url": "https://api.github.com/repos/octocat/Hello-World/commits{/sha}",
-      "compare_url": "https://api.github.com/repos/octocat/Hello-World/compare/{base}...{head}",
-      "contents_url": "https://api.github.com/repos/octocat/Hello-World/contents/{+path}",
-      "contributors_url": "https://api.github.com/repos/octocat/Hello-World/contributors",
-      "deployments_url": "https://api.github.com/repos/octocat/Hello-World/deployments",
-      "downloads_url": "https://api.github.com/repos/octocat/Hello-World/downloads",
-      "events_url": "https://api.github.com/repos/octocat/Hello-World/events",
-      "forks_url": "https://api.github.com/repos/octocat/Hello-World/forks",
-      "git_commits_url": "https://api.github.com/repos/octocat/Hello-World/git/commits{/sha}",
-      "git_refs_url": "https://api.github.com/repos/octocat/Hello-World/git/refs{/sha}",
-      "git_tags_url": "https://api.github.com/repos/octocat/Hello-World/git/tags{/sha}",
-      "git_url": "git://github.com/octocat/Hello-World.git",
-      "issue_comment_url": "https://api.github.com/repos/octocat/Hello-World/issues/comments{/number}",
-      "issue_events_url": "https://api.github.com/repos/octocat/Hello-World/issues/events{/number}",
-      "issues_url": "https://api.github.com/repos/octocat/Hello-World/issues{/number}",
-      "keys_url": "https://api.github.com/repos/octocat/Hello-World/keys{/key_id}",
-      "labels_url": "https://api.github.com/repos/octocat/Hello-World/labels{/name}",
-      "languages_url": "https://api.github.com/repos/octocat/Hello-World/languages",
-      "merges_url": "https://api.github.com/repos/octocat/Hello-World/merges",
-      "milestones_url": "https://api.github.com/repos/octocat/Hello-World/milestones{/number}",
-      "notifications_url": "https://api.github.com/repos/octocat/Hello-World/notifications{?since,all,participating}",
-      "pulls_url": "https://api.github.com/repos/octocat/Hello-World/pulls{/number}",
-      "releases_url": "https://api.github.com/repos/octocat/Hello-World/releases{/id}",
-      "ssh_url": "person@example.test:octocat/Hello-World.git",
-      "stargazers_url": "https://api.github.com/repos/octocat/Hello-World/stargazers",
-      "statuses_url": "https://api.github.com/repos/octocat/Hello-World/statuses/{sha}",
-      "subscribers_url": "https://api.github.com/repos/octocat/Hello-World/subscribers",
-      "subscription_url": "https://api.github.com/repos/octocat/Hello-World/subscription",
-      "tags_url": "https://api.github.com/repos/octocat/Hello-World/tags",
-      "teams_url": "https://api.github.com/repos/octocat/Hello-World/teams",
-      "trees_url": "https://api.github.com/repos/octocat/Hello-World/git/trees{/sha}",
-      "clone_url": "https://github.com/octocat/Hello-World.git",
-      "mirror_url": null,
-      "hooks_url": "https://api.github.com/repos/octocat/Hello-World/hooks",
-      "svn_url": "https://github.com/octocat/Hello-World"
-     },
-     "sha": "553c2077f0edc3d5dc5d17262f6aa498e69d6f8e",
-     "user": {
-      "login": "octocat",
-      "id": 583231,
-      "node_id": "MDQ6VXNlcjU4MzIzMQ==",
-      "avatar_url": "https://avatars.githubusercontent.com/u/583231?v=4",
-      "gravatar_id": "",
-      "url": "https://api.github.com/users/octocat",
-      "html_url": "https://github.com/octocat",
-      "followers_url": "https://api.github.com/users/octocat/followers",
-      "following_url": "https://api.github.com/users/octocat/following{/other_user}",
-      "gists_url": "https://api.github.com/users/octocat/gists{/gist_id}",
-      "starred_url": "https://api.github.com/users/octocat/starred{/owner}{/repo}",
-      "subscriptions_url": "https://api.github.com/users/octocat/subscriptions",
-      "organizations_url": "https://api.github.com/users/octocat/orgs",
-      "repos_url": "https://api.github.com/users/octocat/repos",
-      "events_url": "https://api.github.com/users/octocat/events{/privacy}",
-      "received_events_url": "https://api.github.com/users/octocat/received_events",
-      "type": "User",
-      "user_view_type": "public",
-      "site_admin": false
-     }
-    },
-    "_links": {
-     "comments": {
-      "href": "https://api.github.com/repos/octocat/Hello-World/issues/1/comments"
-     },
-     "commits": {
-      "href": "https://api.github.com/repos/octocat/Hello-World/pulls/1/commits"
-     },
-     "statuses": {
-      "href": "https://api.github.com/repos/octocat/Hello-World/statuses/7044a8a032e85b6ab611033b2ac8af7ce85805b2"
-     },
-     "html": {
-      "href": "https://github.com/octocat/Hello-World/pull/1"
-     },
-     "issue": {
-      "href": "https://api.github.com/repos/octocat/Hello-World/issues/1"
-     },
-     "review_comments": {
-      "href": "https://api.github.com/repos/octocat/Hello-World/pulls/1/comments"
-     },
-     "review_comment": {
-      "href": "https://api.github.com/repos/octocat/Hello-World/pulls/comments{/number}"
-     },
-     "self": {
-      "href": "https://api.github.com/repos/octocat/Hello-World/pulls/1"
-     }
-    },
-    "author_association": "NONE",
-    "auto_merge": null,
-    "draft": false,
-    "merged": false,
-    "mergeable": false,
-    "rebaseable": false,
-    "mergeable_state": "dirty",
-    "merged_by": null,
-    "comments": 2500,
-    "review_comments": 59,
-    "maintainer_can_modify": false,
-    "commits": 1,
-    "additions": 6,
-    "deletions": 1,
-    "changed_files": 1
+    }
    },
    "unread": [
-    "title",
-    "user.login",
-    "created_at",
-    "updated_at",
-    "closed_at",
-    "head.ref",
-    "head.repo.owner.login",
-    "head.repo.default_branch",
-    "head.user.login",
-    "base.ref",
-    "base.repo.default_branch",
-    "base.sha",
-    "comments"
+    "data.repository.pullRequest.title",
+    "data.repository.pullRequest.url",
+    "data.repository.pullRequest.author.login",
+    "data.repository.pullRequest.baseRefName",
+    "data.repository.pullRequest.headRefName",
+    "data.repository.pullRequest.createdAt",
+    "data.repository.pullRequest.updatedAt",
+    "data.repository.pullRequest.closedAt",
+    "data.repository.pullRequest.comments.totalCount",
+    "data.repository.pullRequest.files.nodes[*].changeType"
    ],
    "unreadReasons": {
-    "title": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headCommitSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
-    "user.login": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headCommitSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
-    "created_at": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headCommitSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
-    "updated_at": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headCommitSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
-    "closed_at": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headCommitSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
-    "head.ref": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headCommitSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
-    "head.repo.owner.login": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headCommitSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
-    "head.repo.default_branch": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headCommitSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
-    "head.user.login": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headCommitSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
-    "base.ref": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headCommitSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
-    "base.repo.default_branch": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headCommitSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
-    "base.sha": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headCommitSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
-    "comments": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headCommitSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks."
+    "data.repository.pullRequest.title": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headCommitSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
+    "data.repository.pullRequest.url": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headCommitSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
+    "data.repository.pullRequest.author.login": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headCommitSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
+    "data.repository.pullRequest.baseRefName": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headCommitSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
+    "data.repository.pullRequest.headRefName": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headCommitSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
+    "data.repository.pullRequest.createdAt": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headCommitSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
+    "data.repository.pullRequest.updatedAt": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headCommitSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
+    "data.repository.pullRequest.closedAt": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headCommitSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
+    "data.repository.pullRequest.comments.totalCount": "Lean default row (owner decision 2026-11-11): a read that names `sections` answers with them under `number`, `state` and `headCommitSha`; the pull request's header is the summary read (the same call without `sections`), which github/item-pull-summary.carried checks.",
+    "data.repository.pullRequest.files.nodes[*].changeType": "Shown as the file row's one-letter status (`M` for MODIFIED, as `[*].status` was for the REST read), which a text match cannot find."
    }
-  },
-  {
-   "request": {
-    "method": "GET",
-    "url": "https://api.github.com/repos/octocat/Hello-World/pulls/1/files?per_page=100&page=1",
-    "accept": "application/vnd.github+json"
-   },
-   "status": 200,
-   "headers": [
-    [
-     "cache-control",
-     "private, max-age=60, s-maxage=60"
-    ],
-    [
-     "content-type",
-     "application/json; charset=utf-8"
-    ],
-    [
-     "etag",
-     "\"cc9bc70f693275447e451662f9f8bf97b98ef3fb017dbeceb6aa6cdcaef789ba\""
-    ]
-   ],
-   "digest": "sha256:643f2560533ac6cf0ab8c9c49e431ecef788ec8d756618f3f0ce56e62d71b169",
-   "body": [
-    {
-     "sha": "719be62e9382eaed6b25ec98d8190e141ce329eb",
-     "filename": "README",
-     "status": "modified",
-     "additions": 6,
-     "deletions": 1,
-     "changes": 7,
-     "blob_url": "https://github.com/octocat/Hello-World/blob/7044a8a032e85b6ab611033b2ac8af7ce85805b2/README",
-     "raw_url": "https://github.com/octocat/Hello-World/raw/7044a8a032e85b6ab611033b2ac8af7ce85805b2/README",
-     "contents_url": "https://api.github.com/repos/octocat/Hello-World/contents/README?ref=7044a8a032e85b6ab611033b2ac8af7ce85805b2",
-     "patch": "@@ -1 +1,6 @@\n-Hello World!\n\\ No newline at end of file\n+Hello World!\n+$ mkdir ~/Hello-WorldCreates a directory for your project called \"Hello-World\" in your user directory\n+$ cd ~/Hello-WorldChanges the current working directory to your newly created directory\n+$ git initSets up the necessary Git files\n+Initialized empty Git repository in /Users/your_user_directory/Hello-World/.git/\n+$ touch README\n\\ No newline at end of file"
-    }
-   ]
   }
  ]
 }

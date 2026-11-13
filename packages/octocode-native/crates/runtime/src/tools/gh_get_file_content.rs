@@ -273,36 +273,26 @@ pub(crate) async fn execute<S: ContentScan + Clone + Send + Sync + 'static>(
         window,
         renamed_warning,
     };
-    let mut result = if !access::classified(query) {
+    // Plain and ranked reads both decode, scan and shape source text. Keep
+    // that synchronous work off the async worker that serves other requests.
+    let worker_query = query.clone();
+    let mut result = tokio::task::spawn_blocking(octocode_io::notice::carried(move || {
         shape(
-            query,
+            &worker_query,
             acquired,
             fetched,
             &shaping.security,
             &shaping.context,
-            None,
+            access::classified(&worker_query).then_some(&shaping.selection),
         )
-    } else {
-        // A ranked read judges its chunks: shaped on a blocking worker.
-        let query = query.clone();
-        tokio::task::spawn_blocking(octocode_io::notice::carried(move || {
-            shape(
-                &query,
-                acquired,
-                fetched,
-                &shaping.security,
-                &shaping.context,
-                Some(&shaping.selection),
-            )
-        }))
-        .await
-        .map_err(|_| {
-            ProviderError::new(
-                octocode_github::ProviderErrorKind::Decode,
-                "ranked content worker failed",
-            )
-        })?
-    }?;
+    }))
+    .await
+    .map_err(|_| {
+        ProviderError::new(
+            octocode_github::ProviderErrorKind::Decode,
+            "content worker failed",
+        )
+    })??;
     // What describes the file, not the page, is said once: a later page
     // continues a read whose first page stated the file's kind and its last
     // change's lead (a missed match already leads to the file's history).

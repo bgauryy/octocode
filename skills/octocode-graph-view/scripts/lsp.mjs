@@ -3,7 +3,7 @@
 // `graph`; callees only the server reports join as `lsp` edges. Results stream as `lsp` events per batch.
 import { relative, resolve, join } from 'node:path';
 import { octocode, pool } from './lib.mjs';
-import { continuations, pagedTool } from './tools.mjs';
+import { continuations, pagedTool, readResponse } from './tools.mjs';
 
 const fileOf = (id) => id.split('#')[0];
 const lastName = (name) => String(name ?? '').split('.').pop().replace(/@\d+$/, '');
@@ -29,9 +29,10 @@ const buildScriptLead = (d) => (d.related ?? []).some((r) => r?.input?.queries?.
 // One probe's answer: `{ callees }` (definition file, name and line per callee, plus the call-site lines in the probed
 // function), or `{ unanswered }` with the server's own reasons (error code, partialReasons such as buildScriptsOff).
 function calleesOf(rowPages, root) {
+  if (!rowPages.length || rowPages.some((p) => !p?.data)) return { unanswered: ['missingResult'] };
   const rows = rowPages.map((p) => p?.data ?? {});
   const reasons = [...new Set(rows.flatMap((d) => [...(d.errorCode ? [d.errorCode] : []), ...(d.partialReasons ?? []), ...(buildScriptLead(d) ? ['buildScriptsOff'] : [])]))];
-  if (rows.some((d) => d.errorCode)) return { unanswered: reasons };
+  if (rows.some((d) => d.errorCode || d.isPartial) || reasons.length) return { unanswered: reasons.length ? reasons : ['partial'] };
   if (rows.every((d) => d.kind === 'empty')) return rows.some((d) => d.isPartial) ? { unanswered: reasons.length ? reasons : ['partial'] } : { callees: new Map() };
   const out = new Map();
   for (const d of rows) for (const g of d.files ?? []) for (const m of (g.matches ?? []).filter((x) => x.symbolName)) addCallee(out, relative(root, resolve(m.path ?? g.path)), m);
@@ -47,12 +48,12 @@ function addCallee(out, file, m) {
 
 // One batch: the first response, then each row's own continuation chain, kept with its query.
 async function probeBatch(batch, root) {
-  const first = await octocode(['lspSearch', '--json', JSON.stringify({ queries: batch.map((x) => ({ operation: 'callees', path: join(root, x.file), symbolName: x.name, line: x.line })) })], { partial: true });
+  const first = await readResponse('lspSearch', { queries: batch.map((x) => ({ operation: 'callees', path: join(root, x.file), symbolName: x.name, line: x.line })) });
   return Promise.all(batch.map(async (x, i) => {
-    const row = (first.results ?? []).find((r) => r.index === i) ?? first.results?.[i];
+    const rows = (first.results ?? []).filter((r) => r.index === i);
     const tail = [];
-    for (const c of continuations({ results: [row] })) tail.push(...(await pagedTool(c.tool, c.input)).flatMap((p) => p.results ?? []));
-    return [x, calleesOf([row, ...tail], root)];
+    for (const c of continuations({ results: rows })) tail.push(...(await pagedTool(c.tool, c.input)).flatMap((p) => p.results ?? []));
+    return [x, calleesOf([...rows, ...tail], root)];
   }));
 }
 

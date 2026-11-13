@@ -1,43 +1,16 @@
 use super::super::RowPaths;
-use crate::response::symbol_outline::declaration_rows;
+use crate::response::symbol_outline::{DECLARATION_INDEX, PARENT_INDEX, declaration_rows};
 use octocode_engine::graph::{GraphFactDeclaration, GraphParseAssessment};
 use serde_json::{Value, json};
-use std::collections::HashMap;
-use std::mem::size_of;
+use std::collections::{HashMap, HashSet};
 
 #[cfg(test)]
 mod tests;
 
-/// What the allocator adds to each block on top of what was asked: rounding and
-/// bookkeeping, about what a small block costs.
-const BLOCK: usize = 16;
-/// An object's entry: its hash, key and value, its slot in the index, and its key's
-/// block.
-const ENTRY: usize = size_of::<(u64, String, Value)>() + size_of::<usize>() + BLOCK;
-
 /// What the `path` field an outline adds to a row holds beside the path's text.
-pub(super) const PATH_FIELD_BYTES: usize = ENTRY + "path".len();
-
-/// About the heap `value` holds under its slot in a row table: what the rows of a
-/// large outline weigh against the memory budget, which their serialized size
-/// understates about tenfold. Lengths, not capacities: where a scan stops must be a
-/// fact of the files.
-pub(super) fn heap_bytes(value: &Value) -> usize {
-    match value {
-        Value::String(text) => BLOCK + text.len(),
-        Value::Array(items) => {
-            BLOCK + items.len() * size_of::<Value>() + items.iter().map(heap_bytes).sum::<usize>()
-        }
-        Value::Object(fields) => {
-            BLOCK
-                + fields
-                    .iter()
-                    .map(|(key, field)| ENTRY + key.len() + heap_bytes(field))
-                    .sum::<usize>()
-        }
-        Value::Null | Value::Bool(_) | Value::Number(_) => 0,
-    }
-}
+pub(super) const PATH_FIELD_BYTES: usize =
+    octocode_engine::json_size::OBJECT_ENTRY_BYTES + "path".len();
+pub(super) use octocode_engine::json_size::heap_bytes;
 
 /// Characters each top-level row (a span of `declarations`) adds to its
 /// page, as the page delivers it: its rendered row with its members, without
@@ -173,7 +146,8 @@ pub(super) fn implemented_traits<'a>(
 /// line of the comment block directly above, when present. `parent` names the
 /// containing declaration and stays meaningful when a `symbolKinds` or `name`
 /// filter drops the parent row; `parentLine` is added only when another
-/// declaration in the file has the same name and kind (two `impl A` blocks). `exported` appears only when the engine tags the declaration exported (a member is exported only when its owning type is), with
+/// declaration in the file has the same name. Private row identities distinguish
+/// parents sharing both name and line. `exported` appears only when the engine tags the declaration exported (a member is exported only when its owning type is), with
 /// `exportedAs` listing public names that differ from `name`. Rows are
 /// returned in input order, one per engine declaration, each with the
 /// 1-based column its name starts at on its `line`, in the engine's unit:
@@ -199,10 +173,12 @@ pub(super) fn compact_declarations(
             (name.as_ref(), start.line + 1, start.character)
         })
         .collect();
-    let mut per_name_kind = HashMap::<(&str, &str), usize>::new();
+    let mut per_name = HashMap::<&str, usize>::new();
+    let mut per_anchor = HashMap::<(&str, u32), usize>::new();
     let mut per_name_line = HashMap::<(&str, u32, &str), usize>::new();
     for (d, (name, line, _)) in raw.iter().zip(&anchors) {
-        *per_name_kind.entry((name, d.kind.as_str())).or_default() += 1;
+        *per_name.entry(name).or_default() += 1;
+        *per_anchor.entry((name, *line)).or_default() += 1;
         *per_name_line
             .entry((name, *line, d.kind.as_str()))
             .or_default() += 1;
@@ -212,11 +188,31 @@ pub(super) fn compact_declarations(
         .enumerate()
         .map(|(index, d)| (d.id.as_str(), index))
         .collect();
+    let parent_of = |d: &GraphFactDeclaration| {
+        d.parent
+            .as_deref()
+            .and_then(|id| by_engine_id.get(id))
+            .copied()
+    };
+    // Names and lines cannot distinguish a class from its same-line constructor,
+    // or two same-named impl blocks. Keep the exact parent only where necessary.
+    let ambiguous_parents: HashSet<usize> = raw
+        .iter()
+        .filter_map(|d| parent_of(d))
+        .filter(|&index| {
+            let (name, line, _) = anchors[index];
+            per_anchor.get(&(name, line)).copied().unwrap_or(0) > 1
+        })
+        .collect();
     raw.iter()
         .zip(&anchors)
-        .map(|(d, &(name, line, character))| {
+        .enumerate()
+        .map(|(index, (d, &(name, line, character)))| {
             let kind = d.kind.as_str();
             let mut row = json!({"name":name,"kind":kind,"line":line});
+            if ambiguous_parents.contains(&index) {
+                row[DECLARATION_INDEX] = json!(index);
+            }
             if provenance {
                 row["occurrenceId"] = json!(d.id);
                 if let Some(span) = d.source_range {
@@ -253,24 +249,7 @@ pub(super) fn compact_declarations(
             }
             // Parents precede children in engine preorder; an unknown parent
             // (never expected) is dropped rather than leaking an engine id.
-            // A declaration never names itself as parent: C's one-line
-            // `typedef struct X X;` holds `struct X` under `type X` at the
-            // same name line, so the struct is the typedef's sibling and
-            // takes the typedef's own parent.
-            let parent_of = |d: &GraphFactDeclaration| {
-                d.parent
-                    .as_deref()
-                    .and_then(|id| by_engine_id.get(id))
-                    .copied()
-            };
-            let mut parent_index = parent_of(d);
-            while let Some(index) = parent_index
-                && anchors
-                    .get(index)
-                    .is_some_and(|&(parent, parent_line, _)| (parent, parent_line) == (name, line))
-            {
-                parent_index = parent_of(raw[index]);
-            }
+            let parent_index = parent_of(d);
             if d.exported {
                 row["exported"] = json!(true);
                 // Public names when exported under another name (`export { foo
@@ -283,13 +262,11 @@ pub(super) fn compact_declarations(
                 && let Some(&(parent, parent_line, _)) = anchors.get(index)
             {
                 row["parent"] = json!(parent);
-                if per_name_kind
-                    .get(&(parent, raw[index].kind.as_str()))
-                    .copied()
-                    .unwrap_or(0)
-                    > 1
-                {
+                if per_name.get(parent).copied().unwrap_or(0) > 1 {
                     row["parentLine"] = json!(parent_line);
+                }
+                if ambiguous_parents.contains(&index) {
+                    row[PARENT_INDEX] = json!(index);
                 }
             }
             (row, character + 1)

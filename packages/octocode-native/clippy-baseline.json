@@ -12,7 +12,6 @@
   },
   "clippy::disallowed_methods(alloc::vec::Vec::truncate)": {
     "engine": {
-      "crates/engine/src/lsp/transport/push_diagnostics.rs": 2,
       "crates/engine/src/security/detector/yaml_secret.rs": 1,
       "crates/engine/src/signatures/graph_facts/receiver.rs": 1,
       "crates/engine/src/signatures/graph_facts/walk.rs": 1,
@@ -108,7 +107,6 @@
       "crates/github/src/budget/key_state/facts.rs": 1,
       "crates/github/src/budget/persist.rs": 1,
       "crates/github/src/transport.rs": 2,
-      "crates/github/src/transport/attempts/failure.rs": 1,
       "crates/github/src/transport/execute.rs": 1,
       "crates/github/src/transport/saved.rs": 1
     },
@@ -188,8 +186,7 @@
     },
     "engine": {
       "crates/engine/src/lsp/clangd_database.rs": 1,
-      "crates/engine/src/lsp/clangd_database/mirror.rs": 2,
-      "crates/engine/src/lsp/managed.rs": 1
+      "crates/engine/src/lsp/clangd_database/mirror.rs": 2
     },
     "github": {
       "crates/github/src/budget/persist.rs": 1
@@ -213,7 +210,7 @@
   },
   "clippy::disallowed_methods(std::process::Command::new)": {
     "cli": {
-      "crates/cli/src/cli/serve/unix/client.rs": 1
+      "crates/cli/src/cli/serve/unix/startup.rs": 1
     },
     "engine": {
       "crates/engine/src/lsp/config/invocation/rustup.rs": 1,

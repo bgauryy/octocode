@@ -39,8 +39,8 @@ pub(crate) mod artifact_type {
 pub(crate) mod artifact_search_query {
     use octocode_contract_types::{
         ArtifactSearchQuery, ArtifactSearchView, ArtifactType,
-        ResolveNugetGoPackagistOrRubygemsEcosystem,
-        ResolvePypiOrCratesEcosystem, SearchCratesMavenNugetGoPackagistOrRubygemsEcosystem,
+        ResolveNugetGoPackagistOrRubygemsEcosystem, ResolvePypiOrCratesEcosystem,
+        SearchCratesMavenNugetGoPackagistOrRubygemsEcosystem,
     };
 
     pub(crate) fn artifact_type(query: &ArtifactSearchQuery) -> ArtifactType {

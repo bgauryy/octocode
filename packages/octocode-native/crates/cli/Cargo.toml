@@ -49,7 +49,7 @@ hyper-util = { version = "0.1", features = ["server", "tokio"] }
 http-body-util = "0.1"
 subtle = "2"
 # The MCP server (`octocode mcp`): stdio transport over the shared runtime.
-rmcp = { version = "3.7", default-features = false, features = ["server", "transport-io"] }
+rmcp = { version = "3.9", default-features = false, features = ["server", "transport-io"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }

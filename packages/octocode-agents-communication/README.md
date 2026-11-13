@@ -207,13 +207,6 @@ node packages/octocode-agents-communication/bin/octocode-agents-communication.mj
 yarn workspace @octocodeai/octocode-agents-communication verify
 ```
 
-`build` bundles the runtime into `dist/` with its type declarations; `lint` checks the generated catalog types and runs oxlint; `typecheck` checks `src/` and `tests/`; `verify` runs lint, typecheck and Node regression checks plus an extracted CLI/MCP release smoke; the repo-root `docs:verify` checks this package's Markdown links and anchors. Checks cover the local platform only. To try an unpublished npm tarball: `npx -y --package /absolute/package.tgz octocode-agents-communication /cli --help`.
+`build` bundles the runtime into `dist/` with its type declarations; `lint` checks the generated catalog types and runs oxlint; `typecheck` checks `src/` and `tests/`; `verify` runs lint, typecheck and the Node regression tests; the repo-root `docs:verify` checks this package's Markdown links and anchors. Checks cover the local platform only. To try an unpublished npm tarball: `npx -y --package /absolute/package.tgz octocode-agents-communication /cli --help`.
 
-Optional account-backed live checks, one harness (`--help` lists scenarios and options; every run needs `--live` and changes no host settings):
-
-```sh
-node packages/octocode-agents-communication/src/live.ts --live --vendor codex --scenarios qa --output /absolute/new-results
-node packages/octocode-agents-communication/src/live.ts --live --vendor claude --model MODEL_ID --runs 10 --output /absolute/new-results
-```
-
-`qa` runs one isolated request, reply and acknowledgement (plus a passive notice that must not start a turn); Codex uses its configured model, Pi and Claude need `--model`. Without `--scenarios` the harness runs `qa`, `lock-handoff` and `paged-read` in fresh workspaces, writes per-trial JSON plus `summary.json`, where `behavioralPassed` requires every scenario to pass at least 90% of trials. Overall `passed` also requires no rejected `complete` calls and no `complete` results with unknown status, including calls without a result. Tool statistics report unknown results separately, both overall and per tool. One pass does not establish reliability. The `soak` scenario uses all three hosts and is documented in [operations](docs/OPERATIONS.md#verify-concurrent-native-workers).
+The packed package and real Pi, Claude and Codex workers are checked by hand: [operations](docs/OPERATIONS.md#verify-concurrent-native-workers).

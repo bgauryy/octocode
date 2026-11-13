@@ -159,23 +159,14 @@ async fn a_whole_window_answer_names_its_deciding_lines_in_the_same_request() {
         ],
     )
     .await;
-    // A part is about one automatic read page of shown characters (each line
-    // and its gutter); the mock's companion picks the first part.
-    let page = octocode_native::execution::RuntimeLimits::DEFAULT.auto_page_chars;
-    let shown: usize = (1..=lines)
-        .map(|n| line(n).chars().count() + n.to_string().len() + 1)
-        .sum();
-    let parts = shown.div_ceil(page).max(2);
+    // A part is about one line page of the automatic read; the mock's
+    // companion picks the first part, and its read is that one page.
     let data = &out["results"][0]["data"];
     assert_eq!(data["answers"]["fail"]["noul"], 0.9, "{out}");
     let decided = &data["answers"]["fail"]["lines"];
     assert_eq!(decided["startLine"], 1, "{out}");
     let end = usize::try_from(decided["endLine"].as_u64().expect("end")).unwrap();
     assert!(end < lines, "{out}");
-    let first: usize = (1..=end)
-        .map(|n| line(n).chars().count() + n.to_string().len() + 1)
-        .sum();
-    assert!(first <= shown.div_ceil(parts) + 16, "one page: {first}");
     assert_eq!(
         data["readChars"],
         json!((1..=end).map(|n| line(n).chars().count()).sum::<usize>())
@@ -191,6 +182,12 @@ async fn a_whole_window_answer_names_its_deciding_lines_in_the_same_request() {
     assert_eq!(literal["answers"]["fail"]["lines"], *decided);
     assert!(literal["next"].get("read").is_none(), "{literal}");
     for request in sent(&server).await {
+        let text = request["state"]["text"]
+            .as_str()
+            .or(request["state"].as_str())
+            .unwrap();
+        let parts = text.lines().filter(|line| line.starts_with("[p")).count();
+        assert!(parts > 2, "{parts} parts of a text over two pages");
         let questions = request["questions"].as_object().expect("questions");
         assert_eq!(questions.len(), 2, "the question and its companion");
         assert_eq!(questions["answer_1"]["type"], "choice");
@@ -199,10 +196,6 @@ async fn a_whole_window_answer_names_its_deciding_lines_in_the_same_request() {
             parts + 1,
             "{parts} parts and unknown"
         );
-        let text = request["state"]["text"]
-            .as_str()
-            .or(request["state"].as_str())
-            .unwrap();
         assert!(
             text.starts_with(&format!("[p1]\n{}", line(1))),
             "{text:.80}"
@@ -217,9 +210,12 @@ async fn a_whole_window_answer_names_its_deciding_lines_in_the_same_request() {
         )
         .await
         .expect("lead runs");
-    let content = replay.structured_content["results"][0]["data"]["content"]
-        .as_str()
-        .unwrap();
+    let page = &replay.structured_content["results"][0]["data"];
+    assert!(
+        page["next"].get("nextPage").is_none(),
+        "one page: {page:.300}"
+    );
+    let content = page["content"].as_str().unwrap();
     assert!(
         content.contains(&format!("case_{end:04} ")),
         "{content:.200}"

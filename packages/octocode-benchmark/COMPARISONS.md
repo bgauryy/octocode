@@ -1,0 +1,249 @@
+# Comparisons
+
+For each Octocode tool and workflow, this page names the competitor an expert would use for the
+same question and says what "better" means. It is the one owner of the expert commands: the
+[tool checks](CHECKS.md) and the
+[check briefs](briefs/) link here instead of repeating them. [METHOD.md](METHOD.md) says how to
+run and judge a comparison.
+
+A comparison is meaningful only when both sides answer the same question. Where the competitor
+answers a narrower question (`rg -w` finds spellings, not the symbol a reference denotes),
+measure what it gets wrong. Where nothing answers the question, the row says so and records
+Octocode's answer alone.
+
+## The rule for every row
+
+- **Smart, not plain.** The competitor is the command an expert would actually type: projected
+  fields, a region rather than a whole file, a count before content. A plain dump that an expert
+  would never run proves nothing.
+- **Correctness gates everything.** Characters and time count only when both answers are right.
+  A smaller wrong answer loses.
+- **Record per row:** right on both? (with the deciding source line), characters (≈ 4 per
+  token), calls, Octocode first and repeat time, competitor time, and what the expert had to
+  know in advance: flags, REST paths, field names, jq, a guessed function length.
+- **Octocode loses a row** when the competitor is right, smaller and needed no guessing. Say so
+  plainly; that row is the improvement target.
+
+## Map
+
+| Octocode | Competitor | Same question? | Stored evidence | Status |
+|---|---|---|---|---|
+| [localSearch](#localsearch) | `rg` | yes | rg comparisons, 2026-10 | measured |
+| [localFetch](#localfetch) | `sed -n`, `rg -A` | ranges yes; whole function needs a guessed length | none | check rounds only |
+| [structureSearch](#structuresearch) | `fd`, `find`, `stat`, `wc -l` | yes | none | check rounds only |
+| [astSearch](#astsearch) | `ast-grep` | yes | ast-grep comparisons, 2026-10 | measured |
+| [lspSearch](#lspsearch) | `rg -w` | no: spelling, not identity | none | measure rg's errors |
+| [graphBuild and graphQuery](#graphbuild-and-graphquery) | graphify; shell import counts | partly | none | needs graphify installed (owner) |
+| [clasify](#clasify) | the main agent reading everything | yes | clasify A/B campaigns | measured; adoption is the gap |
+| [ghSearchRepo](#ghsearchrepo) | `gh search repos`, `gh repo view` | yes | gh-lean campaigns | measured |
+| [ghSearchCode](#ghsearchcode) | `gh search code` | yes | gh-lean campaigns | measured |
+| [ghStructure](#ghstructure) | `gh api …/git/trees`, `gh repo read-dir`, tags | yes | gh-lean campaigns | measured |
+| [ghGetFileContent](#ghgetfilecontent) | raw contents + `sed -n`, `gh repo read-file` | yes | gh-lean campaigns | measured |
+| [ghSearchHistory and ghGetHistoryItem](#ghsearchhistory-and-ghgethistoryitem) | `gh search prs`, `gh api commits`, `gh pr view`, compare | yes | gh-lean campaigns | measured |
+| [ghCloneRepo](#ghclonerepo) | `gh repo clone -- --depth 1` | yes | none | check rounds only |
+| [artifactSearch](#artifactsearch) | `npm view`, registry JSON | yes | package lookup, 2026-11-04 | characters only |
+| [securityCheck](#securitycheck) | OSV API, GitHub advisories | yes | none | not yet measured |
+| [Research workflows](#research-workflows) | gh, gh-lean, gh + RTK, gh + Headroom; lean shell | yes | GitHub 30 and local 30 campaigns | measured |
+| [Output compressors](#output-compressors) | RTK, Headroom | yes | August 2026 campaigns | measured (numbers only) |
+| [Version against version](#version-against-version) | the previous Octocode release | yes | v18 vs v20 timing | measured |
+
+Installed on the benchmark machine at the last check (2026-11-13): rg 15.2.0, ast-grep 0.45.0
+(`sg` is the same binary), gh 2.96.0, rtk 0.44.2, headroom 0.34.0, fd 10.5.0, jq 1.7.1. Not
+installed: graphify, osv-scanner, knip, semgrep. A round checks the versions again; it does not
+assume these.
+
+## Local tools
+
+### localSearch
+
+- **Question:** where a term is used, which files hold or lack it, where it is used most, and a
+  term inside a minified one-line file.
+- **Expert form:** `rg -n -w -F TERM DIR -g '*.rs' -m 20`; counts
+  `rg -c TERM DIR | sort -t: -k2 -rn | head -20`; files `rg -l` and `rg --files-without-match`;
+  a window in a long line `rg -o -b '.{0,60}TERM.{0,60}' FILE`.
+- **Better means:** the same match set first. Then characters, a window with its column for a hit
+  in a long line, a continuation that reaches every remaining hit, and the next call ready from
+  the row. rg is expected to win raw process latency; say so when it does.
+- **Stored evidence:** `.octocode/octocode-eval-benchmark/2026-10-20-release-localsearch-vs-rg/`
+  (both agree on all 21 lexical cases; rg is faster), `2026-10-15-native-vs-rg/`.
+
+### localFetch
+
+- **Question:** lines A–B of a file; one function's body, short and over 400 lines; the outline
+  of a large file.
+- **Expert form:** `sed -n 'A,Bp' FILE`; `rg -n -A40 'fn NAME' FILE`; `head -c N FILE`.
+- **Better means:** ranges must match `sed -n` exactly. For a whole function, the shell has to
+  guess its length: Octocode wins when it returns the complete block on page 1 without the
+  guess, and loses when `sed -n` with a known range is smaller. Record whether the length was
+  guessed.
+
+### structureSearch
+
+- **Question:** the layout of a folder; the largest, longest and newest files under it; files by
+  name.
+- **Expert form:** `fd -t f PATTERN DIR`; `find DIR -maxdepth 2 -type d`;
+  `find DIR -name '*.rs' -exec stat -f '%z %N' {} + | sort -rn | head`; `wc -l`.
+- **Better means:** the same listing; one metric per row for a sorted listing; characters.
+
+### astSearch
+
+- **Question:** calls of a function, not comments, strings or definitions; calls inside one
+  function; declarations of a file or folder.
+- **Expert form:** `ast-grep run -l rust -p 'NAME($$$A)' DIR`,
+  `ast-grep run -l rust -p '$X.NAME($$$A)' DIR`, and
+  `ast-grep scan --inline-rules '…'` for `has` and `inside` rules. The plain text form `rg -n 'NAME\('`
+  also returns definitions, comments and strings: count those as its errors.
+- **Better means:** the same match set (agreement is the correctness gate), only the shape asked
+  for, then characters and time. An empty bare pattern should say how many receiver calls exist
+  and offer the rule; ast-grep says nothing.
+- **Stored evidence:** `.octocode/octocode-eval-benchmark/2026-10-20-release-astsearch-vs-ast-grep/`
+  (agreement on all 41 shared and 17 edge cases), `2026-10-19-owned-core-vs-ast-grep/`,
+  `2026-10-15-native-vs-ast-grep/`.
+
+### lspSearch
+
+- **Question:** who references a symbol, its definition, callers and callees.
+- **Competitor:** `rg -n -w NAME`, which answers a narrower question: where the spelling occurs.
+  No shell command establishes which symbol a reference denotes.
+- **Better means:** count what `rg -w` gets wrong for the same question: same-name symbols in
+  other scopes, comments, strings. Check lspSearch's roles (declaration, import, call) against
+  the source. Record cold and repeat time; the cold start is the cost.
+
+### graphBuild and graphQuery
+
+**Status: needs graphify installed (owner).** No head-to-head run exists; the 2026-10-28
+comparison was of source and documentation only.
+
+- **Questions both can answer:** the most imported files (dependents), callers of a function,
+  the shortest path between two symbols, what may be affected by a change (graphify's
+  "affected"), the most connected nodes (graphify's "god nodes" against `hubs`).
+- **Graphify only:** communities, natural-language graph queries, non-code nodes (documents,
+  images). **Octocode only:** witnesses for every edge, unresolved sites with reasons, cycles
+  with runtime classification, co-change, drift, stale snapshots.
+- **Shell fallback:** importers with `rg -o "from '[^']*'" DIR | sort | uniq -c | sort -rn`;
+  co-change from `git log --format= --name-only -- PATH`. Nothing in the shell answers unused
+  exports or cycles (knip covers unused exports for TypeScript only, and is not installed).
+- **Better means:** edge precision and recall on a sample confirmed against the source (with
+  lspSearch or by reading), build time and size on the same repository, query characters, and
+  claims made without a witness. Use the commands of the installed graphify version
+  (`graphify --help`); don't assume them.
+
+### clasify
+
+- **Question:** which of 300 log lines, 60 files or 200 search hits are about X.
+- **Competitor:** the main agent reading every candidate itself (search output read in full,
+  or files read one by one).
+- **Better means:** the same answer with fewer main-agent characters, the billed request count,
+  and recall: `next.unfiltered` shows what classification left out. Savings figures are owned by
+  the [classification guide](../../docs/OCTOCODE_CLASIFY.md#main-agent-tokens-with-and-without-jev).
+- **Stored evidence:** `results/mcp-clasify-ab-111154-2026-10-09/`, `results/gated-jev-*`,
+  `results/selective-guidance-*`. When clasify was offered, agents did not call it, so no saving
+  appeared; adoption is the open question, not the tool's answer.
+
+## GitHub and package tools
+
+The lean `gh` style is in [briefs/arms/gh-lean.md](briefs/arms/gh-lean.md). Live targets are
+public repositories, more than one before a result counts as a defect, never `facebook/react`.
+
+### ghSearchRepo
+
+- **Expert form:** `gh search repos TERM --sort stars --json fullName,stargazersCount --jq …`;
+  `gh repo view O/R --json nameWithOwner,description,stargazerCount`.
+- **Better means:** the right rows, identity for the next call, characters.
+
+### ghSearchCode
+
+- **Expert form:** `gh search code TERM --repo O/R --json path,textMatches --jq …`.
+- **Better means:** a hit with line numbers and the commit for the next read; a hit that
+  answers ends the question.
+
+### ghStructure
+
+- **Expert form:** `gh api 'repos/O/R/git/trees/SHA:sub/dir' --jq '.tree[].path'`, with
+  `?recursive=1` only on a narrow subtree; `gh repo read-dir DIR --repo O/R --json path,type,size`;
+  tags `gh api repos/O/R/tags --jq '.[].name'`.
+- **Better means:** the same listing, sizes when asked, truncation disclosed (REST recursive
+  trees truncate silently unless `truncated` is checked), a tag resolved to its commit.
+
+### ghGetFileContent
+
+- **Expert form:** `gh api 'repos/O/R/contents/PATH?ref=SHA' -H 'Accept: application/vnd.github.raw' | sed -n 'A,Bp'`;
+  `gh repo read-file PATH --repo O/R --ref SHA | sed -n 'A,Bp'`.
+- **Better means:** a region, block or outline without fetching the whole file into context;
+  for a word in a minified file, a window instead of the line. `gh` has no server-side region
+  read, so the whole file is fetched either way; what counts is what reaches the model.
+
+### ghSearchHistory and ghGetHistoryItem
+
+- **Expert form:** `gh search prs TERM --repo O/R --merged --json number,title --jq …`;
+  `gh api 'repos/O/R/commits?path=P&per_page=3&page=N' --jq …`;
+  `gh pr view N --repo O/R --json files,reviews --jq …`;
+  `gh api repos/O/R/compare/A...B --jq '.files[] | select(.filename=="P") | .patch'`;
+  `gh issue view N --repo O/R --json comments --jq …`.
+- **Better means:** the patch for one path, not the whole compare; paging by cursor against
+  rebuilding `page=N`; the commit, number and path for the next call.
+
+### ghCloneRepo
+
+- **Expert form:** `gh repo clone O/R DIR -- --depth 1`, then `rg`.
+- **Better means:** time to the first local answer, then the local-tool rows above.
+
+### artifactSearch
+
+- **Expert form:** `npm view PKG@V version repository gitHead --json`;
+  `curl -sL https://pypi.org/pypi/PKG/json | jq '.info.version'`;
+  `curl -sL -A <client> https://crates.io/api/v1/crates/PKG | jq '.crate.max_stable_version'`.
+- **Better means:** the same version, repository, directory and commit, and a file read at that
+  commit in the next call; characters.
+- **Stored evidence (2026-11-04, characters only, one run):**
+
+  | Package | artifactSearch | Registry's full JSON | `npm view` with named fields |
+  |---|---:|---:|---:|
+  | `zod` (npm) | 731 | 89,723 | 147 |
+  | `typescript` (npm) | 1,637 | 318,171 | 1,198 |
+  | `react` (npm) | 686 | 337,209 | 145 |
+  | `requests` (PyPI) | 695 | 192,961 | not applicable |
+  | `serde` (crates.io) | 732 | 440,993 | not applicable |
+
+  `npm view` with named fields is smaller; artifactSearch also ties the version to its source
+  commit. Answer quality was not judged and time was not compared (development build).
+
+### securityCheck
+
+- **Expert form:** `curl -s -d '{"package":{"name":"PKG","ecosystem":"npm"},"version":"V"}' https://api.osv.dev/v1/query | jq '.vulns[].id'`;
+  advisories for a package with `gh api 'advisories?affects=PKG' --jq …`, one advisory with
+  `gh api advisories/GHSA-… --jq …`. osv-scanner answers the same question
+  from a lockfile and is not installed. `npm audit` answers a different question (the installed
+  tree) and is not a competitor.
+- **Better means:** the same affected verdict and the same version to upgrade to; characters;
+  a disclosed rate limit instead of a silent wait when no token is set.
+
+## Workflows
+
+### Research workflows
+
+- **Question:** a whole research question answered end to end, from the
+  [question sets](questions/README.md).
+- **Competitors:** for GitHub, plain gh, gh-lean, gh + RTK and gh + Headroom; for local code,
+  the lean shell (`rg`, `ast-grep`, `find`, `sed -n`, read-only `git`). The arm briefs are in
+  [briefs/arms/](briefs/arms/).
+- **Better means:** blind-judged correctness first, then characters, calls, failed calls and
+  time per question, aggregated per [METHOD.md](METHOD.md#aggregate).
+- **Stored evidence:** the [results index](results/README.md) and the headline in the
+  [README](README.md#results).
+
+### Output compressors
+
+- **Question:** does compressing a command's output reach Octocode's size without losing the
+  evidence the answer needs?
+- **Competitor:** the same `gh`, `rg` or `git` command with and without `rtk` or Headroom.
+- **Better means:** the compression ratio against evidence kept: does the answer built from the
+  compressed output still hold? In August 2026 Headroom lowered correctness to 8.66, the lowest
+  of the setups. Passing Octocode's own output through them is an open, cheap question.
+
+### Version against version
+
+- **Question:** is the new build at least as correct, leaner and faster than the last release?
+- **Competitor:** the previous release, through `npx -y octocode@<version>`.
+- **Better means:** correctness, characters, and time warm (session server running) and cold
+  (nothing running), on the same machine, interleaved. Time release builds only.

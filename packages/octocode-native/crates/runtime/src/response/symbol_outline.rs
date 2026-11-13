@@ -12,6 +12,10 @@
 
 use serde_json::Value;
 
+// Private identities survive paging and filtering without entering the public outline.
+pub(crate) const DECLARATION_INDEX: &str = "_declarationIndex";
+pub(crate) const PARENT_INDEX: &str = "_parentIndex";
+
 /// Public key order of a declaration (see [`declaration_rows`]).
 const DECLARATION_ORDER: [&str; 11] = [
     "symbolName",
@@ -56,7 +60,20 @@ pub(crate) fn declaration_rows(rows: &[Value]) -> Vec<Value> {
             Value::Object(public)
         })
         .collect();
-    nest_members(public)
+    let mut nested = nest_members(public);
+    fn remove_identity(rows: &mut [Value]) {
+        for row in rows {
+            if let Some(fields) = row.as_object_mut() {
+                fields.shift_remove(DECLARATION_INDEX);
+                fields.shift_remove(PARENT_INDEX);
+                if let Some(Value::Array(members)) = fields.get_mut("members") {
+                    remove_identity(members);
+                }
+            }
+        }
+    }
+    remove_identity(&mut nested);
+    nested
 }
 
 /// The enclosing row of each flat row: the nearest preceding ancestor it
@@ -79,8 +96,13 @@ fn enclosing_rows(rows: &[Value]) -> Vec<Option<usize>> {
         }
         let parent = row.get("parent").and_then(Value::as_str);
         let parent_line = row.get("parentLine").and_then(Value::as_u64);
+        let parent_index = row.get(PARENT_INDEX).and_then(Value::as_u64);
         let names = |candidate: usize| {
             let candidate = &rows[candidate];
+            if let Some(parent_index) = parent_index {
+                return candidate.get(DECLARATION_INDEX).and_then(Value::as_u64)
+                    == Some(parent_index);
+            }
             parent.is_some_and(|parent| name(candidate).as_deref() == Some(parent))
                 && parent_line.is_none_or(|expected| candidate["line"].as_u64() == Some(expected))
         };

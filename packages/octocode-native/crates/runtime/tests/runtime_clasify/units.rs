@@ -24,7 +24,12 @@ async fn keeper() -> MockServer {
                 .as_object()
                 .expect("questions")
                 .keys()
-                .map(|id| (id.clone(), json!({"type":"noul","noul":if hit { 0.94 } else { 0.03 }})))
+                .map(|id| {
+                    (
+                        id.clone(),
+                        json!({"type":"noul","noul":if hit { 0.94 } else { 0.03 }}),
+                    )
+                })
                 .collect::<serde_json::Map<_, _>>();
             ResponseTemplate::new(200).set_body_json(json!({
                 "model":"jev-test","answers":answers,
@@ -68,10 +73,18 @@ async fn search_hits_are_judged_one_by_one_and_only_the_passing_ones_return() {
     workspace.write("dense.txt", dense());
     let runtime = clasify_runtime(&workspace, &server, &[]);
     let query = json!({"path":"dense.txt","matchString":["needle"]});
-    let out = clasify(&runtime, vec![rows_row("localSearch", query.clone(), "summary")]).await;
+    let out = clasify(
+        &runtime,
+        vec![rows_row("localSearch", query.clone(), "summary")],
+    )
+    .await;
     let data = &out["results"][0]["data"];
     assert_eq!(unit_keys(data), ["dense.txt:2", "dense.txt:5"], "{out}");
-    assert_eq!(data["units"]["dense.txt:2"], json!({"keep":{"noul":0.94}}), "{out}");
+    assert_eq!(
+        data["units"]["dense.txt:2"],
+        json!({"keep":{"noul":0.94}}),
+        "{out}"
+    );
     assert_eq!(
         data["coverage"],
         json!({"totalUnits":6,"answered":6,"quiet":4}),
@@ -83,7 +96,11 @@ async fn search_hits_are_judged_one_by_one_and_only_the_passing_ones_return() {
     assert!(!out.to_string().contains("entry"), "{out}");
     // Each request judged one hit alone.
     for body in sent(&server).await {
-        assert_eq!(body["state"].to_string().matches("needle").count(), 1, "{body}");
+        assert_eq!(
+            body["state"].to_string().matches("needle").count(),
+            1,
+            "{body}"
+        );
     }
 
     // details lists every unit, quiet ones too, each cell in its status.
@@ -99,6 +116,126 @@ async fn search_hits_are_judged_one_by_one_and_only_the_passing_ones_return() {
     runtime.close().await;
 }
 
+/// Says yes (0.94) to a hit whose own target line holds [`KEEP`], else no
+/// (0.03), whatever its window shows: a judge that reads only the target.
+async fn target_keeper() -> MockServer {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(|request: &wiremock::Request| {
+            let body: Value = serde_json::from_slice(&request.body).expect("provider body");
+            let state = body["state"].get("content").unwrap_or(&body["state"]);
+            let hit = state["target"]["text"]
+                .as_str()
+                .is_some_and(|text| text.contains(KEEP));
+            let answers = body["questions"]
+                .as_object()
+                .expect("questions")
+                .keys()
+                .map(|id| {
+                    (
+                        id.clone(),
+                        json!({"type":"noul","noul":if hit { 0.94 } else { 0.03 }}),
+                    )
+                })
+                .collect::<serde_json::Map<_, _>>();
+            ResponseTemplate::new(200).set_body_json(json!({
+                "model":"jev-test","answers":answers,
+                "usage":{"input_tokens":50,"output_tokens":4},
+            }))
+        })
+        .mount(&server)
+        .await;
+    server
+}
+
+/// Context windows that overlap merge into one search row, yet each hit is
+/// still its own unit named `path:line`: judged with its target line marked,
+/// its own window, and the declaration around it from the row.
+#[tokio::test]
+async fn merged_search_windows_are_judged_hit_by_hit_with_the_hit_marked() {
+    let server = target_keeper().await;
+    let workspace = Workspace::new();
+    workspace.write(
+        "walk.rs",
+        format!(
+            "fn walk(depth: u32) -> u32 {{\n    let base = 1;\n    let a = needle(depth);\n    let b = needle(depth); // {KEEP}\n    a + b + base\n}}\n"
+        ),
+    );
+    let runtime = clasify_runtime(&workspace, &server, &[]);
+    let before = 2;
+    let query = json!({"path":"walk.rs","matchString":["needle"],"contextLines":{"before":before,"after":0}});
+    // The tool itself merges the two windows into one row.
+    let search = crate::support::Run::run(
+        &runtime,
+        "merged-search".into(),
+        "localSearch".into(),
+        json!({"queries":[query.clone()]}),
+    )
+    .await
+    .expect("search")
+    .structured_content
+    .into_value();
+    let rows = &search["results"][0]["data"]["files"][0]["matches"];
+    assert_eq!(rows.as_array().map(Vec::len), Some(1), "{search}");
+    let hits = rows[0]["matchedLines"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(hits.len(), 2, "{search}");
+
+    let out = clasify(&runtime, vec![rows_row("localSearch", query, "details")]).await;
+    let data = &out["results"][0]["data"];
+    let expected = hits
+        .iter()
+        .map(|line| format!("walk.rs:{line}"))
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        unit_keys(data)
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>(),
+        expected,
+        "{out}"
+    );
+    assert_eq!(data["coverage"]["totalUnits"], hits.len(), "{out}");
+    // Only the hit whose own line says KEEP passes, though both windows hold it.
+    assert_eq!(
+        data["units"]["walk.rs:4"]["keep"]["answer"]["noul"], 0.94,
+        "{out}"
+    );
+    assert_eq!(
+        data["units"]["walk.rs:3"]["keep"]["answer"]["noul"], 0.03,
+        "{out}"
+    );
+    let bodies = sent(&server).await;
+    assert_eq!(bodies.len(), hits.len());
+    let mut targets = Vec::new();
+    for body in bodies {
+        let state = &body["state"];
+        let target = &state["target"];
+        let line = target["line"].as_u64().expect("target line");
+        targets.push(line);
+        assert_eq!(target["enclosing"]["symbolName"], "walk", "{body}");
+        assert!(
+            state["question"]
+                .as_str()
+                .is_some_and(|scope| scope.contains("target")),
+            "{body}"
+        );
+        // Its own window: the lines up to `before` above it, its own included.
+        for entry in state["lines"].as_array().into_iter().flatten() {
+            let shown = entry[0].as_u64().expect("window line");
+            assert!(shown <= line && shown + before >= line, "{body}");
+        }
+    }
+    targets.sort_unstable();
+    assert_eq!(
+        targets,
+        hits.iter().filter_map(Value::as_u64).collect::<Vec<_>>()
+    );
+    runtime.close().await;
+}
+
 /// A listing: each entry is one unit, judged from what the listing shows of
 /// it, named by its path.
 #[tokio::test]
@@ -111,7 +248,11 @@ async fn listed_paths_are_units_named_by_path() {
     let runtime = clasify_runtime(&workspace, &server, &[]);
     let out = clasify(
         &runtime,
-        vec![rows_row("structureSearch", json!({"path":"src"}), "summary")],
+        vec![rows_row(
+            "structureSearch",
+            json!({"path":"src"}),
+            "summary",
+        )],
     )
     .await;
     let data = &out["results"][0]["data"];
@@ -151,10 +292,21 @@ async fn a_tools_next_page_is_the_rows_next_page() {
     // A details page continues in details: every unit of each page, no
     // unit of the first on the second.
     let (one, two) = (unit_keys(data), unit_keys(more));
-    assert_eq!(one.len() as u64, data["coverage"]["totalUnits"].as_u64().unwrap(), "{first}");
-    assert_eq!(two.len() as u64, more["coverage"]["totalUnits"].as_u64().unwrap(), "{second}");
+    assert_eq!(
+        one.len() as u64,
+        data["coverage"]["totalUnits"].as_u64().unwrap(),
+        "{first}"
+    );
+    assert_eq!(
+        two.len() as u64,
+        more["coverage"]["totalUnits"].as_u64().unwrap(),
+        "{second}"
+    );
     assert!(!one.is_empty() && !two.is_empty(), "{first}\n{second}");
-    assert!(one.iter().all(|key| !two.contains(key)), "{first}\n{second}");
+    assert!(
+        one.iter().all(|key| !two.contains(key)),
+        "{first}\n{second}"
+    );
     runtime.close().await;
 }
 
@@ -241,7 +393,13 @@ async fn only_read_only_row_tools_are_sources_and_their_contract_checks_the_quer
     let server = keeper().await;
     let workspace = Workspace::new();
     let runtime = clasify_runtime(&workspace, &server, &[]);
-    for tool in ["ghCloneRepo", "clasify", "graphBuild", "ghStructure", "nope"] {
+    for tool in [
+        "ghCloneRepo",
+        "clasify",
+        "graphBuild",
+        "ghStructure",
+        "nope",
+    ] {
         let result = crate::support::Run::run(
             &runtime,
             format!("refused-{tool}"),

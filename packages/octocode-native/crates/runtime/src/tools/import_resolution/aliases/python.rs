@@ -28,6 +28,8 @@ pub(super) struct PythonModules {
     outer: Vec<PathBuf>,
     /// Dotted module → whether a file above the scan root spells it.
     outer_hits: std::sync::Mutex<HashMap<String, bool>>,
+    /// Top-level modules of local path dependencies outside the scan root.
+    pub(super) outside_modules: HashSet<String>,
 }
 
 /// The dotted package name of `root` when it is a Python package (holds
@@ -174,24 +176,39 @@ impl PythonModules {
         found
     }
 
-    /// Whether the absolute import `spec`, which no root resolved, could still
-    /// name code of this repository, so calling it external would be a guess.
-    fn may_name_repository_code(&self, spec: &str) -> bool {
+    /// What the absolute import `spec`, which no root resolved, names: code of
+    /// this repository (calling it external would be a guess), beyond the scan
+    /// root when what spells it lies there, else a third-party module.
+    fn repository_code(&self, spec: &str) -> BareTarget {
         let (head, rest) = spec.split_once('.').unwrap_or((spec, ""));
         let standard = is_standard_module(head);
-        if (self.root_is_package || !standard)
-            && self
-                .root_package
-                .as_deref()
-                .and_then(|package| package.split('.').next())
-                == Some(head)
+        if let Some(package) = self.root_package.as_deref()
+            && (self.root_is_package || !standard)
+            && package.split('.').next() == Some(head)
         {
-            return true;
+            // A module of the package enclosing the scan root lies beyond it
+            // unless it is the root's own package or below it.
+            let own = !self.root_is_package
+                || spec == package
+                || spec
+                    .strip_prefix(package)
+                    .is_some_and(|below| below.starts_with('.'));
+            return if own {
+                BareTarget::Internal
+            } else {
+                BareTarget::OutsideRoot
+            };
         }
         if rest.is_empty() && standard {
-            return false;
+            return BareTarget::External;
         }
-        self.scanned_module_matches(spec) || self.outer_module_matches(spec)
+        if self.scanned_module_matches(spec) {
+            BareTarget::Internal
+        } else if self.outside_modules.contains(head) || self.outer_module_matches(spec) {
+            BareTarget::OutsideRoot
+        } else {
+            BareTarget::External
+        }
     }
 }
 
@@ -288,10 +305,9 @@ impl ResolveContext {
         self.python.sole_package_parent(spec)
     }
 
-    /// Whether the absolute import `spec`, which no root resolved, could still
-    /// name code of this repository.
-    pub(crate) fn python_may_be_internal(&self, spec: &str) -> bool {
-        self.python.may_name_repository_code(spec)
+    /// What the absolute import `spec`, which no root resolved, names.
+    pub(crate) fn python_bare_target(&self, spec: &str) -> BareTarget {
+        self.python.repository_code(spec)
     }
 }
 

@@ -1,0 +1,438 @@
+{
+  "date": "2026-11-13",
+  "scope": "Exploratory local startup and existing connected-MCP observations; no successful live gh GitHub comparison",
+  "versions": {
+    "gh": "2.96.0",
+    "octocode": "20.2.0",
+    "node": "26.4.0"
+  },
+  "environment": {
+    "host": "macOS arm64",
+    "loadObserved": [
+      91.5,
+      80.98,
+      66.18
+    ],
+    "processInspection": "denied",
+    "memoryPressure": "unknown",
+    "ghNetwork": "blocked",
+    "ghAuthentication": "configured account validation failed",
+    "octocodeMcp": "available",
+    "nativeBuildProfile": "unverified",
+    "connectedMcpBinaryHash": "unknown"
+  },
+  "binaries": {
+    "native": {
+      "sha256": "80a66639a63a266bce97c6ff9592d2fe7f93bb3ea7bb3e9159d2876160c6058e",
+      "bytes": 264534176,
+      "mtime": "2026-11-12T22:54:21.555Z"
+    },
+    "gh": {
+      "sha256": "02d2d4a85241c6a8c0b77ebb1ec76fc723caf7fb128e00915b306b968847cba1",
+      "bytes": 38299474
+    },
+    "nodeLauncher": {
+      "sha256": "62094ac410d37ea37714b330393e9b8de413b37deaf69a45c219c2f41d8717e2",
+      "bytes": 23772,
+      "nativeArtifactBinding": "Unverified: the shared native stage was replaced before final inspection. Timings describe the observed Node launcher path, not isolated wrapper overhead."
+    },
+    "nativeStageAfterMeasurement": {
+      "inode": 511464828,
+      "mtime": "2026-11-12T23:50:35.901Z",
+      "bytes": 265893008
+    }
+  },
+  "startupMethod": {
+    "command": "--version",
+    "samplesPerArm": 5,
+    "order": "sequential; rotated arms per round",
+    "clock": "zsh TIMEFMT %E %U %S %M",
+    "clockResolutionMs": 10,
+    "rssUnit": "KiB as reported by zsh",
+    "excludedPilot": "Earlier overlapping pilot samples omitted",
+    "limitation": "Startup/exit only; RSS is shell-reported job peak, not synchronized process-tree RAM. Native profile unverified. No remote speed inference."
+  },
+  "startupSamples": [
+    {
+      "round": 1,
+      "name": "gh",
+      "status": 0,
+      "output": "gh version 2.96.0 (2026-07-02)\nhttps://github.com/cli/cli/releases/tag/v2.96.0\nreal_seconds=0.58s user_seconds=0.04s sys_seconds=0.08s max_rss_kib=38464",
+      "wallMs": 580,
+      "userMs": 40,
+      "systemMs": 80,
+      "maxRssKiB": 38464
+    },
+    {
+      "round": 1,
+      "name": "octocode-native",
+      "status": 0,
+      "output": "octocode 20.2.0\nreal_seconds=0.02s user_seconds=0.01s sys_seconds=0.01s max_rss_kib=12848",
+      "wallMs": 20,
+      "userMs": 10,
+      "systemMs": 10,
+      "maxRssKiB": 12848
+    },
+    {
+      "round": 1,
+      "name": "octocode-node-launcher",
+      "status": 0,
+      "output": "octocode 20.2.0\nreal_seconds=0.70s user_seconds=0.06s sys_seconds=0.03s max_rss_kib=48848",
+      "wallMs": 700,
+      "userMs": 60,
+      "systemMs": 30,
+      "maxRssKiB": 48848
+    },
+    {
+      "round": 2,
+      "name": "octocode-native",
+      "status": 0,
+      "output": "octocode 20.2.0\nreal_seconds=0.01s user_seconds=0.00s sys_seconds=0.00s max_rss_kib=12800",
+      "wallMs": 10,
+      "userMs": 0,
+      "systemMs": 0,
+      "maxRssKiB": 12800
+    },
+    {
+      "round": 2,
+      "name": "octocode-node-launcher",
+      "status": 0,
+      "output": "octocode 20.2.0\nreal_seconds=0.37s user_seconds=0.06s sys_seconds=0.03s max_rss_kib=48704",
+      "wallMs": 370,
+      "userMs": 60,
+      "systemMs": 30,
+      "maxRssKiB": 48704
+    },
+    {
+      "round": 2,
+      "name": "gh",
+      "status": 0,
+      "output": "gh version 2.96.0 (2026-07-02)\nhttps://github.com/cli/cli/releases/tag/v2.96.0\nreal_seconds=0.17s user_seconds=0.03s sys_seconds=0.05s max_rss_kib=38672",
+      "wallMs": 170,
+      "userMs": 30,
+      "systemMs": 50,
+      "maxRssKiB": 38672
+    },
+    {
+      "round": 3,
+      "name": "octocode-node-launcher",
+      "status": 0,
+      "output": "octocode 20.2.0\nreal_seconds=0.07s user_seconds=0.05s sys_seconds=0.02s max_rss_kib=48912",
+      "wallMs": 70,
+      "userMs": 50,
+      "systemMs": 20,
+      "maxRssKiB": 48912
+    },
+    {
+      "round": 3,
+      "name": "gh",
+      "status": 0,
+      "output": "gh version 2.96.0 (2026-07-02)\nhttps://github.com/cli/cli/releases/tag/v2.96.0\nreal_seconds=0.05s user_seconds=0.03s sys_seconds=0.02s max_rss_kib=37968",
+      "wallMs": 50,
+      "userMs": 30,
+      "systemMs": 20,
+      "maxRssKiB": 37968
+    },
+    {
+      "round": 3,
+      "name": "octocode-native",
+      "status": 0,
+      "output": "octocode 20.2.0\nreal_seconds=0.01s user_seconds=0.00s sys_seconds=0.00s max_rss_kib=12752",
+      "wallMs": 10,
+      "userMs": 0,
+      "systemMs": 0,
+      "maxRssKiB": 12752
+    },
+    {
+      "round": 4,
+      "name": "gh",
+      "status": 0,
+      "output": "gh version 2.96.0 (2026-07-02)\nhttps://github.com/cli/cli/releases/tag/v2.96.0\nreal_seconds=0.06s user_seconds=0.04s sys_seconds=0.02s max_rss_kib=38576",
+      "wallMs": 60,
+      "userMs": 40,
+      "systemMs": 20,
+      "maxRssKiB": 38576
+    },
+    {
+      "round": 4,
+      "name": "octocode-native",
+      "status": 0,
+      "output": "octocode 20.2.0\nreal_seconds=0.01s user_seconds=0.00s sys_seconds=0.00s max_rss_kib=12832",
+      "wallMs": 10,
+      "userMs": 0,
+      "systemMs": 0,
+      "maxRssKiB": 12832
+    },
+    {
+      "round": 4,
+      "name": "octocode-node-launcher",
+      "status": 0,
+      "output": "octocode 20.2.0\nreal_seconds=0.06s user_seconds=0.05s sys_seconds=0.02s max_rss_kib=49024",
+      "wallMs": 60,
+      "userMs": 50,
+      "systemMs": 20,
+      "maxRssKiB": 49024
+    },
+    {
+      "round": 5,
+      "name": "octocode-native",
+      "status": 0,
+      "output": "octocode 20.2.0\nreal_seconds=0.01s user_seconds=0.00s sys_seconds=0.00s max_rss_kib=12832",
+      "wallMs": 10,
+      "userMs": 0,
+      "systemMs": 0,
+      "maxRssKiB": 12832
+    },
+    {
+      "round": 5,
+      "name": "octocode-node-launcher",
+      "status": 0,
+      "output": "octocode 20.2.0\nreal_seconds=0.08s user_seconds=0.05s sys_seconds=0.02s max_rss_kib=48992",
+      "wallMs": 80,
+      "userMs": 50,
+      "systemMs": 20,
+      "maxRssKiB": 48992
+    },
+    {
+      "round": 5,
+      "name": "gh",
+      "status": 0,
+      "output": "gh version 2.96.0 (2026-07-02)\nhttps://github.com/cli/cli/releases/tag/v2.96.0\nreal_seconds=0.05s user_seconds=0.03s sys_seconds=0.02s max_rss_kib=37984",
+      "wallMs": 50,
+      "userMs": 30,
+      "systemMs": 20,
+      "maxRssKiB": 37984
+    }
+  ],
+  "mcpMethod": {
+    "transport": "existing connected Octocode MCP",
+    "duration": "end-to-end tool-call elapsed, includes RPC/admission/provider/runtime; decomposition unknown",
+    "coldness": "not established",
+    "chars": "raw content[0].text UTF-16 code units",
+    "bytes": "raw text UTF-8 bytes",
+    "limitation": "Not paired with gh; field projections change selected evidence; load/order/cache/rate admission confound time"
+  },
+  "mcpSamples": [
+    {
+      "name": "vite content page1",
+      "elapsedMs": 36534,
+      "chars": 1363,
+      "bytes": 1363,
+      "wrappedChars": 1568,
+      "scope": "files1-2 of7"
+    },
+    {
+      "name": "vite content page2",
+      "elapsedMs": 24028,
+      "chars": 1184,
+      "bytes": 1184,
+      "wrappedChars": 1369,
+      "scope": "files3-4 of7"
+    },
+    {
+      "name": "vite content page3",
+      "elapsedMs": 8541,
+      "chars": 778,
+      "bytes": 778,
+      "wrappedChars": 921,
+      "scope": "files5-6 of7"
+    },
+    {
+      "name": "vite content page4",
+      "elapsedMs": 3024,
+      "chars": 475,
+      "bytes": 475,
+      "wrappedChars": 588,
+      "scope": "file7, terminal"
+    },
+    {
+      "name": "vite paths page1",
+      "elapsedMs": 1204,
+      "chars": 743,
+      "bytes": 743,
+      "wrappedChars": 900,
+      "scope": "same first2 paths; later pages unread"
+    },
+    {
+      "name": "vite block first observed",
+      "elapsedMs": 1420,
+      "chars": 718,
+      "bytes": 718,
+      "wrappedChars": 859,
+      "scope": "complete lines506-510"
+    },
+    {
+      "name": "vite block repeat",
+      "elapsedMs": 263,
+      "chars": 718,
+      "bytes": 718,
+      "wrappedChars": 859,
+      "scope": "identical complete block"
+    },
+    {
+      "name": "cargo paths page1",
+      "elapsedMs": 8721,
+      "chars": 676,
+      "bytes": 676,
+      "wrappedChars": 829,
+      "scope": "first2 of25; later pages unread"
+    },
+    {
+      "name": "cargo pinned lines",
+      "elapsedMs": 3606,
+      "chars": 777,
+      "bytes": 777,
+      "wrappedChars": 918,
+      "scope": "complete selected lines1-12"
+    },
+    {
+      "name": "cargo exact-file Workspace",
+      "elapsedMs": 1855,
+      "chars": 1743,
+      "bytes": 1745,
+      "wrappedChars": 1940,
+      "scope": "one file,13 global-line matches; complete"
+    },
+    {
+      "name": "cargo emitted function block",
+      "elapsedMs": 19451,
+      "chars": 2604,
+      "bytes": 2604,
+      "wrappedChars": 2839,
+      "scope": "complete function178-226 plus doc177"
+    }
+  ],
+  "mcpInputs": {
+    "viteSearch": {
+      "queries": [
+        {
+          "owner": "vitejs",
+          "repo": "vite",
+          "keywords": [
+            "createServer"
+          ],
+          "path": "packages/vite/src/node/server",
+          "limit": 2
+        }
+      ],
+      "responseChars": 7000
+    },
+    "vitePaths": {
+      "queries": [
+        {
+          "owner": "vitejs",
+          "repo": "vite",
+          "keywords": [
+            "createServer"
+          ],
+          "path": "packages/vite/src/node/server",
+          "limit": 2,
+          "fields": [
+            "path"
+          ]
+        }
+      ],
+      "responseChars": 7000
+    },
+    "viteBlock": {
+      "queries": [
+        {
+          "owner": "vitejs",
+          "repo": "vite",
+          "ref": "61622b8df68b7a8e657caa6f98d9b70069643abf",
+          "path": "packages/vite/src/node/server/index.ts",
+          "block": true,
+          "matchString": [
+            "export function createServer("
+          ]
+        }
+      ],
+      "responseChars": 5000
+    },
+    "cargoPaths": {
+      "queries": [
+        {
+          "owner": "rust-lang",
+          "repo": "cargo",
+          "keywords": [
+            "Workspace"
+          ],
+          "path": "src/compiler",
+          "limit": 2,
+          "fields": [
+            "path"
+          ]
+        }
+      ],
+      "responseChars": 5000
+    },
+    "cargoLines": {
+      "queries": [
+        {
+          "owner": "rust-lang",
+          "repo": "cargo",
+          "ref": "cc00aa41d556e87fd062adf7a8660f1cbc142c42",
+          "path": "src/compiler/trim_paths.rs",
+          "ranges": [
+            {
+              "startLine": 1,
+              "endLine": 12
+            }
+          ]
+        }
+      ],
+      "responseChars": 5000
+    },
+    "cargoExactSearch": {
+      "queries": [
+        {
+          "owner": "rust-lang",
+          "repo": "cargo",
+          "keywords": [
+            "Workspace"
+          ],
+          "path": "src/compiler/trim_paths.rs"
+        }
+      ],
+      "responseChars": 5000
+    },
+    "cargoEmittedBlock": {
+      "queries": [
+        {
+          "owner": "rust-lang",
+          "repo": "cargo",
+          "ref": "cc00aa41d556e87fd062adf7a8660f1cbc142c42",
+          "path": "src/compiler/trim_paths.rs",
+          "block": true,
+          "matchString": [
+            "fn workspace_remap(build_runner: &BuildRunner<'_, '_>, unit: &Unit) -> Vec<RemapPair> {"
+          ]
+        }
+      ]
+    }
+  },
+  "counterfactualNavigation": {
+    "viteBlock": {
+      "observedChars": 718,
+      "withoutOptionalHistoryPropertyEstimatedChars": 445,
+      "numberedContentChars": 187,
+      "unnumberedSourceChars": 167,
+      "optionalRelatedArraySerializedChars": 262
+    },
+    "implemented": false,
+    "limitation": "Estimated serialization reduction only. Navigation may lower agent effort; retained pending equal-quality workflow evidence."
+  },
+  "remoteGhSamples": [],
+  "verification": {
+    "guardTests": {
+      "root": "6 passed in4.028s",
+      "independent": "6 passed in4.621s"
+    },
+    "nativeTests": "First focused compile failed with E0599 in concurrent lsp_search/syntax/facts.rs:136. Retry after source changed queued on Cargo lock; no native passing count claimed.",
+    "nativeBuild": "No completed rebuilt host binary; fresh CLI/MCP acceptance remains blocked by the compile failure.",
+    "sameEnvironmentRemoteComparison": "blocked",
+    "formatting": "Pinned rustfmt --check passed for all 11 native files changed this turn.",
+    "documentation": "Initial docs:verify passed; latest run failed on four ignored-log links in concurrent2026-11-13-performance-cache-audit.md, outside this turn ownership.",
+    "whitespace": "git diff --check passed for this turn changes and artifacts."
+  }
+}

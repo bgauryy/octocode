@@ -158,32 +158,4 @@ Percentiles do not average: p99 across hosts comes from merged histograms or ske
 | Reprocessing and replay | Rebuild derived state from the log | Needs retention, deterministic transforms and idempotent sinks |
 | Reconciliation | Compare data between systems | Schedule it; it catches what every other check missed |
 
-## Data management practices
-
-| Area | Practice |
-|---|---|
-| Schema design | Normalization, deliberate denormalization, constraints |
-| Index design | Composite, covering, partial and expression indexes |
-| Data lifecycle | Retention, TTL, archival, deletion |
-| Reliability | Backups, restore tests, replication |
-| Consistency | Transactions, MVCC, conflict resolution |
-| Scalability | Partitioning, sharding, batching |
-| Observability | Query plans, latency, cache hit rate |
-| Security | Access controls, encryption, audit logs |
-| Data quality | Validation, uniqueness, reconciliation |
-| Evolution | Online schema migrations, versioning |
-
-## Rules worth remembering
-
-1. Measure before optimizing: query plans, p95/p99 latency, CPU, memory and I/O.
-2. Index access patterns, not every column: indexes cost storage and write overhead.
-3. Know the workload: read-heavy, write-heavy and analytical systems need different designs.
-4. Use approximate algorithms deliberately, with an accepted error rate.
-5. Design cache invalidation explicitly, with freshness and consistency requirements.
-6. Assume retries and duplicates: make distributed mutations idempotent.
-7. Measure read, write and space amplification in storage engines.
-8. Plan for growth: skew, hot keys, cardinality and partition rebalancing.
-9. Protect correctness first: constraints, transactions, checksums and recovery procedures.
-10. Benchmark realistic data: production-like distributions and concurrent access.
-
-Foundations worth mastering first: hash maps, B+ trees, inverted indexes, LSM trees, Bloom filters, LRU/LFU, consistent hashing, MVCC, WAL and Raft. Together they explain much of how databases and backend infrastructure work.
+For schema and index choices, use [data structures](data-structures.md); for access control and operational checks, use [systems and delivery](systems-and-delivery.md). Benchmark with realistic skew, hot keys, cardinality and concurrency; verify the affected invariants before accepting a gain.

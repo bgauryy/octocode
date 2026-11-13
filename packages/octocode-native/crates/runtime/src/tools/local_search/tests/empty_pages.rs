@@ -51,6 +51,39 @@ fn invalid_regex_and_unknown_file_type_fail_without_reinterpreting_the_request()
     }
 }
 
+/// List validation reports exactly the error of the first invalid entry,
+/// under every view and regex dialect, without exposing a joined pattern.
+#[test]
+fn pattern_lists_report_the_first_invalid_entry() {
+    let root = tempfile::tempdir().expect("fixture");
+    let (policy, security) = policy_for(root.path());
+    for engine in ["rust", "pcre2"] {
+        for view in ["content", "files", "matchOnly"] {
+            for (terms, invalid) in [
+                (["valid", "["], "["),
+                (["(", "["], "("),
+                (["valid", "one\ntwo"], "one\ntwo"),
+            ] {
+                let query = |terms: Vec<&str>| {
+                    ls_query(
+                        serde_json::json!({
+                            "path": root.path(), "matchString": terms,
+                            "regexEngine": engine, "view": view,
+                        }),
+                        None,
+                    )
+                };
+                let list = search_in(&query(terms.to_vec()), &policy, &security, None)
+                    .expect_err("invalid list entry");
+                let single = search_in(&query(vec![invalid]), &policy, &security, None)
+                    .expect_err("invalid single entry");
+                assert_eq!(list.code, ErrorCode::InvalidPattern);
+                assert_eq!(list.message, single.message, "{engine} {view} {terms:?}");
+            }
+        }
+    }
+}
+
 #[test]
 fn file_terms_filter_the_whole_file_and_preserve_an_empty_result() {
     let files = [

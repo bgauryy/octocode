@@ -34,12 +34,10 @@ Package continuations are `{tool, query}`. Relative continuation and search path
 
 Calls serialize within one server. Separate servers must coordinate a shared tab. An MCP cancellation notification aborts active engine execution and rejects queued calls before they launch. Captured partial logs survive cancellation; an in-flight mutation remains uncertain. Explicit engine deadlines also bound calls. Retry per [bounded retry](recovery.md#bounded-retry).
 
-Maintainers use `yarn workspace @octocodeai/octocode-chrome-devtools build` and `verify`. The build bundles `octocode-mcp-cli` once and refreshes shared config; the extracted archive needs no runtime dependencies. The protocol suite's `--transport legacy|mcp|typed-cli` runs the same real-browser assertions through all interfaces. Extracted-package tests check actual npm archive contents and stdio operation outside the repository.
+Maintainers use `yarn workspace @octocodeai/octocode-chrome-devtools build` and `verify`. The build bundles `octocode-mcp-cli` once and refreshes shared config; the extracted archive needs no runtime dependencies. Real-browser behavior, across MCP, the typed CLI and the raw engine CLI, and the extracted archive are checked by hand from the README's browser checklist.
 
 Next: steps, event references and sessions → [browser execution](browser-execution.md); failed target/request → [recovery](recovery.md).
 
 For repeated calls, keep one MCP client connected to the same server and workspace, then close it when the task ends. Reconnecting for each call repeats server initialization. Calls still serialize, and each browser operation runs its bounded engine; a persistent client does not create a browser daemon or relax cancellation and ownership boundaries.
 
 Typed query predicates reject numeric integers outside the safe JavaScript integer range. Use an integer string such as `"9007199254740993"` for exact comparisons. Raw helper predicate JSON preserves original numeric lexemes. Returned numeric-filter continuations use legacy `args` to preserve those lexemes; copy the whole continuation unchanged.
-
-Maintainers can reproduce client/page-size comparisons with `node packages/octocode-chrome-devtools/tools/persistent-client-benchmark.mjs <absolute-result-directory>` from the repository root. It records the frozen contract, exact calls, complete evidence digests, guardrail results, setup/operation timing and runtime fingerprints. This scripted comparison measures the specified workload; autonomous quality and billed usage require separate evaluation.

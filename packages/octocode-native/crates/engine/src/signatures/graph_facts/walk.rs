@@ -134,14 +134,19 @@ pub(super) fn visit_node(
         }
         if rust {
             context.unsupported |= rust_inner_unsupported_among(&children, content);
+            let owned = (!context.test)
+                .then(|| super::rust::owned_test_start(kind, &children, content))
+                .flatten();
             if !context.test
                 && (context.attributes.cfg_test
+                    || owned.is_some()
                     || super::rust_cfg::inner_cfg_requires_test_among(&children, content))
             {
                 let range = line_index.range(node);
                 let start = context
                     .attributes
                     .line_start
+                    .or(owned)
                     .map_or(range.start.line, |at| line_index.position(at).line);
                 acc.test_lines.push([start + 1, range.end.line + 1]);
                 context.test = true;

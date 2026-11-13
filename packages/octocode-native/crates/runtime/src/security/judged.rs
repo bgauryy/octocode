@@ -179,7 +179,7 @@ fn digest(text: &str) -> [u8; 32] {
 mod text;
 #[cfg(test)]
 pub(crate) use text::scanned_on_this_thread;
-pub(crate) use text::{JudgedFiles, JudgedText, WholePass, searched_text};
+pub(crate) use text::{JudgedFiles, JudgedText, WholePass, meets_written, searched_text};
 
 #[cfg(test)]
 mod tests;

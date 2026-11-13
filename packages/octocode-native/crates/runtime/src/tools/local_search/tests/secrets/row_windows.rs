@@ -65,7 +65,11 @@ fn a_hit_in_a_line_too_long_for_a_row_is_a_window_placed_by_its_column() {
         serde_json::json!([{"startLine":2,"endLine":2}]),
         "{found}"
     );
-    assert!(found.to_string().len() < 1_000, "{}", found.to_string().len());
+    assert!(
+        found.to_string().len() < 1_000,
+        "{}",
+        found.to_string().len()
+    );
 }
 
 #[test]
@@ -82,8 +86,18 @@ fn every_hit_of_the_line_is_in_one_window_and_far_hits_have_their_own() {
     assert_eq!(found["matchedLineCount"], 1);
     let first = filler.len();
     assert_eq!(rows[0]["column"], first + 1);
-    assert_eq!(rows[0]["value"].as_str().expect("value").matches("needle").count(), 2);
-    assert_eq!(rows[1]["column"], first + "needle;needle".len() + filler.len() + 1);
+    assert_eq!(
+        rows[0]["value"]
+            .as_str()
+            .expect("value")
+            .matches("needle")
+            .count(),
+        2
+    );
+    assert_eq!(
+        rows[1]["column"],
+        first + "needle;needle".len() + filler.len() + 1
+    );
 }
 
 #[test]
@@ -151,7 +165,11 @@ fn a_window_row_stands_alone_among_context_blocks() {
     assert_eq!(value, &line[hit - MARGIN..hit + "needle".len() + MARGIN]);
     assert_eq!(window["column"], hit + 1);
     // No other row carries the long line as its context.
-    assert!(found.to_string().len() < 2_000, "{}", found.to_string().len());
+    assert!(
+        found.to_string().len() < 2_000,
+        "{}",
+        found.to_string().len()
+    );
 }
 
 /// Window rows keep their place and column on every page of a stored scan,

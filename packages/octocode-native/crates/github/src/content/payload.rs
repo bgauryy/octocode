@@ -21,6 +21,17 @@ pub(super) fn parse_content_payload(
     let payload: ContentPayload = serde_json::from_value(value).map_err(|_| {
         ProviderError::new(ProviderErrorKind::Decode, "invalid GitHub content response")
     })?;
+    if payload.is_submodule() {
+        return Err(not_a_file(match payload.submodule_git_url.as_deref() {
+            Some(url) => format!(
+                "Path \"{path}\" is a git submodule ({url}); read files from the submodule repository instead."
+            ),
+            None => format!(
+                "Path \"{path}\" is a git submodule; read files from the submodule repository instead."
+            ),
+        })
+        .with_reason(crate::ProviderErrorReason::Submodule));
+    }
     match payload.kind.as_deref() {
         Some("file") => Ok(payload),
         Some("dir") => Err(is_a_directory(path)),
@@ -30,15 +41,6 @@ pub(super) fn parse_content_payload(
             ),
             None => format!("Path \"{path}\" is a symlink; read its target path instead."),
         })),
-        Some("submodule") => Err(not_a_file(match payload.submodule_git_url.as_deref() {
-            Some(url) => format!(
-                "Path \"{path}\" is a git submodule ({url}); read files from the submodule repository instead."
-            ),
-            None => format!(
-                "Path \"{path}\" is a git submodule; read files from the submodule repository instead."
-            ),
-        })
-        .with_reason(crate::ProviderErrorReason::Submodule)),
         _ => Err(not_a_file(format!("GitHub path \"{path}\" is not a file"))),
     }
 }
@@ -67,6 +69,12 @@ pub(super) struct ContentPayload {
     #[serde(default)]
     pub(super) submodule_git_url: Option<String>,
 }
+
+impl ContentPayload {
+    pub(super) fn is_submodule(&self) -> bool {
+        self.kind.as_deref() == Some("submodule") || self.submodule_git_url.is_some()
+    }
+}
 #[derive(Deserialize)]
 pub(super) struct DirectoryEntry {
     pub(super) name: String,
@@ -81,13 +89,16 @@ pub fn decode_content(
     encoding: Option<&str>,
     content: Option<String>,
 ) -> Result<Vec<u8>, ProviderError> {
+    let content = content.ok_or_else(|| {
+        ProviderError::new(ProviderErrorKind::Decode, "GitHub file content is missing")
+    })?;
     let bytes = match encoding {
         Some("base64") => STANDARD
-            .decode(content.unwrap_or_default().replace(['\r', '\n'], ""))
+            .decode(content.replace(['\r', '\n'], ""))
             .map_err(|_| {
                 ProviderError::new(ProviderErrorKind::Decode, "invalid base64 file content")
             })?,
-        Some("utf-8") => content.unwrap_or_default().into_bytes(),
+        Some("utf-8") => content.into_bytes(),
         _ => {
             return Err(ProviderError::new(
                 ProviderErrorKind::Decode,
@@ -97,3 +108,6 @@ pub fn decode_content(
     };
     Ok(bytes)
 }
+
+#[cfg(test)]
+mod tests;

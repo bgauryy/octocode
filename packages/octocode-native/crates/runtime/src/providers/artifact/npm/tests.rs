@@ -508,9 +508,11 @@ async fn an_unread_packument_date_is_disclosed_on_the_row() {
     let item = &page.artifacts[0];
     assert_eq!(item.published_at, None);
     assert!(
-        item.disclosures.iter().any(|said| said.contains("zod 1.2.0")
-            && said.contains("publish date")
-            && said.contains("packument")),
+        item.disclosures
+            .iter()
+            .any(|said| said.contains("zod 1.2.0")
+                && said.contains("publish date")
+                && said.contains("packument")),
         "{:?}",
         item.disclosures
     );

@@ -45,6 +45,9 @@ pub(super) struct WindowStart {
     pub(super) base: usize,
     /// The first line the window holds bytes of.
     pub(super) line: usize,
+    /// Bytes of that line before the window's first byte: a window a byte page
+    /// cut inside a line holds only the rest of it.
+    pub(super) lead: usize,
 }
 
 /// A stretch of a window that is one run of source bytes, or text of ours.
@@ -192,6 +195,7 @@ impl Held {
             self.start = Some(WindowStart {
                 base: start + skip,
                 line,
+                lead: (start + skip).saturating_sub(self.line_view_start),
             });
         }
         let piece = &bytes[skip..];

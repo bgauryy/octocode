@@ -241,11 +241,12 @@ jobs:
       - name: Script tests
         run: yarn workspace @octocodeai/octocode-native test:scripts
 
-  # End-to-end tool health (dev.mjs test:tools): every tool through the built CLI
-  # and MCP server against hermetic fixtures and a loopback mock. It needs the
-  # native binary, so it runs after the native job passes, on its own build.
-  e2e:
-    name: E2E tool health (${{ matrix.runner }})
+  # The native package's Node tests against a real debug build (package exports,
+  # platform resolution and staging). It needs the native binary, so it runs
+  # after the native job passes, on its own build. Tool behavior is checked by
+  # an agent (skills-dev/octocode-dev/references/tool-checks.md), not here.
+  native-node:
+    name: Native Node tests (${{ matrix.runner }})
     needs: native
     strategy:
       fail-fast: false
@@ -270,5 +271,3 @@ jobs:
       # Package exports, platform resolution and staging, against the build above.
       - name: Native Node tests
         run: yarn workspace @octocodeai/octocode-native test:node
-      - name: Tool health
-        run: node skills-dev/octocode-dev/scripts/dev.mjs test:tools

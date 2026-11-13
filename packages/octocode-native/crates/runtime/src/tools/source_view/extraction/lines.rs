@@ -16,6 +16,11 @@ impl LineOffsets {
         self.0.len() - 1
     }
 
+    /// Bytes kept by this index, including spare capacity in its table.
+    pub(in crate::tools::source_view) fn weight(&self) -> usize {
+        std::mem::size_of::<Self>() + self.0.capacity() * std::mem::size_of::<usize>()
+    }
+
     pub(in crate::tools::source_view) fn start(&self, line: usize) -> usize {
         self.0[line]
     }
@@ -55,6 +60,11 @@ mod tests {
             let offsets = LineOffsets::new(source);
             let expected = source.split_inclusive('\n').collect::<Vec<_>>();
             assert_eq!(offsets.len(), expected.len(), "{source:?}");
+            assert!(
+                offsets.weight()
+                    >= std::mem::size_of::<LineOffsets>()
+                        + (expected.len() + 1) * std::mem::size_of::<usize>()
+            );
             for first in 1..=expected.len() {
                 for last in first..=expected.len() {
                     assert_eq!(

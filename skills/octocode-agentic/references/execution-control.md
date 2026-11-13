@@ -13,29 +13,9 @@ Load when setting loop limits, detecting stalls or repetition, defining stop con
 
 ## Controls
 
-| Control | Why |
-|---|---|
-| Max steps | Prevent infinite action loops |
-| Max tool calls | Bound external operations |
-| Max token budget | Control model usage |
-| Max cost | Control financial exposure |
-| Deadline | Bound end-to-end duration |
-| Retry budget | Prevent repeated failures |
-| Delegation depth | Avoid recursive agent explosions |
-| Concurrency limit | Protect external systems |
-| Progress detection | Detect repeated nonproductive behavior |
-| No-progress counter | Trigger escalation or termination |
-| Cancellation propagation | Stop unneeded downstream work |
-| Checkpointing | Keep recoverable state |
-| Circuit breaker | Stop calling a repeatedly failing service |
-| Approval gate | Control consequential mutations |
-| Completion criteria | Define objective success |
-
-Budgets are safety boundaries. Evidence, not an arbitrary call count, decides whether more work is useful.
+Set authorized cost, token, time and concurrency boundaries where the workload needs them; track cancellation, checkpoints, retry safety and completion. Budgets bound exposure; evidence decides whether more work is useful. A fixed iteration count alone cannot distinguish progress from repetition.
 
 ## Loop types
-
-`max_iterations = 20` is not loop control. The agent must recognize progress, repetition, a failed hypothesis and unnecessary work.
 
 | Loop | Example | Policy |
 |---|---|---|
@@ -63,22 +43,7 @@ Progress signals:
 
 A larger output payload is not progress.
 
-```python
-def should_continue(state, budget):
-    if state.acceptance_criteria_met:
-        return False
-    if not budget.available():
-        return False
-    if state.identical_action_count >= 2:
-        return False
-    if state.no_progress_steps >= 3:
-        return False
-    if state.has_unrecoverable_error:
-        return False
-    return True
-```
-
-The thresholds are illustrative. Distinguish harmless repeated reads from non-idempotent writes in retry policy, and prefer changing strategy over terminating when a loop stalls but the task is still reachable.
+Continue while a new observation or action can advance acceptance within scope and budget. On repeated unchanged results, classify the failure and change strategy. Repeated reads differ from non-idempotent writes: reconcile uncertain effects before retrying; do not stop reachable useful work merely because a counter elapsed.
 
 ## Stop conditions
 
@@ -92,38 +57,9 @@ The thresholds are illustrative. Distinguish harmless repeated reads from non-id
 
 If an operation can be a reliable deterministic program, use the program. The agent decides when to run it, with which inputs, and what its output means.
 
-| Task | Executor |
-|---|---|
-| Count files, symbols or dependencies | Script |
-| Parse JSON, YAML or source AST | Parser or script |
-| Graph metrics, dependency cycles | Graph algorithm |
-| Exact symbol references | LSP or indexer |
-| Compare two schemas | Schema diff tool |
-| Formatting | Formatter |
-| Code defects | Static analyzer |
-| Unit and integration tests | Test runner |
-| Performance statistics | Script |
-| Validate generated output | Schema validator |
-| Which architectural concern matters | Agent |
-| Competing debugging hypotheses | Agent |
-| Next investigation | Agent |
-| Migration trade-offs | Agent |
-| Explaining findings to an engineer | Agent |
-| A missing analysis script | Agent writes it, then runs and validates it |
+Use tested parsers, LSP/indexers, graph algorithms, schema validators, formatters, analyzers, test runners and profilers for exact work. The agent chooses the question, inputs, permissions and acceptance, then interprets the structured result and provenance. Write reusable automation only when an existing tool does not cover the need, and run it to validate behavior.
 
-| Stage | Owner / result |
-|---|---|
-| Decide what to measure, check or change | Agent: goal and acceptance |
-| Select tested automation, or create it for an uncovered need | Agent: inputs and permissions |
-| Parse, compile, test, calculate graph metrics or query | Deterministic executor |
-| Return counts, findings, errors, provenance and references | Structured result and artifact |
-| Interpret, verify and choose the next action | Agent |
-
-Scripts give reproducible, testable behavior, exact arithmetic and enumeration, lower cost for repeated work, transparent failures, reusable results and no fabricated counts or skipped cases.
-
-They do not resolve ambiguous intent, choose between conflicting goals, or prove a design appropriate. Generated scripts can be buggy: for destructive operations validate inputs, constrain permissions, inspect effects and get approval first.
-
-Rule: existing tested script first, a new script when worthwhile, model reasoning for decisions that cannot reliably become deterministic processing.
+Scripts do not resolve ambiguous intent or prove a design appropriate. For destructive operations validate inputs, constrain permissions, inspect effects and obtain the applicable authorization.
 
 ## Patchy behavior
 

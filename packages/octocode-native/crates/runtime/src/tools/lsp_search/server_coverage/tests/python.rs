@@ -22,13 +22,10 @@ fn python_incoming_rows_name_dynamic_dispatch_and_offer_text_search() {
     assert_eq!(row["partialReasons"], json!([DYNAMIC_REASON]), "{row}");
     assert!(row["coverage"].get("reason").is_none(), "{row}");
     assert_eq!(row["isPartial"], true, "{row}");
-    // The inference limit reads the same on every page: a notice.
-    assert_eq!(row["notices"], json!([PYTHON_WARNING]), "{row}");
-    assert!(
-        !PYTHON_WARNING.contains("hints.findText"),
-        "{PYTHON_WARNING}"
-    );
+    // The code is the whole statement: what it means is core's, said once.
+    assert!(row.get("notices").is_none(), "{row}");
     assert!(row.get("warnings").is_none(), "{row}");
+    crate::tools::test_support::checks::assert_no_reason_meaning(&row);
     assert_eq!(
         crate::tools::test_support::checks::related_call(&row, "localSearch", |_| true)["tool"],
         "localSearch",
@@ -110,11 +107,8 @@ async fn python_misses_name_unresolved_imports_apart_from_dynamic_dispatch() {
         json!([UNRESOLVED_IMPORT_REASON]),
         "{imported}"
     );
-    assert_eq!(
-        imported["notices"],
-        json!([UNRESOLVED_IMPORT_NOTE]),
-        "{imported}"
-    );
+    assert!(imported.get("notices").is_none(), "{imported}");
+    crate::tools::test_support::checks::assert_no_reason_meaning(&imported);
     let both = row_for(&root, &["summary.py", "dynamic.py"]).await;
     assert_eq!(
         both["partialReasons"],
@@ -127,7 +121,8 @@ async fn python_misses_name_unresolved_imports_apart_from_dynamic_dispatch() {
         json!([DYNAMIC_REASON]),
         "{dynamic}"
     );
-    assert_eq!(dynamic["notices"], json!([PYTHON_WARNING]), "{dynamic}");
+    assert!(dynamic.get("notices").is_none(), "{dynamic}");
+    crate::tools::test_support::checks::assert_no_reason_meaning(&dynamic);
 }
 
 /// A workspace symbol is a declaration the server found: no use of it is

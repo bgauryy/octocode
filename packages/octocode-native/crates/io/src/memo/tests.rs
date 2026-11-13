@@ -14,6 +14,80 @@ macro_rules! budget {
     }};
 }
 
+/// Destructors can call back into a memo. Probe its lock without blocking, so
+/// a regression fails deterministically instead of hanging the test process.
+#[test]
+fn removal_paths_drop_values_after_releasing_the_memo_lock() {
+    use std::sync::{Mutex, Weak};
+
+    struct Probe {
+        memo: Weak<Memo<&'static str, Self>>,
+        observations: Arc<Mutex<Vec<bool>>>,
+    }
+    impl Drop for Probe {
+        fn drop(&mut self) {
+            if let Some(memo) = self.memo.upgrade() {
+                let unlocked = memo.inner.get().unwrap().try_lock().is_ok();
+                self.observations.lock().unwrap().push(unlocked);
+            }
+        }
+    }
+
+    for operation in [
+        "expired read",
+        "replacement",
+        "oversized replacement",
+        "expired replacement",
+        "remove",
+        "memo clear",
+        "budget clear",
+        "budget eviction",
+        "sweep",
+    ] {
+        let budget = budget!(8);
+        let memo = Arc::new(Memo::new(budget));
+        let observations = Arc::new(Mutex::new(Vec::new()));
+        let probe = |observed| Probe {
+            memo: if observed {
+                Arc::downgrade(&memo)
+            } else {
+                Weak::new()
+            },
+            observations: Arc::clone(&observations),
+        };
+        let start = Instant::now();
+        let ttl = Duration::from_secs(600);
+        let (_, kept) = memo.insert_full("key", probe(true), (), 1, Some(ttl), start);
+        assert!(kept);
+        match operation {
+            "expired read" => assert!(memo.get_at("key", start + ttl).is_none()),
+            "replacement" => {
+                memo.insert("key", probe(false), 1, None);
+            }
+            "oversized replacement" => {
+                assert!(!memo.insert("key", probe(false), budget.limit() + 1, None).1);
+            }
+            "expired replacement" => {
+                assert!(!memo.insert("key", probe(false), 1, Some(Duration::ZERO)).1);
+            }
+            "remove" => memo.remove("key"),
+            "memo clear" => memo.clear(),
+            "budget clear" => budget.clear(),
+            "budget eviction" => {
+                drop(budget.reserve(budget.limit()).unwrap());
+            }
+            "sweep" => {
+                budget.sweep(start + ttl);
+            }
+            _ => unreachable!(),
+        }
+        assert_eq!(*observations.lock().unwrap(), [true], "{operation}");
+        assert_eq!(memo.contents().1, budget.used(), "{operation}: accounting");
+        memo.clear();
+        assert_eq!(budget.used(), 0);
+    }
+}
+
 #[test]
 fn clear_empties_live_memos_and_dropped_ones_free_their_bytes() {
     let budget = budget!(10);
@@ -322,6 +396,65 @@ fn concurrent_charges_keep_totals_exact() {
     assert_eq!(charged, 4000);
     assert_eq!(memo.contents().1, 1 + 3 * charged);
     assert_eq!(budget.used(), 1 + 3 * charged);
+}
+
+/// Different memos hold different locks. Synchronize their entry lookups so
+/// both ask for the budget's last bytes together, rather than relying on a
+/// scheduler to expose a check-then-charge race.
+#[test]
+fn concurrent_charges_on_distinct_memos_cannot_exceed_the_shared_budget() {
+    use std::cell::RefCell;
+    use std::hash::{Hash, Hasher};
+    use std::sync::Barrier;
+
+    thread_local! {
+        static LOOKUP_GATE: RefCell<Option<Arc<Barrier>>> = const { RefCell::new(None) };
+    }
+    #[derive(Clone, Eq, PartialEq, Ord, PartialOrd)]
+    struct Key;
+    impl Hash for Key {
+        fn hash<H: Hasher>(&self, state: &mut H) {
+            LOOKUP_GATE.with_borrow(|gate| {
+                if let Some(gate) = gate {
+                    gate.wait();
+                }
+            });
+            0_u8.hash(state);
+        }
+    }
+
+    let budget = budget!(10);
+    let first = Memo::<Key, u8>::new(budget);
+    let second = Memo::<Key, u8>::new(budget);
+    first.insert(Key, 1, 1, None);
+    second.insert(Key, 2, 1, None);
+    let extra = budget.limit() - budget.used();
+    let gate = Arc::new(Barrier::new(2));
+    let charge = |memo: &Memo<Key, u8>| {
+        LOOKUP_GATE.with_borrow_mut(|slot| *slot = Some(Arc::clone(&gate)));
+        memo.charge(&Key, extra)
+    };
+    let accepted = std::thread::scope(|scope| {
+        let a = scope.spawn(|| charge(&first));
+        let b = scope.spawn(|| charge(&second));
+        usize::from(a.join().expect("first charge")) + usize::from(b.join().expect("second charge"))
+    });
+    assert_eq!(accepted, 1, "only one memo can claim the remaining bytes");
+    assert_eq!(budget.used(), budget.limit());
+    assert_eq!(first.contents().1 + second.contents().1, budget.used());
+}
+
+#[test]
+fn an_insert_evicted_by_live_reservations_reports_that_it_was_not_kept() {
+    let budget = budget!(10);
+    let memo = Memo::<&str, u8>::new(budget);
+    let held = budget
+        .reserve(budget.limit())
+        .expect("reserve whole budget");
+    let (_, kept) = memo.insert("evicted", 1, 1, None);
+    assert!(!kept, "an insertion evicted during reclaim was not kept");
+    assert!(memo.get("evicted").is_none());
+    assert_eq!(budget.used(), held.bytes());
 }
 
 #[test]

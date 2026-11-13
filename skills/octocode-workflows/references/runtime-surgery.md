@@ -1,8 +1,8 @@
-Load when a running feature must be improved with separate code/architecture and runtime actors.
+Load when a feature change must be built, activated and checked through its running interface.
 
 # Runtime surgery
 
-The orchestrator selects one feature at a time, owns authority and the ledger, and assigns the code/architecture actor and runtime actor. No actor recursively spawns. If the runtime role cannot access the decisive process/interface, report the execution limitation.
+The orchestrator selects one feature at a time and owns authority and the ledger. Assign source/build and runtime duties explicitly; one agent may perform them sequentially, but this is not an independent check. If the runtime owner cannot access the decisive process/interface, report that limitation. Workers do not expand the team without the orchestrator.
 
 | Actor | Owns | Returns |
 |---|---|---|
@@ -17,26 +17,9 @@ The orchestrator selects one feature at a time, owns authority and the ledger, a
 | Receive a live handoff | Check endpoint and artifact identity. | Delivery alone proves no process lifetime. |
 | Process missing | Reconcile endpoint, process, artifact and durable state before acting. | Never assume prior state survives or stop a remembered/stale PID. |
 
-```mermaid
-flowchart LR
-  F[Orchestrator frames feature and row] --> R[Runtime actor establishes baseline]
-  R --> Q{Baseline meets acceptance?}
-  Q -- yes --> M
-  Q -- no --> C[Code actor proves boundary]
-  C --> B[Code actor changes and builds]
-  B --> A[Runtime actor activates and asserts identity]
-  A -- identity matches --> P[Runtime actor restores state and replays]
-  P --> M[Orchestrator merges acceptance]
-  A -- unknown or mismatch --> D[Orchestrator diagnoses evidence]
-  M -- failure --> D
-  D -- activation or identity cause --> A
-  D -- behavioral cause --> C
-  D -- missing prerequisite --> H[Report unverified row]
-```
-
 1. Agree a Task contract for the feature: inputs (checkout, baseline including uncommitted work, endpoint, configuration, scenario, build-to-process route) and Definition of Done (the acceptance condition). Use `octocode-agentic` coordination for separate identities, leases, durable requests, and completion.
 2. Runtime actor captures exact inputs, durable state, expected/actual output, process/build identity, and error/exit evidence through the real interface. If the baseline already meets the acceptance condition, it returns that observation for orchestrator acceptance without an edit. It returns a ledger-row observation, not a verdict.
-3. Code actor owns source research, proven boundary, authorized edit, and build request. It uses Research's exact reads/AST/LSP semantics and Architect's Frame → Model → Prove → Change → Verify, including strongest rival and distinguishing check. It sends only ready build identities and replay instructions.
+3. Code actor owns source research, proven boundary, authorized edit, and build request. Use exact reads and AST/LSP identity checks; prove the owning boundary with the strongest rival and a distinguishing check before changing it. It sends only ready build identities and replay instructions.
 4. Runtime actor uses the [identity guard](verification.md#automatically-check-artifact-identity), establishes the actual loaded build, restores required state, and repeats the same acceptance and material edge checks.
 5. Orchestrator merges the result and diagnoses failure before assigning another action. An identity mismatch or unknown identity repairs activation and identity proof first, never triggers a behavioral patch by itself. A timeout, expired request, or unavailable partner is not acceptance; follow [recovery](verification.md#diagnose-and-replan-from-evidence) and inspect durable effects before any repeated mutation.
 

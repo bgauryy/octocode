@@ -1,6 +1,6 @@
 ---
 name: rust-best-practices
-description: "Use when implementing, debugging, refactoring or reviewing Rust code: ownership and borrow errors, APIs and traits, error handling, async and concurrency, unsafe/FFI, Cargo features and MSRV, tests or measured performance. Adapts to the repository and available agent tools; CLI/TUI, parsing and napi-rs guidance is conditional."
+description: "Use when implementing, debugging, refactoring or reviewing Rust code: ownership, traits, errors, async, concurrency, unsafe/FFI, Cargo, MSRV, tests or measured performance. Includes CLI/TUI, parsing and napi-rs."
 ---
 
 # Rust Best Practices

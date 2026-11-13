@@ -36,7 +36,7 @@ A name is a hypothesis about intent. `OrderService` or a `facade/` folder is dec
 | Name | Match observed participants, edges, owned data, and lifecycle to one row; label the match `declared` (name, comment, doc) or `observed` (code). |
 | Rival | Rule out the [look-alike](#look-alike-terms) with a stronger claim on the same surface before naming. |
 | Evidence | Styles: dependency direction and deployment units. Patterns: participants and the axis that varies. Roles: owned data, callers, and effects. Transports: framing, delivery, and failure semantics. |
-| Judge | Report a misapplied or missing concept only with its consequence (the quality attribute, blast radius, or failure mode it costs), proven per the [hypothesis test](review-method.md#steps). |
+| Judge | Report a misapplied or missing concept only with its consequence (the quality attribute, blast radius, or failure mode it costs), proven per the [hypothesis test](../SKILL.md#procedure). |
 
 ## Architecture styles
 

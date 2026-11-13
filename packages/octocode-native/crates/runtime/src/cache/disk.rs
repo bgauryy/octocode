@@ -5,9 +5,10 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime};
 
 mod capacity;
+mod read;
 pub(super) use capacity::REUSE_LOCK_WAIT;
 #[cfg(test)]
-pub(super) use capacity::{EXPIRED_PER_SCAN, SCANS};
+pub(super) use capacity::SCANS;
 
 /// The extension of an entry file. Entries of the retired JSON-envelope
 /// layout (`.json`, value base64 inside JSON) are removed by the next prune.
@@ -204,44 +205,26 @@ impl Disk {
         key: &CacheKey,
         config: &CacheConfig,
     ) -> Option<(V, CacheClass, Duration, usize)> {
-        let path = self.file(key);
-        // An entry is only a regular file this store could have written: a
-        // FIFO, device, symlink, or file past the entry bound is evicted.
-        let read = crate::private_file::open_no_follow(&path, false).and_then(|file| {
-            let bytes = crate::private_file::read_limited(&file, config.disk_bytes)?;
-            Ok((file, bytes))
-        });
-        let (file, bytes) = match read {
-            Ok(read) => read,
+        let stored = match read::entry::<V, C>(&self.file(key), config) {
+            Ok(stored) => stored,
             Err(error) => {
                 if entry_is_invalid(&error) {
-                    let _ = fs::remove_file(&path);
+                    self.discard_invalid::<V, C>(key, config);
                 }
                 return None;
             }
         };
-        let Some((header, value)) =
-            DiskHeader::split(&bytes).and_then(|(header, value)| Some((header, C::decode(value)?)))
-        else {
-            let _ = fs::remove_file(&path);
-            return None;
-        };
-        let age = header.age(&file, now_unix());
-        if !header.class.is_live(age) {
-            let _ = fs::remove_file(&path);
-            return None;
-        }
-        // A read counts as use for the oldest-first pruning and restarts an
-        // idle entry's lifetime; an entry used a moment ago keeps its time, so
-        // a hot read costs no write.
-        if header
+        // Hot idle reads avoid a metadata write; the stored header still
+        // decides whether a volatile value has expired.
+        if stored
+            .header
             .class
             .idle()
-            .is_none_or(|ttl| age >= ttl / TOUCH_FRACTION)
+            .is_none_or(|ttl| stored.age >= ttl / TOUCH_FRACTION)
         {
-            touch_file(&file, &path);
+            touch_file(&stored.file, &self.file(key));
         }
-        Some((value, header.class, age, bytes.len()))
+        Some((stored.value, stored.header.class, stored.age, stored.bytes))
     }
 
     pub(super) fn write<V, C: DiskCodec<V>>(

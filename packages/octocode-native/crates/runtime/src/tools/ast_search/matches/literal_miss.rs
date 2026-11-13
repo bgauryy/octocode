@@ -59,12 +59,6 @@ struct Reading {
     repaired: Option<Value>,
 }
 
-/// Whether the rule object at `at` is under an odd number of `not`s: there a
-/// pattern that matches nothing excludes nothing, so it cannot empty a result.
-fn negated(at: &str) -> bool {
-    at.split('/').filter(|segment| *segment == "not").count() % 2 == 1
-}
-
 /// The node kinds of a macro's token trees (a Rust `macro_rules!` pattern and
 /// body, and a macro call's arguments): a `$x` inside one is that macro's
 /// metavariable, not a name a pattern could match.
@@ -256,7 +250,7 @@ pub(super) fn attach_literal_miss(
     let patterns = q.patterns();
     let positive = patterns
         .iter()
-        .filter(|found| !negated(&found.at))
+        .filter(|found| !found.negated())
         .collect::<Vec<_>>();
     let read = grammars
         .iter()

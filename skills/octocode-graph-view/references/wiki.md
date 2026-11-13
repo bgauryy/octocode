@@ -47,7 +47,7 @@ Run from the workspace: `node <skill>/scripts/wiki.mjs <command> <out> ...`. In 
    - Links out and Links in: other pages as `[[slug]]` with summed production weight, file-edge count and the strongest edge as `path:line → path:1`. Test-only edges are excluded, following the weight rule.
    - Cycles: each cycle with members here, its size, weight, languages and chunks.
    - File-check problems: members whose `check` is not `ok`.
-   - Most-called symbols: production call sites into symbols declared here, with the declaration `path:line`, sites from other pages and the number of callers. The section shows the first 20 and says how many more `data.json` `calls` holds.
+   - Most-called symbols: production call sites into symbols declared here, with declaration `path:line`, sites from other pages and caller counts. The section identifies additional rows available in `data.json` `calls`.
 4. `## Agent notes`: the text between `<!-- notes:start -->` and `<!-- notes:end -->`, kept verbatim across builds.
 
 ## Writing notes
@@ -62,7 +62,7 @@ Run from the workspace: `node <skill>/scripts/wiki.mjs <command> <out> ...`. In 
 ## Freshness and identity
 
 - **Stale notes.** When notes are written, map.json records a content hash of every member. A later build or lint compares the hashes with the files on disk. A member that changed, appeared or disappeared makes the notes stale, and the page header and `index.md` name the files. A refresh also passes the files it found changed. Revisit stale pages first: read the changed files, then rewrite the notes. Writing fresh notes resets the baseline.
-- **Stable slugs.** Louvain renumbers communities on every run. Each new community takes the previous page it overlaps most, judged by Jaccard share of members (at least 0.25; best share first, ties by size). That page keeps its slug and notes. A new community gets a slug from its label.
+- **Stable slugs.** Communities can be renumbered after a build. The script matches them to previous pages by member overlap, preserving slugs and notes when a match qualifies; otherwise it creates a new page. [wiki-store.mjs](../scripts/wiki-store.mjs) owns matching thresholds.
 - **Orphans.** A previous page that no community takes stays as **orphaned** when it has notes, listing its last members. Without notes it is removed, and the log records it. Move what still holds into the pages that own those files now, then clear the orphan's notes with `note <out> <slug> ""`. The next build removes it.
 
 ## Lint issue kinds
@@ -76,7 +76,7 @@ Run from the workspace: `node <skill>/scripts/wiki.mjs <command> <out> ...`. In 
 | `missing-file` | map.json lists a page whose file is gone | `wiki.mjs build <out>` |
 | `orphaned` | No community matches the page | Move the notes, then clear them |
 | `stale-notes` | A member changed since the notes were written | Revisit and rewrite the notes |
-| `empty-notes` | One of the pages that together hold half of the PageRank has no notes (`--top N`: the first N pages) | Write their notes first |
+| `empty-notes` | A page in the script's priority selection has no notes (`--top N` changes that selection) | Write notes when that page is in the requested scope; report unrelated suggestions separately |
 
 ## Script owners
 

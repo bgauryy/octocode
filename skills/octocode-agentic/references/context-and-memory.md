@@ -5,7 +5,6 @@ Load when deciding what enters the context window, diagnosing context-driven qua
 ## Contents
 
 - [Attention first](#attention-first)
-- [Context techniques](#context-techniques)
 - [Context failures](#context-failures)
 - [Context budget](#context-budget)
 - [Caching](#caching)
@@ -33,25 +32,6 @@ These are engineering priorities, not measured attention weights: context select
 - Remove duplicated and obsolete material; do not reinject unchanged instructions or tool results.
 - Keep large artifacts reachable through references; retrieve details when they can change a decision.
 
-## Context techniques
-
-| Technique | What it solves |
-|---|---|
-| Context budgeting | Reserve space for input, tools, reasoning and output |
-| Context selection | Include only task-relevant content |
-| Progressive disclosure | Load details when required |
-| Just-in-time retrieval | Retrieve at the point of use |
-| Pruning | Remove obsolete or redundant material |
-| Compression | Reduce representation size |
-| Compaction | Preserve essential working state across long sessions |
-| Isolation | Keep unrelated tasks in separate contexts |
-| Anchoring | Keep goals, constraints and evidence easy to locate |
-| Rehydration | Restore referenced information when needed |
-| Deduplication | Avoid repeated documents and tool outputs |
-| Provenance tracking | Record which source supports which fact |
-| Versioning | Detect outdated repository or document state |
-| Attention management | Reduce competing, irrelevant instructions and evidence |
-
 ## Context failures
 
 | Failure | Symptom | Prevention |
@@ -76,20 +56,10 @@ Send the smallest actionable evidence, never a corpus "in case":
 - Known target: one focused lookup; more only if a needed handle is missing.
 - Search: query, scope, small limit and needed fields; widen if evidence is thin or conflicting.
 - Large collection: server-side filter, sort, aggregate and page; next page only if the task needs it. [Tool results](tools-and-mcp.md#schema-and-result) and [handoffs](models-and-delegation.md#handoff-protocols) carry detail only when the next step needs it.
-- Resume with continuation state unchanged; one pagination shape per field: `next: {cursor: "c2"}` → `cursor: "c2"`, never an invented `offset: 20`.
+- Copy emitted continuation state unchanged; do not invent a different pagination field or offset.
 - Finished search: scope, count, decisive evidence and gaps. Filter bulky intermediates outside the model, keep source evidence, and measure prompt plus tool output together.
 
-An illustrative split of a 128K-token window, a planning example rather than a best-practice ratio:
-
-| Slice | Share | Tokens |
-|---|---|---|
-| System, rules, schemas | 10% | 12,800 |
-| Conversation and task state | 15% | 19,200 |
-| Retrieved files and tool results | 35% | 44,800 |
-| Output allowance | 15% | 19,200 |
-| Headroom | 25% | 32,000 |
-
-Headroom absorbs tool outputs, metadata, model-specific token accounting and unexpected expansion. Usable budgets depend on the API and model. Do not fill the window because capacity remains.
+Reserve output and headroom for tool results, metadata and unexpected expansion using the actual model and endpoint limits. Measure occupancy; do not fill remaining capacity or copy a fixed percentage split.
 
 ## Caching
 
@@ -157,7 +127,7 @@ Compaction can change the prefix and reduce reuse. A cache is neither a permissi
 
 Lifecycle: observe → extract → validate → store → retrieve → use → refresh or forget.
 
-- Store durable facts with `source`, `scope`, `created_at`, `updated_at`, `confidence`, `version`, `expires_at` and `supersedes`.
+- Keep each durable fact's source and scope; add freshness, confidence or supersession information when needed to decide whether it is still usable.
 - Extract reusable, validated information; do not store every interaction.
 - Provide deletion, expiration, isolation and correction. Validate before writing: unvalidated writes enable memory poisoning.
 
@@ -179,32 +149,8 @@ Compaction, structured notes and subagents are complementary techniques for long
 
 ### Checkpoint template
 
-```yaml
-task:
-  goal: "Fix duplicate payment processing"
-  status: "implementation"
-  success: "one logical charge per idempotency key"
-confirmed:
-  - "Retry path can repeat an external request"
-  - "Database transaction does not cover provider call"
-decisions:
-  - "Use persistent idempotency records"
-changed:
-  - "src/payments/service.ts"
-evidence:
-  - "tests/payments/retry.test.ts"
-  - "trace: run-4821"
-pending:
-  - "Run integration tests"
-  - "Verify timeout recovery"
-failed_attempts:
-  - "In-memory lock: insufficient across workers"
-constraints:
-  - "Preserve existing public API"
-next_action: "Run targeted integration tests"
-```
+Keep the current goal and constraints, verified findings with source references, consequential decisions, changed artifacts, pending work and next action. Preserve exact handles, commands, approval state or failure details only where resumption depends on them; do not invent checkpoint IDs or metadata fields.
 
-- **Preserve:** goal, constraints, decisions, exact identifiers (IDs, hashes, versions, paths, arguments and flags), limits, thresholds, error types and codes, stack frames, event and causal order, timestamps, citations, permissions, scope, settings, open derivations, incomplete-result markers, approval requirements, recovery paths, verified findings, modified artifacts, unfinished work and next action.
 - **Discard:** redundant narration, repeated logs, duplicate or stale raw results, banners, help text, unchanged headers, retry noise and repeated explanations. For failed attempts keep the one-line lesson; for closed hypotheses keep conclusion and evidence ID. Remove subtasks only when the evidence store can re-derive them.
 - Compact at a subtask boundary on measured occupancy and quality, not a fixed percentage; recount after. Mid-derivation, checkpoint assumptions, evidence, open branches and next action first.
 - Rebuild from original evidence, never a summary of a summary. Hierarchical summaries need rehydration checks against originals to avoid accumulated drift.

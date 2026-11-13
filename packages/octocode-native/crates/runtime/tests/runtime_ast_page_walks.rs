@@ -144,7 +144,10 @@ async fn walk_input(
                     total,
                     "query total is stable"
                 );
-                assert!(offset + length <= total, "query page is within the declared walk");
+                assert!(
+                    offset + length <= total,
+                    "query page is within the declared walk"
+                );
                 assert_eq!(pagination["hasMore"] == true, offset + length < total);
                 walk.totals.insert(total);
                 page_end = offset + length;

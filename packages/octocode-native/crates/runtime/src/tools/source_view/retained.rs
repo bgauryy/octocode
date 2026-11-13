@@ -120,13 +120,8 @@ impl ScannedSource {
 
     /// Keep `source`, as the scan left it, for the next read of these bytes.
     pub(super) fn keep(self, source: &Source<'_>) {
-        let offsets = source.total_lines + 1;
-        let weight = source.text.len()
-            + std::mem::size_of::<usize>() * (offsets + 2 * source.redacted_lines.len());
-        let kept = Source {
-            offsets: source.offsets.clone(),
-            ..owned(source.shared())
-        };
+        let weight = source_weight(source);
+        let kept = owned(source.shared());
         SCANNED.put(
             key(&self.sha256, &self.policy),
             self.policy,
@@ -197,14 +192,13 @@ impl Retention {
             return;
         }
         let source = owned(source);
-        let weight = source.text.len()
+        let weight = source_weight(&source)
             + view.text.len()
             + ext.text.len()
             + std::mem::size_of::<usize>()
                 * (ext.source_lines.as_ref().map_or(0, Vec::len)
                     + ext.matched_lines.len()
-                    + 2 * ext.match_windows.len()
-                    + 2 * source.redacted_lines.len());
+                    + 2 * ext.match_windows.len());
         STORE.put(
             key(&self.sha256, &self.policy),
             self.policy,
@@ -214,14 +208,25 @@ impl Retention {
     }
 }
 
-/// `source` holding its own text, without its line offsets.
+/// Bytes retained by a source, charging any shared line index in full so
+/// either store can keep it after the other releases its reference.
+fn source_weight(source: &Source<'_>) -> usize {
+    source.text.len()
+        + source
+            .offsets
+            .as_ref()
+            .map_or(0, |offsets| offsets.weight())
+        + std::mem::size_of::<(usize, usize)>() * source.redacted_lines.len()
+}
+
+/// `source` holding its own text and sharing its existing line index.
 fn owned(source: Source<'_>) -> Source<'static> {
     Source {
         sha256: source.sha256,
         text: std::borrow::Cow::Owned(source.text.into_owned()),
         bytes: source.bytes,
         total_lines: source.total_lines,
-        offsets: None,
+        offsets: source.offsets,
         key_blocks_redacted: source.key_blocks_redacted,
         match_redacted: source.match_redacted,
         redacted_lines: source.redacted_lines,
@@ -262,4 +267,60 @@ pub(crate) fn forget_scan(sha256: &str) {
     keys_of(&SCANNED, sha256)
         .iter()
         .for_each(|kept| SCANNED.evict(kept));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::execution::cancel::NeverCancel;
+    use crate::security::ContentSecurity;
+    use std::path::Path;
+
+    /// A raw selection needs its source-line index to place byte windows.
+    /// Keeping the index lets every continuation reuse the first scan's
+    /// allocation instead of building a source-sized table for each page.
+    #[test]
+    fn selection_pages_reuse_the_scanned_source_line_index() {
+        let source = (0..512)
+            .map(|line| format!("let retained_line_{line} = {line};\n"))
+            .collect::<String>();
+        let path = Path::new("/fixture/retained_source_index.rs");
+        let q: LocalFetchQuery = serde_json::from_value(serde_json::json!({
+            "path": path,
+            "ranges": [{"startLine": 100, "endLine": 400}],
+            "limit": 2,
+        }))
+        .expect("read query");
+        let facts = SourceFacts::default();
+        let security = ContentSecurity::new();
+        let first = super::super::view::process_fetched_content(
+            &q,
+            source.as_bytes(),
+            path,
+            &facts,
+            &security,
+            &NeverCancel,
+        );
+        assert!(first.error.is_none(), "{first:?}");
+        let next = first
+            .next
+            .and_then(|next| next.continue_window)
+            .expect("selection spans several pages");
+        let sha256 = octocode_engine::digest::sha256(source.as_bytes());
+        let paths = (path, "retained_source_index.rs");
+        let scanned = ScannedSource::of(&q, &sha256, paths, &facts, &security)
+            .expect("range scan")
+            .get(&q)
+            .expect("scan retained");
+        let kept = Retention::of(&q, &sha256, paths, &facts, &security)
+            .expect("view retention")
+            .replay(&next.query)
+            .expect("view retained");
+        assert!(Arc::ptr_eq(
+            scanned.offsets.as_ref().expect("scanned source index"),
+            kept.source.offsets.as_ref().expect("retained source index"),
+        ));
+        forget_view(&sha256);
+        forget_scan(&sha256);
+    }
 }

@@ -6,7 +6,7 @@ PDCA against the baseline; Keep or Discard is its act step.
 
 ```mermaid
 flowchart TD
-  B["Plan: record baseline copy, authority, harness hashes, comparable budget, and a failing case or below-target outcome"] --> H
+  B["Plan: record baseline copy, authority, relevant comparison conditions, comparable budget, and a failing case or below-target outcome"] --> H
   H["Plan: hypothesis test with mechanism, predicted effect, trigger, strongest rival, counterexample, result (confirmed, dismissed, unresolved); no case-specific answers or IDs in instructions"] --> D
   D["Do: smallest change to one coherent factor"] --> C
   C["Check: compare under the frozen plan"] --> A
@@ -20,7 +20,7 @@ flowchart TD
   S -- yes --> E[Stop]
 ```
 
-- Every pass keeps raw outcomes, cost, error categories, every hypothesis.
+- Keep outcomes and evidence for the comparison, including failures and retry cost; reuse runner records.
 
 - Parallel hypotheses: separate subject copies and trials; never report the luckiest attempt as pass@1.
 - Noise hides the effect: improve measurement first; cheap proxies may guide development, never final verification.
@@ -36,7 +36,7 @@ flowchart TD
 
 ## Diagnose failures
 
-Results fail, fluctuate, or look too good: check the measurement before the solver. After Action Review: intended (task contract); happened (preserve task, inputs, actual worker prompt, environment, answer, trace, grader output, versions; reproduce under the same budget; record retries); why different (first violated contract; test a rival; findings can overlap); next (the owner and fix in the table).
+Results fail, fluctuate, or look too good: check the measurement before the solver. After Action Review: intended (task contract); happened (use the actual input, result and deciding trace; reproduce under comparable conditions, including retries); why different (first violated contract; test a rival; findings can overlap); next (the owner and fix in the table).
 
 | Cause | Owner | Look for or check | Next |
 |---|---|---|---|
@@ -57,5 +57,5 @@ Results fail, fluctuate, or look too good: check the measurement before the solv
 - Never invent held-out scores or claim release acceptance from reading prose.
 - Separate source review, maintenance checks, development measurements, sealed comparisons; flag unmeasured behavior.
 - Explain stops or direction changes that affect interpretation; record lessons only when results support them.
-- After the verdict, feed failures to [case building](eval-design.md#cases-from-failures).
+- After the verdict, feed failures to [case building](evaluation.md#cases-from-failures).
 - Definition of Done: the reader can judge the result and its limits.

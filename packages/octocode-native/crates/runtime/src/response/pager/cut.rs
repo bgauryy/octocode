@@ -48,12 +48,33 @@ pub(super) fn pagination_block_chars(
     if !(page.should_emit() || is_saved_replay(&options)) {
         return 0;
     }
-    pagination_value(&page, &options).map_or(0, |value| {
-        // `,"responsePagination":` around the value.
-        octocode_engine::json_size::utf16_units(&value).unwrap_or(0)
-            + "responsePagination".len()
-            + 4
-    })
+    pagination_value(&page, &options).map_or(0, |value| block_chars(&value))
+}
+
+/// Chars the `responsePagination` entry adds to a continuing page of `tool`
+/// as [`cut_rows`] attaches it: the executable continuation, and the expiry
+/// and replay facts every saved response page states, at their widest
+/// (`replayed:false`). A tool that cuts its own part of a page to the
+/// response window reserves this, so the pager never cuts that part again.
+pub(crate) fn continuing_block_chars(tool: crate::id::ToolId) -> usize {
+    let options = ResponsePageOptions {
+        saved: Some(super::super::page_model::SavedResponse {
+            key: [0; 32],
+            expires_at: crate::civil_date::iso8601_millis_after(std::time::Duration::ZERO),
+            replayed: false,
+        }),
+        ..ResponsePageOptions::default()
+    };
+    let next = crate::response::result::Continuation::cursor(
+        tool.as_str(),
+        super::super::cursor::issued::placeholder(),
+    );
+    block_chars(&block(true, Some(&next), &options))
+}
+
+/// `,"responsePagination":` around `value`, in response chars.
+fn block_chars(value: &Value) -> usize {
+    octocode_engine::json_size::utf16_units(value).unwrap_or(0) + "responsePagination".len() + 4
 }
 
 /// The executable next-page call of `input` for `pagination`.
@@ -65,17 +86,25 @@ fn pagination_value(
     pagination: &ResponsePagination,
     options: &ResponsePageOptions,
 ) -> Result<Value, ResponseError> {
-    let mut value = json!({
-        "hasMore": pagination.has_more,
-    });
-    if let Some(next) = &pagination.next {
+    Ok(block(
+        pagination.has_more,
+        pagination.next.as_ref(),
+        options,
+    ))
+}
+
+/// The `responsePagination` value: `hasMore`, the continuation, and a saved
+/// response's expiry and replay facts.
+fn block(has_more: bool, next: Option<&Value>, options: &ResponsePageOptions) -> Value {
+    let mut value = json!({ "hasMore": has_more });
+    if let Some(next) = next {
         value["next"] = next.clone();
     }
     if let Some(saved) = &options.saved {
         value["expiresAt"] = json!(saved.expires_at);
         value["replayed"] = json!(saved.replayed);
     }
-    Ok(value)
+    value
 }
 
 /// The chars of a page envelope that count against `responseChars`: its

@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 // Contract, lead and page-walk checks; the integration tests include the same
 // file (tests/support), so both kinds of test assert one way.
-use crate::contracts::{validate, validate_output};
+use crate::contracts::{partial_reasons, validate, validate_output};
 pub(crate) mod checks;
 pub(crate) mod selection_fake;
 

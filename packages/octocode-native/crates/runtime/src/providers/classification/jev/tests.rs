@@ -314,8 +314,13 @@ fn an_admitted_question_is_sent_as_written_and_the_state_is_judged() {
     }
     let question = json!({"type":"noul","instructions": format!("Is this applied?\n{manifest}")});
     let state = json!({"text": format!("-----BEGIN RSA PRIVATE KEY-----\nconst t = \"{token}\";")});
-    let request = super::JEV.build(&state, &[&question], "m", None).to_string();
-    assert!(!request.contains(VALUE) && !request.contains(&token), "{request}");
+    let request = super::JEV
+        .build(&state, &[&question], "m", None)
+        .to_string();
+    assert!(
+        !request.contains(VALUE) && !request.contains(&token),
+        "{request}"
+    );
     // The armor holds no key and reads as written; the token beside it goes.
     assert!(request.contains("BEGIN RSA PRIVATE KEY"), "{request}");
 }

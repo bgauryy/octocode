@@ -28,8 +28,9 @@ fn index(root: &Path, files: &[&str]) -> PackageIndex {
 fn files(link: PackageLink) -> Vec<String> {
     match link {
         PackageLink::Files(files) => files,
-        PackageLink::UnresolvedInternal => vec!["<internal>".into()],
-        PackageLink::External => vec![],
+        PackageLink::Unlinked(BareTarget::Internal) => vec!["<internal>".into()],
+        PackageLink::Unlinked(BareTarget::OutsideRoot) => vec!["<outside>".into()],
+        PackageLink::Unlinked(BareTarget::External) => vec![],
     }
 }
 
@@ -98,14 +99,14 @@ fn a_scan_below_its_module_maps_through_the_enclosing_go_mod() {
         vec!["chunkenc/chunk.go"]
     );
     // A module import outside the scanned subtree is the module's own code,
-    // unscanned: never external.
+    // beyond the scan root: never external.
     assert!(matches!(
         scanned.resolve(
             super::super::linking::Linker::Go,
             "example.com/app/model",
             "db.go"
         ),
-        super::PackageLink::UnresolvedInternal
+        super::PackageLink::Unlinked(BareTarget::OutsideRoot)
     ));
     // No go.mod anywhere: module imports are unlinkable, not external.
     let bare = tempfile::tempdir().expect("tempdir");

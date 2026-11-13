@@ -251,7 +251,8 @@ fn clasify_words_the_gate_cleared_stay_as_written() {
     let content = checked["content"].as_str().expect("content");
     assert!(!content.contains(body), "{content}");
     assert!(
-        content.starts_with("-----BEGIN RSA PRIVATE KEY-----\n") && content.ends_with("\n-----END RSA PRIVATE KEY-----"),
+        content.starts_with("-----BEGIN RSA PRIVATE KEY-----\n")
+            && content.ends_with("\n-----END RSA PRIVATE KEY-----"),
         "{content}"
     );
 }

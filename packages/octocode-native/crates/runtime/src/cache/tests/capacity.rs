@@ -275,14 +275,13 @@ fn a_link_gone_is_linked_again() {
     assert!(store.read_link(&body).is_some());
 }
 
-/// A backlog of expired entries costs each write a bounded share of it, and the
-/// next writes finish it, however far the last scan was; none is ever served.
+/// One due sweep clears a stale backlog once, then subsequent writes reuse
+/// accounting rather than repeatedly walking the same live directory prefix.
 #[test]
-fn a_write_clears_a_bounded_share_of_expired_entries_and_none_is_served() {
+fn a_due_write_finishes_the_expired_backlog_in_one_scan() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::<String>::new(CacheConfig::derived(), Some(dir.path().into()));
-    let backlog = 3 * crate::cache::disk::EXPIRED_PER_SCAN;
-    for index in 0..backlog {
+    for index in 0..128 {
         store.put_confirmed(
             key(&format!("old{index}"), "x"),
             "v".into(),
@@ -291,57 +290,43 @@ fn a_write_clears_a_bounded_share_of_expired_entries_and_none_is_served() {
         );
     }
     age_disk_entries(dir.path(), 120);
-    let reader = Store::<String>::new(CacheConfig::derived(), Some(dir.path().into()));
-    // A scan is due: the one that wrote them is this minute's.
+    store.put_confirmed(key("live", "x"), "v".into(), 1, volatile(600));
     fs::remove_file(dir.path().join(".capacity")).unwrap();
-    store.put_confirmed(key("new0", "x"), "v".into(), 1, volatile(600));
-    let left = entry_files(dir.path()).len();
-    assert_eq!(
-        left,
-        backlog + 1 - crate::cache::disk::EXPIRED_PER_SCAN,
-        "one write removes one share"
-    );
+    let before = crate::cache::disk::SCANS.with(std::cell::Cell::get);
     assert!(
-        reader.get(&key("new0", "x")).is_some(),
-        "the entry written stays"
+        store
+            .put_confirmed(key("new", "x"), "v".into(), 1, volatile(600))
+            .1
     );
-    let mut writes = 0;
-    while entry_files(dir.path()).len() > writes + 1 {
-        writes += 1;
-        assert!(writes <= backlog, "the backlog must drain");
-        store.put_confirmed(
-            key(&format!("new{writes}"), "x"),
-            "v".into(),
-            1,
-            volatile(600),
-        );
-    }
-    assert!(writes < backlog, "the writes after it finish the backlog");
-    let live = (0..=writes).filter(|at| reader.get(&key(&format!("new{at}"), "x")).is_some());
-    assert_eq!(live.count(), writes + 1, "no live entry is lost");
-    assert_eq!(entry_files(dir.path()).len(), writes + 1);
-}
-
-/// An expired entry the sweep has not reached yet is never an answer.
-#[test]
-fn an_expired_entry_left_by_the_bound_is_never_served() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Store::<String>::new(CacheConfig::derived(), Some(dir.path().into()));
-    let backlog = 2 * crate::cache::disk::EXPIRED_PER_SCAN;
-    for index in 0..backlog {
-        store.put_confirmed(
-            key(&format!("old{index}"), "x"),
-            "v".into(),
-            1,
-            volatile(60),
-        );
-    }
-    age_disk_entries(dir.path(), 120);
-    fs::remove_file(dir.path().join(".capacity")).unwrap();
-    store.put_confirmed(key("new", "x"), "v".into(), 1, volatile(600));
-    for index in 0..backlog {
+    assert_eq!(
+        entry_files(dir.path()).len(),
+        2,
+        "all stale entries leave in one pass"
+    );
+    assert!(store.get(&key("live", "x")).is_some());
+    assert!(
+        store
+            .put_confirmed(key("next", "x"), "v".into(), 1, volatile(600))
+            .1
+    );
+    assert_eq!(
+        crate::cache::disk::SCANS.with(std::cell::Cell::get) - before,
+        1,
+        "the next write must not restart the completed stale sweep"
+    );
+    for index in 0..128 {
         assert!(store.get(&key(&format!("old{index}"), "x")).is_none());
     }
+}
+
+/// Expiration is enforced on reads even before maintenance has run.
+#[test]
+fn an_expired_entry_is_never_served_before_a_sweep() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::<String>::new(CacheConfig::derived(), Some(dir.path().into()));
+    store.put_confirmed(key("old", "x"), "v".into(), 1, volatile(60));
+    age_disk_entries(dir.path(), 120);
+    assert!(store.get(&key("old", "x")).is_none());
 }
 
 /// The maintenance sweep clears a whole backlog of expired entries in one
@@ -351,7 +336,7 @@ fn an_expired_entry_left_by_the_bound_is_never_served() {
 fn pruning_clears_every_expired_entry_in_one_scan() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::<String>::new(CacheConfig::derived(), Some(dir.path().into()));
-    let backlog = 6 * crate::cache::disk::EXPIRED_PER_SCAN;
+    let backlog = 192;
     for index in 0..backlog {
         store.put_confirmed(
             key(&format!("old{index}"), "x"),

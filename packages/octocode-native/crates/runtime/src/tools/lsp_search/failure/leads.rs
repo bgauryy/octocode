@@ -229,11 +229,6 @@ pub(in super::super) fn flagged_with(
             })
 }
 
-/// How a coverage warning names the lexical check: by the search itself (the
-/// `findText` lead, which a partial row without a page always keeps, names
-/// the files).
-pub(in super::super) const TEXT_CHECK: &str = "a localSearch of the name";
-
 /// The whole-word, case-sensitive content search of `name` under `path`: a
 /// `rust` regex, as an unset `regex` would search its `\b` spelling as
 /// literal text. `None` when `name` or `path` is not a representable value.

@@ -143,8 +143,7 @@ async fn crate_source_ref(artifact: &mut ArtifactItem, client: &RegistryClient<'
     if let Some((sha, directory)) = vcs::crate_vcs(&artifact.package_name, &version, client).await {
         artifact.source_ref = Some(sha.clone());
         artifact.repository_directory = directory.filter(|directory| !directory.is_empty());
-        super::release_ref::check_commit_against_tag(artifact, &name, &version, &sha, client)
-            .await;
+        super::release_ref::check_commit_against_tag(artifact, &name, &version, &sha, client).await;
         return;
     }
     super::release_ref::pin_release_tag(artifact, &name, &version, None, client).await;

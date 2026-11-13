@@ -1,83 +1,42 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import {
-  compareEntries,
-  fromConfig,
-  measuredSize,
-  neededEntries,
-  parse,
-  ruleName,
-  serialize,
-  shrinkEntries,
-} from './oxlint-baseline.mjs';
+import { compareEntries, fromConfig, neededEntries, parse, ruleName, serialize, shrinkEntries } from './oxlint-baseline.mjs';
 
-const BASE_RULES = { complexity: ['error', { max: 15 }], 'max-lines': ['error', { max: 400, skipComments: false }] };
 const diagnostic = (filename, code, message = '') => ({ filename, code, message });
+const entries = rows => new Map(Object.entries(rows).map(([file, rules]) => [file, new Map(rules.map(rule => [rule, 'off']))]));
+const pairs = list => list.map(({ file, rule }) => `${file} ${rule}`);
 
 test('rule names map oxlint codes to config keys', () => {
-  assert.equal(ruleName('eslint(max-lines)'), 'max-lines');
+  assert.equal(ruleName('eslint(no-console)'), 'no-console');
   assert.equal(ruleName('typescript(no-explicit-any)'), 'typescript/no-explicit-any');
   assert.equal(ruleName('unicorn(no-array-sort)'), 'unicorn/no-array-sort');
   assert.equal(ruleName(undefined), undefined);
 });
 
-test('size rules read the measured value from the message', () => {
-  assert.equal(measuredSize('function `f` has a complexity of 26. Maximum allowed is 15.'), 26);
-  assert.equal(measuredSize('File has too many lines (507).'), 507);
-  assert.equal(measuredSize('Blocks are nested too deeply (5). Maximum allowed is 4.'), 5);
-});
-
-test('size rules raise the limit to the worst value; count rules switch off', () => {
-  const { entries, unbaselinable } = neededEntries(
-    [
-      diagnostic('a.ts', 'eslint(complexity)', 'function `f` has a complexity of 20. Maximum allowed is 15.'),
-      diagnostic('a.ts', 'eslint(complexity)', 'function `g` has a complexity of 31. Maximum allowed is 15.'),
-      diagnostic('a.ts', 'typescript(no-explicit-any)', 'Unexpected any.'),
-      diagnostic('a.ts', 'eslint(max-lines)', 'File has too many lines (450).'),
-      diagnostic('tsconfig.json', 'typescript(tsconfig-error)', 'Invalid tsconfig'),
-    ],
-    BASE_RULES
-  );
-  assert.deepEqual(Object.fromEntries(entries.get('a.ts')), {
-    complexity: ['error', { max: 31 }],
-    'typescript/no-explicit-any': 'off',
-    'max-lines': ['error', { max: 450, skipComments: false }],
-  });
+test('each violated rule is switched off once per file; an invalid tsconfig cannot be baselined', () => {
+  const { entries: needed, unbaselinable } = neededEntries([
+    diagnostic('a.ts', 'typescript(no-explicit-any)', 'Unexpected any.'),
+    diagnostic('a.ts', 'typescript(no-explicit-any)', 'Unexpected any.'),
+    diagnostic('a.ts', 'eslint(no-console)'),
+    diagnostic('tsconfig.json', 'typescript(tsconfig-error)', 'Invalid tsconfig'),
+  ]);
+  assert.deepEqual(needed, entries({ 'a.ts': ['typescript/no-explicit-any', 'no-console'] }));
   assert.equal(unbaselinable.length, 1, 'an invalid tsconfig must be fixed, not baselined');
 });
 
-test('a cleaner file makes its entry stale; a worse one is a new violation', () => {
-  const committed = new Map([
-    ['a.ts', new Map([['complexity', ['error', { max: 31 }]], ['no-console', 'off']])],
-    ['b.ts', new Map([['no-console', 'off']])],
-  ]);
-  const needed = new Map([
-    ['a.ts', new Map([['complexity', ['error', { max: 20 }]], ['no-console', 'off']])],
-    ['c.ts', new Map([['no-console', 'off']])],
-  ]);
+test('a fixed rule makes its entry stale; an unrecorded violation is new; shrinking never adds', () => {
+  const committed = entries({ 'a.ts': ['no-console', 'no-shadow'], 'b.ts': ['no-console'] });
+  const needed = entries({ 'a.ts': ['no-console'], 'c.ts': ['no-console'] });
   const { stale, missing } = compareEntries(committed, needed);
-  assert.deepEqual(
-    stale.map(({ file, rule }) => `${file} ${rule}`),
-    ['a.ts complexity', 'b.ts no-console']
-  );
-  assert.deepEqual(missing.map(({ file, rule }) => `${file} ${rule}`), ['c.ts no-console']);
-
-  const shrunk = shrinkEntries(committed, needed);
-  assert.deepEqual([...shrunk.keys()], ['a.ts'], 'shrinking never adds c.ts and drops b.ts');
-  assert.deepEqual(shrunk.get('a.ts').get('complexity'), ['error', { max: 20 }]);
-
-  const raised = compareEntries(new Map([['a.ts', new Map([['complexity', ['error', { max: 20 }]]])]]), committed);
-  assert.deepEqual(
-    raised.missing.map(({ file, rule }) => `${file} ${rule}`),
-    ['a.ts complexity', 'a.ts no-console', 'b.ts no-console'],
-    'a size above the committed limit is a new violation'
-  );
+  assert.deepEqual(pairs(stale), ['a.ts no-shadow', 'b.ts no-console']);
+  assert.deepEqual(pairs(missing), ['c.ts no-console']);
+  assert.deepEqual(shrinkEntries(committed, needed), entries({ 'a.ts': ['no-console'] }));
 });
 
 test('the written baseline parses back to the same entries, comments included', () => {
-  const entries = new Map([['p/a.ts', new Map([['no-console', 'off'], ['complexity', ['error', { max: 18 }]]])]]);
-  const text = serialize(entries);
+  const written = entries({ 'p/a.ts': ['no-console', 'typescript/no-explicit-any'] });
+  const text = serialize(written);
   assert.match(text, /^\/\/ Generated by/);
-  assert.deepEqual(fromConfig(parse(text)), entries);
+  assert.deepEqual(fromConfig(parse(text)), written);
   assert.deepEqual(parse('// head\n{ "a": "x // not a comment", /* note */ "b": 1 }'), { a: 'x // not a comment', b: 1 });
 });

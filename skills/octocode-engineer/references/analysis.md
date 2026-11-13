@@ -60,11 +60,17 @@ Topology triages file relationships; it never proves symbol identity (use semant
 | Wide node or long path | Composition root, generated registry, stable shared value, cold path | Inspect responsibilities; measure the claimed cost |
 | Small interface | Unsafe call sequence or leaked lifecycle | Consumer workflows, invariants, errors, cancellation, versioning |
 
-- Each control is a [hypothesis test](review-method.md#steps); an alternate left unresolved keeps the finding a candidate.
+- Each control is a [hypothesis test](../SKILL.md#procedure); an alternate left unresolved keeps the finding a candidate.
+
+## Claim limits
+
+- Label numbers measured, documented or estimated. Complexity is not latency; locality, I/O, contention, allocation and network work can dominate. Version-specific claims need current documentation or source.
+- State approximation error and permitted consistency anomalies beside the choice. Concurrent and memory-safety claims need an execution check, such as a sanitizer, stress test or model checker.
+- Match [evidence](evidence.md) to the claim. Distinguish fixture IDs, paths, versions and roots; assert the specific failure. Unresolved scope, identity, flow, runtime impact or measurement keeps a finding a candidate.
 
 ## Proof and ranking
 
-- Prove in order: `graph candidate -> exact decisive edges/code -> AST shape -> LSP definitions/references/callers -> representative data/control/ownership trace -> config/test/runtime/measurement -> verdict`.
+- Use the narrowest decisive evidence: source and semantic references for identity, scenario traces for ownership and effects, and execution or measurement for behavior and cost. Graph candidates do not require every tool in sequence.
 
 - Affected scope: graph dependents/path plus semantic references to the changed symbol.
 - Layer violation: exact path, importing symbol, authoritative rule, quality impact.
@@ -79,5 +85,5 @@ Topology triages file relationships; it never proves symbol identity (use semant
 
 ## Affected scope
 
-- Before a change, map direct and second-order effects on: interfaces, callers, dependency edges; persisted data, schemas, defaults, migrations; latency, memory, retries, concurrency, failure containment; trust boundaries, sensitive data, authorization, untrusted or model output; tests, telemetry, rollout, rollback, generated outputs, records. Material ones only; a surprising omission gets N/A with a reason.
+- Before a change, check material direct and downstream effects: consumers and contracts; stored data and migrations; resource use and failure recovery; trust boundaries; tests, generated outputs and rollout. Investigate a consequential gap rather than filling a mandatory inventory.
 - On Verify, retrace for stale copies, asymmetric branches, changed defaults, widened impact.

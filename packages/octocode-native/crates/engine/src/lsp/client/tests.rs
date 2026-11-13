@@ -29,6 +29,7 @@ fn ts_config() -> LspLanguageServerConfig {
         args: Some(vec!["--stdio".into()]),
         workspace_root: std::env::temp_dir().to_string_lossy().into_owned(),
         language_id: Some("typescript".into()),
+        document_language_ids: Default::default(),
         initialization_options: None,
         env: None,
         max_memory_mb: None,
@@ -135,6 +136,7 @@ fn configurable_server(
         args: Some(Vec::new()),
         workspace_root: root.to_string_lossy().into_owned(),
         language_id: Some("plaintext".into()),
+        document_language_ids: Default::default(),
         initialization_options: None,
         env: Some(
             env.iter()

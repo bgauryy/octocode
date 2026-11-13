@@ -88,12 +88,13 @@ undocumented_unsafe_blocks = "deny"
 # firing warns, so stale suppressions surface instead of lingering.
 allow_attributes = "warn"
 allow_attributes_without_reason = "warn"
-# Structure and API shape. `too_many_lines` uses clippy.toml's threshold.
+# Structure and API shape. No fixed argument or line counts: `too_many_arguments`
+# (in `all`) is allowed, and `too_many_lines` (pedantic) is not enabled.
+too_many_arguments = "allow"
 manual_let_else = "warn"
 unused_self = "warn"
 option_option = "warn"
 large_stack_arrays = "warn"
-too_many_lines = "warn"
 # Modules are `name.rs` + `name/`, never `name/mod.rs`.
 mod_module_files = "warn"
 # Style: `Self` inside impls, `copied()` over `cloned()` for `Copy` items,

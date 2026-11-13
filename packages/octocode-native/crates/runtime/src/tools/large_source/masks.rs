@@ -3,15 +3,18 @@
 //!
 //! A pass over every byte says whether the source names one ([`SourceNames`]), and
 //! a walk of it says which bytes are secret. Those spans come after the pass that
-//! holds the windows (`data` comes before `kind`), so each becomes a placeholder
-//! edit ([`PlaceholderEdits`]) beside the scanner's ([`super::sealed`]): every
-//! window shows the same sealed view. When the walk outgrew its budget, every
+//! holds the windows (`data` comes before `kind`), so each becomes placeholder
+//! edits ([`SpanEdits`]) beside the scanner's ([`super::sealed`]): every window
+//! shows the same sealed view, and a Secret's YAML block shows its values as a
+//! source held whole shows them. When the walk outgrew its budget, every
 //! value of what the source names is hidden instead (`EveryValueScan`), as edits
 //! of the same one view ([`super::edit_map`]), so a byte page of any line
 //! continues in it.
 use super::stream::seek;
 use crate::execution::cancel::CancellationCheck;
-use octocode_engine::security::{Named, SecretSpan, SecretSpans, SourceWalk};
+use octocode_engine::security::{
+    BlockValues, Named, SecretForm, SecretSpan, SecretSpans, SourceWalk,
+};
 use std::io::Read;
 
 /// Source bytes the walk takes at once.
@@ -123,5 +126,72 @@ impl PlaceholderEdits {
     /// The last line's edit (at most one), once the whole span was fed.
     pub(super) fn finish(mut self, out: &mut Vec<super::sealed::Edit>) {
         self.close(out);
+    }
+}
+
+/// The edits a span the walk found shows. A Secret's block in YAML shows its
+/// values the way a source held whole shows them ([`BlockValues`], one rule for
+/// both): the names, indentation and comments stay. Any other span is one value
+/// ([`PlaceholderEdits`]).
+pub(super) enum SpanEdits {
+    Values {
+        values: BlockValues,
+        text: Box<str>,
+        found: Vec<std::ops::Range<usize>>,
+    },
+    Whole(PlaceholderEdits),
+}
+
+impl SpanEdits {
+    /// The edits of `span`, whose first byte comes after `before` (`None` at the
+    /// source's start).
+    pub(super) fn new(span: &SecretSpan, before: Option<u8>) -> Self {
+        if span.form == SecretForm::SecretInYaml
+            && let Some(values) = BlockValues::new(span.range.start, before)
+        {
+            return Self::Values {
+                values,
+                text: octocode_engine::security::redaction_placeholder(span.form.pattern()).into(),
+                found: Vec::new(),
+            };
+        }
+        Self::Whole(PlaceholderEdits::new(span))
+    }
+
+    /// The span's next bytes: the edits of the lines they end go to `out` (at
+    /// most one per line, as [`PlaceholderEdits::feed`] makes).
+    pub(super) fn feed(&mut self, chunk: &[u8], out: &mut Vec<super::sealed::Edit>) {
+        match self {
+            Self::Values {
+                values,
+                text,
+                found,
+            } => {
+                values.feed(chunk, found);
+                out.extend(found.drain(..).map(|range| super::sealed::Edit {
+                    range,
+                    text: text.clone(),
+                }));
+            }
+            Self::Whole(lines) => lines.feed(chunk, out),
+        }
+    }
+
+    /// The last line's edit (at most one), once the whole span was fed.
+    pub(super) fn finish(self, out: &mut Vec<super::sealed::Edit>) {
+        match self {
+            Self::Values {
+                values,
+                text,
+                mut found,
+            } => {
+                values.finish(&mut found);
+                out.extend(found.into_iter().map(|range| super::sealed::Edit {
+                    range,
+                    text: text.clone(),
+                }));
+            }
+            Self::Whole(lines) => lines.finish(out),
+        }
     }
 }

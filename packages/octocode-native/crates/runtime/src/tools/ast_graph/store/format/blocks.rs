@@ -36,10 +36,23 @@ pub(super) fn sealed(tag: &[u8; 4]) -> bool {
 
 /// The stored form of one raw body of `tag`: a block's, or a whole
 /// unblocked section's.
-pub(super) fn seal(tag: &[u8; 4], raw: &[u8]) -> Result<Vec<u8>, ToolError> {
+pub(super) fn seal(tag: &[u8; 4], raw: &[u8], limit: u64) -> Result<Vec<u8>, ToolError> {
     use std::io::Write;
     if !sealed(tag) {
         return Ok(raw.to_vec());
+    }
+    // Compression must not admit a body that `open` cannot inflate. The
+    // writer's limit can be lower than the process limit in focused tests.
+    if u64::try_from(raw.len())
+        .ok()
+        .is_none_or(|length| length > limit)
+    {
+        return Err(ToolError::new(
+            octocode_contract_types::ErrorCode::ScopeTooBroad,
+            format!(
+                "expanded graph block exceeds the {limit}-byte snapshot limit; ingest a narrower scope"
+            ),
+        ));
     }
     let mut stored = Vec::with_capacity(raw.len() / 4 + 16);
     writer::put(&mut stored, raw.len() as u64);

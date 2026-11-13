@@ -161,8 +161,8 @@ pub(super) struct WindowSpec {
     /// A filter hides items, so the window cannot jump ahead by index.
     pub(super) filtered: bool,
     /// Provider item count when known up front (a PR's `changed_files`).
-    /// It sizes the batches a window spans, so they load concurrently: every
-    /// batch of a filtered scan, the batches under an unfiltered page.
+    /// It sizes the batches a window spans, loaded in bounded concurrent
+    /// waves until enough matching items cover the public page.
     pub(super) provider_total: Option<usize>,
     /// A batch the read already holds, by its 1-based number (the first
     /// batch fetched beside the PR): it is used, never fetched again.
@@ -196,8 +196,8 @@ impl WindowSpec {
         self.start().saturating_add(self.page_size)
     }
 
-    /// The last batch of the wave that starts at `next`: through every batch
-    /// the known provider total says the window spans, else `next` alone.
+    /// The last batch of the wave that starts at `next`: at most one group
+    /// of concurrent requests within the window's known span, else `next` alone.
     fn wave_end(&self, next: usize) -> usize {
         self.provider_total.map_or(next, |total| {
             let span = if self.filtered {
@@ -207,6 +207,7 @@ impl WindowSpec {
             };
             span.div_ceil(self.batch_size)
                 .clamp(next, self.max_batches.max(next))
+                .min(next.saturating_add(BATCH_CONCURRENCY.saturating_sub(1)))
         })
     }
 }
@@ -241,10 +242,10 @@ pub(super) fn commit_file_items(value: &mut Value) -> Vec<Value> {
         .unwrap_or_default()
 }
 
-/// Read the window in waves: each wave fetches, concurrently and in
-/// provider order, the batches the known provider total says the window
-/// spans (one batch when the total is unknown). Every batch a wave fetched
-/// is kept; whether the page is covered is judged between waves.
+/// Read the window in waves of at most [`BATCH_CONCURRENCY`] batches,
+/// concurrently and in provider order (one batch when the total is unknown).
+/// Every batch a wave fetched is kept; whether the page is covered is judged
+/// between waves, so a filtered page need not read the whole collection.
 pub(super) async fn load_window_with(
     source: &Source<'_>,
     segments: &[&str],
@@ -279,8 +280,8 @@ pub(super) async fn load_window_with(
             )
             .await?;
             // With no count known up front, the provider's own last page
-            // sizes the waves after this one: the batches a scan needs then
-            // load at once, not one request after another.
+            // sizes the waves after this one: later batches load concurrently,
+            // checking page coverage between waves.
             if spec.provider_total.is_none()
                 && let Some(pages) = batches.iter().filter_map(|(_, _, last)| *last).max()
             {

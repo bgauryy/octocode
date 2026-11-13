@@ -68,7 +68,6 @@ fn settle_value(
 ) -> Result<Vec<String>, ContractValidationError> {
     crate::response::selection_errors::decorate(tool, structured, response_query);
     super::pages::state_out_of_range(structured);
-    super::notices::explain_codes(structured, "results");
     super::notices::place(structured, "results");
     super::notices::state_shared_warnings(structured, "results");
     let call_notes = super::notices::take_timed_notices(structured, "results");

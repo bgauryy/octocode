@@ -83,7 +83,7 @@ pub(crate) mod receiver_fields;
 /// Scala; a JS/TS bare callee oxc binds to a listed declaration names it
 /// (`boundDeclaration`); a pattern's written type (`x: T`, `Wrapper(x)`) and
 /// a block-scope C/C++ function prototype bind no local value.
-pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 32;
+pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 33;
 
 /// The declaration kinds an `extends`/`implements` clause can name or
 /// declare: the nodes of a type hierarchy. One list for the graph's linking

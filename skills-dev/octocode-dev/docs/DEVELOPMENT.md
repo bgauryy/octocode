@@ -2,7 +2,7 @@
 
 This page owns the native crate map, the contract pipeline, build commands, development-only environment variables, and ownership rules. Repository-wide agent rules are in `<repo>/AGENTS.md`. The tool concept is in `<repo>/docs/OCTOCODE_PROTOCOL.md`.
 
-Other dev docs: [ADDING_CONFIG.md](ADDING_CONFIG.md) (new settings), [TOOL_QUALITY.md](TOOL_QUALITY.md) (acceptance criteria), [RELEASE.md](RELEASE.md) (release gates), [scripts/README.md](../scripts/README.md) (root automation), and the [benchmark package](../../../packages/octocode-benchmark/README.md) (its results stay local in `packages/octocode-benchmark/results/`).
+Other dev docs: [ADDING_CONFIG.md](ADDING_CONFIG.md) (new settings), [TOOL_QUALITY.md](TOOL_QUALITY.md) (acceptance criteria), [RELEASE.md](RELEASE.md) (release gates), [scripts/README.md](../scripts/README.md) (root automation), and the [benchmark](../../../packages/octocode-benchmark/README.md) (behavioral docs; stored results stay local, indexed in `packages/octocode-benchmark/results/README.md`).
 
 ## Runtime flow
 
@@ -60,7 +60,7 @@ Where each part of [the protocol](../../../docs/OCTOCODE_PROTOCOL.md) lives. Nat
 | GitHub client and rate-limit breaker | `crates/github/src/` (`budget.rs`), `crates/runtime/src/runtime/github.rs` |
 | `clasify` and context selection | `crates/runtime/src/tools/clasify/`, `tools/judgment/` (evaluator, transport), `tools/selection.rs`, `providers/classification/` |
 | Internal limits (timeouts, retries, page size, retained work) | `crates/runtime/src/execution/limits.rs` |
-| End-to-end harness | `packages/octocode-benchmark/local/e2e/harness/` |
+| Loopback providers and the answer recorder | `skills-dev/octocode-dev/scripts/providers/` |
 
 ## Contract pipeline
 
@@ -100,29 +100,28 @@ Run from the repo root. Repo-wide tasks run through `node skills-dev/octocode-de
 | config | `test`, `test:coverage`, `check:tool-contract`, `check:config-contract` | `lint` (`lint:own`: config contract check; then `lint:oxlint`; `build` checks the tool contract) |
 | mcp, octocode, vscode | `test`, `test:coverage` (the floors: `verify:own` and `test:ci` run it) | `lint` (`lint:own`: prettier `--check` and the package's checks; then `lint:oxlint`), `format` (prettier `--write`) |
 | chrome-devtools, claude-plugin, codex-plugin | `test` | `lint` (`lint:own`: prettier `--check` and the package's checks; then `lint:oxlint`), `format` (prettier `--write`) |
-| agents-communication, benchmark | `test` | `lint` (`lint:own`: generated-types check, Python and shell syntax; then `lint:oxlint`) |
+| agents-communication | `test` | `lint` (`lint:own`: catalog and generated-types checks; then `lint:oxlint`) |
 | mcp-cli | `test`, `test:coverage` | `lint` (`lint:oxlint` only; no `lint:own`) |
 
 `$DEV format` runs every workspace `format` script. Every workspace `typecheck` is `tsgo --noEmit` (`@typescript/native-preview`, pinned at the root); native's Rust types are checked by its clippy `lint`.
 
-### Lint, typecheck and file-length rules
+### Lint and typecheck rules
 
-- **oxlint**: the root `.oxlintrc.json` is the only lint config. Each workspace splits its lint in three scripts: `lint:oxlint` runs `yarn run -T oxlint -c ../../.oxlintrc.json .`, `lint:own` holds every other check (prettier, manifest and generator `--check`, Python and shell syntax, clippy; absent in mcp-cli, which has none), and `lint` runs both, so `yarn workspace <pkg> lint` alone is the package's full lint. `verify` follows the same split: `verify:own` is the gate without oxlint and `verify` adds `lint:oxlint` (workspace-health requires `verify:own` beside `verify`). Repo-wide tasks run oxlint once, in the baseline pass below, over the directories the workspaces' `lint:oxlint` scripts cover (the packages, and `skills/` for the shared skills workspace); they run only each workspace's `lint:own` and `verify:own`. The config's `options` turn on type-aware rules and deny warnings, so every rule is an error. Beyond the correctness and suspicious categories it sets `max-lines` 400 (physical lines), `max-lines-per-function` 80, `complexity` 15, `max-depth` 4, `max-params` 4, `typescript/no-explicit-any`, `typescript/consistent-type-imports`, `typescript/no-floating-promises`, `import/no-cycle` and `no-console` (off for tests, `bin/`, `scripts/`, `tools/` and build files). Generated files (`*.generated.*`) are ignored.
-- **oxlint baseline**: violations that predate a rule are recorded in `.oxlintrc.baseline.json` (the root config `extends` it): one override per file that switches a rule off or raises a size limit to the file's current value. The baseline only shrinks. `node skills-dev/octocode-dev/scripts/oxlint-baseline.mjs` fails on a stale entry (a file now cleaner than its entry) and on a violation without one; `--write` removes and lowers entries but never adds one. Fix new violations in the code. Core (`../octocode-mcp-host/packages/octocode-core`) lints with copies of both files; this repo's are canonical, and `$DEV verify` runs `core-lint-sync.mjs`, which fails when core's `scripts/oxlint-baseline.mjs` is not byte-identical or its `.oxlintrc.json` rules differ (its `$schema`, `ignorePatterns` and overrides scoped to `packages/...` are layout-specific), and skips without the sibling checkout.
-- **File length**: `node skills-dev/octocode-dev/scripts/check-file-length.mjs` allows 400 physical lines in every `.ts`/`.tsx`/`.mts`/`.cts`/`.js`/`.mjs`/`.cjs`/`.rs` file, tests included; generated files (`*.generated.*`, `tool_types.rs`) and fixtures are skipped. `file-length-baseline.json` beside the script records the files that were longer (path → lines): a new file over 400 fails, a baselined file that grows fails, and an entry for a file now at or under 400 (or deleted) is stale and fails. `--write` drops stale entries and lowers shrunk counts; it never adds one. Split long files by responsibility.
+- **oxlint**: the root `.oxlintrc.json` is the only lint config. Each workspace splits its lint in three scripts: `lint:oxlint` runs `yarn run -T oxlint -c ../../.oxlintrc.json .`, `lint:own` holds every other check (prettier, manifest and generator `--check`, Python and shell syntax, clippy; absent in mcp-cli, which has none), and `lint` runs both, so `yarn workspace <pkg> lint` alone is the package's full lint. `verify` follows the same split: `verify:own` is the gate without oxlint and `verify` adds `lint:oxlint` (workspace-health requires `verify:own` beside `verify`). Repo-wide tasks run oxlint once, in the baseline pass below, over the directories the workspaces' `lint:oxlint` scripts cover (the packages, and `skills/` for the shared skills workspace); they run only each workspace's `lint:own` and `verify:own`. The config's `options` turn on type-aware rules and deny warnings, so every rule is an error. Beyond the correctness and suspicious categories it sets `typescript/no-explicit-any`, `typescript/consistent-type-imports`, `typescript/no-floating-promises`, `import/no-cycle` and `no-console` (off for tests, `bin/`, `scripts/`, `tools/` and build files). Generated files (`*.generated.*`) are ignored.
+- **oxlint baseline**: violations that predate a rule are recorded in `.oxlintrc.baseline.json` (the root config `extends` it): one override per file that switches a rule off. The baseline only shrinks. `node skills-dev/octocode-dev/scripts/oxlint-baseline.mjs` fails on a stale entry (a rule the file no longer violates) and on a violation without one; `--write` removes stale entries but never adds one. Fix new violations in the code. Core (`../octocode-mcp-host/packages/octocode-core`) lints with copies of both files; this repo's are canonical, and `$DEV verify` runs `core-lint-sync.mjs`, which fails when core's `scripts/oxlint-baseline.mjs` is not byte-identical or its `.oxlintrc.json` rules differ (its `$schema`, `ignorePatterns` and overrides scoped to `packages/...` are layout-specific), and skips without the sibling checkout.
 - **TypeScript**: every project extends the root `tsconfig.base.json` (`strict`, `verbatimModuleSyntax`, `isolatedModules`). Typecheck with `tsgo --noEmit`; declarations are still emitted by `tsc` (TypeScript 6) in the packages that publish them.
 
-`$DEV lint`, `lint:ci` and `verify` run both baselines first (the oxlint baseline is their one oxlint run), then each workspace's `lint:own` (`lint`, `lint:ci`) or `verify:own` (`verify`); CI runs `lint:ci` and `typecheck:ci`.
+`$DEV lint`, `lint:ci` and `verify` run the oxlint baseline first (their one oxlint run), then each workspace's `lint:own` (`lint`, `lint:ci`) or `verify:own` (`verify`); CI runs `lint:ci` and `typecheck:ci`.
 
 ### Local static checks
 
 | Command | What runs | When |
 |---|---|---|
-| `$DEV check` | Both baselines, rustfmt, `lint:rust`, every other workspace's `lint:own`, and every typecheck, with workspaces in parallel. No build, no tests | Before handing over a change, with a focused test (`cargo dev-test -- <filter>`) |
+| `$DEV check` | The oxlint baseline, rustfmt, `lint:rust`, every other workspace's `lint:own`, and every typecheck, with workspaces in parallel. No build, no tests | Before handing over a change, with a focused test (`cargo dev-test -- <filter>`) |
 | `$DEV lint:rust` | Plain clippy, then the ratchet below | After a Rust edit, when `check` is more than you need |
 | `$DEV verify` | Builds, every test, `deny`, `shear`, docs | Cross-package handoff |
 
-**Clippy ratchet** (`scripts/rust-lint.mjs`, local only; CI and `cargo clippy` keep `-D warnings` on `clippy.toml`). It adds production-only lints and bans, passed on the command line and through a config generated under `target/rust-lint/`, so `Cargo.toml` and plain clippy do not change. Bans and their reasons are in `packages/octocode-native/clippy-ratchet.toml`: fixed durations and sleeps, `Vec::truncate`, child processes, HTTP client construction, unbounded `fs::read`, non-atomic `fs::write`. Findings that predate a rule are in `clippy-baseline.json`, counted per crate because the 400-line limit keeps moving code between files. A crate that grows fails and names the files; one that shrinks is stale until `--write`. A site that must stay says why: `#[expect(clippy::disallowed_methods, reason = "...")]`. Tests are not judged by the ratchet.
+**Clippy ratchet** (`scripts/rust-lint.mjs`, local only; CI and `cargo clippy` keep `-D warnings` on `clippy.toml`). It adds production-only lints and bans, passed on the command line and through a config generated under `target/rust-lint/`, so `Cargo.toml` and plain clippy do not change. Bans and their reasons are in `packages/octocode-native/clippy-ratchet.toml`: fixed durations and sleeps, `Vec::truncate`, child processes, HTTP client construction, unbounded `fs::read`, non-atomic `fs::write`. Findings that predate a rule are in `clippy-baseline.json`, counted per crate because refactors keep moving code between files. A crate that grows fails and names the files; one that shrinks is stale until `--write`. A site that must stay says why: `#[expect(clippy::disallowed_methods, reason = "...")]`. Tests are not judged by the ratchet.
 
 **Evaluated on 2026-11-05, not adopted** (counts are production findings; reviewed against ruff, uv, oxc and rust-analyzer at their 2026-11-05 heads):
 
@@ -143,26 +142,18 @@ Run from the repo root. Repo-wide tasks run through `node skills-dev/octocode-de
 
 **Rules that stay tests:** `module_boundaries` resolves `use` paths and layers, and `no_error_code_is_spelled_as_a_string` reads JSON strings: clippy sees neither. Bans on a named call are the lint's job.
 
-### Tool health
+### Tool checks and recorded answers
 
-`$DEV test:tools` (`packages/octocode-benchmark/local/e2e/harness/tool-health.mjs`) is the quick end-to-end alarm for every tool in the contract. It first runs the `acceptance` (harness self-tests), `transport` and `classification-retry` suites, then runs each tool through the built CLI (`--json`) and the MCP stdio server and checks:
+Sanity and end-to-end checks of the built CLI and MCP server are behavioral: an agent makes the calls and
+judges each answer by reading it, through the checklists in [tool checks](../../../packages/octocode-benchmark/CHECKS.md)
+(sanity after a build, end to end before a release). No harness script runs them. Package tests stay the
+regression net: native `cargo` tests with mocked providers and the packages' unit tests.
 
-- **happy**: the primary operation exits 0, returns rows with the key fields, and validates against the contract `outputSchema`;
-- **continuation**: walking the `next.*` page lead to its end gives non-empty pages, every row exactly once, and exactly the unpaged rows; `walks` cover a tool's other page channels (PR patch windows);
-- **explore**: every seed is explored by `harness/tool-health/driver.mjs`. Every `next.*` and `hints.*` lead runs once, and every response must validate against its tool's `outputSchema`. A lead must be accepted and satisfy its key family's predicates (`harness/lead-predicates.mjs`, shared with `lead-replay`). A lead that cycles back to a query on its own path, or repeats another lead of the same response, fails;
-- **facts**: hint and warning sentences of 30+ characters must not repeat tool descriptions or server instructions, and must not repeat in every call of a tool across different query shapes;
-- **empty**: exit 1 with a hint or lead on both surfaces;
-- **invalid**: a typed contract `errorCode`, exit 2;
-- **parity**: the CLI and MCP evidence, page leads, status class and explored query graph match (`hints` are surface guidance and leads to CLI-only tools are excluded, since MCP omits those tools);
-- **latency**: every call fits the tool's budget; all timings are recorded;
-- **extra**: tool-specific checks, such as clone auth and the clone's local follow-up leads.
-
-
-It is hermetic: a temp `OCTOCODE_HOME`/`HOME`, no user token, fixtures in `packages/octocode-benchmark/local/e2e/fixtures/tool-health/` (or a per-tool temp copy with extra files), and a loopback mock (`harness/tool-health/mock-server.mjs`) for GitHub REST (`GITHUB_API_URL`), git smart HTTP, an npm registry (`registryUrl` with `OCTOCODE_ALLOW_PRIVATE_REGISTRY`) and the classification provider (`OCTOCODE_CLASSIFICATION_API_HOST`). Every proxy variable points at a dead loopback port, so a request that would leave the machine fails the run. Each tool and surface gets its own fake GitHub token and its own MCP server. The runtime paces GitHub searches per token, so all tools run in parallel. `--deep` adds seeds for more operations and allows more leads per seed. Each run reports its measured duration; the schema-derived matrices and scan-window fixture also run through the shared driver. A contract tool without a case fails the run. Cases live in `harness/tool-health/cases.mjs`.
-
-Run it after `build:dev`. CI runs it in the `e2e` job after its own `build:dev`. `$DEV answers:record` refreshes the recorded provider answers `provider-shapes` replays ([e2e README](../../../packages/octocode-benchmark/local/e2e/README.md#recorded-provider-answers)). `$DEV test:e2e` runs every hermetic suite, adding the slower `grammar` battery, which neither `test:tools` nor CI runs. `$DEV verify` runs no end-to-end suite. To run some tools only, pass their names: `$DEV test:tools ghSearchCode,localFetch` (add `--deep` for the wider exploration).
-
-Each tool prints one line, `PASS`/`FAIL`/`SKIP`, with its total and slowest-call time, call count and checks. A `FAIL` line names the first failing check, for example `FAIL ghSearchCode … — empty.hint.mcp: …`; every failing check is listed at the end. A check name is `<phase>.<what>[.<surface>]`, with phase happy, continuation, walk, explore, facts, empty, invalid, parity, latency or extra. A `SKIP` line states its reason, such as a missing TypeScript language server. Every check, its detail, the explored lead keys and per-call timings are in `packages/octocode-benchmark/local/e2e/results/tool-health.json`. The run exits non-zero on any `FAIL`.
+The native mocks replay real provider answers from `test-utils/provider-answers`. `$DEV answers:record [id,...]`
+re-records them live through the built CLI ([recorder](../scripts/providers/record.mjs), cases in
+`recorded-plan.mjs`); it refuses a recording that holds the token or a private repository, loses a field path
+when trimmed, or makes the tool ask anything else. The same folder's loopback GitHub, registry, OSV and
+classification mock, over `test-utils/fixtures/demo-repo`, serves the `profile` stub flows.
 
 ### Cargo builds
 

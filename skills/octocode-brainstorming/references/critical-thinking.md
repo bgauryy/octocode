@@ -4,7 +4,7 @@ Load when thinking a question through with the user, framing hypotheses, choosin
 
 ## Thinking with the user
 
-How-to for [Think together](../SKILL.md#modes-and-directions):
+For [thinking together](../output.md#think-together):
 
 - The user's view first, including what they already ruled out.
 - Refine each user idea before adding yours: its strongest form, riskiest assumption, cheapest test.
@@ -15,12 +15,11 @@ How-to for [Think together](../SKILL.md#modes-and-directions):
 ## Decompose, then recompose
 
 - Split into sub-questions that together decide it, each answerable alone and naming its settling evidence; mark each known, assumed, or to research.
-- Decompose only the parts that matter.
 - Right sub-answers can compose wrongly: [recompose](phases.md#4-decide).
 
 ## Hypotheses before search
 
-Write them before the first query, with your expected answer: two to four, the leading answer, its strongest rival, and "no difference" or "depends on a named condition". Treat each as a hypothesis test: claim, strongest rival, refuting check, result (survived, refuted with claim ids, or untested).
+Before searching, record the leading answer, strongest rival, and “no difference” or a named condition where plausible. For each: claim, refuting check and result (survived, refuted with evidence, or untested). Add hypotheses only when they change what evidence to seek.
 
 - A hypothesis nothing could refute is a framing: sharpen or drop it.
 - Seek evidence likely under one hypothesis and unlikely under the others; evidence fitting all is context. Try to refute the leading one first.
@@ -45,39 +44,32 @@ Pick lenses that can change the decision; each becomes a direction or a question
 - Corroborate with an independent source, not the same story syndicated.
 - Conflicts: report them; resolve by source quality, never by count.
 - Citations in AI search answers are leads only.
-- Stop when varied searches add no sources; "no evidence found" is valid.
+- Stop a line when varied searches add no deciding evidence; “no evidence found” is valid. Name unresolved gaps instead of padding the source list.
 
 ## Independence and incentives
 
 - Delphi: independent first positions (each worker or critic commits before seeing another's), then share; keep dissent.
-- Workers reading the same sources count as one source.
+- Multiple workers reading one source add no source independence.
 - Resolve disagreement with distinguishing evidence, not a majority vote; debate only when the [gate](#debate-when-and-how) holds.
 - Critics never gathered the evidence they check; they check evidence, not agreement.
 - Weigh by the author's stake: vendors, method authors, and advocates show a claim exists, not that it is true.
 
 ## Judging without bias
 
-Judges, the parent included, favor by position, format, and length.
-
 - Compare in both orders; a flip means unresolved, never pick.
 - Score one criterion at a time, then combine; never ask "which is better overall".
 - Ignore markdown, length, citation count, and tone.
 - More judges or debate do not remove shared bias.
-- A verdict matching your expected answer: look once more for the strongest verified claim against it.
 
 ## Calibrated confidence
 
 | Confidence | Evidence required |
 |---|---|
-| `high` | Two or more independent primary sources agree, the conditions match the question, and no strong counterevidence stands |
-| `medium` | One primary source, or several secondary sources with one origin, or primary support with unresolved counterevidence |
-| `low` | Only secondary, vendor, community, trend, or single-preprint support; or a prescription inferred from evidence that never tested it |
+| `high` | Direct authoritative evidence settles the claim in matching conditions; material counterevidence is resolved. Empirical generalizations need independent support. |
+| `medium` | Relevant primary support with a material applicability, independence or counterevidence gap. |
+| `low` | Indirect, promotional or thin evidence; unresolved alternatives; or an untested prescription inferred from other findings. |
 
 State confidence with its because (the claim ids behind the level) and the check that would move it.
-
-## Traits as procedures, not personas
-
-Brief checkable actions, not personas or "be unbiased": open-mindedness is varied searches and claims that challenge the direction; humility is confidence with its reason and the evidence that would change it; self-questioning is a search for what contradicts the conclusion; evidence discipline is URL plus verbatim quote, with a paraphrase that adds nothing.
 
 ## Checks for critics and the judge
 
@@ -92,26 +84,16 @@ Brief checkable actions, not personas or "be unbiased": open-mindedness is varie
 | Independence | Shared paper, authors, or mirror? Count one study once. |
 | Base rate | Success rate across reference classes, not a few successes? |
 | Effect size | How large? Significant can be small. |
-| Design | Correlation, mediation, or experiment? Only experiments show cause. |
+| Design | Does the study design support a causal claim, or only an association? |
 | Status and date | Peer-reviewed, preprint, or summary? Dated? |
 | Diagnosticity | Likelier under one hypothesis? If not, it decides nothing. |
 | Incentive | Does the source gain? Then it needs independent support. |
 | Counterevidence | What cuts against it, and which is stronger? Resolve by quality, never votes or eloquence. |
 
-Premortems, competing hypotheses, and "consider the opposite" surface counterevidence; they never prove a conclusion.
+For costly or irreversible choices, ask what would make the proposal fail, what happens afterward, and what contains the harm. A reversible experiment preserves options; a premortem alone proves nothing.
 
 ## Debate: when and how
 
-```mermaid
-flowchart TD
-  A{One contested conclusion decides the recommendation?} -- no --> S[Skip debate; report the gap]
-  A -- yes --> B{Verified evidence supports both sides?}
-  B -- no --> S
-  B -- yes --> C{Both sides agree how evidence would settle it?}
-  C -- no --> S
-  C -- yes --> W[Write the resolution: one falsifiable sentence plus its settling evidence] --> D[Dispatch PRO and CON, then judge]
-```
-
-Dispatch and judge per the [debater and judge briefs](briefs.md#debater-brief).
+Debate only when one contested conclusion decides the recommendation, verified evidence supports both sides, and both agree on a settling test. Otherwise gather the missing evidence or report the gap. Write a falsifiable resolution and its settling evidence, then use the [debater and judge briefs](briefs.md#debater-brief).
 
 Next: [briefs](briefs.md); report per [output](../output.md).
