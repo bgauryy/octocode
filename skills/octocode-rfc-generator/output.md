@@ -1,53 +1,42 @@
 # Output
 
-<!-- report-contract {"statuses":["Proposed","Accepted","Implemented","Rejected","Superseded"],"required":["Summary","Proposed design","Validation and success","Open questions"],"anyOf":[]} -->
+<!-- report-contract {"statuses":["Proposed","Accepted","Implemented","Rejected","Superseded"],"required":["Summary","Features","Proposed design","Tasks and rollout","Validation and success","Open questions","Sources"],"anyOf":[]} -->
 
 ## Structure
 
-Always include `## Summary`, `## Proposed design`, `## Validation and success`, and `## Open questions` (each question starts `Blocking:`, an objection stating its consequence, or `Non-blocking:`, a concern; `None.` when nothing is open) under exactly those names. Other sections are optional: combine or omit them, keeping the table's names.
+Required, under these names: `## Summary`, `## Features`, `## Proposed design`, `## Tasks and rollout`, `## Validation and success`, `## Open questions`, `## Sources`. Add the others only when they carry content, keeping the table's names and order. IDs cross-reference sections (`P` prerequisite, `F` feature, `D` decision, `T` task, `V` check, `Q` question); terms, entities and flows keep their code names everywhere.
 
-| Section | Content |
+| Section | Holds |
 |---|---|
-| Summary | Decision, effect, why worth it; flag a provisional choice |
+| Summary | Decision, effect, why worth it, one line per feature; flags a provisional choice |
+| Glossary | Term · meaning here · where it lives (identifier or path). Only terms a newcomer could misread; entities go in their own table |
 | Problem and context | Current behavior, affected users, deciding evidence, cost of inaction |
 | Goals and scope | Checkable outcomes, constraints, exclusions |
-| Proposed design | Behavior with examples; boundaries, interfaces, data flow, failures, compatibility, security; agent-facing text changed (instruction sections, role files, tool descriptions and promptGuidelines), with the file that owns each and the test that pins it |
-| Alternatives and rationale | Viable options, costs, benefits, why this fits, what could change it |
+| Prerequisites | `P` · what must hold before the first task (access, tools, data, an owner decision, other work) · check that shows it holds · owner |
+| Entities and flows | Entity · what it is · lives in (path, store, schema) · relations and states · `new`, `changed`, `removed` or `read`; then the current and proposed flow of each behavior that moves ([diagrams](references/diagrams.md)) |
+| Features | `F` · consumer (user, agent, caller, operator) · before → after, observable · example call or input and its new result · accepted by (`V`). A proposal of options adds priority (Must, Should, Could, Won't) with evidence of need. A refactor's feature is what callers observe, "nothing changes" included |
+| Proposed design | Behavior per feature with examples; boundaries, interfaces, failures, compatibility, security, observability; agent-facing text changed (instruction sections, role files, tool descriptions, promptGuidelines), with its owning file and the test that pins it. UI prototypes are labelled mockups |
+| Decisions and reasoning | When a choice had viable alternatives, one block each: **D1: choice.** Evidence · Reasoning (why the evidence selects it) · Rejected (option and the evidence against it) · Reverses if |
 | Risks and mitigations | Drawbacks, failure conditions, prevention or detection |
-| Implementation and rollout | Prerequisites, dependency-ordered steps, migration, rollout signals, rollback |
-| Validation and success | Acceptance checks as Given–When–Then (given <state>, when <action>, then <observable result>); baselines or targets, rollback thresholds; measurements apart from estimates |
-| Open questions | What is unresolved, impact, what settles it, owner when needed |
-| References | Citations beside claims; a short list only when useful |
-
+| Tasks and rollout | `T` · what to make (module, function, field, doc, test, config, script) · where (exact paths) · serves (`F`, `P`) · depends on (`T`, `P`) · done when (a check someone else can run), in dependency order; a task graph when dependencies branch; migration, rollout signals, rollback. A revision of accepted work adds state: `todo`, `doing`, `blocked` with its `Q`, `done` with its evidence |
+| Validation and success | `V` as Given–When–Then (given <state>, when <action>, then <observable result>), naming the `F` it accepts; baselines, targets, rollback thresholds; measurements apart from estimates |
+| Open questions | Each starts `Blocking:` (an objection and its consequence) or `Non-blocking:` (a concern): what is unresolved, impact, what settles it, owner; `None.` when nothing is open |
+| Sources | Every cited source as a link: code `path:line` at a commit, issues and PRs, prior RFCs, docs and specs, measurements with their command |
 
 ## Language
 
-- Clear technical English (unless asked otherwise) for a capable newcomer to this system.
-- Concrete verbs, short paragraphs, consistent terms, defined acronyms, exact identifiers.
-- Facts, assumptions, unknowns: current behavior with its evidence as facts, assumptions marked, unknowns named (what nobody checked); the proposal stays apart; never present a guess as a fact.
-- "must" = requirement, "should" = recommendation; uppercase only under a real protocol convention.
-- Observable outcomes, not promises.
+- Clear technical English (unless asked otherwise) for a capable newcomer to this system: concrete verbs, short paragraphs, exact identifiers, one name per thing.
+- Facts with evidence, assumptions marked, unknowns named (what nobody checked); the proposal stays apart from current behavior.
+- Cite beside the claim and list the source in Sources; an uncited deciding claim is an assumption.
+- "must" = requirement, "should" = recommendation; uppercase only under a real protocol convention. Observable outcomes, not promises.
 - Each paragraph carries a decision, evidence or a consequence; check drafts against [writing tells](references/writing-tells.md).
-- Cut repetition, sales language, narration, author/date/status tables, timestamps (the header `status` and the dated folder are the only date and status fields), tool inventories, scores, logs, transcripts, receipts. Header `status` owns decision state.
-
-## Delivery
-
-Save at `<workspace>/.octocode/octocode-rfc-generator/<YYYY-MM-DD>-<slug>/RFC.md`; `<workspace>` is the project root (repository root, else current directory), never inside an existing `.octocode/`. A user-named path wins (including the repository's RFC folder); a scratch folder like `.octocode/tmp/` does not. Reply BLUF: decision and confidence first, then any unresolved blocker, the `RFC.md` path, and the HTML link if requested. Review-only request: findings, no files.
-
-No companion `PLAN.md`, `KPI.md`, `PREREQUISITES.md`, `IMPLEMENTATION.md`, or `RESOURCES.md`.
-
-Use the [shared format guide](references/report-output.md#choose-the-format) only when a visual clarifies the proposal. The [RFC checklist](references/checklist.md#diagrams) maps decision needs to diagram types; label UI prototypes as mockups and justify schedule dates.
+- Cut repetition, sales language, narration, author/date/status tables, timestamps (the header `status` and the dated folder are the only date and status fields), tool inventories, scores, logs, transcripts, receipts.
 
 ## Saved report
 
-Save every RFC; when HTML was requested, rerender its folder after each revision.
+Save at `<workspace>/.octocode/octocode-rfc-generator/<YYYY-MM-DD>-<slug>/RFC.md`; `<workspace>` is the project root (repository root, else current directory), never inside an existing `.octocode/`. A user-named path wins (including the repository's RFC folder); a scratch folder like `.octocode/tmp/` does not. Scratch notes and long requests go to `<workspace>/.octocode/octocode-rfc-generator/tmp/`. One file: no companion `PLAN.md`, `KPI.md`, `PREREQUISITES.md`, `IMPLEMENTATION.md` or `RESOURCES.md`.
 
-Use the [shared header](references/report-output.md#report-header). Accepted `status` values: `Proposed`, `Accepted`, `Implemented`, `Rejected`, `Superseded`.
+The file starts with the [shared header](references/report-output.md#report-header), then the `#` title, a lead paragraph stating the answer, and the sections. Accepted `status` values: `Proposed`, `Accepted`, `Implemented`, `Rejected`, `Superseded`.
+`Implemented` means built and verified, with `next` naming any eval still owed; a `Superseded` lead names the replacement.
 
-`Implemented` means built and verified; `next` names any eval still owed. For `Superseded`, name the replacement in the lead.
-
-Then the `#` title, a lead paragraph stating the answer, and the Structure sections.
-
-Scratch notes and long requests: `<workspace>/.octocode/octocode-rfc-generator/tmp/`.
-
-After delivery, follow the [HTML offer](references/presentation.md#html-delivery). Use [report commands](references/report-output.md#render-and-retrieve) for accepted rendering and `--manifest` discovery.
+Reply BLUF: decision and confidence, any unresolved blocker, the `RFC.md` path, the HTML link if rendered. Review-only request: findings, no files. Then follow the [HTML offer](references/presentation.md#html-delivery); once HTML is accepted, rerender after each revision with the [report commands](references/report-output.md#render-and-retrieve), which also run `--manifest` discovery.

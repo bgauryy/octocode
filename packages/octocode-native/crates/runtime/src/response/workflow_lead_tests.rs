@@ -135,7 +135,8 @@ fn a_note_promised_tool_retains_its_related_calls() {
         for target in ToolId::ALL {
             let preferred = tool.workflow_leads().first();
             for channel in ["warnings", "hints", "notices", "diagnostics"] {
-                let recovery = format!("Run the related `{target}` request to inspect the alternatives.");
+                let recovery =
+                    format!("Run the related `{target}` request to inspect the alternatives.");
                 let mut data = json!({"files": [], "related": every_lead()});
                 data[channel] = if channel == "diagnostics" {
                     json!([{"message": "A different spelling exists.", "recovery": recovery}])
@@ -171,29 +172,39 @@ fn source_and_tool_name_substrings_do_not_retain_optional_calls() {
     for tool in ToolId::ALL {
         for target in ToolId::ALL {
             let prose = format!("Run the related {target} request.");
-            let mut output = response(json!({"index": 0, "data": {
-                "content": prose,
-                "files": [{"value": prose}],
-                "diagnostics": [{"message": prose}],
-                "warnings": [format!("prefix_{target}_suffix")],
-                "hints": [format!("x{target}x")],
-                "notices": [format!("α{target}β")],
-                "related": every_lead()
-            }}));
-            keep_workflow_lead(tool, &mut output, &Value::Null);
-            let preferred = tool.workflow_leads().first();
-            let expected = every_lead()
-                .as_array()
-                .expect("leads")
-                .iter()
-                .filter(|call| preferred.is_some_and(|target| call["tool"] == target.as_str()))
-                .cloned()
-                .collect::<Vec<_>>();
-            let related = output["results"][0]["data"]["related"]
-                .as_array()
-                .cloned()
-                .unwrap_or_default();
-            assert_eq!(related, expected, "{tool} -> {target}: {output}");
+            for spelling in [
+                format!("prefix_{target}_suffix"),
+                format!("x{target}x"),
+                format!("α{target}β"),
+                format!("${target}"),
+                format!("{target}$"),
+                format!("{target}\u{301}"),
+                format!("src/{target}.rs"),
+            ] {
+                let mut output = response(json!({"index": 0, "data": {
+                    "content": prose,
+                    "files": [{"value": prose}],
+                    "diagnostics": [{"message": prose, "recovery": format!("Use {spelling}.")}],
+                    "warnings": [format!("Use {spelling}.")],
+                    "hints": [format!("Use {spelling}.")],
+                    "notices": [format!("Use {spelling}.")],
+                    "related": every_lead()
+                }}));
+                keep_workflow_lead(tool, &mut output, &Value::Null);
+                let preferred = tool.workflow_leads().first();
+                let expected = every_lead()
+                    .as_array()
+                    .expect("leads")
+                    .iter()
+                    .filter(|call| preferred.is_some_and(|target| call["tool"] == target.as_str()))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let related = output["results"][0]["data"]["related"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default();
+                assert_eq!(related, expected, "{tool} -> {target}: {output}");
+            }
         }
     }
 }

@@ -4338,10 +4338,16 @@
                 "databaseSpecific": {
                   "$ref": "#/$defs/_h44"
                 },
+                "ecosystem": {
+                  "type": "string"
+                },
                 "ecosystemSpecific": {
                   "$ref": "#/$defs/_h44"
                 },
                 "packageName": {
+                  "type": "string"
+                },
+                "purl": {
                   "type": "string"
                 },
                 "ranges": {
@@ -27453,7 +27459,7 @@
     "restart": "branch",
     "retry": "branch"
   },
-  "fingerprint": "ad0d80ae7c8cb17f304542b49f6e9bad2b86e3a176cd700706a5c4f90440ccf7",
+  "fingerprint": "9f8ce96c8479683c8742b9cb93de09c7cfddbbb653ee5fb7dc4252b2aae62812",
   "limits": {
     "clasifyContextLines": 8,
     "defaultReadContextLines": 0,
@@ -36396,13 +36402,17 @@
       "pageContextFields": {
         "batchStatedOnce": [],
         "optional": [
+          "/data/advisories/*/affected/*/ecosystem",
           "/data/advisories/*/affected/*/packageName",
+          "/data/advisories/*/affected/*/purl",
           "/data/cautions",
           "/data/clientWaits",
           "/data/commitSha",
           "/data/coverage",
           "/data/coverage/reason",
+          "/data/moduleOnly/advisories/*/affected/*/ecosystem",
           "/data/moduleOnly/advisories/*/affected/*/packageName",
+          "/data/moduleOnly/advisories/*/affected/*/purl",
           "/data/next",
           "/data/packageName",
           "/data/pagination",

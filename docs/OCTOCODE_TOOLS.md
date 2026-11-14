@@ -184,7 +184,7 @@ Check known advisories and published fixes using OSV and GitHub. The CLI offers 
 | `advisory` | OSV receives the advisory ID. For a GHSA, GitHub also receives the ID and any supplied repository. |
 | `url` | A supported package URL, purl or GitHub URL uses the matching operation above. |
 
-The default summary reports `affected`, `upgradeTo` and `advisoryCount` when established. Request `view:"details"` for records, sources and affected ranges. An empty completed lookup means the source knows of no matching advisory. `versionEvaluated:false`, a failed source or incomplete coverage leaves the corresponding version or source unchecked.
+The default summary reports `affected`, `upgradeTo` and `advisoryCount` when established. Request `view:"details"` for records, sources and affected ranges. Affected entries retain the package ecosystem and `purl` when supplied, including distribution releases and URL qualifiers. Names can identify different packages across ecosystems; entries with differing or incomplete identity remain separate. An empty completed lookup means the source knows of no matching advisory. `versionEvaluated:false`, a failed source or incomplete coverage leaves the corresponding version or source unchecked.
 
 ## Semantic assessment reference
 

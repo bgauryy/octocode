@@ -18,6 +18,92 @@ fn row(record: Value, kind: ArtifactType, name: &str) -> SecurityAdvisory {
 }
 
 #[test]
+fn affected_package_identity_is_preserved_for_all_and_named() {
+    let names = ["shared".to_owned()];
+    let package = json!({
+        "name": "shared", "ecosystem": "Debian:12",
+        "purl": "pkg:deb/debian/shared@1.2?arch=arm64&distro=debian-12"
+    });
+    let record = json!({"id": "X", "affected": [{"package": package}]});
+    for selection in [
+        Selection::All,
+        Selection::Named(Ecosystem::Debian, &names, None),
+        Selection::Named(Ecosystem::Debian, &names, Some("12")),
+    ] {
+        let item = advisory(&record, &selection).expect("record");
+        assert_eq!(item.affected.len(), 1);
+        for (source, shown) in [
+            ("name", "packageName"),
+            ("ecosystem", "ecosystem"),
+            ("purl", "purl"),
+        ] {
+            assert_eq!(
+                item.affected[0][shown], package[source],
+                "{shown}: {item:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn affected_package_identity_is_not_invented_or_normalized() {
+    for package in [
+        json!({"name": "shared"}),
+        json!({"name": "shared", "ecosystem": "FutureRegistry:edge", "purl": "pkg:generic/shared?variant=next"}),
+    ] {
+        let item = advisory(
+            &json!({"id": "X", "affected": [{"package": package}]}),
+            &Selection::All,
+        )
+        .expect("record");
+        for field in ["ecosystem", "purl"] {
+            assert_eq!(item.affected[0].get(field), package.get(field), "{item:?}");
+        }
+    }
+}
+
+#[test]
+fn affected_package_identity_controls_twin_range_dedupe() {
+    let package = json!({"name": "shared", "ecosystem": "npm", "purl": "pkg:npm/shared"});
+    let mut other_ecosystem = package.clone();
+    other_ecosystem["ecosystem"] = json!("PyPI");
+    other_ecosystem["purl"] = json!("pkg:pypi/shared");
+    let mut other_purl = package.clone();
+    other_purl["purl"] = json!("pkg:npm/shared?repository_url=https%3A%2F%2Fregistry.example");
+    let mut no_ecosystem = package.clone();
+    no_ecosystem
+        .as_object_mut()
+        .expect("package")
+        .remove("ecosystem");
+    let mut no_purl = package.clone();
+    no_purl.as_object_mut().expect("package").remove("purl");
+    for (other, keep) in [
+        (package.clone(), false),
+        (other_ecosystem, true),
+        (other_purl, true),
+        (no_ecosystem, true),
+        (no_purl, true),
+        (json!({"name": "shared"}), true),
+    ] {
+        let osv = json!({"id": "GHSA-same", "affected": [{"package": package,
+            "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "2.0.0"}]}]}]});
+        let github = json!({"id": "GHSA-same", "affected": [{"package": other,
+            "ecosystem_specific": {"vulnerable_version_range": "< 2.0.0", "first_patched_version": "2.0.0"}}]});
+        let adapted = [&osv, &github].map(|record| {
+            serde_json::to_value(advisory(record, &Selection::All).expect("record")).expect("row")
+        });
+        for mut rows in [adapted.to_vec(), adapted.into_iter().rev().collect()] {
+            state_twin_differences(&mut rows);
+            assert_eq!(
+                rows[1].get("affected").is_some(),
+                keep,
+                "different or partially missing identity must stay; identical identity may fold: {other}; {rows:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn a_github_record_keeps_its_source_severity_and_ranges() {
     let source = "https://github.com/github/advisory-database/blob/main/advisories/X.json";
     let item = row(
@@ -59,6 +145,8 @@ fn a_github_record_keeps_its_source_severity_and_ranges() {
         item.affected,
         [json!({
             "packageName": "lodash",
+            "ecosystem": "npm",
+            "purl": "pkg:npm/lodash",
             "ranges": [{"type": "SEMVER", "events": [{"introduced": "4.0.0"}, {"fixed": "4.17.21"}]}],
         })]
     );
@@ -68,7 +156,6 @@ fn a_github_record_keeps_its_source_severity_and_ranges() {
         "nvd_published_at",
         "credits",
         "schema_version",
-        "purl",
     ] {
         assert!(!printed.contains(dropped), "{dropped}: {printed}");
     }

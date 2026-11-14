@@ -227,10 +227,15 @@ fn same_range(entry: &Value, stated: &Value) -> bool {
     let Some(fields) = entry.as_object() else {
         return false;
     };
-    if fields.get("packageName") != stated.get("packageName")
-        || fields
-            .keys()
-            .any(|key| !matches!(key.as_str(), "packageName" | "ecosystemSpecific"))
+    if PACKAGE_IDENTITY
+        .iter()
+        .any(|(_, field)| fields.get(*field) != stated.get(*field))
+        || fields.keys().any(|key| {
+            key != "ecosystemSpecific"
+                && !PACKAGE_IDENTITY
+                    .iter()
+                    .any(|(_, field)| key.as_str() == *field)
+        })
     {
         return false;
     }
@@ -677,12 +682,27 @@ fn also_affects(other: &[&Value]) -> Vec<String> {
     names
 }
 
-/// An entry as the record states it, without its repeated identity;
-/// `database_specific.source` is the row's own `source`.
+/// The source's package identity fields and their flat output names. Unknown
+/// identity is not equality with a known value when comparing ranges.
+const PACKAGE_IDENTITY: [(&str, &str); 3] = [
+    ("name", "packageName"),
+    ("ecosystem", "ecosystem"),
+    ("purl", "purl"),
+];
+
+/// An entry with its source package identity intact. A named selection may
+/// still hold distribution releases or purl qualifiers its request did not
+/// state. `database_specific.source` is the row's own `source`.
 fn affected_row(entry: &Value) -> Value {
     let mut row = Map::new();
-    if let Some(name) = text(entry.pointer("/package/name")) {
-        row.insert("packageName".to_owned(), Value::String(name));
+    for (from, to) in PACKAGE_IDENTITY {
+        if let Some(value) = entry
+            .get("package")
+            .and_then(|package| package.get(from))
+            .filter(|value| value.is_string())
+        {
+            row.insert(to.to_owned(), value.clone());
+        }
     }
     for (from, to) in [
         ("ranges", "ranges"),

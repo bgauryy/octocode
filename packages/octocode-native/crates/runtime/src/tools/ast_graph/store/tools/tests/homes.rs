@@ -159,3 +159,49 @@ fn a_path_outside_the_allowed_roots_names_every_setting_a_build_needs() {
         "{text}"
     );
 }
+
+/// Graphs scan directories: a file path is refused with its directory named
+/// and, as `related`, the same call at that directory, which then succeeds,
+/// under the workspace's home and under a configured one.
+#[test]
+fn a_file_path_offers_the_same_call_at_its_directory() {
+    let dir = Fixture::new();
+    dir.write("app/a.ts", "export const a = 1;\n");
+    let root = dir.0.canonicalize().expect("root");
+    let configured = root.join("graphs");
+    let paths = policy(&root, &root);
+    for home in [None, Some(configured.as_path())] {
+        let store = Store {
+            home,
+            ..Store::default()
+        };
+        let run = |tool: ToolId, row: Value| {
+            let row =
+                crate::contracts::validate_built_query(tool.as_str(), row).expect("input contract");
+            let result = if tool == ToolId::GraphBuild {
+                let query: GraphBuildQuery = serde_json::from_value(row).expect("typed query");
+                execute_build(&query, &paths, &ContentSecurity::new(), &context(), None, &store)
+            } else {
+                execute_query(&row, &paths, &context(), None, home)
+            };
+            let mut data = result.expect("execute").data;
+            crate::response::paths::workspace_relative(&mut data, &paths);
+            data
+        };
+        for (tool, row) in [
+            (ToolId::GraphBuild, json!({"path":"app/a.ts"})),
+            (ToolId::GraphQuery, json!({"operation":"stats","path":"app/a.ts"})),
+        ] {
+            let refused = run(tool, row);
+            assert_eq!(refused["errorCode"], "invalidInput", "{refused}");
+            let error = refused["error"].as_str().expect("error");
+            assert!(error.contains("not a file") && error.ends_with(" app"), "{refused}");
+            let related = &refused["related"][0];
+            assert_eq!(related["tool"], tool.as_str(), "{refused}");
+            let repaired = related["input"]["queries"][0].clone();
+            assert_eq!(repaired["path"], "app", "{refused}");
+            let answer = run(tool, repaired);
+            assert!(answer.get("error").is_none(), "{answer}");
+        }
+    }
+}

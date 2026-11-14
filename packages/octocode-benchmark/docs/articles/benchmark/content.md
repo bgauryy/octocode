@@ -135,7 +135,7 @@ Bigger windows expand what agents can attempt. They do not remove the need to ch
 - [octocode.ai](https://octocode.ai)
 - [Benchmark guide](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/README.md)
 - [Benchmark questions](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/questions/github)
-- [Benchmark results](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/README.md#results)
+- [Benchmark results](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/README.md#historical-research-results)
 - [Research Driven Development Manifest](https://github.com/bgauryy/octocode/blob/main/MANIFEST.md)
 
 If you liked this docs/articles/benchmark, feel free to explore — and add a ⭐ to the [Octocode repo](https://github.com/bgauryy/octocode) 🐙

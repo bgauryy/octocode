@@ -53,13 +53,57 @@ pub fn keep_workflow_lead(tool: ToolId, structured: &mut Value, request: &Value)
 /// identity neither the row nor its `request` states, or one the row's
 /// notes name.
 fn answers(data: &Map<String, Value>, request: &Value, call: &Value) -> bool {
-    carried_identities(call).into_iter().any(|identity| {
-        let exact = |text: &str| text == identity;
-        !(holds(request, &exact) || stated(data, &|_| true, &exact))
-            || stated(data, &|key| NOTES.contains(&key), &|text| {
-                text.contains(identity)
-            })
-    })
+    note_names_tool(data, call)
+        || carried_identities(call).into_iter().any(|identity| {
+            let exact = |text: &str| text == identity;
+            !(holds(request, &exact) || stated(data, &|_| true, &exact))
+                || stated(data, &|key| NOTES.contains(&key), &|text| {
+                    text.contains(identity)
+                })
+        })
+}
+
+/// A note can promise a call by tool rather than by an item identity: its
+/// selectors may live in arrays, which are deliberately not identities.
+/// Only standalone prose references count, not source paths or identifiers
+/// that happen to contain the tool name. Diagnostic messages can quote
+/// source; their explicit recovery, rather than that explanation, names
+/// the action to retain.
+fn note_names_tool(data: &Map<String, Value>, call: &Value) -> bool {
+    let Some(tool) = call["tool"].as_str() else {
+        return false;
+    };
+    let names = |text: &str| {
+        text.split_whitespace().any(|word| {
+            word.trim_matches(|c| {
+                matches!(
+                    c,
+                    '`' | '\''
+                        | '"'
+                        | '('
+                        | ')'
+                        | '['
+                        | ']'
+                        | '{'
+                        | '}'
+                        | ','
+                        | '.'
+                        | ':'
+                        | ';'
+                        | '!'
+                        | '?'
+                )
+            }) == tool
+        })
+    };
+    stated(data, &|key| NOTES.contains(&key), &names)
+        || data
+            .get("diagnostics")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|diagnostic| diagnostic["recovery"].as_str())
+            .any(names)
 }
 
 /// Whether a text scalar satisfies `matches`: identities require equality,

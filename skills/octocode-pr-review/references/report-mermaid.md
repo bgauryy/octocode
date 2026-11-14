@@ -5,7 +5,7 @@ Load when choosing a specialized diagram. Author a `mermaid` fence; the shared v
 | Reader needs | Syntax keyword | Selection rule |
 |---|---|---|
 | Decisions and dependencies | `flowchart` | Default for small directed explanations; label branches, group stages. |
-| Dense layered dependencies | `flowchart-elk` | Try ELK when ordinary flowchart layout becomes tangled; split if labels remain tiny. |
+| Dense layered dependencies | `flowchart` | 12.1.0 lays flowcharts out with ELK by default, so `flowchart-elk` adds nothing; split by question when labels shrink. |
 | Agent tasks and tools | `agentflow-beta` | Explicit task, tool, input and decision shapes within agent flows. |
 | Responsibility handoffs | `swimlane-beta` | Separate actors or teams into lanes. |
 | Messages over time | `sequenceDiagram` | Show ordering, alternatives and asynchronous interactions. |

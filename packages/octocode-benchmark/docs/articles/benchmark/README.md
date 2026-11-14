@@ -4,4 +4,4 @@ Preserved article draft and illustrations for the GitHub research benchmark. Thi
 
 - [Article draft](content.md)
 - [Illustrations](assets/)
-- Benchmark results: the [package README](../../../README.md#results).
+- Benchmark results: the [package README](../../../README.md#historical-research-results).

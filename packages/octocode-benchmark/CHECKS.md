@@ -99,6 +99,11 @@ freeze the assigned source/ref, then add held-out questions when needed. Call, r
 Rate each tool from **1 to 10** using [RATINGS.md](RATINGS.md), with one line of evidence per dimension.
 The observations below feed those ratings; stress and agent-understanding coverage remain explicit.
 Historical 1–5 results retain their original scale and are never silently doubled.
+
+A large-window response from the same tool is a pagination control, not an independent correctness
+oracle. Compare the selected facts with source/provider records before judging page reconstruction;
+a page union can faithfully reconstruct an already lossy adapter result. Include package/symbol/ref
+identity fields in that comparison, not just row counts.
 Use the pinned binary on the CLI and on the MCP server (`node packages/octocode-mcp/dist/index.js`, stdio).
 
 1. **Schema and description**: what an agent sees before its first call (`schema <tool>`, MCP `tools/list`).

@@ -34,3 +34,10 @@ General checks are shared, not copied into 17 drifting recipes: current schema/h
 input, selected output, empty/partial/error distinctions, executable continuations, full page
 reconstruction, cross-surface parity, first/repeat state, owned-process cleanup and honest cost
 accounting. Large-language, ecosystem and provider coverage must be named explicitly.
+
+For paired measurements, record logical request characters separately from setup/environment and
+count natural CLI stdout plus stderr. Preserve failed attempts, compare the same selected evidence
+with ordinary and lean commands, and report three paired passes. Cache immutable reads or explicitly
+time-stamped snapshots whose tolerated staleness is part of the comparison; verify the selected facts
+still agree and do not call a saved snapshot a fresh provider query. Compare git clone setup and
+repeated local work separately.

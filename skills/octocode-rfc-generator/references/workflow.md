@@ -12,7 +12,7 @@ Load when planning evidence, auditing an RFC, or a disagreement survives source 
 ## Audit an existing RFC
 
 - Read the proposal and its support; verify the live code it describes.
-- Find implemented work, wanted gaps, contradictions, superseded choices; recommend keep, update, or retire, with deciding evidence. Feedback: objection (blocks; states the consequence) vs concern (non-blocking). Shipped work that diverged: After Action Review: intended, happened, why different, next.
+- Find implemented work, wanted gaps, contradictions, superseded choices and [trace](checklist.md#trace) gaps; recommend keep, update, or retire, with deciding evidence. Feedback: objection (blocks; states the consequence) vs concern (non-blocking). Shipped work that diverged: After Action Review: intended, happened, why different, next.
 - Authorized edits: update substance in place, keep accepted decisions, make the current decision clear; no audit headers, transcripts, diary, or review metadata.
 - Archive or delete only within the user's scope; update references.
 

@@ -26,14 +26,40 @@ fn failure(message: impl Into<String>) -> GraphOutput {
     GraphOutput::error(ErrorCode::InvalidInput, message)
 }
 
+/// A graph call on a file: graphs scan directories, so the refusal names the
+/// file's directory and `related` is the same call at it (`at_dir`), offered
+/// only where that directory is a scope the call accepts (`accepts`).
+fn file_scope(
+    root: &Path,
+    paths: &PathPolicy,
+    accepts: impl Fn(&Path) -> bool,
+    at_dir: impl Fn(&Path) -> Option<Value>,
+) -> GraphOutput {
+    let Some(dir) = root.parent().filter(|dir| accepts(dir)) else {
+        return failure("path must be a directory, not a file");
+    };
+    let mut out = failure(format!(
+        "path must be a directory, not a file: graphs scan a directory, such as the file's {}",
+        paths
+            .workspace_relative(dir)
+            .unwrap_or_else(|| dir.display().to_string())
+    ));
+    if let Some(lead) = at_dir(dir) {
+        out.value["related"] = json!([lead]);
+    }
+    out
+}
+
 /// The workspace, scanned root and snapshot home of a graph call on `path`.
 /// The default home is the workspace's, so the root must lie inside the
 /// workspace; a configured home (`local.graphHome`) admits any allowed
-/// directory that does not contain it.
+/// directory that does not contain it. `at_dir` is the same call at another
+/// directory, the repair of a file path.
 fn scope(
     path: &str,
     paths: &PathPolicy,
     configured: Option<&Path>,
+    at_dir: impl Fn(&Path) -> Option<Value>,
 ) -> Result<(PathBuf, PathBuf, PathBuf), GraphOutput> {
     let policy = |e: crate::policy::PolicyError| GraphOutput::error(e.shared_code(), e.message);
     let resolve = |path: &str| paths.validate(path).map(|p| p.canonical).map_err(policy);
@@ -51,7 +77,7 @@ fn scope(
     let home = paths.validate_output(home).map_err(policy)?.canonical;
     if configured.is_some() {
         if !root.is_dir() {
-            return Err(failure("path must be a directory"));
+            return Err(file_scope(&root, paths, |dir| !home.starts_with(dir), at_dir));
         }
         if home.starts_with(&root) {
             return Err(failure(format!(
@@ -62,7 +88,10 @@ fn scope(
         }
         return Ok((workspace, root, home));
     }
-    if !root.is_dir() || !root.starts_with(&workspace) {
+    if !root.is_dir() && root.starts_with(&workspace) {
+        return Err(file_scope(&root, paths, |_| true, at_dir));
+    }
+    if !root.starts_with(&workspace) {
         return Err(failure(format!(
             "path must be a directory inside the current workspace ({}): graph snapshots live in the workspace. Start Octocode inside that directory, or use astSearch and localSearch at it.{OUTSIDE_WORKSPACE}",
             workspace.display()
@@ -203,7 +232,14 @@ fn options(
     paths: &PathPolicy,
     configured: Option<&Path>,
 ) -> Result<QueryOptions, GraphOutput> {
-    let (workspace, root, home) = scope(row["path"].as_str().unwrap_or("."), paths, configured)?;
+    let at_dir = |dir: &Path| {
+        let mut row = row.clone();
+        row["path"] = json!(dir);
+        super::query::typed_row::<GraphQueryQuery>(row)
+            .map(|query| Continuation::related_query(query).build())
+    };
+    let path = row["path"].as_str().unwrap_or(".");
+    let (workspace, root, home) = scope(path, paths, configured, at_dir)?;
     let id = match row["graph"].as_str() {
         Some(id) => id.to_owned(),
         None => list_snapshots(&home)
@@ -302,7 +338,15 @@ fn build(
     cargo: Option<&str>,
     store: &Store<'_>,
 ) -> GraphOutput {
-    let (workspace, root, _) = match scope(&query.path, paths, store.home) {
+    let at_dir = |dir: &Path| {
+        let path = dir.to_str()?.try_into().ok()?;
+        let query = GraphBuildQuery {
+            path,
+            ..query.clone()
+        };
+        Some(Continuation::related_query(query).build())
+    };
+    let (workspace, root, _) = match scope(&query.path, paths, store.home, at_dir) {
         Ok(scope) => scope,
         Err(error) => return error,
     };
