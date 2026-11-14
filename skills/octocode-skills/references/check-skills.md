@@ -21,6 +21,8 @@ Classify each resource as required, conditional or unrouted. Read authored instr
 
 Apply the [placement rules](../SKILL.md#decide-placement). Merge repeated decisions and pages always needed together; keep distinct recipes conditional. Preserve permissions, identifiers, exact commands, exceptions, evidence, recovery and completion. Do not replace clear prose with a larger table or decorative diagram. Rewalk both tasks after changes. Moving text does not establish a size or efficiency improvement.
 
+Check the text for slop: search each rule's key phrase across the bundle and its shared copies and keep one owner; flag MUST/NEVER outside safety, stacked hedges, contrast framing and fixed-count lists ([writing tells](writing-tells.md)).
+
 ## 3. Run structural checks
 
 `<this-skill>` is the installed skill's absolute path; targets resolve from the working directory. Node is required.

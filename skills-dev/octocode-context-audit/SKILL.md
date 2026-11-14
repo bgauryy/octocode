@@ -15,7 +15,7 @@ node <skill>/scripts/context-audit.mjs --workspace <repo> --no-probe
 
 Keep `--no-probe` when a configured server may have startup side effects. Omit it to measure stdio servers via `initialize` and every `tools/list` page. A deadline, invalid page or repeated cursor leaves that server unmeasured. Keep stderr private.
 
-Use `--days N` to select Claude transcripts by file mtime. The default scope is this workspace. Use `--all-projects` only for a cross-project audit. Each run saves `context-audit.json` under a fresh dated directory in `<workspace>/.octocode/octocode-context-audit/`. An explicit `--out DIR` can overwrite a baseline. `--json` also prints the full report.
+Use `--days N` to select Claude transcripts by file mtime. The default scope is this workspace. Use `--all-projects` only for a cross-project audit the user asked for; report counts and tool names, never prompt or transcript text. Each run saves `context-audit.json` under a fresh dated directory in `<workspace>/.octocode/octocode-context-audit/`. An explicit `--out DIR` can overwrite a baseline. `--json` also prints the full report.
 
 ## What it collects
 
@@ -33,3 +33,5 @@ Start with `high` findings. Read each flag against its measured scope and budget
 If repairs are authorized, change the owning source, rerun to a fresh destination and compare the saved evidence and retained behavior. Follow [output.md](output.md) for the BLUF, each high finding in 5W2H, the before/after delta and HTML delivery. Use `--html` when requested up front or `--render <saved-context-audit.json>` to render the accepted snapshot later.
 
 When changing a collector, budget or output mode, run `node --test <skill>/scripts/tests/*.test.mjs`.
+
+Done when each high finding has a measured size, owning file and a repair or reason to keep it, and each repair has a rerun delta.

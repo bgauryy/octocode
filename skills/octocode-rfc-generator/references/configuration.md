@@ -24,7 +24,7 @@ For each key separately, the first valid value wins:
 | 3 | Home `.env` | `<home>/.env` |
 | 4 | Workspace `.octocoderc` | `<workspace>/.octocode/.octocoderc` |
 | 5 | Home `.octocoderc` | `<home>/.octocoderc` |
-| 6 | The setting's default | [settings and defaults](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#all-settings-and-defaults) |
+| 6 | The setting's default | [settings and defaults](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#all-settings-reference) |
 
 A workspace file cannot set a home-only value, such as `classification.apiHost` or `github.apiUrl`. Provider keys for skills live in the `.env` files, not `.octocoderc`.
 

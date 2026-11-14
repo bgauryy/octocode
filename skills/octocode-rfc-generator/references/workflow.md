@@ -24,7 +24,7 @@ Only when a consequential disagreement survives source review, no direct check s
 - Delegated reviewers (when authorized): Delphi: same evidence, independent first positions, then share; keep dissent. Task contract for each: objective a different question, inputs the shared evidence, constraints read-only (you keep write authority and judgment), output a position; keep partial returns.
 - Credential: `OCTOCODE_CLASSIFICATION_API` or `classification.api` in `.octocoderc`; use [shared configuration handling](configuration.md) and [live tool availability](octocode-usage.md#availability).
 
-1. Name the next action this judgment could change; inspect the live query: `npx -y octocode schema clasify --view query`. Check credentials without displaying them; missing access leaves review partial, never approved.
+1. Name the next action this judgment could change; inspect the live query with the CLI chosen per [live tool availability](octocode-usage.md#availability): `octocode schema clasify --view query`. Check credentials without displaying them; missing access leaves review partial, never approved.
 2. Submit typed questions over the pinned evidence and competing arguments, including an uncertainty outcome. Inspect every page, error and coverage limit. Retry only for a useful repair or new evidence; otherwise preserve the partial result.
 3. Verify the deciding original source before updating the same RFC with conclusion, dissent and uncertainty. Confidence is not correctness; a provider answer grants no implementation authority. Omit requests, receipts, timing and usage.
 - Measuring whether assisted review helps: `octocode-agentic`; no evaluation report in the RFC.

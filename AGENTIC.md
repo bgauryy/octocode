@@ -1042,12 +1042,12 @@ Reset Copy checklist
 
 These are particularly valuable primary sources for implementing and refining agentic systems:
 
-- [Anthropic — Effective Context Engineering](https://www.anthropic.com/research/effective-context-engineering-for-ai-agents?utm_source=chatgpt.com)
-- [Anthropic — Writing Effective Tools](https://www.anthropic.com/research/writing-tools-for-agents?utm_source=chatgpt.com)
-- [OpenAI — Prompt Caching](https://developers.openai.com/api/docs/guides/prompt-caching?utm_source=chatgpt.com)
-- [OpenAI — Compaction](https://developers.openai.com/api/docs/guides/compaction?utm_source=chatgpt.com)
-- [Model Context Protocol Specification](https://modelcontextprotocol.io/specification?utm_source=chatgpt.com)
-- [Agent Skills Specification](https://agentskills.io/specification?utm_source=chatgpt.com)
+- [Anthropic — Effective Context Engineering](https://www.anthropic.com/research/effective-context-engineering-for-ai-agents)
+- [Anthropic — Writing Effective Tools](https://www.anthropic.com/research/writing-tools-for-agents)
+- [OpenAI — Prompt Caching](https://developers.openai.com/api/docs/guides/prompt-caching)
+- [OpenAI — Compaction](https://developers.openai.com/api/docs/guides/compaction)
+- [Model Context Protocol Specification](https://modelcontextprotocol.io/specification)
+- [Agent Skills Specification](https://agentskills.io/specification)
 
 The overall architectural goal is to create a bounded, evidence-driven, context-efficient agent that can discover relevant capabilities, retrieve the minimum sufficient information, perform coherent actions, recover its state, verify the result, and terminate reliably.
 
@@ -2273,10 +2273,10 @@ Choose based on declared contracts and permissions
 
 ### Primary references
 
-- [A2A Protocol Specification](https://a2a-protocol.org/latest/specification/?utm_source=chatgpt.com)
-- [Model Context Protocol](https://modelcontextprotocol.io/specification?utm_source=chatgpt.com)
-- [Zod Documentation](https://zod.dev/?utm_source=chatgpt.com)
-- [Zod — JSON Schema Conversion](https://zod.dev/json-schema?utm_source=chatgpt.com)
-- [OpenAI — Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs?utm_source=chatgpt.com)
+- [A2A Protocol Specification](https://a2a-protocol.org/latest/specification/)
+- [Model Context Protocol](https://modelcontextprotocol.io/specification)
+- [Zod Documentation](https://zod.dev/)
+- [Zod — JSON Schema Conversion](https://zod.dev/json-schema)
+- [OpenAI — Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
 
 Final architecture principle: The LLM determines what to do. A typed contract defines what may be exchanged. The protocol determines how it is exchanged. The runtime controls when and whether it executes. Deterministic validators and tests determine whether the result is acceptable.

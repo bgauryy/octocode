@@ -1,13 +1,13 @@
 ---
 name: octocode-graph
-description: "Use when querying code dependencies, callers, paths, cycles, hubs, impact, drift or Git co-change with graphBuild and graphQuery. Use octocode-graph-view for interactive architecture maps."
+description: "Use when asking structural questions about a codebase: who imports or calls what, dependency paths, cycles, hubs, change impact, dead-code candidates or files that change together, answered with graphBuild and graphQuery. Use octocode-graph-view for an interactive map."
 ---
 
 # Octocode Graph
 
 The graph is a syntax snapshot of one scope: files, symbols and packages joined by `imports`, `calls`, `uses`, `inherits`, `passes` and `contains`. Rows identify where to inspect; execution or tests establish what runs or breaks.
 
-Call the tools over MCP (`graphBuild`, `graphQuery`) or the CLI: `OCTO='node packages/octocode/out/octocode.js'` from the Octocode checkout, then `$OCTO graphBuild '{"queries":[{"path":"src"}]}'` and `$OCTO schema graphQuery` for the exact fields.
+Call the tools over MCP (`graphBuild`, `graphQuery`) or the CLI: `OCTO='node packages/octocode/out/octocode.js'` from the Octocode checkout (elsewhere the installed `octocode` or `npx -y octocode`), then `$OCTO graphBuild '{"queries":[{"path":"src"}]}'` and `$OCTO schema graphQuery` for the exact fields.
 
 Use the **same `path`** for build and queries. After edits, check `stale` and run its `reingest` call when not fresh. Follow `responsePagination.next` before `next.*`, copying calls unchanged. For an empty or surprising answer, query at `medium` and inspect `unresolved` before claiming absence. [Build and read](references/build-and-read.md) covers long builds, confidence, weights and gaps.
 
@@ -32,4 +32,4 @@ Use the **same `path`** for build and queries. After edits, check `stale` and ru
 
 Before citing callers, absence or dead code, run `lspSearch` references at the row's `path`, `symbolName` and `line`, then read the source. Check consumers the graph cannot model: dynamic dispatch, registration and config. For `cochange` with `linked:false`, inspect shared config, schemas or generated code. `sites`, PageRank and co-change measure different things; none is runtime frequency or probability.
 
-Return the answer with scope `path`, snapshot `id`, freshness, cited rows (`path:line`, operation, confidence), source/LSP checks and gaps. Label unchecked rows as leads and incomplete counts as floors. Include unresolved reasons and unbuilt scope. Save requested results under `<workspace>/.octocode/octocode-graph/` (scratch in `tmp/`); a user-named path wins. Use `octocode-engineer` for design decisions about a cycle, hub or boundary.
+Lead with the answer and its cited rows (`path:line`, operation, confidence) and the source/LSP checks run. Add scope `path`, snapshot `id`, freshness, unresolved reasons and unbuilt scope where they limit a claim. Label unchecked rows as leads and incomplete counts as floors. Dead-code rows are leads: deletion needs a removal proof (`octocode-clean-agentic-code`). Save requested results under `<workspace>/.octocode/octocode-graph/` (scratch in `tmp/`); a user-named path wins. Use `octocode-engineer` for design decisions about a cycle, hub or boundary.

@@ -5,6 +5,7 @@ Load when comments, docs, agent instructions, or configuration hold stale or dup
 ## Comments and documents
 
 - Read in context: a repeated phrase or old date can carry a live contract.
+- AI-writing tells, tool residue and placeholders: [writing tells](writing-tells.md).
 - Keep: non-obvious invariants, compatibility constraints, useful rationale, external specs, migration guidance, required attribution.
 - Remove after a consumer check: syntax narration (`// loop over users` above `for (const u of users)`), obsolete parameter docs, abandoned code blocks, duplicate explanations.
 | Signal | Check / action |

@@ -24,16 +24,28 @@ Octocode's answer alone.
 - **Octocode loses a row** when the competitor is right, smaller and needed no guessing. Say so
   plainly; that row is the improvement target.
 
+For CLI orchestration and continuation checks, capture `--json`, or retain both text streams.
+The default text renderer puts counters and optional `related[]` commands on stderr; source
+facts and required continuation commands remain on stdout. A stdout-only capture misses those
+notes. Count stdout plus stderr when comparing total text output, and record which representation
+each character count measures.
+
+Time the interface an agent actually uses. A fresh Node CLI client, a direct native client and
+a persistent MCP request have different startup costs even when they share a warm runtime.
+The [advanced round](results/rounds/20.2.0-2026-11-14-advanced/SCORECARD.md) measures them
+separately. Compare natural text and JSON before attributing extra characters to the engine;
+strip only shared benchmark environment bookkeeping from logical inputs, retaining setup once.
+
 ## Map
 
 | Octocode | Competitor | Same question? | Stored evidence | Status |
 |---|---|---|---|---|
 | [localSearch](#localsearch) | `rg` | yes | rg comparisons, 2026-10 | measured |
-| [localFetch](#localfetch) | `sed -n`, `rg -A` | ranges yes; whole function needs a guessed length | none | check rounds only |
-| [structureSearch](#structuresearch) | `fd`, `find`, `stat`, `wc -l` | yes | none | check rounds only |
+| [localFetch](#localfetch) | `sed -n`, ast-grep range + `sed` | yes; derive the whole declaration's range | advanced round, 2026-11-14 | measured |
+| [structureSearch](#structuresearch) | `fd`, `find`, `stat`, `wc -l` | yes | advanced round, 2026-11-14 | measured |
 | [astSearch](#astsearch) | `ast-grep` | yes | ast-grep comparisons, 2026-10 | measured |
-| [lspSearch](#lspsearch) | `rg -w` | no: spelling, not identity | none | measure rg's errors |
-| [graphBuild and graphQuery](#graphbuild-and-graphquery) | graphify; shell import counts | partly | none | needs graphify installed (owner) |
+| [lspSearch](#lspsearch) | same language server over direct LSP; `rg -w` | direct LSP yes; rg only spelling | advanced round, 2026-11-14 | selected semantic sets measured |
+| [graphBuild and graphQuery](#graphbuild-and-graphquery) | Graphify; projected import counts | selected edges, callers and paths | advanced round, 2026-11-14 | measured; graph models differ |
 | [clasify](#clasify) | the main agent reading everything | yes | clasify A/B campaigns | measured; adoption is the gap |
 | [ghSearchRepo](#ghsearchrepo) | `gh search repos`, `gh repo view` | yes | gh-lean campaigns | measured |
 | [ghSearchCode](#ghsearchcode) | `gh search code` | yes | gh-lean campaigns | measured |
@@ -47,10 +59,12 @@ Octocode's answer alone.
 | [Output compressors](#output-compressors) | RTK, Headroom | yes | August 2026 campaigns | measured (numbers only) |
 | [Version against version](#version-against-version) | the previous Octocode release | yes | v18 vs v20 timing | measured |
 
-Installed on the benchmark machine at the last check (2026-11-13): rg 15.2.0, ast-grep 0.45.0
-(`sg` is the same binary), gh 2.96.0, rtk 0.44.2, headroom 0.34.0, fd 10.5.0, jq 1.7.1. Not
-installed: graphify, osv-scanner, knip, semgrep. A round checks the versions again; it does not
-assume these.
+The [2026-11-14 advanced round](results/rounds/20.2.0-2026-11-14-advanced/SCORECARD.md)
+rechecked rg 15.2.0, ast-grep 0.45.0 (`sg` is the same binary), gh 2.96.0, and the installed
+TypeScript language server 6.0.2 with TypeScript 6.0.3. It installed `graphifyy` 0.9.108 into an
+isolated temporary environment, without global agent hooks or a model backend. Earlier checks
+(2026-11-13) recorded rtk 0.44.2, headroom 0.34.0, fd 10.5.0 and jq 1.7.1; they are not all fresh
+version assertions. Check the exact executables and versions each round.
 
 ## Local tools
 
@@ -58,8 +72,8 @@ assume these.
 
 - **Question:** where a term is used, which files hold or lack it, where it is used most, and a
   term inside a minified one-line file.
-- **Expert form:** `rg -n -w -F TERM DIR -g '*.rs' -m 20`; counts
-  `rg -c TERM DIR | sort -t: -k2 -rn | head -20`; files `rg -l` and `rg --files-without-match`;
+- **Expert form:** `rg --no-config -n -w -F TERM DIR -g '*.rs'`; matching-line counts
+  `rg --no-config -c -F TERM DIR`; files `rg -l` and `rg --files-without-match`;
   a window in a long line `rg -o -b '.{0,60}TERM.{0,60}' FILE`.
 - **Better means:** the same match set first. Then characters, a window with its column for a hit
   in a long line, a continuation that reaches every remaining hit, and the next call ready from
@@ -77,18 +91,20 @@ matches. Omit `-m` and `head` when checking the complete evidence set. See the
 
 - **Question:** lines A–B of a file; one function's body, short and over 400 lines; the outline
   of a large file.
-- **Expert form:** `sed -n 'A,Bp' FILE`; `rg -n -A40 'fn NAME' FILE`; `head -c N FILE`.
-- **Better means:** ranges must match `sed -n` exactly. For a whole function, the shell has to
-  guess its length: Octocode wins when it returns the complete block on page 1 without the
-  guess, and loses when `sed -n` with a known range is smaller. Record whether the length was
-  guessed.
+- **Expert form:** `sed -n 'A,Bp' FILE` for a known range; an ast-grep declaration match with
+  JSON range fields followed by `sed` for a whole function. Derive the range before the read;
+  a guessed `rg -A40` window is not a complete-declaration baseline.
+- **Better means:** exact requested source, including declarations over 400 lines, with all
+  required pages read. Count AST discovery and the dependent range read. State whether attached
+  comments or line numbers make the representations differ. Use a full-file read only when the
+  question requests the full file; byte prefixes are not evidence-complete alternatives.
 
 ### structureSearch
 
 - **Question:** the layout of a folder; the largest, longest and newest files under it; files by
   name.
 - **Expert form:** `fd -t f PATTERN DIR`; `find DIR -maxdepth 2 -type d`;
-  `find DIR -name '*.rs' -exec stat -f '%z %N' {} + | sort -rn | head`; `wc -l`.
+  `find DIR -name '*.rs' -exec stat -f '%z %N' {} + | sort -rn`; `wc -l`.
 - **Better means:** the same listing; one metric per row for a sorted listing; characters.
 
 ### astSearch
@@ -109,26 +125,44 @@ matches. Omit `-m` and `head` when checking the complete evidence set. See the
 ### lspSearch
 
 - **Question:** who references a symbol, its definition, callers and callees.
-- **Competitor:** `rg -n -w NAME`, which answers a narrower question: where the spelling occurs.
-  No shell command establishes which symbol a reference denotes.
-- **Better means:** count what `rg -w` gets wrong for the same question: same-name symbols in
-  other scopes, comments, strings. Check lspSearch's roles (declaration, import, call) against
-  the source. Record cold and repeat time; the cold start is the cost.
+- **Competitor:** a direct client of the same language server for definitions, references and
+  incoming calls. `rg -n -w NAME` is a separate spelling baseline: it cannot establish symbol
+  identity and can miss renamed references while including shadows, comments and strings.
+- **Better means:** equal source-confirmed locations and caller sites first. Record server
+  version, initialization, document synchronization, readiness, first request and warm requests
+  separately. Preserve reacquisition after an idle server is retired; it is not a warm sample.
+  Check source snippets, roles and diagnostics as additional evidence, not duplicate locations.
+- **Accounting:** `didOpen` source bytes are client/server traffic, not model context unless
+  the model actually reads them. Compare raw LSP results, Octocode output and a shared semantic
+  projection separately. A partial-analysis warning remains relevant even when the selected
+  oracle set matches. The advanced round observed TypeScript diagnostic 7006 and disclosed it.
 
 ### graphBuild and graphQuery
 
-**Status: needs graphify installed (owner).** No head-to-head run exists; the 2026-10-28
-comparison was of source and documentation only.
+The [advanced round](results/rounds/20.2.0-2026-11-14-advanced/SCORECARD.md) runs the official
+[Graphify](https://github.com/Graphify-Labs/graphify) package (`graphifyy` 0.9.108), code-only,
+without clustering, on a frozen JavaScript fixture and pinned `pallets/itsdangerous` source.
+The earlier 2026-10-28 source-only comparison does not describe this measured round.
 
 - **Questions both can answer:** the most imported files (dependents), callers of a function,
   the shortest path between two symbols, what may be affected by a change (graphify's
   "affected"), the most connected nodes (graphify's "god nodes" against `hubs`).
-- **Graphify only:** communities, natural-language graph queries, non-code nodes (documents,
-  images). **Octocode only:** witnesses for every edge, unresolved sites with reasons, cycles
-  with runtime classification, co-change, drift, stale snapshots.
+- **Shared evidence:** both tools resolved the tested aliases and re-exports and recovered the
+  same selected caller sets. Both provide source evidence. In the real-source case, Octocode
+  exposed all 19 call sites across 16 callers; Graphify's examined graph and `explain --all`
+  retained one location per caller-to-target edge. Distinguish sites from caller nodes.
+- **Different models:** Graphify also represents configuration keys, containment and other
+  relations. Raw hub degrees therefore answer different questions; project the same module
+  import edges before comparing fan-in. Its broader advertised multimodal and model-assisted
+  features were not exercised in this code-only round.
+- **Freshness and cycles:** after a source edit, Octocode identified the stale snapshot and
+  changed file; Graphify's tested path command returned the old path without a stale warning.
+  Both refreshed to the correct new path. Octocode directly reported the tested import cycle;
+  projecting a cycle from Graphify's exported edges is a custom step, not a native CLI command.
+  A graph's runtime import classification is not proof that code executed.
 - **Shell fallback:** importers with `rg -o "from '[^']*'" DIR | sort | uniq -c | sort -rn`;
-  co-change from `git log --format= --name-only -- PATH`. Nothing in the shell answers unused
-  exports or cycles (knip covers unused exports for TypeScript only, and is not installed).
+  co-change from `git log --format= --name-only -- PATH`. Lexical import counts are candidates;
+  they do not establish resolved dependency cycles or unused exports.
 - **Better means:** edge precision and recall on a sample confirmed against the source (with
   lspSearch or by reading), build time and size on the same repository, query characters, and
   claims made without a witness. Use the commands of the installed graphify version

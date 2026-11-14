@@ -1,6 +1,6 @@
 ---
 name: octocode-pr-review
-description: "Use when a pull request, branch, local diff or changed files need an APPROVE, COMMENT or REQUEST_CHANGES verdict based on verified findings and affected consumers."
+description: "Use only to review a GitHub pull request, given by number, URL or its branch, and reach an APPROVE, COMMENT or REQUEST_CHANGES verdict from verified findings and affected consumers. Not for general code review, critique or uncommitted edits; octocode-roast handles requested critique."
 ---
 
 # Octocode PR Review

@@ -38,4 +38,4 @@ Decide which unknown keys to strip (`object`), reject (`strictObject`) or preser
 | Enforcement or test design | [Lint/CI](references/linter-and-ci.md), [testing](references/testing.md) | Pipeline gates or case selection |
 | Assertion/fixture examples or weak-test review | [Test API](references/testing-api.md), [test anti-patterns](references/testing-anti-patterns.md) | Read only the matching example or failure pattern |
 
-Use `octocode-research` for unresolved source behavior, `octocode-engineer` for boundary design, and `octocode-dev` for Octocode’s generated contracts and checks. Follow [output.md](output.md) for delivery.
+Use `octocode-research` for unresolved source behavior, `octocode-engineer` for boundary design, and `octocode-dev` for Octocode’s generated contracts and checks. Follow [output.md](output.md) for delivery. Done when accepted, rejected and boundary cases run against the real consumer at the installed version and unrun checks are named. The guardrail for a recurring Zod mistake is a lint rule or schema test from [Lint/CI](references/linter-and-ci.md).

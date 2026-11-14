@@ -27,6 +27,7 @@ Always include `## Summary`, `## Proposed design`, `## Validation and success`, 
 - Facts, assumptions, unknowns: current behavior with its evidence as facts, assumptions marked, unknowns named (what nobody checked); the proposal stays apart; never present a guess as a fact.
 - "must" = requirement, "should" = recommendation; uppercase only under a real protocol convention.
 - Observable outcomes, not promises.
+- Each paragraph carries a decision, evidence or a consequence; check drafts against [writing tells](references/writing-tells.md).
 - Cut repetition, sales language, narration, author/date/status tables, timestamps, tool inventories, scores, logs, transcripts, receipts. Header `status` owns decision state.
 
 ## Delivery

@@ -29,6 +29,8 @@ Load when a scrape fails, blocks, times out, or overflows, or when legality, pri
 
 ## Retries
 
+The guardrail for a thin-page, selector or route failure that recurs across sessions is a saved capture used as a regression fixture.
+
 Retry after changing the diagnosis or input, or when a server-requested delay and the remaining authorized time justify another attempt. Do not repeat unchanged failed calls; report a blocking delay or unresolved cause (SBAR below).
 
 ## On a stop

@@ -14,7 +14,7 @@ Order findings by severity; a table helps compare several:
 
 | ID | Location | Finding and evidence | Impact | Severity | Confidence | Fix |
 |---|---|---|---|---|---|---|
-| `SEC-1` | `src/auth.ts:42` | `issue (blocking):` the mechanism, with its exact source anchor | Who or what breaks, and when | `High` | `high` | The smallest repair |
+| `SEC-1` | `src/auth.ts:42` | `issue (blocking):` the mechanism, with its exact source anchor | Who or what breaks, and when | `High` | `high` | The smallest repair; when a lint rule, type or test can catch the defect class, name it too |
 
 - **Finding:** state the defect and whether it blocks. Use Conventional Comments labels when the review destination expects them.
 - **Severity** measures impact: `Critical`, `High`, `Medium`, `Low`.

@@ -43,7 +43,7 @@ Load live tool schemas through `octocode-research` before calling a tool. Import
 
 ## Flows
 
-Pick the scenarios needed to explain the requested scope: the main request path, one write to state, one external call, one async or background path, and startup or configuration. For each flow, start at the trigger (CLI argv, route, MCP `tools/call`, UI event, cron), follow hops across component boundaries only, record `action` as the concrete call (`POST /orders`, `executeMcp(tool,args)`) with `kind` and `evidence`, and close with the response or side effect. Mark background hops `async: true`. Split a flow when separate boundaries become hard to follow; retain every evidenced hop.
+Pick the scenarios the requested scope contains, for example the main request path, a write to state, an external call, an async or background path, or startup and configuration; never invent a flow the code does not have. For each flow, start at the trigger (CLI argv, route, MCP `tools/call`, UI event, cron), follow hops across component boundaries only, record `action` as the concrete call (`POST /orders`, `executeMcp(tool,args)`) with `kind` and `evidence`, and close with the response or side effect. Mark background hops `async: true`. Split a flow when separate boundaries become hard to follow; retain every evidenced hop.
 
 ## Summary and findings
 

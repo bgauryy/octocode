@@ -332,6 +332,8 @@ MCP server. Pass means the behavior below; anything else is a defect with the ca
 script tests). This section checks behavior: what an agent does with each public skill under `skills/`. How
 to review one skill is in [check skills](../../skills/octocode-skills/references/check-skills.md); how to test
 activation is in [skill activation](../../skills/octocode-agentic/references/skill-activation.md).
+For cleanup decisions, run the [clean-skill acceptance checks](briefs/check-cleanup.md): a disposable
+fixture with public/dynamic consumers, a shared generator, meaningful guards and an existing failure.
 
 | Check | How | Pass when |
 |---|---|---|

@@ -1,6 +1,6 @@
 ---
 name: octocode-skills
-description: "Use when finding, creating, improving, validating, installing or syncing Agent Skills: trigger descriptions, SKILL.md instructions, references and packaging. Use octocode-agentic for measured activation tests."
+description: "Use when finding, creating, improving, validating, installing or syncing Agent Skills (SKILL.md files): trigger descriptions, instructions, references and packaging. Use octocode-agentic for measured activation tests."
 ---
 
 # Octocode Skills
@@ -60,4 +60,4 @@ Create only needed files and folders. Keep an instruction only when it helps cho
 | Settings or credentials are required | [Configuration](references/configuration.md) |
 | Deliver a detailed or saved review | [Result formats](output.md) |
 
-Return **Ready** or **Needs work**, changes/findings, checks and unchecked scope. Distinguish editorial, structural and observed behavioral evidence; rate only against stated criteria.
+Return **Ready** or **Needs work**, changes/findings, checks and unchecked scope. Done when the checker reports no errors, changed commands ran, and each behavioral claim has before/after host runs or the missing run is named. Distinguish editorial, structural and observed behavioral evidence; rate only against stated criteria.

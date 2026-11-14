@@ -1,6 +1,6 @@
 ---
 name: octocode-brainstorming
-description: "Use when exploring ideas, challenging proposals, researching best practices or comparing alternatives and competitors with checked sources. Use octocode-engineer for concrete software design trade-offs."
+description: "Use when the user wants ideas, options, alternatives or competitor comparisons, or wants a proposal challenged, with claims backed by checked web sources. Load it before answering from memory. Use octocode-engineer for design trade-offs inside one codebase."
 ---
 
 # Octocode Brainstorming

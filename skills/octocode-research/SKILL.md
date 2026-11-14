@@ -1,6 +1,6 @@
 ---
 name: octocode-research
-description: "Use when a code question needs source evidence: behavior, flows, callers, impact, dependencies, history, package versions or known vulnerabilities. Use octocode-debugging to reproduce runtime failures."
+description: "Use when a question about code needs cited source evidence: how something works, who calls it, what a change affects, why or when it changed, or which package version holds it, in this checkout, on GitHub or in registries. Load it before reading code yourself. Use octocode-debugging to reproduce runtime failures."
 ---
 
 # Octocode Research
@@ -35,4 +35,4 @@ Frame the question, corpus/revision and evidence that would settle it. Read a kn
 
 Return the answer and confidence, claims beside source anchors, checks actually run and material gaps. Use `Confirmed`, `Likely`, `Refuted` or `Open`; stop when remaining uncertainty cannot change the decision or a named blocker prevents it.
 
-Neighbors: `octocode-pr-review` owns merge verdicts; `octocode-engineer` design choices; `octocode-graph-view` saved graph briefs and interactive views; `octocode-scraping` public pages; `octocode-chrome-devtools` live browser evidence; `octocode-workflows` actor coordination.
+Neighbors: `octocode-pr-review` owns merge verdicts; `octocode-engineer` design choices; `octocode-graph-view` saved graph briefs and interactive views; `octocode-scraping` public pages; `octocode-chrome-devtools` live browser evidence; `octocode-workflows` workflow design; `octocode-orchestrator` live agent coordination.

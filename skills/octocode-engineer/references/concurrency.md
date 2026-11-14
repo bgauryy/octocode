@@ -14,6 +14,8 @@ Load when choosing a concurrency model or primitive, reviewing shared-state code
 | Lock-free structure needs safe deletion | Hazard pointers or epoch-based reclamation | Stops threads from touching reclaimed memory |
 | Periodic unexplained latency spikes | Profile GC, page faults, locks and scheduling | Find the actual pause source before choosing a mitigation |
 
+Blocking calls inside async code, unbounded fan-out and throttling are in [I/O, streaming, async and throttling](io-throttling-async.md#async-vs-sync-hazards).
+
 ## Primitives and patterns
 
 | Concept | Purpose | Important detail |

@@ -1,6 +1,6 @@
 ---
 name: octocode-agentic
-description: "Use when designing, reviewing, debugging or evaluating AI agents: prompts, context, memory, MCP contracts, models, delegation, security or skill activation. Includes communication setup; use octocode-orchestrator for live agent coordination."
+description: "Use when designing, reviewing, debugging or evaluating an AI agent or LLM system: prompts, context and memory, tool and MCP contracts, model choice, delegation, guardrails, evals or skill activation tests. Includes communication setup; use octocode-orchestrator to coordinate agents during a task."
 ---
 
 # Octocode Agentic

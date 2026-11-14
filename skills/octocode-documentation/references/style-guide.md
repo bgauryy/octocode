@@ -16,6 +16,7 @@ Load when running a style pass, ruling on wording, structure, formatting, code, 
 - Second person, imperative, present tense, active voice; condition or goal first.
 - Required = must or imperative; recommended = "we recommend"; optional = can. Not `should`, `may`.
 - No filler: `please`, `just`, `simply`, `easy`, `of course`, exclamation marks.
+- No AI-writing tells: [writing tells](writing-tells.md).
 - Software detects; it does not see, want, or know.
 - Keep sentences focused and paragraphs easy to scan; follow the document's wrapping convention.
 - Translatable: one term per concept, keep articles and "that", no idioms, humor, or double negatives.
@@ -40,7 +41,7 @@ Load when running a style pass, ruling on wording, structure, formatting, code, 
 ## Punctuation, numbers, dates ([commas](https://developers.google.com/style/commas), [hyphens](https://developers.google.com/style/hyphens), [numbers](https://developers.google.com/style/numbers), [dates](https://developers.google.com/style/dates-times), [units](https://developers.google.com/style/units-of-measure))
 
 - Serial comma; semicolon or period before "however".
-- Em dash, no spaces; hyphenate compound modifiers (read-only file), not after `-ly`.
+- Em dash, no spaces, at most one dashed aside per sentence; prefer a comma, colon or parentheses. Hyphenate compound modifiers (read-only file), not after `-ly`.
 - Straight quotes, commas and periods inside; no slashes: `and/or` → or both.
 - Zero to nine spelled out, numerals from 10; versions, sizes, ports, percentages always numerals.
 - Dates: January 19, 2017, or ISO `2017-01-19` when machine-readable; never `01/19/17`. Times: 3 PM.

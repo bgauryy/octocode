@@ -1,6 +1,6 @@
 ---
 name: octocode-dev
-description: "Use when developing or verifying the Octocode monorepo: setup, builds, tests, lint, contract regeneration, tool audits, configuration changes or release preparation."
+description: "Use when developing or verifying this Octocode monorepo: setup, builds, tests, lint, contract regeneration, tool audits, configuration changes or release preparation. Load it before running builds, tests or audits here: it owns the task runner and the shared-build rules."
 ---
 
 # Octocode Dev

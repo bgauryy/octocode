@@ -1,6 +1,6 @@
 ---
 name: octocode-documentation
-description: "Use when writing, shortening or reviewing technical documentation, READMEs, guides, runbooks, docstrings or comments. Use octocode-rfc-generator for proposed decisions and octocode-skills for skill instructions."
+description: "Use when writing, rewriting, shortening or reviewing documentation people read: READMEs, guides, runbooks, tutorials, docstrings or code comments. Load it before drafting: it sets structure and style and checks facts, commands and links. Use octocode-rfc-generator for proposals and octocode-skills for skill files."
 ---
 
 # Octocode Documentation
@@ -19,7 +19,7 @@ Follow user instructions, project style, local convention, then this skill. Pres
 | Cross-file evidence, APIs, ADRs or agent files | Read [writing and verification](references/write.md). | Source checks and document structure. |
 | Editorial wording | Read [style guide](references/style-guide.md). | Review procedure and word lookup. |
 | Comparison or branching relationship | Use the [format chooser](references/report-output.md#choose-the-format). | Show evidenced relationships and their significance. |
-| Before delivery | Check changed facts, examples, commands and links; run the documentation check and fix failures. | Distinguish examples run from inspected; use stable doc paths and line anchors for findings. |
+| Before delivery | Check changed facts, examples, commands and links; run the repository's docs lint or link check when one exists (name it), otherwise check each changed link and command directly and list what was not run. | Distinguish examples run from inspected; use stable doc paths and line anchors for findings. |
 
 Before removing text, check whether the reader can still choose the next action, find each rule and recognize success. Test a consequential line literally: what could fail if followed? Verify that risk against its source.
 

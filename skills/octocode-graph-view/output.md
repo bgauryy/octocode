@@ -14,7 +14,7 @@ One result directory at `<workspace>/.octocode/octocode-graph-view/<YYYY-MM-DD>-
 | `brief.txt`, `brief-full.txt` | Measured facts (counts, top PageRank/betweenness, cycles, communities, package coupling, checks); neither replaces the rows |
 | `model.json` (optional) | Authored overlay: [schema](scheme/model.json) |
 
-Report failed snapshot freshness checks (`verification.staleCheck`), files whose `check.status` differs from `ok`, unbuilt or split chunks, files in no chunk, unresolved imports between chunks, skipped LSP and its reason, and partial tool results. Graph counts are graph counts.
+Report the coverage gaps that limit a reported claim, beside that claim: failed snapshot freshness checks (`verification.staleCheck`), files whose `check.status` differs from `ok`, unbuilt or split chunks, files in no chunk, unresolved imports between chunks, skipped LSP and its reason, and partial tool results. Graph counts are graph counts.
 
 ## Viewer delivery
 

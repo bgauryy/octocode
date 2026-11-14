@@ -2,7 +2,7 @@
 
 <!-- report-contract {"statuses":["Complete","Partial","Blocked"],"required":["Answer","Pages covered","Blocked or unread","Session"],"anyOf":[]} -->
 
-Lead with the answer and confidence, each claim beside its source URL and saved artifact path, then coverage and blocked or unread scope. Separate source content from interpretation; keep source text, HTML, JSON and captures in [session formats](references/corpus.md).
+Lead with the answer and confidence (verified: span read; partial; inferred; never a percentage), each claim beside its source URL and saved artifact path, then coverage and blocked or unread scope. Separate source content from interpretation; keep source text, HTML, JSON and captures in [session formats](references/corpus.md).
 
 ## Saved result
 

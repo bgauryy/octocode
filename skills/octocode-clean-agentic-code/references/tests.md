@@ -27,6 +27,7 @@ New in the reviewed change → stop, escalate; a pre-existing setting with a sta
 
 A coverage gap, not dead weight; with known intended behavior, strengthen per [Replacement tests](#replacement-tests).
 
+- Never failed: a test added with a fix passes on the pre-change code. Run it in a separate worktree or checkout at the base revision, never by reverting, stashing or checking out in a shared tree; if it passes there, it does not test the fix. Behavior-preserving refactors are the exception: their characterization tests pass on both by design.
 - No assertion: calls code, checks nothing.
 - Existence only: `toBeDefined`, `toBeTruthy`, `not.toBeNull`, `assertIsNotNone`, `is not None`.
 - Boolean only: `assert True`, `expect(true)`, bare `assertTrue(` on a computed flag.

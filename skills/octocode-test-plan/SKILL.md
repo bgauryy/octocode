@@ -1,6 +1,6 @@
 ---
 name: octocode-test-plan
-description: "Use when a feature, change, PR or bug fix needs a runnable test plan for another agent or person. Specifies setup, actions and expected results without executing tests."
+description: "Use when a feature, change, pull request or bug fix needs a written, runnable test plan for another agent or person: setup, actions, expected results and pass rules. Writes the plan only; it does not run tests."
 ---
 
 # Octocode Test Plan

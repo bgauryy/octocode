@@ -1,6 +1,6 @@
 ---
 name: octocode-get-started
-description: "Use when learning Octocode, setting up its CLI, MCP connection or skills, configuring credentials and settings, or verifying a first tool call."
+description: "Use when installing or setting up Octocode: its CLI, the MCP server in an editor or agent (Cursor, VS Code, Claude Code, Codex), public skills, GitHub login or settings, or checking that a first tool call works."
 metadata:
   excluded-hosts: "octocode-code"
 ---
@@ -22,10 +22,10 @@ npx -y octocode skill list                   # discover public skills
 npx -y octocode skill install octocode-research --platform codex --global
 ```
 
-Choose the actual skill platform. For a project install, replace `--global` with `--project-dir /absolute/project`. A globally enabled plugin still applies elsewhere. Reload the client's MCP connection and verify it by reading a known file **through that client**. For example, where `README.md` exists, call `localFetch` with `{"queries":[{"path":"README.md","ranges":[{"startLine":1,"endLine":1}]}]}` and check the returned line. Local reads require neither a GitHub login nor a provider key.
+Choose the actual skill platform. For a project install, replace `--global` with `--project-dir /absolute/project`. A globally enabled plugin still applies elsewhere. Reload the client's MCP connection and verify it by reading a known file **through that client**. For example, where `README.md` exists, call `localFetch` with `{"queries":[{"path":"README.md","ranges":[{"startLine":1,"endLine":1}]}]}` and check the returned line. Local reads require neither a GitHub login nor a provider key. If that call fails, confirm the entry with `install --list`, reload the client, check `node --version`, then report the exact error.
 
 ## Configure and deliver
 
-Add only keys needed by the task. GitHub tools use `octocode auth login`; the user enters other secrets through `octocode config set <KEY> --stdin`. Keep secrets out of chat and version control. `octocode config list` shows values, sources and defaults; `config unset` restores defaults. Read [configure](references/configure.md) for folders, precedence and individual keys. Save settings within the user's requested setup scope; resolve missing authority before changing credentials or destinations.
+Add only keys needed by the task. GitHub tools use `octocode auth login`; the user enters other secrets through `octocode config set <KEY> --stdin`. Keep secrets out of chat and version control. `octocode config list` shows values, sources and defaults; `config unset` restores defaults. Read [configure](references/configure.md) for folders, precedence and individual keys. [Configure](references/configure.md#add-and-configure-keys) sets the save scope and authority rules.
 
 Answer briefly with applicable commands, references, checks performed and gaps. Installation or listing alone does not prove a working connection; require a successful call through the client. Hand code questions to `octocode-research` afterward. Save a setup note only when requested, under `<workspace>/.octocode/octocode-get-started/` (scratch in `tmp/`) unless a path was named.

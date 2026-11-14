@@ -100,6 +100,7 @@ Before claiming `Ready`, fix each failure or list it under Gaps and use `Draft` 
 - Every case has a unique ID, priority, Given, When, Then, pass/fail rule and evidence requirement.
 - Actions are runnable at the pinned state: commands come from manifests/CI/docs or authorized inspection; non-command steps define a checkable end state.
 - Oracles are observable comparisons; relevant failures and recovery paths are covered.
+- Each P0 case, including an `existing` test, names the base revision, revert or seeded fault under which it fails; a case that passes on both is coverage, not a check.
 - Setup names variables without secrets; fixtures, dependencies and cleanup are explicit; cases do not duplicate the same risk at the same level.
 - Success criteria cover P0, regressions and evidence; an executor with only the plan/repository can run case one.
 

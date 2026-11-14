@@ -16,6 +16,8 @@ Before deleting either copy, verify the availability check that caused it.
 | Same names exported to disjoint consumers: graphQuery `dependents` of the file after `graphBuild` (tools per the [MCP/CLI guide](octocode-usage.md); else `lspSearch` references) | `lspSearch` references prove which is live. |
 | New file, zero dependents, few outgoing calls: graphQuery `dependents` + `issues` with `detectors: ["unreachable-file","unused-export"]` (else `lspSearch` + `localSearch`) | unreferenced, not only new. |
 | Parallel variants of one rule (validation, formatting, auth check): `localSearch` its literals | compare their meanings and consumers before choosing a canonical owner. |
+| Same capability twice (two HTTP clients, loggers or date libraries; callbacks beside promises in one module): manifests + `localSearch` imports | one is canonical for the project; migrate callers in a separate batch. |
+| Call to a method, option or flag the pinned dependency does not have: typecheck, `lspSearch` definition, or the dependency's source at the locked version (`artifactSearch` → `ghSearchCode`) | absent at that version: report it as a defect, never stub it. |
 
 ## Residue to remove
 
@@ -29,6 +31,8 @@ Before deleting either copy, verify the availability check that caused it.
 | Summary, plan, handoff markdown in a source directory | real docs supersede or duplicate it. |
 | Siblings `*-v2`, `*-final`, `*-new`, `*-fixed`, dated | base canonical; sibling adds no unique path. |
 | Debug prints (`console.log`, `print`, `dbg!`, `println!`) in non-CLI code | no diagnostic or observable-output contract needs them. |
+| Patch on patch: a hunk that fixes the same change's earlier hunk, or an abandoned approach left beside its replacement behind a flag | history of those lines (`git log -L`) and `lspSearch` callers show one path is unreachable or superseded. |
+| Chat or tool residue and placeholders in shipped text (`utm_source=chatgpt.com`, `oaicite`, `[Your Name]`, `INSERT_X_HERE`) | not a documented example or template; see [writing tells](writing-tells.md). |
 
 ## Regex where structure exists
 

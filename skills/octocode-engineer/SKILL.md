@@ -1,6 +1,6 @@
 ---
 name: octocode-engineer
-description: "Use when choosing or reviewing software designs and refactors: algorithms, storage, caching, concurrency, memory, APIs, reliability or module boundaries. Use octocode-debugging for observed runtime failures."
+description: "Use when choosing, designing or reviewing how software should be built: architecture, data structures, storage, caching, concurrency, sync vs async, I/O, streaming, throttling, networking, memory, APIs, reliability or refactors. Load it before proposing a design. Use octocode-debugging for observed runtime failures."
 ---
 
 # Octocode Engineer
@@ -24,7 +24,9 @@ For consequential choices, include crash, replay, overload or isolation failures
 | Lookup, index, sorting, joins or complexity | [Data structures](references/data-structures.md) |
 | Cache, storage, approximation, replication or data lifecycle | [Data systems](references/data-systems.md) |
 | Threads, async, locks or atomics | [Concurrency](references/concurrency.md) |
-| Allocation, ownership, locality, memory safety or leaks in a long-lived process | [Memory and performance](references/memory-and-performance.md), [leak hunting](references/memory-and-performance.md#leaks-in-long-lived-managed-runtimes) |
+| Sync vs async, blocking I/O, durability, streaming vs full results, fan-out limits, throttling or debounce | [I/O, streaming, async and throttling](references/io-throttling-async.md) |
+| HTTP, WebSocket, SSE, cookies, CORS, browser security headers, TLS, DNS or connection pools | [Network](references/network.md) |
+| Allocation, ownership, locality, memory safety or leaks in a long-lived process (profiling captures: `octocode-debugging`) | [Memory and performance](references/memory-and-performance.md), [leak hunting](references/memory-and-performance.md#leaks-in-long-lived-managed-runtimes) |
 | Overload, capacity, API evolution, security or delivery | [Systems and delivery](references/systems-and-delivery.md) |
 | Quality attributes, tenancy, governance or metrics | [Architecture](references/architecture.md) |
 | Ambiguous style, pattern, role or transport | [Concepts](references/concepts.md#contents) |

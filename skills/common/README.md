@@ -31,6 +31,7 @@ Shared Markdown under `references/` is discovered automatically. Link a shared p
 | `references/configuration.md` | Same path | Config lookup, credentials, ownership |
 | `references/evidence.md` | Same path | Source vs runtime proof, absence, verification |
 | `references/mental-models.md` | Same path | Select thinking lenses and turn assumptions into distinguishing checks |
+| `references/writing-tells.md` | Same path | AI-writing tells, chat residue and placeholders: judge density in added text, repair the claim |
 | `references/protocol-catalog.md` | Same path | Common task, finding, handoff, and reporting protocols |
 | `references/presentation.md` | Same path | Visual-first output, HTML offer |
 | `references/report-mermaid.md` | Same path | Diagram-family chooser |

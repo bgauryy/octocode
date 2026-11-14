@@ -9,6 +9,8 @@ Lead with the recommendation and confidence, then the deciding evidence, stronge
 - Cite deciding claims at the supporting sentence with exact verified URLs. Label inference, secondary evidence and unchecked scope.
 - Include dates, source context and applicability limits when they affect the conclusion. Check numbers, dates and claimed benefits against the evidence.
 - Explain [confidence](references/critical-thinking.md#calibrated-confidence); never invent probabilities. Report changed or unresolved hypotheses when consequential.
+- State the recommendation as plain claims, checked against [writing tells](references/writing-tells.md).
+- For a costly or irreversible choice, end with the decision the user must make and the deciding source to check themselves.
 - Include verification counts only when they explain a material evidence gap. No routine roster, state dump or repeated source metadata.
 
 A `Sources` list can collect references when useful; adjacent citations suffice for a short answer. With no verified evidence, say so.

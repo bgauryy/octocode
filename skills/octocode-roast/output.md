@@ -6,7 +6,7 @@ Lead with the worst proven finding and a scope-qualified assessment. Use **Block
 
 > **Critical · src/auth/middleware.ts:42.** The authenticated request path reaches a log call that writes the bearer token. Anyone with log access can replay the session. Log the user ID and drop the header. Confidence: high. Your log aggregator is now an identity provider.
 
-Redact secrets. Recommend rotation for a real credential and claim exposure only with evidence. Explain where a substantial top failure enters, what it affects and how to repair it safely. Group lesser findings only if each retains its evidence and repair. Finish with fixes in order, each beside its proving check.
+Redact secrets. Recommend rotation for a real credential and claim exposure only with evidence. Explain where a substantial top failure enters, what it affects and how to repair it safely. Group lesser findings only if each retains its evidence and repair. Finish with the fix order as finding locations in sequence; repairs and checks stay with their findings.
 
 - **Critique only:** Finish with the fix order.
 - **Fixes requested:** Within the roasted scope, re-read current code, apply the smallest repair per finding (including removal of a real credential) and run relevant checks. Report repaired, failed and outstanding items.

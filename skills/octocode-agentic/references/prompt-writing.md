@@ -24,6 +24,7 @@ Use a [known protocol](prompt-protocols.md) to consolidate scattered rules in th
 - Shortening keeps activation meaning, subjects, verbs, articles; no invented abbreviations.
 - Permission tiers: always allowed, ask first, never.
 - Rigid or ad-hoc shapes → a known protocol as `Name (slots)` ([protocols](prompt-protocols.md)).
+- Check wording against [writing tells](writing-tells.md). A rewrite that ships unmeasured says so in the result and goes to the owner for review.
 
 ## Tags and placement
 

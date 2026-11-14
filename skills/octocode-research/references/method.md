@@ -6,7 +6,7 @@ Skip stages a known anchor answers; a lookup is a direct read.
 
 | Class | Definition of Done |
 |---|---|
-| bug | supported contract violated, lobby root-cause rule holds, regression check exists |
+| bug | supported contract violated, the entry's root-cause rule holds, regression check exists |
 | feature | consumers, acceptance tests, and a compatibility decision set |
 | enhancement | contract holds; baseline, target, experiment, regression guard exist |
 | unknown | one missing fact has its cheapest check or a focused question |

@@ -1,6 +1,6 @@
 ---
 name: octocode-scraping
-description: "Use when extracting text, tables or links from public pages, or crawling a resumable source corpus. Use octocode-chrome-devtools for live actions and authenticated sessions."
+description: "Use when extracting text, tables, prices or links from public web pages, or crawling a site or docs into a saved, resumable corpus. Load it before fetching pages ad hoc. Use octocode-chrome-devtools for logged-in pages, clicks and other live browser actions."
 ---
 
 # Octocode Scraping

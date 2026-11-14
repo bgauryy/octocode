@@ -27,4 +27,6 @@ Preserve the original failure signal, meaningful assertions, and coverage floors
 
 Retry after a changed diagnosis, input, or observed state. For uncertain mutations, inspect the postcondition before replaying the action; stricter domain recovery rules still apply. Report passed, failed, skipped, and unavailable checks distinctly.
 
+When a defect or review finding recurs, add the check that would have caught it (test, lint, schema or checker rule, instruction line) at its owner, or name it when adding it is out of scope. A re-fixed output without that guard is a partial fix; say which it is.
+
 Protocol slots are in the [catalog](protocol-catalog.md#catalog). Keep domain-specific source verification, benchmarks, safety gates, and acceptance criteria with the skill that owns them.

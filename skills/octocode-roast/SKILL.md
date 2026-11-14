@@ -1,6 +1,6 @@
 ---
 name: octocode-roast
-description: "Use when a roast, blunt teardown or harsh code or design critique is explicitly requested. Returns evidenced defects and repairs; octocode-pr-review owns merge verdicts."
+description: "Use only when the user explicitly asks for a roast, brutal teardown or harsh critique of code or a design. Returns ranked, evidenced defects with repairs; octocode-pr-review owns pull request verdicts."
 ---
 
 # Octocode Roast
@@ -25,4 +25,4 @@ Set severity by impact, reachability and affected scope. Build each bit as **set
 
 **Done:** Every finding survives a countercheck, cites deciding evidence, explains impact and has a repair with a proving check. Report checked scope, unavailable evidence and unresolved leads. Tone is not a quality score; never claim completeness beyond the reviewed scope.
 
-Neighbors: `octocode-pr-review` owns merge verdicts; `octocode-research` verifies claims; `octocode-clean-agentic-code` removes proven dead code; `octocode-engineer` handles design choices; `octocode-workflows` coordinates actors.
+Neighbors: `octocode-pr-review` owns merge verdicts; `octocode-research` verifies claims; `octocode-clean-agentic-code` removes proven dead code; `octocode-engineer` handles design choices; `octocode-workflows` designs workflows; `octocode-orchestrator` coordinates live agents.

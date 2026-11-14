@@ -27,6 +27,7 @@ Load for borrow errors, clones, conversions, recoverable failures or public API 
 - Use iterators, loops and pattern matching according to clarity. Avoid collecting an intermediate sequence only to iterate it once unless ownership or reuse requires it.
 - Prefer guard clauses, `?`, `if let` and `let ... else` when they simplify the paths. Check syntax and std API availability against MSRV. Let chains require edition 2024 and Rust 1.88 or later; nested matching remains valid for older projects.
 - Follow the API Guidelines' `as_`/`to_`/`into_` conversion conventions. Document public errors, panic conditions and safety preconditions; include runnable examples where they clarify usage.
+- Doc comments state the contract, errors, panics and safety; delete comments that restate the code or narrate the change.
 - `Debug` can expose secrets: derive it only when its output is safe, or redact sensitive fields. Use `Display` for the intended human representation.
 - Add `#[must_use]` when silently ignoring a value is likely a mistake; it is a warning, not an execution or cleanup guarantee.
 - Keep public compatibility deliberate. Sealing a trait forbids downstream implementations; use it only when that restriction is intended. A new error variant or public field can affect downstream exhaustive code.

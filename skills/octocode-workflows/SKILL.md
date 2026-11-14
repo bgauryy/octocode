@@ -1,6 +1,6 @@
 ---
 name: octocode-workflows
-description: "Use when selecting, designing, executing or resuming explicit workflows across tools, services, processes, agents or artifacts. Defines workflow patterns, dependencies and acceptance; use octocode-orchestrator for live agent coordination."
+description: "Use when designing, running or resuming a multi-step process with ordered stages, dependencies, retries, checkpoints or rollback, such as pipelines, migrations, releases or data jobs across tools and services. Load it before scripting the steps. Use octocode-orchestrator to coordinate live agents."
 ---
 
 # Octocode Workflows

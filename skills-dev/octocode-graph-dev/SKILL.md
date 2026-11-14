@@ -18,7 +18,7 @@ The same native engine backs the `graphBuild` and `graphQuery` tools over MCP an
 
 ## Judge a result
 
-Inspect each [miss or extra](references/battery.md#reading-a-row) against the source. The oracle matches text. Precision must hold for every row. Accept a recall drop only for an explained removal of a name-guess link. `callLinkRate` and `coverage.linkage` measure extracted syntax sites. For a caller or absence claim, combine graph and `lspSearch` callers and verify the source.
+Inspect each [miss or extra](references/battery.md#reading-a-row) against the source. The oracle matches text. Classify each new extra by reading the source: a real caller the oracle missed, or a wrong link; precision must hold for every row on wrong links. Accept a recall drop only for an explained removal of a name-guess link. A precision or recall change on any row, or a cache version bump, goes to the owner with before/after rows; status stays Needs work until accepted. `callLinkRate` and `coverage.linkage` measure extracted syntax sites. For a caller or absence claim, combine graph and `lspSearch` callers and verify the source.
 
 Use the [battery guide](references/battery.md) for the rows, the per-row checklist, the before/after judgement and adding a grammar. Follow [output.md](output.md) for the BLUF, comparison table, unmeasured rows and saved reports. For accepted HTML, use [render-report.mjs](scripts/render-report.mjs).
 

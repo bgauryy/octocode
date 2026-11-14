@@ -25,4 +25,4 @@ Pin the requested decision; when prior RFCs may own it, find them with `--manife
 
 Keep `status: Proposed` until the owner accepts. A ready recommendation has no unresolved decision blocker; report remaining risks, confidence and unchecked scope. Save every authored RFC using [delivery](output.md#delivery) and lead with the proposal and effect. Render HTML when requested or accepted.
 
-Neighbors: `octocode-research` verifies current behavior; `octocode-engineer` evaluates design trade-offs; `octocode-brainstorming` expands options; `octocode-documentation` explains settled decisions; `octocode-agentic` designs measurements; `octocode-workflows` coordinates actors.
+Neighbors: `octocode-research` verifies current behavior; `octocode-engineer` evaluates design trade-offs; `octocode-brainstorming` expands options; `octocode-documentation` explains settled decisions; `octocode-agentic` designs measurements; `octocode-workflows` designs workflows; `octocode-orchestrator` coordinates live agents.

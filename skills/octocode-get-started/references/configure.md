@@ -1,6 +1,6 @@
 # Configure Octocode: folders, precedence and keys
 
-Load when a setting, folder or key must be found, added or changed. Local tools need no keys.
+Load when a setting, folder or key must be found, added or changed.
 
 ## Configuration and folders
 

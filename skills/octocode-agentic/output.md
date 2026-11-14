@@ -23,6 +23,8 @@ BLUF: lead with the decision, verdict or outcome and its confidence. Then give w
 4. **Failure modes.** Say how it could loop, flood context, drift after compaction, repeat a side effect or cross a trust boundary, and how each is detected and stopped.
 5. **Check.** Give the task set, trace, contract test or metric that confirms it, with its pass condition.
 
+Include only the parts that change the decision, and only failure modes reachable for this design.
+
 For a contract (tool response, handoff, message envelope), show the typed shape, one valid example and one rejected example.
 
 ## Audit findings
