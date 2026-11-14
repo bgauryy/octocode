@@ -121,7 +121,7 @@ impl GitHubTransport {
             // it is never evidence a continuation replays, or kept.
             if !parsed.errors.is_empty() {
                 context.journal.forget(&spec);
-            } else if from_origin && spec.keeps_graphql_answer() {
+            } else if from_origin && spec.reads_pull_request {
                 self.keep(&spec, &page, context);
             }
             // Before the primary check: a secondary limit's `type` can say
@@ -138,7 +138,7 @@ impl GitHubTransport {
                     && wait
                         < context
                             .budget
-                            .admission_deadline()
+                            .deadline
                             .saturating_duration_since(Instant::now())
                 {
                     attempt += 1;
@@ -177,7 +177,7 @@ impl GitHubTransport {
                     && wait
                         < context
                             .budget
-                            .admission_deadline()
+                            .deadline
                             .saturating_duration_since(Instant::now())
                 {
                     attempt += 1;
@@ -201,11 +201,7 @@ impl GitHubTransport {
                         .waits
                         .timed(
                             octocode_contract_types::ClientWaitKind::RetryAfter,
-                            pause(
-                                delay,
-                                context.budget.effective_deadline(),
-                                &context.budget.cancellation,
-                            ),
+                            pause(delay, context.budget.deadline, &context.budget.cancellation),
                         )
                         .await
                         .is_ok()

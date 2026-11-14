@@ -141,27 +141,40 @@ impl Query<'_> {
             .map_err(|message| GraphOutput::error(ErrorCode::Cancelled, message))?;
         let report = report.map_err(invalid)?;
         let min_tier = options.min_tier.unwrap_or(DEFAULT_MIN_TIER);
+        let above = package_above(
+            &root,
+            g.manifest["workspace"].as_str(),
+            g.t.components.is_empty(),
+            &detectors,
+            &g.manifest["scan"],
+        );
+        // Below its package root a dead-code finding claims at most tier 60.
+        let tier = |f: &super::super::detect::Finding| {
+            if above.is_some() && SCOPE_JUDGED.contains(&f.detector) {
+                f.tier.min(60)
+            } else {
+                f.tier
+            }
+        };
         let keep = |f: &&super::super::detect::Finding| {
-            options.min_score.is_none_or(|min| f.score >= min) && f.tier >= min_tier
+            options.min_score.is_none_or(|min| f.score >= min) && tier(f) >= min_tier
         };
         let total_before = report.findings.len();
         let findings = report
             .findings
             .iter()
             .filter(keep)
-            .cloned()
+            .map(|finding| super::super::detect::Finding {
+                tier: tier(finding),
+                ..finding.clone()
+            })
             .collect::<Vec<_>>();
         let mut extra = Map::new();
         let mut summary = report.summary.clone();
-        if let Some(note) = manifest_above(
-            &root,
-            g.manifest["workspace"].as_str(),
-            g.t.components.is_empty(),
-            &detectors,
-            &g.manifest["scan"],
-        ) && let Some(notes) = summary["notes"].as_array_mut()
+        if let Some(above) = &above
+            && let Some(notes) = summary["notes"].as_array_mut()
         {
-            notes.push(note);
+            notes.push(above.note.clone());
         }
         summary["minTier"] = json!(min_tier);
         let hidden = total_before - findings.len();
@@ -177,22 +190,28 @@ impl Query<'_> {
             );
             notes.push(json!({
                 "filter": "minTier",
-                "hidden": hidden,
                 "explanation": format!(
-                    "byDetector counts all {total_before} findings the detectors raised; {filters} hid {hidden}, so {} are listed (pagination.total). Lower them to list the rest.",
-                    findings.len()
+                    "{filters} hid hiddenBelowTier findings: byDetector counts them, so its sum is pagination.total plus hiddenBelowTier. Lower them to list the rest."
                 ),
             }));
         }
-        let shared = shared_controls(&findings);
+        let mut rows = findings
+            .iter()
+            .map(super::super::detect::Finding::to_json)
+            .collect::<Vec<_>>();
+        let constants = state_detector_constants(&mut rows);
         if let Some(notes) = summary["notes"].as_array_mut() {
             notes.extend(
-                shared.iter().map(
-                    |(detector, controls)| json!({"detector": detector, "controls": controls}),
-                ),
+                constants
+                    .into_iter()
+                    .map(|(detector, shared)| json!({"detector": detector, "shared": shared})),
             );
         }
-        let leads = reexport_leads(&mut summary, options, &g.id);
+        let mut leads = above
+            .map(|above| above.build)
+            .into_iter()
+            .collect::<Vec<_>>();
+        leads.extend(reexport_leads(&mut summary, options, &g.id));
         if !leads.is_empty() {
             extra.insert("related".into(), Value::Array(leads));
         }
@@ -211,17 +230,11 @@ impl Query<'_> {
             )?;
             extra.insert("baseline".into(), baseline);
         }
-        let rows = findings
-            .iter()
-            .map(|finding| {
-                let mut row = finding.to_json();
-                own_controls(&mut row, finding, &shared);
-                if let Some(state) = status.get(&finding.id) {
-                    row["status"] = json!(state);
-                }
-                row
-            })
-            .collect::<Vec<_>>();
+        for (row, finding) in rows.iter_mut().zip(&findings) {
+            if let Some(state) = status.get(&finding.id) {
+                row["status"] = json!(state);
+            }
+        }
         Ok((extra, rows))
     }
 
@@ -360,25 +373,42 @@ fn canonical(path: &Path) -> PathBuf {
     }
 }
 
-/// The note of a snapshot whose root holds no package manifest while a
-/// directory above it, inside its workspace, does: entrypoints came from
-/// file conventions only, so the reachability findings miss the manifest's
-/// entries (`main`, `exports`, `bin`, crate targets).
-fn manifest_above(
+/// Dead-code detectors whose verdict rests on what the snapshot holds: the
+/// package's entries and the text the mention scan reads.
+const SCOPE_JUDGED: &[&str] = &[
+    "unreachable-file",
+    "unused-export",
+    "export-only-local",
+    "test-only",
+];
+
+/// A snapshot below its package root: the note that says what it left
+/// unread, and the build of that root.
+struct PackageAbove {
+    note: Value,
+    build: Value,
+}
+
+/// The package root above a snapshot whose root holds no package manifest
+/// while a directory above it, inside its workspace, does. Entrypoints came
+/// from file conventions only, and the mention scan read only the
+/// snapshot, so the dead-code findings ([`SCOPE_JUDGED`]) miss the
+/// manifest's entries (`main`, `exports`, `bin`, crate targets) and every
+/// reference outside the snapshot (tests, scripts, docs): none claims more
+/// than tier 60, and the build of the package root is the runnable lead.
+fn package_above(
     root: &Path,
     workspace: Option<&str>,
     no_components: bool,
     detectors: &[String],
     scan: &Value,
-) -> Option<Value> {
-    let judged = detectors.is_empty()
-        || detectors.iter().any(|detector| {
-            matches!(
-                detector.as_str(),
-                "unreachable-file" | "unused-export" | "test-only"
-            )
-        });
-    if !judged || !no_components {
+) -> Option<PackageAbove> {
+    let judged = SCOPE_JUDGED
+        .iter()
+        .filter(|judged| detectors.is_empty() || detectors.iter().any(|d| d == *judged))
+        .copied()
+        .collect::<Vec<_>>();
+    if judged.is_empty() || !no_components {
         return None;
     }
     let workspace = Path::new(workspace?);
@@ -404,57 +434,119 @@ fn manifest_above(
     BuildScope::of_manifest(scan)
         .above(root.strip_prefix(dir).ok()?)
         .write_row(&mut row);
-    let Value::Object(row) = row else {
-        return None;
-    };
-    Some(json!({
-        "detector": "unreachable-file",
-        "skipped": format!(
-            "the snapshot root holds no package manifest, so entrypoints came from file conventions only; {shown} holds {manifest}: build it with {} so its entries count",
-            super::paging::call(crate::id::ToolId::GraphBuild.as_str(), row)
-        ),
-    }))
+    Some(PackageAbove {
+        note: json!({
+            "detectors": judged,
+            "skipped": format!(
+                "the package root {shown} (it holds {manifest}) lies above the snapshot: its entries and every reference outside the snapshot were not read, so these findings are at most tier 60; the graphBuild in related builds {shown}"
+            ),
+        }),
+        build: crate::response::result::Continuation::related(crate::id::ToolId::GraphBuild, row)
+            .build(),
+    })
 }
 
-/// The false-positive controls every listed finding of a detector applied,
-/// by detector: a fact of the detector, stated once (a `summary.notes`
-/// entry `{detector, controls}`) instead of on each of its rows.
-fn shared_controls(
-    findings: &[super::super::detect::Finding],
-) -> BTreeMap<&'static str, Vec<&'static str>> {
-    let mut shared = BTreeMap::<&'static str, Vec<&'static str>>::new();
-    for finding in findings {
-        shared
-            .entry(finding.detector)
-            .and_modify(|common| common.retain(|control| finding.controls.contains(control)))
-            .or_insert_with(|| finding.controls.clone());
-    }
-    shared.retain(|_, common| !common.is_empty());
-    shared
-}
+/// Row fields that are each finding's own whatever its detector: its
+/// identity, its rank and the detectors that corroborate it.
+const FINDING_OWN: [&str; 6] = [
+    "id",
+    "detector",
+    "subject",
+    "score",
+    "impact",
+    "corroboratedBy",
+];
 
-/// Leaves on `row` only the controls its finding applied beyond its
-/// detector's [`shared_controls`].
-fn own_controls(
-    row: &mut Value,
-    finding: &super::super::detect::Finding,
-    shared: &BTreeMap<&'static str, Vec<&'static str>>,
-) {
-    let Some(common) = shared.get(finding.detector) else {
-        return;
-    };
-    let own = finding
-        .controls
-        .iter()
-        .filter(|control| !common.contains(control))
-        .collect::<Vec<_>>();
-    if let Some(fields) = row.as_object_mut() {
-        if own.is_empty() {
-            fields.shift_remove("controls");
-        } else {
-            fields.insert("controls".into(), json!(own));
+/// What every listed row of a detector states alike, by detector, taken off
+/// its rows: a fact of the detector is stated once (a `summary.notes` entry
+/// `{detector, shared}`), not on each of its rows. A field moves
+/// when two or more rows list the detector and all state one value (an
+/// evidence key alike, under `evidence`); `controls` keeps the ones every
+/// row applied, and a row keeps its own beside them. A field that differs,
+/// a detector of one row, and each row's own fields ([`FINDING_OWN`]) stay
+/// on the rows.
+fn state_detector_constants(rows: &mut [Value]) -> Map<String, Value> {
+    let mut by_detector = BTreeMap::<String, Vec<usize>>::new();
+    for (index, row) in rows.iter().enumerate() {
+        if let Some(detector) = row["detector"].as_str() {
+            by_detector
+                .entry(detector.to_owned())
+                .or_default()
+                .push(index);
         }
     }
+    let mut stated = Map::new();
+    for (detector, listed) in by_detector {
+        let Some((first, others)) = listed
+            .split_first()
+            .filter(|(_, others)| !others.is_empty())
+        else {
+            continue;
+        };
+        let shared = |value: &Value, at: &dyn Fn(&Value) -> Option<&Value>| {
+            others.iter().all(|other| at(&rows[*other]) == Some(value))
+        };
+        let mut constants = Map::new();
+        for (key, value) in rows[*first].as_object().into_iter().flatten() {
+            if FINDING_OWN.contains(&key.as_str())
+                || matches!(key.as_str(), "controls" | "evidence")
+            {
+                continue;
+            }
+            if shared(value, &|row| row.get(key)) {
+                constants.insert(key.clone(), value.clone());
+            }
+        }
+        let mut evidence = Map::new();
+        for (key, value) in rows[*first]["evidence"].as_object().into_iter().flatten() {
+            if shared(value, &|row| row["evidence"].get(key)) {
+                evidence.insert(key.clone(), value.clone());
+            }
+        }
+        let controls = rows[*first]["controls"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|control| {
+                others.iter().all(|other| {
+                    rows[*other]["controls"]
+                        .as_array()
+                        .is_some_and(|own| own.contains(control))
+                })
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        for index in &listed {
+            let Some(row) = rows[*index].as_object_mut() else {
+                continue;
+            };
+            for key in constants.keys() {
+                row.shift_remove(key);
+            }
+            if let Some(Value::Object(own)) = row.get_mut("evidence") {
+                own.retain(|key, _| !evidence.contains_key(key));
+                if own.is_empty() {
+                    row.shift_remove("evidence");
+                }
+            }
+            if let Some(Value::Array(own)) = row.get_mut("controls") {
+                own.retain(|control| !controls.contains(control));
+                if own.is_empty() {
+                    row.shift_remove("controls");
+                }
+            }
+        }
+        if !controls.is_empty() {
+            constants.insert("controls".into(), Value::Array(controls));
+        }
+        if !evidence.is_empty() {
+            constants.insert("evidence".into(), Value::Object(evidence));
+        }
+        if !constants.is_empty() {
+            stated.insert(detector, Value::Object(constants));
+        }
+    }
+    stated
 }
 
 #[cfg(test)]

@@ -134,40 +134,51 @@ pub(in super::super) fn flag_answer_gaps(
     let files = gaps.iter().map(|gap| gap.file.clone()).collect::<Vec<_>>();
     let shown = shown_paths(paths, &files);
     let sites = |lines: fn(&super::super::scope::Gap) -> &[u32]| {
-        gaps.iter()
+        let mut count = 0;
+        let groups = gaps
+            .iter()
             .zip(&shown)
-            .flat_map(|(gap, file)| {
-                lines(gap)
+            .filter_map(|(gap, file)| {
+                let lines = lines(gap);
+                if lines.is_empty() {
+                    return None;
+                }
+                count += lines.len();
+                let positions = lines
                     .iter()
-                    .map(move |line| format!("{file}:{}", line + 1))
+                    .map(|line| (line + 1).to_string())
+                    .collect::<Vec<_>>()
+                    .join(",");
+                Some(format!("{file}:{positions}"))
             })
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>();
+        (count, groups.join(", "))
     };
     let kind = if lsp_search_query::op(query) == super::super::Op::Callers {
         "call"
     } else {
         "use"
     };
-    let left_out = sites(|gap| &gap.left_out);
-    if !left_out.is_empty() {
+    let (left_out_count, left_out) = sites(|gap| &gap.left_out);
+    if left_out_count > 0 {
         crate::response::paging::mark_partial(
             row,
             crate::response::paging::PartialReason::ServerUnanswered,
             &[format!(
                 "The server's answer leaves out {} where `{name}` names the anchor as a {kind}, in files it answers: {}. The text lead reads them.",
-                octocode_engine::text::counted(left_out.len(), "line", "lines"),
-                left_out.join(", ")
+                octocode_engine::text::counted(left_out_count, "line", "lines"),
+                left_out
             )],
         );
     }
-    let unverified = sites(|gap| &gap.unverified);
-    if !unverified.is_empty() {
+    let (unverified_count, unverified) = sites(|gap| &gap.unverified);
+    if unverified_count > 0 {
         crate::response::paging::push_warnings(
             row,
             [format!(
                 "{} in files the answer covers spell `{name}` in code and are not in it: {}. The server did not say what they name, so they are unverified (another symbol of that name, or code it does not analyze), not missing {kind}s. The text lead reads them.",
-                octocode_engine::text::counted(unverified.len(), "line", "lines"),
-                unverified.join(", ")
+                octocode_engine::text::counted(unverified_count, "line", "lines"),
+                unverified
             )],
         );
     }

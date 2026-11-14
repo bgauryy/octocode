@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::{
     Arc, Mutex as StdMutex,
-    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+    atomic::{AtomicU64, AtomicUsize, Ordering},
 };
 use tokio::process::Child;
 use tokio::sync::Mutex;
@@ -96,9 +96,6 @@ struct NativeLspClientInner {
     /// One more than the progress begun when the server was last shown idle
     /// (`0`: never), see `absence.rs`.
     idle_at_begin: AtomicU64,
-    /// A load outlasted the wait of an empty answer and has not been shown
-    /// over since.
-    load_outlasted: AtomicBool,
     /// Projects whose first open already waited (see `project_loads.rs`).
     project_loads: StdMutex<project_loads::ProjectLoads>,
     /// In-flight requests, document syncs, diagnostic waits, and caller
@@ -220,7 +217,6 @@ impl NativeLspClient {
                 started_at: std::sync::OnceLock::new(),
                 listed_files: std::sync::OnceLock::new(),
                 idle_at_begin: AtomicU64::new(0),
-                load_outlasted: AtomicBool::new(false),
                 project_loads: StdMutex::default(),
                 activity: Arc::new(AtomicUsize::new(0)),
                 sync_lock: Mutex::new(()),
@@ -272,7 +268,6 @@ impl NativeLspClient {
             *readiness = None;
         }
         self.inner.idle_at_begin.store(0, Ordering::Release);
-        self.inner.load_outlasted.store(false, Ordering::Release);
         self.inner
             .project_loads
             .lock()

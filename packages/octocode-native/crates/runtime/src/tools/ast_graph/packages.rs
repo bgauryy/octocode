@@ -23,6 +23,11 @@ use std::path::{Path, PathBuf};
 mod go_modules;
 mod java;
 
+/// The Go module enclosing a scan root: its module path, the root's path below
+/// the module's directory, and each locally replaced module with whether it
+/// lies outside the root.
+type EnclosingGoModule = (String, String, Vec<(String, bool)>);
+
 #[derive(Default)]
 pub(super) struct PackageIndex {
     /// `(module path, module dir)`, longest module path first.
@@ -83,7 +88,7 @@ const MAX_GO_MODULE_ANCESTORS: usize = 16;
 fn enclosing_go_module(
     root: &Path,
     read: &dyn Fn(&Path) -> Option<String>,
-) -> Option<(String, String, Vec<(String, bool)>)> {
+) -> Option<EnclosingGoModule> {
     if octocode_engine::search::repository::is_root(root) {
         return None;
     }

@@ -316,23 +316,21 @@ fn a_missing_file_close_to_a_withheld_one_offers_no_read() {
     );
 }
 
-/// A kubeconfig under a name a person gives it is refused like `.kube/config`,
-/// and a Go source file named for the word stays readable (round 12).
+/// A kubeconfig under a name a person gives it (`*.kubeconfig`) is refused
+/// like `.kube/config`, and a Go source file named for the word stays
+/// readable (round 12).
 #[test]
 fn a_renamed_kubeconfig_is_refused_and_its_source_stays_readable() {
     let t = Fixture::new();
     fs::create_dir_all(t.0.join("kube")).expect("dir");
     fs::write(
-        t.0.join("kube/kubeconfig-prod-cluster.yaml"),
+        t.0.join("kube/prod.kubeconfig"),
         "apiVersion: v1\nkind: Config\nusers:\n- name: admin\n  user:\n    token: s3cr3t\n",
     )
     .expect("kubeconfig");
     fs::write(t.0.join("kube/kubeconfig.go"), "package kube\n").expect("source");
     for (path, code) in [
-        (
-            "kube/kubeconfig-prod-cluster.yaml",
-            Some(ErrorCode::PathPolicyDenied),
-        ),
+        ("kube/prod.kubeconfig", Some(ErrorCode::PathPolicyDenied)),
         ("kube/kubeconfig.go", None),
     ] {
         let mut req = test_local_fetch_query();
@@ -350,12 +348,9 @@ fn a_renamed_kubeconfig_is_refused_and_its_source_stays_readable() {
 fn a_link_to_a_credential_is_refused_without_naming_its_target() {
     let t = Fixture::new();
     fs::create_dir_all(t.0.join("k")).expect("dir");
-    fs::write(t.0.join("k/kubeconfig-prod-cluster.yaml"), "kind: Config\n").expect("kubeconfig");
-    std::os::unix::fs::symlink(
-        t.0.join("k/kubeconfig-prod-cluster.yaml"),
-        t.0.join("k/notes.yaml"),
-    )
-    .expect("link");
+    fs::write(t.0.join("k/prod.kubeconfig"), "kind: Config\n").expect("kubeconfig");
+    std::os::unix::fs::symlink(t.0.join("k/prod.kubeconfig"), t.0.join("k/notes.yaml"))
+        .expect("link");
     let mut req = test_local_fetch_query();
     local_fetch_query::set_path(&mut req, "k/notes.yaml").expect("path");
     let result = fetch(&req, &workspace_policy(&t.0));
@@ -365,6 +360,6 @@ fn a_link_to_a_credential_is_refused_without_naming_its_target() {
         "{result:?}"
     );
     let shown = format!("{result:?}");
-    assert!(!shown.contains("kubeconfig-prod-cluster"), "{shown}");
+    assert!(!shown.contains("prod.kubeconfig"), "{shown}");
     assert!(shown.contains("a credential file"), "{shown}");
 }

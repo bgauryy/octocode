@@ -125,3 +125,54 @@ fn a_disclosure_quotes_the_walks_text_as_judged() {
         );
     }
 }
+
+/// Withheld entries are counted by rule at the deepest directory holding
+/// them all, one entry per rule, never one per holding directory; with every
+/// path kept, each directory stays its own entry. Every count is kept.
+#[test]
+fn withheld_entries_are_one_counted_entry_per_rule() {
+    let withheld = |path: &str, reason: &str, count: usize| SkippedEntry {
+        path: path.to_owned(),
+        cause: SkippedPathCause::Withheld,
+        reason: Some(reason.to_owned()),
+        count,
+    };
+    let entries = [
+        withheld("/w/ext/a", "credential file", 1),
+        withheld("/w/ext/b/c", "credential file", 2),
+        withheld("/w/ext/d", "symlink not followed", 1),
+        withheld("/w/ext/a/e", "credential file", 1),
+    ];
+    let total = |paths: &SkippedPaths, reason: &str| {
+        paths
+            .entries
+            .iter()
+            .filter(|entry| entry.reason.as_deref() == Some(reason))
+            .map(|entry| entry.count.unwrap_or(1))
+            .sum::<i64>()
+    };
+    let grouped = skipped_paths(entries.clone(), false, false)
+        .expect("valid")
+        .expect("entries");
+    let credentials = grouped
+        .entries
+        .iter()
+        .filter(|entry| entry.reason.as_deref() == Some("credential file"))
+        .collect::<Vec<_>>();
+    assert_eq!(credentials.len(), 1, "{grouped:?}");
+    assert_eq!(credentials[0].path.as_str(), "/w/ext", "{grouped:?}");
+    assert!(grouped.sampled, "{grouped:?}");
+    let every = skipped_paths(entries.clone(), true, false)
+        .expect("valid")
+        .expect("entries");
+    assert_eq!(every.entries.len(), entries.len(), "{every:?}");
+    for reason in ["credential file", "symlink not followed"] {
+        let written = entries
+            .iter()
+            .filter(|entry| entry.reason.as_deref() == Some(reason))
+            .map(|entry| saturating_i64(entry.count))
+            .sum::<i64>();
+        assert_eq!(total(&grouped, reason), written, "{reason}: {grouped:?}");
+        assert_eq!(total(&every, reason), written, "{reason}: {every:?}");
+    }
+}

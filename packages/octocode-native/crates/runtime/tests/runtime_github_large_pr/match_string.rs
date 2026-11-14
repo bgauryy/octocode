@@ -33,7 +33,7 @@ async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
     let patch = files[0]["patch"].as_str().expect("patch");
     assert_eq!(
         patch,
-        "@@ -201,1 +201,1 @@\n201\t-old esbuild\n201\t+new esbuild\n"
+        "@@ -1,401 +1,401 @@\n201\t-old esbuild\n201\t+new esbuild\n"
     );
     assert_eq!(files[0]["fullPatchChars"], big.chars().count());
     assert_eq!(data["pullRequests"][0]["headCommitSha"], SHA);
@@ -77,36 +77,18 @@ async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
     .await;
     assert_eq!(
         only_hits["pullRequests"][0]["files"][0]["patch"],
-        "@@ -201,1 +201,1 @@\n201\t-old esbuild\n201\t+new esbuild\n"
+        "@@ -1,401 +1,401 @@\n201\t-old esbuild\n201\t+new esbuild\n"
     );
-    let unfiltered = support::checks::related_call(&only_hits, "ghGetHistoryItem", |input| {
-        input["queries"][0]["sections"] == json!(["patches"])
-            && input["queries"][0].get("matchString").is_none()
-    });
-    assert_eq!(
-        unfiltered["input"]["queries"][0]["include"],
-        json!(["src/big.rs"])
-    );
-    let hinted = run(
-        &server,
-        json!({"sections":["patches"], "matchString": ["esbuild"]}),
-    )
-    .await;
-    // Distinct optional reads remain available, even for one file.
-    let source = support::checks::related_call(&hinted, "ghGetFileContent", |input| {
+    // A complete narrowed read keeps one lead, the source read of its file;
+    // the whole patch is the same read without the literal (documented),
+    // scoped to the file.
+    let source = support::checks::related_call(&only_hits, "ghGetFileContent", |input| {
         input["queries"][0]["ref"] == SHA && input["queries"][0]["path"] == "src/big.rs"
     });
     assert_eq!(source["kind"], "related");
-    let whole = support::checks::related_call(&hinted, "ghGetHistoryItem", |input| {
-        input["queries"][0]["sections"] == json!(["patches"])
-            && input["queries"][0].get("matchString").is_none()
-    });
-    assert_eq!(
-        whole["input"]["queries"][0]["include"],
-        json!(["src/big.rs"])
-    );
-    // Execute the authored optional expansion and retain every original patch line.
-    let full = run(&server, whole["input"]["queries"][0].clone()).await;
+    let whole = json!({"sections":["patches"], "include":["src/big.rs"]});
+    // The documented whole-patch read keeps every original patch line.
+    let full = run(&server, whole).await;
     let whole = full["pullRequests"][0]["files"][0]["patch"]
         .as_str()
         .unwrap_or("");

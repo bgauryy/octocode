@@ -42,11 +42,8 @@ fn default_streamed_read_fills_short_lines_and_continues_the_long_line() {
         .next
         .and_then(|next| next.continue_window)
         .expect("long line remains");
-    crate::contracts::prepare_many_built(
-        "localFetch",
-        serde_json::json!({"queries":[&next.query]}),
-    )
-    .expect("canonical private continuation");
+    crate::contracts::validate_built_query("localFetch", serde_json::json!(&next.query))
+        .expect("canonical private continuation");
     assert_eq!(local_fetch_query::offset(&next.query), Some(1200));
     let second = fetch(&file, &next.query, None);
     assert!(
@@ -113,11 +110,8 @@ fn streamed_multirange_continuations_reach_every_requested_line_once() {
             );
         }
         if let Some(call) = out.next.and_then(|next| next.continue_window) {
-            crate::contracts::prepare_many_built(
-                "localFetch",
-                serde_json::json!({"queries":[&call.query]}),
-            )
-            .expect("canonical continuation");
+            crate::contracts::validate_built_query("localFetch", serde_json::json!(&call.query))
+                .expect("canonical continuation");
             pending.push_back(call.query);
         }
         pages += 1;
@@ -177,9 +171,9 @@ fn a_walk_across_a_giant_key_body_reconstructs_the_sanitized_source_once() {
         assert!(pages < 20, "runaway paging");
         match page.next.and_then(|next| next.continue_window) {
             Some(next) => {
-                crate::contracts::prepare_many_built(
+                crate::contracts::validate_built_query(
                     "localFetch",
-                    serde_json::json!({"queries":[&next.query]}),
+                    serde_json::json!(&next.query),
                 )
                 .expect("canonical continuation");
                 call = next.query;

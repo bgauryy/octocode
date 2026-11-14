@@ -64,9 +64,11 @@ fn source_recovery_is_required_only_when_requested_patch_is_missing() {
         new_ref: Some("head"),
         old_ref: Some("parent"),
     };
-    for (patch, expected) in [
-        (Some("@@ -1 +1 @@\n-old\n+new"), "related"),
-        (None, "continue"),
+    // Missing source is two continuations, one per side; delivered
+    // source is optional, one related call reading both sides.
+    for (patch, expected, calls) in [
+        (Some("@@ -1 +1 @@\n-old\n+new"), "related", 1),
+        (None, "continue", 2),
     ] {
         let mut file = json!({
             "filename":"src/a.rs", "sha":"blob", "status":"modified",
@@ -76,7 +78,12 @@ fn source_recovery_is_required_only_when_requested_patch_is_missing() {
             file["patch"] = json!(patch);
         }
         let reads = change_reads("o", "r", &[file], &sides, |_| true);
-        assert_eq!(reads.len(), 2);
+        assert_eq!(reads.len(), calls);
+        let rows = reads
+            .iter()
+            .map(|(_, read)| read["input"]["queries"].as_array().map_or(0, Vec::len))
+            .sum::<usize>();
+        assert_eq!(rows, 2, "both sides: {reads:?}");
         for (_, read) in reads {
             assert_eq!(read["kind"], expected, "{read}");
         }

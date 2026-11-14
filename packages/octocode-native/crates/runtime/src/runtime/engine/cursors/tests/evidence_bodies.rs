@@ -226,9 +226,8 @@ fn a_body_the_answers_do_not_hold_stays_with_the_evidence() {
 fn a_held_body_reaches_neither_store_on_disk() {
     let home = Home::new();
     let secret = format!("token = \"ghp_{}\"\n", "a1B2c3D4e5F6".repeat(3));
-    let manifest =
-        "apiVersion: v1\nkind: Secret\ndata:\n  tls.crt: QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=\n";
-    let mut gated = answer(manifest);
+    let keyed = "aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n";
+    let mut gated = answer(keyed);
     gated.request = "GET https://x/contents/k8s/secret.yaml?ref=main".into();
     let mut raw = answer(&secret);
     raw.request = "GET https://x/raw".into();
@@ -255,7 +254,7 @@ fn a_held_body_reaches_neither_store_on_disk() {
         observed(vec![clean.clone(), raw.clone(), gated.clone()]),
     );
     for dir in [home.answers_dir(), home.continuations_dir()] {
-        for text in ["ghp_", "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo"] {
+        for text in ["ghp_", "wJalrXUtnFEMI"] {
             assert!(
                 holding(&dir, text).is_empty(),
                 "{text} in {}",

@@ -256,7 +256,9 @@ async fn clasify_reads_a_rows_content_from_stdin() {
     let body: Value = serde_json::from_slice(&posts().await[0].body).unwrap();
     assert_eq!(
         body["state"],
-        json!("[p1]\ntest a ... ok\n[p2]\ntest b ... FAILED\n")
+        json!(
+            "<lines 1-1>\ntest a ... ok\n</lines 1-1>\n<lines 2-2>\ntest b ... FAILED\n</lines 2-2>\n"
+        )
     );
     let refused = tokio::task::spawn_blocking(piped(
         rows(vec![

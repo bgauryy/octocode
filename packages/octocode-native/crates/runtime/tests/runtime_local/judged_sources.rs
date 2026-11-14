@@ -1,7 +1,7 @@
-//! One redaction decision per source, served by every tool: a value whose
-//! secrecy comes from the key that names it (on its line, on an earlier
-//! line, across a comment or a wrap) is hidden in every response that shows
-//! text of its source, and no tool hides more than a read of the same lines.
+//! One redaction decision per source, served by every tool: a known secret
+//! (a token, or a well-known key's value on its line or the next) is hidden
+//! in every response that shows text of its source, and no tool hides more
+//! than a read of the same lines.
 //! All secrets are fake.
 
 use crate::support::{Workspace, call, query_path};
@@ -10,23 +10,22 @@ use std::collections::BTreeMap;
 
 const TS: &str = r#"export const config = {
   awsSecretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYzQ8vT3kLm2",
-  password: "Tr0ub4dor&3xK9!zQ",
+  slack: "xoxb-1234567890-1234567890123-AbCdEfGhIjKlMnOpQrStUvWx",
 };
 const apiKey =
   // the key
-  "Bq1Zx9Lm2Vp4Kd8Rt7Yb6Nc3";
+  "ghp_Bq1Zx9Lm2Vp4Kd8Rt7Yb6Nc3Bq1Zx9Lm2Vp4";
 const dbPassword =
 
-  "Eq1Zx9Lm2Vp4Kd8Rt7Yb6Nc3";
-const split = "ghp_" + // joined below
-  "x7Kq2Lm9Zp4Vw8Rt1Yb6Nc3Hd5Jf0GsAeUoI";
-export function connect(token: string = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08") { return token; }
+  "ghp_Eq1Zx9Lm2Vp4Kd8Rt7Yb6Nc3Eq1Zx9Lm2Vp4";
+const split = // a token after a comment
+  "ghp_x7Kq2Lm9Zp4Vw8Rt1Yb6Nc3Hd5Jf0GsAeUoI";
+export function connect(token: string = "sk_live_9f86d081884c7d659a2feaa0c55ad015") { return token; }
 "#;
 
-const PY: &str = "AWS_SECRET_ACCESS_KEY = (\n    # wrapped\n    \"wJalrXUtnFEMI/K7MDENG/bPxRfiCYzQ9vT3kLm2\"\n)\n";
+const PY: &str = "AWS_SECRET_ACCESS_KEY =\n    \"wJalrXUtnFEMI/K7MDENG/bPxRfiCYzQ9vT3kLm2\"\n";
 
-const RS: &str =
-    "fn f() {\n    let password = \"Tq0ub4dor&3xK9!zQw\".to_owned();\n    let _ = password;\n}\n";
+const RS: &str = "fn f() {\n    let token = \"glpat-Tq0ub4dorXK9zQwTq0ub4\".to_owned();\n    let _ = token;\n}\n";
 
 /// Ordinary code a fragment judged alone reads as configuration.
 const CODE: &str = "const log = console;\nfunction getGitHubToken(l: unknown) { return String(l); }\nexport const options = {\n  getToken: () => getGitHubToken(log),\n  manualToken: undefined as string | undefined,\n};\n";
@@ -34,16 +33,13 @@ const CODE: &str = "const log = console;\nfunction getGitHubToken(l: unknown) { 
 /// Every value planted, by the file that holds it.
 const PLANTED: [(&str, &str); 8] = [
     ("s.ts", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYzQ8vT3kLm2"),
-    ("s.ts", "Tr0ub4dor&3xK9!zQ"),
+    ("s.ts", "AbCdEfGhIjKlMnOpQrStUvWx"),
     ("s.ts", "Bq1Zx9Lm2Vp4Kd8Rt7Yb6Nc3"),
     ("s.ts", "Eq1Zx9Lm2Vp4Kd8Rt7Yb6Nc3"),
     ("s.ts", "x7Kq2Lm9Zp4Vw8Rt1Yb6Nc3Hd5Jf0GsAeUoI"),
-    (
-        "s.ts",
-        "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
-    ),
+    ("s.ts", "9f86d081884c7d659a2feaa0c55ad015"),
     ("s.py", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYzQ9vT3kLm2"),
-    ("g.rs", "Tq0ub4dor&3xK9!zQw"),
+    ("g.rs", "Tq0ub4dorXK9zQwTq0ub4"),
 ];
 
 /// A language server that answers a definition with the declaration's whole
@@ -950,10 +946,10 @@ function handle(msg) {
   if (msg.method === 'exit') return process.exit(0);
   if (!msg.id) return;
   const uri = msg.params?.textDocument?.uri ?? '';
-  if (msg.method === 'textDocument/hover') return send(msg.id, {contents:{kind:'markdown',value:'```typescript\nconst pw: "Zr0ub4dor&3xK9!zQw"\n```'},range:at});
+  if (msg.method === 'textDocument/hover') return send(msg.id, {contents:{kind:'markdown',value:'```typescript\nconst pw: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYZr0ub4dorX"\n```'},range:at});
   if (msg.method === 'textDocument/definition') return send(msg.id, uri.endsWith('/use.ts') ? [{uri:uri.replace('/use.ts','/cfg.ts'),range:{start:{line:0,character:13},end:{line:0,character:16}}}] : []);
   if (msg.method === 'textDocument/typeDefinition') return send(msg.id, []);
-  if (msg.method === 'textDocument/diagnostic') return send(msg.id, {kind:'full',items:[{range:at,severity:1,source:'ts',code:2345,message:"Argument of type '\"wrong-Value-9f86d081\"' is not assignable to parameter of type '\"Tr0ub4dor&3xK9!zQ\"'."}]});
+  if (msg.method === 'textDocument/diagnostic') return send(msg.id, {kind:'full',items:[{range:at,severity:1,source:'ts',code:2345,message:"Argument of type '\"wrong-Value-9f86d081\"' is not assignable to parameter of type '\"Tr0ub4dorXK9zQwTr0ub4dorXK9zQwTr0ub4dorX\"'."}]});
   send(msg.id, null);
 }
 process.stdin.on('data', chunk => {
@@ -985,20 +981,20 @@ fn lsp_text_placeholder(text: &str) -> &str {
 /// value of a file no location names is withheld, with the reason.
 #[tokio::test]
 async fn lsp_server_text_shows_a_value_as_a_read_of_its_file_does() {
-    const CFG_VALUE: &str = "Zr0ub4dor&3xK9!zQw";
-    const X_VALUE: &str = "Tr0ub4dor&3xK9!zQ";
+    const CFG_VALUE: &str = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYZr0ub4dorX";
+    const X_VALUE: &str = "Tr0ub4dorXK9zQwTr0ub4dorXK9zQwTr0ub4dorX";
     let workspace = Workspace::new();
     let cfg = workspace.write(
         "lt/cfg.ts",
-        "export const cfg = { user: \"svc\", password: \"Zr0ub4dor&3xK9!zQw\" } as const;\n",
+        "export const cfg = { user: \"svc\", aws_secret_access_key: \"wJalrXUtnFEMI/K7MDENG/bPxRfiCYZr0ub4dorX\" } as const;\n",
     );
     let root = cfg.parent().expect("dir").to_owned();
-    let uses = "import { cfg } from \"./cfg\";\nexport const pw = cfg.password;\n";
+    let uses = "import { cfg } from \"./cfg\";\nexport const pw = cfg.aws_secret_access_key;\n";
     workspace.write("lt/use.ts", uses);
     workspace.write("lt/far.ts", uses);
     workspace.write(
         "lt/x.ts",
-        "export const password = \"Tr0ub4dor&3xK9!zQ\" as const;\nexport const pw = (p: typeof password) => p;\npw(\"wrong-Value-9f86d081\");\n",
+        "export const aws_secret_access_key = \"Tr0ub4dorXK9zQwTr0ub4dorXK9zQwTr0ub4dorX\" as const;\nexport const pw = (p: typeof aws_secret_access_key) => p;\npw(\"wrong-Value-9f86d081\");\n",
     );
     let script = workspace.write("lsp-text-server.cjs", LSP_TEXT_SERVER);
     std::fs::write(
@@ -1084,12 +1080,12 @@ async fn lsp_server_text_shows_a_value_as_a_read_of_its_file_does() {
     );
 }
 
-/// A source past the whole-file ceiling, with a token written in pieces (a
-/// `+` join over two lines, an array, a template) at its start and its end.
+/// A source past the whole-file ceiling, with a token in a literal, a URL and
+/// a template at its start and its end.
 fn over_ceiling_source(tail: &str) -> String {
     let pieces = |name: &str| {
         format!(
-            "const {name} = \"ghp_\" +\n  \"{tail}\";\nconst {name}Parts = [\"ghp_\", \"{tail}\"].join(\"\");\nconst {name}Tpl = `${{\"ghp_\"}}${{\"{tail}\"}}`;\n"
+            "const {name} = \"ghp_{tail}\";\nconst {name}Url = \"https://ci:ghp_{tail}@github.com/o/r\";\nconst {name}Tpl = `token ghp_{tail}`;\n"
         )
     };
     let ceiling = octocode_engine::security::MAX_CONTENT_SIZE;
@@ -1104,8 +1100,8 @@ fn over_ceiling_source(tail: &str) -> String {
 }
 
 /// A search row of a source larger than a whole-file read shows what a read
-/// of the same lines serves, in every view: the pieces of a split token are
-/// hidden at the file's start and at its end.
+/// of the same lines serves, in every view: a token in a literal, a URL and a
+/// template is hidden at the file's start and at its end.
 #[tokio::test]
 async fn over_ceiling_source_rows_are_the_reads_lines() {
     const TAIL: &str = "H7Kq2Lm9Zp4Vw8Rt1Yb6Nc3Hd5Jf0GsAeUoI";
@@ -1139,13 +1135,13 @@ async fn over_ceiling_source_rows_are_the_reads_lines() {
             .unwrap_or_else(|| panic!("{output}"));
         read.extend(numbered(content));
     }
-    // The read hides both pieces of the join: the prefix on its own line too.
-    for line in [1, 2, total - 3, total - 2] {
+    // The read hides the token on each of its lines.
+    for line in [1, 2, 3, total - 2, total - 1, total] {
         assert!(redacted(&read[&line]), "line {line}: {:?}", read[&line]);
     }
     for query in [
         json!({"matchString": "early|late", "regexEngine": "rust"}),
-        json!({"matchString": "Parts", "contextLines": {"before": 2, "after": 1}}),
+        json!({"matchString": "Url", "contextLines": {"before": 2, "after": 1}}),
     ] {
         let output = run("localSearch", query.clone()).await;
         let mut hits = Vec::new();
@@ -1194,7 +1190,8 @@ async fn over_ceiling_source_rows_are_the_reads_lines() {
 
 /// The bin16 retest's weak password: a value hidden only by the name that
 /// holds it. Fake.
-const WEAK: &str = "import os\nDB_PASSWORD = \"Summer2024!\"\nprint(os)\n";
+const WEAK: &str =
+    "import os\nAWS_SECRET_ACCESS_KEY = \"wJalrXUtnFEMI/K7MDENG/bPxRfiCYSummer2024\"\nprint(os)\n";
 
 /// Every string a value holds, at any depth.
 fn strings(value: &Value, out: &mut Vec<String>) {
@@ -1250,7 +1247,7 @@ async fn ast_search_states_every_digest_and_coordinate_over_the_shown_text() {
     let read = run("localFetch", json!({})).await;
     let shown_line = numbered(read["content"].as_str().expect("content"))[&2].clone();
     assert!(
-        shown_line.starts_with("DB_PASSWORD = \"[REDACTED-"),
+        shown_line.starts_with("AWS_SECRET_ACCESS_KEY = \"[REDACTED-"),
         "{shown_line}"
     );
     let shown: String = format!("import os\n{shown_line}\nprint(os)\n");
@@ -1297,7 +1294,7 @@ async fn ast_search_states_every_digest_and_coordinate_over_the_shown_text() {
     assert_eq!(matched["line"], 2, "{matched}");
     assert_eq!(
         matched["value"],
-        shown_line["DB_PASSWORD = ".len()..],
+        shown_line["AWS_SECRET_ACCESS_KEY = ".len()..],
         "{matched}"
     );
     let end = matched["endColumn"].as_u64().or_else(|| {
@@ -1310,12 +1307,12 @@ async fn ast_search_states_every_digest_and_coordinate_over_the_shown_text() {
     let tree = responses[3].1.to_string();
     let content_end = quote + 1;
     assert!(
-        tree.contains(&format!("string_content 2:16-2:{content_end}")),
+        tree.contains(&format!("string_content 2:26-2:{content_end}")),
         "{tree}"
     );
     // A regex over the string's length reads the shown text's length.
-    let inner = shown_line[..quote].len() - "DB_PASSWORD = \"".len();
-    for (length, hits) in [(11, 0), (inner, 1)] {
+    let inner = shown_line[..quote].len() - "AWS_SECRET_ACCESS_KEY = \"".len();
+    for (length, hits) in [(40, 0), (inner, 1)] {
         let rule = json!({"kind": "string", "regex": format!("^.[^\"]{{{length}}}.$")});
         let data = run("astSearch", json!({"operation": "match", "rule": rule})).await;
         assert_eq!(

@@ -244,11 +244,17 @@ pub(super) fn page_states(value: &Value) -> usize {
     }
 }
 
-/// Every string line and number of `value` outside its calls.
+/// Every string line and number of `value` outside its calls; a page's
+/// offset 0 is stated by the page's count reading without `after`.
 fn evidence(value: &Value, out: &mut Vec<String>) {
     match value {
         Value::Object(fields) if fields.contains_key("tool") && fields.contains_key("input") => {}
-        Value::Object(fields) => fields.values().for_each(|value| evidence(value, out)),
+        Value::Object(fields) => fields
+            .iter()
+            .filter(|(key, value)| {
+                !(*key == "offset" && **value == 0 && fields.contains_key("hasMore"))
+            })
+            .for_each(|(_, value)| evidence(value, out)),
         Value::Array(items) => items.iter().for_each(|item| evidence(item, out)),
         Value::String(text) => out.extend(
             text.split('\n')
@@ -260,10 +266,27 @@ fn evidence(value: &Value, out: &mut Vec<String>) {
     }
 }
 
-/// Whether `leaf` is printed: as it is, or a numbered source line
-/// (`N<TAB>text`) as the hit `N:text` or the context `N-text`.
+/// The directories `text` states its rows' paths relative to (`# root:`,
+/// alone or after a batch row's name).
+pub(super) fn roots(text: &str) -> Vec<&str> {
+    text.lines()
+        .filter_map(|line| line.strip_prefix("# "))
+        .filter_map(|line| match line.split_once("root: ") {
+            Some((label, root)) if label.is_empty() || label.starts_with("results[") => Some(root),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Whether `leaf` is printed: as it is, as a path relative to a stated root,
+/// or a numbered source line (`N<TAB>text`) as the hit `N:text` or the
+/// context `N-text`.
 fn printed(leaf: &str, text: &str) -> bool {
     text.contains(leaf)
+        || roots(text).iter().any(|root| {
+            leaf.strip_prefix(&format!("{root}/"))
+                .is_some_and(|relative| text.contains(relative))
+        })
         || leaf.split_once('\t').is_some_and(|(n, source)| {
             n.bytes().all(|byte| byte.is_ascii_digit())
                 && [':', '-']
@@ -321,7 +344,7 @@ fn no_hits_a_failure_and_a_first_page_differ_on_stdout() {
     let cases = cases();
     let outs: Vec<String> = cases.iter().take(3).map(|case| text(case).out).collect();
     assert!(outs[0].ends_with(
-        "# pagination: unit lines offset 0 length 3 total 58 hasMore\n# next.nextPage: octocode localSearch '{\"cursor\":\"cursor2.search-page\"}'"
+        "# pagination: 3 of 58 lines hasMore\n# next.nextPage: octocode localSearch '{\"cursor\":\"cursor2.search-page\"}'"
     ), "{}", outs[0]);
     assert_eq!(outs[1], "# status: empty");
     assert_eq!(
@@ -409,12 +432,26 @@ fn a_path_is_stated_once_per_file() {
         let groups = result["results"][0]["data"]["files"]
             .as_array()
             .map_or(&[][..], Vec::as_slice);
+        let roots = roots(&out);
         for group in groups {
             let Some(path) = group["path"].as_str().or_else(|| group["dir"].as_str()) else {
                 continue;
             };
+            let path = roots
+                .iter()
+                .find_map(|root| path.strip_prefix(&format!("{root}/")))
+                .unwrap_or(path);
+            // A count table's row leads with the count.
+            let shown = |line: &str| {
+                let line = line.trim_start();
+                line.split_once(' ')
+                    .filter(|(count, _)| count.bytes().all(|byte| byte.is_ascii_digit()))
+                    .map_or(line, |(_, rest)| rest)
+                    .to_owned()
+            };
             let lines = out
                 .lines()
+                .map(shown)
                 .filter(|line| {
                     line.starts_with(path) && !line.starts_with(&format!("{path}/outline"))
                 })
@@ -429,13 +466,11 @@ fn a_path_is_stated_once_per_file() {
 fn a_number_after_a_path_is_a_line() {
     let cases = cases();
     let counts = text(&cases[3]).out;
+    assert!(!counts.contains(".rs:"), "{counts}");
     assert!(
-        counts
-            .lines()
-            .all(|line| line.ends_with("]") && !line.contains(".rs:")),
+        counts.lines().any(|line| line.trim() == "8 listing.rs"),
         "{counts}"
     );
-    assert!(counts.contains("listing.rs  [matchCount 8]"), "{counts}");
     let sites = text(&cases[11]).out;
     assert!(sites.contains("commit_dates/tests.rs:5,32\n"), "{sites}");
     assert!(!sites.contains("matchCount"), "{sites}");
@@ -454,33 +489,88 @@ fn a_repeated_single_field_is_named_once() {
     assert_eq!(out.matches("node:").count(), 1, "{out}");
 }
 
-/// (d) A row prints alike alone and in a batch, apart from its
-/// `## results[N]` heading on stdout and its `results[N]` name on stderr.
-#[test]
-fn a_row_prints_alike_alone_and_in_a_batch() {
-    for case in cases() {
-        let (tool, query, result) = &case;
-        let alone = text(&case);
-        let mut second = result["results"][0].clone();
-        second["index"] = 1.into();
-        let batch = json!({"results":[result["results"][0], second]});
-        let asked = &query["queries"][0];
-        let batch = render(*tool, &batch, &json!({"queries":[asked, asked]}), None)
-            .unwrap_or_else(|| panic!("{tool:?} batch prints text"));
-        let mut out = Vec::new();
-        let mut notes = Vec::new();
-        for label in ["results[0]", "results[1]"] {
-            out.push(format!("## {label}"));
-            out.extend(alone.out.lines().map(str::to_owned));
-            notes.extend(
-                alone
-                    .notes
-                    .lines()
-                    .map(|note| note.replacen("# ", &format!("# {label} "), 1)),
+/// Whether `row` prints alike alone and in a batch of itself twice, apart
+/// from its `## results[N]` heading, its `results[N]` name on each of its
+/// `# ` lines, and the fields both rows share, which print once before the
+/// first row exactly as a row of only those fields prints them.
+pub(super) fn prints_alike_in_a_batch(tool: ToolId, row: &Value, asked: &Value) -> bool {
+    let mut second = row.clone();
+    second["index"] = 1.into();
+    let batch = render(
+        tool,
+        &json!({"results": [row, second]}),
+        &json!({"queries": [asked, asked]}),
+        None,
+    );
+    let Some(batch) = batch else {
+        return false;
+    };
+    let (block, _) = batch.out.split_once("## results[0]").unwrap_or_default();
+    let block = block.trim_end_matches('\n');
+    // The fields the block states: its unindented `key:` heads.
+    let shared: Vec<&str> = block
+        .lines()
+        .filter(|line| !line.starts_with(' '))
+        .filter_map(|line| line.split_once(':'))
+        // `rows[]: …` (a table) and `nodes[].node:` name the field `rows`, `nodes`.
+        .filter_map(|(key, _)| key.split('[').next())
+        .collect();
+    let mut own = row.clone();
+    let mut fields = Map::new();
+    if let Some(data) = own["data"].as_object_mut() {
+        for key in &shared {
+            fields.extend(
+                data.shift_remove(*key)
+                    .map(|value| ((*key).to_owned(), value)),
             );
         }
-        assert_eq!(batch.out, out.join("\n"), "{tool:?}");
-        assert_eq!(batch.notes, notes.join("\n"), "{tool:?}");
+    }
+    if !block.is_empty() {
+        let alone = render(
+            tool,
+            &json!({"results":[{"data": fields}]}),
+            &json!({}),
+            None,
+        );
+        if alone.is_none_or(|alone| alone.out != block) {
+            return false;
+        }
+    }
+    let Some(alone) = render(
+        tool,
+        &json!({"results": [own]}),
+        &json!({"queries": [asked]}),
+        None,
+    ) else {
+        return false;
+    };
+    let named = |text: &str, label: &str| -> Vec<String> {
+        text.lines()
+            .map(|line| match line.strip_prefix("# ") {
+                Some(rest) => format!("# {label} {rest}"),
+                None => line.to_owned(),
+            })
+            .collect()
+    };
+    let mut out: Vec<String> = block.lines().map(str::to_owned).collect();
+    let mut notes = Vec::new();
+    for label in ["results[0]", "results[1]"] {
+        out.push(format!("## {label}"));
+        out.extend(named(&alone.out, label));
+        notes.extend(named(&alone.notes, label));
+    }
+    batch.out == out.join("\n") && batch.notes == notes.join("\n")
+}
+
+/// (d) A row prints alike alone and in a batch, apart from its heading, its
+/// name on its `# ` lines and the fields every row shares.
+#[test]
+fn a_row_prints_alike_alone_and_in_a_batch() {
+    for (tool, query, result) in cases() {
+        assert!(
+            prints_alike_in_a_batch(tool, &result["results"][0], &query["queries"][0]),
+            "{tool:?} {result}"
+        );
     }
 }
 
@@ -494,7 +584,7 @@ fn a_batch_row_without_content_states_its_status() {
     let lines = render(ToolId::LocalSearch, &batch, &json!({}), None).expect("text");
     assert_eq!(
         lines.out,
-        "## results[0]\n# status: empty\n## results[1]\nerrorCode: notFound\nerror: Path does not exist: src/nope\n# status: error"
+        "## results[0]\n# results[0] status: empty\n## results[1]\nerrorCode: notFound\nerror: Path does not exist: src/nope\n# results[1] status: error"
     );
     // One grammar for every note: the row, then `key: value`.
     for note in lines.notes.lines() {

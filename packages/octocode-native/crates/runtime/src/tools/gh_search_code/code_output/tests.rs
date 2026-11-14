@@ -37,7 +37,7 @@ fn path_only_handoffs_preserve_index_commits_without_using_blob_shas() {
                 );
                 assert!(reads.hits.is_empty(), "paths do not require source reads");
                 let lead = reads.top.expect("top path has an executable read");
-                crate::contracts::validate_built("ghGetFileContent", lead["input"].clone())
+                crate::contracts::validate_saved("ghGetFileContent", lead["input"].clone())
                     .expect("read follows the published contract");
                 let next = &lead["input"]["queries"][0];
                 let expected =
@@ -108,7 +108,7 @@ fn unresolved_code_rows_keep_required_reads_without_inventing_commits() {
             assert!(row.get("commitSha").is_none(), "{row}");
             assert_eq!(read["kind"], "continue", "{read}");
             let input = &read["input"];
-            crate::contracts::validate_built("ghGetFileContent", input.clone())
+            crate::contracts::validate_saved("ghGetFileContent", input.clone())
                 .expect("required read is executable");
             assert_eq!(input["queries"][0]["path"], row["path"]);
             assert!(input["queries"][0].get("ref").is_none(), "{read}");

@@ -58,6 +58,7 @@ fn a_fifo_in_place_of_a_source_is_refused_without_blocking() {
                 shape: verify::RowShape::Lines(Default::default()),
                 cancel: &NeverCancel,
                 judged: None,
+                hidden: &verify::HiddenRows::default(),
             },
         )
         .expect("not cancelled");

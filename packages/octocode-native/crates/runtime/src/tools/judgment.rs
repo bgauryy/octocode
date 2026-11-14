@@ -326,7 +326,7 @@ impl Evaluator {
         let key = self.credential()?;
         let model = model.unwrap_or(&self.model);
         if crate::security::ContentSecurity::new()
-            .sanitize_leaf(model, None)
+            .sanitize_leaf(model)
             .is_some()
         {
             return Err(ClassificationError::new(

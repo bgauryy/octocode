@@ -119,12 +119,12 @@ async fn a_secret_in_the_source_stays_redacted_in_every_page_of_a_whole_read() {
     let workspace = Workspace::new();
     let planted = SOURCE.replace(
         "fn main() {}",
-        "const PASSWORD: &str = \"hunter2-Xq9!zP4#wL7\";",
+        "const PASSWORD: &str = \"xoxb-1234567890-1234567890123-AbCdEfGhIjKlMnOpQrStUvWx\";",
     );
     let path = workspace.write("walk.rs", planted);
     let runtime = workspace.runtime(&[]);
     for page in whole_read_pages(&runtime, &path, 5).await {
-        assert!(!page.contains("hunter2-Xq9"), "{page}");
+        assert!(!page.contains("AbCdEfGhIjKl"), "{page}");
     }
     runtime.close().await;
 }
@@ -136,7 +136,7 @@ async fn a_secret_in_the_source_stays_redacted_in_a_ranged_read() {
     let planted = SOURCE.replace(
         "fn main() {}",
         &format!(
-            "const TOKEN: &str = \"{token}\";\nconst PASSWORD: &str = \"hunter2-Xq9!zP4#wL7\";"
+            "const TOKEN: &str = \"{token}\";\nconst PASSWORD: &str = \"xoxb-1234567890-1234567890123-AbCdEfGhIjKlMnOpQrStUvWx\";"
         ),
     );
     let path = workspace.write("walk.rs", planted);
@@ -144,7 +144,7 @@ async fn a_secret_in_the_source_stays_redacted_in_a_ranged_read() {
     for lines in [(11, 12), (5, 12), (12, 12)] {
         let text = content(&runtime, &path, lines).await;
         assert!(!text.contains(&token), "{lines:?}: {text}");
-        assert!(!text.contains("hunter2-Xq9"), "{lines:?}: {text}");
+        assert!(!text.contains("AbCdEfGhIjKl"), "{lines:?}: {text}");
     }
     runtime.close().await;
 }
@@ -195,7 +195,8 @@ const TYPES: &str = "type Receipt = { id: number; dispatchToken: string };\nexpo
 /// (YAML, `NAME=value` lines) with planted secrets. Each with the planted values no view may show.
 fn view_fixtures() -> Vec<(&'static str, String, Vec<String>)> {
     let token = format!("ghp_{}", "a1B2".repeat(9));
-    let password = "hunter2-Xq9!zP4#wL7";
+    // A second known format: a Slack bot token.
+    let password = "xoxb-1234567890-1234567890123-AbCdEfGhIjKlMnOpQrStUvWx";
     vec![
         ("types.ts", TYPES.to_owned(), vec![]),
         (
@@ -224,11 +225,11 @@ fn view_fixtures() -> Vec<(&'static str, String, Vec<String>)> {
             format!("PORT=8080\n\nGITHUB_TOKEN={token}\nDB_PASSWORD={password}\n"),
             vec![token, password.to_owned()],
         ),
-        // D1 (round 13): a block scalar's body is its key's value in every
-        // view, its indentation and header staying.
+        // D1 (round 13): a known token in a block scalar's body is hidden in
+        // every view, its indentation and header staying.
         (
             "db.yaml",
-            "db:\n  host: localhost\n\n  password: |\n    Fz8kQ2mL9xW4\n  api_key: >-\n    Qm7vR2xL8pZ3\n  port: 5432\n"
+            "db:\n  host: localhost\n\n  password: |\n    ghp_Fz8kQ2mL9xW4Fz8kQ2mL9xW4Fz8kQ2mL9xW4\n  api_key: >-\n    ghp_Qm7vR2xL8pZ3Qm7vR2xL8pZ3Qm7vR2xL8pZ3\n  port: 5432\n"
                 .to_owned(),
             vec!["Fz8kQ2mL9xW4".to_owned(), "Qm7vR2xL8pZ3".to_owned()],
         ),
@@ -352,9 +353,9 @@ async fn every_page_of_a_compact_read_keeps_the_whole_source_judgement() {
 /// its name, a numbered name. Each with the planted values, every one written
 /// in code, so a view that keeps the statement shows a placeholder for it.
 fn layout_fixtures() -> Vec<(&'static str, String, Vec<&'static str>)> {
-    let token = "Zq7xKp2mVw9tLb4nRc8dYf3hJs6g";
-    let other = "Hd5Jf0GsAeUoIx7Kq2Lm9Zp4Vw8R";
-    let password = "hunter2-Xq9!zP4#wL7";
+    let token = "ghp_Zq7xKp2mVw9tLb4nRc8dYf3hJs6gZq7xKp2m";
+    let other = "ghp_Hd5Jf0GsAeUoIx7Kq2Lm9Zp4Vw8RHd5Jf0Gs";
+    let password = "xoxb-1234567890-1234567890123-AbCdEfGhIjKlMnOpQrStUvWx";
     vec![
         (
             "commented.ts",
@@ -505,7 +506,7 @@ type BoundFixture = (
 );
 
 fn bound_fixtures() -> Vec<BoundFixture> {
-    const KEY: &str = "Zq7Xk2Pm9Vt4Lw8Rb3Nc6Hy1Jd5Fg0Ts7Qe2Ua4";
+    const KEY: &str = "ghp_Zq7Xk2Pm9Vt4Lw8Rb3Nc6Hy1Jd5Fg0Ts7Qe2";
     vec![
         (
             "expr.ts",
@@ -513,8 +514,9 @@ fn bound_fixtures() -> Vec<BoundFixture> {
                 "const apiKey = cond ? \"{KEY}\" : \"otherVisible3\";\nconst apiKey3 = \"{KEY}\" + \"tail-visible1\";\nconst k2 = 1; // my password was Tr0ub4dor&3xK9!zQ\n"
             ),
             "apiKey",
-            vec![KEY, "Tr0ub4dor&3xK9!zQ"],
-            vec!["otherVisible3", "tail-visible1", "my password was "],
+            vec![KEY],
+            // A password in no known format reads as written.
+            vec!["otherVisible3", "tail-visible1", "my password was Tr0ub4dor&3xK9!zQ"],
         ),
         (
             "conf.py",
@@ -529,7 +531,7 @@ fn bound_fixtures() -> Vec<BoundFixture> {
                 .to_owned(),
             "Key",
             vec!["ghp_x7Kq2Lm9Zp4Vw8Rt1Yb6Nc3Hd5Jf0GsAeUoI"],
-            vec!["tailJ", "password: str", "dispatchToken: string", "user:password@"],
+            vec!["tailJ", "password: str", "dispatchToken: string", "url = postgres://user:"],
         ),
         (
             "ws.ts",
@@ -546,8 +548,14 @@ fn bound_fixtures() -> Vec<BoundFixture> {
                 "const apiKey5 =\n  cond\n    ? \"{KEY}\"\n    : \"otherVisible17\";\nconst password = isProd ? \"Tr0ub4dor&3xK9!zQ\" : \"x\";\nconst dbPassword = c ? \"x\" : \"hunter2-Sup3rS3cret\";\nheaders[\"Authorization\"] = \"Bearer abcdefghijklmnopqrstuvwx\";\nconst h = {{ Authorization: `Bearer abcdefghijklmnopqrstuvwx` }};\n"
             ),
             "assword",
-            vec![KEY, "Tr0ub4dor&3xK9!zQ", "hunter2-Sup3rS3cret", "abcdefghijklmnopqrstuvwx"],
-            vec!["otherVisible17", "Authorization\"] = \"Bearer ", "{ Authorization: `Bearer "],
+            vec![KEY, "abcdefghijklmnopqrstuvwx"],
+            vec![
+                "otherVisible17",
+                "Authorization\"] = \"Bearer ",
+                "{ Authorization: `Bearer ",
+                "isProd ? \"Tr0ub4dor&3xK9!zQ\"",
+                "\"hunter2-Sup3rS3cret\"",
+            ],
         ),
         (
             "r12.go",
@@ -572,11 +580,12 @@ fn bound_fixtures() -> Vec<BoundFixture> {
             "my password was Pl4net-Orb1t9\nthe password is: hunter2-Sup3rS3cret\nthen password = hunter2-Sup3rS3cret\nthe password is: s3cretPassw0rd\nthe password is required\nSIGNING_KEY=x-9f8.6d0.818 84c.7d6.59a\nAUTH_TOKEN=q7.x2.k9 m4.p8.z1\ntoken: T | null\n  token: this.token,\n  password: undefined,\n  apiKey: null,\n"
                 .to_owned(),
             "assword",
-            vec!["Pl4net-Orb1t9", "hunter2-Sup3rS3cret", "s3cretPassw0rd", "x-9f8.6d0.818"],
+            vec![],
+            // Prose and values in no known format read as written.
             vec![
-                // D3 (bin16 retest): an unquoted value ends at its blank.
-                "] 84c.7d6.59a",
-                "my password was ",
+                "my password was Pl4net-Orb1t9",
+                "the password is: hunter2-Sup3rS3cret",
+                "SIGNING_KEY=x-9f8.6d0.818 84c.7d6.59a",
                 "the password is required",
                 "AUTH_TOKEN=q7.x2.k9 m4.p8.z1",
                 "token: T | null",
@@ -584,27 +593,6 @@ fn bound_fixtures() -> Vec<BoundFixture> {
                 "password: undefined,",
                 "apiKey: null,",
             ],
-        ),
-        // Round 14, B: a diff's hunks are judged as the text they change: a
-        // block scalar's body on `+` and context lines, and a Secret's data in
-        // its own document, go; the ConfigMap's value and every marker stay.
-        (
-            "x.txt",
-            "diff --git a/app.yaml b/app.yaml\n--- a/app.yaml\n+++ b/app.yaml\n@@ -1,3 +1,11 @@\n config:\n   token: |-\n     Ab3Cd9Ef2Gh7Jk5Lm1\n+  token: |-\n+    Hk3Lm9Pq2Rs7Tv5Wx1\n+---\n+kind: ConfigMap\n+data:\n+  cacheKeyPrefix: app-cache\n+---\n+kind: Secret\n+data:\n+  username: YWRtaW4=\n"
-                .to_owned(),
-            "token",
-            vec!["Ab3Cd9Ef2Gh7Jk5Lm1", "Hk3Lm9Pq2Rs7Tv5Wx1", "YWRtaW4="],
-            vec!["+  token: |-", "+    [REDACTED-", "+  cacheKeyPrefix: app-cache", "+  username: [REDACTED-"],
-        ),
-        // C: a Secret's rule holds within its own document, in a text
-        // indented as a whole too.
-        (
-            "manifest.txt",
-            "  kind: ConfigMap\n  data:\n    cacheKeyPrefix: app-cache\n  ---\n  kind: Secret\n  data:\n    username: YWRtaW4=\n"
-                .to_owned(),
-            "cacheKeyPrefix",
-            vec!["YWRtaW4="],
-            vec!["cacheKeyPrefix: app-cache", "username: [REDACTED-"],
         ),
         // F: a literal's escaped line ends its value, and a format argument
         // is no value: templates and sentences show whole.
@@ -937,8 +925,10 @@ async fn a_credential_shaped_page_keeps_its_continuation() {
     runtime.close().await;
 }
 
-/// The two real files the round-13 retest failed on, walked whole: plain
-/// line pages, `ranges` with `limit`, and `matchString` pages.
+/// Two real secret-dense files, walked whole (the round-13 retest failed on
+/// the configuration doc and a detector source, since retired for the
+/// pattern list): plain line pages, `ranges` with `limit`, and
+/// `matchString` pages.
 #[tokio::test]
 async fn real_sources_the_retest_failed_on_walk_to_their_end() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..");
@@ -947,8 +937,8 @@ async fn real_sources_the_retest_failed_on_walk_to_their_end() {
     for (name, source, term) in [
         ("CONFIGURATION.md", "docs/CONFIGURATION.md", "token"),
         (
-            "credential_values.rs",
-            "packages/octocode-native/crates/engine/src/security/detector/credential_values.rs",
+            "keys_and_databases.rs",
+            "packages/octocode-native/crates/engine/src/security/patterns/keys_and_databases.rs",
             "secret",
         ),
     ] {

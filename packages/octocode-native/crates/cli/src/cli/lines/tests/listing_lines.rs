@@ -14,7 +14,7 @@ fn lists_counts_and_empty_results() {
     let lines = render(ToolId::LocalSearch, &counts, &json!({}), None).expect("lines");
     // `path:N` is a line: a count is a named field.
     assert_eq!(lines.out, "a  [matchCount 3]");
-    assert_eq!(lines.notes, "# matchCount: 3");
+    assert_eq!(lines.notes, "# matchCount 3");
     let empty = json!({"results":[{"index":0,"status":"empty","data":{"matchCount":0,
             "hints":["No matches.","includeSkipped: localSearch {\"queries\":[{\"path\":\".\"}]}"]}}]});
     let lines = render(ToolId::LocalSearch, &empty, &json!({}), None).expect("lines");
@@ -23,7 +23,7 @@ fn lists_counts_and_empty_results() {
         lines.out,
         "# status: empty\n# hints: No matches.\n# hints: includeSkipped: localSearch {\"queries\":[{\"path\":\".\"}]}"
     );
-    assert_eq!(lines.notes, "# matchCount: 0");
+    assert_eq!(lines.notes, "# matchCount 0");
     assert!(
         !lines.out.contains("octocode localSearch"),
         "prose is never promoted to a command"
@@ -91,7 +91,7 @@ fn declarations_and_listings_print_one_line_each() {
     let lines = render(ToolId::StructureSearch, &named, &paths, None).expect("lines");
     assert_eq!(
         lines.out,
-        "./\n  report (123)\n  dir (x)/\ndir (x)/\n  report (draft).md"
+        "./\n  report (123)\n  dir (x)/\ndir (x)/report (draft).md"
     );
 }
 
@@ -134,7 +134,7 @@ fn lsp_results_print_as_lines() {
             {"path":"c.rs","matchCount":4,"matchedLines":[8]}]}}]});
     let lines = render(ToolId::LspSearch, &grouped, &json!({}), None).expect("lines");
     assert_eq!(lines.out, "a.rs:14,275\nb.rs:3\nc.rs:8  [matchCount 4]");
-    assert_eq!(lines.notes, "# matchCount: 3");
+    assert_eq!(lines.notes, "# matchCount 3");
     // A declaration body prints as an `rg --heading` block; its
     // omission marker is a note.
     let definition = json!({"results":[{"index":0,"data":{"kind":"definition","matches":[

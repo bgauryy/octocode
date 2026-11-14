@@ -253,10 +253,9 @@ fn many_text_cut_files_are_a_count_with_a_lossless_listing() {
 
 /// Files binary from their leading bytes (a font's magic, then a NUL)
 /// are outside a text search: no partial result and a count instead of
-/// every path. A row with hits stops there; an empty row, whose miss they
-/// may explain, adds an exact structureSearch call that lists them all.
+/// every path, on a row with hits and an empty row alike.
 #[test]
-fn leading_nul_binaries_are_counted_and_an_empty_row_lists_them() {
+fn leading_nul_binaries_are_counted_on_every_row() {
     let root = tempfile::tempdir().expect("fixture directory");
     fs::create_dir_all(root.path().join("fonts/a")).expect("fixture dir");
     for index in 0..30 {
@@ -304,31 +303,19 @@ fn leading_nul_binaries_are_counted_and_an_empty_row_lists_them() {
     let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
         .expect("search");
     let body = result.to_row().expect("serialize");
+    // An empty row counts them as a row with hits does, and its absence
+    // sentence says so; they hold no text, so nothing lists them.
+    assert_eq!(body["binarySkipped"], 31, "{body}");
     assert!(
-        result
-            .warnings
-            .iter()
-            .any(|w| w.starts_with("binarySkipped: 31 ")),
+        body["hints"][0]
+            .as_str()
+            .is_some_and(|hint| hint.contains("not searched: 31 binary files")),
         "{body}"
     );
-    let listing =
-        &crate::tools::test_support::checks::related_call(&body, "structureSearch", |input| {
-            input["queries"][0]["extensions"].is_array()
-        });
-    let query = listing["input"]["queries"][0].clone();
-    assert_eq!(query["operation"], "files", "{listing}");
-    assert_eq!(
-        query["extensions"],
-        serde_json::json!(["woff2", "png"]),
-        "{listing}"
+    assert!(!body.to_string().contains("Font-0"), "{body}");
+    assert!(
+        crate::tools::test_support::checks::find_related_call(&body, "structureSearch", |_| true)
+            .is_none(),
+        "{body}"
     );
-    let listed = list_structure(query, &policy, &security);
-    for index in 0..30 {
-        assert!(
-            listed.contains(&format!("Font-{index}-0123456789abcdef.woff2")),
-            "{listed}"
-        );
-    }
-    assert!(listed.contains("logo.png"), "{listed}");
-    assert!(!listed.contains("a.txt"), "{listed}");
 }

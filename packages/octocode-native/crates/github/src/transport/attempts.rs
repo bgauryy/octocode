@@ -27,8 +27,6 @@ pub(super) use failure::{secondary_cooldown, secondary_wait, spent_bucket_reset}
 struct RetryWait {
     wait: Duration,
     sleep: Duration,
-    /// A rate limit, waited out by the next attempt's admission.
-    rate_limited: bool,
 }
 
 /// The state one request's attempts share.
@@ -147,11 +145,10 @@ impl<'a> Attempts<'a> {
     /// permits and slots.
     async fn admit(&mut self) -> Result<Admission, ProviderError> {
         self.context.check()?;
-        // Admission waits (a rate-limit block, search pacing, a permit) may
-        // use the call's own deadline; the time they take is credited back to
-        // the request budget. Only a wait that ends past it is refused.
-        let queued = Instant::now();
-        let wait_deadline = self.context.budget.admission_deadline();
+        // Admission waits (a rate-limit block, search pacing, a permit) run
+        // within the request deadline; only a wait that ends past it is
+        // refused.
+        let wait_deadline = self.context.budget.deadline;
         self.state
             .wait_unblocked(
                 self.resource.bucket(),
@@ -171,7 +168,6 @@ impl<'a> Attempts<'a> {
                 &self.context.waits,
             )
             .await?;
-        self.context.budget.credit_wait(queued.elapsed());
         Ok(admission)
     }
 
@@ -179,9 +175,10 @@ impl<'a> Attempts<'a> {
     /// in transport.
     async fn send(&self) -> Result<Option<reqwest::Response>, ProviderError> {
         let spec = &self.spec;
+        let client = self.transport.client()?;
         let mut request = match spec.method {
-            HttpMethod::Get => self.transport.client.get(spec.url.clone()),
-            HttpMethod::Post => self.transport.client.post(spec.url.clone()),
+            HttpMethod::Get => client.get(spec.url.clone()),
+            HttpMethod::Post => client.post(spec.url.clone()),
         }
         .header(USER_AGENT, HTTP_USER_AGENT)
         .header(ACCEPT, "application/vnd.github+json")
@@ -208,7 +205,7 @@ impl<'a> Attempts<'a> {
                     ClientWaitKind::RetryAfter,
                     pause(
                         delay,
-                        self.context.budget.effective_deadline(),
+                        self.context.budget.deadline,
                         &self.context.budget.cancellation,
                     ),
                 )
@@ -216,10 +213,16 @@ impl<'a> Attempts<'a> {
             *self.attempt += 1;
             return Ok(());
         }
-        Err(ProviderError::new(
-            ProviderErrorKind::Transport,
-            "GitHub transport failed",
-        ))
+        let mut error = ProviderError::new(ProviderErrorKind::Transport, "GitHub transport failed");
+        // The route the failed request took: a proxy that refuses or
+        // cannot reach GitHub is the usual cause, and the only one the
+        // caller can see.
+        error.proxy = octocode_io::http::proxy_in_effect(
+            &super::client_policy(&self.transport.endpoint),
+            self.spec.url.as_str(),
+        )
+        .map(Into::into);
+        Err(error)
     }
 
     /// Point the next attempt at a redirect's location, or refuse it.
@@ -265,6 +268,7 @@ impl<'a> Attempts<'a> {
             retryable: false,
             reason: None,
             sso_url: None,
+            proxy: None,
         })
     }
 
@@ -277,17 +281,10 @@ impl<'a> Attempts<'a> {
     ) -> Result<(), ProviderError> {
         let retry = &self.transport.retry;
         let budget = &self.context.budget;
-        // A rate limit waits within the call's deadline and nothing else
-        // bounds it (the next turn's admission waits and credits it); a 5xx
-        // backoff spends request time and honors `max_retry_after`.
-        let (limit, deadline) = if backoff.rate_limited {
-            (None, budget.admission_deadline())
-        } else {
-            (Some(retry.max_retry_after), budget.effective_deadline())
-        };
+        // Every wait is bounded by the request deadline alone (a rate
+        // limit's by the next turn's admission too).
         if *self.attempt + 1 >= retry.max_attempts
-            || limit.is_some_and(|limit| backoff.wait > limit)
-            || backoff.wait >= deadline.saturating_duration_since(Instant::now())
+            || backoff.wait >= budget.deadline.saturating_duration_since(Instant::now())
         {
             return Err(error);
         }
@@ -297,11 +294,7 @@ impl<'a> Attempts<'a> {
             .waits
             .timed(
                 ClientWaitKind::RetryAfter,
-                pause(
-                    backoff.sleep,
-                    budget.effective_deadline(),
-                    &budget.cancellation,
-                ),
+                pause(backoff.sleep, budget.deadline, &budget.cancellation),
             )
             .await?;
         *self.attempt += 1;
@@ -342,7 +335,6 @@ mod tests {
                 RetryWait {
                     wait: Duration::MAX,
                     sleep: Duration::ZERO,
-                    rate_limited: true,
                 },
             )
             .await
@@ -356,7 +348,7 @@ mod tests {
             .wait_unblocked(
                 "core",
                 transport.budget.config(),
-                context.budget.admission_deadline(),
+                context.budget.deadline,
                 &context.budget.cancellation,
                 &context.waits,
             )

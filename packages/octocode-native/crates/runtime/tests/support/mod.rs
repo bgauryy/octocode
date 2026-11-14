@@ -172,6 +172,15 @@ pub async fn call(
 fn publish_for_assertion(_tool: &str, output: &Value) -> Value {
     output.clone()
 }
+/// The response stage's `related[]` rule, for the shared checks.
+fn keep_workflow_lead(tool: &str, output: &mut Value) {
+    octocode_native::response::workflow_lead::keep_workflow_lead(
+        octocode_native::id::ToolId::from_name(tool).expect("tool"),
+        output,
+        &Value::Null,
+    );
+}
+use octocode_native::response::workflow_lead::carried_identities;
 fn validate_test_input(
     tool: &str,
     input: &Value,
@@ -252,7 +261,18 @@ pub async fn run(runtime: &ToolRuntime, tool: &str, row: Value) -> Row {
         .await
         .unwrap_or_else(|error| panic!("{tool} {row}: {error:?}"));
     checks::assert_output_contract(tool, &outcome.structured_content);
+    assert_workflow_leads(tool, &outcome.structured_content);
     Row { outcome }
+}
+
+/// A response is a fixed point of the stage's `related[]` rule
+/// ([`octocode_native::response::workflow_lead`]): a row that answered whole
+/// offers only its tool's workflow lead and the calls that carry a fact the
+/// row does not state; applying the rule again changes nothing.
+pub fn assert_workflow_leads(tool: &str, envelope: &Value) {
+    let mut again = envelope.clone();
+    keep_workflow_lead(tool, &mut again);
+    assert_eq!(&again, envelope, "{tool}: the rule would still drop a lead");
 }
 
 /// [`checks::Walker`] over the runtime: each call runs as the whole input,

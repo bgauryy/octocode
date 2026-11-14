@@ -2,7 +2,6 @@
 """Profile one tool flow: retired instructions, peak memory, a flamegraph and a top-frame table.
 
   dev.mjs profile <tool> '<query json>' [--phase first|repeat|page:N|one] [--cwd DIR]
-  dev.mjs profile --flow <id>      a named flow on the frozen corpus (--list shows them)
 
   --bin PATH   binary to profile (default target/profiling/octocode; --build builds it first)
   --secs N     keep sampling for at least N seconds (default 10)
@@ -29,8 +28,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from flows import BY_ID, CORPUS_REV, FLOWS
-from harness import DARWIN, Mcp, NATIVE, ROOT, can_count, clean_env, corpus, live_env, next_input, oneshot, queries, request_of, stub_env, stub_server, with_stub
+from harness import DARWIN, Mcp, NATIVE, ROOT, can_count, clean_env, next_input, oneshot, queries, request_of
 
 DEFAULT_BIN = NATIVE / 'target/profiling/octocode'
 IDLE = re.compile(r'^(swtch_pri|thread_switch|cthread_yield|sched_yield|__psynch_cvwait|semaphore_wait_trap|semaphore_timedwait_trap|__psynch_mutexwait|kevent|__semwait_signal|mach_msg|__workq_kernreturn|__ulock_wait|_pthread_wqthread|__select|poll|__accept|nanosleep|start_wqthread|thread_start|__wait4|__recvfrom|__read_nocancel|epoll_wait|futex|syscall$)')
@@ -45,19 +43,17 @@ def fmt(value):
 
 def prepare(server, flow, query):
     """Run what comes before the measured call; returns the request the phase measures."""
-    if flow.get('build'):
-        server.call('graphBuild', queries({'path': flow['build']}))
     phase = flow['phase']
     if phase == 'first':
         return query
     first = settle(server, flow, query)
     if phase == 'repeat':
         return query
-    following = next_input(first['content'])
+    following = next_input(first['content'], flow['tool'])
     for _ in range(int(phase.split(':')[1]) - 2):
         if following is None:
             break
-        following = next_input(server.call(flow['tool'], following)['content'])
+        following = next_input(server.call(flow['tool'], following)['content'], flow['tool'])
     if following is None:
         raise SystemExit(f"{flow['id']}: the walk ended before {phase}")
     return following
@@ -95,12 +91,12 @@ def settle(server, flow, query):
     return require_server_coverage(flow, answer)
 
 
-def count(binary, flow, query, cwd, extra, reps):
+def count(binary, flow, query, cwd, reps):
     """Min instructions over reps, each on a fresh home and server."""
     rows = []
     for _ in range(reps):
         with tempfile.TemporaryDirectory(prefix='octocode-profile-') as home:
-            env = clean_env(home, mode=flow.get('storage', 'memory'), extra=extra)
+            env = clean_env(home)
             if flow['phase'] == 'one':
                 rows.append(oneshot(binary, flow['tool'], query, cwd, env))
                 continue
@@ -119,12 +115,12 @@ def count(binary, flow, query, cwd, extra, reps):
             'samples': [{key: row[key] for key in ('instr', 'peak', 'wall', 'bytes', 'error', 'rc') if key in row} for row in rows]}
 
 
-def record(binary, flow, query, cwd, extra, secs, out):
+def record(binary, flow, query, cwd, secs, out):
     """A samply profile of the phase looping for at least secs; returns the loop's clock window."""
     profile = out / 'profile.json.gz'
     wrapper = ('samply', 'record', '--save-only', '--unstable-presymbolicate', '--rate', '1000', '--output', str(profile), '--')
     with tempfile.TemporaryDirectory(prefix='octocode-profile-') as home:
-        env = clean_env(home, mode=flow.get('storage', 'memory'), extra=extra)
+        env = clean_env(home)
         if flow['phase'] == 'one':
             subprocess.run(['samply', 'record', '--save-only', '--unstable-presymbolicate', '--rate', '1000', '--iteration-count', str(max(1, secs // 2)),
                             '--output', str(profile), '--', str(binary), flow['tool'], json.dumps(query), '--json'],
@@ -231,10 +227,10 @@ def write_report(out, title, counted, found, top, calls, binary):
     return '\n'.join(lines)
 
 
-def heap(binary, flow, query, cwd, extra, out):
+def heap(binary, flow, query, cwd, out):
     """What the server holds after the flow: live allocations by call tree."""
     with tempfile.TemporaryDirectory(prefix='octocode-profile-') as home:
-        env = clean_env(home, mode=flow.get('storage', 'memory'), extra=extra)
+        env = clean_env(home)
         if not DARWIN:
             if not shutil.which('heaptrack'):
                 print('heap: heaptrack is not installed; apt install heaptrack')
@@ -255,11 +251,9 @@ def heap(binary, flow, query, cwd, extra, out):
 
 def parse_args(argv):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('tool', nargs='?')
-    parser.add_argument('query', nargs='?')
-    parser.add_argument('--flow')
-    parser.add_argument('--list', action='store_true')
-    parser.add_argument('--phase', default=None)
+    parser.add_argument('tool')
+    parser.add_argument('query')
+    parser.add_argument('--phase', default='first')
     parser.add_argument('--cwd', default=None)
     parser.add_argument('--bin', default=str(DEFAULT_BIN))
     parser.add_argument('--build', action='store_true')
@@ -272,25 +266,11 @@ def parse_args(argv):
     return parser.parse_args(argv)
 
 
-def resolve_flow(args):
-    if args.flow:
-        flow = dict(BY_ID[args.flow])
-        return flow, queries(flow['query']), Path(args.cwd) if args.cwd else corpus(CORPUS_REV)
-    if not args.tool or not args.query:
-        raise SystemExit('Name a tool and its query, or a --flow. See --help and --list.')
-    flow = {'id': args.tool, 'tool': args.tool, 'phase': args.phase or 'first', 'stub': False, 'server': None, 'build': None}
-    return flow, request_of(args.query), Path(args.cwd).resolve() if args.cwd else ROOT
-
-
 def main(argv=None):
     args = parse_args(sys.argv[1:] if argv is None else argv)
-    if args.list:
-        for item in FLOWS:
-            print(f"{item['id']:22} {item['phase']:8} {'gate' if item['gate'] else '    '} {item['why']}")
-        return 0
-    flow, query, cwd = resolve_flow(args)
-    if args.phase:
-        flow['phase'] = args.phase
+    # `server`: the answer comes from a language server, so incomplete coverage is no measurement.
+    flow = {'id': args.tool, 'tool': args.tool, 'phase': args.phase, 'server': args.tool == 'lspSearch'}
+    query, cwd = request_of(args.query), Path(args.cwd).resolve() if args.cwd else ROOT
     binary = Path(args.bin)
     if args.build:
         subprocess.run(['cargo', 'build', '--locked', '--profile', 'profiling', '-p', 'octocode-cli'], cwd=NATIVE, check=True)
@@ -303,31 +283,16 @@ def main(argv=None):
         raise SystemExit('samply is missing: cargo install --locked samply (pinned in dev-tools.json).')
     out = Path(args.out) if args.out else ROOT / '.octocode/octocode-dev/profile' / f'{time.strftime("%Y%m%d-%H%M%S")}-{flow["id"]}-{flow["phase"].replace(":", "")}'
     out.mkdir(parents=True, exist_ok=True)
-    work = tempfile.mkdtemp(prefix='octocode-profile-')
-    stub, extra = None, {}
-    try:
-        if flow.get('stub'):
-            stub, info = stub_server(work)
-            if stub is None:
-                raise SystemExit(info)
-            extra = stub_env(info)
-            query = with_stub(query, info)
-        if flow.get('live'):
-            extra = live_env(flow['live'])
-        counted = {**count(binary, flow, query, cwd, extra, args.reps), 'reps': args.reps}
-        (out / 'counters.json').write_text(json.dumps({'flow': flow['id'], 'phase': flow['phase'], **counted}, indent=1))
-        print(f"{flow['id']} {flow['phase']}: {fmt(counted['instr'])} (max {fmt(counted['max'])}), peak {fmt(counted['peak'])}B, {counted['wall']:.2f} s, errors {counted['errors']}")
-        if not args.no_sample:
-            window, calls = record(binary, flow, query, cwd, extra, args.secs, out)
-            found = tables(out / 'profile.json.gz', window, binary.name)
-            print(write_report(out, f"{flow['id']}, phase {flow['phase']}", counted, found, args.top, calls, binary))
-        if args.heap:
-            heap(binary, flow, query, cwd, extra, out)
-        print(f'Saved: {out}')
-    finally:
-        if stub:
-            stub.terminate()
-        shutil.rmtree(work, ignore_errors=True)
+    counted = {**count(binary, flow, query, cwd, args.reps), 'reps': args.reps}
+    (out / 'counters.json').write_text(json.dumps({'flow': flow['id'], 'phase': flow['phase'], **counted}, indent=1))
+    print(f"{flow['id']} {flow['phase']}: {fmt(counted['instr'])} (max {fmt(counted['max'])}), peak {fmt(counted['peak'])}B, {counted['wall']:.2f} s, errors {counted['errors']}")
+    if not args.no_sample:
+        window, calls = record(binary, flow, query, cwd, args.secs, out)
+        found = tables(out / 'profile.json.gz', window, binary.name)
+        print(write_report(out, f"{flow['id']}, phase {flow['phase']}", counted, found, args.top, calls, binary))
+    if args.heap:
+        heap(binary, flow, query, cwd, out)
+    print(f'Saved: {out}')
     return 0
 
 

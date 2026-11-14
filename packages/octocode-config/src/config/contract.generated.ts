@@ -37,6 +37,7 @@ export interface RequiredLspConfig {
 
 export interface RequiredOutputConfig {
   redactEmails: boolean;
+  redactUuid: boolean;
 }
 
 export interface RequiredSecurityConfig {
@@ -352,14 +353,29 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "defaultValue": false
   },
   {
+    "path": "output.redactUuid",
+    "section": "output",
+    "key": "redactUuid",
+    "type": "boolean",
+    "resolved": true,
+    "credential": false,
+    "description": "Mask UUIDs (8-4-4-4-12 hexadecimal) in every tool result. Off by default: a UUID is an identifier, not a secret.",
+    "env": {
+      "name": "OCTOCODE_REDACT_UUID",
+      "dotenv": "home",
+      "workspaceNarrowsTo": "true"
+    },
+    "defaultValue": false
+  },
+  {
     "path": "security.credentialFiles",
     "section": "security",
     "key": "credentialFiles",
     "type": "enum",
     "resolved": true,
     "credential": false,
-    "description": "Whether local read and search tools may read files named like credentials (.env, credentials.json, *.pem): withhold them, or allow them in the workspace and allowed paths so results match ripgrep. Secret values stay redacted. Sensitive directories such as .ssh and .git, the Octocode home, and files and dot directories directly in your home stay withheld. Graph snapshots, clasify and classification never read these files, and allow keeps saved local results in memory, so a cursor ends with its process.",
-    "notes": "Security-sensitive: redaction recognizes secret formats, so a secret in no known format can appear in results. Home-only, so a repository cannot turn it on.",
+    "description": "Whether local read and search tools may read the known credential files (.env and .env.*, credentials.json, .netrc, .npmrc, id_rsa*, *.pem and the like): withhold them, or allow them in the workspace and allowed paths so results match ripgrep. Known secret formats stay redacted. Credential directories such as .ssh, .aws and .git, the Octocode home, and known credential files directly in your home or in its dot directories (~/.npmrc, ~/.codex/auth.json) stay withheld; every other file, such as ~/.zshrc or a shell history, follows the allowed roots like any file. Graph snapshots, clasify and classification never read these files, and allow keeps saved local results in memory, so a cursor ends with its process.",
+    "notes": "Security-sensitive: redaction recognizes known secret formats only, so a secret in no known format can appear in results. Home-only, so a repository cannot turn it on.",
     "env": {
       "name": "OCTOCODE_CREDENTIAL_FILES",
       "dotenv": "home",
@@ -445,8 +461,8 @@ export const RUNTIME_SURFACES = ["mcp","cli"] as const;
 export type RuntimeSurface = (typeof RUNTIME_SURFACES)[number];
 export const ENV_TOKEN_VARS = ["GH_TOKEN","GITHUB_TOKEN"] as const;
 export const ENV_CREDENTIAL_VARS = ["ALL_PROXY","EXA_API_KEY","GH_TOKEN","GITHUB_TOKEN","HTTPS_PROXY","HTTP_PROXY","OCTOCODE_CLASSIFICATION_API","SCRAPING_ANT","SERPER_API_KEY","TAVILY_API_KEY"] as const;
-export const PROTECTED_KEY_NAMES = ["PATH","HOME","SHELL","USER","LOGNAME","PWD","TMPDIR","NODE_OPTIONS","PYTHON","TAVILY_BASE_URL","EXA_BASE_URL","SERPER_BASE_URL","HTTPS_PROXY","HTTP_PROXY","ALL_PROXY","NO_PROXY","SSL_CERT_FILE","SSL_CERT_DIR","GIT_SSL_CAINFO","GIT_SSL_CAPATH","CURL_CA_BUNDLE","OCTOCODE_GITHUB_CLIENT_ID","OCTOCODE_HOME","OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_ENABLE_LOCAL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_GRAPH_HOME","OCTOCODE_ENABLE_CLONE","OCTOCODE_SECURITY_CHECKS","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_AUTO_INSTALL","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_LSP_TRUST_FETCHED_CODE","OCTOCODE_LSP_ALLOW_BUILD_SCRIPTS","OCTOCODE_REDACT_EMAILS","OCTOCODE_CREDENTIAL_FILES","OCTOCODE_STORAGE_MODE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
-export const HOME_TRUSTED_ENV_KEYS = ["TAVILY_BASE_URL","EXA_BASE_URL","SERPER_BASE_URL","OCTOCODE_GITHUB_CLIENT_ID","OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_ENABLE_LOCAL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_GRAPH_HOME","OCTOCODE_ENABLE_CLONE","OCTOCODE_SECURITY_CHECKS","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_AUTO_INSTALL","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_LSP_TRUST_FETCHED_CODE","OCTOCODE_LSP_ALLOW_BUILD_SCRIPTS","OCTOCODE_REDACT_EMAILS","OCTOCODE_CREDENTIAL_FILES","OCTOCODE_STORAGE_MODE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
+export const PROTECTED_KEY_NAMES = ["PATH","HOME","SHELL","USER","LOGNAME","PWD","TMPDIR","NODE_OPTIONS","PYTHON","TAVILY_BASE_URL","EXA_BASE_URL","SERPER_BASE_URL","HTTPS_PROXY","HTTP_PROXY","ALL_PROXY","NO_PROXY","SSL_CERT_FILE","SSL_CERT_DIR","GIT_SSL_CAINFO","GIT_SSL_CAPATH","CURL_CA_BUNDLE","OCTOCODE_GITHUB_CLIENT_ID","OCTOCODE_HOME","OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_ENABLE_LOCAL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_GRAPH_HOME","OCTOCODE_ENABLE_CLONE","OCTOCODE_SECURITY_CHECKS","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_AUTO_INSTALL","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_LSP_TRUST_FETCHED_CODE","OCTOCODE_LSP_ALLOW_BUILD_SCRIPTS","OCTOCODE_REDACT_EMAILS","OCTOCODE_REDACT_UUID","OCTOCODE_CREDENTIAL_FILES","OCTOCODE_STORAGE_MODE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
+export const HOME_TRUSTED_ENV_KEYS = ["TAVILY_BASE_URL","EXA_BASE_URL","SERPER_BASE_URL","OCTOCODE_GITHUB_CLIENT_ID","OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_ENABLE_LOCAL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_GRAPH_HOME","OCTOCODE_ENABLE_CLONE","OCTOCODE_SECURITY_CHECKS","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_AUTO_INSTALL","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_LSP_TRUST_FETCHED_CODE","OCTOCODE_LSP_ALLOW_BUILD_SCRIPTS","OCTOCODE_REDACT_EMAILS","OCTOCODE_REDACT_UUID","OCTOCODE_CREDENTIAL_FILES","OCTOCODE_STORAGE_MODE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
 /** Home-trusted switches a workspace may set only to this narrowing value. */
-export const WORKSPACE_NARROW_ONLY_ENV: Readonly<Record<string, string>> = {"OCTOCODE_ENABLE_LOCAL":"false","OCTOCODE_ENABLE_CLONE":"false","OCTOCODE_SECURITY_CHECKS":"false","OCTOCODE_LSP_TRUST_FETCHED_CODE":"false","OCTOCODE_LSP_ALLOW_BUILD_SCRIPTS":"false","OCTOCODE_REDACT_EMAILS":"true","OCTOCODE_CREDENTIAL_FILES":"withhold","OCTOCODE_STORAGE_MODE":"memory"};
-export const DEFAULT_CONFIG_VALUE: ResolvedConfigData = { "github": { "apiUrl": "https://api.github.com" }, "local": { "enabled": true, "beta": false, "allowedPaths": [], "workspaceRoot": undefined, "graphHome": undefined }, "tools": { "enabled": null, "disabled": null, "enableClone": false, "enableSecurityCheck": false }, "network": { "allowPrivateRegistry": false }, "lsp": { "autoInstall": "prompt", "trustProjectConfig": false, "trustFetchedCode": false, "allowBuildScripts": false, "prewarm": "targeted" }, "output": { "redactEmails": false }, "security": { "credentialFiles": "withhold" }, "storage": { "mode": "persistent" }, "classification": { "apiHost": undefined, "model": undefined } };
+export const WORKSPACE_NARROW_ONLY_ENV: Readonly<Record<string, string>> = {"OCTOCODE_ENABLE_LOCAL":"false","OCTOCODE_ENABLE_CLONE":"false","OCTOCODE_SECURITY_CHECKS":"false","OCTOCODE_LSP_TRUST_FETCHED_CODE":"false","OCTOCODE_LSP_ALLOW_BUILD_SCRIPTS":"false","OCTOCODE_REDACT_EMAILS":"true","OCTOCODE_REDACT_UUID":"true","OCTOCODE_CREDENTIAL_FILES":"withhold","OCTOCODE_STORAGE_MODE":"memory"};
+export const DEFAULT_CONFIG_VALUE: ResolvedConfigData = { "github": { "apiUrl": "https://api.github.com" }, "local": { "enabled": true, "beta": false, "allowedPaths": [], "workspaceRoot": undefined, "graphHome": undefined }, "tools": { "enabled": null, "disabled": null, "enableClone": false, "enableSecurityCheck": false }, "network": { "allowPrivateRegistry": false }, "lsp": { "autoInstall": "prompt", "trustProjectConfig": false, "trustFetchedCode": false, "allowBuildScripts": false, "prewarm": "targeted" }, "output": { "redactEmails": false, "redactUuid": false }, "security": { "credentialFiles": "withhold" }, "storage": { "mode": "persistent" }, "classification": { "apiHost": undefined, "model": undefined } };

@@ -1,21 +1,11 @@
 //! Each shown value settled against what its source's read said: its key block, its
 //! whole-source scan, or the lines around it.
 
-use super::guard::{OVERSIZED_PLACEHOLDER, RowShape, UNPLACED_PLACEHOLDER, UNVERIFIED_PLACEHOLDER};
+use super::guard::{RowShape, UNPLACED_PLACEHOLDER, UNVERIFIED_PLACEHOLDER};
 use super::lines::VerificationLines;
 use super::*;
 use crate::security::cut::{Cut, REDACTED, exposes, placed, rendered};
 use octocode_engine::security::Edits;
-use std::collections::BTreeMap;
-use std::ops::Range;
-
-/// What judging a whole source says of its rows.
-pub(super) enum WholeScan {
-    /// It could not be held whole: nothing judges its rows, and none is shown.
-    Unheld,
-    /// Judged as a read of it shows it.
-    Judged(Verdict),
-}
 
 /// A whole source's judgment ([`crate::security::JudgedText`]): `None` when
 /// the pass replaced nothing of it, so every row shows its own bytes and the
@@ -27,10 +17,7 @@ pub(in crate::tools::local_search) type Verdict =
 pub(super) struct Judged<'a> {
     pub(super) read: &'a VerificationLines,
     /// The whole source's scan, when one decides.
-    pub(super) whole: Option<WholeScan>,
-    /// The lines of `read` a walk of the source masked ([`super::exposed`]),
-    /// each with what it replaced of its source line.
-    pub(super) masked: &'a BTreeMap<usize, Edits>,
+    pub(super) whole: Option<Verdict>,
 }
 
 /// One judged window: what its scan replaced, by byte position in the window,
@@ -38,8 +25,8 @@ pub(super) struct Judged<'a> {
 type WindowJudgment = (std::sync::Arc<Edits>, std::sync::Arc<str>);
 
 /// The row windows a stored scan's pages judged, by source, the digest its
-/// bytes were proved to hash to, and the digest of the exact text judged (a
-/// window's lines can be the source's or a walk's masked ones). The scan owns it (as it owns
+/// bytes were proved to hash to, and the digest of the exact text judged. The
+/// scan owns it (as it owns
 /// its name prices), so a later page reuses what an earlier one judged of
 /// the same bytes instead of scanning the window again: a walk of spans on
 /// one long line scans that line once, not once per page.
@@ -229,14 +216,18 @@ pub(super) fn settle_rows(
     source: &std::path::Path,
     security: &ContentSecurity,
     (placed, shape, learned): (&[Option<RowLines>], RowShape, Option<Learned<'_>>),
+    hidden: &HiddenRows,
 ) -> Verification {
-    let Judged {
-        read,
-        whole,
-        masked,
-    } = judged;
+    let Judged { read, whole } = judged;
     if let Some(whole) = whole {
-        return settle_judged(shown, placed, shape, whole, read.lines_read, security);
+        return settle_judged(
+            shown,
+            placed,
+            shape,
+            whole,
+            (read.lines_read, hidden),
+            security,
+        );
     }
     let mut verified = Verification::Verified;
     // Rows of one line, or of nearby lines, share a window: each distinct
@@ -311,9 +302,15 @@ pub(super) fn settle_rows(
                 .iter()
                 .any(|&(s, e)| s as usize <= n && n <= e as usize)
         };
+        // A neighbor too long to keep holds no part of this row: it is the
+        // search's to judge, and reads here as an empty line.
         let Some(window) = (lo..=hi)
             .map(|n| {
-                let text = read.retained.get(&n).map(String::as_str);
+                let text = read
+                    .retained
+                    .get(&n)
+                    .map(String::as_str)
+                    .or_else(|| read.long_lines.contains(&n).then_some(""));
                 if in_block(n) {
                     text.map(|_| key_line)
                 } else {
@@ -322,7 +319,7 @@ pub(super) fn settle_rows(
             })
             .collect::<Option<Vec<_>>>()
         else {
-            matched.value = OVERSIZED_PLACEHOLDER.to_owned();
+            matched.value = UNVERIFIED_PLACEHOLDER.to_owned();
             verified = Verification::Unverified;
             continue;
         };
@@ -360,9 +357,8 @@ pub(super) fn settle_rows(
         let keyed = (first..first + span).any(in_block);
         show_in_window(
             matched,
-            (&window, first, first - lo, span, keyed),
+            (&window, first - lo, span, keyed),
             (redacted, clean),
-            masked,
             span_start,
         );
     }
@@ -371,76 +367,35 @@ pub(super) fn settle_rows(
 
 /// Settle `matched`, a row starting on line `at` of `window` spanning `span`
 /// lines (`keyed`: some of them a private key's, masked in `window`), against
-/// the window's scan (`redacted`, leaving `clean`) and the walk's `masked`
-/// lines: what it shows is rendered from the runs that decided it.
-/// `span_start`: the row is a span of its line from that byte ([`span_start`]).
+/// the window's scan (`redacted`, leaving `clean`): what it shows is rendered
+/// from the runs that decided it. `span_start`: the row is a span of its line
+/// from that byte ([`span_start`]).
 fn show_in_window(
     matched: &mut octocode_engine::types::TextSearchMatch,
-    (window, first, at, span, keyed): (&[&str], usize, usize, usize, bool),
+    (window, at, span, keyed): (&[&str], usize, usize, bool),
     (redacted, clean): (&Edits, &str),
-    masked: &BTreeMap<usize, Edits>,
     span_start: Option<u32>,
 ) {
-    let match_only = span_start.is_some();
-    let line = matched.line as usize;
-    let walked = (first..first + span).any(|at| masked.contains_key(&at));
-    if redacted.is_empty() && !walked && !keyed {
+    if redacted.is_empty() && !keyed {
         return;
     }
     let cut = row_cut(span_start, &matched.value, span);
     let joined = window.join("\n");
     // The row's own lines, in the window's coordinates.
     let lines = placed(window, at, &Cut::Lines(span));
-    if !match_only {
-        // A content row shows its lines as the window's scan left them (a
-        // walk-masked line already holds its masked text).
-        if exposes(redacted, &lines) || walked || keyed {
+    let Cut::Span { text, .. } = cut else {
+        // A content row shows its lines as the window's scan left them.
+        if exposes(redacted, &lines) || keyed {
             let text = joined.get(lines.clone()).unwrap_or_default();
             matched.value = rendered(redacted.runs(clean), text, &lines, &lines, |r| {
                 joined.get(r)
             });
         }
         return;
-    }
-    let Cut::Span { offset, text } = cut else {
-        return;
     };
-    if !walked {
-        let own = placed(window, at, &cut);
-        if exposes(redacted, &own) {
-            matched.value = rendered(redacted.runs(clean), text, &own, &lines, |r| joined.get(r));
-        }
-        return;
-    }
-    // A walk-masked line holds its masked text, not the source's: a span on
-    // one is judged by what the walk replaced of its own line, each shown
-    // byte checked against the masked line at its masked place. Across
-    // lines, or where the window's scan redacted those lines too, it goes.
-    let own = offset..offset + text.len();
-    let replaced = masked.get(&line);
-    let value = match replaced {
-        Some(replaced) if span == 1 && !exposes(redacted, &lines) => {
-            let masked_line = window[at];
-            let runs = replaced.runs(masked_line).collect::<Vec<_>>();
-            if !runs
-                .iter()
-                .any(|(range, _)| range.start < own.end && own.start < range.end)
-            {
-                None
-            } else {
-                Some(rendered(
-                    runs.iter().map(|(range, _)| (range.clone(), REDACTED)),
-                    text,
-                    &own,
-                    &(0..0),
-                    |r| masked_line.get(masked_place(&runs, r)),
-                ))
-            }
-        }
-        _ => Some(REDACTED.to_owned()),
-    };
-    if let Some(value) = value {
-        matched.value = value;
+    let own = placed(window, at, &cut);
+    if exposes(redacted, &own) {
+        matched.value = rendered(redacted.runs(clean), text, &own, &lines, |r| joined.get(r));
     }
 }
 
@@ -477,17 +432,6 @@ fn row_window(
     }
 }
 
-/// Where source bytes `range` of a line, outside every run of `runs` (what a
-/// walk replaced, with its placeholder), sit in the masked line.
-fn masked_place(runs: &[(Range<usize>, &str)], range: Range<usize>) -> Range<usize> {
-    let before = runs.iter().take_while(|(run, _)| run.end <= range.start);
-    let (taken, left) = before.fold((0, 0), |(taken, left), (run, placeholder)| {
-        (taken + run.len(), left + placeholder.len())
-    });
-    let start = range.start - taken + left;
-    start..start + range.len()
-}
-
 /// What a row shows of its lines: its own span from byte `span_start` of
 /// its line ([`span_start`]), else its lines whole.
 fn row_cut(span_start: Option<u32>, value: &str, span: usize) -> Cut<'_> {
@@ -513,7 +457,7 @@ fn fail_closed(redacted: Edits, len: usize, clean: &str) -> Edits {
 
 /// The whole source judged as a read of it shows it
 /// ([`crate::security::JudgedText`]): the one redaction decision each of its
-/// rows is cut from. [`WholeScan::Unheld`] when it could not be held whole.
+/// rows is cut from; `None` when it could not be held whole.
 /// `learned` is the stored scan's judgments and the digest this read proved
 /// the source's bytes hash to: the judgment is kept there, so a later page of
 /// the walk cuts its rows from it ([`JudgedWindows::whole_verdict`]) and a
@@ -523,15 +467,15 @@ pub(super) fn whole_source_scan(
     source: &std::path::Path,
     security: &ContentSecurity,
     learned: Option<Learned<'_>>,
-) -> WholeScan {
+) -> Option<Verdict> {
     if !read.whole_retained {
-        return WholeScan::Unheld;
+        return None;
     }
     if let Some((known, digest)) = learned
         && let Some(verdict) = known.whole_verdict(source, digest)
     {
         security.note_judged_whole(source);
-        return WholeScan::Judged(verdict);
+        return Some(verdict);
     }
     let mut text = String::with_capacity(read.retained_bytes.saturating_add(read.retained.len()));
     for (index, line) in read.retained.values().enumerate() {
@@ -549,20 +493,22 @@ pub(super) fn whole_source_scan(
     if let Some((known, digest)) = learned {
         known.learn_whole((source.to_path_buf(), digest), verdict.clone());
     }
-    WholeScan::Judged(verdict)
+    Some(verdict)
 }
 
 /// Settle `shown`, the rows of a source judged whole (`whole`), each placed
 /// by `placed`: every row is the cut of its place in that one judgment, on
 /// the page that judged the source and on every later page that reuses it.
 /// `lines` is how many lines the source has: a row past them is not its
-/// bytes.
+/// bytes. Each row whose value shows text the pass wrote, whether settling
+/// cut it or the search already had (a window or span of the text a read
+/// serves), is noted in `hidden` by its line and column.
 pub(super) fn settle_judged(
     shown: &mut [octocode_engine::types::TextSearchMatch],
     placed: &[Option<RowLines>],
     shape: RowShape,
-    whole: &WholeScan,
-    lines: usize,
+    whole: &Verdict,
+    (lines, hidden): (usize, &HiddenRows),
     security: &ContentSecurity,
 ) -> Verification {
     let mut verified = Verification::Verified;
@@ -584,23 +530,48 @@ pub(super) fn settle_judged(
             verified = Verification::Unverified;
             continue;
         }
-        match whole {
-            WholeScan::Unheld => {
-                matched.value = OVERSIZED_PLACEHOLDER.to_owned();
-                verified = Verification::Unverified;
+        // A pass that replaced nothing leaves every row its own bytes.
+        if let Some(judged) = whole {
+            let raw = std::mem::take(&mut matched.value);
+            let cut = row_cut(span_start(shape, matched), &raw, span);
+            let shown = cut_of_whole_source(&cut, first, judged);
+            if shown.is_some() || served_span_hides(&cut, first, judged) {
+                hidden.note(matched);
             }
-            // The pass replaced nothing: the row shows its own bytes.
-            WholeScan::Judged(None) => {}
-            WholeScan::Judged(Some(judged)) => {
-                let raw = std::mem::take(&mut matched.value);
-                let cut = row_cut(span_start(shape, matched), &raw, span);
-                let shown = cut_of_whole_source(&cut, first, judged);
-                matched.value = shown.unwrap_or(raw);
-                security.show(judged.path(), &matched.value);
-            }
+            matched.value = shown.unwrap_or(raw);
+            security.show(judged.path(), &matched.value);
         }
     }
     verified
+}
+
+/// Whether `cut`, a span of line `first` that a row keeps as the search cut
+/// it from the text a read of that line serves, holds text the pass wrote
+/// there: a value the scan itself redacted. The source's own bytes at their
+/// place hold none.
+fn served_span_hides(cut: &Cut<'_>, first: usize, judged: &crate::security::JudgedText) -> bool {
+    let &Cut::Span { offset, text } = cut else {
+        return false;
+    };
+    let Some(line) = judged
+        .line_span(first, 1)
+        .filter(|line| judged.exposes(line))
+    else {
+        return false;
+    };
+    let own = line.start + offset..line.start + offset + text.len();
+    if judged.raw().get(own) == Some(text) {
+        return false;
+    }
+    let Some(served) = judged.lines(first, 1) else {
+        return false;
+    };
+    let at = if served.get(offset..offset + text.len()) == Some(text) {
+        Some(offset)
+    } else {
+        served.find(text)
+    };
+    at.is_some_and(|at| judged.writes_in_line(first, &(at..at + text.len())))
 }
 
 /// What a row that showed `cut` of the lines from `first` shows of the whole
@@ -657,6 +628,8 @@ fn cut_of_whole_source(
 #[cfg(test)]
 mod judged_tests {
     use super::*;
+    use std::collections::BTreeMap;
+    use std::ops::Range;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -705,7 +678,6 @@ mod judged_tests {
             retained_bytes: line.len(),
             lines_read: 1,
             unclassified: false,
-            source_wide: false,
             whole_retained: true,
             long_lines: std::collections::BTreeSet::new(),
         }
@@ -730,7 +702,6 @@ mod judged_tests {
         let judged = Judged {
             read: &read,
             whole: None,
-            masked: &BTreeMap::new(),
         };
         let placed = placed_spans(&rows);
         settle_rows(
@@ -740,13 +711,14 @@ mod judged_tests {
             std::path::Path::new("/src/a.txt"),
             &ContentSecurity::new(),
             (&placed, RowShape::Span, Some((known, [7; 32]))),
+            &HiddenRows::default(),
         );
         rows[0].value.clone()
     }
 
-    /// A window's verdict is reused only for the exact text it judged: the same
-    /// lines of the same source bytes, read once raw and once as a walk masked
-    /// them, are judged each by their own scan.
+    /// A window's verdict is reused only for the exact text it judged: two
+    /// texts of the same lines and source bytes are judged each by their own
+    /// scan.
     #[test]
     fn a_verdict_is_never_replayed_onto_other_text_of_its_window() {
         let token = "ghp_Z9Q8W7E6R5T4Y3U2I1O0P9L8K7J6H5G4F3D2";
@@ -791,7 +763,6 @@ mod judged_tests {
         let judged = Judged {
             read: &read,
             whole: None,
-            masked: &BTreeMap::new(),
         };
         let placed = placed_spans(&rows);
         settle_rows(
@@ -801,26 +772,15 @@ mod judged_tests {
             std::path::Path::new("/src/key.txt"),
             &ContentSecurity::new(),
             (&placed, RowShape::Span, None),
+            &HiddenRows::default(),
         );
         assert!(!rows[0].value.contains("Z9"), "{}", rows[0].value);
     }
 
     const TOKEN: &str = "ghp_Z9Q8W7E6R5T4Y3U2I1O0P9L8K7J6H5G4F3D2";
-    type MaskedLine = Edits;
 
-    /// A masked line whose walk hid `hid` and left `placeholder` there.
-    fn masked_of(hid: Range<usize>, placeholder: &str) -> MaskedLine {
-        Edits::of_pass([(hid, placeholder.len())])
-    }
-
-    /// `value`, a matchOnly row at `offset` of line 1 of `line`, as settled
-    /// with the walk's masked lines `masked`.
-    fn settle_one(
-        line: &str,
-        value: &str,
-        offset: usize,
-        masked: &BTreeMap<usize, MaskedLine>,
-    ) -> String {
+    /// `value`, a matchOnly row at `offset` of line 1 of `line`, as settled.
+    fn settle_one(line: &str, value: &str, offset: usize) -> String {
         let mut rows = [octocode_engine::types::TextSearchMatch {
             deferred: None,
             line: 1,
@@ -838,7 +798,6 @@ mod judged_tests {
         let judged = Judged {
             read: &read,
             whole: None,
-            masked,
         };
         let placed = placed_spans(&rows);
         settle_rows(
@@ -848,6 +807,7 @@ mod judged_tests {
             std::path::Path::new("/src/a.txt"),
             &ContentSecurity::new(),
             (&placed, RowShape::Span, None),
+            &HiddenRows::default(),
         );
         rows[0].value.clone()
     }
@@ -858,21 +818,22 @@ mod judged_tests {
     fn a_row_of_the_wrong_bytes_goes_whole_even_at_the_right_length() {
         let line = format!("ab {TOKEN}");
         let value = "x".repeat(line.len());
-        assert_eq!(settle_one(&line, &value, 0, &BTreeMap::new()), REDACTED);
+        assert_eq!(settle_one(&line, &value, 0), REDACTED);
     }
 
-    /// On a line a walk masked, a span beside the secret is checked against
-    /// the source bytes the masked line still holds, at their masked place.
+    /// A span beside a secret on its line is shown exactly; a span of the
+    /// secret goes.
     #[test]
-    fn a_span_beside_a_walk_masked_secret_is_shown_exactly() {
-        let source = format!("aa {TOKEN} bb cc");
-        let placeholder = "[REDACTED-GITHUBTOKENS]";
-        let masked_line = format!("aa {placeholder} bb cc");
-        let masked = BTreeMap::from([(1, masked_of(3..3 + TOKEN.len(), placeholder))]);
-        let at = source.find("bb").expect("bb");
-        assert_eq!(settle_one(&masked_line, "bb", at, &masked), "bb");
-        let at = source.find("Z9").expect("Z9");
-        assert_eq!(settle_one(&masked_line, "Z9", at, &masked), REDACTED);
+    fn a_span_beside_a_secret_is_shown_exactly() {
+        let line = format!("aa {TOKEN} bb cc");
+        let at = line.find("bb").expect("bb");
+        assert_eq!(settle_one(&line, "bb", at), "bb");
+        let at = line.find("Z9").expect("Z9");
+        let shown = settle_one(&line, "Z9", at);
+        assert!(
+            shown.starts_with("[REDACTED") && !shown.contains("Z9"),
+            "{shown}"
+        );
     }
 
     /// A store that refuses the bytes keeps no verdict: it is judged again.

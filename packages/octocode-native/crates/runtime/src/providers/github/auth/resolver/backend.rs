@@ -15,10 +15,13 @@ pub(super) trait AuthBackend {
         client_id: &str,
         source: CredentialSource,
     ) -> Result<Option<StoredCredentials>, ProviderError>;
+    /// gh's token for `host`; `refused` names a token GitHub rejected,
+    /// which is never answered from memory.
     async fn gh(
         &self,
         host: &str,
         budget: &RequestBudget,
+        refused: &(dyn Fn(&str) -> bool + Sync),
     ) -> Result<Option<secrecy::SecretString>, ProviderError>;
 }
 pub(super) struct SystemBackend<'a> {
@@ -58,7 +61,8 @@ impl AuthBackend for SystemBackend<'_> {
         &self,
         host: &str,
         budget: &RequestBudget,
+        refused: &(dyn Fn(&str) -> bool + Sync),
     ) -> Result<Option<secrecy::SecretString>, ProviderError> {
-        super::super::discovery::gh_token(host, self.config.effective_env(), budget).await
+        super::super::discovery::gh_token(host, self.config.effective_env(), budget, refused).await
     }
 }

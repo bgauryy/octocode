@@ -894,12 +894,9 @@ fn pinned_calls(data: &mut Value, package: &Package<'_>, pins: &[Pin]) {
     }
 }
 
-/// A row whose empty answer proves nothing: no `status:"empty"`, and each source
-/// says it did not cover this target, never `noneKnown`.
+/// A row whose empty answer proves nothing: each source says it did not cover
+/// this target, never `noneKnown`.
 fn not_evaluated(data: &mut Value, why: &str) {
-    if let Some(row) = data.as_object_mut() {
-        row.remove("status");
-    }
     for source in data["sources"].as_array_mut().into_iter().flatten() {
         source["status"] = json!("notCovered");
         source["why"] = json!(why);

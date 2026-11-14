@@ -37,8 +37,9 @@ test('Rust test selections never clean shared build artifacts', () => {
     require: name => {
       if (name === 'node:path') return path;
       if (name === 'node:child_process') return {
-        spawnSync: (command, args) => { commands.push([command, [...args]]); return { status: 0 }; },
+        spawnSync: (command, args) => { commands.push([command, [...args]]); return { status: 0, stdout: '' }; },
       };
+      if (name === './target-hygiene.cjs') return { parseCargoLine: line => line, finishCargoRun: () => [] };
       throw new Error(`unexpected dependency ${name}`);
     },
     console: { log() {}, error() {} },
@@ -46,4 +47,6 @@ test('Rust test selections never clean shared build artifacts', () => {
   });
   assert.equal(commands.length, module.exports.SELECTIONS.length);
   assert.ok(commands.every(([command, args]) => command === 'cargo' && args[0] === 'nextest'));
+  // Cargo's JSON messages name the units each selection used: target-hygiene.cjs keeps them through prune:rust.
+  for (const [, args] of commands) assert.equal(args[args.indexOf('--cargo-message-format') + 1], 'json-render-diagnostics');
 });

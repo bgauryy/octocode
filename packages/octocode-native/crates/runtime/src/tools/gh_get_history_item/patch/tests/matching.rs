@@ -16,8 +16,8 @@ fn match_patch(
     )
 }
 
-/// `matchString` narrows a patch to the matching lines plus context under
-/// recomputed hunk headers; a path-only match keeps the whole patch.
+/// `matchString` narrows a patch to the matching lines plus context, numbered,
+/// under the diff's own hunk header; a path-only match keeps the whole patch.
 #[test]
 fn match_string_patch_view_keeps_only_match_patch() {
     let body = (1..=20)
@@ -31,16 +31,15 @@ fn match_string_patch_view_keeps_only_match_patch() {
         .text;
     assert_eq!(
         view,
-        "@@ -18,4 +18,4 @@ fn main\n line 18\r\n line 19\r\n line 20\r\n-old Needle\r\n+new needle\r\n line 1\r\n line 2\r\n line 3\r\n"
-            .replace("@@ -18,4 +18,4 @@", "@@ -18,7 +18,7 @@")
+        "@@ -1,22 +1,22 @@ fn main\r\n18\t line 18\r\n19\t line 19\r\n20\t line 20\r\n21\t-old Needle\r\n21\t+new needle\r\n22\t line 1\r\n23\t line 2\r\n24\t line 3\r\n"
     );
     assert!(match_patch(&patch, "absent", 3, None).is_none());
-    // contextLines 0: only the hit lines, under one header per run.
+    // contextLines 0: only the hit lines, under their hunk's header.
     assert_eq!(
         match_patch(&patch, "needle", 0, None)
             .map(|found| found.text)
             .as_deref(),
-        Some("@@ -21,1 +21,1 @@ fn main\n-old Needle\r\n+new needle\r\n")
+        Some("@@ -1,22 +1,22 @@ fn main\r\n21\t-old Needle\r\n21\t+new needle\r\n")
     );
     // A generated one-line diff keeps only the text around each hit.
     let long = format!(
@@ -54,7 +53,7 @@ fn match_string_patch_view_keeps_only_match_patch() {
     assert_eq!(
         clipped,
         format!(
-            "@@ -1,0 +1,1 @@\n+{}PointerEvent{}\r\n",
+            "@@ -1 +1 @@\n1\t+{}PointerEvent{}\r\n",
             "a".repeat(1_000),
             "b".repeat(1_000)
         )
@@ -63,38 +62,29 @@ fn match_string_patch_view_keeps_only_match_patch() {
         json!({"matchString":["NEEDLE"],"caseMode":"insensitive","contextLines":{"before":3,"after":3}}),
     );
     let page = shape_patch_page(vec![file("src/a.rs", &patch)], &query);
-    assert_eq!(page.rows[0]["patch"], number_patch(&view));
+    assert_eq!(page.rows[0]["patch"], view);
     assert_eq!(page.rows[0]["fullPatchChars"], patch.chars().count());
 }
 
-/// A run with no line on one side starts that side at its own line before
-/// the run, as a unified diff does: an addition after old line 10, a
-/// deletion after new line 11, a whole-file delete at new line 0, never
-/// the other side's number.
+/// A run of one side's lines numbers each on its own side, as the whole
+/// numbered patch does: an addition at its new line, a deletion at its old
+/// line, in a whole-file delete or add too; the header stays the hunk's.
 #[test]
-fn a_one_sided_run_starts_from_its_own_side() {
+fn a_one_sided_run_numbers_each_line_on_its_own_side() {
     let patch = "@@ -8,6 +8,7 @@ fn f\n a\n b\n c\n+x\n+needle add\n d\n-needle gone\n e\n";
-    let header = |needle: &str| {
-        match_patch(patch, needle, 0, None)
-            .expect("hit")
-            .text
-            .lines()
-            .next()
-            .unwrap_or_default()
-            .to_owned()
-    };
-    // Old lines 8-10 (a, b, c) precede the additions at new 11-12.
-    assert_eq!(header("needle add"), "@@ -10,0 +12,1 @@ fn f");
-    // New line 13 (d) precedes the deletion of old line 12.
-    assert_eq!(header("needle gone"), "@@ -12,1 +13,0 @@ fn f");
-    // A deletion with no new line in its hunk: the header's own start.
+    let view = |patch: &str, needle: &str| match_patch(patch, needle, 0, None).expect("hit").text;
+    assert_eq!(
+        view(patch, "needle add"),
+        "@@ -8,6 +8,7 @@ fn f\n12\t+needle add\n"
+    );
+    assert_eq!(
+        view(patch, "needle gone"),
+        "@@ -8,6 +8,7 @@ fn f\n12\t-needle gone\n"
+    );
     let deleted = "@@ -1,3 +0,0 @@\n-one\n-needle\n-three\n";
-    let whole = match_patch(deleted, "needle", 0, None).expect("hit").text;
-    assert!(whole.starts_with("@@ -2,1 +0,0 @@"), "{whole}");
-    // A whole-file addition: old side 0.
+    assert_eq!(view(deleted, "needle"), "@@ -1,3 +0,0 @@\n2\t-needle\n");
     let added = "@@ -0,0 +1,2 @@\n+one\n+needle\n";
-    let new_file = match_patch(added, "needle", 0, None).expect("hit").text;
-    assert!(new_file.starts_with("@@ -0,0 +2,1 @@"), "{new_file}");
+    assert_eq!(view(added, "needle"), "@@ -0,0 +1,2 @@\n2\t+needle\n");
 }
 
 /// Every patch view numbers its new side: kept and added lines carry
@@ -149,12 +139,12 @@ fn match_context_past_the_hunk_widens_from_the_head_text() {
     assert!(
         found
             .text
-            .starts_with("@@ -44,20 +44,20 @@ fn f\n line 44\n"),
+            .starts_with("@@ -50,7 +50,7 @@ fn f\n44\t line 44\n"),
         "{}",
         found.text
     );
-    assert!(found.text.ends_with(" line 63\n"), "{}", found.text);
-    assert!(found.text.contains("-old 53\n+new needle 53\n"));
+    assert!(found.text.ends_with("63\t line 63\n"), "{}", found.text);
+    assert!(found.text.contains("53\t-old 53\n53\t+new needle 53\n"));
     let narrow = match_patch(&patch, "needle", 3, Some(&head)).expect("hit");
     assert_ne!(narrow.text, found.text);
     // A head that disagrees with the diff is not this diff's head.
@@ -173,8 +163,8 @@ fn head_context_after_the_last_hunk_keeps_line_boundaries() {
     let patch = patch.trim_end_matches('\n');
     let found = match_patch(patch, "needle", 6, Some(&head)).expect("hit");
     assert_eq!(
-        number_patch(&found.text),
-        "@@ -48,12 +48,12 @@ fn f\n48\t line 48\n49\t line 49\n50\t line 50\n51\t line 51\n52\t line 52\n53\t-old 53\n53\t+new needle 53\n54\t line 54\n55\t line 55\n56\t line 56\n57\t line 57\n58\t line 58\n59\t line 59\n"
+        found.text,
+        "@@ -50,7 +50,7 @@ fn f\n48\t line 48\n49\t line 49\n50\t line 50\n51\t line 51\n52\t line 52\n53\t-old 53\n53\t+new needle 53\n54\t line 54\n55\t line 55\n56\t line 56\n57\t line 57\n58\t line 58\n59\t line 59\n"
     );
 }
 
@@ -245,13 +235,13 @@ fn match_string_defaults_to_the_contract_context_and_one_page_of_hit_files() {
     let view = history_patch_view(patch, "a.rs", &query);
     assert_eq!(
         (view.text.as_str(), view.narrowed, view.clipped.len()),
-        ("@@ -2,1 +2,1 @@\n2\t-old miri\n2\t+new miri\n", true, 0)
+        ("@@ -1,3 +1,3 @@\n2\t-old miri\n2\t+new miri\n", true, 0)
     );
     let hits_only =
         patch_request(json!({"matchString":["miri"],"contextLines":{"before":0,"after":0}}));
     assert_eq!(
         history_patch_view(patch, "a.rs", &hits_only).text,
-        "@@ -2,1 +2,1 @@\n2\t-old miri\n2\t+new miri\n"
+        "@@ -1,3 +1,3 @@\n2\t-old miri\n2\t+new miri\n"
     );
     assert_eq!(
         file_page_size(&query, true),
@@ -333,4 +323,89 @@ fn distinctive_added_lines_pick_one_locator_per_hunk() {
             "return computeTotal(items, options);"
         ]
     );
+}
+
+/// Three hunks of a 60-line file and the file at the change's head: hits
+/// in an addition, a removal and an addition, the last two hunks close
+/// enough that widened context joins them.
+fn three_hunks() -> (String, Vec<String>) {
+    let patch = concat!(
+        "@@ -10,6 +10,8 @@ fn a\n line 10\n line 11\n line 12\n+needle one\n+added two\n line 15\n line 16\n line 17\n",
+        "@@ -30,8 +32,7 @@ fn b\n line 32\n line 33\n line 34\n-needle removed\n-other removed\n+replacement\n line 36\n line 37\n line 38\n",
+        "@@ -42,6 +43,7 @@ fn c\n line 43\n line 44\n line 45\n+needle three\n line 47\n line 48\n line 49"
+    )
+    .to_owned();
+    let head = (1..=60)
+        .map(|n| match n {
+            13 => "needle one".to_owned(),
+            14 => "added two".to_owned(),
+            35 => "replacement".to_owned(),
+            46 => "needle three".to_owned(),
+            _ => format!("line {n}"),
+        })
+        .collect();
+    (patch, head)
+}
+
+/// A `matchString` window never alters the diff's evidence: each hunk
+/// header it shows is the source hunk's own header, verbatim (never one
+/// recomputed for the window), every diff line sits under its own hunk's
+/// header with the number the full numbered patch gives it, and every
+/// context line is the source's or the head file's line at that number.
+/// The window itself is the run of line numbers shown. Holds with and
+/// without head text (pull requests widen from it; commits and compares
+/// read the hunks alone), at any context.
+#[test]
+fn match_windows_keep_the_source_hunk_headers_verbatim() {
+    let (patch, head) = three_hunks();
+    let numbered = number_patch(&patch);
+    let mut header_of = std::collections::HashMap::new();
+    let mut current = "";
+    for line in numbered.lines() {
+        if line.starts_with("@@") {
+            current = line;
+        } else {
+            header_of.insert(line, current);
+        }
+    }
+    for with_head in [false, true] {
+        for (before, after) in [(0, 0), (1, 1), (3, 6), (10, 10)] {
+            let mut query = patch_request(json!({
+                "matchString":["needle"],"contextLines":{"before":before,"after":after}
+            }));
+            if with_head {
+                let mut sources = HeadSources::default();
+                sources.insert("a.rs".into(), Some(head.clone()));
+                query.head_sources = Some(std::sync::Arc::new(sources));
+            }
+            let view = history_patch_view(&patch, "a.rs", &query);
+            let case = format!("head {with_head}, context {before}/{after}:\n{}", view.text);
+            assert!(view.narrowed, "{case}");
+            assert!(view.text.starts_with("@@"), "{case}");
+            let mut under = "";
+            for line in view.text.lines() {
+                if line.starts_with("@@") {
+                    assert!(header_of.values().any(|header| *header == line), "{case}");
+                    under = line;
+                    continue;
+                }
+                let (number, text) = line.split_once('\t').expect("numbered line");
+                if text.starts_with(['+', '-']) || header_of.contains_key(line) {
+                    assert_eq!(header_of.get(line), Some(&under), "{line:?} in {case}");
+                } else {
+                    // Context the hunks do not hold: the head file's line.
+                    assert!(with_head, "{line:?} in {case}");
+                    let number = number.parse::<usize>().expect("line number");
+                    assert_eq!(
+                        text.strip_prefix(' '),
+                        Some(head[number - 1].as_str()),
+                        "{case}"
+                    );
+                }
+            }
+            for hit in ["+needle one", "-needle removed", "+needle three"] {
+                assert!(view.text.contains(hit), "{hit} in {case}");
+            }
+        }
+    }
 }

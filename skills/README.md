@@ -22,6 +22,7 @@ Saved skill output lives under the project's `.octocode/` folder: reports and au
 | [Test Plan](octocode-test-plan/SKILL.md) | A feature, change, PR or bug fix needs a test plan another agent will run: mapped code, runnable cases with oracles, and success criteria. |
 | [Messages proxy](octocode-messages-proxy/SKILL.md) | Use Claude and Codex native messaging, coordinate mixed-vendor peers through Octocode, or relay to A2A agents with a small model. |
 | [Workflows](octocode-workflows/SKILL.md) | Select, design or resume an explicit workflow across agents, tools, services or artifacts; define handoffs and acceptance. |
+| [Orchestrator](octocode-orchestrator/SKILL.md) | Coordinate ongoing agent work: assign owners, manage dependencies, integrate evidence, recover stalled loops and resume execution. |
 | [Scraping](octocode-scraping/SKILL.md) | Public pages need fetching or a reusable source corpus. |
 | [Chrome DevTools](octocode-chrome-devtools/SKILL.md) | A live browser is needed for rendering, interaction, or diagnostics. |
 | [Brainstorming](octocode-brainstorming/SKILL.md) | An open problem, idea or comparison needs checked sources and an evidence-based recommendation. |

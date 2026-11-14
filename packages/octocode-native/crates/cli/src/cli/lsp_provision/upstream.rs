@@ -33,8 +33,14 @@ pub(super) trait Upstream {
         tag: &str,
         asset: &str,
     ) -> Result<Option<String>, String>;
-    /// Write the asset at `url` into `file` and hand the file back.
-    async fn download(&self, url: &str, file: tokio::fs::File) -> Result<tokio::fs::File, String>;
+    /// Write the asset at `url`, at most `limit` bytes, into `file` and hand
+    /// the file back.
+    async fn download(
+        &self,
+        url: &str,
+        file: tokio::fs::File,
+        limit: u64,
+    ) -> Result<tokio::fs::File, String>;
     /// Whether the release attestation of `repo@tag` covers an asset with
     /// this `sha256`.
     async fn attest(&self, repo: &str, tag: &str, sha256: &str) -> Attestation;
@@ -131,7 +137,7 @@ impl Upstream for GitHub {
         asset: &str,
     ) -> Result<Option<String>, String> {
         let url = format!("{}/repos/{repo}/releases/tags/{tag}", self.api_base);
-        let client = download_client(READ_TIMEOUT)?;
+        let client = download_client(&url, READ_TIMEOUT)?;
         let mut request = client
             .get(&url)
             .header(reqwest::header::ACCEPT, "application/vnd.github+json")
@@ -158,8 +164,13 @@ impl Upstream for GitHub {
         Ok(release_asset_digest(&release, asset))
     }
 
-    async fn download(&self, url: &str, file: tokio::fs::File) -> Result<tokio::fs::File, String> {
-        fetch_allowlisted(url, file).await
+    async fn download(
+        &self,
+        url: &str,
+        file: tokio::fs::File,
+        limit: u64,
+    ) -> Result<tokio::fs::File, String> {
+        fetch_allowlisted(url, file, limit).await
     }
 
     async fn attest(&self, repo: &str, tag: &str, sha256: &str) -> Attestation {

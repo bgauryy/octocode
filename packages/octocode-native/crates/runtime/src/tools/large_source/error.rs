@@ -4,9 +4,8 @@
 /// Why a read of a large source is not served.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum ReadError {
-    /// The source's redactions (the scanner's, or the values its structure names)
-    /// must be held, and the memory budget has no room for them: none of it is
-    /// served.
+    /// The source's redactions must be held, and the memory budget has no room
+    /// for them: none of it is served.
     Refused,
     /// Any other failure, as its message.
     Failed(String),
@@ -23,7 +22,7 @@ impl ReadError {
 }
 
 /// Why a read whose values the memory budget cannot place is not served.
-const REFUSED: &str = "redactedContent: the memory budget has no room to hold what this source needs redacted (the values of a Kubernetes Secret, a JSON Web Key or a Docker registry config, or the redactions the secret scan found), so none of it is served. Split the source to read it.";
+const REFUSED: &str = "redactedContent: the memory budget has no room to hold the redactions the secret scan found in this source, so none of it is served. Split the source to read it.";
 
 impl std::fmt::Display for ReadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

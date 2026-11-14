@@ -274,3 +274,77 @@ fn rows_state_no_snapshot() {
     let paged = pages[0]["next"]["nextPage"]["input"]["queries"][0]["snapshot"].clone();
     assert!(paged.is_string(), "the continuation pins it: {}", pages[0]);
 }
+
+/// A listing's `summary` counts the rows its `pagination.total` counts, on
+/// every page that states it, whatever the walk window and the sort: when
+/// the count is `complete` it is the whole listing's, so its files,
+/// directories and bytes are the entries every page together lists.
+#[test]
+fn a_summary_counts_the_rows_its_pagination_total_counts() {
+    let root = Fixture::new();
+    for dir in ["a", "a/b", "c"] {
+        for n in 0..3 {
+            root.write(&format!("{dir}/f{n}.txt"), "x".repeat(n + 1));
+        }
+    }
+    root.write("top.txt", "top\n");
+    let base = json!({"operation":"files","path":root.0,"view":"details","limit":2});
+    let mut queries = vec![
+        json!({"operation":"tree","path":root.0,"view":"details","maxDepth":4,"limit":2}),
+        base.clone(),
+    ];
+    for sort in [
+        json!({"by":"sizeBytes","order":"desc"}),
+        json!({"by":"traversal","order":"asc"}),
+    ] {
+        let mut query = base.clone();
+        query["sort"] = sort;
+        queries.push(query);
+    }
+    for entry_type in ["file", "directory"] {
+        let mut query = base.clone();
+        query["entryType"] = json!(entry_type);
+        queries.push(query);
+    }
+    for query in queries {
+        let pages = with_window(3, || walk_pages(&root.0, query.clone()));
+        let entries = pages.iter().flat_map(listed).collect::<Vec<_>>();
+        let directory = |entry: &&Value| entry["type"] == "directory";
+        let files = entries.iter().filter(|entry| !directory(entry)).count();
+        let bytes: i64 = entries
+            .iter()
+            .filter_map(|entry| entry["size"].as_i64())
+            .sum();
+        let mut complete = 0;
+        for page in pages.iter().filter(|page| page.get("summary").is_some()) {
+            let summary = &page["summary"];
+            let counted = summary["fileCount"].as_u64().expect("fileCount")
+                + summary["dirCount"].as_u64().expect("dirCount");
+            assert_eq!(
+                json!(counted),
+                page["pagination"]["total"],
+                "{query}: the summary counts the total's rows: {page}"
+            );
+            if page["pagination"]["countScope"] == "complete" {
+                complete += 1;
+                assert_eq!(summary["fileCount"], json!(files), "{query}: {page}");
+                assert_eq!(
+                    summary["dirCount"],
+                    json!(entries.len() - files),
+                    "{query}: {page}"
+                );
+                assert_eq!(summary["bytes"], json!(bytes), "{query}: {page}");
+            }
+        }
+        assert!(pages[0].get("summary").is_some(), "{query}: {}", pages[0]);
+        let ranked = !query["sort"]["by"]
+            .as_str()
+            .is_some_and(|by| by == "traversal");
+        if ranked && entries.len() > 3 {
+            assert!(
+                complete > 0,
+                "{query}: a whole walk past its window: {pages:?}"
+            );
+        }
+    }
+}

@@ -85,9 +85,9 @@ fn a_repeat_is_answered_from_the_memo_by_exactly_its_fields() {
     }
 }
 
-/// A raw file that happens to be JSON is one text to a read: a value's context
-/// is its key or a sibling, not in the value itself. An API payload's values
-/// are still judged as values, so `keys_url` beside a URL keeps it on disk.
+/// A raw file that happens to be JSON is one text to a read: a known secret
+/// in it keeps the answer off disk. An API payload's values are judged as
+/// values, so `keys_url` beside a URL keeps it on disk.
 #[test]
 fn a_raw_json_file_is_judged_as_the_text_a_read_shows() {
     let security = ContentSecurity::new();
@@ -102,15 +102,11 @@ fn a_raw_json_file_is_judged_as_the_text_a_read_shows() {
     for answer in [
         raw(
             "keys%2Fsigning.json",
-            r#"{"kty":"EC","x":"Public0Coordinate9Stays8Readable","d":"Fake0Scalar9Not4Real8Value7Long"}"#,
+            r#"{"kty":"EC","token":"ghp_Public0Coordinate9Stays8Readable0123"}"#,
         ),
         raw(
             "wg.json",
-            r#"{"PrivKey":"Fake0Scalar9Not4Real8Value7LongFake0Scalar9Not4Real8Value7LongFake0"}"#,
-        ),
-        raw(
-            "secret.json",
-            r#"{"data":{"tls.crt":"QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo="},"kind":"Secret"}"#,
+            r#"{"aws_secret_access_key":"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"}"#,
         ),
     ] {
         assert!(!gate_verdict(&security, &answer), "{answer:?}");
@@ -130,13 +126,11 @@ fn a_raw_json_file_is_judged_as_the_text_a_read_shows() {
     ));
 }
 
-/// A credential only a path-gated pattern sees, in the raw bytes GitHub
-/// answers a contents request with or in a payload naming its file: the
-/// read redacts it, so it must not be stored. The memoized verdict agrees.
+/// A credential in the raw bytes GitHub answers a contents request with, or in
+/// a payload naming its file: the read redacts it, so it must not be stored.
+/// The memoized verdict agrees.
 #[test]
 fn a_path_gated_credential_is_not_stored() {
-    let manifest =
-        "apiVersion: v1\nkind: Secret\ndata:\n  tls.crt: QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=\n";
     let token = format!("github_pat_{}", "A1b2C3d4E5".repeat(8) + "zz");
     let jdbc = "url = jdbc:mysql://admin:hunter2hunter2@db.internal/app\n";
     let raw = |path: &str, body: &str| {
@@ -148,21 +142,22 @@ fn a_path_gated_credential_is_not_stored() {
         )
     };
     let answers = [
-        raw("k8s/secret.yaml", manifest),
-        // The same bytes under any name: the name is not always in the request.
-        raw("blob", manifest),
-        exposing("GET /repos/o/r/git/blobs/abc", "plain", None, &serde_json::json!({
-            "encoding": "base64",
-            "content": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, manifest),
-        }).to_string()),
         raw("config/app.env", &format!("TOKEN={token}\n")),
         raw("notes.txt", &format!("TOKEN={token}\n")),
         raw("db.properties", jdbc),
         // A blob names no file: its request says which one it was read for.
-        exposing("GET https://x/git/blobs/abc\nraw\n\ndeploy/.env", "plain", None, "QUJDREVGR0hJSktM\n"),
+        exposing(
+            "GET https://x/git/blobs/abc\nraw\n\ndeploy/.env",
+            "plain",
+            None,
+            "QUJDREVGR0hJSktM\n",
+        ),
         // A key named only by its file, with no marker in it, spelled as a
         // request encodes a path.
-        raw("deploy%2Fid_rsa", "c3BsaXRLZXlCb2R5VHdvQkFCQUJBQkFCQUJBQkFC\n"),
+        raw(
+            "deploy%2Fid_rsa",
+            "c3BsaXRLZXlCb2R5VHdvQkFCQUJBQkFCQUJBQkFC\n",
+        ),
     ];
     let security = ContentSecurity::new();
     for answer in &answers {
@@ -188,34 +183,6 @@ fn a_path_gated_credential_is_not_stored() {
             "{index}"
         );
     }
-}
-
-/// What only looks like a credential once its context is ignored stays
-/// stored: a commit SHA is not a `wandb` key, wherever it is mentioned, and
-/// the path in the request still names a key for one that is.
-#[test]
-fn a_bare_shape_needs_its_context_to_keep_an_answer_off_disk() {
-    let security = ContentSecurity::new();
-    let sha = "9b5e0d8c2f7a41e6b3c58d9f0a1e2b7c4d6f8a03";
-    let uuid = "3f2b8c1e-9a7d-4e6f-8b5a-1c2d3e4f5a6b";
-    let metadata = serde_json::json!({"sha": sha, "id": uuid, "path": "src/lib.rs"}).to_string();
-    assert!(gate_verdict(
-        &security,
-        &exposing(
-            "GET https://x/repos/o/r/commits/main",
-            "plain",
-            None,
-            &metadata
-        )
-    ));
-    assert!(gate_verdict(
-        &security,
-        &exposing("GET https://x/contents/src/a.txt", "plain", None, sha)
-    ));
-    assert!(!gate_verdict(
-        &security,
-        &exposing("GET https://x/contents/wandb/settings", "plain", None, sha)
-    ));
 }
 
 /// A clean answer reaches disk and a second process; one the gate would

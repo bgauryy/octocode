@@ -118,10 +118,13 @@ async fn osv_hears_only_the_resolved_version() {
 }
 
 #[tokio::test]
-async fn none_known_is_empty_only_after_a_finished_walk() {
+async fn none_known_after_a_finished_walk_is_an_answer_not_an_empty_row() {
     let http = registry().osv_pages(vec![(200, json!({}))]);
     let data = answer(&http, Some("4.18.1"), None).await.expect("row");
-    assert_eq!(data["status"], "empty");
+    // A checked package with no advisory answers `affected:false`: the
+    // row succeeds (a CLI exit 0), it is not an empty search.
+    assert!(data.get("status").is_none(), "{data}");
+    assert_eq!(data["affected"], false, "{data}");
     assert_eq!(data["advisories"], json!([]));
     assert_eq!(
         data["sources"],
@@ -1142,6 +1145,17 @@ async fn a_withdrawn_global_advisory_is_stated_as_withdrawn_never_as_a_match() {
         read_whole_ids(&data).contains(&"GHSA-8p5q-j9m2-g8wr".to_owned()),
         "still one call away: {data}"
     );
+    let mut output = json!({"results": [{"index": 0, "data": data}]});
+    crate::response::workflow_lead::keep_workflow_lead(
+        ToolId::SecurityCheck,
+        &mut output,
+        &Value::Null,
+    );
+    assert!(
+        read_whole_ids(&output["results"][0]["data"])
+            .contains(&"GHSA-8p5q-j9m2-g8wr".to_owned()),
+        "withdrawal warning's read survives final shaping: {output}"
+    );
 }
 
 /// GitHub classes an advisory it matches to the version as malware: the row
@@ -1495,7 +1509,8 @@ async fn a_missing_repository_is_followed_to_the_one_the_latest_release_names() 
     // GitHub's 404 for the old name is also its answer for a private repository.
     assert!(why.contains("private repository"), "{why}");
     assert_eq!(data["repository"]["owner"], "minimistjs", "{data}");
-    assert_eq!(github_entry(&data)["status"], "found", "{data}");
+    // The successor is described and holds no advisory for the package.
+    assert_eq!(github_entry(&data)["status"], "noneKnown", "{data}");
     assert!(
         !data["answer"]
             .as_str()

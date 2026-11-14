@@ -172,7 +172,8 @@ pub(super) fn hide_unavailable_tools(mut command: clap::Command) -> clap::Comman
 /// The help command: unavailable tools hidden, each tool's help ending with
 /// what the query needs (required fields and one runnable example) and where
 /// its output fields are explained, and the root help with each available
-/// tool's required fields, all from the embedded CLI presentation.
+/// tool's required fields by operation, all from the embedded CLI
+/// presentation.
 pub(super) fn help_command() -> clap::Command {
     let command =
         ToolId::ALL
@@ -189,7 +190,7 @@ pub(super) fn help_command() -> clap::Command {
                     None => command,
                 }
             });
-    let listed: Vec<(&str, String)> = ToolId::ALL
+    let listed: Vec<(&str, Vec<String>)> = ToolId::ALL
         .into_iter()
         .map(ToolId::as_str)
         .filter(|name| {
@@ -197,21 +198,58 @@ pub(super) fn help_command() -> clap::Command {
                 .find_subcommand(name)
                 .is_some_and(|sub| !sub.is_hide_set())
         })
-        .filter_map(|name| Some((name, super::schema::first_form_requires(name)?)))
+        .filter_map(|name| Some((name, super::schema::required_by_operation(name)?)))
         .collect();
+    let (head, tail, after) = (
+        super::ROOT_HELP_HEAD,
+        super::ROOT_HELP_TAIL,
+        super::ROOT_HELP_AFTER,
+    );
     if listed.is_empty() {
-        return command;
+        return command.long_about(format!("{head}\n\n{tail}"));
     }
+    // --help reads the fields before the output rules; -h, after the commands.
+    let fields = required_fields_block(&listed);
+    command
+        .long_about(format!("{head}\n\n{fields}\n\n{tail}"))
+        .after_help(format!("{fields}\n\n{after}"))
+        .after_long_help(after)
+}
+
+/// The root help's required fields: one entry per listed tool, its parts
+/// (`required_by_operation`) wrapped at `;` under the fields column, then
+/// where every form and the output fields are explained.
+fn required_fields_block(listed: &[(&str, Vec<String>)]) -> String {
+    const WIDTH: usize = 88;
     let width = listed.iter().map(|(name, _)| name.len()).max().unwrap_or(0);
-    let mut root =
-        String::from("Required query fields, one form per tool (every form: <tool> --help):");
-    for (name, fields) in &listed {
-        root.push_str(&format!("\n  {name:width$}  {fields}"));
+    let indent = " ".repeat(width + 4);
+    let mut block = String::from(
+        "Required query fields (\"operation a|b: f\": operation \"a\" or \"b\", plus f):",
+    );
+    for (name, parts) in listed {
+        let mut line = format!("  {name:width$}  ");
+        for (index, part) in parts.iter().enumerate() {
+            let piece = if index + 1 < parts.len() {
+                format!("{part};")
+            } else {
+                part.clone()
+            };
+            let start = line.len() == width + 4;
+            if !start && line.len() + 1 + piece.len() > WIDTH {
+                block.push('\n');
+                block.push_str(line.trim_end());
+                line.clone_from(&indent);
+            } else if !start {
+                line.push(' ');
+            }
+            line.push_str(&piece);
+        }
+        block.push('\n');
+        block.push_str(&line);
     }
-    root.push_str("\nWhat output fields mean: schema <tool> --view output");
-    let after = command
-        .get_after_help()
-        .map(|text| format!("{root}\n\n{text}"))
-        .unwrap_or(root);
-    command.after_help(after)
+    block.push_str(
+        "\nBefore a tool's first call: octocode <tool> --help (every form, examples).\n\
+         What output fields mean: schema <tool> --view output",
+    );
+    block
 }

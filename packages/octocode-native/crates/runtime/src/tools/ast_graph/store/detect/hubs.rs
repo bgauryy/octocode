@@ -32,7 +32,7 @@ pub(super) fn detect_critical(c: &mut Ctx) {
                 severity: 0.3 * magnitude(dependents),
                 confidence: 0.9,
                 impact: c.v.impact(file),
-                evidence: json!({"pageRank": c.v.rank[file as usize], "transitiveDependents": dependents, "directImporters": c.v.inc[file as usize].len(), "farthestDepth": farthest.max(1)}),
+                evidence: json!({"pageRank": significant(c.v.rank[file as usize]), "transitiveDependents": dependents, "directImporters": c.v.inc[file as usize].len(), "farthestDepth": farthest.max(1)}),
                 controls: vec![
                     "informational: changes here need wide test coverage",
                     "every production file with 5 or more transitive dependents is listed; severity grows with the count",

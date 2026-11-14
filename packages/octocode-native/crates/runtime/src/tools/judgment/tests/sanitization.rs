@@ -4,7 +4,7 @@ use super::*;
 /// public clasify input gate, including local/GitHub selection callers.
 #[tokio::test]
 async fn sensitive_boundary_provider_egress_scrubs_state_and_questions() {
-    let secret = "SyntheticCredentialMaterial987654321abcdef";
+    let secret = "ghp_SyntheticCredentialMaterial987654321abcdef";
     for count in [1, 2] {
         let server = MockServer::start().await;
         Mock::given(method("POST"))

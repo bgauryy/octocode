@@ -213,3 +213,60 @@ fn an_insensitive_miss_runs_its_patterns_once() {
     assert_eq!(read("insensitive"), 1);
     assert_eq!(read("sensitive"), 2);
 }
+
+/// The warnings of `result` that name a list's entries that matched nothing.
+fn unmatched_named(warnings: &[String]) -> Vec<&String> {
+    warnings
+        .iter()
+        .filter(|warning| warning.contains("matchString entries matched nothing"))
+        .collect()
+}
+
+/// A list `matchString` read with hits names, once, each entry that selected
+/// none of them, as written, and no entry that did: within `ranges` too, and
+/// under each entry's own case rule.
+#[test]
+fn a_list_read_names_each_entry_that_matched_nothing() {
+    let t = Fixture::new();
+    let p = t.0.join("a.txt");
+    fs::write(&p, "alpha\nbeta\nfiller\ngamma\n").expect("fixture");
+    for (fields, unmatched) in [
+        (
+            serde_json::json!({"matchString": ["alpha", "nowhere", "beta", "say \"hi\""]}),
+            vec!["nowhere", "say \"hi\""],
+        ),
+        (
+            serde_json::json!({"matchString": ["alpha", "beta"]}),
+            vec![],
+        ),
+        (
+            serde_json::json!({"matchString": ["alpha", "gamma"], "ranges": [{"startLine": 1, "endLine": 2}]}),
+            vec!["gamma"],
+        ),
+        (
+            serde_json::json!({"matchString": ["ALPHA", "b.ta"], "regexEngine": "rust"}),
+            vec!["ALPHA"],
+        ),
+    ] {
+        let result = fetch(&qj(&p, fields.clone()), &Paths(t.0.clone()));
+        assert!(
+            result.selected_match_count > Some(0),
+            "{fields}: {result:?}"
+        );
+        let named = unmatched_named(&result.warnings);
+        if unmatched.is_empty() {
+            assert!(named.is_empty(), "{fields}: {named:?}");
+            continue;
+        }
+        assert_eq!(named.len(), 1, "{fields}: {:?}", result.warnings);
+        for term in fields["matchString"].as_array().expect("terms") {
+            let spelled = serde_json::to_string(term).expect("term");
+            assert_eq!(
+                named[0].contains(&spelled),
+                unmatched.contains(&term.as_str().expect("term")),
+                "{fields}: {spelled} in {}",
+                named[0]
+            );
+        }
+    }
+}

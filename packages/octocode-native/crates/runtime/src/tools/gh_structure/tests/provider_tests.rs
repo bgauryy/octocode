@@ -38,6 +38,16 @@ fn query(value: Value) -> GhStructureQuery {
     serde_json::from_value(value).expect("ghStructure query")
 }
 
+/// The tag names a refs listing's `tags` rows show, in order.
+fn tag_names(data: &Value) -> Vec<String> {
+    data["tags"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|tag| tag["name"].as_str().expect("tag name").to_owned())
+        .collect()
+}
+
 async fn list(server: &MockServer, value: Value) -> Result<ToolData, ProviderError> {
     let home = tempfile::tempdir().expect("home");
     let provider = mock_provider(server, RetryPolicy::default());

@@ -1,5 +1,6 @@
 //! The system client's retries, connection reuse and DNS pinning against
-//! live local servers.
+//! live local servers (loopback: reached directly, with no system proxy
+//! lookup).
 use super::{MAX_DRAIN_BYTES, SystemArtifactHttp};
 use crate::providers::artifact::http::{ArtifactHttp, ArtifactHttpRequest, DnsPin};
 use octocode_io::budget::RequestBudget;
@@ -29,7 +30,6 @@ async fn server_errors_retry_the_configured_number_of_times() {
         };
         let budget = RequestBudget::with_timeout(Duration::from_secs(60), 1024);
         let response = SystemArtifactHttp::shared()
-            .expect("HTTP client")
             .with_retries(retries)
             .get(request, &budget)
             .await
@@ -66,11 +66,9 @@ async fn rate_limits_follow_retry_after() {
             validator: None,
         };
         let budget = RequestBudget::with_timeout(Duration::from_secs(60), 1024);
-        // Build the client first: its one-time TLS root load is setup,
-        // not the retry wait this bound measures.
-        let client = SystemArtifactHttp::shared()
-            .expect("HTTP client")
-            .with_retries(1);
+        // Build the client first: building is setup, not the retry wait
+        // this bound measures.
+        let client = SystemArtifactHttp::shared().with_retries(1);
         let started = std::time::Instant::now();
         let response = client
             .get(request, &budget)
@@ -155,7 +153,6 @@ async fn a_retry_reuses_the_connection_after_reading_the_error_body() {
     };
     let budget = RequestBudget::with_timeout(Duration::from_secs(60), 1024);
     let response = SystemArtifactHttp::shared()
-        .expect("HTTP client")
         .with_retries(1)
         .get(request, &budget)
         .await
@@ -194,7 +191,6 @@ async fn a_transport_failure_is_retried() {
         };
         let budget = RequestBudget::with_timeout(Duration::from_secs(60), 1024);
         let response = SystemArtifactHttp::shared()
-            .expect("HTTP client")
             .with_retries(retries)
             .get(request, &budget)
             .await;
@@ -238,7 +234,6 @@ async fn a_body_cut_short_is_retried() {
         };
         let budget = RequestBudget::with_timeout(Duration::from_secs(60), 1024);
         let response = SystemArtifactHttp::shared()
-            .expect("HTTP client")
             .with_retries(retries)
             .get(request, &budget)
             .await;
@@ -273,7 +268,6 @@ async fn pinned_reads_reuse_one_client_and_connection() {
             validator: None,
         };
         let response = SystemArtifactHttp::shared()
-            .expect("HTTP client")
             .get(request, &budget)
             .await
             .expect("pinned read");
@@ -301,12 +295,8 @@ async fn dns_pin_connects_to_the_validated_address() {
         }),
         validator: None,
     };
-    // The full native suite runs several network/process fixtures in
-    // parallel. This test proves address pinning, not latency, so keep its
-    // fixture deadline wide enough to avoid scheduler-starvation flakes.
     let budget = RequestBudget::with_timeout(Duration::from_secs(60), 1024);
     let response = SystemArtifactHttp::shared()
-        .expect("HTTP client")
         .get(request, &budget)
         .await
         .expect("pinned request reaches the validated address");
@@ -322,9 +312,7 @@ async fn a_304_is_an_answer_only_to_a_conditional_request() {
         .respond_with(ResponseTemplate::new(304).insert_header("etag", "\"e\""))
         .mount(&server)
         .await;
-    let http = SystemArtifactHttp::shared()
-        .expect("client")
-        .with_retries(0);
+    let http = SystemArtifactHttp::shared().with_retries(0);
     let budget = RequestBudget::with_timeout(Duration::from_secs(5), 1024);
     let request = |validator| ArtifactHttpRequest {
         url: Url::parse(&format!("{}/pkg", server.uri())).expect("test URL"),

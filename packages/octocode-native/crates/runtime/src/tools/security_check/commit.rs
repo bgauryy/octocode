@@ -427,11 +427,6 @@ pub(super) fn apply(
         });
     let stopped = failure(read).into_iter().chain(listing).collect::<Vec<_>>();
     if let Some(first) = stopped.first() {
-        // OSV's empty answer was drawn without what GitHub could not say: the
-        // row is not `empty`, as a package row that was not evaluated is not.
-        if let Some(row) = data.as_object_mut() {
-            row.remove("status");
-        }
         let whys = stopped
             .iter()
             .map(|stopped| stopped.why.clone())
@@ -443,6 +438,14 @@ pub(super) fn apply(
     // The merge of twins listed GitHub as a source of advisories: this entry
     // replaces it, as the one GitHub entry of the row.
     let mut sources = data["sources"].as_array().cloned().unwrap_or_default();
+    let twins = sources
+        .iter()
+        .any(|entry| entry["source"] == "github" && entry["status"] == "found");
+    // A read that stopped leaves what GitHub holds unknown: its entry keeps
+    // the read's status with why.
+    if stopped.is_empty() {
+        repository::advisory_status(&mut source, usize::from(twins) + github.others.len());
+    }
     sources.retain(|entry| entry["source"] != "github");
     sources.push(source);
     data["sources"] = Value::Array(sources);

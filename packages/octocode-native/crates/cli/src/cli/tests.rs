@@ -94,11 +94,8 @@ async fn second_interrupt_stops_waiting_for_uncooperative_work() {
 fn rejected_calls_print_the_runtime_projection() {
     use octocode_native::contracts;
     let tool = "localFetch";
-    let error = contracts::prepare_many_and_validate(
-        tool,
-        json!({"queries":[{"path":"a.rs","matchstring":"x"}]}),
-    )
-    .expect_err("invalid input");
+    let error = contracts::validate(tool, json!({"queries":[{"path":"a.rs","matchstring":"x"}]}))
+        .expect_err("invalid input");
     let invalid = || RuntimeError {
         code: ErrorCode::InvalidInput,
         message: error.to_string(),
@@ -175,8 +172,9 @@ fn a_continuation_prints_in_the_line_format_of_the_request_it_continued() {
     let asked = json!({"queries":[{"path":"a.rs","matchString":["use"],"contextLines":{"before":1,"after":0}}]});
     let continued = printed(Some(asked));
     assert_eq!(continued.body, "a.rs\n25-use a;\n26:use b;");
-    assert_eq!(continued.notes.as_deref(), Some("# matchCount: 9"));
-    // A page holding one row of a batch reads that row's own query.
+    assert_eq!(continued.notes.as_deref(), Some("# matchCount 9"));
+    // A page holding one row of a batch reads that row's own query, under
+    // that query's heading.
     let batch = json!({"queries":[{"path":"b.rs","matchString":["x"]},
         {"path":"a.rs","matchString":["use"],"contextLines":{"before":1,"after":0}}]});
     let mut second_row = page.clone();
@@ -193,7 +191,7 @@ fn a_continuation_prints_in_the_line_format_of_the_request_it_continued() {
         &json!({"cursor":"cursor2.page"}),
         None,
     );
-    assert_eq!(later.body, "a.rs\n25-use a;\n26:use b;");
+    assert_eq!(later.body, "## results[1]\na.rs\n25-use a;\n26:use b;");
     let unknown = printed(None);
     assert!(
         unknown.body.starts_with("matchCount: 9\nfiles:"),
@@ -469,5 +467,45 @@ fn a_runtime_that_cannot_start_exits_by_its_error_class() {
             validation_issues: None,
         };
         assert_eq!(start_failed(&error, OutputMode::from(json)), 2);
+    }
+}
+
+/// The request fields a tool's input schema names: its own `properties`
+/// and those of each form it may take (`anyOf`, `oneOf`, `allOf`), never a
+/// row's.
+fn request_fields(schema: &serde_json::Value, fields: &mut std::collections::BTreeSet<String>) {
+    fields.extend(
+        schema["properties"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(field, _)| field.clone()),
+    );
+    for forms in ["anyOf", "oneOf", "allOf"] {
+        for form in schema[forms].as_array().into_iter().flatten() {
+            request_fields(form, fields);
+        }
+    }
+}
+
+/// The root help names every request field the tool contracts take beside
+/// the rows, as it names `queries`: none is learned only from a tool's own
+/// help.
+#[test]
+fn root_help_names_every_request_field_of_the_contract() {
+    let mut fields = std::collections::BTreeSet::new();
+    for tool in octocode_native::id::ToolId::ALL {
+        let contract = octocode_native::contracts::tool_contract_named(tool.as_str())
+            .expect("a contract tool")
+            .expect("its contract");
+        request_fields(&contract["inputSchema"], &mut fields);
+    }
+    assert!(fields.contains("queries"), "{fields:?}");
+    for field in &fields {
+        assert!(
+            super::ROOT_HELP_HEAD.contains(&format!("\"{field}\"")),
+            "{field} unnamed in: {}",
+            super::ROOT_HELP_HEAD
+        );
     }
 }

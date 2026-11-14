@@ -1,4 +1,5 @@
-//! Waiting for many files' parses: an idle server costs one wait, not one per file.
+//! Waiting for many files' parses: an idle server costs one quiet window, a
+//! working one is waited for until it reports them or the caller's deadline.
 
 use super::document_sync::{client_with_fake_server_using, send_server_frame};
 use super::*;
@@ -55,10 +56,10 @@ async fn a_report_for_another_file_keeps_the_waits_going() {
     drop(server.await);
 }
 
-/// An open progress token is progress too: a busy server, publishing nothing
-/// yet, keeps a full wait for every file.
+/// A token left open with nothing new said is no work: a server that only
+/// holds one costs one quiet window, not a wait per file.
 #[tokio::test(start_paused = true)]
-async fn a_busy_silent_server_keeps_a_wait_per_file() {
+async fn an_open_token_that_says_nothing_new_costs_one_window() {
     let (client, _reader, mut writer) =
         client_with_fake_server_using(NativeLspClient::new(ts_config()), 64 * 1024).await;
     send_server_frame(&mut writer, progress("begin")).await;
@@ -66,10 +67,64 @@ async fn a_busy_silent_server_keeps_a_wait_per_file() {
     let began = Instant::now();
     let parsed = client.wait_for_parses(files(3), WAIT_MS).await;
     assert!(parsed.is_empty(), "{parsed:?}");
+    assert_eq!(began.elapsed(), Duration::from_millis(u64::from(WAIT_MS)));
+    drop(writer);
+}
+
+/// A server that keeps reporting its work is waited for past any fixed
+/// window, until it reports the files or the caller's deadline ends the
+/// wait; then the files it reported count and the rest stay unproven.
+#[tokio::test(start_paused = true)]
+async fn a_working_server_is_waited_for_until_it_reports_or_the_deadline() {
+    let (client, _reader, mut writer) =
+        client_with_fake_server_using(NativeLspClient::new(ts_config()), 64 * 1024).await;
+    let all = files(3);
+    let late = all[2].clone();
+    let reported = all[..2].to_vec();
+    let server = tokio::spawn(async move {
+        send_server_frame(&mut writer, progress("begin")).await;
+        for step in 0..40 {
+            tokio::time::sleep(Duration::from_millis(u64::from(WAIT_MS) / 2)).await;
+            send_server_frame(&mut writer, progress("report")).await;
+            if step == 12 {
+                for file in &reported {
+                    send_server_frame(&mut writer, publish(file)).await;
+                }
+            }
+        }
+        writer
+    });
+    let deadline = Instant::now() + Duration::from_millis(10 * u64::from(WAIT_MS));
+    let began = Instant::now();
+    let parsed = crate::lsp::with_caller_deadline(
+        Some(deadline),
+        client.wait_for_parses(all.clone(), WAIT_MS),
+    )
+    .await;
+    let waited = began.elapsed();
     assert_eq!(
-        began.elapsed(),
-        Duration::from_millis(3 * u64::from(WAIT_MS))
+        parsed,
+        std::collections::HashSet::from([all[0].clone(), all[1].clone()]),
+        "the two reported while the server worked count; {late} never was"
     );
+    assert!(
+        waited > Duration::from_millis(6 * u64::from(WAIT_MS)) && Instant::now() <= deadline,
+        "waited {waited:?}: past the reports, within the deadline"
+    );
+    drop(server.await);
+}
+
+/// The first file the server never reports ends nothing early: a file it
+/// reported before the wait counts however the wait ended.
+#[tokio::test(start_paused = true)]
+async fn a_file_reported_before_an_unreported_one_still_counts() {
+    let (client, _reader, mut writer) =
+        client_with_fake_server_using(NativeLspClient::new(ts_config()), 64 * 1024).await;
+    let all = files(3);
+    send_server_frame(&mut writer, publish(&all[2])).await;
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    let parsed = client.wait_for_parses(all.clone(), WAIT_MS).await;
+    assert_eq!(parsed, std::collections::HashSet::from([all[2].clone()]));
     drop(writer);
 }
 

@@ -81,7 +81,7 @@ pub(super) async fn login_device_flow_with_store(
             "GitHub OAuth client ID is required",
         ));
     }
-    let client = &login_client()?;
+    let client = &login_client(endpoints)?;
     let device: DeviceCode = auth_call(endpoints, cancellation, async {
         post_form(
             client,

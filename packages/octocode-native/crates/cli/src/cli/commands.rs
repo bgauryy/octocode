@@ -326,20 +326,17 @@ mod tests {
                         .try_get_matches_from(["octocode", tool.as_str(), json])
                         .is_ok()
                 );
-            }
-            for legacy in [
-                vec!["-n"],
-                vec!["--path", "."],
-                vec!["pattern", "."],
-                vec!["--input", "query.json", "{}"],
-            ] {
-                let mut args = vec!["octocode", tool.as_str()];
-                args.extend(legacy);
-                assert!(
-                    super::super::Args::command()
-                        .try_get_matches_from(args)
-                        .is_err()
-                );
+                // One envelope per call: a second one, or a file beside it,
+                // is a parse error.
+                for second in [[json, json], ["--input", "query.json"]] {
+                    let args = ["octocode", tool.as_str(), second[0], second[1], json];
+                    assert!(
+                        super::super::Args::command()
+                            .try_get_matches_from(args)
+                            .is_err(),
+                        "{args:?}"
+                    );
+                }
             }
         }
     }

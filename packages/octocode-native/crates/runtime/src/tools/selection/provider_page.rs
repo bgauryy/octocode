@@ -8,7 +8,7 @@ use super::{
     unless_transient,
 };
 use crate::id::ToolId;
-use crate::response::selection_errors::{receipt_kind, unavailable};
+use crate::response::selection_errors::unavailable;
 use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
 
@@ -24,7 +24,7 @@ pub(crate) fn apply_sanitized_rows(
     runtime: &Runtime,
 ) -> Result<(), crate::execution::ExecutionError> {
     let (Some((scope, unit)), Some(rows)) = (
-        receipt_kind(tool),
+        tool.selection_receipt(),
         structured.get_mut("results").and_then(Value::as_array_mut),
     ) else {
         return Ok(());

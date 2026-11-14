@@ -12,14 +12,14 @@ fn grammar(extension: &str) -> &'static Language {
 #[test]
 fn recovery_that_rereads_the_source_stops_at_the_bound() {
     let source = "a=/[ ".repeat(64 * 1024 / 5);
-    let (parsed, work) = run(&source, "", grammar("js"), None, &|| false, true);
+    let (parsed, work) = run(&source, "", grammar("js"), None, &|| false);
     assert!(matches!(parsed, Err(ParseFailure::Unbounded)), "{work:?}");
 }
 
 #[test]
 fn valid_code_stays_inside_the_bound() {
     let source = "fn f(a: u8) -> u8 { a + 1 }\n".repeat(4096);
-    let (parsed, work) = run(&source, "", grammar("rs"), None, &|| false, true);
+    let (parsed, work) = run(&source, "", grammar("rs"), None, &|| false);
     assert!(parsed.is_ok(), "{work:?}");
 }
 

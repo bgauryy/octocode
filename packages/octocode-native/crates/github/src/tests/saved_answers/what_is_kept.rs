@@ -206,11 +206,7 @@ fn only_a_read_named_by_a_full_sha_is_pinned() {
         for (routes, expected) in [(&pinned[..], true), (&mutable[..], false)] {
             for route in routes {
                 let url = url::Url::parse(&format!("{root}{route}")).unwrap();
-                assert_eq!(
-                    RequestSpec::get(url.clone()).pins_for_test(),
-                    expected,
-                    "{url}"
-                );
+                assert_eq!(RequestSpec::get(url.clone()).is_pinned(), expected, "{url}");
             }
         }
     }

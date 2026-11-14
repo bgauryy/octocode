@@ -1,5 +1,5 @@
 use super::commands::{run_clean, run_install};
-use super::download::{download_client, download_error};
+use super::download::{download_client, download_error, download_policy};
 use super::install::install_binary;
 use super::live_check::run_live;
 use super::status::{masked_args, run_status};
@@ -196,6 +196,7 @@ impl Upstream for Fake {
         &self,
         _url: &str,
         mut file: tokio::fs::File,
+        _limit: u64,
     ) -> Result<tokio::fs::File, String> {
         let bytes = self.bytes.as_ref().expect("must not fetch");
         tokio::io::AsyncWriteExt::write_all(&mut file, bytes)

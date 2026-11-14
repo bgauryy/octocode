@@ -64,3 +64,25 @@ async fn a_tree_row_lists_every_path_github_answered() {
         assert!(shown.contains(name), "{name} missing from {shown}");
     }
 }
+
+/// Every recorded GitHub answer, through the public call: a row that answered
+/// whole offers its tool's one workflow lead and only the calls that carry a
+/// fact it does not state ([`support::assert_workflow_leads`], which
+/// `support::run` applies).
+#[tokio::test]
+async fn every_recorded_github_answer_offers_at_most_its_workflow_lead() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../../test-utils/provider-answers/github");
+    let mut cases = std::fs::read_dir(&dir)
+        .expect("recordings")
+        .filter_map(|entry| {
+            let name = entry.ok()?.file_name().into_string().ok()?;
+            Some(format!("github/{}", name.strip_suffix(".json")?))
+        })
+        .collect::<Vec<_>>();
+    cases.sort();
+    assert!(!cases.is_empty());
+    for case in cases {
+        answered(&case).await;
+    }
+}

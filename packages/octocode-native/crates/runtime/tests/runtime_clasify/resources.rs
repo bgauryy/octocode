@@ -154,80 +154,39 @@ async fn a_row_none_of_whose_resources_was_read_fails_like_them() {
     runtime.close().await;
 }
 
-/// RV-SEC round 12 (F12-1): credential files no name rule withholds (a Docker
-/// client config, a kubeconfig copied out of `.kube/`, a GCP service-account
-/// key named `<project>-<hex>.json`) reach the provider through a glob with
-/// only their secrets hidden: no registry credential, user key, token or
-/// private key is in any request, and what says where and who still is.
-#[tokio::test]
-async fn a_glob_in_source_leads_with_the_resources_call() {
-    let server = provider(0).await;
-    let workspace = Workspace::new();
-    workspace.write("w/a.md", "a\n");
-    workspace.write("w/b.md", "b\n");
-    let runtime = clasify_runtime(&workspace, &server, &[]);
-    let glob = local("w/*.md");
-    let out = clasify(
-        &runtime,
-        vec![json!({"operation":"evaluate","source":glob,
-            "questions":{"set":noul("Is a value set?")}})],
-    )
-    .await;
-    let data = &out["results"][0]["data"];
-    assert_eq!(data["errorCode"], "notFound", "{out:#}");
-    let related = data["related"].as_array().expect("related calls");
-    assert_eq!(related[0]["tool"], "clasify", "first: {out:#}");
-    assert_eq!(
-        related[0]["input"]["queries"][0]["resources"],
-        json!({"source":glob}),
-        "{out:#}"
-    );
-    assert!(
-        related
-            .iter()
-            .any(|call| call["input"]["queries"][0]["operation"] == "tree"),
-        "{out:#}"
-    );
-    assert!(!out.to_string().contains("[*]"), "{out:#}");
-    runtime.close().await;
-}
-
-/// RV-SEC round 12 (F12-1): credential files no name rule withholds (a Docker
-/// client config, a kubeconfig copied out of `.kube/`, a GCP service-account
-/// key named `<project>-<hex>.json`) reach the provider through a glob with
-/// only their secrets hidden: no registry credential, user key, token or
-/// private key is in any request, and what says where and who still is.
+/// RV-SEC round 12 (F12-1): a glob over credential stores sends none of the
+/// known stores (a Docker client config under `.docker/`, a kubeconfig under
+/// `.kube/`) and, of a file outside the list (a GCP service-account key under
+/// any name), only its known secrets are hidden: no private key is in any
+/// request, and what says where and who still is.
 #[tokio::test]
 async fn credential_files_a_glob_sends_carry_no_secret_to_the_provider() {
-    let server = provider(3).await;
+    let server = provider(1).await;
     let workspace = Workspace::new();
     let secrets = [
         "cm9ib3Q6czNjcjN0LXBhc3N3b3JkLTk4NzY1",
-        "Zq7xK2mPlanted9RegistryTok",
-        "LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFb3dJQkFBS0NBUUVBN3E5",
         "Zq7xK2mPlanted9OpaqueTok",
-        "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
         "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7Zq7xK2mPlanted9",
     ];
     workspace.write(
-        "creds/docker/config.json",
+        "creds/.docker/config.json",
         format!(
-            "{{\n  \"auths\": {{\n    \"registry.example.com\": {{ \"auth\": \"{}\" }},\n    \"ghcr.io\": {{ \"registrytoken\": \"{}\" }}\n  }},\n  \"credHelpers\": {{ \"123.dkr.ecr.us-east-1.amazonaws.com\": \"ecr-login\" }}\n}}\n",
-            secrets[0], secrets[1]
+            "{{\n  \"auths\": {{\n    \"registry.example.com\": {{ \"auth\": \"{}\" }}\n  }}\n}}\n",
+            secrets[0]
         ),
     );
     workspace.write(
-        "creds/kube/config",
+        "creds/.kube/config",
         format!(
-            "apiVersion: v1\nkind: Config\nclusters:\n- cluster:\n    server: https://10.0.0.1:6443\n  name: prod\nusers:\n- name: admin\n  user:\n    client-key-data: {}\n- name: static\n  user:\n    token: {}\n",
-            secrets[2], secrets[3]
+            "apiVersion: v1\nkind: Config\nusers:\n- name: static\n  user:\n    token: {}\n",
+            secrets[1]
         ),
     );
     workspace.write(
         "creds/gcp/my-proj-1a2b3c4d5e6f.json",
         format!(
-            "{{\n  \"type\": \"service_account\",\n  \"project_id\": \"my-proj\",\n  \"private_key_id\": \"{}\",\n  \"private_key\": \"-----BEGIN PRIVATE KEY-----\\n{}\\n-----END PRIVATE KEY-----\\n\",\n  \"token_uri\": \"https://oauth2.googleapis.com/token\"\n}}\n",
-            secrets[4], secrets[5]
+            "{{\n  \"type\": \"service_account\",\n  \"project_id\": \"my-proj\",\n  \"private_key\": \"-----BEGIN PRIVATE KEY-----\\n{}\\n-----END PRIVATE KEY-----\\n\",\n  \"token_uri\": \"https://oauth2.googleapis.com/token\"\n}}\n",
+            secrets[2]
         ),
     );
     let runtime = clasify_runtime(&workspace, &server, &[]);
@@ -239,17 +198,11 @@ async fn credential_files_a_glob_sends_carry_no_secret_to_the_provider() {
     let out = clasify(&runtime, vec![evaluate(json!({"c": local(&glob)}))]).await;
     let bodies = sent(&server).await;
     let wire = serde_json::to_string(&bodies).unwrap_or_default();
-    assert_eq!(bodies.len(), 3, "one request per file: {out:#}");
+    assert_eq!(bodies.len(), 1, "only the file outside the list: {out:#}");
     for secret in secrets {
         assert!(!wire.contains(secret), "{secret} reached the provider");
     }
-    for kept in [
-        "registry.example.com",
-        "ecr-login",
-        "https://10.0.0.1:6443",
-        "my-proj",
-        "https://oauth2.googleapis.com/token",
-    ] {
+    for kept in ["my-proj", "https://oauth2.googleapis.com/token"] {
         assert!(wire.contains(kept), "{kept} did not reach the provider");
     }
     runtime.close().await;

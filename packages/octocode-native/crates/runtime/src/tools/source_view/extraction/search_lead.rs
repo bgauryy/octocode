@@ -26,6 +26,7 @@ pub(crate) fn text_search_query(path: &str, terms: &[&str]) -> Option<LocalSearc
         include_hidden: None,
         include_ignored: None,
         invert_match: None,
+        key_path: None,
         limit: None,
         main_goal: None,
         match_page: std::num::NonZeroU64::MIN,

@@ -11,14 +11,19 @@
 #
 # ── Disk hygiene (target/ grows unbounded) ────────────────────────────────────
 # Stable Cargo has no target/ GC (`cargo clean gc` is nightly-only; Cargo 1.88+
-# only auto-cleans ~/.cargo caches). Every distinct feature/package selection
-# compiles its own copy of the workspace crates, and `split-debuginfo =
-# "unpacked"` keeps ~2k `.o` per copy — target/ reached 303 GB / 1M files in one
-# deps/ here. Keep cargo invocations on the same package+feature selection so
-# copies are not created, and reset the dev profile when it grows:
-#   yarn clean:cache          # cargo clean --workspace --profile dev: drops every
-#                             # copy of our crates (88% of debug/ here), keeps deps warm
-# `dev.mjs build:dev` and `test:rust` run it first when target/debug is over 50 GiB.
+# only auto-cleans ~/.cargo caches). Most of the 2026-11-13 bloat (307 GiB, 731k
+# files in one deps/) was incremental `.rcgu.o` objects with per-run names
+# (rust-lang/rust#161824); `[profile.dev] incremental = false` stops that. What
+# remains: every distinct package/feature selection compiles its own copy of the
+# workspace crates, so keep cargo on the wrappers' selections. After each run,
+# build-native.cjs, rust-tests.cjs and rust-lint.mjs record the units Cargo used
+# in target/.keep/, delete stale `.rcgu.o` of the units they recompiled, and print
+# `deps: N entries`. To drop the rest, with no cargo process running:
+#   node skills-dev/octocode-dev/scripts/dev.mjs prune:rust [--dry-run]
+#     # removes deps/.fingerprint/build entries no keep record of the last 7 days
+#     # lists, incremental/ dirs, and files copied into target/<profile>/
+#   yarn clean:cache          # cargo clean --workspace --profile dev: every copy
+#                             # of our crates, dependencies stay warm
 
 # ── One test selection, one build ─────────────────────────────────────────────
 # `cargo dev-test` is the first Rust test selection (scripts/rust-tests.cjs) under

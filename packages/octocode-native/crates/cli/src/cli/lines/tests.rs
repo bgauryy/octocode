@@ -19,7 +19,9 @@ fn context() -> Value {
 }
 
 mod call_notes;
+mod control_chars;
 mod done_facts;
 mod hit_lines;
 mod listing_lines;
 mod recorded_results;
+mod stated_once;

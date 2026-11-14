@@ -5,8 +5,6 @@ pub mod graph_facts;
 pub(crate) mod js_oxc;
 pub mod markup;
 pub use js_oxc::call_sites::{EnclosingCallable, ReferenceSite, reference_sites};
-#[doc(hidden)]
-pub use js_oxc::nesting::nesting_sweep_check;
 pub(crate) mod node_kinds;
 mod nodes;
 pub(crate) mod spelled;

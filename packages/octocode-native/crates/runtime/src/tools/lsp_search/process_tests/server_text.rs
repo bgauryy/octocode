@@ -11,6 +11,8 @@ use serde_json::{Value, json};
 
 const WG: &str = "yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=";
 const SCALAR: &str = "Fake0Scalar9Not4Real8Value7Long6Enough5Xy";
+/// A secret only its well-known key name makes one.
+const AWS: &str = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
 const BODY: &str = "MIIEpAIBAAKCAQEAfakebodylinefakebodylinefakebodyline00000";
 
 /// One text each secret form reads as in a hover, and the piece it must hide.
@@ -18,8 +20,8 @@ fn texts() -> Vec<(String, &'static str)> {
     vec![
         (format!("PrivateKey = {WG}\nVISIBLE"), WG),
         (
-            format!("{{\"kty\":\"EC\",\"crv\":\"P-256\",\"d\":\"{SCALAR}\"}}\nVISIBLE"),
-            SCALAR,
+            format!("{{\"region\":\"eu\",\"aws_secret_access_key\":\"{AWS}\"}}\nVISIBLE"),
+            AWS,
         ),
         (
             format!("-----BEGIN RSA PRIVATE KEY-----\n{BODY}\nVISIBLE"),
@@ -216,9 +218,9 @@ fn a_location_row_hides_the_source_lines_only_the_file_can_judge() {
         return;
     }
     let source = format!(
-        "const before = 1;\n-----BEGIN RSA PRIVATE KEY-----\n{BODY}\n{BODY}\n-----END RSA PRIVATE KEY-----\nconst after = 2;\nconst jwk = {{\n  kty: 'EC',\n  x: 'plainPublicMember',\n  d: '{SCALAR}',\n}};\n"
+        "const before = 1;\n-----BEGIN RSA PRIVATE KEY-----\n{BODY}\n{BODY}\n-----END RSA PRIVATE KEY-----\nconst after = 2;\nconst jwk = {{\n  kty: 'EC',\n  x: 'plainPublicMember',\n  aws_secret_access_key: '{AWS}',\n}};\n"
     );
-    for (line, secret) in [(2, BODY), (9, SCALAR)] {
+    for (line, secret) in [(2, BODY), (9, AWS)] {
         let (_dir, root, script) = fixture();
         std::fs::write(root.join("a.ts"), &source).expect("source");
         let server = FAKE_SERVER

@@ -131,13 +131,14 @@ pub(super) fn resolve_route(
     ))
 }
 
-/// Every extension with a built-in route, in catalog order; a test keeps it
-/// equal to what [`spec_for_extension`] answers.
-pub const ROUTED_EXTENSIONS: &[&str] = &[
-    ".ts", ".mts", ".cts", ".tsx", ".js", ".mjs", ".cjs", ".jsx", ".py", ".pyi", ".go", ".rs",
-    ".java", ".c", ".h", ".cpp", ".cc", ".cxx", ".hpp", ".hh", ".hxx", ".cu", ".cuh", ".cs",
-    ".scala", ".sc", ".sbt",
-];
+/// Every extension with a built-in route, in catalog order.
+pub static ROUTED_EXTENSIONS: std::sync::LazyLock<Vec<&'static str>> =
+    std::sync::LazyLock::new(|| {
+        SERVER_ROUTES
+            .iter()
+            .flat_map(|(extensions, _)| extensions.iter().copied())
+            .collect()
+    });
 
 /// Short catalog labels and the representative extension that selects each
 /// language's server, in the order agents see them.
@@ -196,89 +197,134 @@ fn extension_key(file_path: &str) -> Option<String> {
     (!extension.is_empty()).then(|| format!(".{extension}"))
 }
 
-pub(super) fn spec_for_extension(extension: &str) -> Option<ServerSpec> {
-    let spec = match extension {
-        ".ts" | ".mts" | ".cts" => ServerSpec {
+/// The built-in server catalog: each server and the extensions routed to
+/// it, in catalog order. The one source of [`spec_for_extension`] and
+/// [`ROUTED_EXTENSIONS`].
+const SERVER_ROUTES: &[(&[&str], ServerSpec)] = &[
+    (
+        &[".ts", ".mts", ".cts"],
+        ServerSpec {
             language_id: "typescript",
             command: "typescript-language-server",
             args: &["--stdio"],
             configuration_section: None,
         },
-        ".tsx" => ServerSpec {
+    ),
+    (
+        &[".tsx"],
+        ServerSpec {
             language_id: "typescriptreact",
             command: "typescript-language-server",
             args: &["--stdio"],
             configuration_section: None,
         },
-        ".js" | ".mjs" | ".cjs" => ServerSpec {
+    ),
+    (
+        &[".js", ".mjs", ".cjs"],
+        ServerSpec {
             language_id: "javascript",
             command: "typescript-language-server",
             args: &["--stdio"],
             configuration_section: None,
         },
-        ".jsx" => ServerSpec {
+    ),
+    (
+        &[".jsx"],
+        ServerSpec {
             language_id: "javascriptreact",
             command: "typescript-language-server",
             args: &["--stdio"],
             configuration_section: None,
         },
-        ".py" | ".pyi" => ServerSpec {
+    ),
+    (
+        &[".py", ".pyi"],
+        ServerSpec {
             language_id: "python",
             command: "pylsp",
             args: &[],
             configuration_section: None,
         },
-        ".go" => ServerSpec {
+    ),
+    (
+        &[".go"],
+        ServerSpec {
             language_id: "go",
             command: "gopls",
             args: &["serve"],
             configuration_section: Some("gopls"),
         },
-        ".rs" => ServerSpec {
+    ),
+    (
+        &[".rs"],
+        ServerSpec {
             language_id: "rust",
             command: "rust-analyzer",
             args: &[],
             configuration_section: Some("rust-analyzer"),
         },
-        ".java" => ServerSpec {
+    ),
+    (
+        &[".java"],
+        ServerSpec {
             language_id: "java",
             command: "jdtls",
             args: &[],
             configuration_section: None,
         },
-        ".c" | ".h" => ServerSpec {
+    ),
+    (
+        &[".c", ".h"],
+        ServerSpec {
             language_id: "c",
             command: "clangd",
             args: &[],
             configuration_section: None,
         },
-        ".cpp" | ".cc" | ".cxx" | ".hpp" | ".hh" | ".hxx" => ServerSpec {
+    ),
+    (
+        &[".cpp", ".cc", ".cxx", ".hpp", ".hh", ".hxx"],
+        ServerSpec {
             language_id: "cpp",
             command: "clangd",
             args: &[],
             configuration_section: None,
         },
-        ".cu" | ".cuh" => ServerSpec {
+    ),
+    (
+        &[".cu", ".cuh"],
+        ServerSpec {
             language_id: "cuda",
             command: "clangd",
             args: &[],
             configuration_section: None,
         },
-        ".cs" => ServerSpec {
+    ),
+    (
+        &[".cs"],
+        ServerSpec {
             language_id: "csharp",
             command: "csharp-ls",
             args: &[],
             configuration_section: None,
         },
-        ".scala" | ".sc" | ".sbt" => ServerSpec {
+    ),
+    (
+        &[".scala", ".sc", ".sbt"],
+        ServerSpec {
             language_id: "scala",
             command: "metals",
             args: &[],
             configuration_section: None,
         },
-        _ => return None,
-    };
-    Some(spec)
+    ),
+];
+
+pub(super) fn spec_for_extension(extension: &str) -> Option<ServerSpec> {
+    SERVER_ROUTES
+        .iter()
+        .find(|(extensions, _)| extensions.contains(&extension))
+        .map(|(_, spec)| *spec)
 }
 
 /// The `workspace/configuration` section the built-in server for `language_id`

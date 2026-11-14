@@ -5,8 +5,9 @@
 //! `<name>-v`, `<name>_v` and `<dir>/<dir>/v` name another package only when
 //! the repository holds a package of that name; any other prefix (`rel/`,
 //! `release-`, `log4j-`) names none.
-use super::{ArtifactItem, CheckFailure, ListedTag, ReleaseTag, ReleaseTags, names_version};
+use super::{ArtifactItem, CheckFailure, ReleaseTag, ReleaseTags, names_version};
 use crate::providers::artifact::TagAbsence;
+use octocode_github::TagRef;
 mod layout;
 
 /// A repository's git tree at one commit: the path of every file in it, and
@@ -210,24 +211,26 @@ struct Candidate {
 }
 
 /// Each listed tag's commit (a lightweight tag's listed ref already names
-/// it; GitHub's request admission bounds the reads), with what it carries.
-/// A tag deleted since the list was read is no tag of the repository.
+/// it; every annotated tag's target is read together), with what it
+/// carries. A tag deleted since the list was read is no tag of the
+/// repository.
 async fn resolve<T>(
     tags: &dyn ReleaseTags,
     owner: &str,
     repo: &str,
-    listed: Vec<(ListedTag, T)>,
+    listed: Vec<(TagRef, T)>,
 ) -> Result<Vec<(ReleaseTag, T)>, CheckFailure> {
-    let answers = futures_util::future::join_all(listed.iter().map(|(tag, _)| async {
-        match &tag.commit {
-            Some(commit) => Ok(Some(commit.clone())),
-            None => tags.tag_commit(owner, repo, &tag.name).await,
-        }
-    }))
-    .await;
+    if listed.is_empty() {
+        return Ok(Vec::new());
+    }
+    let refs = listed
+        .iter()
+        .map(|(tag, _)| tag.clone())
+        .collect::<Vec<_>>();
+    let answers = tags.tag_commits(owner, repo, &refs).await?;
     let mut resolved = Vec::new();
     for ((tag, carried), answer) in listed.into_iter().zip(answers) {
-        if let Some(commit) = answer? {
+        if let Some(commit) = answer {
             resolved.push((
                 ReleaseTag {
                     tag: tag.name,

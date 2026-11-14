@@ -342,7 +342,7 @@ fn invalid_regex_items_are_named_by_index() {
 /// refused by the contract, the rule's one owner, before any file is read.
 #[test]
 fn context_lines_without_match_string_is_refused_by_the_contract() {
-    let refused = crate::contracts::prepare_many_and_validate(
+    let refused = crate::contracts::prepare_rows(
         "localFetch",
         serde_json::json!({"queries":[{"path":"a.rs","ranges":[{"startLine":1,"endLine":1}],"contextLines":{"before":5,"after":5}}]}),
     )

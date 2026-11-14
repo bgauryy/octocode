@@ -67,10 +67,11 @@ fn tree_and_files_summaries_count_symlinks_alike() {
     assert_eq!(tree, summary("files"));
 }
 
-/// Both operations' `summary` totals the listing (every page of it, within
-/// the walk window), never entries the walk cut off.
+/// Both operations' `summary` totals the listing a `complete` count totals,
+/// past the walk window too: every entry the walk ranked, never this
+/// window's share of them.
 #[test]
-fn summaries_total_the_listing_not_the_whole_walk() {
+fn summaries_total_the_listing_past_the_walk_window() {
     let root = Fixture::new();
     for name in ["a.rs", "b.rs", "c.rs", "d.rs", "e.rs"] {
         std::fs::write(root.0.join(name), "xy").expect("file");
@@ -84,8 +85,17 @@ fn summaries_total_the_listing_not_the_whole_walk() {
         })
         .expect("listing");
         assert_eq!(
+            out["pagination"]["countScope"], "complete",
+            "{operation}: {out}"
+        );
+        let total = out["pagination"]["total"].as_u64().expect("total");
+        assert!(
+            total > 2,
+            "{operation}: the listing runs past its window: {out}"
+        );
+        assert_eq!(
             out["summary"],
-            json!({"fileCount": 2, "dirCount": 0, "bytes": 4}),
+            json!({"fileCount": total, "dirCount": 0, "bytes": total * 2}),
             "{operation}: {out}"
         );
     }

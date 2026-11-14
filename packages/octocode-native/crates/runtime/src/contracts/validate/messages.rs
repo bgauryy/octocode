@@ -5,7 +5,8 @@ use serde_json::Value;
 /// envelope. `unpublished` names the row fields the schema this runtime
 /// publishes lacks (a classification field without a provider): no repair
 /// offers one. `sent` is the request as the caller sent it: the example
-/// shown is of the operation its rejected row asked for.
+/// shown is of the form its rejected row comes nearest. Every surface
+/// receives the same cause and repair guidance.
 #[must_use]
 pub fn format_input_error(
     tool_name: &str,
@@ -73,21 +74,25 @@ pub fn format_input_error(
     // A request field sent inside a row, or a refused value, has one repair,
     // stated whole: a fresh example beside it would point away from it.
     let reference = if misplaced.is_empty() && !value_refused {
-        call_reference(tool_name, sent_operation(error, sent))
+        call_reference(tool_name, sent_row(error, sent))
     } else {
         Vec::new()
     };
     issues_error(details, reference)
 }
 
+/// The line a call reference starts with: one request the tool accepts.
+const EXAMPLE: &str = "Example: ";
+
 /// What repairs a rejected call when its causes alone do not: one request
-/// the tool accepts (core's example of the form whose `operation` the row
-/// sent, else of its first form, the one `schema <tool> --view variants`
-/// shows) and the command that prints every field. Stated once per rejected
-/// call or row, after its causes; empty for a name that is no tool, and left
-/// out where a misplaced request field or a refused value (`security.*`) is
-/// the whole repair.
-fn call_reference(tool_name: &str, operation: Option<&str>) -> Vec<String> {
+/// the tool accepts, core's example of the form that takes the most fields
+/// of the row sent, among the forms of the `operation` it names (the first
+/// such form on a tie; with nothing sent, the tool's first form, the one
+/// `schema <tool> --view variants` shows). Stated once per rejected call or
+/// row, after its causes; empty for a name that is no tool, and left out
+/// where a misplaced request field or a refused value (`security.*`) is the
+/// whole repair.
+fn call_reference(tool_name: &str, row: Option<&serde_json::Map<String, Value>>) -> Vec<String> {
     let example = crate::contracts::cli_presentation()
         .ok()
         .and_then(|presentation| {
@@ -98,37 +103,72 @@ fn call_reference(tool_name: &str, operation: Option<&str>) -> Vec<String> {
         })
         .and_then(|entry| {
             let variants = entry["views"]["variants"]["variants"].as_array()?;
-            operation
-                .and_then(|operation| {
-                    variants.iter().find(|variant| {
-                        variant["operations"]
-                            .as_array()
-                            .is_some_and(|names| names.iter().any(|name| name == operation))
-                    })
-                })
-                .or_else(|| variants.first())?
-                .get("example")
+            nearest_form(variants, row)?.get("example")
         });
     let Some(example) = example else {
         return Vec::new();
     };
-    vec![
-        format!("Example: {}", serde_json::json!({ "queries": [example] })),
-        format!("Schema: octocode schema {tool_name}"),
-    ]
+    vec![format!(
+        "{EXAMPLE}{}",
+        serde_json::json!({ "queries": [example] })
+    )]
 }
 
-/// The `operation` the first rejected row of `sent` names, read at the row
-/// index its first issue's path states (`queries.<n>.…`).
-fn sent_operation<'a>(error: &ContractValidationError, sent: &'a Value) -> Option<&'a str> {
-    let path = &error.issues.first()?.path;
-    let row = match path.as_slice() {
-        [queries, index, ..] if queries == "queries" => {
-            sent["queries"].get(index.parse::<usize>().ok()?)?
-        }
-        _ => return None,
+/// The form of `variants` that takes the most fields of `row`, among those
+/// of the `operation` it names when any form has it; the first on a tie.
+fn nearest_form<'a>(
+    variants: &'a [Value],
+    row: Option<&serde_json::Map<String, Value>>,
+) -> Option<&'a Value> {
+    let names = |variant: &Value, list: &str, name: &str| {
+        variant[list]
+            .as_array()
+            .is_some_and(|names| names.iter().any(|known| known == name))
     };
-    row.get("operation").and_then(Value::as_str)
+    let operation = row
+        .and_then(|row| row.get("operation"))
+        .and_then(Value::as_str);
+    let of_operation = variants
+        .iter()
+        .filter(|variant| {
+            operation.is_some_and(|operation| names(variant, "operations", operation))
+        })
+        .collect::<Vec<_>>();
+    let forms = if of_operation.is_empty() {
+        variants.iter().collect()
+    } else {
+        of_operation
+    };
+    let taken = |variant: &Value| {
+        row.map_or(0, |row| {
+            row.keys()
+                .filter(|field| names(variant, "fields", field))
+                .count()
+        })
+    };
+    let mut nearest: Option<(&Value, usize)> = None;
+    for form in forms {
+        let fields = taken(form);
+        if nearest.is_none_or(|(_, most)| fields > most) {
+            nearest = Some((form, fields));
+        }
+    }
+    nearest.map(|(form, _)| form)
+}
+
+/// The first rejected row of `sent`, read at the row index its first issue's
+/// path states (`queries.<n>.…`).
+fn sent_row<'a>(
+    error: &ContractValidationError,
+    sent: &'a Value,
+) -> Option<&'a serde_json::Map<String, Value>> {
+    let path = &error.issues.first()?.path;
+    match path.as_slice() {
+        [queries, index, ..] if queries == "queries" => sent["queries"]
+            .get(index.parse::<usize>().ok()?)?
+            .as_object(),
+        _ => None,
+    }
 }
 
 /// The position of the issue that should lead when the first says only that
@@ -260,13 +300,32 @@ fn unknown_field_message(
             None => format!("Unknown field '{field}' in {query}; use '{meant}'."),
         };
     }
-    if let Some(meant) = super::repair::closest(field, candidates) {
-        return format!("Unknown field '{field}' in {query}; use '{meant}'.");
+    match super::repair::nearest(field, candidates).as_slice() {
+        [] => {}
+        [meant] => return format!("Unknown field '{field}' in {query}; use '{meant}'."),
+        [rest @ .., last] => {
+            let rest = rest
+                .iter()
+                .map(|name| format!("'{name}'"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            return format!("Unknown field '{field}' in {query}; use {rest} or '{last}'.");
+        }
     }
     if let Some(owner) = owning_row_field(tool_name, &row_fields, field) {
         return format!(
             "'{field}' is a field of {owner}, not of {query}: send {owner}:{{\"{field}\":…}}."
         );
+    }
+    if let [_, _, _] = issue.path.as_slice() {
+        let owners = partner_tools_declaring(tool_name, field);
+        if !owners.is_empty() {
+            return format!(
+                "Unknown field '{field}' in {query}: it is a {} field, not a {tool_name} one. Allowed fields: {}.",
+                owners.join(" or "),
+                known.join(", ")
+            );
+        }
     }
     if let Some(forms) = forms_clause(
         tool_name,
@@ -394,6 +453,41 @@ fn authored_row_fields(tool_name: &str) -> Vec<String> {
         .into_iter()
         .filter(|name| !private.contains(*name))
         .map(str::to_owned)
+        .collect()
+}
+
+/// The tools `tool_name`'s description names whose rows declare `field`: the
+/// tools it works with (graphBuild builds the graph graphQuery reads), where
+/// a field of the other one is sent to it.
+fn partner_tools_declaring(tool_name: &str, field: &str) -> Vec<&'static str> {
+    let Some(description) = crate::contracts::cli_presentation()
+        .ok()
+        .and_then(|presentation| {
+            presentation["tools"]
+                .as_array()?
+                .iter()
+                .find(|entry| entry["name"] == tool_name)
+        })
+        .and_then(|entry| entry["mcp"]["description"].as_str())
+    else {
+        return Vec::new();
+    };
+    let bytes = description.as_bytes();
+    let named = |name: &str| {
+        description.match_indices(name).any(|(at, _)| {
+            !at.checked_sub(1)
+                .and_then(|before| bytes.get(before))
+                .is_some_and(u8::is_ascii_alphanumeric)
+                && !bytes
+                    .get(at + name.len())
+                    .is_some_and(u8::is_ascii_alphanumeric)
+        })
+    };
+    crate::id::ToolId::ALL
+        .iter()
+        .map(|tool| tool.as_str())
+        .filter(|name| *name != tool_name && named(name))
+        .filter(|name| authored_row_fields(name).iter().any(|known| known == field))
         .collect()
 }
 

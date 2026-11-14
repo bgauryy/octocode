@@ -8,6 +8,10 @@ use crate::tools::source_view::*;
 use octocode_contract_types::{LocalFetchQuery, ReadProgressUnit};
 use octocode_engine::num::saturating_usize;
 
+/// A warning that states a count: reads the count from its text, and writes
+/// the text for a count.
+type CountedWarning = (fn(&str) -> Option<usize>, fn(usize) -> String);
+
 /// An offset past the end of the read's `read_total` `unit`s (lines, or the
 /// bytes of its lines): nothing returned, in the shape an in-memory read
 /// gives the same offset ([`past_end`]), with the file's
@@ -98,7 +102,7 @@ fn key_lines_of(warning: &str) -> Option<usize> {
 /// part replaced adds to the row's count of the same, so the joined row states
 /// every placeholder it shows; any other warning is stated once.
 pub(super) fn join_warning(warnings: &mut Vec<String>, warning: String) {
-    let counts: [(fn(&str) -> Option<usize>, fn(usize) -> String); 2] = [
+    let counts: [CountedWarning; 2] = [
         (
             crate::security::redacted_values,
             crate::security::redacted_content_warning,

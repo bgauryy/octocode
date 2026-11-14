@@ -3,7 +3,6 @@
 import { spawn } from 'child_process';
 import { platform } from 'os';
 import { existsSync, writeFileSync, rmSync, mkdirSync } from 'fs';
-import { join } from 'path';
 import { propagateOctocodeEnv } from './octocode-config.mjs';
 import { browserMajorVersion, planRealProfile } from './real-profile.mjs';
 import { flagArgs } from './cli-flags.mjs';
@@ -19,11 +18,11 @@ import {
   processMatchesTrackedSession,
 } from './browser-session.mjs';
 import {
-  STATE_SUBPATH,
   checkRunning,
   profileDirIn,
   readSession,
   sessionFileIn,
+  stateDirFor,
   isolatedProfileNote,
   recordActiveSession,
 } from './session-registry.mjs';
@@ -75,7 +74,7 @@ propagateOctocodeEnv({ cwd: process.cwd(), trusted: true });
 // Every isolated profile and session file lives at
 // <workspace>/.octocode/octocode-chrome-devtools/tmp/browser-state/, keyed by port.
 const WORKSPACE = process.cwd();
-const CHROME_STATE_DIR = join(WORKSPACE, ...STATE_SUBPATH);
+const CHROME_STATE_DIR = stateDirFor(WORKSPACE);
 const SESSION_FILE = sessionFileIn(CHROME_STATE_DIR, PORT);
 const HEADLESS_PROFILE_DIR = profileDirIn(CHROME_STATE_DIR, PORT);
 

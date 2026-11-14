@@ -447,7 +447,11 @@ fn match_keys(result: &StructuralSearchFilesDetailedResult) -> BTreeSet<MatchKey
 fn fixture_roots(grammars: &TmpDir) -> Vec<PathBuf> {
     write_fixtures(grammars);
     let shared = engine_dir().join("../../../../test-utils/fixtures");
-    assert!(shared.is_dir(), "the shared fixtures folder: {}", shared.display());
+    assert!(
+        shared.is_dir(),
+        "the shared fixtures folder: {}",
+        shared.display()
+    );
     vec![
         grammars.0.clone(),
         shared,

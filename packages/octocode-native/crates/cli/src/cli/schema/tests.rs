@@ -70,10 +70,7 @@ fn full_catalog_serves_the_core_instructions_then_the_cli_notes() {
         let value = catalog(&machine(&off), Some("full")).expect("catalog");
         assert_eq!(
             value["instructions"].as_str().expect("instructions"),
-            format!(
-                "{}\n<cli>Listed tools are available; execution checks credentials and prerequisites. MCP exposure: graph tools need OCTOCODE_BETA, clone needs OCTOCODE_ENABLE_CLONE. Fields: schema <name> --view query. A next.* page still exits 0.</cli>",
-                expected
-            ),
+            format!("{expected}\n{}", super::CLI_INSTRUCTIONS),
             "{off:?}"
         );
     }

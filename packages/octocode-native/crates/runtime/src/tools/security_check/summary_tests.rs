@@ -91,9 +91,9 @@ fn the_indication_counts_live_advisories_and_links_the_most_severe() {
     assert!(unfinished.get("advisoryCount").is_none(), "{unfinished}");
 }
 
-/// The sentence stays only where no field says it: a row with no verdict that
-/// is not `empty`. The name and version stay only when the request did not
-/// state them.
+/// The sentence stays only where no field says it: a row with no verdict,
+/// whether or not its list finished. The name and version stay only when the
+/// request did not state them.
 #[test]
 fn the_answer_and_the_coordinates_stay_only_when_they_say_something_new() {
     let row = |extra: Value| {
@@ -113,10 +113,11 @@ fn the_answer_and_the_coordinates_stay_only_when_they_say_something_new() {
     }
     let empty = apply(
         SecurityCheckView::Summary,
-        row(json!({"status": "empty", "advisories": []})),
+        row(json!({"advisories": []})),
         target(package()),
     );
-    // No verdict on an empty row: the sentence says what the 0 does not prove.
+    // No verdict on a finished empty list: the sentence says what the 0 does
+    // not prove.
     assert_eq!(empty["answer"], "sentence", "{empty}");
     let no_verdict = apply(
         SecurityCheckView::Summary,

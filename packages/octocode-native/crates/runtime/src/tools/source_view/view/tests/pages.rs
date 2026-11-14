@@ -8,7 +8,7 @@ fn byte_query(offset: usize) -> LocalFetchQuery {
 fn line_and_byte_pages_redact_cross_boundary_secrets_and_reconstruct_exactly() {
     let body = "MIIEpAIBAAKCAQEAsplitKeyBodyLineABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     let source = format!(
-        "{}-----BEGIN RSA PRIVATE KEY-----\n{body}\n{body}\n-----END RSA PRIVATE KEY-----\n{}token: ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n{}jwt_secret =\n\"s3cr3tValueThatIsLongEnough42\"\n{}",
+        "{}-----BEGIN RSA PRIVATE KEY-----\n{body}\n{body}\n-----END RSA PRIVATE KEY-----\n{}token: ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n{}aws_secret_access_key =\n\"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\"\n{}",
         filler(10),
         filler(40),
         filler(37),
@@ -26,11 +26,11 @@ fn line_and_byte_pages_redact_cross_boundary_secrets_and_reconstruct_exactly() {
                 "source coordinates stay intact"
             );
             for (before, after) in original.iter().zip(shown) {
-                if before.starts_with("const filler_") || *before == "jwt_secret =" {
+                if before.starts_with("const filler_") || *before == "aws_secret_access_key =" {
                     assert_eq!(*before, after, "non-secret source is preserved");
                 }
             }
-            for secret in ["splitKeyBody", "ghp_aaaa", "s3cr3t"] {
+            for secret in ["splitKeyBody", "ghp_aaaa", "wJalrXUtnFEMI"] {
                 assert!(!actual.contains(secret));
             }
         }
@@ -85,7 +85,7 @@ fn every_page_of_a_whole_or_compact_read_is_marked_and_an_outline_is_not() {
 #[test]
 fn ranged_secret_value_is_redacted_and_retains_original_line_coordinates() {
     let source = format!(
-        "{}jwt_secret =\n\"s3cr3tValueThatIsLongEnough42\"\n{}",
+        "{}aws_secret_access_key =\n\"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\"\n{}",
         filler(9),
         filler(5)
     );
@@ -94,7 +94,12 @@ fn ranged_secret_value_is_redacted_and_retains_original_line_coordinates() {
         &query(json!({"ranges":[{"startLine":11,"endLine":15}]})),
         1000,
     );
-    assert!(!out.content.as_deref().expect("content").contains("s3cr3t"));
+    assert!(
+        !out.content
+            .as_deref()
+            .expect("content")
+            .contains("wJalrXUtnFEMI")
+    );
     assert_eq!(
         out.source_line_ranges,
         vec![LineRange { start: 11, end: 15 }]

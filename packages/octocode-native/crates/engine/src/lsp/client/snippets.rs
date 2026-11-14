@@ -10,7 +10,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-pub(super) const MAX_SNIPPET_SOURCE_BYTES: u64 = crate::lsp::MAX_LSP_SOURCE_BYTES;
 /// Snippet `content` for a location whose file the [`SnippetReadPolicy`]
 /// refused. The location itself is kept so the caller can apply its own
 /// policy to it; no byte of the file was read.
@@ -184,9 +183,11 @@ impl SnippetContentCache {
 }
 
 async fn read_snippet_source(path: PathBuf) -> Result<String> {
-    tokio::task::spawn_blocking(move || read_bounded_regular_file(&path, MAX_SNIPPET_SOURCE_BYTES))
-        .await
-        .map_err(|err| Error::new(format!("snippet read task failed: {err}")))?
+    tokio::task::spawn_blocking(move || {
+        read_bounded_regular_file(&path, crate::lsp::MAX_LSP_SOURCE_BYTES)
+    })
+    .await
+    .map_err(|err| Error::new(format!("snippet read task failed: {err}")))?
 }
 
 /// The text of a regular file of at most `max_bytes`: read by

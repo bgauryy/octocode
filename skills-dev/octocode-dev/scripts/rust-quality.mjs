@@ -9,11 +9,10 @@
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { isMainModule } from './lib/entrypoint.mjs';
+import { ROOT } from './lib/workspaces.mjs';
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-export const NATIVE = path.resolve(HERE, '..', '..', '..', 'packages', 'octocode-native');
+export const NATIVE = path.join(ROOT, 'packages', 'octocode-native');
 
 export function loadManifest(file = path.join(NATIVE, 'dev-tools.json')) {
   return JSON.parse(readFileSync(file, 'utf8'));

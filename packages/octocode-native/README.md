@@ -203,7 +203,7 @@ starts the server, detached, behind a socket in `<temp dir>/octocode-<uid>`
   rate-limit state file) match an in-process call. Ctrl-C cancels the call on
   the server.
 - **In process instead** with `storage.mode = memory`
-  (`OCTOCODE_STORAGE_MODE=memory`), on Windows, or for `ghCloneRepo`. A server that cannot be reached, refuses a call, or fails
+  (`OCTOCODE_STORAGE_MODE=memory`), on Windows, or for the tools that write (`ghCloneRepo`, `graphBuild`). A server that cannot be reached, refuses a call, or fails
   mid-call is named on stderr and the call runs in process. The client waits
   for the reply as long as the server's request budget allows; the CLI sets
   none, so it waits until the reply, the server closing, or Ctrl-C, as long as
@@ -224,8 +224,10 @@ starts the server, detached, behind a socket in `<temp dir>/octocode-<uid>`
   the wait with an error, and the cache is left uncleared.
 
 The named limits are constants in
-[`crates/cli/src/cli/serve.rs`](crates/cli/src/cli/serve.rs), whose module
-documentation says how the server keeps these guarantees.
+[`crates/cli/src/cli/serve/unix/daemon.rs`](crates/cli/src/cli/serve/unix/daemon.rs) (`IDLE_EXIT`, 10 minutes; `MAX_RUNTIMES`) and
+[`frames.rs`](crates/cli/src/cli/serve/unix/frames.rs) (`HEARTBEAT`, `BACKLOG`), and `READ_STALL` in
+[`crates/io/src/http.rs`](crates/io/src/http.rs); the
+[`serve.rs`](crates/cli/src/cli/serve.rs) module documentation says how the server keeps these guarantees.
 
 `npx octocode` (the Node launcher) runs this binary with unchanged arguments and
 inherited stdio.

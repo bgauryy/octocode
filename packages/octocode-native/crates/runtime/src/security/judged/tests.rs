@@ -4,11 +4,11 @@ use super::*;
 use crate::security::{ContentSecurity, Sanitized};
 use serde_json::json;
 
-/// A Rust struct whose field reads as a YAML secret once its lines are cut
-/// from the syntax around them, and a real token.
-const SOURCE: &str = "#[derive(Serialize)]\nstruct SavingWalk<'a> {\n    pending: &'a [Ref],\n    token: Option<&'a str>,\n    read: &'a [Value],\n}\n";
-const FRAGMENT: &str =
-    "    pending: &'a [Ref],\n    token: Option<&'a str>,\n    read: &'a [Value],\n";
+/// A source whose identifier holds a token's shape inside a longer word, so
+/// no pattern matches it in place, and a fragment cut where that shape starts,
+/// which a pattern matches alone.
+const SOURCE: &str = "#[derive(Serialize)]\nstruct Walk {\n    id: xsk-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789ABCD,\n    read: Vec<Value>,\n}\n";
+const FRAGMENT: &str = "sk-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789ABCD,\n    read: Vec<Value>,\n";
 
 fn token() -> String {
     format!("ghp_{}", "a".repeat(36))
@@ -26,7 +26,7 @@ fn seal(value: Value, marks: &JudgedLeaves) -> Value {
             value,
             marks,
             &crate::security::Admitted::default(),
-            false,
+            crate::security::Pii::default(),
             || Ok::<_, std::convert::Infallible>(()),
         )
         .unwrap_or_else(|never| match never {})
@@ -89,7 +89,7 @@ fn only_pieces_of_the_judged_text_are_marked_and_secrets_stay_redacted() {
     assert!(source.leaf("", |_| false).is_none());
     assert!(
         source
-            .leaf("token: Option<&'a str>,\n    write", |_| false)
+            .leaf("sk-AbCdEfGhIjKl,\n    write", |_| false)
             .is_none()
     );
     let mut marks = JudgedLeaves::default();
@@ -110,9 +110,10 @@ fn marks_rebase_under_a_prefix() {
     let _ = Sanitized::sealed(row("plain"));
 }
 
-/// A value named a secret by a key on an earlier line, a comment between.
-const KEYED: &str = "const apiKey =\n  // the key\n  \"Bq1Zx9Lm2Vp4Kd8Rt7Yb6Nc3\";\nconst label = \"plain\";\nexport const options = {\n  token: <string>raw,\n};\n";
-const VALUE: &str = "Bq1Zx9Lm2Vp4Kd8Rt7Yb6Nc3";
+/// A token on a line of its own, its name on an earlier line, a comment
+/// between.
+const KEYED: &str = "const apiKey =\n  // the key\n  \"ghp_Bq1Zx9Lm2Vp4Kd8Rt7Yb6Nc3Aa5Ss7Dd9Ff1Gg3\";\nconst label = \"plain\";\nexport const options = {\n  token: <string>raw,\n};\n";
+const VALUE: &str = "ghp_Bq1Zx9Lm2Vp4Kd8Rt7Yb6Nc3Aa5Ss7Dd9Ff1Gg3";
 
 fn keyed() -> JudgedText {
     JudgedText::judge(KEYED, Path::new("/w/src/s.ts"), &ContentSecurity::new())
@@ -130,7 +131,6 @@ fn a_cut_shows_the_whole_source_judgment_at_its_place() {
         !read.contains(VALUE) && read.contains("[REDACTED"),
         "{read}"
     );
-    // The value's line alone names no secret: judged alone it would show.
     let line = judged.line_span(3, 1).expect("line 3");
     assert_eq!(judged.cut(line.clone()), read);
     let at = KEYED.find(VALUE).expect("value");
@@ -149,7 +149,7 @@ fn a_cut_shows_the_whole_source_judgment_at_its_place() {
 }
 
 /// A fragment is placed by its line and column, in whatever unit the tool
-/// counts; code a fragment judged alone would hide stays code.
+/// counts.
 #[test]
 fn a_fragment_is_placed_and_never_judged_alone() {
     let judged = keyed();
@@ -160,8 +160,6 @@ fn a_fragment_is_placed_and_never_judged_alone() {
         assert!(!shown.contains(VALUE), "{shown}");
     }
     let code = "  token: <string>raw,";
-    let alone = ContentSecurity::new().sanitize_leaf(code, Some("config/app.yaml"));
-    assert!(alone.is_some(), "fixture no longer misjudged alone");
     assert_eq!(judged.fragment(6, Some(0), code), (code.into(), true));
     // Text that is not the source's at its place is judged by its lines.
     assert_eq!(judged.fragment(4, None, "edited").0, "edited");
@@ -206,30 +204,4 @@ fn a_request_judges_a_source_once_and_its_shown_texts_pass_the_gate() {
         seal(row(&other), &marks)["results"][0]["data"]["content"],
         other.as_str()
     );
-}
-
-/// A pass that joins lines (a Kubernetes Secret's `data` block becomes one
-/// placeholder) still places what it replaced: rows outside it are the
-/// source's own lines, rows inside it show none of it.
-#[test]
-fn a_pass_that_joins_lines_hides_only_the_lines_it_replaced() {
-    let value = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=";
-    let text = format!(
-        "apiVersion: v1\nkind: Secret\nmetadata:\n  name: n\ndata:\n  tls.crt: {value}\n  tls.key: {value}2"
-    );
-    let judged = JudgedText::judge(&text, Path::new("/w/secret.yaml"), &ContentSecurity::new());
-    assert!(judged.is_redacted());
-    assert_eq!(judged.lines(4, 1).expect("line 4"), "  name: n");
-    assert_eq!(
-        judged.fragment(4, None, "  name: n"),
-        ("  name: n".into(), true)
-    );
-    for line in [6, 7] {
-        let shown = judged.lines(line, 1).expect("line");
-        assert!(
-            !shown.contains(&value[..12]) && shown.contains("REDACTED"),
-            "{shown}"
-        );
-    }
-    assert!(!judged.lines(1, 7).expect("all").contains(&value[..12]));
 }

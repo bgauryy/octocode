@@ -29,10 +29,10 @@ pub(crate) use failed_read::{
 };
 pub use failure::GhFailure;
 pub(crate) use failure::{
-    CASE_DIFFERS_HINT, REPOSITORY_SEARCH_HINT, owner_listing, owner_not_found_message,
-    provider_hint, provider_message, ref_recovery, repository_failure, repository_not_found,
-    repository_not_found_message, repository_recovery, search_failure, validation_message,
-    with_ref_recovery,
+    CASE_DIFFERS_HINT, RECOVERY_LIMIT, REPOSITORY_SEARCH_HINT, owner_listing,
+    owner_not_found_message, provider_hint, provider_message, ref_recovery, repository_failure,
+    repository_not_found, repository_not_found_message, repository_recovery, search_failure,
+    validation_message, with_ref_recovery,
 };
 #[cfg(test)]
 pub(crate) use fields::pick_fields;

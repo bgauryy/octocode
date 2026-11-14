@@ -129,7 +129,8 @@ fn a_default_row_leaves_secondary_facts_to_a_fields_pick() {
             "stargazers_count":5,"forks_count":2,"language":"Python","archived":true,
             "license":{"spdx_id":"Apache-2.0"},"description":"HTTP for Humans","topics":["http"],
             "pushed_at":"2024-12-17T00:00:00Z","created_at":"2012-02-25T00:00:00Z",
-            "updated_at":"2026-10-01T00:00:00Z"
+            "updated_at":"2026-10-01T00:00:00Z","homepage":"https://requests.readthedocs.io",
+            "open_issues_count":4,"size":9000
         }))
         .expect("item")
     };

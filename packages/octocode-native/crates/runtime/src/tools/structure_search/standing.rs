@@ -17,7 +17,7 @@
 //! window still makes progress ([`octocode_engine::types::FileSystemQueryOptions::budget_after`]).
 use super::super::page_memo::PageMemo;
 use super::listing::Listing;
-use super::rows::Lines;
+use super::rows::{Lines, Tally};
 use super::walk_policy::{LeftSoFar, WalkLeft};
 use super::windows::ListingDigest;
 use octocode_engine::stamp::Proof;
@@ -36,6 +36,8 @@ pub(super) struct Standing {
     pub(super) lines: Vec<Option<Lines>>,
     /// Rows ranked through the cursor, the ones past `entries` included.
     pub(super) ranked: usize,
+    /// What those rows total (`summary`).
+    pub(super) tally: Tally,
     /// Matches the engine counted through the cursor.
     pub(super) discovered: u32,
     /// Every row walked through the cursor, in walk order.
@@ -129,6 +131,7 @@ pub(super) struct Paused<'a> {
     /// The rows in listing order, by index in `entries`.
     pub(super) order: &'a [usize],
     pub(super) ranked: usize,
+    pub(super) tally: Tally,
     pub(super) digest: ListingDigest,
     /// The rows a window lists through its end.
     pub(super) window_end: usize,
@@ -190,6 +193,7 @@ pub(super) fn keep<Q: Listing>(
         entries,
         lines,
         ranked: paused.ranked,
+        tally: paused.tally,
         discovered: earlier
             .map_or(0, |earlier| earlier.discovered)
             .saturating_add(native.total_discovered),

@@ -1,4 +1,4 @@
-use super::{CONNECT_TIMEOUT, DOWNLOAD_DEADLINE, MAX_DOWNLOAD_BYTES, MAX_REDIRECTS, READ_TIMEOUT};
+use super::{CONNECT_TIMEOUT, DOWNLOAD_DEADLINE, MAX_REDIRECTS, READ_TIMEOUT};
 use std::time::Duration;
 
 /// GitHub release hosts permitted for downloads and every redirect hop. The
@@ -20,32 +20,53 @@ pub fn host_allowed(url: &str) -> bool {
     })
 }
 
-/// HTTP client for release downloads: redirects are followed by hand, and
-/// connect and per-read stalls are bounded.
-pub(super) fn download_client(read_timeout: Duration) -> Result<reqwest::Client, String> {
-    octocode_io::http::client(&octocode_io::http::ClientPolicy {
-        connect_timeout: Some(CONNECT_TIMEOUT),
-        read_timeout: Some(read_timeout),
-        ..octocode_io::http::ClientPolicy::default()
-    })
-    .map_err(|e| format!("http client init failed: {e}"))
+/// HTTP client for release downloads starting at `url`: redirects are
+/// followed by hand, and connect and per-read stalls are bounded.
+pub(super) fn download_client(
+    url: &str,
+    read_timeout: Duration,
+) -> Result<reqwest::Client, String> {
+    octocode_io::http::client(&download_policy(url, read_timeout))
+        .map_err(|e| format!("http client init failed: {e}"))
 }
 
-/// Download `url` into `file`, following redirects manually and re-checking
-/// the host allowlist on every hop, within `DOWNLOAD_DEADLINE`. Signed
-/// release-asset query tokens are never echoed into errors.
+/// The client policy of [`download_client`]: a loopback host (a test's
+/// release server) is reached directly, any other through the user's system
+/// proxy ([`octocode_github::proxy_for`]).
+pub(super) fn download_policy(
+    url: &str,
+    read_timeout: Duration,
+) -> octocode_io::http::ClientPolicy {
+    octocode_io::http::ClientPolicy {
+        connect_timeout: Some(CONNECT_TIMEOUT),
+        read_timeout: Some(read_timeout),
+        proxy: url::Url::parse(url).map_or(octocode_io::http::Proxy::System, |url| {
+            octocode_github::proxy_for(&url)
+        }),
+        ..octocode_io::http::ClientPolicy::default()
+    }
+}
+
+/// Download at most `limit` bytes of `url` into `file`, following redirects
+/// manually and re-checking the host allowlist on every hop, within
+/// `DOWNLOAD_DEADLINE`. Signed release-asset query tokens are never echoed
+/// into errors.
 pub(super) async fn fetch_allowlisted(
     url: &str,
     file: tokio::fs::File,
+    limit: u64,
 ) -> Result<tokio::fs::File, String> {
-    tokio::time::timeout(DOWNLOAD_DEADLINE, fetch_following_redirects(url, file))
-        .await
-        .unwrap_or_else(|_| {
-            Err(format!(
-                "Download timed out after {}s",
-                DOWNLOAD_DEADLINE.as_secs()
-            ))
-        })
+    tokio::time::timeout(
+        DOWNLOAD_DEADLINE,
+        follow_redirects(url, file, &host_allowed, limit),
+    )
+    .await
+    .unwrap_or_else(|_| {
+        Err(format!(
+            "Download timed out after {}s",
+            DOWNLOAD_DEADLINE.as_secs()
+        ))
+    })
 }
 
 /// A transport error without its request URL: release-asset redirects carry
@@ -54,22 +75,17 @@ pub(super) fn download_error(error: reqwest::Error) -> String {
     format!("Download failed: {}", error.without_url())
 }
 
-pub(super) async fn fetch_following_redirects(
-    url: &str,
-    file: tokio::fs::File,
-) -> Result<tokio::fs::File, String> {
-    follow_redirects(url, file, &host_allowed, MAX_DOWNLOAD_BYTES).await
-}
-
-/// [`fetch_following_redirects`] with the hop check and the size limit given,
-/// so a test serves the asset from a loopback fixture.
+/// [`fetch_allowlisted`] with the hop check given and no deadline, so a test
+/// serves the asset from a loopback fixture.
 pub(super) async fn follow_redirects(
     url: &str,
     mut file: tokio::fs::File,
     allowed: &dyn Fn(&str) -> bool,
     limit: u64,
 ) -> Result<tokio::fs::File, String> {
-    let client = download_client(READ_TIMEOUT)?;
+    // Built for the first hop the allowlist admits: a refused URL costs no
+    // client (TLS roots, the system proxy lookup).
+    let mut client: Option<reqwest::Client> = None;
     let mut current = url.to_string();
     for _ in 0..=MAX_REDIRECTS {
         if !allowed(&current) {
@@ -79,7 +95,13 @@ pub(super) async fn follow_redirects(
                 .unwrap_or_else(|| "(unparseable url)".to_string());
             return Err(format!("Blocked non-allowlisted/insecure host: {host}"));
         }
-        let response = client.get(&current).send().await.map_err(download_error)?;
+        let request = match &client {
+            Some(client) => client.get(&current),
+            None => client
+                .insert(download_client(&current, READ_TIMEOUT)?)
+                .get(&current),
+        };
+        let response = request.send().await.map_err(download_error)?;
         let status = response.status();
         if status.is_redirection() {
             let location = response

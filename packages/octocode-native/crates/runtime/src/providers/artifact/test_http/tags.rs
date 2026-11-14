@@ -1,15 +1,16 @@
 //! The GitHub release-tag double artifact tests share.
 use super::super::release_ref::{
-    CheckFailure, CommitCheck, CommitFuture, ListedTag, ReleaseTags, TagCommitFuture,
+    CheckFailure, CommitCheck, CommitFuture, ReleaseTags, TagCommitFuture, TagCommitsFuture,
     TagRefsFuture, TreeFiles, TreeFilesFuture,
 };
+use octocode_github::{TagObject, TagRef};
 use std::sync::Mutex;
 
 /// GitHub's answer to every release-ref check: the refs that exist
 /// (`owner/repo@ref`), or one fixed answer (`None`: the check could not run).
 /// A repository's tag list is its known refs (none for a fixed answer):
 /// `tag=<sha>` lists as a lightweight tag naming `<sha>`, a bare `tag` as an
-/// annotated one, read through `tag_commit`.
+/// annotated one, whose commit `tag_commits` answers as `tag_commit` does.
 /// A tree read at a commit lists the files set for it (`with_tree`), none
 /// otherwise. Records every check; a tag-list read as `owner/repo#tags`, a
 /// tree read as `owner/repo^tree@<commit>`.
@@ -140,13 +141,13 @@ impl ReleaseTags for KnownTags {
                 .iter()
                 .filter_map(|entry| entry.strip_prefix(prefix.as_str()))
                 .map(|tag| match tag.split_once('=') {
-                    Some((name, commit)) => ListedTag {
+                    Some((name, commit)) => TagRef {
                         name: name.to_owned(),
-                        commit: Some(commit.to_owned()),
+                        object: Some(TagObject::Tagged(commit.to_owned())),
                     },
-                    None => ListedTag {
+                    None => TagRef {
                         name: tag.to_owned(),
-                        commit: None,
+                        object: Some(TagObject::Annotated(format!("object-of-{tag}"))),
                     },
                 })
                 .collect()),
@@ -155,6 +156,24 @@ impl ReleaseTags for KnownTags {
         };
         self.record(format!("{owner}/{repo}#tags"));
         Box::pin(async move { names })
+    }
+
+    fn tag_commits<'a>(
+        &'a self,
+        owner: &'a str,
+        repo: &'a str,
+        tags: &'a [TagRef],
+    ) -> TagCommitsFuture<'a> {
+        Box::pin(async move {
+            let mut commits = Vec::new();
+            for tag in tags {
+                commits.push(match &tag.object {
+                    Some(TagObject::Tagged(commit)) => Some(commit.clone()),
+                    _ => self.tag_commit(owner, repo, &tag.name).await?,
+                });
+            }
+            Ok(commits)
+        })
     }
 
     fn commit_check<'a>(

@@ -29,7 +29,7 @@ mod tasks;
 
 use super::codec::encode_frame;
 use super::partial::PartialResultStore;
-use super::patience::{CpuClock, ServerActivity, WaitBudget};
+use super::patience::{ActivityMark, CpuClock, ServerActivity, WaitBudget};
 use super::progress::ProgressTracker;
 use super::push_diagnostics::PushDiagnosticsStore;
 use super::server_requests::ClientRequestContext;
@@ -128,19 +128,15 @@ impl JsonRpcConnection {
         self.shared.activity.cpu_time()
     }
 
-    /// Whether the server shows progress over a wait of `waited` that began at
-    /// CPU time `before` (see `patience`).
-    pub(crate) fn server_progressed_since(
-        &self,
-        before: Option<tokio::time::Duration>,
-        waited: tokio::time::Duration,
-    ) -> bool {
-        self.shared.activity.progressed_since(before, waited)
+    /// What the server has shown so far, for [`Self::worked_since`].
+    pub(crate) fn activity_mark(&self) -> ActivityMark {
+        self.shared.activity.mark()
     }
 
-    /// How many diagnostics reports the server has published, for any document.
-    pub(crate) fn push_diagnostics_published(&self) -> u64 {
-        self.shared.push_diagnostics.published()
+    /// Whether the server worked since `mark`: CPU time, a new work-done
+    /// notice or any message (see `patience`).
+    pub(crate) fn worked_since(&self, mark: &ActivityMark) -> bool {
+        self.shared.activity.worked_since(mark)
     }
 
     /// `false` once the connection has failed (server exited, framing fault,
@@ -178,16 +174,39 @@ impl JsonRpcConnection {
         self.shared.watches_files.load(Ordering::Acquire)
     }
 
+    /// The reports of `documents` (`uri`, minimum version), waiting while any
+    /// lacks a fresh one and the server works: a window of `quiet_ms` in
+    /// which it shows no sign of work (CPU time, a work-done notice, any
+    /// message, a report included) ends the wait, and so does the caller's
+    /// deadline (the [`WaitBudget`] ceiling); dropping the future (a cancel)
+    /// ends it at once. Each entry is the document's fresh report, else the
+    /// one a later change superseded, else `None`, read when the wait ends:
+    /// a report the last window brought counts. `quiet_ms` 0 reads without
+    /// waiting.
     pub(crate) async fn wait_for_push_diagnostics(
         &self,
-        uri: &str,
-        timeout_ms: u32,
-        min_version: Option<i64>,
-    ) -> Option<Value> {
-        self.shared
-            .push_diagnostics
-            .wait_for(uri, timeout_ms, min_version)
-            .await
+        documents: &[(String, Option<i64>)],
+        quiet_ms: u32,
+    ) -> Vec<Option<Value>> {
+        let store = &self.shared.push_diagnostics;
+        if quiet_ms > 0 {
+            let quiet = Duration::from_millis(u64::from(quiet_ms));
+            let budget = WaitBudget::new(quiet_ms);
+            loop {
+                let mark = self.shared.activity.mark();
+                let window = budget.capped(Instant::now() + quiet);
+                if store.wait_for_all(documents, window).await
+                    || budget.is_spent()
+                    || !self.shared.activity.worked_since(&mark)
+                {
+                    break;
+                }
+            }
+        }
+        documents
+            .iter()
+            .map(|(uri, min_version)| store.report(uri, *min_version, true))
+            .collect()
     }
 
     #[cfg(test)]

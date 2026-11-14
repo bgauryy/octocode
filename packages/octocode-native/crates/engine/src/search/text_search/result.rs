@@ -169,12 +169,6 @@ pub(super) fn build_result(
         .filter(|rec| rec.not_utf8)
         .map(|rec| rec.path.clone())
         .collect::<Vec<_>>();
-    // The returned files whose long lines hid every value of a named structure.
-    let every_value_files = recs
-        .iter()
-        .filter(|rec| rec.every_value)
-        .map(|rec| rec.path.clone())
-        .collect::<Vec<_>>();
     let utf8_bom_files = recs
         .iter()
         .filter(|rec| rec.utf8_bom)
@@ -248,7 +242,6 @@ pub(super) fn build_result(
         binary_files: (!binary_files.is_empty()).then_some(binary_files),
         binary_file_count: binary_quit.then_some(binary_file_count),
         not_utf8_files: (!not_utf8_files.is_empty()).then_some(not_utf8_files),
-        every_value_files: (!every_value_files.is_empty()).then_some(every_value_files),
         utf8_bom_files: (!utf8_bom_files.is_empty()).then_some(utf8_bom_files),
         skipped_binary_count: (skipped_binary_count > 0).then_some(skipped_binary_count),
         skipped_binary_extensions: (!skipped_binary_extensions.is_empty())

@@ -109,13 +109,24 @@ pub(super) fn walk_exactly_once(
     window: Option<usize>,
     view: &str,
 ) -> Vec<(usize, String)> {
+    walk_exactly_once_with(query, paths, &Safe, window, view)
+}
+
+/// [`walk_exactly_once`] under the content scan `scan`.
+pub(super) fn walk_exactly_once_with(
+    query: &LocalFetchQuery,
+    paths: &impl PathAccess,
+    scan: &impl ContentScan,
+    window: Option<usize>,
+    view: &str,
+) -> Vec<(usize, String)> {
     let line_starts: Vec<usize> = std::iter::once(0)
         .chain(view.match_indices('\n').map(|(at, _)| at + 1))
         .collect();
     let mut query = query.clone();
     let (mut pages, mut placed) = (Vec::new(), Vec::new());
     loop {
-        let read = execute_local_fetch(&query, paths, &Safe, &NeverCancel, window, None);
+        let read = execute_local_fetch(&query, paths, scan, &NeverCancel, window, None);
         assert_eq!(read.status, ReadStatus::Success, "{read:?}");
         let page = read.pagination.as_ref().expect("pagination");
         let at = match page.unit {
@@ -241,6 +252,7 @@ mod regex_dialects;
 mod source;
 mod stale_cursors;
 mod streamed;
+mod streamed_matches;
 mod symbols;
 mod views;
 mod whole_walks;

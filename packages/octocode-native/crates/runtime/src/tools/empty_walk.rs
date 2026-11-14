@@ -26,7 +26,7 @@ mod tests;
 mod tool_tests;
 
 pub(crate) use diagnosis::{diagnose, diagnose_shown};
-pub(crate) use reasons::ignore_rule;
+pub(crate) use reasons::{ignore_rule, keeping_out};
 pub(crate) use tagged::{FileProbe, Tagged};
 
 /// The work one relaxed probe walk behind a local result may do (a

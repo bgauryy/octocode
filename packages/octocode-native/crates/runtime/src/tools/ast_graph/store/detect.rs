@@ -120,6 +120,15 @@ pub(crate) struct Finding {
     pub tier: u8,
 }
 
+/// `value` to 4 significant digits: a share such as a PageRank is a
+/// ranking, not a measurement, and its 17 digits carry no evidence.
+pub(super) fn significant(value: f64) -> f64 {
+    if !value.is_finite() || value == 0.0 {
+        return value;
+    }
+    format!("{value:.3e}").parse().unwrap_or(value)
+}
+
 impl Finding {
     pub(crate) fn to_json(&self) -> Value {
         let round = |v: f64| (v * 1000.0).round() / 1000.0;

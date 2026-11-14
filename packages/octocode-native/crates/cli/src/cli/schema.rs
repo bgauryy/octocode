@@ -35,15 +35,13 @@ fn tools(presentation: &Value) -> impl Iterator<Item = &Value> {
     presentation["tools"].as_array().into_iter().flatten()
 }
 
-fn machine_entry<'a>(machine: &'a Value, name: &str) -> Option<&'a Value> {
-    machine["tools"]
-        .as_array()?
-        .iter()
-        .find(|tool| tool["name"] == name)
+/// The `tools[]` entry named `name` of a presentation or a machine catalog.
+pub(in crate::cli) fn tool_entry<'a>(document: &'a Value, name: &str) -> Option<&'a Value> {
+    tools(document).find(|tool| tool["name"] == name)
 }
 
 fn enabled(machine: &Value, name: &str) -> bool {
-    machine_entry(machine, name).is_some_and(|tool| tool["availability"]["enabled"] == true)
+    tool_entry(machine, name).is_some_and(|tool| tool["availability"]["enabled"] == true)
 }
 
 /// The one spelling of the per-tool query-schema command, in every catalog view.
@@ -51,7 +49,7 @@ const QUERY_COMMAND: &str =
     "octocode schema <tool> --view query [--select operation=VALUE[,FIELD=VALUE]]";
 
 /// The CLI's own notes, after the shared instructions in the full catalog.
-const CLI_INSTRUCTIONS: &str = "<cli>Listed tools are available; execution checks credentials and prerequisites. MCP exposure: graph tools need OCTOCODE_BETA, clone needs OCTOCODE_ENABLE_CLONE. Fields: schema <name> --view query. A next.* page still exits 0.</cli>";
+const CLI_INSTRUCTIONS: &str = "<cli>Listed tools are available; execution checks credentials and prerequisites. Fields: schema <name> --view query. A next.* page still exits 0.</cli>";
 
 /// Core's instructions (embedded through config) composed for the tools
 /// `available` says exist: the routes whose tools are all there, then each such
@@ -85,7 +83,7 @@ pub(super) fn catalog(machine: &Value, view: Option<&str>) -> Result<Value, Sche
     let listed: Vec<Value> = tools(presentation)
         .filter_map(|tool| {
             let name = tool["name"].as_str()?;
-            let entry = machine_entry(machine, name).filter(|_| enabled(machine, name))?;
+            let entry = tool_entry(machine, name).filter(|_| enabled(machine, name))?;
             Some(json!({
                 "name": name,
                 "title": tool["title"],
@@ -145,33 +143,98 @@ pub(super) fn catalog(machine: &Value, view: Option<&str>) -> Result<Value, Sche
     Ok(value)
 }
 
-/// The query fields the first form of tool `name` requires, for the root
-/// help's one line per tool: `path, matchString`; an operation the form
-/// selects by its value (`operation:"search"`); `none` when every field is
-/// optional. Read from the variants view `schema <tool> --view variants`
-/// serves, so the line and that view never disagree.
-pub(super) fn first_form_requires(name: &str) -> Option<String> {
-    let tool = tools(presentation().ok()?).find(|tool| tool["name"] == name)?;
-    let form = tool["views"]["variants"]["variants"].get(0)?;
-    let operations = form["operations"].as_array();
-    let fields: Vec<String> = form["requires"]
+/// What every form of tool `name` requires, for the root help's entry per
+/// tool, as `;`-separated parts: the fields every form shares, then
+/// `operation a|b: f` for the operations that also need `f`
+/// (`owner, repo; operation pullRequest|issue: number; commit: ref`); `none`
+/// when every field is optional. A form that only adds fields to another
+/// form of the same operations (a `view`, `ranges`) is that form narrowed,
+/// so the wider form stands for it. Read from the variants view
+/// `schema <tool> --view variants` serves, so the entry and that view never
+/// disagree.
+pub(super) fn required_by_operation(name: &str) -> Option<Vec<String>> {
+    let tool = tool_entry(presentation().ok()?, name)?;
+    let strings = |value: &Value| -> Vec<String> {
+        value
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect()
+    };
+    let forms: Vec<(Vec<String>, Vec<String>)> = tool["views"]["variants"]["variants"]
         .as_array()?
         .iter()
-        .filter_map(Value::as_str)
-        .map(|field| match &form["example"][field] {
-            Value::String(value)
-                if operations.is_some_and(|operations| operations.iter().any(|op| op == value)) =>
-            {
-                format!("{field}:{value:?}")
-            }
-            _ => field.to_owned(),
-        })
+        .map(|form| (strings(&form["operations"]), strings(&form["requires"])))
         .collect();
-    Some(if fields.is_empty() {
-        "none".to_owned()
-    } else {
-        fields.join(", ")
-    })
+    let narrows = |(operations, requires): &(Vec<String>, Vec<String>)| {
+        forms.iter().any(|(wider_operations, wider_requires)| {
+            operations.iter().all(|op| wider_operations.contains(op))
+                && wider_requires.len() < requires.len()
+                && wider_requires.iter().all(|field| requires.contains(field))
+        })
+    };
+    // One group per required field set: the operations that need exactly it.
+    let mut groups: Vec<(Vec<String>, Vec<String>)> = Vec::new();
+    for (operations, requires) in forms.iter().filter(|form| !narrows(form)) {
+        let fields: Vec<String> = requires
+            .iter()
+            .filter(|field| *field != "operation")
+            .cloned()
+            .collect();
+        let same = |group: &&mut (Vec<String>, Vec<String>)| {
+            group.1.len() == fields.len() && fields.iter().all(|field| group.1.contains(field))
+        };
+        match groups.iter_mut().find(same) {
+            Some(group) => {
+                for op in operations {
+                    if !group.0.contains(op) {
+                        group.0.push(op.clone());
+                    }
+                }
+            }
+            None => groups.push((operations.clone(), fields)),
+        }
+    }
+    let shared: Vec<String> = groups.first().map_or_else(Vec::new, |(_, fields)| {
+        fields
+            .iter()
+            .filter(|field| groups.iter().all(|group| group.1.contains(field)))
+            .cloned()
+            .collect()
+    });
+    let mut parts = Vec::new();
+    if !shared.is_empty() {
+        parts.push(shared.join(", "));
+    }
+    let mut lead = "operation ";
+    for (operations, fields) in &groups {
+        let rest = fields
+            .iter()
+            .filter(|field| !shared.contains(field))
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join(", ");
+        // A form selected by no operation: its own fields, as an alternative.
+        if operations.is_empty() {
+            if !rest.is_empty() {
+                parts.push(rest);
+            }
+            continue;
+        }
+        let ops = operations.join("|");
+        parts.push(if rest.is_empty() {
+            format!("{lead}{ops}")
+        } else {
+            format!("{lead}{ops}: {rest}")
+        });
+        lead = "";
+    }
+    if parts.is_empty() {
+        parts.push("none".to_owned());
+    }
+    Some(parts)
 }
 
 /// The command that prints what `name`'s output fields mean.
@@ -187,7 +250,7 @@ pub(super) fn tool_view(
     select: Option<&str>,
 ) -> Result<Value, SchemaError> {
     let presentation = presentation()?;
-    let Some(tool) = tools(presentation).find(|tool| tool["name"] == name) else {
+    let Some(tool) = tool_entry(presentation, name) else {
         let known = tools(presentation)
             .filter_map(|tool| tool["name"].as_str())
             .filter(|tool| enabled(machine, tool))
@@ -236,7 +299,7 @@ pub(super) fn tool_view(
         let servers: Vec<&str> = servers.iter().filter_map(Value::as_str).collect();
         value["description"] = Value::String(with_lsp_servers(description, &servers));
     }
-    value["availability"] = machine_entry(machine, name)
+    value["availability"] = tool_entry(machine, name)
         .map(|entry| entry["availability"].clone())
         .unwrap_or_else(|| json!({ "enabled": false }));
     value["run"] = Value::String(format!("octocode {name} '<json>'"));

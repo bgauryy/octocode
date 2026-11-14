@@ -12,7 +12,7 @@ fn leads(out: &Value) -> Vec<(String, Value)> {
             if lead.tool == "astSearch" {
                 Some((lead.name, lead.query))
             } else {
-                crate::contracts::validate_built(&lead.tool, lead.query)
+                crate::contracts::validate_saved(&lead.tool, lead.query)
                     .unwrap_or_else(|error| panic!("related {} invalid: {error:?}", lead.tool));
                 None
             }
@@ -29,7 +29,7 @@ fn follow(root: &std::path::Path, row: Value, depth: usize) -> usize {
     for _ in 0..=depth {
         let mut next_pending = Vec::new();
         for (name, input) in pending.drain(..) {
-            crate::contracts::validate_built("astSearch", input.clone())
+            crate::contracts::validate_saved("astSearch", input.clone())
                 .unwrap_or_else(|error| panic!("lead {name} invalid {input}: {:?}", error.issues));
             for row in input["queries"].as_array().expect("rows") {
                 let query: AstSearchQuery = serde_json::from_value(row.clone()).expect("typed row");

@@ -40,7 +40,9 @@ fn not_public(visibility: &str, private: bool) -> Option<&str> {
 
 /// One repository row, whole: `owner` and `repo`, `defaultBranch`, stars,
 /// language, license, dates, the description, forks, `visibility` when not
-/// public, and its topics (query matches first). What a default
+/// public, its topics (query matches first), its homepage, open issue count
+/// and size. `updatedAt` is the whole timestamp: a search sorted by it
+/// orders rows within a day. What a default
 /// row keeps of it, and what a `fields` pick names back, is the caller's
 /// ([`super::LISTED_DETAIL`], [`super::EXACT_DETAIL`]).
 pub(super) fn repository_row(
@@ -84,7 +86,13 @@ pub(super) fn repository_row(
         row["topics"] = json!(topics);
     }
     row["forks"] = json!(item.forks_count);
-    row["updatedAt"] = json!(date(item.updated_at));
+    row["updatedAt"] = json!(
+        item.updated_at
+            .map(|at| crate::tools::gh_shared::dates::utc_date(Some(&at)))
+    );
+    row["homepage"] = json!(item.homepage.filter(|page| !page.trim().is_empty()));
+    row["openIssuesCount"] = json!(item.open_issues_count);
+    row["sizeKiB"] = json!(item.size);
     remove_null_fields(&mut row);
     row
 }

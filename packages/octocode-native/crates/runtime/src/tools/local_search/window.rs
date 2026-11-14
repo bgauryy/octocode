@@ -146,6 +146,7 @@ pub(super) fn paused_row(
             matched_files: None,
             ..super::executor::search_stats(local_search_query::view(query), &so_far, 0)
         },
+        unique_values: None,
         files: Vec::new(),
         pagination: None,
         selection: None,

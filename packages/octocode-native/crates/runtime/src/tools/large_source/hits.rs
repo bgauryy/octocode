@@ -86,10 +86,16 @@ pub(super) struct KeptHits {
     count: usize,
     total_lines: usize,
     limited: Option<usize>,
+    /// [`Scan::term_hits`].
+    term_hits: Vec<bool>,
     line_edges: usize,
     mid_edges: usize,
     overlap: usize,
     redacted: (usize, usize),
+    /// The scan's long hit lines and the bytes the source shows
+    /// ([`Scan::long`], [`Scan::shown_bytes`]).
+    long: std::sync::Arc<Vec<super::walk::LongHit>>,
+    shown_bytes: usize,
 }
 
 impl KeptHits {
@@ -101,16 +107,21 @@ impl KeptHits {
             count: found.count,
             total_lines: found.total_lines,
             limited: found.limited,
+            term_hits: found.term_hits.clone(),
             line_edges: found.line_edges,
             mid_edges: found.mid_edges,
             overlap: found.overlap,
             redacted: found.redacted,
+            long: std::sync::Arc::clone(&found.long),
+            shown_bytes: found.shown_bytes,
         })
     }
 
     /// About how many bytes these hits hold.
     pub(super) fn weight(&self) -> usize {
-        Runs::bytes(self.runs.len()) + std::mem::size_of::<Self>()
+        Runs::bytes(self.runs.len())
+            + super::walk::LongHits::weight_of(&self.long)
+            + std::mem::size_of::<Self>()
     }
 
     /// The scan of `q` resumed after line `resume`, from these hits.
@@ -119,10 +130,13 @@ impl KeptHits {
         let mut found = Scan {
             count: self.count,
             limited: self.limited,
+            term_hits: self.term_hits.clone(),
             line_edges: self.line_edges,
             mid_edges: self.mid_edges,
             overlap: self.overlap,
             redacted: self.redacted,
+            long: std::sync::Arc::clone(&self.long),
+            shown_bytes: self.shown_bytes,
             ..Scan::default()
         };
         for line in self.runs.iter().flat_map(|run| run.0..=run.1) {

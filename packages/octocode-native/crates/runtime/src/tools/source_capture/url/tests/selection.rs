@@ -223,7 +223,7 @@ fn a_stopped_call_ends_html_extraction_with_its_own_reason() {
     let security = ContentSecurity::new();
     let redaction = Redaction {
         security: &security,
-        emails: false,
+        pii: crate::security::Pii::default(),
     };
     for reason in [
         crate::execution::ExecutionError::Timeout,

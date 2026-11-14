@@ -37,6 +37,7 @@ fn authentication_errors_preserve_typed_failure_and_status() {
         retryable: false,
         reason: None,
         sso_url: None,
+        proxy: None,
     };
     for (_tool, result) in [
         (ToolId::GhSearchCode, search_row(error())),
@@ -65,6 +66,7 @@ fn legal_block_is_not_rendered_as_a_network_failure() {
         retryable: false,
         reason: None,
         sso_url: None,
+        proxy: None,
     };
     for result in [
         search_row(error()),
@@ -97,6 +99,7 @@ fn search_validation_keeps_github_detail_and_tool_specific_window_hint() {
         retryable: false,
         reason,
         sso_url: None,
+        proxy: None,
     };
     let result = search_row(error("\"abc\" is not a numeric value", None));
     assert_eq!(
@@ -133,6 +136,7 @@ fn permission_errors_keep_the_provider_reason_across_github_tools() {
         retryable: false,
         reason: None,
         sso_url: None,
+        proxy: None,
     };
     for result in [
         search_row(error()),
@@ -167,6 +171,7 @@ fn history_error_shapes_error_as_string() {
         retryable: false,
         reason: None,
         sso_url: None,
+        proxy: None,
     };
 
     let result = history_error(error, true);
@@ -213,6 +218,7 @@ fn file_error_names_the_missing_ref_for_explicit_branches() {
         retryable: false,
         reason: Some(ProviderErrorReason::RefNotFound),
         sso_url: None,
+        proxy: None,
     };
     let query = json!({
         "owner": "a",
@@ -251,6 +257,7 @@ fn file_error_names_the_missing_ref_for_explicit_branches() {
         retryable: false,
         reason: Some(ProviderErrorReason::RefNotFound),
         sso_url: None,
+        proxy: None,
     };
     let result = file_row(error, query.clone());
     assert_eq!(
@@ -267,6 +274,7 @@ fn file_error_names_the_missing_ref_for_explicit_branches() {
         retryable: false,
         reason: None,
         sso_url: None,
+        proxy: None,
     };
     let result = file_row(error, json!({"owner":"a","repo":"b","path":"src/lib.rs"}));
     assert_eq!(

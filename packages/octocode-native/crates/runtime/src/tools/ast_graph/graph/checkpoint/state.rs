@@ -18,12 +18,24 @@ pub(super) struct Manifest {
     pub(super) config_digest: String,
     pub(super) registry_identity: String,
     pub(super) stage: Stage,
+    /// The canonical scope root the job extracts: a job whose root is gone
+    /// can never be resumed ([`super::prune_jobs`]).
+    pub(super) root: String,
 }
 
 impl Manifest {
     pub(super) fn read(dir: &Path) -> Option<Self> {
         let bytes = crate::tools::source::read_bounded(&dir.join("job.json"), 4096).ok()?;
         serde_json::from_slice(&bytes).ok()
+    }
+    /// The `version` a job record at `dir` declares, whatever its other
+    /// fields: what tells another build's job from an unreadable one.
+    pub(super) fn version_of(dir: &Path) -> Option<u32> {
+        let bytes = crate::tools::source::read_bounded(&dir.join("job.json"), 4096).ok()?;
+        let record = serde_json::from_slice::<serde_json::Value>(&bytes).ok()?;
+        record["version"]
+            .as_u64()
+            .and_then(|version| u32::try_from(version).ok())
     }
     pub(super) fn write(&self, dir: &Path, stage: Stage) -> Result<(), ToolError> {
         let manifest = Self {
@@ -82,9 +94,8 @@ impl<'a> Job<'a> {
             octocode_io::atomic::create_private_dir_all(jobs)
                 .map_err(|error| failure(error.to_string()))?;
         }
-        let job_lock = super::lock::open(&lock_path)
-            .map_err(|error| failure(format!("cannot lock graph checkpoint: {error}")))?;
-        super::lock::exclusive(&job_lock, cancel).map_err(super::lock::Wait::into_tool_error)?;
+        let job_lock =
+            super::lock::job(&lock_path, cancel).map_err(super::lock::Wait::into_tool_error)?;
         let registry_identity = super::super::registry_identity(registry)?;
         let identity = serde_json::to_vec(&(
             JOB_VERSION,
@@ -122,6 +133,7 @@ impl<'a> Job<'a> {
             config_digest,
             registry_identity,
             stage: Stage::Extracting,
+            root: root.to_string_lossy().into_owned(),
         };
         let manifest_path = dir.join("job.json");
         checked_path(paths, &manifest_path)?;

@@ -170,6 +170,62 @@ fn content_size(entry: &FileSystemEntry) -> Option<i64> {
         .filter(|_| EntryKind::from(entry.entry_type) != EntryKind::Directory)
 }
 
+/// Files, directories and file bytes of listing rows (`summary`): a
+/// non-directory row is a file; bytes are regular files' (a symlink's own
+/// length is no content).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct Tally {
+    pub(super) files: usize,
+    pub(super) dirs: usize,
+    pub(super) bytes: u64,
+}
+
+impl Tally {
+    fn add(&mut self, kind: EntryKind, size: i64) {
+        match kind {
+            EntryKind::Directory => self.dirs += 1,
+            EntryKind::Symlink => self.files += 1,
+            EntryKind::File => {
+                self.files += 1;
+                self.bytes += u64::try_from(size).unwrap_or(0);
+            }
+        }
+    }
+
+    /// The tally of `rows`.
+    pub(super) fn of_rows(rows: &[Row]) -> Self {
+        let mut tally = Self::default();
+        for row in rows {
+            tally.add(row.kind, row.size);
+        }
+        tally
+    }
+
+    /// The tally of the walked `entries` at `indexes`, as their rows count.
+    pub(super) fn of_entries(
+        entries: &[FileSystemEntry],
+        indexes: impl IntoIterator<Item = usize>,
+    ) -> Self {
+        let mut tally = Self::default();
+        for entry in indexes.into_iter().filter_map(|at| entries.get(at)) {
+            tally.add(
+                EntryKind::from(entry.entry_type),
+                content_size(entry).unwrap_or(0),
+            );
+        }
+        tally
+    }
+
+    /// This tally and `other`'s together.
+    pub(super) fn with(self, other: Self) -> Self {
+        Self {
+            files: self.files + other.files,
+            dirs: self.dirs + other.dirs,
+            bytes: self.bytes + other.bytes,
+        }
+    }
+}
+
 /// The rows of a page as its requested view shows them, each with its
 /// directory: paths keeps names and kinds; with `detail`, file line counts
 /// are read, for this page only.

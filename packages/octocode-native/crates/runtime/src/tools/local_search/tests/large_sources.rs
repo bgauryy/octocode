@@ -9,13 +9,12 @@ use super::*;
 const LIMITS: crate::security::SourceLimits = crate::security::SourceLimits::SMALL;
 const TAIL: &str = "H7Kq2Lm9Zp4Vw8Rt1Yb6Nc3Hd5Jf0GsAeUoI";
 
-/// A source of at least `bytes` bytes: a token written in pieces (a `+`
-/// join over two lines, an array, a template) at its start and at its end,
-/// around filler.
+/// A source of at least `bytes` bytes: a token in a literal, a URL and a
+/// template at its start and at its end, around filler.
 fn source(bytes: usize) -> String {
     let pieces = |name: &str| {
         format!(
-            "const {name} = \"ghp_\" +\n  \"{TAIL}\";\nconst {name}Parts = [\"ghp_\", \"{TAIL}\"].join(\"\");\nconst {name}Tpl = `${{\"ghp_\"}}${{\"{TAIL}\"}}`;\n"
+            "const {name} = \"ghp_{TAIL}\";\nconst {name}Url = \"https://ci:ghp_{TAIL}@github.com/o/r\";\nconst {name}Tpl = `token ghp_{TAIL}`;\n"
         )
     };
     let mut text = pieces("early");
@@ -93,9 +92,9 @@ fn rows_equal_the_read(
     (rows, redacted)
 }
 
-/// A token split over lines, an array or a template is hidden in every view
-/// of a source of any size, as a read of the same lines hides it: below the
-/// whole-file ceiling and above it, where the read streams.
+/// A token is hidden in every view of a source of any size, as a read of the
+/// same lines hides it: below the whole-file ceiling and above it, where the
+/// read streams.
 #[test]
 fn a_row_of_a_source_past_the_whole_file_ceiling_is_the_reads_line() {
     let root = tempfile::tempdir().expect("fixture");
@@ -149,7 +148,7 @@ fn a_source_past_the_ceiling_matches_what_its_read_serves() {
     let filler = "ordinary filler words line\n".repeat(LIMITS.whole_source / 20);
     let body = "aMD5auQx7Tq2Lw9Pz4Vb8Nc3Kd6Hf1Jg5Rs0Ym2Xe7Wu4Ai9Oo3Pl8Ki1Uj6Yh5Tg";
     let text = format!(
-        "{filler}-----BEGIN RSA PRIVATE KEY-----\n{body}\n{body}\n-----END RSA PRIVATE KEY-----\nhello world\ndb_password = \"Hx8vQ2mLp9Zr4Tn7Wk3Bd\"  # hello\n{filler}"
+        "{filler}-----BEGIN RSA PRIVATE KEY-----\n{body}\n{body}\n-----END RSA PRIVATE KEY-----\nhello world\naws_secret_access_key = \"Hx8vQ2mLp9Zr4Tn7Wk3BdAa1Bb2Cc3Dd4Ee5Ff6G\"  # hello\n{filler}"
     );
     assert!(text.len() > LIMITS.whole_source, "past the ceiling");
     fs::write(&path, &text).expect("fixture");

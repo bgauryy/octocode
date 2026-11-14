@@ -236,6 +236,7 @@ impl ToolRuntime {
             dispatcher,
             output: OutputSettings {
                 redact_emails: self.config.resolved.output.redact_emails,
+                redact_uuid: self.config.resolved.output.redact_uuid,
                 auto_page_chars: self.limits.auto_page_chars,
             },
             replayed,

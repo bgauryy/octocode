@@ -146,6 +146,12 @@ export const sections: ContractInput['sections'] = {
         description: 'Mask email addresses such as GitHub commit authors.',
         env: { name: 'OCTOCODE_REDACT_EMAILS', dotenv: 'home', workspaceNarrowsTo: 'true' },
       },
+      redactUuid: {
+        type: 'boolean',
+        default: false,
+        description: 'Mask UUIDs (8-4-4-4-12 hexadecimal) in every tool result. Off by default: a UUID is an identifier, not a secret.',
+        env: { name: 'OCTOCODE_REDACT_UUID', dotenv: 'home', workspaceNarrowsTo: 'true' },
+      },
     },
   },
   security: {
@@ -155,8 +161,8 @@ export const sections: ContractInput['sections'] = {
         type: 'enum',
         typeName: 'CredentialFilesPolicy',
         values: ['withhold', 'allow'],
-        description: 'Whether local read and search tools may read files named like credentials (.env, credentials.json, *.pem): withhold them, or allow them in the workspace and allowed paths so results match ripgrep. Secret values stay redacted. Sensitive directories such as .ssh and .git, the Octocode home, and files and dot directories directly in your home stay withheld. Graph snapshots, clasify and classification never read these files, and allow keeps saved local results in memory, so a cursor ends with its process.',
-        notes: 'Security-sensitive: redaction recognizes secret formats, so a secret in no known format can appear in results. Home-only, so a repository cannot turn it on.',
+        description: 'Whether local read and search tools may read the known credential files (.env and .env.*, credentials.json, .netrc, .npmrc, id_rsa*, *.pem and the like): withhold them, or allow them in the workspace and allowed paths so results match ripgrep. Known secret formats stay redacted. Credential directories such as .ssh, .aws and .git, the Octocode home, and known credential files directly in your home or in its dot directories (~/.npmrc, ~/.codex/auth.json) stay withheld; every other file, such as ~/.zshrc or a shell history, follows the allowed roots like any file. Graph snapshots, clasify and classification never read these files, and allow keeps saved local results in memory, so a cursor ends with its process.',
+        notes: 'Security-sensitive: redaction recognizes known secret formats only, so a secret in no known format can appear in results. Home-only, so a repository cannot turn it on.',
         env: {
           name: 'OCTOCODE_CREDENTIAL_FILES',
           dotenv: 'home',

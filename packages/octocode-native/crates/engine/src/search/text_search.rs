@@ -14,6 +14,7 @@ use mode::resolve_mode;
 use pcre2::search_pcre2;
 use result::build_result;
 use state::{CollectState, Held};
+use std::borrow::Cow;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -129,10 +130,11 @@ pub fn search_window(
 
     // ── Default Rust-regex path ─────────────────────────────────────────────────
     let b = rust_matcher_builder(&opts);
-    let spelled = |pattern: &str| rust_spelling(&opts, pattern);
-    let matcher = b.build(&spelled(&opts.pattern)).map_err(to_engine_err)?;
+    let matcher = b
+        .build(&rust_spelling(&opts, &opts.pattern))
+        .map_err(to_engine_err)?;
     let terms = mode::term_matchers(&opts, mode, |term| {
-        b.build(&spelled(term)).map_err(to_engine_err)
+        b.build(&rust_spelling(&opts, term)).map_err(to_engine_err)
     })?;
     // The Rust regex engine is linear-time and cannot catastrophically
     // backtrack: its search is one window.
@@ -182,11 +184,11 @@ fn rust_matcher_builder(opts: &TextSearchOptions) -> RegexMatcherBuilder {
 }
 
 /// `pattern` as the Rust regex engine reads it: a literal is escaped.
-fn rust_spelling(opts: &TextSearchOptions, pattern: &str) -> String {
+fn rust_spelling<'a>(opts: &TextSearchOptions, pattern: &'a str) -> Cow<'a, str> {
     if opts.syntax == PatternSyntax::Literal {
-        regex::escape(pattern)
+        Cow::Owned(regex::escape(pattern))
     } else {
-        pattern.to_owned()
+        Cow::Borrowed(pattern)
     }
 }
 

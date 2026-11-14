@@ -224,7 +224,8 @@ fn find_item(operation: Option<&str>, query: &Value) -> Option<Value> {
     let owner = query.get("owner").and_then(Value::as_str)?;
     let repo = query.get("repo").and_then(Value::as_str)?;
     let listing = Continuation::related_query(wire_query::<GhSearchHistoryQuery>(
-        json!({"operation": search, "owner": owner, "repo": repo}),
+        json!({"operation": search, "owner": owner, "repo": repo,
+            "limit": crate::tools::gh_shared::RECOVERY_LIMIT}),
     )?)
     .build();
     Some(Value::Object(Map::from_iter([(name.to_owned(), listing)])))

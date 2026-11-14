@@ -134,13 +134,7 @@ pub(crate) fn process_fetched_content_selected<S: ContentScan>(
         }
         return select_no_match(&selection_input, missed);
     }
-    let mut view = match select_view(
-        q,
-        &mut ext,
-        &mut source.redacted_lines,
-        &source.text,
-        cancel,
-    ) {
+    let mut view = match select_view(q, &mut ext, &source.text, cancel) {
         Ok(view) => view,
         Err(reason) => return no_outline(q, reason, source.total_lines),
     };

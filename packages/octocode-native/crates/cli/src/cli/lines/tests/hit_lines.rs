@@ -24,7 +24,7 @@ fn hits_print_like_rg_and_lose_no_field() {
     );
     assert_eq!(
         lines.notes,
-        "# matchCount: 2\n# matchedLineCount: 2\n# root: /nowhere (paths are relative to it)"
+        "# matchCount=matchedLineCount 2\n# root: /nowhere (paths are relative to it)"
     );
     for evidence in [
         "use a;",

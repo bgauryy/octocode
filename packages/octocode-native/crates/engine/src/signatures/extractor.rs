@@ -4,6 +4,6 @@
 mod parse;
 
 pub(crate) use parse::{
-    ParseFailure, Work, measure, parse_before, parse_ranges_before, parse_ranges_ending,
-    parse_until_stopped, parse_with_deadline, whole_file_deadline,
+    ParseFailure, parse_before, parse_ranges_before, parse_ranges_ending, parse_until_stopped,
+    parse_with_deadline, whole_file_deadline,
 };

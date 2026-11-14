@@ -91,10 +91,16 @@ impl<'a, 'p> Fallback<'a, 'p> {
         let path = node_path(node)?;
         let source = self.source(&path).await?;
         let document = self.document(&path).await?;
-        let bases = heritage::direct_bases(&document, &source.content, &path, node)
-            .map_err(LspFailure::invalid_query)?;
+        let mut bases = heritage::direct_bases(&document, &source.content, &path, node)
+            .map_err(LspFailure::invalid_query)?
+            .into_iter()
+            .map(|base| (path.clone(), base))
+            .collect::<Vec<_>>();
+        if heritage::named_by_impls(node, &path) {
+            bases.extend(self.impl_bases(node, &path).await?);
+        }
         let mut resolved = Vec::new();
-        for base in bases {
+        for (path, base) in bases {
             match self.definitions(&path, base.line, base.character).await {
                 Ok(nodes) => resolved.extend(nodes),
                 Err(failure) if failure.is_cancelled() => return Err(failure),
@@ -103,6 +109,60 @@ impl<'a, 'p> Fallback<'a, 'p> {
         }
         self.bases.lock().await.insert(key, resolved.clone());
         Ok(resolved)
+    }
+
+    /// The traits `node` (a type whose traits its `impl` blocks name) is
+    /// implemented for, each with the file of its clause: the server's
+    /// implementation answer at the type lists its impl blocks, and each
+    /// trait implementation among them names its trait. An inherent impl
+    /// names none. A failed request is kept, so the row is partial rather
+    /// than a type that implements nothing.
+    async fn impl_bases(
+        &self,
+        node: &Value,
+        path: &str,
+    ) -> Result<Vec<(String, heritage::BaseType)>, LspFailure> {
+        let (line, character) = node_position(node)?;
+        let found = match get_locations(
+            self.client,
+            self.snippet_policy,
+            self.cancel,
+            LocationRequest::Implementation,
+            path,
+            line,
+            character,
+        )
+        .await
+        {
+            Ok(found) => found,
+            Err(failure) if failure.is_cancelled() => return Err(failure),
+            Err(failure) => {
+                self.fail_from(failure).await;
+                return Ok(Vec::new());
+            }
+        };
+        let mut bases = Vec::new();
+        for location in found {
+            self.cancel.check().map_err(LspFailure::cancelled)?;
+            let file = uri_to_path(&location.uri);
+            let (line, character) = (location.range.start.line, location.range.start.character);
+            let implementation = match self.impl_node(&file, line, character).await {
+                Ok(Some(implementation)) => implementation,
+                Ok(None) => continue,
+                Err(failure) if failure.is_cancelled() => return Err(failure),
+                Err(failure) => {
+                    self.fail_from(failure).await;
+                    continue;
+                }
+            };
+            let source = self.source(&file).await?;
+            let document = self.document(&file).await?;
+            match heritage::direct_bases(&document, &source.content, &file, &implementation) {
+                Ok(found) => bases.extend(found.into_iter().map(|base| (file.clone(), base))),
+                Err(message) => self.fail(message).await,
+            }
+        }
+        Ok(bases)
     }
 
     pub(super) async fn subtypes(&self, parent: &Value) -> Result<Vec<Value>, LspFailure> {

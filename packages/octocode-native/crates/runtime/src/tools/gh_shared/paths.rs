@@ -59,9 +59,6 @@ pub(crate) fn missing_path(error: &ProviderError, path: Option<&str>) -> bool {
         && path.is_some_and(|path| !path.trim_matches('/').is_empty())
 }
 
-/// Directory listings a missing-path recovery may spend.
-const PATH_RECOVERY_LISTINGS: usize = 6;
-
 /// Where a missing path's nearest existing parts are.
 pub(crate) struct PathRecovery {
     /// Deepest existing directory on the requested path (case-corrected).
@@ -121,7 +118,10 @@ impl<'a> RepoPath<'a> {
 }
 
 /// Walk up to the nearest directory that exists, then back down matching each
-/// remaining segment case-insensitively, within [`PATH_RECOVERY_LISTINGS`].
+/// remaining segment case-insensitively. One read answers it: the commit's
+/// recursive tree, walked in memory ([`walk_tree`]). A tree GitHub truncates
+/// (or does not answer) is walked by directory listings instead
+/// ([`walk_listings`]), one per level, bounded by the path's own depth.
 pub(crate) async fn locate_path(
     provider: &GitHubProvider,
     at: &RepoPath<'_>,
@@ -133,21 +133,106 @@ pub(crate) async fn locate_path(
         .resolve_reference(owner, repo, at.reference, context)
         .await
         .ok()?;
-    let mut listings = 0;
+    let tree = provider
+        .transport
+        .get_tree(
+            &octocode_github::TreeRequest {
+                owner: owner.into(),
+                repo: repo.into(),
+                reference: reference.clone(),
+                recursive: true,
+            },
+            context,
+        )
+        .await;
+    match tree {
+        Ok(tree) if !tree.truncated => Some(walk_tree(&segments, &tree.tree)),
+        _ => walk_listings(provider, at, &segments, &reference, context).await,
+    }
+}
+
+/// An entry's kind as the Contents API names it: `dir`, `file`, `symlink`
+/// (a blob of mode `120000`) or `submodule`.
+fn content_kind(entry: &octocode_github::TreeEntry) -> &str {
+    match entry.kind.as_str() {
+        "tree" => "dir",
+        "commit" => "submodule",
+        "blob" if entry.mode.as_deref() == Some("120000") => "symlink",
+        "blob" => "file",
+        other => other,
+    }
+}
+
+/// [`locate_path`] over a whole recursive tree.
+fn walk_tree(segments: &[&str], entries: &[octocode_github::TreeEntry]) -> PathRecovery {
+    let mut children: std::collections::HashMap<&str, Vec<(&str, &str, &str)>> =
+        std::collections::HashMap::new();
+    for entry in entries {
+        let (parent, name) = entry.path.rsplit_once('/').unwrap_or(("", &entry.path));
+        children
+            .entry(parent)
+            .or_default()
+            .push((name, content_kind(entry), &entry.path));
+    }
+    let mut depth = segments.len().saturating_sub(1);
+    while depth > 0 && !children.contains_key(segments[..depth].join("/").as_str()) {
+        depth -= 1;
+    }
+    let mut directory = segments[..depth].join("/");
+    for (index, wanted) in segments.iter().enumerate().skip(depth) {
+        let listed = children
+            .get(directory.as_str())
+            .map_or(&[][..], Vec::as_slice);
+        let matches: Vec<_> = listed
+            .iter()
+            .filter(|(name, _, _)| name.eq_ignore_ascii_case(wanted))
+            .collect();
+        let (_, kind, path) = match matches.as_slice() {
+            [entry] => **entry,
+            many => match many.iter().find(|(name, _, _)| name == wanted) {
+                Some(entry) => **entry,
+                None => break,
+            },
+        };
+        let last = index + 1 == segments.len();
+        if last && kind == "file" {
+            return PathRecovery {
+                directory,
+                file: Some(path.to_owned()),
+            };
+        }
+        if kind != "dir" {
+            break;
+        }
+        directory = path.to_owned();
+        if last {
+            break;
+        }
+    }
+    PathRecovery {
+        directory,
+        file: None,
+    }
+}
+
+/// [`locate_path`] by directory listings, for a tree GitHub truncated.
+async fn walk_listings(
+    provider: &GitHubProvider,
+    at: &RepoPath<'_>,
+    segments: &[&str],
+    reference: &str,
+    context: &RequestContext,
+) -> Option<PathRecovery> {
+    let (owner, repo) = (at.owner, at.repo);
     let mut depth = segments.len().saturating_sub(1);
     let mut listing = loop {
-        listings += 1;
         let directory = segments[..depth].join("/");
         match provider
-            .repository_contents(owner, repo, &directory, &reference, context)
+            .repository_contents(owner, repo, &directory, reference, context)
             .await
         {
             Ok(listing) => break listing,
-            Err(error)
-                if error.kind == ProviderErrorKind::NotFound
-                    && depth > 0
-                    && listings < PATH_RECOVERY_LISTINGS =>
-            {
+            Err(error) if error.kind == ProviderErrorKind::NotFound && depth > 0 => {
                 depth -= 1;
             }
             Err(_) => return None,
@@ -182,12 +267,8 @@ pub(crate) async fn locate_path(
             directory = path;
             break;
         }
-        if listings >= PATH_RECOVERY_LISTINGS {
-            break;
-        }
-        listings += 1;
         match provider
-            .repository_contents(owner, repo, &path, &reference, context)
+            .repository_contents(owner, repo, &path, reference, context)
             .await
         {
             Ok(next) => {

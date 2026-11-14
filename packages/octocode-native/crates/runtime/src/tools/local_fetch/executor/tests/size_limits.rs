@@ -189,10 +189,10 @@ fn at_limit_plain_read_is_allowed() {
 }
 
 /// A manifest's value, fake.
-const MANIFEST_VALUE: &str = "c2VjcmV0LXZhbHVlLW9mLXRoZS1maXh0dXJl";
+const MANIFEST_VALUE: &str = "ghp_c2VjcmV0LXZhbHVlLW9mLXRoZS1maXh0dXJl";
 
-/// A Kubernetes Secret as `kubectl` orders one, its data lines from its kind,
-/// in `pad` lines of `line` and blanks up to `size` bytes when `size` is set.
+/// A JSON object holding a token, its data lines from its kind, in `pad`
+/// lines of `line` and blanks up to `size` bytes when `size` is set.
 fn manifest(names_kind: bool, line: &[u8], pad: usize, size: Option<usize>) -> Vec<u8> {
     let mut text = format!("{{\n\"data\":{{\n\"k\":\"{MANIFEST_VALUE}\"\n}},\n").into_bytes();
     let tail: &[u8] = if names_kind {
@@ -242,7 +242,7 @@ fn reads(path: &std::path::Path, dir: &std::path::Path) -> Vec<LocalFetchResult>
 fn a_secret_is_hidden_up_to_the_last_byte_a_source_reads_whole() {
     let temp = Fixture::new();
     let path = temp.0.join("dump.json");
-    for size in [10_000_001, MAX_SOURCE_BYTES as usize] {
+    for size in [MAX_SOURCE_BYTES as usize - 1, MAX_SOURCE_BYTES as usize] {
         let text = manifest(true, b"ordinary words\n", 0, Some(size));
         assert_eq!(text.len(), size);
         fs::write(&path, &text).expect("write");
@@ -256,16 +256,11 @@ fn a_secret_is_hidden_up_to_the_last_byte_a_source_reads_whole() {
             );
         }
     }
-    assert_eq!(MAX_SOURCE_BYTES, 10 * 1024 * 1024);
-    assert_eq!(
-        MAX_SOURCE_BYTES,
-        octocode_engine::security::MAX_CONTENT_SIZE as u64
-    );
 }
 
 /// Decoding can grow a source past what a read holds at once, after it was read
-/// whole. It is judged as any other: what its object says hides the value, and every
-/// way of reading it shows the rest.
+/// whole. It is judged as any other: the token is hidden, and every way of
+/// reading it shows the rest.
 #[test]
 fn a_source_grown_past_the_bound_is_judged_as_any_other() {
     let temp = Fixture::new();

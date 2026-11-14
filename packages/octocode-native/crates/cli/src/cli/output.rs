@@ -74,7 +74,12 @@ impl Printed {
             Err(error) => {
                 let projected = tool_error_result(tool, &error);
                 let (body, error_text) = if json_out {
-                    (wire_json(&projected.envelope), Some(projected.text))
+                    // The text beside the JSON is for a person's terminal:
+                    // a value in it prints as data, never as a control code.
+                    (
+                        wire_json(&projected.envelope),
+                        Some(super::lines::printable_text(&projected.text)),
+                    )
                 } else {
                     (super::lines::rejected(&projected.envelope), None)
                 };

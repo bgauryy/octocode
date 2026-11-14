@@ -16,7 +16,7 @@ use serde_json::Value;
 /// `response_query` contains only admitted rows. Contract-rejected siblings
 /// are skipped while pairing those rows with the indexed result envelope.
 pub(crate) fn decorate(tool: ToolId, structured: &mut Value, response_query: &Value) {
-    let Some((scope, unit)) = receipt_kind(tool) else {
+    let Some((scope, unit)) = tool.selection_receipt() else {
         return;
     };
     let queries: Vec<&Value> = match response_query.get("queries").and_then(Value::as_array) {
@@ -54,24 +54,10 @@ pub(crate) fn decorate(tool: ToolId, structured: &mut Value, response_query: &Va
 /// Isolated contract failures are not admitted and therefore have no entry in
 /// `response_query`. Adapter-level invalid-input failures carry a repair call
 /// and remain paired with their admitted query.
-fn contract_rejection(row: &Value) -> bool {
+pub(super) fn contract_rejection(row: &Value) -> bool {
     row.get("status") == Some(&Value::String("error".into()))
         && crate::id::error_code_of(&row["data"]) == Some(ErrorCode::InvalidInput)
         && row.pointer("/data/next").is_none()
-}
-
-/// The scope and unit of each classified tool's receipt.
-pub(crate) fn receipt_kind(tool: ToolId) -> Option<(SelectionScope, SelectionUnit)> {
-    match tool {
-        ToolId::LocalSearch | ToolId::LocalFetch | ToolId::GhGetFileContent => {
-            Some((SelectionScope::SelectedView, SelectionUnit::Chunks))
-        }
-        ToolId::GhSearchCode
-        | ToolId::GhSearchHistory
-        | ToolId::GhGetHistoryItem
-        | ToolId::StructureSearch => Some((SelectionScope::ProviderPage, SelectionUnit::Hits)),
-        _ => None,
-    }
 }
 
 /// The receipt of a view nothing judged: all `total` items are unknown.
@@ -227,22 +213,29 @@ mod tests {
     }
 
     #[test]
-    fn each_classified_tool_has_one_receipt_kind_and_an_unavailable_receipt_leaves_all_unknown() {
+    fn each_classified_tool_has_one_selection_receipt_and_an_unavailable_receipt_leaves_all_unknown()
+     {
         for tool in [
             ToolId::LocalSearch,
             ToolId::LocalFetch,
             ToolId::GhGetFileContent,
         ] {
             assert_eq!(
-                receipt_kind(tool),
+                tool.selection_receipt(),
                 Some((SelectionScope::SelectedView, SelectionUnit::Chunks))
             );
         }
-        assert_eq!(
-            receipt_kind(ToolId::GhSearchCode),
-            Some((SelectionScope::ProviderPage, SelectionUnit::Hits))
-        );
-        assert_eq!(receipt_kind(ToolId::GhSearchRepo), None);
+        for tool in ToolId::ALL
+            .into_iter()
+            .filter(|tool| tool.selects_provider_page())
+        {
+            assert_eq!(
+                tool.selection_receipt(),
+                Some((SelectionScope::ProviderPage, SelectionUnit::Hits)),
+                "{tool:?}"
+            );
+        }
+        assert_eq!(ToolId::GhSearchRepo.selection_receipt(), None);
         let receipt = unavailable(
             SelectionScope::ProviderPage,
             SelectionUnit::Hits,

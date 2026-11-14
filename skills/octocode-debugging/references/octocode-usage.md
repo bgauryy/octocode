@@ -31,7 +31,7 @@ Save long command output under the active skill's workspace scratch directory. S
 
 For a pipe-only input, use `set -o pipefail; <cmd> 2>&1 | <cli> clasify --content - '<request-json>'`; save reusable requests and pass `--input <file>`. Classification may incur provider cost; discovery does not.
 
-Use observed paths, lines, refs and identifiers. Shared fields have one form: `matchString` string arrays, `contextLines:{before,after}`, `ranges:[{startLine,endLine}]`, numeric `{min,max}`, dates `{from,to}`, `sort:{by,order}`. Live schemas own exact fields and limits. Send declared fields: a known misspelled field runs repaired with a hint naming the real one; bare queries are refused.
+Use observed paths, lines, refs and identifiers. Shared fields have one form: `matchString` string arrays, `contextLines:{before,after}`, `ranges:[{startLine,endLine}]`, numeric `{min,max}`, dates `{from,to}`, `sort:{by,order}`. Live schemas own exact fields and limits. Send declared fields: an unknown or misspelled field is refused, with a suggested name when recognizable. Correct the field and retry; bare queries are refused.
 
 ## Availability
 

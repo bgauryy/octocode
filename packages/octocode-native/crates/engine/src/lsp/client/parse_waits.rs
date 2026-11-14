@@ -2,40 +2,50 @@
 //! file's diagnostics.
 
 use super::NativeLspClient;
+use crate::lsp::uri::path_to_uri;
 use std::collections::HashSet;
-use tokio::time::Duration;
 
 impl NativeLspClient {
-    /// Which of `files` the server has parsed, waiting for each in turn, at most
-    /// `timeout_ms` each. A wait that saw no report for any document and no
-    /// progress from the server ends the rest: an idle server is parsing none of
-    /// them, and each would spend the same wait. A busy one keeps its full wait,
-    /// file by file. A file left out is unproven, never assumed parsed.
-    pub async fn wait_for_parses(&self, files: Vec<String>, timeout_ms: u32) -> HashSet<String> {
-        let mut parsed = HashSet::with_capacity(files.len());
+    /// Which of `files` the server has parsed. Waits for all of them at once,
+    /// for as long as the server works: a window of `quiet_ms` with no sign of
+    /// work (CPU time, a work-done notice, any message, another file's report
+    /// included) ends the wait, as does the caller's deadline; a cancel drops
+    /// it. An idle server is parsing none of them, so it costs one window
+    /// however many files wait. Every file is then checked without waiting, so
+    /// one reported while another was waited for counts; a file left out is
+    /// unproven, never assumed parsed.
+    pub async fn wait_for_parses(&self, files: Vec<String>, quiet_ms: u32) -> HashSet<String> {
+        let _activity = self.lease();
         let Ok(connection) = self.connection_handle().await else {
-            return parsed;
+            return HashSet::new();
         };
-        let waited = Duration::from_millis(u64::from(timeout_ms));
-        for file in files {
-            let published = connection.push_diagnostics_published();
-            let cpu = connection.server_cpu_time();
-            match self
-                .get_push_diagnostics(file.clone(), Some(timeout_ms))
-                .await
-            {
-                Ok(Some(_)) => {
-                    parsed.insert(file);
-                }
-                Ok(None)
-                    if connection.push_diagnostics_published() == published
-                        && !connection.server_progressed_since(cpu, waited) =>
-                {
-                    break;
-                }
-                _ => {}
-            }
-        }
-        parsed
+        let documents = {
+            let open_docs = self
+                .inner
+                .open_docs
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            files
+                .iter()
+                .filter_map(|file| {
+                    let uri = path_to_uri(file).ok()?;
+                    let version = open_docs.version(&uri).map(i64::from);
+                    Some((file, uri, version))
+                })
+                .collect::<Vec<_>>()
+        };
+        let waited = documents
+            .iter()
+            .map(|(_, uri, version)| (uri.clone(), *version))
+            .collect::<Vec<_>>();
+        let reports = connection
+            .wait_for_push_diagnostics(&waited, quiet_ms)
+            .await;
+        documents
+            .into_iter()
+            .zip(reports)
+            .filter(|(_, report)| report.is_some())
+            .map(|((file, _, _), _)| file.clone())
+            .collect()
     }
 }

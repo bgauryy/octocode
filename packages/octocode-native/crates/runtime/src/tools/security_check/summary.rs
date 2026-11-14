@@ -72,8 +72,9 @@ fn summary(row: Value, target: Target<'_>) -> Value {
         indication(&mut lean, listed, target.unfixed_in_major);
     }
     // The sentence stays where no field says what it does: a row that owes a
-    // verdict and gives none (an empty row too: a count of 0 there proves
-    // nothing, and only the sentence says so), or one with no finished list.
+    // verdict and gives none (a finished empty list too: a count of 0 there
+    // proves nothing, and only the sentence says so), or one with no
+    // finished list.
     let no_verdict = (target.gives_verdict && lean.get("affected").is_none())
         || fields.get("advisories").is_none();
     let echoes = |field: &str, asked: Option<&str>, fields: &Map<String, Value>| {
@@ -88,8 +89,13 @@ fn summary(row: Value, target: Target<'_>) -> Value {
     if echoes("version", target.asked_version, &fields) {
         fields.shift_remove("version");
     }
+    // `outdated:true` names its newer release: the version to move to is
+    // the decision, not one call away.
+    let outdated = fields.get("outdated") == Some(&Value::Bool(true));
     for detail in DETAIL_FIELDS {
-        fields.shift_remove(detail);
+        if !(outdated && detail == "latestVersion") {
+            fields.shift_remove(detail);
+        }
     }
     let sources = fields.shift_remove("sources");
     let related = fields.shift_remove("related");

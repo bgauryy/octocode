@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { basename, join } from 'path';
 import type { Payload, Session } from './cdp-connection.mjs';
 import { errorMessage } from './error-message.mjs';
+import { packageTmpDir } from './engine-io.mjs';
 
 type Json = Record<string, unknown>;
 type Log = (line: string) => void;
@@ -65,14 +66,7 @@ export function sessionMetaDir(
   port: string
 ) {
   const dir =
-    envDir ||
-    join(
-      base,
-      'octocode-chrome-devtools',
-      'tmp',
-      'session-meta',
-      `port-${port}`
-    );
+    envDir || join(packageTmpDir(base), 'session-meta', `port-${port}`);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   return dir;
 }
@@ -115,7 +109,7 @@ export function writeTargetSnapshot(
 /** A new run folder under <base>/octocode-chrome-devtools/tmp, named by its start second. */
 export function createRunDir(base: string) {
   const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-  const runs = join(base, 'octocode-chrome-devtools', 'tmp');
+  const runs = packageTmpDir(base);
   mkdirSync(runs, { recursive: true });
   for (let n = 1; ; n++) {
     const dir = join(runs, n === 1 ? ts : `${ts}-${n}`);

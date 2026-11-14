@@ -430,19 +430,17 @@ fn by_detector_reconciles_with_the_listed_total_through_the_filter() {
         filtered.value
     );
     assert!(!notes(&all).contains("byDetector"), "{}", all.value);
+    // The hidden count is stated once: `hiddenBelowTier`, never again on a note.
+    let restated = filtered.value["summary"]["notes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|note| note.get("hidden").is_some())
+        .count();
+    assert_eq!(restated, 0, "{}", filtered.value["summary"]);
 }
 
-/// The `graphBuild` call a note's text offers: the JSON row after the tool name.
-fn offered_build(text: &str) -> Value {
-    let start = text.find("graphBuild ").expect("a graphBuild lead") + "graphBuild ".len();
-    serde_json::Deserializer::from_str(&text[start..])
-        .into_iter::<Value>()
-        .next()
-        .expect("a row")
-        .expect("json")
-}
-
-/// The wider build the missing-manifest note offers rebuilds the snapshot's
+/// The wider build the missing-manifest lead offers rebuilds the snapshot's
 /// scope above its root: the walk, `exclude` and `parserGlobs` it was built
 /// with come along, their root-relative globs rebased onto the new root.
 #[test]
@@ -473,24 +471,23 @@ fn the_manifest_above_lead_carries_the_snapshots_whole_scope() {
     );
     assert_eq!(built.class, ExitClass::Success, "{}", built.value);
     let issues = ask(dir.0.as_path(), "issues", None, |_| {});
-    let note = issues.value["summary"]["notes"]
+    let lead = issues.value["related"]
         .as_array()
         .into_iter()
         .flatten()
-        .filter_map(|note| note["skipped"].as_str())
-        .find(|text| text.contains("holds package.json"))
-        .unwrap_or_else(|| panic!("no missing-manifest note: {}", issues.value));
+        .find(|call| call["tool"] == "graphBuild")
+        .unwrap_or_else(|| panic!("no missing-manifest lead: {}", issues.value));
+    // The workspace root is the default `path`, so the call leaves it out.
     assert_eq!(
-        offered_build(note),
+        lead["input"]["queries"][0],
         json!({
-            "path": ".",
             "exclude": ["*.gen.ts", "/app/src/skip"],
             "parserGlobs": {"cpp": ["/app/inc/*.h"]},
             "includeHidden": true,
             "includeIgnored": false,
             "defaultExcludes": true,
         }),
-        "{note}"
+        "{lead}"
     );
 }
 
@@ -539,6 +536,13 @@ fn a_critical_file_lead_reaches_every_dependent_it_counts() {
         .as_u64()
         .unwrap();
     assert_eq!(counted, 8, "{finding}");
+    // A rank is a share, not a measurement: 4 significant digits.
+    let rank = finding["evidence"]["pageRank"].as_f64().expect("pageRank");
+    assert_eq!(
+        format!("{rank:.3e}").parse::<f64>().ok(),
+        Some(rank),
+        "{finding}"
+    );
     let depth = &finding["evidence"]["farthestDepth"];
     assert_eq!(*depth, 6, "the deepest counted dependent: {finding}");
     assert!(finding.get("verify").is_none(), "{finding}");
@@ -582,20 +586,29 @@ fn the_issues_summary_states_no_text_every_answer_would_repeat() {
     assert!(texts.is_empty(), "static text in the summary: {texts:?}");
 }
 
-/// The controls `summary.notes` states once for `detector`.
-fn shared_controls<'a>(answer: &'a Value, detector: &'a str) -> impl Iterator<Item = &'a Value> {
+/// What `summary.notes` states every listed row of `detector` shares.
+fn shared<'a>(answer: &'a Value, detector: &str) -> &'a Value {
     answer["summary"]["notes"]
         .as_array()
         .into_iter()
         .flatten()
-        .filter(move |note| note["detector"] == detector)
-        .filter_map(|note| note["controls"].as_array())
+        .find(|note| note["detector"] == detector && note.get("shared").is_some())
+        .map_or(&Value::Null, |note| &note["shared"])
+}
+
+/// The controls `summary.notes` states once for `detector`.
+fn shared_controls<'a>(answer: &'a Value, detector: &str) -> impl Iterator<Item = &'a Value> {
+    shared(answer, detector)["controls"]
+        .as_array()
+        .into_iter()
         .flatten()
 }
 
 /// A detector's controls are facts of the detector: the ones every listed
-/// finding of it applied go out once, in a `summary.notes` entry, and no row
-/// repeats them; together they are every control each finding applied.
+/// finding of it applied go out once, in a `summary.notes` entry
+/// `{detector, shared}`, and no row repeats them; together they are every control each finding
+/// applied. Any other field every row of the detector states alike goes
+/// there too, and no row repeats it.
 #[test]
 fn controls_every_finding_of_a_detector_shares_are_stated_once() {
     let dir = issues_fixture();
@@ -620,7 +633,25 @@ fn controls_every_finding_of_a_detector_shares_are_stated_once() {
                 "{detector} repeats {control}: {row}"
             );
         }
+        let constants = shared(&out.value, detector);
+        for (key, value) in constants.as_object().into_iter().flatten() {
+            if key == "evidence" {
+                for inner in value.as_object().into_iter().flatten().map(|(key, _)| key) {
+                    assert!(row["evidence"].get(inner).is_none(), "{inner}: {row}");
+                }
+            } else if key != "controls" {
+                assert!(row.get(key).is_none(), "{detector} repeats {key}: {row}");
+            }
+        }
     }
+    let stated_scalars = rows.iter().any(|row| {
+        shared(&out.value, row["detector"].as_str().unwrap_or_default())["confidence"].is_number()
+    });
+    assert!(
+        stated_scalars,
+        "a detector states its confidence: {}",
+        out.value
+    );
     assert!(
         stated > 0,
         "some detector states its controls: {}",

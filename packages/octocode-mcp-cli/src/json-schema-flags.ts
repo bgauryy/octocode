@@ -1,5 +1,6 @@
-// Flags from an MCP tool's JSON Schema: one flag per property of an object root, typed
-// by the property's `type` or `enum`. A keyword no flag can hold keeps the property as
+// Flags from a JSON Schema (an MCP tool's, or `z.toJSONSchema` of a Zod command's): one
+// flag per property of an object root, typed by the property's `type`, `enum` or `const`,
+// or by an `anyOf`/`oneOf` of constants. A keyword no flag can hold keeps the property as
 // one partial JSON flag and leaves a fidelity note.
 import { allocateFlag, booleanFlag, inputFlag, notesOf, type FlagBase } from './flag-names.js';
 import { isRecord } from './json-schema.js';
@@ -27,12 +28,31 @@ function arrayItemKind(items: unknown): ItemKind | undefined {
   return isPrimitiveType(itemType) && schemaNotes(items).length === 0 ? itemType : undefined;
 }
 
+/** The primitive values a schema admits when it is a constant or an enum of primitives. */
+function constantValues(schema: unknown): unknown[] | undefined {
+  if (!isRecord(schema)) return undefined;
+  if (Object.prototype.hasOwnProperty.call(schema, 'const')) return typeof schema.const === 'object' ? undefined : [schema.const];
+  if (Array.isArray(schema.enum) && schema.enum.every(value => typeof value !== 'object')) return schema.enum;
+  return undefined;
+}
+
+/** The values of an `anyOf` or `oneOf` whose every branch is a constant (a union of literals). */
+function unionValues(schema: JsonSchema): unknown[] | undefined {
+  const branches = schema.anyOf ?? schema.oneOf;
+  if (!Array.isArray(branches) || branches.length === 0 || (schema.anyOf !== undefined && schema.oneOf !== undefined)) return undefined;
+  const values: unknown[] = [];
+  for (const branch of branches) {
+    const branchValues = constantValues(branch);
+    if (!branchValues) return undefined;
+    values.push(...branchValues);
+  }
+  return values;
+}
+
 /** The flag of a property whose schema uses no keyword a flag cannot hold. */
 function typedFlag(base: FlagBase, record: JsonSchema, notes: string[]): { flag: Flag; notes: string[] } {
-  const enumValues = Array.isArray(record.enum) ? record.enum : undefined;
-  if (enumValues && enumValues.every(value => typeof value !== 'object')) {
-    return { flag: { ...base, kind: 'enum', enumValues }, notes };
-  }
+  const enumValues = constantValues(record);
+  if (enumValues) return { flag: { ...base, kind: 'enum', enumValues }, notes };
   const type = record.type;
   if (Array.isArray(type)) {
     return { flag: { ...base, kind: 'json', partial: true }, notes: ['union'] };
@@ -82,6 +102,10 @@ function flagFromJsonProperty(
     ...(description ? { description } : {}),
     ...(hasDefault ? { defaultValue } : {}),
   };
+  const literals = unionValues(schema);
+  if (literals && notes.every(note => note === 'anyOf' || note === 'oneOf')) {
+    return { flag: { ...base, kind: 'enum', enumValues: literals }, notes: [] };
+  }
   if (notes.length > 0) {
     return { flag: { ...base, kind: 'json', partial: true }, notes };
   }
@@ -106,7 +130,7 @@ export function flagsFromJsonSchema(schema: JsonSchema): { flags: Flag[]; notes:
   const rootNotes = schemaNotes(schema);
   const properties = objectProperties(schema);
   if (!properties) {
-    return { flags: [inputFlag()], notes: notesOf(rootNotes, ['partial']) };
+    return { flags: [inputFlag(typeof schema.description === 'string' ? schema.description : undefined)], notes: notesOf(rootNotes, ['partial']) };
   }
   const required = new Set(Array.isArray(schema.required) ? schema.required.map(String) : []);
   const used = new Set<string>();

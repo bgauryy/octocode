@@ -297,3 +297,21 @@ fn end_anchor_matches_crlf_lines() {
         );
     }
 }
+
+#[test]
+fn rust_spelling_borrows_regex_patterns_and_escapes_literal_patterns() {
+    let pattern = r"(?m)^déclaration\s+\w+$";
+    let mut options = opts(String::new(), pattern);
+    for syntax in [PatternSyntax::Regex, PatternSyntax::Pcre2] {
+        options.syntax = syntax;
+        let spelled = rust_spelling(&options, pattern);
+        assert!(matches!(spelled, std::borrow::Cow::Borrowed(_)));
+        assert_eq!(spelled.as_ptr(), pattern.as_ptr());
+        assert_eq!(spelled, pattern);
+    }
+    options.syntax = PatternSyntax::Literal;
+    let spelled = rust_spelling(&options, pattern);
+    assert_eq!(spelled, regex::escape(pattern));
+    let matcher = regex::Regex::new(&spelled).unwrap();
+    assert!(matcher.is_match(pattern));
+}

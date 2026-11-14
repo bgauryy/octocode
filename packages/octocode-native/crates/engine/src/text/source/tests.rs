@@ -199,6 +199,26 @@ fn a_char_straddling_the_sniff_boundary_and_stray_bytes_are_text() {
     assert_eq!(sniff(&controls), BinaryVerdict::Binary);
 }
 
+/// The terminal controls file(1) counts as text (bell, backspace, vertical
+/// tab, form feed, escape) are text wherever they stand, even alone in a short
+/// file; any other C0 control still counts toward the binary density, and a
+/// NUL is binary.
+#[test]
+fn terminal_controls_are_text_and_other_controls_stay_binary() {
+    for text in [
+        &b"build done\x07\n"[..],
+        b"a\x08b\n",
+        b"page\x0cbreak\n",
+        b"tab\x0bstop\n",
+        b"\x1b]0;title\x07\n",
+    ] {
+        assert_eq!(sniff(text), BinaryVerdict::Text, "{text:?}");
+        assert_eq!(sniff_complete(text), BinaryVerdict::Text, "{text:?}");
+    }
+    assert_eq!(sniff(b"build done\0\n"), BinaryVerdict::Binary);
+    assert_eq!(sniff(b"ab\x01\x02\x03cd\n"), BinaryVerdict::Binary);
+}
+
 #[test]
 fn decode_keeps_utf8_and_falls_back_to_latin1_or_replacement() {
     assert_eq!(decode(b"ok").warning, None);

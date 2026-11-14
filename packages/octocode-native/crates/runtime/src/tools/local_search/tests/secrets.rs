@@ -110,10 +110,9 @@ fn selected_spans_never_leak_partial_secrets() {
     for (index, request) in cases.into_iter().enumerate() {
         let body = search_fixture(&[("sec.txt", &file)], request);
         let values = all_values(&body);
-        // A read shows the line as `token: [REDACTED-…]`: a pattern inside
-        // the hidden value (the token, or the `end` the value runs on to) is
-        // no hit; the others show rows.
-        assert_eq!(values.is_empty(), index == 0 || index == 2, "{body}");
+        // A read shows the line as `token: [REDACTED-…] end`: a pattern
+        // inside the hidden token is no hit; the others show rows.
+        assert_eq!(values.is_empty(), index == 0, "{body}");
         for fragment in ["1234567890", "klmnopqrstuvwxyz"] {
             assert!(!values.contains(fragment), "leaked {fragment}: {values}");
         }

@@ -214,6 +214,9 @@ fn resolved_at(
 /// The read's status and source identity, including its resolved commit.
 fn file_read(result: GhGetFileContentResult) -> Result<ToolData, ProviderError> {
     let status = result.file.content.status.row_status();
+    // The row flattens the shared read's result, so its judged content
+    // stands where a local read's does.
+    let judged = result.file.content.judged_leaves();
     let data = serde_json::to_value(&result).map_err(|error| {
         ProviderError::new(
             octocode_github::ProviderErrorKind::Decode,
@@ -222,6 +225,7 @@ fn file_read(result: GhGetFileContentResult) -> Result<ToolData, ProviderError> 
     })?;
     Ok(ToolData {
         status,
+        judged,
         ..ToolData::from(data)
     })
 }
@@ -294,11 +298,10 @@ pub(crate) async fn execute<S: ContentScan + Clone + Send + Sync + 'static>(
         )
     })??;
     // What describes the file, not the page, is said once: a later page
-    // continues a read whose first page stated the file's kind and its last
-    // change's lead (a missed match already leads to the file's history).
-    if first_page && result.file.content.error.is_none() && result.file.match_not_found.is_none() {
-        leads::attach_last_change(&mut result.file, query);
-    } else if !first_page {
+    // continues a read whose first page stated the file's kind. When the
+    // file last changed is its history, one documented call away
+    // (ghSearchHistory), never a lead of every read.
+    if !first_page {
         result.file.file_type = None;
     }
     Ok(result)

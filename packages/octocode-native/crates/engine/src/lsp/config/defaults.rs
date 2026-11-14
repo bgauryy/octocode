@@ -157,7 +157,7 @@ pub(crate) fn jdtls_data_dir(octocode_home: &Path, workspace_root: &str) -> Path
 /// with many independent requests may pipeline them. tsgo does; tsserver
 /// (behind typescript-language-server) works through them one at a time,
 /// where queueing only spends each request's timeout waiting.
-pub fn serves_requests_concurrently(config: &LspLanguageServerConfig) -> bool {
+pub(crate) fn serves_requests_concurrently(config: &LspLanguageServerConfig) -> bool {
     server_stem(&config.command).as_deref() == Some("tsgo")
 }
 
@@ -170,7 +170,7 @@ pub fn serves_requests_concurrently(config: &LspLanguageServerConfig) -> bool {
 /// - clangd answers `--limit-results`, 100 by default, 0 for no limit.
 ///
 /// `None` for a server with no such limit, or one configured without it.
-pub fn workspace_symbol_limit(config: &LspLanguageServerConfig) -> Option<usize> {
+pub(crate) fn workspace_symbol_limit(config: &LspLanguageServerConfig) -> Option<usize> {
     match server_stem(&config.command).as_deref()? {
         "tsgo" => Some(TSGO_WORKSPACE_SYMBOL_LIMIT),
         "gopls" => Some(GOPLS_WORKSPACE_SYMBOL_LIMIT),
@@ -194,7 +194,7 @@ pub fn workspace_symbol_limit(config: &LspLanguageServerConfig) -> Option<usize>
 /// What to do about a capped `workspace/symbol` answer: narrow the query, and
 /// for tsgo also route `.ts` to `typescript-language-server`, which an
 /// `lsp-servers.json` entry always wins ([`workspace_symbol_limit`]).
-pub fn workspace_symbol_cap_advice(config: &LspLanguageServerConfig) -> &'static str {
+pub(crate) fn workspace_symbol_cap_advice(config: &LspLanguageServerConfig) -> &'static str {
     if server_stem(&config.command).as_deref() == Some("tsgo") {
         "narrow symbolFuzzy, or route .ts to typescript-language-server in lsp-servers.json"
     } else {

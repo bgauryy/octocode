@@ -11,9 +11,6 @@ use serde_json::json;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 
-/// Largest post-open wait any caller may ask for.
-const MAX_OPEN_READY_TIMEOUT_MS: u32 = 60_000;
-
 /// `didClose` for `uri`, dropping its push diagnostics first.
 async fn notify_close(connection: &JsonRpcConnection, uri: &str) -> Result<()> {
     connection.clear_push_diagnostics(uri);
@@ -46,7 +43,7 @@ impl NativeLspClient {
     /// ~100 ms later); querying immediately races that load and returns
     /// incomplete references. `settle_ms` bounds how long to wait for such a
     /// wave to start (default [`OPEN_SETTLE_MS`]) and `timeout_ms` bounds the
-    /// whole wait (default [`OPEN_READY_TIMEOUT_MS`], capped at 60 s).
+    /// whole wait (default [`OPEN_READY_TIMEOUT_MS`]).
     ///
     /// The settle is owed once per project (see `project_loads.rs`): not
     /// for a later file of a project whose first open already waited, and
@@ -93,11 +90,7 @@ impl NativeLspClient {
         } else {
             self.settle_ms(u64::from(settle_ms.unwrap_or(OPEN_SETTLE_MS)))
         };
-        let timeout_ms = u64::from(
-            timeout_ms
-                .unwrap_or(OPEN_READY_TIMEOUT_MS)
-                .min(MAX_OPEN_READY_TIMEOUT_MS),
-        );
+        let timeout_ms = u64::from(timeout_ms.unwrap_or(OPEN_READY_TIMEOUT_MS));
         let waiting_since = tokio::time::Instant::now();
         let readiness = self
             .inner

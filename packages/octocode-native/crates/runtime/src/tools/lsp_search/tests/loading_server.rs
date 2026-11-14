@@ -41,9 +41,20 @@ function firstAnswer() {
     setTimeout(() => { begin(); setTimeout(finish, 100); }, 2500);
   }
 }
+// A load that reports its work every 200 ms and ends after `ms`.
+function reportingLoad(ms) {
+  begin();
+  const ticks = setInterval(() => progress({ kind: 'report', message: 'indexing' }), 200);
+  setTimeout(() => { clearInterval(ticks); finish(); }, ms);
+}
 function handle(msg) {
   if (msg.method === 'initialize') {
+    fs.appendFileSync(__dirname + '/started.txt', 'started\n');
     send({ jsonrpc: '2.0', id: msg.id, result: { capabilities: { definitionProvider: true, referencesProvider: true, textDocumentSync: 1 } } });
+  } else if (msg.method === 'initialized' && scenario === 'reportingLoadOf3s') {
+    reportingLoad(3000);
+  } else if (msg.method === 'initialized' && scenario === 'reportingLoadOf5s') {
+    reportingLoad(5000);
   } else if (msg.method === 'initialized' && scenario === 'loadAnnouncedAfterTheAnswer') {
     burn();
   } else if (msg.method === 'initialized' && scenario === 'healthError') {
@@ -153,18 +164,38 @@ impl Loading {
     }
 
     fn definition(&self) -> Value {
+        self.definition_within(None)
+    }
+
+    /// [`Self::definition`] for a caller that gives up `deadline` from now.
+    fn definition_within(&self, deadline: Option<Duration>) -> Value {
         let paths = crate::tools::test_support::workspace_policy(&self.root);
         self.runtime
-            .block_on(crate::tools::lsp_search::execute(
-                self.query(),
-                &NeverCancel,
-                &self.pool,
-                &paths,
-                &self.execution,
-                None,
-                crate::tools::lsp_search::test_answers(),
-            ))
+            .block_on(async {
+                let deadline = deadline.map(|after| tokio::time::Instant::now() + after);
+                octocode_engine::lsp::with_caller_deadline(
+                    deadline,
+                    crate::tools::lsp_search::execute(
+                        self.query(),
+                        &NeverCancel,
+                        &self.pool,
+                        &paths,
+                        &self.execution,
+                        None,
+                        crate::tools::lsp_search::test_answers(),
+                    ),
+                )
+                .await
+            })
             .expect("row")
+    }
+
+    /// How many times a server was started.
+    fn started(&self) -> usize {
+        std::fs::read_to_string(self.root.join("started.txt"))
+            .unwrap_or_default()
+            .lines()
+            .count()
     }
 
     /// How many times the server was asked for `method` (`references`).
@@ -261,6 +292,50 @@ fn a_load_that_outlasts_the_budget_is_not_read_as_absence() {
             .any(|call| call["input"]["queries"][0] == rerun),
         "{row}"
     );
+}
+
+/// A load that outlasts the language's readiness budget while it keeps
+/// reporting its work is waited for within the call: the first answer is
+/// the loaded server's, with no fixed wait cutting it short.
+#[test]
+fn a_load_that_keeps_working_is_waited_for_within_the_call() {
+    if !crate::tools::test_support::require_node() {
+        return;
+    }
+    let server = Loading::new("reportingLoadOf3s", "shellscript", Duration::ZERO);
+    assert_located(&server.definition());
+    assert_eq!(server.started(), 1);
+}
+
+/// The caller's deadline comes while the load still works: the row says how
+/// long the call waited and offers the same query again, and that retry
+/// reaches the same server, still loading, which answers once it is done.
+#[test]
+fn a_load_past_the_deadline_is_retried_on_the_same_server() {
+    if !crate::tools::test_support::require_node() {
+        return;
+    }
+    let server = Loading::new("reportingLoadOf5s", "shellscript", Duration::ZERO);
+    let row = server.definition_within(Some(Duration::from_millis(2_500)));
+    assert_eq!(row["category"], "languageServerIndexing", "{row}");
+    assert_eq!(
+        row["partialReasons"],
+        json!(["languageServerIndexing"]),
+        "{row}"
+    );
+    let reason = row["reason"].as_str().unwrap_or_default();
+    assert!(reason.contains(" s;"), "the row states the wait: {row}");
+    let rerun = super::super::failure::same_query_rerun(&server.query());
+    assert!(
+        row["related"]
+            .as_array()
+            .expect("related")
+            .iter()
+            .any(|call| call["input"]["queries"][0] == rerun),
+        "{row}"
+    );
+    assert_located(&server.definition());
+    assert_eq!(server.started(), 1, "the retry reuses the loading server");
 }
 
 /// A server may wrap each request in its own progress, as pyright does for

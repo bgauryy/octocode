@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { validateFlags } from '../cli-flags.mjs';
 import { errorMessage } from '../error-message.mjs';
+import { packageTmpDir } from '../engine-io.mjs';
 
 const argv = process.argv.slice(2);
 const arg = (flag: string, fallback = '') =>
@@ -88,7 +89,7 @@ try {
       },
       text,
     };
-    const dir = resolve('.octocode/octocode-chrome-devtools/tmp/api-responses');
+    const dir = join(packageTmpDir(), 'api-responses');
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     responseFile = join(dir, `${randomUUID()}.json`);
     writeFileSync(responseFile, JSON.stringify(payload), { mode: 0o600 });

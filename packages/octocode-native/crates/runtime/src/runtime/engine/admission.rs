@@ -143,7 +143,8 @@ impl ToolRuntime {
     /// Validated, security-checked rows to run, and the rows rejected by
     /// index. Every tool isolates invalid rows; a call with no valid row
     /// fails as a whole.
-    /// [`invalid_input_error`] for `tool` as this runtime publishes it.
+    /// [`invalid_input_error`] for `tool` as this runtime publishes it, to
+    /// every surface with identical cause and repair guidance.
     pub(super) fn invalid_input(
         &self,
         tool: &str,

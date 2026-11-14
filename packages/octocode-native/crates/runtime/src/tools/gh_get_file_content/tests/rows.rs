@@ -1,12 +1,11 @@
 //! Row shape: receipts, block reads and zero-byte files.
 use super::*;
 
-/// A read asks GitHub for the file alone: when it last changed is one call
-/// away, the first page's `lastChange` lead (the file's history at the read
-/// commit, one commit, its date and author). A later page and a read that
-/// failed on the fetched body offer none.
+/// A read asks GitHub for the file alone, and leads nowhere for when it
+/// last changed: that is the file's history, one documented call away
+/// (ghSearchHistory), on a first page, a later page and a failed read alike.
 #[tokio::test]
-async fn a_first_page_leads_to_the_last_change_and_asks_only_the_file() {
+async fn a_read_asks_only_the_file_and_offers_no_history_lead() {
     let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     let body: String = (1..=40).map(|i| format!("line {i}\n")).collect();
@@ -19,32 +18,26 @@ async fn a_first_page_leads_to_the_last_change_and_asks_only_the_file() {
     .await;
     let provider = mock_provider(&server, RetryPolicy::default());
     let base = json!({"owner":"a","repo":"b","path":"a.txt","ref":sha});
-    let lead = |row: &GhGetFileContentResult| {
+    let history_leads = |row: &GhGetFileContentResult| {
         row.file
             .calls
             .as_ref()
-            .and_then(|calls| calls.get("lastChange"))
-            .cloned()
+            .and_then(Value::as_object)
+            .into_iter()
+            .flat_map(|calls| calls.values())
+            .filter(|call| call["tool"] == "ghSearchHistory")
+            .count()
     };
     let first = read(&provider, base.clone()).await;
-    assert_eq!(
-        lead(&first),
-        Some(
-            json!({"kind":"related","tool":"ghSearchHistory","input":{"queries":[
-            {"operation":"commit","owner":"a","repo":"b","path":"a.txt","ref":sha,
-             "limit":1,"fields":["committedAt","author"]}]}})
-        ),
-        "{:?}",
-        first.file.calls
-    );
+    assert_eq!(history_leads(&first), 0, "{:?}", first.file.calls);
     let mut failed = base.clone();
     failed["ranges"] = json!([{"startLine":100,"endLine":120}]);
     let failed = read(&provider, failed).await;
     assert_eq!(failed.file.content.status, ReadStatus::Error);
-    assert_eq!(lead(&failed), None);
+    assert_eq!(history_leads(&failed), 0, "{:?}", failed.file.calls);
     let mut later = base;
     later["readProgress"] = json!({"unit":"lines","offset":20});
-    assert_eq!(lead(&read(&provider, later).await), None);
+    assert_eq!(history_leads(&read(&provider, later).await), 0);
     let requests = server.received_requests().await.unwrap_or_default();
     assert!(
         requests

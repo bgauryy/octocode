@@ -311,7 +311,7 @@ impl Operation<'_, '_> {
             crate::response::paging::push_warnings(
                 &mut row,
                 [format!(
-                    "The server published these diagnostics before the document's last change and sent no newer report within {PUSH_DIAGNOSTICS_WAIT_MS} ms; a server that publishes only when its diagnostics change (typescript-language-server) has nothing newer to say."
+                    "The server published these diagnostics before the document's last change and sent no newer report while it worked or in the {PUSH_DIAGNOSTICS_WAIT_MS} ms after; a server that publishes only when its diagnostics change (typescript-language-server) has nothing newer to say."
                 )],
             );
         }

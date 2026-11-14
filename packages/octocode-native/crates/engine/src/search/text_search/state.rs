@@ -43,8 +43,6 @@ pub(super) struct FileRec {
     pub(super) source: Option<SearchedSource>,
     /// A returned line was not UTF-8: the values are decoded text.
     pub(super) not_utf8: bool,
-    /// A returned long line hid every value of a named structure.
-    pub(super) every_value: bool,
     /// The file starts with a UTF-8 byte-order mark the searcher dropped.
     pub(super) utf8_bom: bool,
     /// Per searched term: its matches or matched lines (see

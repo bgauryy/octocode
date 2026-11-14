@@ -389,7 +389,7 @@ fn listing_page<Q: Listing>(
     // describe the whole listing: page 1 states them once, and a sorted walk
     // states them when it ends (its paused windows carry them there).
     if page == 1 && walk.meta.time_window != super::cut::TimeWindow::Paused {
-        walk.meta.disclose(&mut out, root)?;
+        walk.meta.disclose(&mut out, root, ranking)?;
         // An empty listing's zero totals restate its `files:[]` and its
         // `empty` status.
         if out["status"] == "empty"

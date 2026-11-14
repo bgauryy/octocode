@@ -6,9 +6,6 @@ use std::path::{Path, PathBuf};
 
 /// Largest decompressed binary accepted; past it the archive is refused.
 pub(super) const MAX_EXTRACTED_BYTES: u64 = 512 * 1024 * 1024;
-/// Largest release asset downloaded; a mis-redirected page or a hostile asset
-/// stops here, before its checksum is computed.
-pub(super) const MAX_DOWNLOAD_BYTES: u64 = 256 * 1024 * 1024;
 /// Suffix of the file a download is spooled into, beside the binary it becomes.
 pub(super) const SPOOL_SUFFIX: &str = "download";
 

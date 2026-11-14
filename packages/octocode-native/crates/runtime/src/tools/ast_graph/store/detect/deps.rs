@@ -158,9 +158,9 @@ pub(super) fn detect_unresolved(c: &mut Ctx) {
                 let (out, broken) = by_file.entry(file).or_default();
                 let site = (t.str(diag.message), diag.line);
                 if outside {
-                    out.push(site)
+                    out.push(site);
                 } else {
-                    broken.push(site)
+                    broken.push(site);
                 }
             }
         }

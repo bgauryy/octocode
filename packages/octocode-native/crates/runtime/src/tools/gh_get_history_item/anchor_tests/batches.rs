@@ -59,7 +59,7 @@ async fn pr_commit_last_short_batch_discloses_the_unreachable_reported_total() {
             let Some(next) = data.pointer("/pullRequests/0/next/commits/input") else {
                 break data;
             };
-            let normalized = crate::contracts::validate_built("ghGetHistoryItem", next.clone())
+            let normalized = crate::contracts::validate_saved("ghGetHistoryItem", next.clone())
                 .expect("executable copied commit page");
             query = normalized["queries"][0].clone();
         };
@@ -156,7 +156,7 @@ async fn commit_file_boundary_is_a_lower_bound_with_or_without_a_final_link() {
             let Some(next) = data.pointer("/next/files/input") else {
                 break data;
             };
-            let normalized = crate::contracts::validate_built("ghGetHistoryItem", next.clone())
+            let normalized = crate::contracts::validate_saved("ghGetHistoryItem", next.clone())
                 .expect("executable copied file page");
             query = normalized["queries"][0].clone();
         };

@@ -343,7 +343,7 @@ fn selected_equivalent_paths_keep_their_reads_without_admitting_other_repositori
         "files":[{"owner":"o","repo":"r","path":"src/main.rs","alsoAt":["src/copy.rs"],"matches":[{"line":1,"value":"wrap_app();"}]}],
         "next":{"readHits":alias.clone(),"otherRepo":read("other", "src/copy.rs"),"read":primary.clone(),"excluded":read("r", "src/excluded.rs")}
     });
-    super::finish_code_selection(&mut page, &json!({"owner":"o"}), &[]);
+    super::finish_code_selection(&mut page, &[]);
     assert_eq!(page["next"]["readHits"], alias);
     assert_eq!(page["next"]["read"], primary);
     assert!(page["next"].get("otherRepo").is_none());
@@ -353,14 +353,13 @@ fn selected_equivalent_paths_keep_their_reads_without_admitting_other_repositori
 }
 
 #[test]
-fn a_hidden_file_with_unlisted_hits_gets_a_judged_read_and_an_excluded_one_none() {
+fn a_hidden_file_stays_reachable_by_an_unbilled_read_and_an_excluded_one_gets_none() {
     let read = |path: &str| {
         json!({"kind":"continue","tool":"ghGetFileContent","input":{"queries":[{
             "owner":"o","repo":"r","path":path,"ref":SHA,"ranges":[{"startLine": 9, "endLine": 40}],
             "contextLines":{"before":0,"after":0},"matchString":["Detection"]
         }]}})
     };
-    let context = json!({"predicates":["Does this code quit on a NUL byte?"]});
     let mut page = json!({
         "files":[{"owner":"o","repo":"r","path":"src/shown.rs","matches":[{"line":1,"value":"quit()"}]}],
         "next":{"readHits":read("src/hidden.rs"),"readHits2":read("src/excluded.rs")}
@@ -368,27 +367,25 @@ fn a_hidden_file_with_unlisted_hits_gets_a_judged_read_and_an_excluded_one_none(
     let hidden = [
         json!({"owner":"o","repo":"r","path":"src/hidden.rs","matches":[{"line":3,"value":"Detection"}],"matchCount":14}),
     ];
-    super::finish_code_selection(
-        &mut page,
-        &json!({"owner":"o","repo":"r","classification":context}),
-        &hidden,
-    );
+    super::finish_code_selection(&mut page, &hidden);
     // Neither capped read survives: only selected files keep plain reads.
     assert!(page["next"].get("readHits").is_none());
     assert!(page["next"].get("readHits2").is_none());
+    // No lead re-bills: none carries a classification or a selection.
+    let leads = page["related"].as_array().cloned().unwrap_or_default();
+    for lead in &leads {
+        for read in lead["input"]["queries"].as_array().into_iter().flatten() {
+            assert!(read.get("classification").is_none(), "{lead}");
+            assert!(read.get("selection").is_none(), "{lead}");
+        }
+    }
+    // The hidden file stays reachable by a whole-file keyword read; the
+    // excluded one gets none.
     assert_eq!(
-        crate::tools::test_support::checks::related_call(&page, "ghGetFileContent", |input| input
-            ["queries"][0]
-            .get("classification")
-            .is_some())["input"]["queries"],
+        crate::tools::test_support::checks::related_call(&page, "ghGetFileContent", |_| true)["input"]
+            ["queries"],
         json!([{"owner":"o","repo":"r","path":"src/hidden.rs","ref":SHA,
-            "matchString":["Detection"],"classification":context}])
+            "matchString":["Detection"]}])
     );
-    assert_eq!(
-        crate::tools::test_support::checks::related_call(&page, "ghGetFileContent", |input| input
-            ["queries"][0]
-            .get("classification")
-            .is_some())["tool"],
-        "ghGetFileContent"
-    );
+    assert!(!page.to_string().contains("src/excluded.rs"), "{page}");
 }

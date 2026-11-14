@@ -48,8 +48,6 @@ export const topicsSchema = define("topics", z.array(z.string().min(1).max(256))
 
 export const leaseIdSchema = define("leaseId", z.int().gt(0).max(Number.MAX_SAFE_INTEGER).describe("Exact owned lease ID."));
 
-export const presenceSchema = define("presence", presenceFilterSchema.default("active").describe("Filter active, expired, or all presence."));
-
 export const pathTargetSchema = define("pathTarget", z.strictObject({
   path: z.string().min(1).max(4096).describe("Workspace-relative path."),
   kind: pathKindSchema.default("file").describe("file or whole tree.").optional(),

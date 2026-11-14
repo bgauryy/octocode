@@ -113,13 +113,17 @@ async fn gh_get_history_item_capped_file_scan_is_not_a_complete_count() {
     runtime.close().await;
 }
 
-/// A commit's patch view names the commit by its headline once; the
-/// full message is one `readCommit` lead away.
+/// A commit's patch view states the whole message: the issue and pull
+/// request references a body carries ("closes #2411") are evidence a
+/// headline drops, and the row needs no second read to reach them.
 #[tokio::test]
-async fn commit_patch_view_carries_the_headline_not_the_whole_message() {
+async fn commit_patch_view_keeps_the_whole_message() {
     let server = MockServer::builder().start().await;
     let sha = "abc123def456abc123def456abc123def456abc1";
-    let message = format!("Fix the parser (#42)\n\n{}", "Long rationale. ".repeat(400));
+    let message = format!(
+        "Fix the parser (#42)\n\n{}\ncloses #2411",
+        "Long rationale. ".repeat(400)
+    );
     Mock::given(method("GET"))
         .and(path(format!("/api/v3/repos/a/b/commits/{sha}")))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -132,37 +136,22 @@ async fn commit_patch_view_carries_the_headline_not_the_whole_message() {
         .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let outcome = call(
-        &runtime,
-        "ghGetHistoryItem",
-        json!({"operation":"commit","owner":"a","repo":"b","ref":sha,"sections":["patches"]}),
-    )
-    .await
-    .expect("commit patches");
-    let data = row_data(&outcome);
-    assert!(data.get("message").is_none(), "{data}");
-    assert_eq!(data["messageHeadline"], "Fix the parser (#42)", "{data}");
-    checks::assert_absent(data, "Long rationale");
-    let read = checks::related_call(data, "ghGetHistoryItem", |input| {
-        input["queries"][0]["operation"] == "commit"
-            && input["queries"][0].get("sections").is_none()
-    });
-    let full = call(&runtime, "ghGetHistoryItem", read["input"].clone())
-        .await
-        .expect("whole commit message");
-    assert_eq!(row_data(&full)["message"], message);
-    // The pull request the headline names stays a lead beside it: a commit
-    // view reads the same discussion route, one file or many.
-    assert_eq!(
-        crate::support::checks::find_related_call(
-            data,
+    for sections in [json!(["patches"]), json!(["files"])] {
+        let outcome = call(
+            &runtime,
             "ghGetHistoryItem",
-            |input| input["queries"][0]["operation"] == "pullRequest"
+            json!({"operation":"commit","owner":"a","repo":"b","ref":sha,"sections":sections}),
         )
-        .unwrap_or(&serde_json::Value::Null)["input"],
-        json!({"queries":[{"operation":"pullRequest","owner":"a","repo":"b","number":42}]}),
-        "{data}"
-    );
+        .await
+        .expect("commit section read");
+        let data = row_data(&outcome);
+        assert_eq!(data["message"], message, "{sections}: {data}");
+        assert!(data.get("messageHeadline").is_none(), "{sections}: {data}");
+        assert!(
+            data.pointer("/calls/readCommit").is_none(),
+            "the message is whole, no read restates it: {data}"
+        );
+    }
     runtime.close().await;
 }
 
@@ -203,8 +192,8 @@ async fn path_scoped_commit_labels_whole_commit_totals() {
 }
 
 /// Patch gutters number each line on the side of its sign (` `/`+`: the
-/// commit, `-`: its first parent); `readAtCommit` reads the top file's
-/// new-side hunk windows at the commit and `readParent` its old-side hunk
+/// commit, `-`: its first parent); the row's one source read reads the
+/// top file's new-side hunk windows at the commit and its old-side hunk
 /// windows at the parent, so a gutter number is a direct `ranges` entry on
 /// its side.
 #[tokio::test]
@@ -248,10 +237,14 @@ async fn commit_patch_view_numbers_both_sides_and_reads_each_side() {
             .and(wiremock::matchers::query_param("ref",pinned))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({"type":"file","path":"src/a.rs","encoding":"base64","content":base64::engine::general_purpose::STANDARD.encode(content)})))
             .expect(1).mount(&server).await;
-        let lead = checks::related_call(data, "ghGetFileContent", |input| {
-            input["queries"][0]["ref"] == pinned
-        });
-        let read = call(&runtime, "ghGetFileContent", lead["input"].clone())
+        let lead = checks::related_call(data, "ghGetFileContent", |_| true);
+        let side = lead["input"]["queries"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|row| row["ref"] == pinned)
+            .unwrap_or_else(|| panic!("the {marker} side: {data}"));
+        let read = call(&runtime, "ghGetFileContent", json!({"queries": [side]}))
             .await
             .expect("pinned side read");
         assert_eq!(row_status(&read), "success", "{}", read.structured_content);

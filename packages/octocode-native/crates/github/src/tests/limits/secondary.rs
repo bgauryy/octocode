@@ -223,7 +223,7 @@ async fn a_secondary_message_on_a_spent_core_quota_is_disclosed_at_once() {
         .await;
     let (transport, endpoint) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
     let mut context = with_token("secondary-spent", Duration::from_secs(5), 1024);
-    context.budget.wait_until = std::time::Instant::now() + Duration::from_secs(24 * 60 * 60);
+    context.budget.deadline = std::time::Instant::now() + Duration::from_secs(24 * 60 * 60);
     let (scope, heard) = cancel_on_announced_wait(context.budget.cancellation.clone());
     let error = scope
         .run(transport.execute(
@@ -299,7 +299,7 @@ async fn a_secondary_message_on_a_spent_bucket_still_cools_the_key() {
         .await;
     let (transport, endpoint) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
     let mut context = with_token("cooled-rest", Duration::from_secs(5), 1024);
-    context.budget.wait_until = std::time::Instant::now() + Duration::from_secs(24 * 60 * 60);
+    context.budget.deadline = std::time::Instant::now() + Duration::from_secs(24 * 60 * 60);
     let (scope, heard) = cancel_on_announced_wait(context.budget.cancellation.clone());
     let core = scope
         .run(transport.execute(
@@ -360,7 +360,7 @@ async fn a_graphql_secondary_message_on_a_spent_bucket_still_cools_the_key() {
         .await;
     let (transport, endpoint) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
     let mut context = with_token("cooled-graphql", Duration::from_secs(5), 1024);
-    context.budget.wait_until = std::time::Instant::now() + Duration::from_secs(24 * 60 * 60);
+    context.budget.deadline = std::time::Instant::now() + Duration::from_secs(24 * 60 * 60);
     let (scope, heard) = cancel_on_announced_wait(context.budget.cancellation.clone());
     let error = scope
         .run(transport.execute_graphql(

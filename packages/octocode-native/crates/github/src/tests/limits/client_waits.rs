@@ -195,7 +195,7 @@ async fn a_spent_quota_without_a_reset_is_disclosed_and_a_cancel_ends_its_wait()
     let (transport, endpoint) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
     let mut context = with_token("no-reset", Duration::from_secs(5), 1024);
     // No caller budget: the wait may run as long as GitHub's limit holds.
-    context.budget.wait_until = Instant::now() + Duration::from_secs(3600);
+    context.budget.deadline = Instant::now() + Duration::from_secs(3600);
     let heard = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
     let sink = Arc::clone(&heard);
     let scope = octocode_io::notice::Scope::with_progress(move |line| {

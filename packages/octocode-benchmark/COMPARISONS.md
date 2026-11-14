@@ -67,6 +67,12 @@ assume these.
 - **Stored evidence:** `.octocode/octocode-eval-benchmark/2026-10-20-release-localsearch-vs-rg/`
   (both agree on all 21 lexical cases; rg is faster), `2026-10-15-native-vs-rg/`.
 
+Use `--no-config` for reproducible comparisons. Match ignore, hidden-file, binary, case and
+word-boundary policies before timing; use `-F` for literal questions and `-P` or `-U` only when
+their semantics are needed. `rg -c` counts matching lines; `rg --count-matches` counts individual
+matches. Omit `-m` and `head` when checking the complete evidence set. See the
+[ripgrep guide](https://github.com/BurntSushi/ripgrep/blob/master/GUIDE.md).
+
 ### localFetch
 
 - **Question:** lines A–B of a file; one function's body, short and over 400 lines; the outline
@@ -144,6 +150,12 @@ comparison was of source and documentation only.
 
 The lean `gh` style is in [briefs/arms/gh-lean.md](briefs/arms/gh-lean.md). Live targets are
 public repositories, more than one before a result counts as a defect, never `facebook/react`.
+
+Project only the fields the question needs. For a complete collection, use `gh api --paginate`
+(GraphQL also needs `pageInfo` and `$endCursor`); projection alone does not fetch later pages.
+Record `--cache` usage and separate first-process, repeated and origin-revalidated requests:
+a warm process is not proof of a cache hit. Do not clear the user's cache for a benchmark.
+See the [GitHub CLI API manual](https://cli.github.com/manual/gh_api).
 
 ### ghSearchRepo
 

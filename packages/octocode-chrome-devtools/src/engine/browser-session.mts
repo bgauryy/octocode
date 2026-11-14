@@ -1,13 +1,14 @@
 // Isolated browser sessions this package launches: one session file and one profile folder per
 // port under <workspace>/.octocode/octocode-chrome-devtools/tmp/browser-state/, and ownership
 // checks that never trust a listener or a pid file alone.
-import { join, resolve } from 'path';
+import { resolve } from 'path';
 import {
   STATE_SUBPATH,
   checkRunning,
   profileDirIn,
   readSession,
   sessionFileIn,
+  stateDirFor,
   type ChromeVersion,
   type TrackedSession,
 } from './session-registry.mjs';
@@ -30,7 +31,7 @@ function packageProfileFromCommand(command: string, port: string) {
   // A lazy match must not span into another flag's value.
   if (!match || /\s--/.test(match[1])) return null;
   const workspace = match[1].replace(/^"/, '');
-  const stateDir = join(workspace, ...STATE_SUBPATH);
+  const stateDir = stateDirFor(workspace);
   return { workspace, stateDir, profileDir: profileDirIn(stateDir, port) };
 }
 

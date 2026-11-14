@@ -6,12 +6,9 @@ use super::*;
 /// One `issues` row of `detector` on `subject` (under `app/`), at every
 /// tier.
 fn row(issues: &GraphOutput, detector: &str, subject: &str) -> Value {
-    issues.value["rows"]
-        .as_array()
+    crate::tools::ast_graph::test_support::issue_rows(&issues.value)
         .into_iter()
-        .flatten()
         .find(|row| row["detector"] == detector && row["subject"] == format!("app/{subject}"))
-        .cloned()
         .unwrap_or_else(|| panic!("{detector} {subject}: {}", issues.value))
 }
 
@@ -149,12 +146,9 @@ fn a_partly_referenced_export_group_splits_by_evidence() {
     let root = dir.0.as_path();
     assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
     let issues = every_tier(root, &["unused-export"]);
-    let rows = issues.value["rows"]
-        .as_array()
+    let rows = crate::tools::ast_graph::test_support::issue_rows(&issues.value)
         .into_iter()
-        .flatten()
         .filter(|row| row["subject"] == "app/src/api.ts")
-        .cloned()
         .collect::<Vec<_>>();
     let by_names = |names: Value| {
         rows.iter()

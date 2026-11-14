@@ -41,7 +41,7 @@ impl crate::providers::artifact::ReleaseTags for ReleaseTagCheck<'_> {
         owner: &'a str,
         repo: &'a str,
     ) -> crate::providers::artifact::TagRefsFuture<'a> {
-        use crate::providers::artifact::{CheckFailure, ListedTag};
+        use crate::providers::artifact::CheckFailure;
         Box::pin(async move {
             let request = self
                 .services
@@ -51,16 +51,30 @@ impl crate::providers::artifact::ReleaseTags for ReleaseTagCheck<'_> {
             self.services
                 .provider
                 .transport
-                .repository_tag_refs(owner, repo, &request)
+                .repository_tag_refs(owner, repo, "", &request)
                 .await
-                .map(|refs| {
-                    refs.into_iter()
-                        .map(|tag| ListedTag {
-                            name: tag.name,
-                            commit: tag.commit,
-                        })
-                        .collect()
-                })
+                .map_err(|error| CheckFailure::provider(&error))
+        })
+    }
+
+    fn tag_commits<'a>(
+        &'a self,
+        owner: &'a str,
+        repo: &'a str,
+        tags: &'a [octocode_github::TagRef],
+    ) -> crate::providers::artifact::TagCommitsFuture<'a> {
+        use crate::providers::artifact::CheckFailure;
+        Box::pin(async move {
+            let request = self
+                .services
+                .resolve_request(self.context, self.access)
+                .await
+                .map_err(|_| CheckFailure::Request)?;
+            self.services
+                .provider
+                .transport
+                .tag_commits(owner, repo, tags, &request)
+                .await
                 .map_err(|error| CheckFailure::provider(&error))
         })
     }

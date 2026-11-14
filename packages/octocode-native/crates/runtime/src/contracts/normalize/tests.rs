@@ -42,6 +42,28 @@ fn a_field_at_its_default_beside_another_form_runs_without_it() {
     );
 }
 
+/// A value is repaired one nesting level per validation round, so the rounds
+/// a call takes are its own depth: a rule sent as JSON text nested deeper than
+/// any fixed count of rounds still runs, read whole.
+#[test]
+fn a_value_nested_at_any_depth_runs() {
+    let leaf = json!({"pattern":"eval($X)"});
+    let depth = 8;
+    let mut rule = leaf.clone();
+    for _ in 0..depth {
+        rule = json!({"inside": rule.to_string()});
+    }
+    let input = accepted(
+        "astSearch",
+        json!({"queries":[{"operation":"match","path":".","rule": rule.to_string()}]}),
+    );
+    let mut at = &input["queries"][0]["rule"];
+    for _ in 0..depth {
+        at = &at["inside"];
+    }
+    assert_eq!(at, &leaf, "{input}");
+}
+
 #[test]
 fn a_value_with_one_reading_runs() {
     let row = |input: &Value| input["queries"][0].clone();
@@ -172,6 +194,19 @@ fn what_has_no_single_reading_stays_rejected() {
         (
             "localFetch",
             json!({"queries":[{"path":"a","responseChars":1},{"path":"b","responseChars":2}]}),
+        ),
+        // No declared field says what these mean.
+        (
+            "localSearch",
+            json!({"queries":[{"path":".","matchString":["x"],"matchContentLength":200}]}),
+        ),
+        (
+            "ghSearchHistory",
+            json!({"queries":[{"owner":"o","repo":"r","operation":"all","keywords":["x"]}]}),
+        ),
+        (
+            "localSearch",
+            json!({"queries":[{"path":".","matchString":["x"],"multiline":"yes"}]}),
         ),
     ] {
         let input = normalized_input(tool, sent.clone()).0;

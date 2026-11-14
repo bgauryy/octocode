@@ -53,7 +53,7 @@ impl NativeLspClient {
         crate::lsp::config::serves_requests_concurrently(&self.inner.config)
     }
 
-    /// See [`crate::lsp::config::workspace_symbol_limit`].
+    /// See [`crate::lsp::config::workspace_symbol_cap_advice`].
     pub fn workspace_symbol_cap_advice(&self) -> &'static str {
         crate::lsp::config::workspace_symbol_cap_advice(&self.inner.config)
     }

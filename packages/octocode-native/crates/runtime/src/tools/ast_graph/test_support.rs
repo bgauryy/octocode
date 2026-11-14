@@ -130,3 +130,39 @@ pub(super) fn next_query(out: &GraphOutput) -> Option<&super::store::QueryOption
             _ => None,
         })
 }
+
+/// An `issues` answer's rows whole, as an agent reads them: a field a row
+/// omits is the one its detector's `summary.notes` entry `{detector,
+/// shared}` states (an evidence key under `evidence`), and its controls are
+/// the shared ones and its own.
+pub(super) fn issue_rows(answer: &Value) -> Vec<Value> {
+    let notes = answer["summary"]["notes"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let shared = |detector: &Value| {
+        notes
+            .iter()
+            .find(|note| note["detector"] == *detector && note.get("shared").is_some())
+            .and_then(|note| note["shared"].as_object().cloned())
+            .unwrap_or_default()
+    };
+    let mut rows = answer["rows"].as_array().cloned().unwrap_or_default();
+    for row in &mut rows {
+        for (key, value) in shared(&row["detector"]) {
+            match (key.as_str(), value) {
+                ("evidence", Value::Object(common)) => {
+                    let mut evidence = common;
+                    evidence.extend(row["evidence"].as_object().cloned().unwrap_or_default());
+                    row["evidence"] = Value::Object(evidence);
+                }
+                ("controls", Value::Array(mut common)) => {
+                    common.extend(row["controls"].as_array().cloned().unwrap_or_default());
+                    row["controls"] = Value::Array(common);
+                }
+                (_, value) => row[key.as_str()] = value,
+            }
+        }
+    }
+    rows
+}

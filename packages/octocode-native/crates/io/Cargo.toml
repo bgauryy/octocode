@@ -17,6 +17,10 @@ bytes = { workspace = true }
 futures-util = { workspace = true }
 getrandom = { workspace = true }
 hex = { workspace = true }
+# The request's URI and the proxy matcher reqwest's `system-proxy` uses:
+# a network failure names the proxy the client chose.
+http = "1"
+hyper-util = { version = "0.1", default-features = false, features = ["client-proxy", "client-proxy-system"] }
 lru = { workspace = true }
 reqwest = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "time"] }

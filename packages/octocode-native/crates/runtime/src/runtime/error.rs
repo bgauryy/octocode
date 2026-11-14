@@ -126,7 +126,7 @@ mod tests {
     use crate::contracts;
 
     fn invalid(tool: &str, input: Value) -> RuntimeError {
-        let error = contracts::prepare_many_and_validate(tool, input).expect_err("invalid input");
+        let error = contracts::prepare_rows(tool, input).expect_err("invalid input");
         RuntimeError {
             code: ErrorCode::InvalidInput,
             message: error.to_string(),

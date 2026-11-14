@@ -1,7 +1,6 @@
 //! `operation: "commit"`: one commit's header and its changed-file page.
 use super::file_page::{
-    DiffSides, FilePage, Lead, empty_scope_warning, lead_first, patch_needle, read_commit_lead,
-    shape_file_page,
+    DiffSides, FilePage, Lead, empty_scope_warning, lead_first, patch_needle, shape_file_page,
 };
 use super::filter::{FileFilter, FileScope, FilteredPage};
 use super::inventory::file_page_size;
@@ -114,7 +113,6 @@ struct CommitFacts<'a> {
     raw: &'a Value,
     sha: String,
     message: &'a str,
-    headline: &'a str,
     /// The first parent: the old side of the commit's diff.
     parent: Option<String>,
 }
@@ -126,7 +124,6 @@ impl<'a> CommitFacts<'a> {
             raw,
             sha: string(raw.get("sha")),
             message,
-            headline: message.lines().next().unwrap_or(message),
             parent: raw
                 .pointer("/parents/0/sha")
                 .and_then(Value::as_str)
@@ -138,9 +135,10 @@ impl<'a> CommitFacts<'a> {
 /// The commit row before its files. A summary read (no `sections`) is the
 /// commit whole: its message, who wrote and committed it, its parents and its
 /// line counts. A section read answers with its files or patches: the row
-/// names the commit by its SHA and headline and dates it (the author's login,
-/// else name, and date), and leaves the rest to the summary read its
-/// `readCommit` lead names.
+/// names the commit by its SHA and whole message (issue and pull request
+/// references live past the first line) and dates it (the author's login,
+/// else name, and date); the committer, parents and line counts are the
+/// summary read's.
 fn commit_header(commit: &CommitFacts<'_>, reference: &str, summary: bool, listed: usize) -> Value {
     let raw = commit.raw;
     let author = identity(raw, "author");
@@ -154,8 +152,7 @@ fn commit_header(commit: &CommitFacts<'_>, reference: &str, summary: bool, liste
         .collect::<Vec<_>>();
     let mut out = json!({
         "ref":reference,"commitSha":commit.sha,
-        "message":summary.then_some(commit.message),
-        "messageHeadline":(!summary).then_some(commit.headline),
+        "message":commit.message,
         "author":if summary { person(&author, AUTHORED_AT) } else { dated(&author) },
         "committer":committer.filter(|_| summary).map(|committer| person(&committer, COMMITTED_AT)),
         "parentCommitShas":summary.then_some(parents),
@@ -240,15 +237,11 @@ fn commit_file_page(
 }
 
 /// A commit read's leads in rank order: the unfiltered read when a
-/// `matchString` hit nothing, the rest of the message, the pull request the
-/// commit names, then both sides of the diff; the response keeps the first
-/// ones its lead cap allows.
+/// `matchString` hit nothing, the pull request the commit names, then both
+/// sides of the diff; the response keeps the first ones its lead cap allows.
 fn commit_leads(query: &HistoryItemRequest, commit: &CommitFacts<'_>, page: FilePage) -> Vec<Lead> {
     let mut leads = Vec::from_iter(page.without_match);
     let pull_request = commit_pull_request_lead(commit.message, &commit.sha, query);
-    if !query.sections().is_empty() && commit.message.trim_end() != commit.headline {
-        leads.extend(read_commit_lead(query, &commit.sha).map(|read| ("readCommit", read)));
-    }
     // A pull request the commit names is the route to its discussion, ahead
     // of the diff's side reads; a search by SHA is only a guess, so it
     // yields to them.
@@ -329,13 +322,7 @@ mod tests {
         );
         assert_eq!(
             keys(commit_header(&facts, "main", false, 2)),
-            [
-                "ref",
-                "commitSha",
-                "messageHeadline",
-                "author",
-                "changedFileCount"
-            ]
+            ["ref", "commitSha", "message", "author", "changedFileCount"]
         );
     }
 

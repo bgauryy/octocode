@@ -10,37 +10,62 @@ mod parse_limits;
 /// lacks.
 #[test]
 fn a_symbols_outline_names_lines_a_redaction_left_unparseable() {
-    let source = "pub fn a() -> u8 {\n    let key = 1;\n[REDACTED-PRIVATEKEYFRAGMENT]\n    key\n}\n\npub fn b() {}\n";
-    let view = crate::tools::source_view::outline::symbols_view(
-        source,
-        "k.rs",
-        Path::new("/fixture/k.rs"),
+    let t = Fixture::new();
+    let p = t.0.join("k.rs");
+    fs::write(
+        &p,
+        "pub fn a() -> u8 {\n    let key = 1;\n[REDACTED-PRIVATEKEYFRAGMENT]\n    key\n}\n\npub fn b() {}\n",
+    )
+    .expect("fixture");
+    let row = fetch_with(
+        &qj(&p, serde_json::json!({"view":"symbols"})),
+        &Paths(t.0.clone()),
         &crate::security::ContentSecurity::new(),
     );
-    let warning = view.warning.clone().expect("recovered parse");
+    assert_eq!(row.view, Some(ReadView::Symbols), "{:?}", row.view_fallback);
     assert!(
-        warning.contains("secret-shaped text was redacted"),
-        "{warning}"
+        row.warnings
+            .iter()
+            .any(|warning| warning.contains("secret-shaped text was redacted")),
+        "{:?}",
+        row.warnings
     );
-    assert!(!warning.contains("grammar lacks"), "{warning}");
+    assert!(
+        !row.warnings
+            .iter()
+            .any(|warning| warning.contains("grammar lacks")),
+        "{:?}",
+        row.warnings
+    );
 }
 
 /// The symbols outline contains only redacted source and names each changed line.
 #[test]
 fn a_symbols_view_never_holds_a_secret_of_the_source() {
     let token = "ghp_abcdefghijklmnopqrstuvwxyz0123456789";
-    let source = format!("pub const GH: &str = \"{token}\";\n\npub fn run() -> u8 {{\n    1\n}}\n");
-    let security = crate::security::ContentSecurity::new();
-    let view = crate::tools::source_view::outline::symbols_view(
-        &source,
-        "sec.rs",
-        Path::new("/fixture/sec.rs"),
-        &security,
+    let t = Fixture::new();
+    let p = t.0.join("sec.rs");
+    fs::write(
+        &p,
+        format!("pub const GH: &str = \"{token}\";\n\npub fn run() -> u8 {{\n    1\n}}\n"),
+    )
+    .expect("fixture");
+    let row = fetch_with(
+        &qj(&p, serde_json::json!({"view":"symbols"})),
+        &Paths(t.0.clone()),
+        &crate::security::ContentSecurity::new(),
     );
-    let outline = view.outline.clone().expect("outline");
+    assert_eq!(row.view, Some(ReadView::Symbols), "{:?}", row.view_fallback);
+    let outline = row.content.expect("outline");
     assert!(outline.contains("[REDACTED"), "{outline}");
     assert!(!outline.contains(token), "{outline}");
-    assert_eq!(view.redacted_lines, vec![(1, 1)]);
+    assert!(
+        row.warnings
+            .iter()
+            .any(|warning| warning.starts_with("redactedContent: 1 ")),
+        "{:?}",
+        row.warnings
+    );
 }
 
 /// An outline page counts the placeholders its render put in, as a plain
@@ -215,15 +240,11 @@ fn each_symbols_view_scans_its_own_source() {
         }
     }
     let scan = Counting(AtomicUsize::new(0));
-    let source = "pub fn run() -> u8 {\n    1\n}\n";
-    let view = |scan: &Counting| {
-        crate::tools::source_view::outline::symbols_view(
-            source,
-            "run.rs",
-            Path::new("/fixture/run.rs"),
-            scan,
-        )
-    };
+    let t = Fixture::new();
+    let p = t.0.join("run.rs");
+    fs::write(&p, "pub fn run() -> u8 {\n    1\n}\n").expect("fixture");
+    let query = qj(&p, serde_json::json!({"view":"symbols"}));
+    let view = |scan: &Counting| fetch_with(&query, &Paths(t.0.clone()), scan);
     let first = view(&scan);
     let scans = scan.0.load(Ordering::SeqCst);
     assert!(scans > 0);

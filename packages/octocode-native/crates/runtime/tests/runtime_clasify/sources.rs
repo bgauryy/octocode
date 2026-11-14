@@ -186,7 +186,10 @@ async fn a_whole_window_answer_names_its_deciding_lines_in_the_same_request() {
             .as_str()
             .or(request["state"].as_str())
             .unwrap();
-        let parts = text.lines().filter(|line| line.starts_with("[p")).count();
+        let parts = text
+            .lines()
+            .filter(|line| line.starts_with("<lines "))
+            .count();
         assert!(parts > 2, "{parts} parts of a text over two pages");
         let questions = request["questions"].as_object().expect("questions");
         assert_eq!(questions.len(), 2, "the question and its companion");
@@ -197,7 +200,7 @@ async fn a_whole_window_answer_names_its_deciding_lines_in_the_same_request() {
             "{parts} parts and unknown"
         );
         assert!(
-            text.starts_with(&format!("[p1]\n{}", line(1))),
+            text.starts_with("<lines 1-") && text.lines().nth(1) == Some(line(1).trim_end()),
             "{text:.80}"
         );
     }
@@ -225,6 +228,125 @@ async fn a_whole_window_answer_names_its_deciding_lines_in_the_same_request() {
         "{content:.200}"
     );
     runtime.close().await;
+}
+
+/// A judge that names the part holding the line with `FACT` by the marker
+/// line next to it: the nearest one after the fact (`after`) or before it.
+/// Any tag line (`<…>`, `</…>`, `<… continues>`) holding a companion's part
+/// label is a marker. Every `noul` is a yes.
+struct Locator {
+    after: bool,
+}
+
+impl wiremock::Respond for Locator {
+    fn respond(&self, request: &wiremock::Request) -> ResponseTemplate {
+        let body: serde_json::Value = serde_json::from_slice(&request.body).expect("body");
+        let text = body["state"]["text"]
+            .as_str()
+            .or(body["state"].as_str())
+            .expect("text");
+        let rows: Vec<&str> = text.lines().collect();
+        let fact = rows
+            .iter()
+            .position(|row| row.contains("FACT"))
+            .expect("fact");
+        let answers = body["questions"]
+            .as_object()
+            .expect("questions")
+            .iter()
+            .map(|(id, question)| {
+                let answer = if question["type"] == "choice" {
+                    let labels = question["criteria"].as_object().expect("labels");
+                    let named = |row: &&str| {
+                        let row = row.trim();
+                        let inner = row.strip_prefix("</").or_else(|| row.strip_prefix('<'))?;
+                        let inner = inner.strip_suffix('>')?;
+                        let label = inner.strip_suffix(" continues").unwrap_or(inner);
+                        (label != "unknown" && labels.contains_key(label)).then(|| label.to_owned())
+                    };
+                    let choice = if self.after {
+                        rows[fact + 1..].iter().find_map(named)
+                    } else {
+                        rows[..fact].iter().rev().find_map(named)
+                    };
+                    let choice = choice.unwrap_or_else(|| "unknown".into());
+                    let probabilities = labels
+                        .keys()
+                        .map(|label| (label.clone(), json!(if *label == choice { 1.0 } else { 0.0 })))
+                        .collect::<serde_json::Map<_, _>>();
+                    json!({"type":"choice","choice":choice,"confidence":1,"probabilities":probabilities})
+                } else {
+                    json!({"type":"noul","noul":0.9})
+                };
+                (id.clone(), answer)
+            })
+            .collect::<serde_json::Map<_, _>>();
+        ResponseTemplate::new(200).set_body_json(
+            json!({"model":"jev-1.13.0","answers":answers,"usage":{"input_tokens":40,"output_tokens":7}}),
+        )
+    }
+}
+
+/// K1: a fact inside part N is attributed to part N, whichever side of the
+/// fact the judge reads its part's marker from, at both edges of a part (its
+/// last line, the next part's first line).
+#[tokio::test]
+async fn a_fact_at_a_part_edge_is_attributed_to_its_own_part() {
+    let line = |n: usize, fact: usize| {
+        format!(
+            "test case_{n:04} ... {}\n",
+            if n == fact { "FACT" } else { "okay" }
+        )
+    };
+    let lines = 3_000;
+    let body = |fact: usize| (1..=lines).map(|n| line(n, fact)).collect::<String>();
+    let row = |content: String| {
+        json!({"operation":"evaluate","content":content,
+            "questions":{"fail":noul("Does a test fail?")}})
+    };
+    // The first part's last line: the lines a first-part choice names.
+    let typed = provider(1).await;
+    let workspace = Workspace::new();
+    let first = clasify(
+        &clasify_runtime(&workspace, &typed, &[]),
+        vec![row(body(0))],
+    )
+    .await;
+    let end = usize::try_from(
+        first["results"][0]["data"]["answers"]["fail"]["lines"]["endLine"]
+            .as_u64()
+            .unwrap_or_else(|| panic!("{first}")),
+    )
+    .unwrap();
+    assert!(end > 1 && end < lines, "{first}");
+    for after in [true, false] {
+        let server = MockServer::builder().start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/systemone"))
+            .respond_with(Locator { after })
+            .expect(2)
+            .mount(&server)
+            .await;
+        let runtime = clasify_runtime(&workspace, &server, &[]);
+        let facts = [end, end + 1];
+        let out = clasify(
+            &runtime,
+            facts.iter().map(|&fact| row(body(fact))).collect(),
+        )
+        .await;
+        for (index, fact) in facts.into_iter().enumerate() {
+            let lines = &out["results"][index]["data"]["answers"]["fail"]["lines"];
+            let (start, stop) = (lines["startLine"].as_u64(), lines["endLine"].as_u64());
+            assert!(
+                start.zip(stop).is_some_and(|(start, stop)| {
+                    (start..=stop).contains(&u64::try_from(fact).unwrap())
+                }),
+                "judge reading the marker {}: fact at line {fact}, named {lines}: {out}",
+                if after { "after" } else { "before" }
+            );
+        }
+        runtime.close().await;
+    }
 }
 
 /// B210: an identical row recaptures its local source on every call, so an

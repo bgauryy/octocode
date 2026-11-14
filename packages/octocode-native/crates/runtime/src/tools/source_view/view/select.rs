@@ -1,7 +1,6 @@
 //! The requested view of the extracted text: content, compact, or a symbols
 //! outline, with the typed fallback when one stands in for another.
 use super::super::outline::render_symbols_view;
-use super::super::prepare::add_redacted_lines;
 use super::super::types::*;
 use super::{View, compact};
 use crate::execution::cancel::CancellationCheck;
@@ -15,7 +14,6 @@ use octocode_contract_types::{LocalFetchQuery, ReadView};
 pub(super) fn select_view(
     q: &LocalFetchQuery,
     ext: &mut super::super::extraction::Extraction,
-    source_redactions: &mut Vec<(usize, usize)>,
     full_source: &str,
     cancel: &impl CancellationCheck,
 ) -> Result<View, String> {
@@ -99,15 +97,11 @@ pub(super) fn select_view(
         ReadView::Content => view(selected, None),
         ReadView::Compact => compact_view(selected, ReadView::Compact, None),
         ReadView::Symbols => {
-            match render_symbols_view(&selected, local_fetch_query::path(q), Vec::new()) {
+            match render_symbols_view(&selected, local_fetch_query::path(q)) {
                 super::super::outline::SymbolsView {
                     outline: Ok(outline),
                     warning,
-                    redacted_lines,
                 } => {
-                    // The outline shows the placeholders its render put in: the
-                    // page counts them as source-wide redactions.
-                    add_redacted_lines(source_redactions, &redacted_lines);
                     View {
                         // An outline from a recovered parse says where it is
                         // blind, once: on the outline's first page.

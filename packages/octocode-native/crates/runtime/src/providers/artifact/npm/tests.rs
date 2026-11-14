@@ -1,6 +1,7 @@
 use super::registry::test_registry;
 use super::{
-    ArtifactError, ArtifactProviderPage, NPM_INSTALL_JSON, RegistryClient, ResolvedNpmRegistry,
+    ArtifactError, ArtifactProviderPage, NPM_INSTALL_JSON, OPTIONAL_PEER, RegistryClient,
+    ResolvedNpmRegistry,
 };
 use crate::providers::artifact::query::artifact_query;
 use crate::providers::artifact::test_http::test_budget;
@@ -130,6 +131,31 @@ async fn npm_version_without_peers_has_no_peer_list() {
     let item = &page.artifacts[0];
     assert_eq!(item.dependencies, Some(Vec::new()));
     assert_eq!(item.peer_dependencies, None);
+}
+
+/// A peer `peerDependenciesMeta` marks optional is listed as optional; the
+/// others, and a meta entry for a name that is no peer, stay as declared.
+#[tokio::test]
+async fn npm_optional_peers_are_marked() {
+    let mut peers = manifest("4.6.5", false);
+    peers["peerDependencies"] = json!({"react": "^19", "react-dom": "^19", "vue": "^3"});
+    peers["peerDependenciesMeta"] = json!({
+        "react-dom": {"optional": true},
+        "vue": {"optional": false},
+        "not-a-peer": {"optional": true}
+    });
+    let http = routes(vec![("/zod/latest", JSON, peers)]);
+    let page = lookup(&http, json!({"operation":"resolve","packageName": "zod"}))
+        .await
+        .expect("lookup");
+    assert_eq!(
+        page.artifacts[0].peer_dependencies,
+        Some(vec![
+            "react@^19".to_owned(),
+            format!("react-dom@^19{OPTIONAL_PEER}"),
+            "vue@^3".to_owned(),
+        ])
+    );
 }
 
 #[tokio::test]

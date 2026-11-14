@@ -51,8 +51,17 @@ pub(super) fn run_page(
     let mut out = Map::new();
     out.insert("graph".into(), graph.summary());
     out.insert("operation".into(), json!(options.op));
+    // The answer's rows come before the summary and baseline it states
+    // once: their long lists never stand between a reader and the rows.
+    let stated = ["summary", "baseline"]
+        .into_iter()
+        .filter_map(|section| extra.remove(section).map(|value| (section, value)))
+        .collect::<Vec<_>>();
     out.extend(extra);
     out.insert("rows".into(), Value::Array(rows));
+    for (section, value) in stated {
+        out.insert(section.into(), value);
+    }
     // Nothing to list, or a page past the last row.
     let mut output = if shown == 0 {
         GraphOutput::empty(Value::Object(out))
@@ -135,12 +144,6 @@ pub(super) fn resume_row(options: &QueryOptions, id: &str, resume: &Resume) -> M
     };
     row.insert("offset".into(), json!(offset));
     row
-}
-
-/// One tool call as text: the tool name, then its query row as JSON, for a
-/// call named inside a prose note.
-pub(super) fn call(tool: &str, row: Map<String, Value>) -> String {
-    format!("{tool} {}", Value::Object(row))
 }
 
 /// `row` as the generated query type of the tool it addresses; `None` when

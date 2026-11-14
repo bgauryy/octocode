@@ -190,6 +190,8 @@ pub(super) async fn run_target(
     security: &crate::security::ContentSecurity,
     response_window: Option<usize>,
 ) -> Result<Value, Exit> {
+    // How long this page has waited, for a row that ends on a load.
+    let called = tokio::time::Instant::now();
     // Before any read of the request's sources: a file written after it
     // may be read by this page before the write.
     let started = octocode_engine::stamp::settle_clock();
@@ -241,7 +243,7 @@ pub(super) async fn run_target(
     // shows it has finished loading. A later page reads the first page's
     // answers, which were judged when they were asked.
     let mut result = loop {
-        let asked = session.client.asked_at();
+        let asked = session.client.asked_at().await;
         let mut row = ops::Operation {
             client: &session.client,
             query,
@@ -283,7 +285,7 @@ pub(super) async fn run_target(
                 );
                 break row;
             }
-            EmptyAnswer::StillLoading => break failure::still_indexing(query),
+            EmptyAnswer::StillLoading => break failure::still_indexing(query, called.elapsed()),
         }
     };
     unanswered::check(

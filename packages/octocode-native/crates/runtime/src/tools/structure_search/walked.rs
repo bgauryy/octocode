@@ -2,7 +2,7 @@
 use super::cut::{Cut, TimeWindow, page_ranges};
 use super::memo;
 use super::probe::Uncovered;
-use super::rows::{self, EntryKind, Row};
+use super::rows::{self, Row, Tally};
 use super::walk_policy::WalkLeft;
 use octocode_contract_types::StructureSearchView;
 use serde_json::{Value, json};
@@ -109,10 +109,11 @@ pub(super) struct WalkMeta {
     pub(super) walk_position: usize,
     /// Files, directories and file bytes of this window's rows, counted
     /// before directories with their own group fold into its header.
-    pub(super) files: usize,
-    pub(super) dirs: usize,
-    /// `None` when the walk read no sizes (a view that shows only names).
-    pub(super) bytes: Option<u64>,
+    pub(super) window: Tally,
+    /// The same of every row a walk that ranked its whole scope ranked, the
+    /// windows' before and after this one included: what a `complete`
+    /// count totals. `None` for a walk-order or paused walk.
+    pub(super) ranked: Option<Tally>,
     pub(super) uncovered: Uncovered,
     /// The directories the walk entered, which its stored rows depend on.
     pub(super) walked_dirs: Vec<octocode_engine::types::WalkedDir>,
@@ -250,7 +251,6 @@ impl Walked {
         names_only: bool,
     ) -> Self {
         let offset = scan_offset.min(available);
-        let (files, dirs, bytes) = counts(&rows);
         let meta = WalkMeta {
             covered: offset + rows.len(),
             available,
@@ -264,9 +264,8 @@ impl Walked {
                 }),
             time_window: TimeWindow::Whole,
             walk_position: native.walk_position as usize,
-            files,
-            dirs,
-            bytes: (!names_only).then_some(bytes),
+            window: Tally::of_rows(&rows),
+            ranked: None,
             walked_dirs: native.walked_dirs,
             names_only,
             uncovered: left.into_uncovered(
@@ -290,12 +289,9 @@ impl Walked {
         scan_offset: usize,
         dirs: octocode_engine::stamp::Proof,
     ) -> Self {
-        let (files, folders, bytes) = counts(&rows);
         let meta = WalkMeta {
             covered: scan_offset.min(listing.available) + rows.len(),
-            files,
-            dirs: folders,
-            bytes: (!listing.names_only).then_some(bytes),
+            window: Tally::of_rows(&rows),
             ..listing.clone()
         };
         Self::of(rows, meta, Some(dirs))
@@ -362,23 +358,6 @@ impl Walked {
             pins_through: meta.pins_through.clone(),
         }
     }
-}
-
-/// Files, directories and file bytes of `rows`: a non-directory row is a file;
-/// bytes are regular files' (a symlink's own length is no content).
-fn counts(rows: &[Row]) -> (usize, usize, u64) {
-    let (mut files, mut dirs, mut bytes) = (0, 0, 0_u64);
-    for row in rows {
-        match row.kind {
-            EntryKind::Directory => dirs += 1,
-            EntryKind::Symlink => files += 1,
-            EntryKind::File => {
-                files += 1;
-                bytes += u64::try_from(row.size).unwrap_or(0);
-            }
-        }
-    }
-    (files, dirs, bytes)
 }
 
 #[cfg(test)]

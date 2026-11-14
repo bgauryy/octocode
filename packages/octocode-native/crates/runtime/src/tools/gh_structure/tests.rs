@@ -158,14 +158,16 @@ fn test_listing() -> Listing<'static> {
     }
 }
 
-/// A submodule is not listed, and not dropped silently: the listing
-/// names it by its repository-relative path.
+/// A submodule or symlink is not listed, and not dropped silently: the
+/// listing names each by its repository-relative path, under its kind,
+/// stated once.
 #[test]
 fn a_submodule_is_named_not_silently_dropped() {
     let tree: octocode_github::TreeResponse = serde_json::from_value(json!({
         "sha":"s","truncated":false,"tree":[
             {"path":"src","type":"tree"},
             {"path":"third_party/zlib","type":"commit"},
+            {"path":"src/link","type":"blob","mode":"120000","size":3},
             {"path":"README.md","type":"blob","size":1}
         ]
     }))
@@ -174,7 +176,7 @@ fn a_submodule_is_named_not_silently_dropped() {
     assert_eq!(traversal.entries.len(), 2);
     assert_eq!(
         serde_json::to_value(&traversal.omitted).expect("omitted"),
-        json!(["third_party/zlib (submodule)"])
+        json!({"submodule":["third_party/zlib"],"symlink":["src/link"]})
     );
 }
 
@@ -198,8 +200,8 @@ fn include_globs_match_repository_relative_paths() {
             entry("pkg/lib.rs"),
         ],
         omitted: [
-            "pkg/src/link.rs (symlink)".to_owned(),
-            "pkg/vendor (submodule)".to_owned(),
+            ("symlink".to_owned(), ["pkg/src/link.rs".to_owned()].into()),
+            ("submodule".to_owned(), ["pkg/vendor".to_owned()].into()),
         ]
         .into(),
         ..Traversal::default()
@@ -213,7 +215,7 @@ fn include_globs_match_repository_relative_paths() {
     assert_eq!(kept, ["pkg/src/lib.rs"]);
     assert_eq!(
         serde_json::to_value(&traversal.omitted).expect("omitted"),
-        json!(["pkg/src/link.rs (symlink)"])
+        json!({"symlink":["pkg/src/link.rs"]})
     );
 }
 
@@ -237,7 +239,7 @@ fn a_git_tree_symlink_is_named_not_listed_as_a_file() {
     assert_eq!(listed, ["README.md"]);
     assert_eq!(
         serde_json::to_value(&traversal.omitted).expect("omitted"),
-        json!(["docs (symlink)"])
+        json!({"symlink":["docs"]})
     );
 }
 

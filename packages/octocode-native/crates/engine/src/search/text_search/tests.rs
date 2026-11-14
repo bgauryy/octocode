@@ -23,6 +23,7 @@ mod coverage;
 mod digests;
 mod judge_gate;
 mod limits;
+mod line_scope;
 mod listed;
 mod matching;
 mod multiline;

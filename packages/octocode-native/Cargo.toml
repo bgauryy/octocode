@@ -153,6 +153,12 @@ lto = false
 [profile.dev]
 debug = "line-tables-only"
 split-debuginfo = "unpacked"
+# Not incremental: since rustc 1.88 an incremental build adds a random per-run segment
+# to every `.rcgu.o` name, and `split-debuginfo = "unpacked"` keeps the objects after
+# linking, so each rebuild left a full new set (rust-lang/rust#161824). On 2026-11-13,
+# 731k of 737k `target/debug/deps` entries were such objects (307 GiB), next to 167 GB of
+# session caches. Non-incremental names are stable, so a rebuild overwrites them.
+incremental = false
 
 [profile.dev.package."*"]
 debug = false

@@ -161,9 +161,8 @@ fn an_unreadable_item_pattern_gives_the_lists_note() {
 fn a_value_outside_its_format_names_the_format_not_its_pattern() {
     let row = json!({"operation": "pullRequest",
         "filters": {"createdAt": {"from": "not-a-date"}}});
-    let error =
-        crate::contracts::prepare_many_and_validate("ghSearchHistory", json!({"queries": [row]}))
-            .expect_err("not a date-time");
+    let error = crate::contracts::prepare_rows("ghSearchHistory", json!({"queries": [row]}))
+        .expect_err("not a date-time");
     let shown = crate::contracts::validate::format_input_error(
         "ghSearchHistory",
         &error,
@@ -194,8 +193,8 @@ fn validate_input_schema_for_test(
 }
 
 fn first_error(tool: &str, row: Value) -> String {
-    let error = crate::contracts::prepare_many_and_validate(tool, json!({"queries": [row]}))
-        .expect_err("invalid row");
+    let error =
+        crate::contracts::prepare_rows(tool, json!({"queries": [row]})).expect_err("invalid row");
     crate::contracts::validate::format_input_error(tool, &error, &[], &serde_json::Value::Null)["error"]
         .as_str()
         .expect("message")

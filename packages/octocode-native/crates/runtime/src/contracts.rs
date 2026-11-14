@@ -27,6 +27,8 @@ pub(crate) use schema_facts::{
     resolve_ref, schema_keyword,
 };
 pub(crate) use validate::validate_output_in_place;
+#[cfg(test)]
+pub(crate) use validate::validate_saved;
 pub use validate::{
     ContractValidationError, ValidationIssue, format_input_error, tool_error, validate,
     validate_output, validate_query,
@@ -146,31 +148,6 @@ pub(crate) fn isolate_row_violations(
     Some(patched)
 }
 
-/// Validate a single internal query in tests through the same saved-request path.
-#[cfg(test)]
-pub(crate) fn prepare_and_validate(
-    tool_name: &str,
-    input: serde_json::Value,
-) -> Result<serde_json::Value, ContractValidationError> {
-    validate_built_query(tool_name, input)
-}
-
-#[cfg(test)]
-pub(crate) fn prepare_many_built(
-    tool_name: &str,
-    input: serde_json::Value,
-) -> Result<Vec<serde_json::Value>, ContractValidationError> {
-    prepare_saved_rows(tool_name, input)?.into_iter().collect()
-}
-
-#[cfg(test)]
-pub(crate) fn validate_built(
-    tool_name: &str,
-    input: serde_json::Value,
-) -> Result<serde_json::Value, ContractValidationError> {
-    validate::validate_saved(tool_name, input)
-}
-
 /// One row of a validated batch: its validated query, or its own issues.
 pub(crate) type RowValidation = Result<serde_json::Value, ContractValidationError>;
 
@@ -251,30 +228,6 @@ fn prepare_rows_from(
             Err(ContractValidationError { issues })
         })
         .collect())
-}
-
-/// Validate a fresh-query or saved-response envelope and return its query rows.
-/// Cursor reads have no query rows. The envelope's shape
-/// is checked first (`prepare::envelope_issues`: a bare array or a nested
-/// envelope is rejected with a repairable issue, never reshaped); then the
-/// complete envelope validates, so cross-query limits and indexed
-/// diagnostics remain contract-owned. Clasify's batch relation rules run
-/// at engine admission (`tools::clasify::admission`).
-pub fn prepare_many_and_validate(
-    tool_name: &str,
-    input: serde_json::Value,
-) -> Result<Vec<serde_json::Value>, ContractValidationError> {
-    let issues = prepare::envelope_issues(tool_name, &input, false);
-    if !issues.is_empty() {
-        return Err(ContractValidationError { issues });
-    }
-    match validate(tool_name, input)? {
-        serde_json::Value::Object(mut validated) => match validated.remove("queries") {
-            Some(serde_json::Value::Array(queries)) => Ok(queries),
-            _ => Ok(Vec::new()),
-        },
-        _ => Ok(Vec::new()),
-    }
 }
 
 /// Validate a runtime-built continuation row, including its core-declared private progress.

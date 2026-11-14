@@ -52,6 +52,64 @@ pub(crate) fn line_key_paths(path: &Path, text: &str, lines: &[usize]) -> Vec<(u
     }
 }
 
+/// What a scan of a document tells about each requested line, in order.
+pub(crate) trait LineVisitor {
+    /// Line `line` (1-based) begins inside the container at `container`
+    /// (empty: the document root).
+    fn line(&mut self, line: usize, container: &str);
+    /// A member or element at `path` starts on the current line; `false`
+    /// when no later start on it is wanted.
+    fn start(&mut self, path: &str) -> bool;
+}
+
+/// Tells `visitor`, for each of `lines` (1-based, ascending) of `text`, a
+/// document at `path`, the container the line begins in and each member or
+/// element that starts on it, in order; nothing for any other file.
+pub(crate) fn visit_lines(path: &Path, text: &str, lines: &[usize], visitor: &mut dyn LineVisitor) {
+    match kind(path) {
+        Some(Kind::Json) => json::visit_lines(text, lines, visitor),
+        Some(Kind::Toml) => toml::visit_lines(text, lines, visitor),
+        None => {}
+    }
+}
+
+/// Each line's key path: the member or element that starts first on it,
+/// else the container it sits in; root lines left out.
+#[derive(Default)]
+struct FirstKey {
+    paths: Vec<(usize, String)>,
+    open: Option<(usize, String)>,
+}
+
+impl FirstKey {
+    fn flush(&mut self) {
+        if let Some((line, path)) = self.open.take()
+            && !path.is_empty()
+        {
+            self.paths.push((line, path));
+        }
+    }
+
+    fn into_paths(mut self) -> Vec<(usize, String)> {
+        self.flush();
+        self.paths
+    }
+}
+
+impl LineVisitor for FirstKey {
+    fn line(&mut self, line: usize, container: &str) {
+        self.flush();
+        self.open = Some((line, container.to_owned()));
+    }
+
+    fn start(&mut self, path: &str) -> bool {
+        if let Some((_, open)) = self.open.as_mut() {
+            path.clone_into(open);
+        }
+        false
+    }
+}
+
 /// Appends one key to a dotted path: plain keys join with `.`, a key that a
 /// dot, bracket, quote or space would misread is quoted as `["…"]`.
 fn push_key(out: &mut String, key: &str) {

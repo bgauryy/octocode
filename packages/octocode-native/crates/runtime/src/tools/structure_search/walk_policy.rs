@@ -331,17 +331,23 @@ impl WalkMeta {
     /// the path policy withheld and the entries it could not read. One
     /// counted entry per cause and rule, its first path named; `sampled` too when the
     /// walk stopped before its end. A resumed walk (`walkOffset`) states the
-    /// entries it read.
+    /// entries it read. The summary counts the rows `pagination.total` counts:
+    /// every ranked row when the count is `complete` (`whole`), else this
+    /// window's.
     pub(super) fn disclose(
         &self,
         out: &mut Value,
         root: &std::path::Path,
+        whole: bool,
     ) -> Result<(), ToolError> {
         use crate::tools::leads::skipped::{self, under};
         use octocode_contract_types::SkippedPathCause::{DefaultExcluded, Hidden, Ignored};
-        out["summary"] = json!({"fileCount": self.files, "dirCount": self.dirs});
-        if let Some(bytes) = self.bytes {
-            out["summary"]["bytes"] = json!(bytes);
+        let tally = self.ranked.filter(|_| whole).unwrap_or(self.window);
+        out["summary"] = json!({"fileCount": tally.files, "dirCount": tally.dirs});
+        // A walk that read no sizes (a view that shows only names) counts no
+        // bytes.
+        if !self.names_only {
+            out["summary"]["bytes"] = json!(tally.bytes);
         }
         if let Some(window) = &self.test_code {
             if let Some(excluded) = window.excluded.stated() {

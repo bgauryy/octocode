@@ -156,7 +156,10 @@ impl NativeLspClient {
     }
 
     /// Return the latest complete `textDocument/publishDiagnostics` payload for
-    /// a file, waiting briefly when the server has not published one yet.
+    /// a file, waiting when the server has not published one yet: for as long
+    /// as it works, until `timeout_ms` (1.5 s by default) pass with no sign of
+    /// work or the caller's deadline comes (see the connection's
+    /// `wait_for_push_diagnostics`).
     pub async fn get_push_diagnostics(
         &self,
         file_path: String,
@@ -173,8 +176,10 @@ impl NativeLspClient {
             .version(&uri)
             .map(i64::from);
         Ok(connection
-            .wait_for_push_diagnostics(&uri, timeout_ms.unwrap_or(1_500).min(10_000), min_version)
-            .await)
+            .wait_for_push_diagnostics(&[(uri, min_version)], timeout_ms.unwrap_or(1_500))
+            .await
+            .pop()
+            .flatten())
     }
 
     /// Clones the connection handle out from under the lock, releasing the

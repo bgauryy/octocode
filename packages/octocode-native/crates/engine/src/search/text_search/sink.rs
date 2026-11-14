@@ -111,9 +111,6 @@ pub(super) struct CollectSink<'a, M: Matcher> {
     /// A matched or context line was not UTF-8, so its value is decoded
     /// text, not verbatim bytes ([`block_text`]).
     pub(super) not_utf8: bool,
-    /// A long line's walk outgrew the memory budget, so a row hides every value
-    /// of the Kubernetes Secret or JSON Web Key it names ([`LongLine::every_value`]).
-    pub(super) every_value: bool,
     /// One matcher per searched term (empty: none counted).
     pub(super) terms: &'a [M],
     /// Per term of `terms`: its matches (when submatches are enumerated)
@@ -122,6 +119,11 @@ pub(super) struct CollectSink<'a, M: Matcher> {
     /// The search's test-code scope and this file's path: matched lines
     /// on the other side are left out.
     pub(super) test_code: Option<(&'a crate::types::TestCodeScope, &'a std::path::Path)>,
+    /// The search's line scope and this file's path: matched lines outside
+    /// its spans are left out.
+    pub(super) line_scope: Option<(&'a crate::types::LineScope, &'a std::path::Path)>,
+    /// This file's kept spans, read on its first matched line.
+    pub(super) scope_spans: Option<std::sync::Arc<Vec<[u32; 2]>>>,
     /// The search's deferred-line inspector and this file's path.
     pub(super) inspect_deferred: Option<(&'a crate::types::DeferredInspector, &'a std::path::Path)>,
     /// This file's test-only spans, read on its first matched line.
@@ -145,6 +147,8 @@ impl<'a, M: Matcher> CollectSink<'a, M> {
             terms,
             term_counts: vec![0; terms.len()],
             test_code: None,
+            line_scope: None,
+            scope_spans: None,
             inspect_deferred: None,
             test_spans: None,
             test_lines_excluded: 0,
@@ -161,7 +165,6 @@ impl<'a, M: Matcher> CollectSink<'a, M> {
             line_weight: 0,
             declares: false,
             not_utf8: false,
-            every_value: false,
         }
     }
 }
@@ -285,10 +288,17 @@ impl<M: Matcher> CollectSink<'_, M> {
         fits
     }
 
-    /// Whether a test-code scope keeps the matched block at 1-based
-    /// `line`; one it leaves out is counted. The file's spans are read on
-    /// its first matched line, so a file without hits is never parsed.
+    /// Whether the line scope and the test-code scope keep the matched block
+    /// at 1-based `line`; one the test-code scope leaves out is counted.
+    /// Each scope's spans are read on the file's first matched line, so a
+    /// file without hits is never parsed.
     fn keeps_line(&mut self, line: u32, bytes: &[u8]) -> bool {
+        if let Some((scope, path)) = self.line_scope {
+            let spans = self.scope_spans.get_or_insert_with(|| (scope.spans)(path));
+            if !crate::types::LineScope::keeps(spans, line) {
+                return false;
+            }
+        }
         let Some((scope, path)) = self.test_code else {
             return true;
         };

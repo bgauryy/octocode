@@ -197,6 +197,7 @@ async fn a_malformed_body_is_not_cached_and_the_retry_reads_again() {
 mod kept_answers {
     use super::super::*;
     use crate::providers::saved_answers::{KeptAnswers, ReusedSince};
+    use octocode_github::{Partition, SavedAnswer, SavedAnswers};
     use std::sync::Mutex;
 
     /// Answers each read with the next scripted answer and records what asked.
@@ -347,6 +348,144 @@ mod kept_answers {
             "no validator crossed credentials"
         );
         assert_eq!(reused.get(), None);
+    }
+
+    async fn rate_limit_preserves_revalidation_requirement(cache_control: &str) {
+        let http = Scripted::new(vec![
+            (
+                200,
+                "{\"v\":1}",
+                &[("etag", "\"e\""), ("cache-control", cache_control)],
+            ),
+            (429, "{\"message\":\"validation rate limited\"}", &[]),
+            (304, "", &[]),
+        ]);
+        let answers = KeptAnswers::new(None);
+        let reused = ReusedSince::default();
+        let original = read(&http, &answers, &reused, None).await.unwrap().unwrap();
+        assert_eq!(original["v"], 1);
+
+        let error = read(&http, &answers, &reused, None)
+            .await
+            .expect_err("a rate limit cannot confirm an answer requiring validation");
+        assert_eq!(error.code, octocode_contract_types::ErrorCode::RateLimited);
+        assert_eq!(error.status, Some(429));
+        assert!(error.message.contains("validation rate limited"));
+        assert_eq!(reused.get(), None, "no stale answer was served");
+
+        let confirmed = read(&http, &answers, &reused, None).await.unwrap().unwrap();
+        assert_eq!(
+            confirmed, original,
+            "successful validation can reuse the body"
+        );
+        assert_eq!(
+            http.asked(),
+            [None, Some("\"e\"".to_owned()), Some("\"e\"".to_owned())]
+        );
+        assert_eq!(reused.get(), None, "confirmed reuse is not stale fallback");
+    }
+
+    #[tokio::test]
+    async fn rate_limit_cannot_bypass_no_cache() {
+        rate_limit_preserves_revalidation_requirement("no-cache").await;
+    }
+
+    #[tokio::test]
+    async fn rate_limit_cannot_bypass_expired_must_revalidate() {
+        rate_limit_preserves_revalidation_requirement("max-age=0, must-revalidate").await;
+    }
+
+    fn saved_registry_answer(answers: &KeptAnswers) -> Option<SavedAnswer> {
+        let partition = Partition::new("https://registry.invalid", None::<&secrecy::SecretString>);
+        answers.load(
+            partition.identity(),
+            &format!("GET https://registry.invalid/zod\n{JSON}"),
+        )
+    }
+
+    #[tokio::test]
+    async fn a_no_store_confirmation_forgets_the_saved_body() {
+        let http = Scripted::new(vec![
+            (200, "{\"v\":1}", &[("etag", "\"e\"")]),
+            (304, "", &[("cache-control", "no-store")]),
+            (429, "", &[]),
+        ]);
+        let answers = KeptAnswers::new(None);
+        let reused = ReusedSince::default();
+        let original = read(&http, &answers, &reused, None).await.unwrap().unwrap();
+        assert!(saved_registry_answer(&answers).is_some());
+
+        let confirmed = read(&http, &answers, &reused, None).await.unwrap().unwrap();
+        assert_eq!(
+            confirmed, original,
+            "this validation still answers the read"
+        );
+        assert!(
+            saved_registry_answer(&answers).is_none(),
+            "the origin forbids retaining the confirmed answer"
+        );
+        let error = read(&http, &answers, &reused, None).await.unwrap_err();
+        assert_eq!(error.code, octocode_contract_types::ErrorCode::RateLimited);
+        assert_eq!(http.asked(), [None, Some("\"e\"".to_owned()), None]);
+        assert_eq!(reused.get(), None);
+    }
+
+    #[tokio::test]
+    async fn an_uncacheable_replacement_forgets_the_superseded_answer() {
+        for cache_control in ["no-store", "no-cache", ""] {
+            let http = Scripted::new(vec![
+                (200, "{\"v\":1}", &[("etag", "\"e\"")]),
+                (200, "{\"v\":2}", &[("cache-control", cache_control)]),
+                (429, "", &[]),
+            ]);
+            let answers = KeptAnswers::new(None);
+            let reused = ReusedSince::default();
+            read(&http, &answers, &reused, None).await.unwrap();
+            assert!(saved_registry_answer(&answers).is_some());
+
+            let current = read(&http, &answers, &reused, None).await.unwrap().unwrap();
+            assert_eq!(current["v"], 2);
+            assert!(
+                saved_registry_answer(&answers).is_none(),
+                "an uncacheable replacement supersedes the old body: {cache_control:?}"
+            );
+            let error = read(&http, &answers, &reused, None).await.unwrap_err();
+            assert_eq!(error.code, octocode_contract_types::ErrorCode::RateLimited);
+            assert_eq!(http.asked(), [None, Some("\"e\"".to_owned()), None]);
+            assert_eq!(reused.get(), None);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_malformed_replacement_forgets_the_superseded_answer() {
+        for cache_control in ["no-store", ""] {
+            let http = Scripted::new(vec![
+                (200, "{\"v\":1}", &[("etag", "\"e\"")]),
+                (200, "not json", &[("cache-control", cache_control)]),
+                (429, "", &[]),
+                (200, "{\"v\":2}", &[("etag", "\"updated\"")]),
+            ]);
+            let answers = KeptAnswers::new(None);
+            let reused = ReusedSince::default();
+            read(&http, &answers, &reused, None).await.unwrap();
+            assert!(saved_registry_answer(&answers).is_some());
+
+            let error = read(&http, &answers, &reused, None).await.unwrap_err();
+            assert_eq!(
+                error.code,
+                octocode_contract_types::ErrorCode::ProviderError
+            );
+            assert!(
+                saved_registry_answer(&answers).is_none(),
+                "a malformed replacement cannot leave the old answer current: {cache_control:?}"
+            );
+            let error = read(&http, &answers, &reused, None).await.unwrap_err();
+            assert_eq!(error.code, octocode_contract_types::ErrorCode::RateLimited);
+            let retry = read(&http, &answers, &reused, None).await.unwrap().unwrap();
+            assert_eq!(retry["v"], 2, "a malformed answer does not poison retries");
+            assert_eq!(http.asked(), [None, Some("\"e\"".to_owned()), None, None]);
+            assert_eq!(reused.get(), None);
+        }
     }
 
     /// An answer that does not decode is not kept, a 404 drops what was kept,

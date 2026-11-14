@@ -69,7 +69,7 @@ fn history_b_patch_walk_hops_carry_no_response_page_knobs() {
     }
     let hop = lead(json!({}), Some(5_000));
     assert!(hop["queries"][0].get("length").is_none(), "{hop}");
-    crate::contracts::validate_built("ghGetHistoryItem", hop).expect("a valid hop");
+    crate::contracts::validate_saved("ghGetHistoryItem", hop).expect("a valid hop");
 
     let mut commit = HistoryItemRequest::from_row(json!({
         "operation":"commit","owner":"a","repo":"b",

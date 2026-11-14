@@ -8,6 +8,7 @@ import {
   type ExitStatus,
   type CapturedOutput,
 } from './engine/capture-result.mjs';
+import { packageTmpDir } from './engine/engine-io.mjs';
 import type { ChromeInvocation } from '@octocodeai/config/chrome';
 const scripts = join(dirname(fileURLToPath(import.meta.url)), 'engine');
 const flags = (input?: Record<string, string | number | boolean | undefined>) =>
@@ -94,11 +95,7 @@ async function invokeEngine(
   if (input.options !== undefined)
     args.push('--options', JSON.stringify(input.options));
   if (input.args) args.push(...input.args);
-  const directory = join(
-    process.cwd(),
-    '.octocode/octocode-chrome-devtools/tmp/adapter',
-    randomUUID()
-  );
+  const directory = join(packageTmpDir(), 'adapter', randomUUID());
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const outputs = Object.fromEntries(
     ['stdout', 'stderr'].map(name => [

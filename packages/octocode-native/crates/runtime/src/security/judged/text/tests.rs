@@ -111,7 +111,7 @@ fn a_key_block_hides_its_bytes_and_leaves_the_code_around_them() {
 /// an occurrence the pass replaced part of decides.
 #[test]
 fn a_column_places_a_fragment_at_its_bytes_and_nowhere_else() {
-    let value = format!("{}f", body(3, 24));
+    let value = format!("ghp_{}f", body(3, 35));
     for lead in ["", "/* é· */ ", "var é = \"ππ\"; "] {
         let source = format!("{lead}func f() {{ secret := \"{value}\"; _ = secret }}\n");
         let judged = judge(&source, "one.go");
@@ -149,35 +149,4 @@ fn a_column_places_a_fragment_at_its_bytes_and_nowhere_else() {
         let unplaced = judged.place(1, None, "f").expect("an occurrence");
         assert!(judged.exposes(&unplaced), "{lead:?}");
     }
-}
-
-/// A cut inside a value hidden across lines shows that value's placeholder,
-/// the one a read of its lines shows, on whichever of its lines the cut is.
-#[test]
-fn a_cut_of_one_line_of_a_value_hidden_across_lines_keeps_its_placeholder() {
-    let tail = body(5, 36);
-    let source = format!("label = 1\ntoken = \"ghp_\" \\\n    \"{tail}\"\nafter = 2\n");
-    let judged = judge(&source, "s.py");
-    let read = judged.lines(2, 2).expect("both lines");
-    assert!(!read.contains(&tail), "fixture no longer hidden: {read}");
-    let placeholder = octocode_engine::security::placeholder_regex()
-        .find(&read)
-        .expect("a placeholder of a kind")
-        .as_str()
-        .to_owned();
-    for literal in ["\"ghp_\"".to_owned(), format!("\"{tail}\"")] {
-        let at = source.find(&literal).expect("literal");
-        let shown = judged.cut(at..at + literal.len());
-        assert!(
-            shown.contains(&placeholder) && !shown.contains("[REDACTED]"),
-            "{literal}: {shown}, the read: {read}"
-        );
-        assert!(
-            !shown.contains(&tail[..8]) && !shown.contains('\n'),
-            "{shown}"
-        );
-    }
-    // The lines around it are the source's.
-    assert_eq!(judged.lines(1, 1).expect("line 1"), "label = 1");
-    assert_eq!(judged.lines(4, 1).expect("line 4"), "after = 2");
 }

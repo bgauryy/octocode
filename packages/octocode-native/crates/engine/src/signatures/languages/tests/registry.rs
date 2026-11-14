@@ -33,18 +33,23 @@ fn capability_inventory_separates_syntax_families_from_unimplemented_semantics()
     );
 }
 
+/// An extension no registry grammar owns has no native capability and no
+/// built-in language server: a synthetic unknown extension, and every
+/// grammar-less extension another production table names (script-bearing
+/// markup, documents the compact view keeps as they are).
 #[test]
-fn excluded_grammars_report_unsupported_across_native_capabilities() {
-    for ext in [
-        "sh", "bash", "zsh", "vue", "svelte", "astro", "dart", "less", "ml", "mli", "jl", "r",
-        "erl", "hrl", "ex", "exs", "tf", "hcl", "tfvars", "proto", "toml", "lua", "zig", "rb",
-        "rake", "gemspec", "ru", "scss", "sql", "swift", "yaml", "yml", "css", "htm", "html",
-        "json", "jsonc", "kt", "kts", "php",
-    ] {
+fn extensions_outside_the_registry_are_unsupported_and_unrouted() {
+    let outside = std::iter::once("not-a-grammar")
+        .chain(SCRIPT_BEARING_MARKUP.iter().copied())
+        .chain(crate::minify::apply::STAYS_AS_IT_IS.iter().copied());
+    for ext in outside {
         assert!(find_entry(ext).is_none(), ".{ext} must not load a grammar");
-        assert!(!supported_extensions().contains(&ext));
+        assert!(!supported_extensions().contains(&ext), ".{ext}");
         let file = format!("fixture.{ext}");
-        assert!(crate::lsp::grammar::grammar_for_file(&file).is_none());
+        assert!(
+            crate::lsp::grammar::grammar_for_file(&file).is_none(),
+            ".{ext}"
+        );
         let result = crate::structural::evaluate_source(
             "target(value);",
             &file,
@@ -54,10 +59,49 @@ fn excluded_grammars_report_unsupported_across_native_capabilities() {
         );
         assert_eq!(result.status, "unsupported", ".{ext}");
         assert_eq!(
-            result.diagnostics[0].code,
-            "structural.language.unsupported"
+            result.diagnostics[0].code, "structural.language.unsupported",
+            ".{ext}"
+        );
+        assert!(
+            crate::signatures::extract_signatures_inner("target(value);", &file).is_err(),
+            ".{ext}"
+        );
+        assert!(
+            crate::signatures::extract_declarations_document("target(value);", &file).is_none(),
+            ".{ext}"
+        );
+        assert!(
+            crate::signatures::extract_graph_facts("target(value);", &file).is_none(),
+            ".{ext}"
+        );
+        assert!(
+            !crate::signatures::graph_facts::graph_fact_extensions()
+                .iter()
+                .any(|item| item == ext),
+            ".{ext}"
+        );
+        assert!(
+            crate::lsp::config::detect_language_id(&file).is_none(),
+            ".{ext}"
+        );
+        assert!(
+            crate::lsp::config::default_server_for_file(
+                &file,
+                "/workspace",
+                &crate::lsp::config::LspDiscoveryOptions::default(),
+            )
+            .is_none(),
+            ".{ext} must require trusted custom configuration"
         );
     }
+    assert_eq!(
+        crate::minify::apply::apply_content_view_minification(
+            "target(value);",
+            "fixture.not-a-grammar"
+        )
+        .whitespace_only,
+        Some(crate::minify::apply::WhitespaceOnly::NoGrammar)
+    );
 }
 
 #[test]
@@ -131,72 +175,32 @@ fn optional_grammar_features_control_admission_and_absence_explicitly() {
     }
 }
 
+/// Every registry grammar serves structural search, signature outlines and
+/// graph facts, and each extension has one owning grammar: the three
+/// capability sets are the registry's extensions, whatever features are on.
 #[test]
-fn configured_capabilities_match_the_exact_first_class_extension_set() {
-    let mut expected = vec![
-        "c", "cjs", "cts", "go", "h", "java", "js", "jsx", "mjs", "mts", "py", "pyi", "rs", "ts",
-        "tsx",
-    ];
-    if cfg!(feature = "tree-sitter-asm") {
-        expected.extend(["asm", "assembly", "s"]);
-    }
-    if cfg!(feature = "tree-sitter-cpp") {
-        expected.extend(["cc", "cpp", "cxx", "hh", "hpp", "hxx"]);
-    }
-    if cfg!(feature = "tree-sitter-c-sharp") {
-        expected.push("cs");
-    }
-    if cfg!(feature = "tree-sitter-cuda") {
-        expected.extend(["cu", "cuh"]);
-    }
-    if cfg!(feature = "tree-sitter-scala") {
-        expected.extend(["sbt", "sc", "scala"]);
-    }
-    expected.sort_unstable();
-    for (name, mut actual) in [
-        (
-            "structural",
-            supported_extensions()
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
-        ),
-        (
-            "signature",
-            supported_extensions()
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
-        ),
-        (
-            "graph",
-            crate::signatures::graph_facts::graph_fact_extensions(),
-        ),
-    ] {
-        actual.sort_unstable();
-        assert_eq!(actual, expected, "{name} capability drift");
-    }
-}
-
-#[test]
-fn removed_languages_have_no_analysis_minifier_or_builtin_server_route() {
-    for ext in ["toml", "lua", "zig"] {
-        let file = format!("fixture.{ext}");
-        assert!(crate::signatures::extract_signatures_inner("target(value);", &file).is_err());
-        assert!(crate::signatures::extract_graph_facts("target(value);", &file).is_none());
-        assert!(
-            !crate::signatures::graph_facts::graph_fact_extensions()
-                .iter()
-                .any(|item| item == ext)
-        );
-        assert!(
-            crate::minify::apply::apply_content_view_minification("target(value);", &file)
-                .whitespace_only
-                .is_some()
-                || ext == "toml"
-        );
-        assert!(crate::lsp::config::detect_language_id(&file).is_none());
-    }
+fn each_capability_set_is_the_registry_extension_set() {
+    use std::collections::BTreeSet;
+    let registry = supported_extensions();
+    let owned: BTreeSet<String> = registry.iter().map(|ext| (*ext).to_owned()).collect();
+    assert_eq!(owned.len(), registry.len(), "an extension with two owners");
+    let serving = |serves: fn(&crate::types::GrammarCapability) -> bool| {
+        grammar_capabilities()
+            .iter()
+            .filter(|capability| serves(capability))
+            .flat_map(|capability| capability.extensions.iter().cloned())
+            .collect::<BTreeSet<_>>()
+    };
+    assert_eq!(serving(|c| c.structural_search), owned, "structural");
+    assert_eq!(serving(|c| c.signature_outline), owned, "signature");
+    assert_eq!(serving(|c| c.graph_facts), owned, "graph");
+    assert_eq!(
+        crate::signatures::graph_facts::graph_fact_extensions()
+            .into_iter()
+            .collect::<BTreeSet<_>>(),
+        owned,
+        "graph fact extensions"
+    );
 }
 
 #[test]

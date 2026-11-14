@@ -9,8 +9,7 @@
 //! a bounded text window over the source the same way), and every window
 //! line inside a private-key block is replaced before the window reaches the
 //! regular sanitizer, whichever side of the window the block's markers fall
-//! on. What a source's structure says is secret is masked in the window too
-//! ([`masks`]). The window then goes through the normal pipeline, and its positions,
+//! on. The window then goes through the normal pipeline, and its positions,
 //! totals, digest, and continuations are mapped back to the whole file. One long
 //! line pages by bytes: a page reads from the pass's nearest place inside the line,
 //! and only as far as its window.
@@ -22,7 +21,6 @@ mod error;
 mod held;
 mod hits;
 mod kept;
-mod masks;
 mod matches;
 mod page;
 mod proven;
@@ -31,6 +29,7 @@ mod scan;
 mod sealed;
 mod searched;
 mod stream;
+mod walk;
 mod window;
 
 use crate::execution::cancel::CancellationCheck;
@@ -61,45 +60,12 @@ const MARKER_PREFIX_BYTES: usize = crate::security::KEY_LINE_HEAD_BYTES;
 thread_local! {
     /// Source bytes this thread's streamed reads took in.
     static SOURCE_BYTES_READ: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    /// The most source bytes one streamed read took in since it was last taken.
-    static LARGEST_READ: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    /// The walk budget this thread's reads judge at, in place of the process's.
-    static WALK_BUDGET: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
-    /// The memory budget this thread's reads hold their every-value places against.
-    static MEMORY_BUDGET: std::cell::Cell<Option<&'static octocode_io::memo::MemoryBudget>> =
-        const { std::cell::Cell::new(None) };
 }
 
-/// The memory a walk of a source's structure may hold before it falls back to
-/// hiding every value.
-fn walk_budget() -> usize {
-    #[cfg(test)]
-    if let Some(budget) = WALK_BUDGET.with(std::cell::Cell::get) {
-        return budget;
-    }
-    octocode_engine::memory::MEMORY.limit()
-}
-
-/// The budget the places of a source's every value are held against: the
-/// process memory budget ([`octocode_engine::memory::MEMORY`]).
+/// The budget a source's recorded edits are held against: the process memory
+/// budget ([`octocode_engine::memory::MEMORY`]).
 fn memory() -> &'static octocode_io::memo::MemoryBudget {
-    #[cfg(test)]
-    if let Some(budget) = MEMORY_BUDGET.with(std::cell::Cell::get) {
-        return budget;
-    }
     &octocode_engine::memory::MEMORY
-}
-
-/// Hold this thread's reads to `budget` in place of the process's.
-#[cfg(test)]
-fn set_memory(budget: Option<&'static octocode_io::memo::MemoryBudget>) {
-    MEMORY_BUDGET.with(|cell| cell.set(budget));
-}
-
-/// Judge this thread's reads at walk budget `budget`.
-#[cfg(test)]
-fn set_walk_budget(budget: Option<usize>) {
-    WALK_BUDGET.with(|cell| cell.set(budget));
 }
 
 /// Count `bytes` read from a streamed source.
@@ -107,7 +73,6 @@ fn count_read(bytes: usize) {
     #[cfg(test)]
     {
         SOURCE_BYTES_READ.with(|read| read.set(read.get() + bytes));
-        LARGEST_READ.with(|largest| largest.set(largest.get().max(bytes)));
     }
     #[cfg(not(test))]
     let _ = bytes;
@@ -117,13 +82,6 @@ fn count_read(bytes: usize) {
 #[cfg(test)]
 fn source_bytes_read() -> usize {
     SOURCE_BYTES_READ.with(std::cell::Cell::get)
-}
-
-/// The most source bytes one of this thread's streamed reads took in since
-/// the last call.
-#[cfg(test)]
-fn take_largest_read() -> usize {
-    LARGEST_READ.with(|largest| largest.replace(0))
 }
 
 struct Streamed {
@@ -140,8 +98,6 @@ struct Streamed {
     origin: ByteOrigin,
     /// The source holds a NUL byte: binary, whatever its head showed.
     binary: bool,
-    /// The window hides every value, as no walk could place the secret ones.
-    every_value: bool,
 }
 
 /// A repair for a request a streamed window cannot serve.
@@ -187,7 +143,7 @@ pub(crate) fn fetch_window(
     cancel: &impl CancellationCheck,
 ) -> LocalFetchResult {
     let len = meta.len();
-    let kept = kept::current(q, path, meta);
+    let kept = kept::current(q, path, meta, security);
     let source = Opened {
         file: source,
         path,
@@ -282,7 +238,7 @@ pub(crate) fn served_lines(
     security: &impl ContentScan,
     cancel: &impl CancellationCheck,
 ) -> Result<ServedLines, String> {
-    let kept = known.and_then(|digest| kept::of_digest(digest, path, meta));
+    let kept = known.and_then(|digest| kept::of_digest(digest, path, meta, security));
     let opened = Opened {
         file: source,
         path,

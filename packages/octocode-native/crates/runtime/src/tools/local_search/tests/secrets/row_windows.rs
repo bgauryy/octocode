@@ -104,9 +104,16 @@ fn every_hit_of_the_line_is_in_one_window_and_far_hits_have_their_own() {
 fn a_window_shows_of_its_bytes_what_the_whole_line_row_shows() {
     let near = format!(" needle token={TOKEN} after ");
     let far = format!(" needle {} token={TOKEN} ", "pad(1);".repeat(40));
+    // The token is on the line before the window: the window is its own text.
+    let before = format!(" token={TOKEN} {} needle ", "pad(1);".repeat(40));
     // The window's edge falls inside the token.
     let edge = format!(" needle {}{TOKEN} ", "p".repeat(MARGIN - 10));
-    for (name, middle) in [("near", near), ("far", far), ("edge", edge)] {
+    for (name, middle) in [
+        ("near", near),
+        ("far", far),
+        ("before", before),
+        ("edge", edge),
+    ] {
         let line = one_line(40_000, &middle);
         let text = format!("{line}\n");
         let found = found(&text, serde_json::json!({"matchString":["needle"]}));
@@ -124,8 +131,17 @@ fn a_window_shows_of_its_bytes_what_the_whole_line_row_shows() {
             whole.contains(value),
             "{name}: {value:?} is not what the whole line shows there"
         );
-        let hides = name != "far";
+        let hides = matches!(name, "near" | "edge");
         assert_eq!(value.contains("[REDACTED"), hides, "{name}: {value}");
+        // A row whose value a redaction changed says so, and only such a row.
+        let warned = found["warnings"].as_array().is_some_and(|warnings| {
+            warnings.iter().any(|warning| {
+                warning
+                    .as_str()
+                    .is_some_and(|text| text.starts_with("redactedMatches"))
+            })
+        });
+        assert_eq!(warned, hides, "{name}: {found}");
     }
 }
 

@@ -98,8 +98,12 @@ pub struct RepositorySearchItem {
     pub stargazers_count: usize,
     #[serde(default)]
     pub forks_count: usize,
+    /// Open issues and pull requests, GitHub's one count; `None`: not sent.
     #[serde(default)]
-    pub open_issues_count: usize,
+    pub open_issues_count: Option<usize>,
+    /// The repository's size in KiB; `None`: not sent.
+    #[serde(default)]
+    pub size: Option<u64>,
     #[serde(default)]
     pub visibility: String,
     /// GitHub's private flag, beside `visibility`; `None`: the server sent none

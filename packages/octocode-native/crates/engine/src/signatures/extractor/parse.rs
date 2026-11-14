@@ -35,12 +35,12 @@ const READ_CHUNK: usize = 4096;
 
 /// The linear work bound: progress reports (tree-sitter makes one about every
 /// hundred parser operations) per KiB of source, and reads per [`READ_CHUNK`].
-/// Measured 2026-11-05 by `skills-dev/octocode-dev/scripts/compact_sweep.py`
-/// over every error-free file of `packages/octocode-benchmark/local/repos`
-/// (279,000 files, 13 grammars): at most 0.057 reports per byte (58.4 per
-/// KiB, Rust) and 46 reads per chunk (Python); an unclosed regex class
-/// repeated on one 64 KiB line takes thousands of reads per chunk. The bound
-/// is that maximum times [`HEADROOM`].
+/// Measured 2026-11-05 over every error-free file of
+/// `packages/octocode-benchmark/local/repos` (279,000 files, 13 grammars): at
+/// most 0.057 reports per byte (58.4 per KiB, Rust) and 46 reads per chunk
+/// (Python); an unclosed regex class repeated on one 64 KiB line takes
+/// thousands of reads per chunk. The bound is that maximum times
+/// [`HEADROOM`].
 const REPORTS_PER_KIB: usize = 59 * HEADROOM;
 const READS_PER_CHUNK: usize = 46 * HEADROOM;
 const HEADROOM: usize = 16;
@@ -60,14 +60,14 @@ pub(crate) enum ParseFailure {
 
 /// The work a parse did.
 #[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct Work {
-    pub(crate) reports: usize,
-    pub(crate) reads: usize,
+struct Work {
+    reports: usize,
+    reads: usize,
 }
 
 impl Work {
     /// The read chunks a source of `len` bytes spans.
-    pub(crate) fn chunks(len: usize) -> usize {
+    fn chunks(len: usize) -> usize {
         len / READ_CHUNK + 1
     }
 
@@ -88,7 +88,6 @@ fn run(
     language: &Language,
     ranges: Option<&[tree_sitter::Range]>,
     stop: &dyn Fn() -> bool,
-    bounded: bool,
 ) -> (Result<Tree, ParseFailure>, Work) {
     let work = Cell::new(Work::default());
     let stopped =
@@ -129,7 +128,7 @@ fn run(
             work.set(done);
             if stopped() {
                 failure.set(Some(End::Interrupted));
-            } else if bounded && done.exceeds(len) {
+            } else if done.exceeds(len) {
                 failure.set(Some(End::Unbounded));
             }
             if failure.get().is_some() {
@@ -178,15 +177,7 @@ pub(crate) fn parse_with_deadline(
     language: &Language,
     deadline: Instant,
 ) -> Result<Tree, ParseFailure> {
-    run(
-        content,
-        "",
-        language,
-        None,
-        &|| Instant::now() >= deadline,
-        true,
-    )
-    .0
+    run(content, "", language, None, &|| Instant::now() >= deadline).0
 }
 
 /// Parse `content` with `language` until `stop` says the work it serves is
@@ -197,7 +188,7 @@ pub(crate) fn parse_until_stopped(
     language: &Language,
     stop: &dyn Fn() -> bool,
 ) -> Result<Tree, ParseFailure> {
-    run(content, "", language, None, stop, true).0
+    run(content, "", language, None, stop).0
 }
 
 /// Parse only `ranges` of `content` (tree-sitter included ranges): node
@@ -224,20 +215,12 @@ pub(crate) fn parse_ranges_ending(
     deadline: Instant,
 ) -> Option<Tree> {
     let stop = || Instant::now() >= deadline;
-    run(content, tail, language, Some(ranges), &stop, true)
-        .0
-        .ok()
+    run(content, tail, language, Some(ranges), &stop).0.ok()
 }
 
 /// [`parse_with_deadline`] for callers that treat every failure alike.
 pub(crate) fn parse_before(content: &str, language: &Language, deadline: Instant) -> Option<Tree> {
     parse_with_deadline(content, language, deadline).ok()
-}
-
-/// A parse with no work bound, and the work it did: what the bound is
-/// measured from (`minify::verify::parse_work`).
-pub(crate) fn measure(content: &str, language: &Language) -> (Result<Tree, ParseFailure>, Work) {
-    run(content, "", language, None, &|| false, false)
 }
 
 #[cfg(test)]

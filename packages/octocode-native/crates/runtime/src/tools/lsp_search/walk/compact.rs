@@ -36,17 +36,34 @@ const DETAIL_KEYWORDS: &[&str] = &[
 
 /// Whether a call-hierarchy `detail` says more than the row already does:
 /// a container name, parameters, or a return type. A detail that is only
-/// the name, its kind, and declaration words (`fn walk()`) adds nothing.
+/// the name, its kind, declaration words (`fn walk()`) and where the node is
+/// (gopls: `github.com/org/mod/storage • file.go`) adds nothing: the row's
+/// `path` states the place.
 fn detail_adds(detail: &str, node: &Value) -> bool {
     let name = node
         .get("symbolName")
         .and_then(Value::as_str)
         .unwrap_or_default();
     let kind = node.get("kind").and_then(Value::as_str).unwrap_or_default();
+    let file = node_path(node);
+    let file_name = std::path::Path::new(&file)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
     detail
-        .split(|c: char| !octocode_engine::text::is_ident_char(c))
+        .split_whitespace()
+        .filter(|word| !names_a_place(word, file_name))
+        .flat_map(|word| word.split(|c: char| !octocode_engine::text::is_ident_char(c)))
         .filter(|token| !token.is_empty())
         .any(|token| token != name && token != kind && !DETAIL_KEYWORDS.contains(&token))
+}
+
+/// Whether a detail word only says where a node is: the name of the file it
+/// is declared in, or a package or file path (a word whose parts `/`
+/// separates, with none of a signature's punctuation).
+fn names_a_place(word: &str, file_name: &str) -> bool {
+    (!file_name.is_empty() && word == file_name)
+        || (word.contains('/') && !word.contains(['(', ')', '<', '>', ':', ',']))
 }
 
 /// A page of call edges (`callers`, `callees`, any depth) as per-file rows

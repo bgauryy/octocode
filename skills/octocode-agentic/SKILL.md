@@ -1,11 +1,13 @@
 ---
 name: octocode-agentic
-description: "Use when designing, reviewing, debugging or evaluating AI agents: prompts, context, memory, MCP contracts, models, delegation, security or skill activation. Includes agent communication setup; octocode-workflows owns workflow execution."
+description: "Use when designing, reviewing, debugging or evaluating AI agents: prompts, context, memory, MCP contracts, models, delegation, security or skill activation. Includes communication setup; use octocode-orchestrator for live agent coordination."
 ---
 
 # Octocode Agentic
 
 Identify what the agent receives, the action it should take and an observable success check. Load only the branch needed below.
+
+For coordinating an ongoing task, use `octocode-orchestrator` when installed. `octocode-workflows` owns workflow selection and composition; this skill owns agent-system design and diagnosis.
 
 1. **Establish:** for a new design, start with a direct call or one bounded loop. For a failure, capture the actual harness/version, instructions, schemas and trace; reproduce it. Editorial work starts with the instruction and its consumer.
 2. **Trace:** request → context → model → tools → verification → stop. Find the first wrong boundary, its mechanism, strongest rival and distinguishing check.

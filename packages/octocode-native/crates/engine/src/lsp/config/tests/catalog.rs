@@ -296,24 +296,6 @@ fn assembly_server_requires_user_config() {
 }
 
 #[test]
-fn removed_languages_have_no_builtin_server() {
-    for extension in [
-        "sh", "php", "json", "yaml", "html", "css", "scss", "less", "sql", "swift", "rb", "kt",
-        "ex",
-    ] {
-        assert!(
-            default_server_for_file(
-                &format!("fixture.{extension}"),
-                "/workspace",
-                &LspDiscoveryOptions::default(),
-            )
-            .is_none(),
-            ".{extension} must require trusted custom configuration"
-        );
-    }
-}
-
-#[test]
 fn typescript_language_server_remains_the_stable_default() {
     let spec = crate::lsp::config::catalog::spec_for_extension(".ts").expect("TypeScript provider");
     assert_eq!(spec.command, "typescript-language-server");

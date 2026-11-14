@@ -73,7 +73,8 @@ async fn a_found_repository_reads_as_its_facts() {
     .await;
     mount_no_advisories(&server, "/api/v3/repos/o/r/security-advisories").await;
     let data = read(&server, "https://github.com/o/r?tab=readme").await;
-    assert_eq!(data["sources"][0]["status"], "found", "{data}");
+    // GitHub described the repository and lists no advisory: none known.
+    assert_eq!(data["sources"][0]["status"], "noneKnown", "{data}");
     assert_eq!(data["repository"]["owner"], "o", "{data}");
     assert!(rules(&data).is_empty(), "{data}");
     assert!(data.get("isPartial").is_none(), "{data}");
@@ -116,7 +117,7 @@ async fn a_redirect_to_the_repository_id_is_a_moved_repository() {
     let data = read(&server, "old/name").await;
     assert_eq!(rules(&data), ["repositoryMoved"], "{data}");
     assert_eq!(data["repository"]["owner"], "new", "{data}");
-    assert_eq!(data["sources"][0]["status"], "found", "{data}");
+    assert_eq!(data["sources"][0]["status"], "noneKnown", "{data}");
 }
 
 fn assert_source_failed(data: &Value) {

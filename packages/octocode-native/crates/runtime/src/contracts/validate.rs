@@ -21,7 +21,7 @@ use issues::{internal, issue, query_label, schema_issue, sibling_requirement};
 pub use messages::{format_input_error, tool_error};
 pub use output::validate_output;
 pub(crate) use output::validate_output_in_place;
-pub(crate) use repair::{queries as repair_queries, repaired_value};
+pub(crate) use repair::{literal_reading, queries as repair_queries, repaired_value, same_name};
 use schema::validate_input_schema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -91,8 +91,9 @@ pub fn validate(tool_name: &str, input: Value) -> Result<Value, ContractValidati
     validate_from(tool_name, input, false)
 }
 
+/// [`validate`] of a complete request restored from the issued-cursor store.
 #[cfg(test)]
-pub(super) fn validate_saved(
+pub(crate) fn validate_saved(
     tool_name: &str,
     input: Value,
 ) -> Result<Value, ContractValidationError> {

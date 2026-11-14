@@ -108,6 +108,16 @@ impl ReleaseTags for FailedTags {
         Box::pin(async move { Err(failure) })
     }
 
+    fn tag_commits<'a>(
+        &'a self,
+        _: &'a str,
+        _: &'a str,
+        _: &'a [octocode_github::TagRef],
+    ) -> TagCommitsFuture<'a> {
+        let failure = self.0.clone();
+        Box::pin(async move { Err(failure) })
+    }
+
     fn commit_check<'a>(&'a self, _: &'a str, _: &'a str, _: &'a str) -> CommitFuture<'a> {
         let failure = self.0.clone();
         Box::pin(async move { Err(failure) })
@@ -130,17 +140,14 @@ pub type CommitFuture<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = C
 pub type TagCommitFuture<'a> =
     std::pin::Pin<Box<dyn std::future::Future<Output = Result<Option<String>, CheckFailure>> + 'a>>;
 /// A pending read of every tag of a repository.
-pub type TagRefsFuture<'a> =
-    std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<ListedTag>, CheckFailure>> + 'a>>;
-
-/// A tag of a repository's tag list.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ListedTag {
-    pub name: String,
-    /// The commit its ref names when the tag is lightweight; `None` when
-    /// the ref names an annotated tag object, read through `tag_commit`.
-    pub commit: Option<String>,
-}
+pub type TagRefsFuture<'a> = std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<Vec<octocode_github::TagRef>, CheckFailure>> + 'a>,
+>;
+/// A pending look-up of the commit each listed tag names, in order (`None`:
+/// no longer a tag of the repository).
+pub type TagCommitsFuture<'a> = std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<Vec<Option<String>>, CheckFailure>> + 'a>,
+>;
 
 /// Checks that a release tag or a recorded commit exists in a GitHub
 /// repository, through the configured GitHub API (its URL, the caller's
@@ -152,6 +159,15 @@ pub trait ReleaseTags: Send + Sync {
     -> TagCommitFuture<'a>;
     /// Every tag of `owner/repo`, read whole.
     fn tag_refs<'a>(&'a self, owner: &'a str, repo: &'a str) -> TagRefsFuture<'a>;
+    /// The commit each of `tags` (listed by [`Self::tag_refs`]) names, in
+    /// order: a lightweight tag's as listed, every annotated tag's target
+    /// read together.
+    fn tag_commits<'a>(
+        &'a self,
+        owner: &'a str,
+        repo: &'a str,
+        tags: &'a [octocode_github::TagRef],
+    ) -> TagCommitsFuture<'a>;
     /// What GitHub says of `commit` (a SHA a registry recorded, or `HEAD`) in
     /// `owner/repo`.
     fn commit_check<'a>(
@@ -298,19 +314,43 @@ pub(crate) async fn check_commit_against_tag(
     commit: &str,
     client: &RegistryClient<'_>,
 ) {
-    let Some(repository) = artifact.repository.as_deref() else {
+    let Some(search) = release_tag_search(artifact, package, version, client).await else {
         return;
     };
-    let search = github_release_tag(
-        repository,
-        artifact.repository_directory.as_deref(),
-        package,
-        version,
-        None,
-        client,
+    settle_commit_against_tag(artifact, version, commit, &search);
+}
+
+/// The release tag lookup [`check_commit_against_tag`] settles, for a row
+/// whose repository is known: a caller that has the commit to check may run
+/// it beside that commit's own existence check instead of after it.
+pub(crate) async fn release_tag_search(
+    artifact: &ArtifactItem,
+    package: &str,
+    version: &str,
+    client: &RegistryClient<'_>,
+) -> Option<TagSearch> {
+    let repository = artifact.repository.as_deref()?;
+    Some(
+        github_release_tag(
+            repository,
+            artifact.repository_directory.as_deref(),
+            package,
+            version,
+            None,
+            client,
+        )
+        .await,
     )
-    .await;
-    match &search {
+}
+
+/// [`check_commit_against_tag`] with its lookup already made.
+pub(crate) fn settle_commit_against_tag(
+    artifact: &mut ArtifactItem,
+    version: &str,
+    commit: &str,
+    search: &TagSearch,
+) {
+    match search {
         TagSearch::Found(release) | TagSearch::Named { release, .. } => {
             if release.commit.eq_ignore_ascii_case(commit) {
                 artifact.source_tag = true;

@@ -26,6 +26,7 @@ const { parseArgs } = require('util');
 const { join, relative } = require('path');
 const { PLATFORMS, executableName, getPlatformSuffix } = require('../bin/platform.cjs');
 const { stageFile, verifyBinaryRuns } = require('./stage-binary.cjs');
+const { finishCargoRun, parseCargoLine } = require('./target-hygiene.cjs');
 
 const ROOT = join(__dirname, '..');
 
@@ -79,8 +80,11 @@ function formatSeconds(ms) {
 
 const running = new Set();
 
-/** Spawn with line-prefixed output so concurrent platform builds stay readable. */
-function run(label, command, args, env) {
+/**
+ * Spawn with line-prefixed output so concurrent platform builds stay readable.
+ * Cargo JSON messages on stdout go to `messages` instead of the terminal.
+ */
+function run(label, command, args, env, messages = []) {
   const started = Date.now();
   console.log(`[${label}] $ ${command} ${args.join(' ')}`);
   return new Promise((resolve, reject) => {
@@ -88,13 +92,17 @@ function run(label, command, args, env) {
     running.add(child);
     for (const stream of [child.stdout, child.stderr]) {
       let pending = '';
+      const print = line => {
+        const rest = stream === child.stdout ? parseCargoLine(line, messages) : line;
+        if (rest !== null) process.stdout.write(`[${label}] ${rest}\n`);
+      };
       stream.setEncoding('utf8');
       stream.on('data', chunk => {
         const lines = (pending + chunk).split('\n');
         pending = lines.pop();
-        for (const line of lines) process.stdout.write(`[${label}] ${line}\n`);
+        for (const line of lines) print(line);
       });
-      stream.on('end', () => pending && process.stdout.write(`[${label}] ${pending}\n`));
+      stream.on('end', () => pending && print(pending));
     }
     child.on('error', error => {
       running.delete(child);
@@ -152,6 +160,8 @@ function hostsCommand(platform, { release = false, check = false }, dir) {
     ...(release ? ['--release'] : ['--features', 'octocode-native/dev-unify']),
     ...(target ? ['--target', triple] : []),
     '--target-dir', dir,
+    // Lists every unit's outputs, fresh ones included: target-hygiene.cjs records them.
+    '--message-format=json-render-diagnostics',
   ];
   return { command, args };
 }
@@ -178,7 +188,16 @@ async function buildPlatform(platform, explicitTarget, options) {
   const target = explicitTarget ? platform : null;
   const dir = targetDir(target);
   const { command, args } = hostsCommand(target, options, dir);
-  await run(`${label}:${options.check ? 'check' : 'build'}`, command, args, process.env);
+  const messages = [];
+  const startedMs = Date.now();
+  let success = false;
+  try {
+    await run(`${label}:${options.check ? 'check' : 'build'}`, command, args, process.env, messages);
+    success = true;
+  } finally {
+    const mode = options.check ? 'check' : options.release ? 'build-release' : 'build-dev';
+    finishCargoRun({ selection: `${mode}-${target ?? 'host'}`, messages, success, startedMs, targetRoot: targetDir(null), log: line => console.log(`[${label}] ${line}`) });
+  }
   if (options.check) return;
 
   const staged = stageBinary(platform, explicitTarget, options.release, dir);

@@ -63,3 +63,26 @@ fn the_read_lead_prefers_source_over_tests_and_docs() {
     assert_eq!(lead(&data, &[]), None);
     assert_eq!(lead(&data[..2], &[]).as_deref(), Some("data/0.csv"));
 }
+
+/// A size-ranked page leads to its largest readable text file, never to a
+/// larger image or archive a file read would refuse.
+#[test]
+fn the_size_ranked_lead_skips_files_no_text_read_answers() {
+    let query: GhStructureQueryTree = serde_json::from_value(json!({"operation":"tree",
+        "owner": "o", "repo": "r", "sort": {"by": "sizeBytes", "order": "desc"}
+    }))
+    .expect("query");
+    let ranked = [
+        ("assets/logo.png", 9_000),
+        ("dist/app.wasm", 8_000),
+        ("src/main.rs", 700),
+    ]
+    .map(|(path, size)| TreeEntry {
+        path: path.to_owned(),
+        kind: EntryKind::File,
+        size: Some(size),
+    });
+    let read = top_read(&query, &ranked, "s").expect("a readable file");
+    assert_eq!(read["input"]["queries"][0]["path"], "src/main.rs", "{read}");
+    assert!(top_read(&query, &ranked[..2], "s").is_none());
+}

@@ -101,7 +101,7 @@ fn a_leaf_holding_one_boundary_of_any_format_redacts_its_body() {
         }
         checked += 1;
         let leaf = lines[..=at].join("\n");
-        let out = security.sanitize_leaf(&leaf, None).unwrap_or(leaf);
+        let out = security.sanitize_leaf(&leaf).unwrap_or(leaf);
         assert!(!out.contains(&format.secrets[0]), "{}: {out}", format.name);
     }
     assert!(checked > 10, "{checked}");
@@ -160,10 +160,10 @@ fn a_cut_body_line_is_hidden_and_a_line_quoting_a_long_value_is_not() {
     const BODY: &str = "MIIEpAIBAAKCAQEAfakebodylinefakebodylinefakebodyline00000";
     let security = ContentSecurity::new();
     let cut = format!("const k = \"-----BEGIN RSA PRIVATE KEY-----\n{BODY}…\"\n");
-    let shown = security.sanitize_leaf(&cut, None).expect("redacted");
+    let shown = security.sanitize_leaf(&cut).expect("redacted");
     assert!(!shown.contains(BODY), "{shown}");
     let quoted = format!("-----BEGIN RSA PRIVATE KEY-----\nconst sum = \"{BODY}\";\n");
-    let shown = security.sanitize_leaf(&quoted, None).expect("redacted");
+    let shown = security.sanitize_leaf(&quoted).expect("redacted");
     let (whole, _) = super::redact_private_key_blocks(&quoted);
     assert_eq!(shown, whole, "{quoted}");
     assert!(
@@ -234,7 +234,7 @@ fn every_view_of_a_key_file_shows_the_reads_one_form() {
             "{name}"
         );
         assert_eq!(
-            security.sanitize_leaf(&format.text, None).as_deref(),
+            security.sanitize_leaf(&format.text).as_deref(),
             Some(expected.as_str()),
             "{name}"
         );

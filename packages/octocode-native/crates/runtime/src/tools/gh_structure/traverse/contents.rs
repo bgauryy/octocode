@@ -96,7 +96,9 @@ pub(in crate::tools::gh_structure) async fn walk_contents(
                 Some(tree) => {
                     let read = traversal_from_git_tree(tree, &at);
                     traversal.entries.extend(read.entries);
-                    traversal.omitted.extend(read.omitted);
+                    for (kind, paths) in read.omitted {
+                        traversal.omitted.entry(kind).or_default().extend(paths);
+                    }
                 }
                 None => below.push((path, Some(sha))),
             }

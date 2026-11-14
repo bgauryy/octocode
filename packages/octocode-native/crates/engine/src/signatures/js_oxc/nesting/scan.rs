@@ -77,8 +77,7 @@ struct Scan<'a> {
 /// literal spells one, except the node of a statement that is only an
 /// expression (`expression_statement`) and the inner node of a literal the
 /// pass counts as one token (`string_fragment`, `regex_pattern`,
-/// `jsx_text`). `examples/nesting_sweep.rs` checks the tree is never deeper
-/// than the bound over a corpus.
+/// `jsx_text`).
 const LEAF_LEVELS: usize = 2;
 
 /// The pass stopped early: the bound passed its limit, or the pass cannot

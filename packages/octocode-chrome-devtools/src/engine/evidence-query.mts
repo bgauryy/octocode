@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { chromeOutputLimits } from './chrome-contract.mjs';
 import { validateFlags } from './cli-flags.mjs';
 import { errorMessage } from './error-message.mjs';
+import { packageTmpDir } from './engine-io.mjs';
 import {
   matches,
   parse,
@@ -108,10 +109,7 @@ try {
   const identity = digest(
     JSON.stringify({ version: 7, file, sha256, format, path, filters, select })
   );
-  const indexDir = resolve(
-      '.octocode/octocode-chrome-devtools/tmp/evidence-index',
-      identity
-    ),
+  const indexDir = join(packageTmpDir(), 'evidence-index', identity),
     manifestFile = join(indexDir, 'index.json');
   let index: EvidenceIndex,
     reused = existsSync(manifestFile);

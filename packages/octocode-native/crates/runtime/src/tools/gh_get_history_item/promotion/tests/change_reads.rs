@@ -119,9 +119,9 @@ fn merged_patch_reads_offer_the_changed_source_at_the_merge_commit() {
     assert!(read_at_merge(&query, &merged, &no_code, all).is_none());
 }
 
-/// A change's top file reads over the hunks' new-side windows at its new
-/// side (`readAtCommit`, from `+c,d`) and over the old-side windows at its
-/// old side (`readParent`, from `-a,b`): gutters number `-` lines on the old
+/// A change's top file reads, in one call, over the hunks' new-side windows
+/// at its new side (from `+c,d`) and over the old-side windows at its old
+/// side (from `-a,b`): gutters number `-` lines on the old
 /// side. A side with no lines in the diff (a pure addition has no old side,
 /// a pure removal no new side) has no read: a patched change never leads to
 /// a whole-file read.
@@ -139,21 +139,16 @@ fn change_reads_number_each_side_from_its_own_hunk_side() {
     };
     let reads = change_reads("o", "r", std::slice::from_ref(&modified), &sides, |_| true);
     let names = reads.iter().map(|(name, _)| *name).collect::<Vec<_>>();
-    assert_eq!(names, ["readAtCommit", "readParent"]);
+    assert_eq!(names, ["readAtCommit"], "one call reads both sides");
     assert_eq!(
         reads[0].1["input"],
-        json!({"queries":[{"owner":"o","repo":"r","path":"src/lib.rs","ref":"c0ffee","ranges":[{"startLine": 50, "endLine": 73}]}]})
+        json!({"queries":[
+            {"owner":"o","repo":"r","path":"src/lib.rs","ref":"c0ffee","ranges":[{"startLine": 50, "endLine": 73}]},
+            {"owner":"o","repo":"r","path":"src/lib.rs","ref":"parent1","ranges":[{"startLine": 30, "endLine": 52}]}]})
     );
-    assert_eq!(
-        reads[1].1["input"],
-        json!({"queries":[{"owner":"o","repo":"r","path":"src/lib.rs","ref":"parent1","ranges":[{"startLine": 30, "endLine": 52}]}]})
-    );
-    for (_, read) in &reads {
+    for row in reads[0].1["input"]["queries"].as_array().expect("rows") {
         assert_eq!(
-            crate::response::result::read_view(
-                crate::id::ToolId::GhGetFileContent,
-                &read["input"]["queries"][0]
-            ),
+            crate::response::result::read_view(crate::id::ToolId::GhGetFileContent, row),
             octocode_contract_types::ReadView::Content
         );
     }
@@ -163,7 +158,7 @@ fn change_reads_number_each_side_from_its_own_hunk_side() {
     renamed["status"] = json!("renamed");
     renamed["previous_filename"] = json!("src/old.rs");
     let reads = change_reads("o", "r", &[renamed], &sides, |_| true);
-    assert_eq!(reads[1].1["input"]["queries"][0]["path"], "src/old.rs");
+    assert_eq!(reads[0].1["input"]["queries"][1]["path"], "src/old.rs");
     let added = file("src/new.rs", "added", "@@ -0,0 +1,2 @@\n+x\n+y");
     let reads = change_reads("o", "r", &[added], &sides, |_| true);
     assert_eq!(

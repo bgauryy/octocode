@@ -19,7 +19,7 @@ def partial(*reasons):
 
 class LanguageServerReadinessTests(unittest.TestCase):
     def setUp(self):
-        self.flow = dict(id='lsp.implementation', tool='lspSearch', server='rust-analyzer')
+        self.flow = dict(id='lspSearch', tool='lspSearch', server=True)
         self.server = Mock()
         self.sleep = patch.object(PROFILE.time, 'sleep')
         self.sleep.start()
@@ -65,7 +65,7 @@ class LanguageServerReadinessTests(unittest.TestCase):
         self.server.call.side_effect = [ready, ready, incomplete]
         with patch.object(PROFILE, 'Mcp', return_value=self.server), \
                 self.assertRaisesRegex(SystemExit, 'unverified.*buildScriptsOff'):
-            PROFILE.count(Path('unused'), {**self.flow, 'phase': 'repeat'}, {}, Path('.'), {}, 1)
+            PROFILE.count(Path('unused'), {**self.flow, 'phase': 'repeat'}, {}, Path('.'), 1)
         self.server.close.assert_called_once()
 
 

@@ -277,7 +277,39 @@ impl Query<'_> {
             out.value["confidence"] = json!(filter.weakest.as_str());
             out.value["coverage"] = g.coverage(from);
         }
+        if out.value["found"] == false {
+            let wider = self.wider_paths(direction, &filter);
+            if !wider.is_empty() {
+                out.value["related"] = Value::Array(wider);
+            }
+        }
         Ok(out)
+    }
+
+    /// The walks a path the request did not find may take: this request
+    /// with direction both, and with edges imports and calls, each that
+    /// differs from what the request already walked.
+    fn wider_paths(&self, direction: Direction, filter: &EdgeFilter) -> Vec<Value> {
+        let mut calls = Vec::new();
+        let mut wider = |field: &str, value: Value| {
+            let mut row = query_row(self.options, &self.g.id);
+            row.insert(field.into(), value);
+            calls.push(
+                crate::response::result::Continuation::related(
+                    crate::id::ToolId::GraphQuery,
+                    Value::Object(row),
+                )
+                .build(),
+            );
+        };
+        if direction != Direction::Both {
+            wider("direction", json!("both"));
+        }
+        let both = [EdgeKind::Imports, EdgeKind::Calls];
+        if !both.iter().all(|kind| filter.kinds.contains(kind)) {
+            wider("edges", json!(both.map(EdgeKind::as_str)));
+        }
+        calls
     }
 
     pub(super) fn hubs(&self) -> Result<GraphOutput, GraphOutput> {

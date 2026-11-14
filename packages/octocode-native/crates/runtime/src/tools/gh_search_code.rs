@@ -322,10 +322,10 @@ impl crate::response::output::ToolOutput for Output {
     fn finish_selection(
         &self,
         data: &mut serde_json::Value,
-        query: &serde_json::Value,
+        _query: &serde_json::Value,
         hidden: &[serde_json::Value],
         _removed: &[serde_json::Value],
     ) {
-        finish_code_selection(data, query, hidden);
+        finish_code_selection(data, hidden);
     }
 }

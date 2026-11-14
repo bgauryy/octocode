@@ -101,8 +101,9 @@ async fn stars_and_days_fire_one_past_the_contract_thresholds() {
 
 #[tokio::test]
 async fn a_found_repository_fills_the_block_policy_and_source() {
-    // GitHub answers the advisory list too (none): every read it was asked
-    // answered, so the entry is `found`.
+    // GitHub answers the advisory list too (none): it described the
+    // repository and holds no advisory for the package, so the entry is
+    // `noneKnown` (the description is the `repository` block).
     let github = Double::repo(RepoRead::Found(facts(5000, 1))).page(None, Vec::new(), None);
     let data = row(
         registered(Some("git+https://github.com/o/r.git")),
@@ -114,7 +115,7 @@ async fn a_found_repository_fills_the_block_policy_and_source() {
     // The thresholds are stated once by the rules, never per row.
     assert!(data.get("policy").is_none(), "{data}");
     assert_eq!(data["sources"][1]["source"], "github");
-    assert_eq!(data["sources"][1]["status"], "found");
+    assert_eq!(data["sources"][1]["status"], "noneKnown");
     assert!(data.get("cautions").is_none(), "{data}");
 }
 

@@ -97,30 +97,6 @@ pub enum PartialReason {
     /// A regex scan stopped at the memory budget for its match spans: the
     /// selection is a prefix of the matches.
     ScanBudget,
-    /// The walk that places a named structure's secret values (a Kubernetes
-    /// Secret, a JSON Web Key) outgrew the memory budget, so every value of it
-    /// is hidden, secret or not.
-    #[serde(rename = "securityWalkMemoryBudget")]
-    SecurityWalkMemoryBudget,
-}
-
-#[cfg(test)]
-mod reason_tests {
-    use super::*;
-
-    /// The variant serializes as the value core declares for it.
-    #[test]
-    fn the_walk_budget_reason_is_the_declared_value() {
-        assert_eq!(
-            serde_json::to_value(PartialReason::SecurityWalkMemoryBudget).expect("json"),
-            serde_json::json!("securityWalkMemoryBudget")
-        );
-        assert!(
-            crate::contracts::partial_reasons()
-                .is_some_and(|reasons| reasons.get("securityWalkMemoryBudget").is_some()),
-            "the embedded contract declares the reason"
-        );
-    }
 }
 
 /// A declaration a `block:true` read widened a hit to: its name, name line
@@ -240,6 +216,10 @@ pub struct RegexSpans {
     pub spans: Vec<(usize, usize)>,
     pub truncated: bool,
     pub held: Option<octocode_io::memo::Reservation<'static>>,
+    /// A list `matchString`: the index of each entry its scan found no
+    /// match of, in order. An entry the memory budget left unscanned is
+    /// not one: its scan is `truncated`.
+    pub missed: Vec<usize>,
 }
 
 /// A failed view selection: the row's `errorCode` and the reason the

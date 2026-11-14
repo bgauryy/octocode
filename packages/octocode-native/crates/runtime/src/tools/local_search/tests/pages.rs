@@ -561,6 +561,74 @@ fn the_read_handoff_windows_hits_without_reading_the_file() {
     assert_eq!(range["endLine"], hit + READ_HANDOFF_CONTEXT, "{read}");
 }
 
+/// The read a search hands off reaches every shown hit of its file, however
+/// many: windows around each while one read holds them, else the search's own
+/// `matchString` read, which localFetch pages.
+#[test]
+fn the_read_handoff_reaches_every_shown_hit_at_any_count() {
+    use crate::contracts::query_limits::local_fetch::RANGES_MAX_ITEMS;
+    use crate::tools::local_search::handoff::{READ_HANDOFF_CONTEXT, read_handoff};
+    let root = tempfile::tempdir().expect("fixture");
+    // Hits far enough apart that no two windows merge.
+    let gap = 2 * READ_HANDOFF_CONTEXT + 2;
+    for count in [1, RANGES_MAX_ITEMS, RANGES_MAX_ITEMS + 1] {
+        let lines = (1..=count).map(|index| gap * u32::try_from(index).expect("count"));
+        let query = ls_query(
+            serde_json::json!({"path":root.path(),"matchString":["x"]}),
+            None,
+        );
+        let file = crate::tools::local_search::types::SearchFile {
+            path: "a.txt".into(),
+            match_keys: Vec::new(),
+            declarations: Vec::new(),
+            matches: Some(
+                lines
+                    .clone()
+                    .map(|line| crate::tools::local_search::types::SearchMatch {
+                        line,
+                        column: None,
+                        value: "x".into(),
+                        window_start: None,
+                        byte_offset: 0,
+                        first_line: line,
+                        end_line: None,
+                        match_lines: None,
+                        count: None,
+                        enclosing: None,
+                        declaration: None,
+                    })
+                    .collect(),
+            ),
+            total_occurrences: None,
+            total_matched_lines: None,
+            term_counts: None,
+            pagination: None,
+            next: None,
+        };
+        let read = read_handoff(&query, root.path(), &file)
+            .unwrap_or_else(|| panic!("{count} hits: a read lead"));
+        let row = &read["input"]["queries"][0];
+        let ranges = row["ranges"].as_array().cloned().unwrap_or_default();
+        if ranges.is_empty() {
+            assert_eq!(
+                row["matchString"],
+                serde_json::json!(["x"]),
+                "{count}: {read}"
+            );
+            continue;
+        }
+        for line in lines {
+            assert!(
+                ranges.iter().any(|range| {
+                    range["startLine"].as_u64() <= Some(u64::from(line))
+                        && Some(u64::from(line)) <= range["endLine"].as_u64()
+                }),
+                "{count} hits: line {line} unread by {read}"
+            );
+        }
+    }
+}
+
 #[test]
 fn overlapping_context_windows_reconstruct_every_requested_source_line_once() {
     let root = tempfile::tempdir().expect("fixture");

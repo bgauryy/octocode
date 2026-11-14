@@ -136,6 +136,12 @@ impl GitHubEndpoint {
     pub fn is_loopback(&self) -> bool {
         is_loopback(&self.rest_base)
     }
+
+    /// The proxy settings a client for this API honors ([`proxy_for`]).
+    #[must_use]
+    pub fn proxy(&self) -> octocode_io::http::Proxy {
+        proxy_for(&self.rest_base)
+    }
     pub(crate) fn host(&self) -> &str {
         self.rest_base.host_str().unwrap_or_default()
     }
@@ -204,6 +210,20 @@ pub fn is_loopback(url: &Url) -> bool {
     }
 }
 
+/// The proxy settings a client for `url` honors: a loopback host is reached
+/// directly (no system proxy lookup, which on macOS is a configuration-daemon
+/// session costing seconds per process, and no proxy that could see a
+/// credential meant for this machine); any other host goes through the
+/// user's system proxy.
+#[must_use]
+pub fn proxy_for(url: &Url) -> octocode_io::http::Proxy {
+    if is_loopback(url) {
+        octocode_io::http::Proxy::Direct
+    } else {
+        octocode_io::http::Proxy::System
+    }
+}
+
 /// A hostname that must be denied when local registry access is forbidden.
 /// This broad deny rule does not authorize sending credentials over HTTP.
 pub fn names_localhost(host: &str) -> bool {
@@ -213,8 +233,25 @@ pub fn names_localhost(host: &str) -> bool {
 
 #[cfg(test)]
 mod localhost_rule_tests {
-    use super::{is_loopback, names_localhost};
+    use super::{is_loopback, names_localhost, proxy_for};
+    use octocode_io::http::Proxy;
     use url::Url;
+
+    /// Every client built for a loopback host (each test's mock server)
+    /// connects directly; a remote host keeps the user's system proxy.
+    #[test]
+    fn only_a_loopback_host_is_reached_without_the_system_proxy() {
+        for (url, proxy) in [
+            ("http://127.0.0.1:4873/pkg", Proxy::Direct),
+            ("http://localhost:1/api/v3", Proxy::Direct),
+            ("http://[::1]:8080/", Proxy::Direct),
+            ("https://registry.npmjs.org/pkg", Proxy::System),
+            ("https://github.com/login/oauth/access_token", Proxy::System),
+            ("http://a.localhost/", Proxy::System),
+        ] {
+            assert_eq!(proxy_for(&Url::parse(url).expect("url")), proxy, "{url}");
+        }
+    }
 
     #[test]
     fn the_deny_rule_is_broader_than_the_credential_rule() {

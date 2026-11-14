@@ -230,8 +230,8 @@ mod tests {
     const SECRET: &str = "ghp_Zq7Zq7Zq7Zq7Zq7Zq7Zq7Zq7Zq7Zq7Zq7Zq7";
 
     fn redacted(source: &str) -> Edits {
-        let sanitized = octocode_engine::security::sanitizer::sanitize_content(source, None)
-            .expect("sanitized");
+        let sanitized =
+            octocode_engine::security::sanitizer::sanitize_content(source).expect("sanitized");
         assert!(sanitized.has_secrets, "{source}");
         sanitized.edits
     }

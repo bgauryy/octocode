@@ -107,6 +107,36 @@ fn connects_directly(policy: &ClientPolicy) -> bool {
     policy.proxy == Proxy::Direct || policy.resolve.is_some()
 }
 
+/// The proxy a client built for `policy` sends a request for `url` through,
+/// as `scheme://host[:port]` with no userinfo (a proxy's password is never
+/// stated); `None`: it connects directly. It reads the same system and
+/// environment settings the client does, so a failure names the route it
+/// took. A lookup of the operating system's settings, so call it only on a
+/// failure.
+#[must_use]
+pub fn proxy_in_effect(policy: &ClientPolicy, url: &str) -> Option<String> {
+    if connects_directly(policy) {
+        return None;
+    }
+    named_proxy(
+        &hyper_util::client::proxy::matcher::Matcher::from_system(),
+        url,
+    )
+}
+
+/// The proxy `matcher` routes `url` through, without its userinfo.
+fn named_proxy(matcher: &hyper_util::client::proxy::matcher::Matcher, url: &str) -> Option<String> {
+    let target = url.parse::<http::Uri>().ok()?;
+    let proxy = matcher.intercept(&target)?;
+    let proxy = proxy.uri();
+    let host = proxy.host()?;
+    let scheme = proxy.scheme_str().unwrap_or("http");
+    Some(match proxy.port_u16() {
+        Some(port) => format!("{scheme}://{host}:{port}"),
+        None => format!("{scheme}://{host}"),
+    })
+}
+
 /// Build a client for `policy`, adding configured PEM roots to the platform
 /// store. An unreadable or malformed explicit trust store fails construction.
 pub fn client(policy: &ClientPolicy) -> Result<reqwest::Client, ClientError> {
@@ -137,6 +167,25 @@ pub fn client(policy: &ClientPolicy) -> Result<reqwest::Client, ClientError> {
         .map_err(ClientError::Tls)
 }
 
+/// `policy` for a test against a loopback server: connect directly. Tests
+/// build every client through [`loopback_client`], so none runs the operating
+/// system's proxy lookup, a real system service (on macOS a
+/// configuration-daemon session that first scans the executable's directory)
+/// whose time follows the machine's load.
+#[cfg(test)]
+pub(crate) fn loopback(policy: ClientPolicy) -> ClientPolicy {
+    ClientPolicy {
+        proxy: Proxy::Direct,
+        ..policy
+    }
+}
+
+/// The client of [`loopback`]`(policy)`.
+#[cfg(test)]
+pub(crate) fn loopback_client(policy: ClientPolicy) -> reqwest::Client {
+    client(&loopback(policy)).expect("loopback client")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -164,6 +213,40 @@ mod tests {
             .expect("runtime")
     }
 
+    /// The test fixture connects directly and changes nothing else in the
+    /// policy a test asks for.
+    #[test]
+    fn the_loopback_fixture_connects_directly_and_keeps_the_policy() {
+        let fixture = loopback(ClientPolicy::without_deadline());
+        assert!(connects_directly(&fixture));
+        assert_eq!(fixture.read_timeout, Some(READ_STALL));
+        assert_eq!(fixture.timeout, None);
+    }
+
+    /// A failure names the proxy the request went through by scheme, host
+    /// and port: its credentials are never stated, and a host the proxy
+    /// settings exempt names none.
+    #[test]
+    fn the_named_proxy_drops_userinfo_and_honors_exemptions() {
+        let matcher = hyper_util::client::proxy::matcher::Matcher::builder()
+            .all("http://user:secret@proxy.internal:3128")
+            .no("ghe.internal")
+            .build();
+        let named = named_proxy(&matcher, "https://api.github.com/repos/o/r");
+        assert_eq!(named.as_deref(), Some("http://proxy.internal:3128"));
+        assert!(!named.unwrap_or_default().contains("secret"));
+        assert_eq!(
+            named_proxy(&matcher, "https://ghe.internal/api/v3"),
+            None,
+            "an exempt host connects directly"
+        );
+        // A direct policy never looks the system settings up.
+        assert_eq!(
+            proxy_in_effect(&loopback(ClientPolicy::default()), "https://api.github.com"),
+            None
+        );
+    }
+
     #[test]
     fn only_direct_or_pinned_policies_bypass_the_proxy() {
         let pinned = Some(("pinned.invalid".to_owned(), Vec::new()));
@@ -188,7 +271,7 @@ mod tests {
             "HTTP/1.1 307 Temporary Redirect\r\nLocation: http://127.0.0.1:1/elsewhere\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
         );
         let status = runtime().block_on(async {
-            let client = client(&ClientPolicy::default()).expect("client");
+            let client = loopback_client(ClientPolicy::default());
             client
                 .get(format!("http://{addr}/"))
                 .send()
@@ -233,7 +316,7 @@ mod tests {
                 read_timeout: Some(stall),
                 ..ClientPolicy::without_deadline()
             };
-            let client = client(&policy).expect("client");
+            let client = loopback_client(policy);
             let started = Instant::now();
             let body = async {
                 client
@@ -308,7 +391,7 @@ mod tests {
                 read_timeout: Some(Duration::from_millis(200)),
                 ..ClientPolicy::default()
             };
-            let client = client(&policy).expect("client");
+            let client = loopback_client(policy);
             // Platform client setup is separate from a request's read timeout.
             let started = Instant::now();
             let result = client.get(format!("http://{addr}/")).send().await;
@@ -332,7 +415,7 @@ mod tests {
                 resolve: Some(("pinned.invalid".into(), vec![addr])),
                 ..ClientPolicy::default()
             };
-            let client = client(&policy).expect("client");
+            let client = loopback_client(policy);
             let port = addr.port();
             client
                 .get(format!("http://pinned.invalid:{port}/"))
@@ -372,7 +455,7 @@ mod tests {
     async fn a_gzip_body_is_requested_and_decoded() {
         let plain = "{\"ok\":true}".repeat(200);
         let (server, wire) = gzip_server(plain.as_bytes()).await;
-        let client = client(&ClientPolicy::default()).expect("client");
+        let client = loopback_client(ClientPolicy::default());
         let response = client.get(server.uri()).send().await.expect("send");
         let budget = crate::budget::RequestBudget::with_timeout(Duration::from_secs(5), 1 << 20);
         let body = crate::retry::read_bounded(response, &budget, 1 << 20)
@@ -393,7 +476,7 @@ mod tests {
         let plain = vec![0_u8; 4 << 20];
         let (server, wire) = gzip_server(&plain).await;
         assert!(wire.len() < 64 << 10, "the bomb is small on the wire");
-        let client = client(&ClientPolicy::default()).expect("client");
+        let client = loopback_client(ClientPolicy::default());
         let response = client.get(server.uri()).send().await.expect("send");
         let budget = crate::budget::RequestBudget::with_timeout(Duration::from_secs(5), 1 << 20);
         let read = crate::retry::read_bounded(response, &budget, 1 << 20).await;
@@ -412,7 +495,7 @@ mod tests {
             )
             .mount(&server)
             .await;
-        let client = client(&ClientPolicy::default()).expect("client");
+        let client = loopback_client(ClientPolicy::default());
         let response = client.get(server.uri()).send().await.expect("send");
         let budget = crate::budget::RequestBudget::with_timeout(Duration::from_secs(5), 1 << 20);
         crate::retry::read_bounded(response, &budget, 1 << 20).await
@@ -458,7 +541,7 @@ mod tests {
             .build()
             .expect("runtime");
         let read = runtime.block_on(async {
-            let client = client(&ClientPolicy::default()).expect("client");
+            let client = loopback_client(ClientPolicy::default());
             let response = client
                 .get(format!("http://{address}/"))
                 .send()

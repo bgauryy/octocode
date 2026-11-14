@@ -5,7 +5,7 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 
 import { resolveScrapingTool } from './scraping-bridge.mjs';
 import { flagArgs, validateFlags } from './cli-flags.mjs';
-import { octocodeWorkspace } from './engine-io.mjs';
+import { octocodeWorkspace, packageTmpDir } from './engine-io.mjs';
 
 const argv = process.argv.slice(2);
 const { getArg } = flagArgs(argv);
@@ -18,7 +18,7 @@ if (argv.includes('--help') || argv.includes('-h')) {
 validateFlags(argv, ['--scraping-skill-dir', '--out', '--domains']);
 const workspaceOutputBase = octocodeWorkspace();
 const out = resolve(
-  getArg('--out') || '.octocode/octocode-chrome-devtools/tmp/cdp-protocol'
+  getArg('--out') || join(packageTmpDir(workspaceOutputBase), 'cdp-protocol')
 );
 const outRelative = relative(workspaceOutputBase, out);
 if (outRelative.startsWith('..') || isAbsolute(outRelative)) {

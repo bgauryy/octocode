@@ -6,7 +6,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::{
     path::PathBuf,
-    sync::Arc,
+    sync::{Arc, OnceLock},
     time::{Duration, Instant},
 };
 use url::Url;
@@ -27,13 +27,12 @@ pub enum HttpMethod {
     Post,
 }
 /// Octokit retry parity: `max_attempts` = retries + 1, with full-jitter 5xx/network backoff.
-/// A 5xx delay beyond `max_retry_after` fails fast. Rate waits preserve the origin's
-/// full delay, credit request time, and refuse waits beyond the caller's deadline.
+/// Every wait, a 5xx `retry-after` or a rate limit, keeps the origin's full
+/// delay and is refused only when it would outlast the request deadline.
 #[derive(Clone, Debug)]
 pub struct RetryPolicy {
     pub max_attempts: u8,
     pub base_delay: Duration,
-    pub max_retry_after: Duration,
 }
 impl RetryPolicy {
     /// The 5xx/network backoff: full jitter from `base_delay`, no floor.
@@ -50,7 +49,6 @@ impl Default for RetryPolicy {
         Self {
             max_attempts: 4,
             base_delay: Duration::from_millis(250),
-            max_retry_after: Duration::from_secs(10),
         }
     }
 }
@@ -64,9 +62,10 @@ pub struct RequestSpec {
     /// The repository file this request reads when its URL names none (a blob).
     /// Included in [`evidence::request_key`] and exposed by [`requested_file`].
     file: Option<String>,
-    /// A read of one pull request by a route with no validator (GraphQL): a kept
-    /// answer stands for the lifetime GitHub states for that pull request's REST
-    /// read ([`GitHubTransport::reuse_window`]).
+    /// A read of one pull request by a route with no validator (GraphQL): the
+    /// only GraphQL answer kept, since something later says how long it
+    /// stands, the lifetime GitHub states for that pull request's REST read
+    /// ([`GitHubTransport::reuse_window`]).
     reads_pull_request: bool,
     /// The caller stores the answer's body itself: no saved answer keeps it
     /// a second time ([`GitHubTransport::keep`]), and no continuation's
@@ -109,21 +108,10 @@ impl RequestSpec {
         self
     }
 
-    /// Whether a GraphQL answer to this request can be kept: something later
-    /// says how long it stands.
-    fn keeps_graphql_answer(&self) -> bool {
-        self.reads_pull_request
-    }
-
     /// This request reads the repository file at `path`.
     pub(crate) fn reading_file(mut self, path: &str) -> Self {
         self.file = Some(path.to_owned());
         self
-    }
-
-    #[cfg(test)]
-    pub(crate) fn pins_for_test(&self) -> bool {
-        self.is_pinned()
     }
 
     /// Whether this request asks the origin to confirm a saved answer.
@@ -135,7 +123,7 @@ impl RequestSpec {
     }
 
     /// Whether the answer to this request can never change.
-    fn is_pinned(&self) -> bool {
+    pub(crate) fn is_pinned(&self) -> bool {
         matches!(self.method, HttpMethod::Get) && names_commit(&self.url)
     }
 }
@@ -263,20 +251,19 @@ pub struct GraphQlPage {
 
 /// The HTTP client a transport for `endpoint` uses: a loopback API is
 /// reached directly, any other through the user's system proxy.
-fn client_policy(endpoint: &GitHubEndpoint) -> octocode_io::http::ClientPolicy {
+pub(super) fn client_policy(endpoint: &GitHubEndpoint) -> octocode_io::http::ClientPolicy {
     octocode_io::http::ClientPolicy {
-        proxy: if endpoint.is_loopback() {
-            octocode_io::http::Proxy::Direct
-        } else {
-            octocode_io::http::Proxy::System
-        },
+        proxy: endpoint.proxy(),
         ..Default::default()
     }
 }
 
 #[derive(Clone)]
 pub struct GitHubTransport {
-    client: Client,
+    /// Built on the first request ([`GitHubTransport::client`]): a
+    /// transport that never sends never pays for the client (TLS roots, the
+    /// system proxy lookup).
+    client: Arc<OnceLock<Client>>,
     endpoint: GitHubEndpoint,
     retry: RetryPolicy,
     budget: Arc<GitHubBudget>,
@@ -291,14 +278,8 @@ impl GitHubTransport {
         retry: RetryPolicy,
         budget: Arc<GitHubBudget>,
     ) -> Result<Self, ProviderError> {
-        let client = octocode_io::http::client(&client_policy(&endpoint)).map_err(|_| {
-            ProviderError::new(
-                ProviderErrorKind::Configuration,
-                "failed to initialize GitHub HTTP client",
-            )
-        })?;
         Ok(Self {
-            client,
+            client: Arc::new(OnceLock::new()),
             endpoint,
             retry,
             budget,
@@ -322,6 +303,21 @@ impl GitHubTransport {
         crate::GitLimiter::new(Arc::clone(&self.budget), self.state_dir.clone())
     }
 
+    /// The HTTP client, built on first use; transports cloned from one share
+    /// it. When two first requests race, the first client stored is kept.
+    pub(crate) fn client(&self) -> Result<&Client, ProviderError> {
+        if let Some(client) = self.client.get() {
+            return Ok(client);
+        }
+        let built = octocode_io::http::client(&client_policy(&self.endpoint)).map_err(|_| {
+            ProviderError::new(
+                ProviderErrorKind::Configuration,
+                "failed to initialize GitHub HTTP client",
+            )
+        })?;
+        Ok(self.client.get_or_init(|| built))
+    }
+
     pub fn set_rate_limit_state_dir(&mut self, dir: Option<PathBuf>) {
         self.state_dir = dir;
     }
@@ -337,7 +333,7 @@ impl GitHubTransport {
         searches: usize,
         context: &RequestContext,
     ) -> Option<ProviderError> {
-        let deadline = context.budget.admission_deadline();
+        let deadline = context.budget.deadline;
         self.key_state(context.resolved_credential())
             .code_search_batch_refusal(searches, self.budget.config(), deadline)
     }
@@ -376,7 +372,7 @@ impl GitHubTransport {
                     && wait
                         < context
                             .budget
-                            .admission_deadline()
+                            .deadline
                             .saturating_duration_since(Instant::now())
             })
     }
@@ -396,8 +392,7 @@ mod graphql;
 mod headers;
 pub use context::RequestContext;
 pub use evidence::{AnswerBody, ProviderAnswer, ProviderEvidence, requested_file};
-#[cfg(test)]
-pub(crate) use execute::SEARCH_REUSE_WINDOW;
+pub use execute::SEARCH_REUSE_WINDOW;
 #[cfg(test)]
 pub(crate) use route::RENAME_ROUTE_WINDOW;
 mod response;

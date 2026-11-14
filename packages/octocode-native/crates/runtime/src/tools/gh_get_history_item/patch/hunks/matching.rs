@@ -4,6 +4,7 @@ use super::stream::{DiffLine, parse_hunks, split_hunks, with_head_text};
 
 /// A `matchString` patch view and the windows its context could not reach.
 pub(in crate::tools::gh_get_history_item::patch) struct HunkMatch {
+    /// The numbered view ([`super::number_patch`]'s gutter).
     pub(in crate::tools::gh_get_history_item::patch) text: String,
     pub(in crate::tools::gh_get_history_item::patch) clipped: Vec<(usize, usize)>,
     /// Line indices in `text` of the hit lines, ascending.
@@ -11,13 +12,17 @@ pub(in crate::tools::gh_get_history_item::patch) struct HunkMatch {
 }
 
 /// A `matchString` patch view: only the diff lines containing `needle`
-/// (lowercase) plus `context` lines around them, each run under a
-/// recomputed `@@ -a,b +c,d @@` header (the original section heading kept),
-/// line text verbatim. With `head` (the file at the PR head) a run reaches
-/// past its hunk into unchanged lines; without it, a run its hunk cuts short
-/// of `context` names the new-side window it wanted (`clipped`). `None`
-/// when no diff line matches (the file matched by path), so the caller
-/// keeps the whole patch.
+/// (lowercase) plus `context` lines around them, numbered as
+/// [`super::number_patch`] numbers a whole patch, line text verbatim. Each
+/// run shows the hunk headers of the hunks it reads exactly as the diff
+/// has them, never a header recomputed for the run: the run opens under the
+/// header of its first diff line's hunk, and a later hunk's header precedes
+/// that hunk's first line in the run. The shown window is the run of line
+/// numbers. With `head` (the file at the PR head) a run reaches past its
+/// hunk into unchanged lines, numbered at the head; without it, a run its
+/// hunk cuts short of `context` names the new-side window it wanted
+/// (`clipped`). `None` when no diff line matches (the file matched by
+/// path), so the caller keeps the whole patch.
 pub(in crate::tools::gh_get_history_item::patch) fn matching_hunks(
     patch: &str,
     needle: &crate::tools::gh_get_history_item::matcher::Matcher,
@@ -25,11 +30,7 @@ pub(in crate::tools::gh_get_history_item::patch) fn matching_hunks(
     head: Option<&[String]>,
 ) -> Option<HunkMatch> {
     let hunks = parse_hunks(patch);
-    let headings: Vec<&str> = hunks.iter().map(|hunk| hunk.heading).collect();
-    let starts: Vec<(usize, usize)> = hunks
-        .iter()
-        .map(|hunk| (hunk.old_start, hunk.new_start))
-        .collect();
+    let headers: Vec<&str> = hunks.iter().map(|hunk| hunk.header).collect();
     let (segments, cut_edges) = match head {
         Some(head) => match with_head_text(hunks, head) {
             Ok(stream) => (vec![stream], vec![(false, false)]),
@@ -49,7 +50,7 @@ pub(in crate::tools::gh_get_history_item::patch) fn matching_hunks(
             .filter(|(_, line)| is_hit(line))
             .map(|(i, _)| i)
             .collect::<Vec<_>>();
-        let mut runs: Vec<(usize, usize, usize)> = Vec::new();
+        let mut runs: Vec<(usize, usize)> = Vec::new();
         for hit in hits {
             let (from, to) = (
                 hit.saturating_sub(context.0),
@@ -70,48 +71,34 @@ pub(in crate::tools::gh_get_history_item::patch) fn matching_hunks(
             }
             match runs.last_mut() {
                 Some(run) if from <= run.1 + 1 => run.1 = run.1.max(to),
-                _ => runs.push((from, to, hit)),
+                _ => runs.push((from, to)),
             }
         }
-        for (from, to, first_hit) in runs {
+        for (from, to) in runs {
             let run = &lines[from..=to];
-            // A side with no line in the run starts, as in a unified diff,
-            // at its own line before the run: the last one above it, else
-            // the next one below less one, else (no line on that side in
-            // the hunk) the hunk header's own start.
-            let side = |pick: fn(&DiffLine<'_>) -> Option<usize>,
-                        header: fn(&(usize, usize)) -> usize| {
-                let count = run.iter().filter(|line| pick(line).is_some()).count();
-                let start = run.iter().find_map(pick).unwrap_or_else(|| {
-                    lines[..from]
-                        .iter()
-                        .rev()
-                        .find_map(pick)
-                        .or_else(|| {
-                            lines[to + 1..]
-                                .iter()
-                                .find_map(pick)
-                                .map(|next| next.saturating_sub(1))
-                        })
-                        .unwrap_or_else(|| starts.get(lines[first_hit].hunk).map_or(0, header))
-                });
-                (start, count)
-            };
-            let (old_start, old_count) = side(|l| l.old, |start| start.0);
-            let (new_start, new_count) = side(|l| l.new, |start| start.1);
-            if !out.is_empty() && !out.ends_with('\n') {
-                out.push('\n');
-            }
-            let heading = headings.get(lines[first_hit].hunk).copied().unwrap_or("");
-            out.push_str(&format!(
-                "@@ -{old_start},{old_count} +{new_start},{new_count} @@{heading}\n"
-            ));
-            line_index += 1;
-            for line in run {
+            // Head lines above the run's first diff line read under that
+            // line's hunk header, the hunk the run opens in.
+            let opening = run.iter().find(|line| line.diff).map(|line| line.hunk);
+            let mut under = None;
+            for (at, line) in run.iter().enumerate() {
+                let hunk = if line.diff {
+                    Some(line.hunk)
+                } else {
+                    opening.filter(|_| at == 0)
+                };
+                if let Some(hunk) = hunk.filter(|hunk| under != Some(*hunk))
+                    && let Some(header) = headers.get(hunk)
+                {
+                    under = Some(hunk);
+                    end_line(&mut out);
+                    out.push_str(header);
+                    line_index += 1;
+                }
                 if is_hit(line) {
                     hit_lines.push(line_index);
                 }
-                out.push_str(&line.text);
+                end_line(&mut out);
+                push_numbered(&mut out, line);
                 line_index += 1;
             }
         }
@@ -121,6 +108,31 @@ pub(in crate::tools::gh_get_history_item::patch) fn matching_hunks(
         clipped: clipped_ranges(clipped),
         hit_lines,
     })
+}
+
+/// End the view's last line before another one follows: GitHub ends a
+/// patch without a final newline.
+fn end_line(out: &mut String) {
+    if !out.is_empty() && !out.ends_with('\n') {
+        out.push('\n');
+    }
+}
+
+/// One diff line with [`super::number_patch`]'s gutter: a removed line
+/// opens with its old-file number, a `\ No newline` marker with a bare
+/// separator, every other line (added, kept, or head text) with its
+/// new-file number.
+fn push_numbered(out: &mut String, line: &DiffLine<'_>) {
+    let number = match line.text.as_bytes().first() {
+        Some(b'-') => line.old,
+        Some(b'\\') => None,
+        _ => line.new,
+    };
+    if let Some(number) = number {
+        out.push_str(&number.to_string());
+    }
+    out.push(crate::response::numbered::SEPARATOR);
+    out.push_str(&line.text);
 }
 
 /// Merged inclusive line windows; past a read's range cap, one span.

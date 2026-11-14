@@ -110,7 +110,7 @@ fn the_written_text_a_match_could_take_is_every_placeholder() {
         "GITHUBTOKENS",
         "PRIVATEKEYFRAGMENT",
         "SANITIZER-FAILURE",
-        "\u{212A}UBERNETES",
+        "\u{212A}EYFRAGMENT",
         " indented",
         "\tx",
         "+added",

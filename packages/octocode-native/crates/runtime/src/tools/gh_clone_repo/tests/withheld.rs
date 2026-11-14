@@ -243,3 +243,56 @@ fn a_poisoned_store_serves_a_new_commit_from_a_new_generation_on_the_first_try()
     assert_eq!(stores.len(), 2, "{stores:?}");
     assert!(stores[1].to_string_lossy().ends_with("__g2.git"));
 }
+
+/// A credential-named file whose content another, ordinary file of the
+/// commit also holds (an empty `.env` beside a `.gitkeep`, `KEY=x` in both
+/// `.env` and `unsafe.txt`): the checkout writes the ordinary file, so its
+/// blob is in the store legitimately. That checkout is clean and is reused,
+/// full or sparse, in the same store generation, and still withholds the
+/// credential file; a real local edit is still refused as `checkoutDirty`.
+#[test]
+fn a_withheld_file_sharing_content_with_a_written_one_is_reused() {
+    let fixture = Fixture::new();
+    fs::create_dir_all(fixture.work.join("config")).expect("config");
+    for (name, content) in [
+        ("config/.env", "KEY=unsafe\n"),
+        ("config/unsafe.txt", "KEY=unsafe\n"),
+        ("config/empty/.env", ""),
+        ("config/empty/.gitkeep", ""),
+    ] {
+        let path = fixture.work.join(name);
+        fs::create_dir_all(path.parent().expect("parent")).expect("dir");
+        fs::write(path, content).expect("write");
+    }
+    git(&fixture.work, &["add", "."]);
+    git(&fixture.work, &["commit", "-m", "shared content"]);
+    git(&fixture.work, &["push", "origin", "main"]);
+    let (root, home) = home_root();
+    let policy = test_support::workspace_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let runner = fixture_runner(&fixture);
+    let config = CloneConfig::persistent(&home);
+    let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
+    for paths in [None, Some("config")] {
+        let query = GhCloneRepoQuery {
+            paths: paths.map(one).unwrap_or_default(),
+            ..query()
+        };
+        let first = clone_pinned(&fixture, &query, &context).expect("clone");
+        assert_eq!(skipped(&first), ["config/.env", "config/empty/.env"]);
+        let local = Path::new(&first.location.path);
+        assert!(local.join("config/unsafe.txt").is_file());
+        assert!(!local.join("config/.env").exists());
+        let again = clone_pinned(&fixture, &query, &context).expect("second clone");
+        assert!(again.location.reused, "{paths:?}: {again:?}");
+        assert_eq!(again.location.cloned_at, first.location.cloned_at);
+        assert_eq!(skipped(&again), skipped(&first));
+        assert_eq!(store_dirs(&home).len(), 1, "{:?}", store_dirs(&home));
+    }
+    let full = clone_pinned(&fixture, &query(), &context).expect("reuse");
+    let edited = Path::new(&full.location.path).join("config/unsafe.txt");
+    fs::write(&edited, "edited\n").expect("edit");
+    let error = clone_pinned(&fixture, &query(), &context).expect_err("edited checkout");
+    assert_eq!(error.code, ErrorCode::CheckoutDirty, "{error:?}");
+    assert_eq!(fs::read_to_string(&edited).expect("read"), "edited\n");
+}

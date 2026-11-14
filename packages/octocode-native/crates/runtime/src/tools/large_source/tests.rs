@@ -66,17 +66,13 @@ fn query(json: serde_json::Value) -> LocalFetchQuery {
 }
 
 mod byte_pages;
-mod checkpoints;
 mod edges;
-mod exact_edits;
 mod kept_matches;
 mod kept_pass;
 mod long_lines;
-mod masks;
 mod reads;
 mod scans;
 mod secrets;
-mod value_masks;
 
 /// One stream re-reads its handle from the start, wherever an earlier
 /// read left it.

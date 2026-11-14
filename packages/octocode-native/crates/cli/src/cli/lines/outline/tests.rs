@@ -2,10 +2,16 @@ use super::super::render;
 use octocode_native::id::ToolId;
 use serde_json::{Value, json};
 
-/// Every string and number leaf of `value`.
+/// Every string and number leaf of `value`; a page's offset 0 is stated
+/// by the page's count reading without `after`.
 fn leaves(value: &Value, out: &mut Vec<String>) {
     match value {
-        Value::Object(fields) => fields.values().for_each(|value| leaves(value, out)),
+        Value::Object(fields) => fields
+            .iter()
+            .filter(|(key, value)| {
+                !(*key == "offset" && **value == 0 && fields.contains_key("hasMore"))
+            })
+            .for_each(|(_, value)| leaves(value, out)),
         Value::Array(items) => items.iter().for_each(|item| leaves(item, out)),
         Value::String(text) => out.extend(text.split('\n').map(str::to_owned)),
         Value::Number(number) => out.push(number.to_string()),
@@ -42,15 +48,15 @@ fn a_tool_without_a_line_format_prints_every_field_as_text() {
         [
             "path: README.md",
             "content: |",
-            "  1\t# Title",
-            "  2\t",
-            "  3\tbody, with: colons",
+            "1\t# Title",
+            "2\t",
+            "3\tbody, with: colons",
             "totalLines: 120",
             "matchedLines: 1, 3",
             "empty: \"\"",
             "symbols[]: name line doc",
             "  Title 1 two words",
-            "# pagination: unit lines offset 0 length 3 hasMore",
+            "# pagination: 3 lines hasMore",
             "# hints: Read on with next.nextPage.",
             "# next.nextPage: octocode localFetch '{\"cursor\":\"issued-page\"}'",
         ]
@@ -95,18 +101,18 @@ fn a_batch_prints_each_row_under_its_heading_in_its_line_format() {
         [
             "## results[0]",
             "a.rs:3:fn a()",
-            "# next.nextPage: octocode localSearch '{\"cursor\":\"cursor-row\"}'",
+            "# results[0] next.nextPage: octocode localSearch '{\"cursor\":\"cursor-row\"}'",
             "## results[1]",
             "errorCode: notFound",
             "error: No such path",
-            "# status: error",
+            "# results[1] status: error",
             "# responsePagination: hasMore",
             "# responsePagination.next: octocode localSearch '{\"cursor\":\"cursor-envelope\"}'",
         ]
         .join("\n")
     );
     assert_eq!(lines.notes, "");
-    // A continuation that renumbered its rows names each row's own index.
+    // A continuation's rows are named by their queries' places.
     let resumed = json!({"results":[{"index":2,"data":{"files":[{"dir":"b","files":["c"]}]}},{"index":4,"data":{"files":[]}}]});
     let lines = render(
         ToolId::StructureSearch,
@@ -116,7 +122,7 @@ fn a_batch_prints_each_row_under_its_heading_in_its_line_format() {
     )
     .expect("text");
     assert!(
-        lines.out.starts_with("## results[0] index 2\n"),
+        lines.out.starts_with("## results[2]\n") && lines.out.contains("\n## results[4]\n"),
         "{}",
         lines.out
     );
@@ -172,8 +178,8 @@ fn rows_a_table_cannot_hold_keep_their_fields() {
     }
 }
 
-/// A count is printed under the JSON's own names: `total` beside the
-/// `countScope` that says it is a floor, never a key the JSON lacks.
+/// A page's count reads `length of total unit` beside the `countScope`
+/// that says the total is a floor, never a key the JSON lacks.
 #[test]
 fn a_loaded_count_prints_under_the_json_names() {
     let page = |extra: Value| {
@@ -189,13 +195,13 @@ fn a_loaded_count_prints_under_the_json_names() {
     };
     for scope in ["loaded", "partial", "capped"] {
         let floor = page(json!({"countScope":scope}));
-        assert!(floor.contains("total 2"), "{floor}");
+        assert!(floor.contains("2 of 2 items"), "{floor}");
         assert!(floor.contains(&format!("countScope {scope}")), "{floor}");
         assert!(!floor.contains("AtLeast"), "{floor}");
     }
     let exact = page(json!({}));
     assert!(
-        exact.contains("total 2") && !exact.contains("AtLeast"),
+        exact.contains("2 of 2 items") && !exact.contains("AtLeast"),
         "{exact}"
     );
 }

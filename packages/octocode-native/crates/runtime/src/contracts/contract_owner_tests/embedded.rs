@@ -26,7 +26,7 @@ fn every_classification_notice_comes_from_the_contract() {
 #[test]
 fn syntax_operation_is_rejected_without_core_alias() {
     assert!(
-        prepare_and_validate(
+        validate_built_query(
             "astSearch",
             json!({"operation":"syntax","path":"/tmp/lib.rs"}),
         )

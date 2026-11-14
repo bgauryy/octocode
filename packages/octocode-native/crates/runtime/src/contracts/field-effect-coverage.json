@@ -578,6 +578,9 @@
         "includeIgnored": [
           "filter"
         ],
+        "keyPath": [
+          "filter"
+        ],
         "invertMatch": [
           "matcher"
         ],

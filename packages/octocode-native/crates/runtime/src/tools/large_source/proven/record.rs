@@ -31,7 +31,6 @@ impl<'s> Proof<'s> {
             }],
             stamp: stamp(file)?,
             started,
-            names: SourceNames::for_path(&path.to_string_lossy()),
             in_lines: Vec::new(),
             long_lines: Vec::new(),
             line_at: 0,
@@ -42,7 +41,6 @@ impl<'s> Proof<'s> {
     /// Take the source's next `bytes`.
     pub(in super::super) fn feed(&mut self, bytes: &[u8]) {
         self.hasher.update(bytes);
-        self.names.feed(bytes);
         let mut rest = bytes;
         while !rest.is_empty() {
             let (piece, newline) = split_line(rest);
@@ -115,13 +113,10 @@ impl<'s> Proof<'s> {
             proven: Proven {
                 scanned,
                 key_lines: self.key_lines.into(),
-                sealed: OnceLock::new(),
                 digest: hex::encode(self.hasher.finalize()),
                 checkpoints: self.checkpoints,
                 stamp: self.stamp,
                 started: self.started,
-                named: self.names.finish(),
-                judged: OnceLock::new(),
                 in_lines: self.in_lines,
                 long_lines: self.long_lines,
             },

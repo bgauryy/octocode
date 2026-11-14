@@ -1,5 +1,6 @@
 //! Outlines no parse size or nesting depth refuses.
 use super::*;
+use octocode_contract_types::ReadProgressUnit;
 
 /// No parse size refuses an outline: code as large as a whole read admits
 /// is redacted and outlined like any other, and a document format still
@@ -17,28 +18,30 @@ fn code_as_large_as_a_whole_read_still_outlines() {
             Ok((text.to_owned(), vec![]))
         }
     }
-    let scan = Counting(AtomicUsize::new(0));
-    let filler = "x".repeat(crate::security::SourceLimits::REAL.whole_source);
-    let code = format!("pub fn run() {{}}\n// {filler}\n");
-    let view = crate::tools::source_view::outline::symbols_view(
-        &code,
-        "big.rs",
-        Path::new("/fixture/big.rs"),
-        &scan,
-    );
-    assert_eq!(view.outline.as_deref(), Ok("1\tpub fn run() {}"));
-    assert!(scan.0.load(Ordering::SeqCst) > 0);
+    let limit = crate::security::SourceLimits::REAL.whole_source;
+    let t = Fixture::new();
+    let outline = |name: &str, text: &str| {
+        assert!(text.len() <= limit, "{name} is read whole");
+        let scan = Counting(AtomicUsize::new(0));
+        let p = t.0.join(name);
+        fs::write(&p, text).expect("fixture");
+        let row = fetch_with(
+            &qj(&p, serde_json::json!({"view":"symbols"})),
+            &Paths(t.0.clone()),
+            &scan,
+        );
+        assert_eq!(row.view, Some(ReadView::Symbols), "{:?}", row.view_fallback);
+        assert!(scan.0.load(Ordering::SeqCst) > 0, "{name} is redacted");
+        row.content.expect("outline")
+    };
+    let head = "pub fn run() {}\n// ";
+    let code = format!("{head}{}\n", "x".repeat(limit - head.len() - 1));
+    assert_eq!(outline("big.rs", &code).trim_end(), "1\tpub fn run() {}");
 
-    let rows = "\"x\",\n".repeat(crate::security::SourceLimits::REAL.whole_source / 4);
-    let data = format!("{{\n\"name\": 1,\n\"long\": [\n{rows}\"x\"\n]\n}}\n");
-    let view = crate::tools::source_view::outline::symbols_view(
-        &data,
-        "big.json",
-        Path::new("/fixture/big.json"),
-        &scan,
-    );
-    assert!(view.outline.expect("key outline").contains("name"));
-    assert!(scan.0.load(Ordering::SeqCst) > 0);
+    let (open, close) = ("{\n\"name\": 1,\n\"long\": [\n", "\"x\"\n]\n}\n");
+    let rows = "\"x\",\n".repeat((limit - open.len() - close.len()) / 5);
+    let data = format!("{open}{rows}{close}");
+    assert!(outline("big.json", &data).contains("name"));
 }
 
 /// One outline: the localFetch outline renders the declarations document
@@ -97,26 +100,30 @@ fn a_source_as_large_as_a_whole_read_outlines_every_declaration() {
         source.push_str(&function);
         count += 1;
     }
-    let view = crate::tools::source_view::outline::symbols_view(
-        &source,
-        "big.h",
-        Path::new("/fixture/big.h"),
-        &Safe,
-    );
-    let outline = view.outline.expect("outline");
-    assert_eq!(outline.lines().count(), count);
-    assert!(
-        outline.starts_with("1-11\tint f0(int a) {\n"),
-        "{:.200}",
-        outline
-    );
-
     let t = Fixture::new();
     let p = t.0.join("big.h");
     fs::write(&p, &source).expect("fixture");
-    let r = fetch(
-        &qj(&p, serde_json::json!({"view": "symbols"})),
-        &Paths(t.0.clone()),
+    // The outline's line pages, walked to the end, list every declaration.
+    let (mut query, mut outlined, mut first) =
+        (qj(&p, serde_json::json!({"view": "symbols"})), 0, None);
+    loop {
+        let r = fetch(&query, &Paths(t.0.clone()));
+        assert_eq!(r.view, Some(ReadView::Symbols), "{:?}", r.view_fallback);
+        let page = r.pagination.as_ref().expect("pagination");
+        assert_eq!(page.unit, ReadProgressUnit::Lines, "{page:?}");
+        let outline = r.content.expect("outline");
+        outlined += outline.lines().count();
+        first.get_or_insert(outline);
+        let Some(next) = r.next.and_then(|next| next.continue_window) else {
+            break;
+        };
+        query = next.query;
+    }
+    assert_eq!(outlined, count);
+    let first = first.expect("a first page");
+    assert!(
+        first.starts_with("1-11\tint f0(int a) {\n"),
+        "{:.200}",
+        first
     );
-    assert_eq!(r.view, Some(ReadView::Symbols), "{:?}", r.view_fallback);
 }

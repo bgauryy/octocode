@@ -198,6 +198,10 @@ pub struct LocalSearchResult {
     pub status: SearchStatus,
     #[serde(flatten)]
     pub stats: SearchStats,
+    /// `unique: "countAll"`: each matched value once over the whole scan,
+    /// its occurrences and the files holding it, most frequent first.
+    #[serde(rename = "uniqueValues", skip_serializing_if = "Option::is_none")]
+    pub unique_values: Option<Vec<super::tally::UniqueValue>>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<SearchFile>,
     #[serde(skip_serializing_if = "Option::is_none")]

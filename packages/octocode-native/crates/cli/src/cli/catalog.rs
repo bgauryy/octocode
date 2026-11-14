@@ -55,14 +55,12 @@ pub(super) fn machine_catalog(runtime: &ToolRuntime) -> Result<Value, String> {
     let catalog = runtime.catalog();
     let presentation = octocode_native::contracts::cli_presentation()
         .map_err(|error| format!("Embedded CLI presentation is invalid: {error}"))?;
-    let presentation_tools = presentation.get("tools").and_then(Value::as_array);
     let dotenv = &runtime.config().dotenv;
     let tools = ToolId::ALL
         .into_iter()
         .map(|tool| {
             let name = tool.as_str();
-            let fields = presentation_tools
-                .and_then(|tools| tools.iter().find(|candidate| candidate["name"] == name))
+            let fields = super::schema::tool_entry(presentation, name)
                 .map(|tool| super::schema::configured_tool(tool, &catalog))
                 .and_then(|tool| tool["fields"].as_str())
                 .unwrap_or("[]");

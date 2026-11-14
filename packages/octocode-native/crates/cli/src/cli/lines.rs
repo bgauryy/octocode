@@ -9,32 +9,49 @@
 //! groups; `line: kind name` declarations), a lone row as `path:line:text` or
 //! `path:line: kind name`, sites as `path:line,line`, and a file without rows
 //! as its path. `path:N` is always a line. A file's other fields (counts, its
-//! page) follow its path in `[ … ]`. A listing prints each `dir/` once with
-//! its entries indented under it. Every other result prints as indented
-//! `key: value` text ([`outline`]), a list of flat rows as a [`table`].
+//! page) follow its path in `[ … ]`. Files that share a directory print
+//! relative to it, stated once before them as `# root: dir`
+//! ([`once::relative_paths`]); counts by file print as a `files[]: matchCount
+//! path` table. A listing prints each `dir/` once with its entries indented
+//! under it, a lone entry as `dir/entry`. Every other result prints as
+//! indented `key: value` text ([`outline`]), a list of flat rows as a
+//! [`table`]. A fraction prints to 4 significant digits ([`rounded`]).
 //!
 //! The trailer follows the content, one `# ` line each, the same for every
 //! tool: a `status` that is not ok, each page state (an object holding
 //! `hasMore`) and incomplete mark, the row's `warnings` and `hints`, then the
 //! commands that continue the answer: `responsePagination.next` first, then
 //! `next.nextPage`, then any other. A call rejected before it ran prints as
-//! a failed row does ([`rejected`]). A batch prints each row under `## results[N]` with its own trailer,
-//! the envelope's after the last row, and names the row in its stderr notes
-//! (`# results[N] key: value`).
+//! a failed row does ([`rejected`]). A batch prints each row under
+//! `## results[N]`, `N` the place of its query, and names the row on every
+//! `# ` line of its own, stdout and stderr alike (`# results[N] key: value`);
+//! the envelope's trailer follows the last row. Objects and lists every
+//! row of a batch shares print once before the first row
+//! ([`once::shared_fields`]), a snapshot a later row names by its id alone
+//! among them ([`once::with_batch_facts`]).
 //!
-//! Counters and `related[]` leads are the stderr notes.
+//! Counters (one line, [`once::counters`]) and `related[]` leads are the
+//! stderr notes.
 //! Calls print as `octocode <tool> '<json>'` commands. They are read from
 //! the structured result only, never from rendered text, so fetched content
 //! that looks like a call is never rewritten.
+//!
+//! Every value prints as data ([`printable`]): its control characters
+//! visible, and a line break in a value only where the layout puts its lines
+//! (indented under its key, or behind their line numbers), so no value
+//! prints a line of the renderer's own.
 mod follow;
 mod hits;
 mod listing;
+mod once;
 mod outline;
+mod printable;
 mod table;
 use follow::{field_notes, split_stated, stated_notes};
 use hits::{annotation, hits, value_lines};
 use listing::{is_working_directory, listing, locations, outline_rows, words};
 use octocode_native::id::ToolId;
+use printable::{one_line, printable};
 use serde_json::{Map, Value, json};
 
 /// A rendered result: stdout lines and stderr notes.
@@ -43,9 +60,11 @@ pub(super) struct Lines {
     pub notes: String,
 }
 
-/// One row's text: its content, its trailer (stdout, after the content) and
-/// its notes (stderr), the last two without their `# `.
+/// One row's text: the directory its paths are relative to, its content,
+/// its trailer (stdout, after the content) and its notes (stderr), the root,
+/// trailer and notes without their `# `.
 struct Row {
+    root: Option<String>,
     body: Vec<String>,
     trailer: Vec<String>,
     notes: Vec<String>,
@@ -61,13 +80,18 @@ fn context_requested(query: &Value) -> bool {
         .any(|key| context[key].as_u64().is_some_and(|n| n > 0))
 }
 
-/// Each physical line of `notes` behind `prefix`, so a note that spans lines
-/// stays a note on every one.
+/// Each note on one line behind `prefix`: a line break in a note's value
+/// prints visibly ([`one_line`]), so a value never starts a note of its own.
 fn prefixed<'a>(prefix: &'a str, notes: &'a [String]) -> impl Iterator<Item = String> + 'a {
     notes
         .iter()
-        .flat_map(|note| note.split('\n'))
-        .map(move |line| format!("{prefix}{line}"))
+        .map(move |note| format!("{prefix}{}", one_line(note)))
+}
+
+/// `text` as printed for a person beside a JSON answer: its control
+/// characters visible, its lines kept.
+pub(super) fn printable_text(text: &str) -> String {
+    printable::lines(text).into_owned()
 }
 
 /// The text of a result (module docs); `None` only when the result does not
@@ -85,54 +109,69 @@ pub(super) fn render(
     query: &Value,
     cwd: Option<&std::path::Path>,
 ) -> Option<Lines> {
-    let query = &octocode_native::contracts::input_as_run(tool.as_str(), query.clone());
+    let query = &printable(octocode_native::contracts::input_as_run(
+        tool.as_str(),
+        query.clone(),
+    ));
     let (display, calls) = follow::separate_calls(tool, structured)?;
+    let display = rounded(printable(display));
     let rows = display.get("results")?.as_array()?;
-    let single = rows.len() == 1;
+    let batch = is_batch(rows, query);
     let (mut envelope, envelope_notes) = envelope_tail(&display, cwd);
     let (commands, envelope_leads) = follow::notes_of(&calls, None);
     envelope.extend(commands);
     let mut out = Vec::new();
     let mut notes = Vec::new();
     let no_fields = Map::new();
-    for (position, row) in rows.iter().enumerate() {
-        let row = row.as_object().unwrap_or(&no_fields);
-        let label = format!("results[{position}]");
-        let index = row.get("index").and_then(Value::as_u64);
-        if !single {
-            out.push(match index {
-                Some(index) if index != position as u64 => format!("## {label} index {index}"),
-                _ => format!("## {label}"),
-            });
-        }
-        // A row reads its own query (context lines, operation), whichever
-        // rows share its page; a bare cursor names none, so it reads that.
-        let asked = index
+    // A row reads its own query (context lines, operation), whichever rows
+    // share its page; a bare cursor names none, so it reads that.
+    let asked_by = |row: &Map<String, Value>| {
+        row.get("index")
+            .and_then(Value::as_u64)
             .and_then(|index| query["queries"].get(usize::try_from(index).ok()?))
-            .map(|asked| json!({"queries": [asked]}));
-        let asked = asked.as_ref().unwrap_or(query);
-        let mut text =
-            render_data(tool, row, asked).unwrap_or_else(|| outline::generic(row, asked));
-        let (commands, leads) = follow::notes_of(&calls, Some(position));
-        out.append(&mut text.body);
-        out.extend(prefixed("# ", &text.trailer));
-        if single {
-            out.extend(prefixed("# ", &envelope));
-            // The heading names a batch row's index; a lone row's is a note.
-            if let Some(index) = index.filter(|index| *index != 0) {
-                text.notes.insert(0, format!("index: {index}"));
-            }
+            .map_or_else(|| query.clone(), |asked| json!({"queries": [asked]}))
+    };
+    let whole = once::with_batch_facts(tool, rows);
+    let mut shared = once::shared_fields(&whole, |row| {
+        render_data(tool, row, &asked_by(row)).is_none()
+    });
+    // A field holding a row's own call stays with that row.
+    shared.retain(|key, _| {
+        !calls.iter().any(|call| {
+            call.row.is_some() && call.label.split(['.', '[']).next() == Some(key.as_str())
+        })
+    });
+    outline::object(&shared, "", &mut out);
+    for (position, row) in rows.iter().enumerate() {
+        let mut row = row.as_object().unwrap_or(&no_fields).clone();
+        if let Some(Value::Object(data)) = row.get_mut("data") {
+            data.retain(|key, _| !shared.contains_key(key));
         }
-        out.extend(prefixed("# ", &commands));
-        let prefix = if single {
-            "# ".to_owned()
-        } else {
+        let index = row.get("index").and_then(Value::as_u64);
+        let label = format!("results[{}]", index.unwrap_or(position as u64));
+        if batch {
+            out.push(format!("## {label}"));
+        }
+        let asked = asked_by(&row);
+        let mut text =
+            render_data(tool, &row, &asked).unwrap_or_else(|| outline::generic(&row, &asked));
+        let (commands, leads) = follow::notes_of(&calls, Some(position));
+        let prefix = if batch {
             format!("# {label} ")
+        } else {
+            "# ".to_owned()
         };
+        out.extend(prefixed(&prefix, text.root.as_slice()));
+        out.append(&mut text.body);
+        out.extend(prefixed(&prefix, &text.trailer));
+        if !batch {
+            out.extend(prefixed("# ", &envelope));
+        }
+        out.extend(prefixed(&prefix, &commands));
         notes.extend(prefixed(&prefix, &text.notes));
         notes.extend(prefixed(&prefix, &leads));
     }
-    if !single {
+    if batch {
         out.extend(prefixed("# ", &envelope));
     }
     notes.extend(prefixed("# ", &envelope_notes));
@@ -141,6 +180,49 @@ pub(super) fn render(
         out: out.join("\n"),
         notes: notes.join("\n"),
     })
+}
+
+/// Whether rows print as a batch, each under `## results[N]`: a page of
+/// several rows, a call of several queries, or a row of a later query (a
+/// page that holds one row of a batch).
+fn is_batch(rows: &[Value], query: &Value) -> bool {
+    rows.len() > 1
+        || query["queries"]
+            .as_array()
+            .is_some_and(|asked| asked.len() > 1)
+        || rows
+            .iter()
+            .any(|row| row["index"].as_u64().is_some_and(|index| index > 0))
+}
+
+/// `value` with each fraction rounded to 4 significant digits, an integer
+/// part never cut (`0.04051045341394517` prints `0.04051`, `12345.67`
+/// `12346.0`); `--json` keeps the exact value.
+fn rounded(value: Value) -> Value {
+    match value {
+        Value::Number(number) => {
+            let fraction = number
+                .as_f64()
+                .filter(|x| number.is_f64() && x.is_finite() && x.fract() != 0.0);
+            let Some(x) = fraction else {
+                return Value::Number(number);
+            };
+            let short = if x.abs() >= 1e4 {
+                x.round()
+            } else {
+                format!("{x:.3e}").parse().unwrap_or(x)
+            };
+            serde_json::Number::from_f64(short).map_or(Value::Number(number), Value::Number)
+        }
+        Value::Array(items) => Value::Array(items.into_iter().map(rounded).collect()),
+        Value::Object(fields) => Value::Object(
+            fields
+                .into_iter()
+                .map(|(key, value)| (key, rounded(value)))
+                .collect(),
+        ),
+        other => other,
+    }
 }
 
 /// An `lspSearch` answer's location rows, each with its path: `matches`, or
@@ -209,6 +291,14 @@ fn render_data(tool: ToolId, row: &Map<String, Value>, query: &Value) -> Option<
     {
         return None;
     }
+    let mut relative = data.clone();
+    let root = once::relative_paths(&mut relative);
+    let data = &relative;
+    let rooted = |mut text: Row| {
+        text.root = root.as_ref().map(|root| format!("root: {root}"));
+        text
+    };
+    let mut rest = data.clone();
     if tool == ToolId::LspSearch
         && let Some(matches) = location_rows(data)
     {
@@ -216,7 +306,7 @@ fn render_data(tool: ToolId, row: &Map<String, Value>, query: &Value) -> Option<
         locations(&matches, symbol, &mut body, &mut marks)?;
         rest.shift_remove("matches");
         rest.shift_remove("files");
-        return Some(tail(query, row, rest, marks, body));
+        return Some(rooted(tail(query, row, rest, marks, body)));
     }
     // A single-file outline (`astSearch symbols`, `lspSearch
     // documentSymbols`): the row names its path only when the tool changed it.
@@ -239,10 +329,14 @@ fn render_data(tool: ToolId, row: &Map<String, Value>, query: &Value) -> Option<
         None => return None,
     };
     let numbered = tool == ToolId::LocalSearch && context_requested(query);
-    for file in &files {
-        file_rows(tool, file.as_object()?, numbered, &mut body)?;
+    if let Some(mut counts) = table::count_table(&files) {
+        body.append(&mut counts);
+    } else {
+        for file in &files {
+            file_rows(tool, file.as_object()?, numbered, &mut body)?;
+        }
     }
-    Some(tail(query, row, rest, marks, body))
+    Some(rooted(tail(query, row, rest, marks, body)))
 }
 
 /// One file of a search result: its hits, declarations or sites under its
@@ -286,7 +380,7 @@ fn file_rows(
         .get("matchedLines")
         .and_then(|lines| serde_json::from_value::<Vec<u64>>(lines.clone()).ok())
         .filter(|lines| !lines.is_empty());
-    let mut entry = path.to_owned();
+    let mut entry = one_line(path).into_owned();
     if let Some(lines) = sites {
         rest.shift_remove("matchedLines");
         if rest.get("matchCount").and_then(Value::as_u64) == Some(lines.len() as u64) {
@@ -325,10 +419,16 @@ fn tail(
         trailer.push(format!("status: {status}"));
     }
     trailer.extend(marks);
-    let (stated, info) = split_stated(data);
+    let (stated, mut info) = split_stated(data);
     let (done, mut advice) = stated_notes(stated);
     trailer.extend(done);
-    let mut notes = field_notes("", &info);
+    // Beside content, what a walk skipped reads as a count per cause.
+    if !body.is_empty() {
+        once::skipped_counts(&mut info);
+    }
+    let (counts, info) = once::counters(info);
+    let mut notes: Vec<String> = counts.into_iter().collect();
+    notes.extend(field_notes("", &info));
     // Row fields beside `data` (`rowPart`, …), so a cut response is never
     // silent.
     if let Some(part) = row.get("rowPart") {
@@ -350,6 +450,7 @@ fn tail(
     trailer.extend(advice);
     notes.extend(field_notes("", &info));
     Row {
+        root: None,
         body,
         trailer,
         notes,
@@ -408,6 +509,7 @@ fn envelope_tail(structured: &Value, cwd: Option<&std::path::Path>) -> (Vec<Stri
 /// `error` and any detail), as a failed row prints: its fields, `errorCode`
 /// first, then `# status: error` and its hints.
 pub(super) fn rejected(envelope: &Value) -> String {
+    let envelope = printable(envelope.clone());
     let fields = envelope.as_object().cloned().unwrap_or_default();
     let mut data: Map<String, Value> = ["errorCode", "error"]
         .into_iter()

@@ -52,6 +52,103 @@ fn a_later_page_of_a_settled_file_reads_only_its_window() {
     assert_eq!(kept.end_line, whole.end_line);
 }
 
+#[test]
+fn a_fresh_range_of_a_settled_file_reads_only_its_window() {
+    let file = temp(&lines(b'r'));
+    octocode_engine::stamp::settle_written_so_far();
+    let (first, _) = pages(&file);
+    let q = query(serde_json::json!({"path":"f","ranges":[{"startLine":30000,"endLine":30000}]}));
+    let before = source_bytes_read();
+    let kept = fetch(&file, &q, Some(2_000));
+    let read = source_bytes_read() - before;
+    assert_eq!(kept.status, ReadStatus::Success, "{kept:?}");
+    assert_eq!(kept.source_sha256, first.source_sha256);
+    let bound =
+        super::super::proven::CHECKPOINT_BYTES as usize + super::super::proven::READ_BYTES + LINE;
+    assert!(
+        read <= bound,
+        "fresh range read {read} bytes; window bound {bound}"
+    );
+    let whole = fetch(&temp(&lines(b'r')), &q, Some(2_000));
+    assert_eq!(kept.content, whole.content);
+    assert_eq!(kept.total_lines, whole.total_lines);
+    assert_eq!(kept.source_sha256, whole.source_sha256);
+}
+
+#[test]
+fn a_kept_pass_is_not_reused_by_a_different_scanner_policy() {
+    let file = temp(&lines(b'p'));
+    octocode_engine::stamp::settle_written_so_far();
+    let (_, next) = pages(&file);
+    let before = source_bytes_read();
+    let page = fetch_window(
+        &next,
+        file.path(),
+        &opened(file.path()),
+        &std::fs::metadata(file.path()).expect("meta"),
+        Some(2_000),
+        &crate::security::ContentSecurity::new(),
+        &NeverCancel,
+    );
+    assert_eq!(page.status, ReadStatus::Success, "{page:?}");
+    assert!(
+        source_bytes_read() - before >= LINE * LINES,
+        "different limits require a new whole-source proof"
+    );
+}
+
+#[test]
+fn a_custom_scanner_does_not_reuse_a_real_scanners_pass() {
+    let file = temp(&lines(b's'));
+    octocode_engine::stamp::settle_written_so_far();
+    let (_, next) = pages(&file);
+    let before = source_bytes_read();
+    let page = fetch_window(
+        &next,
+        file.path(),
+        &opened(file.path()),
+        &std::fs::metadata(file.path()).expect("meta"),
+        Some(2_000),
+        &crate::security::scan::Passthrough,
+        &NeverCancel,
+    );
+    assert_eq!(page.status, ReadStatus::Success, "{page:?}");
+    assert!(
+        source_bytes_read() - before >= LINE * LINES,
+        "a custom scanner must prove the whole source itself"
+    );
+}
+
+#[test]
+fn a_real_scanner_does_not_reuse_a_custom_scanners_pass() {
+    let file = temp(&lines(b'w'));
+    octocode_engine::stamp::settle_written_so_far();
+    let first = fetch_window(
+        &query(serde_json::json!({"path":"f"})),
+        file.path(),
+        &opened(file.path()),
+        &std::fs::metadata(file.path()).expect("meta"),
+        Some(2_000),
+        &crate::security::scan::Passthrough,
+        &NeverCancel,
+    );
+    let next = &first
+        .next
+        .as_ref()
+        .expect("next")
+        .continue_window
+        .as_ref()
+        .expect("window")
+        .query;
+    let before = source_bytes_read();
+    let page = fetch(&file, next, Some(2_000));
+    assert_eq!(page.status, ReadStatus::Success, "{page:?}");
+    assert!(
+        source_bytes_read() - before >= LINE * LINES,
+        "the real scanner must prove a custom scanner's source itself"
+    );
+}
+
 /// Two files with the same bytes at different paths keep their passes side by
 /// side: reading the second does not evict the first's, so a later page of
 /// the first still reads only its window. (The store was keyed by digest
@@ -117,6 +214,69 @@ fn write_restoring_time(path: &Path) {
     let after = std::fs::metadata(path).expect("meta");
     assert_eq!(after.len(), before.len());
     assert_eq!(after.modified().expect("modified"), modified);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_fresh_range_reproves_same_size_edits_and_replacements() {
+    let file = temp(&lines(b't'));
+    octocode_engine::stamp::settle_written_so_far();
+    let (first, _) = pages(&file);
+    let q = query(serde_json::json!({"path":"f","ranges":[{"startLine":30000,"endLine":30000}]}));
+    write_restoring_time(file.path());
+    let before = source_bytes_read();
+    let edited = fetch(&file, &q, Some(2_000));
+    assert_eq!(edited.status, ReadStatus::Success, "{edited:?}");
+    assert_ne!(edited.source_sha256, first.source_sha256);
+    assert!(source_bytes_read() - before >= LINE * LINES);
+    octocode_engine::stamp::settle_written_so_far();
+    pages(&file);
+    let replacement = temp(&lines(b'u'));
+    replacement
+        .as_file()
+        .set_modified(
+            std::fs::metadata(file.path())
+                .expect("meta")
+                .modified()
+                .expect("modified"),
+        )
+        .expect("restore replacement time");
+    std::fs::rename(replacement.path(), file.path()).expect("replace");
+    let before = source_bytes_read();
+    let replaced = fetch(&file, &q, Some(2_000));
+    assert_eq!(replaced.status, ReadStatus::Success, "{replaced:?}");
+    assert_ne!(replaced.source_sha256, edited.source_sha256);
+    assert!(source_bytes_read() - before >= LINE * LINES);
+}
+
+#[test]
+fn a_fresh_range_reproves_key_changes_outside_its_window() {
+    let begin = ["-----BEGIN ", "RSA PRIVATE KEY-----\n"].concat();
+    let end = ["-----END ", "RSA PRIVATE KEY-----\n"].concat();
+    let mut text = vec![b'x'; begin.len()];
+    *text.last_mut().expect("newline") = b'\n';
+    text.extend(lines(b'v'));
+    text.extend_from_slice(end.as_bytes());
+    let file = temp(&text);
+    octocode_engine::stamp::settle_written_so_far();
+    pages(&file);
+    text[..begin.len()].copy_from_slice(begin.as_bytes());
+    std::fs::write(file.path(), &text).expect("new key boundary");
+    let q = query(serde_json::json!({"path":"f","ranges":[{"startLine":30000,"endLine":30000}]}));
+    let before = source_bytes_read();
+    let page = fetch(&file, &q, Some(2_000));
+    assert_eq!(page.status, ReadStatus::Success, "{page:?}");
+    assert!(source_bytes_read() - before >= text.len());
+    let whole = fetch(&temp(&text), &q, Some(2_000));
+    assert_eq!(page.content, whole.content);
+    assert_eq!(page.source_sha256, whole.source_sha256);
+    assert!(
+        !page
+            .content
+            .as_deref()
+            .unwrap_or_default()
+            .contains("0000000000000000029998")
+    );
 }
 
 /// A writer that runs while the read holds the source open.

@@ -383,3 +383,78 @@ fn callers_of_a_class_are_labelled_as_uses() {
         None
     );
 }
+
+/// gopls' `detail` on a call item is the package path and the file name
+/// (`github.com/prometheus/prometheus/storage • backfill.go`), which the
+/// row's `path` already states. Over a recorded answer (prometheus, 239
+/// callers of `Appender.Append`) the rows keep every other field and carry
+/// no `detail`, so the page holds only what the details did not repeat; a
+/// detail that also names something the row does not (a container) stays.
+#[test]
+fn a_detail_that_only_names_the_place_is_left_out() {
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../../test-utils/fixtures/lsp/recorded/gopls-callers-appender-append.json");
+    let recorded: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&fixture).expect("recorded answer")).expect("json");
+    let callers = recorded["callers"].as_array().expect("callers");
+    assert!(
+        callers.iter().all(|caller| caller["detail"].is_string()),
+        "every recorded caller has a detail"
+    );
+    let item = |caller: &serde_json::Value, detail: &serde_json::Value| {
+        let mut from = serde_json::json!({
+            "symbolName": caller["symbolName"], "kind": caller["kind"], "detail": detail,
+            "uri": format!("file:///repo/{}", caller["path"].as_str().expect("path")),
+            "line": caller["line"]
+        });
+        if let Some(end) = caller.get("endLine") {
+            from["endLine"] = end.clone();
+        }
+        serde_json::json!({"from": from, "fromRanges": caller["sites"], "level": 1})
+    };
+    let items = callers
+        .iter()
+        .map(|caller| item(caller, &caller["detail"]))
+        .collect::<Vec<_>>();
+    let mut row = serde_json::json!({"operation": "callers", "matches": items});
+    compact_calls(&mut row, &[], &repo_policy());
+    let rows = row["files"]
+        .as_array()
+        .expect("files")
+        .iter()
+        .flat_map(|file| {
+            let path = file["path"].as_str().expect("path").to_owned();
+            file["matches"]
+                .as_array()
+                .expect("matches")
+                .iter()
+                .map(move |call| (path.clone(), call.clone()))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(rows.len(), callers.len(), "no caller lost");
+    for (caller, (path, call)) in callers.iter().zip(&rows) {
+        assert_eq!(
+            path.strip_prefix("/repo/"),
+            caller["path"].as_str(),
+            "{call}"
+        );
+        let mut expected = caller.clone();
+        let fields = expected.as_object_mut().expect("caller");
+        fields.remove("detail");
+        fields.remove("path");
+        assert_eq!(*call, expected, "only the detail leaves");
+    }
+    crate::contracts::validate_output("lspSearch", &public_row(&row))
+        .expect("compact callers satisfy the output contract");
+    // A detail naming the place and a container keeps the container.
+    let first = &callers[0];
+    let mut held = serde_json::json!({"operation": "callers", "matches": [
+        item(first, &serde_json::json!("github.com/prometheus/prometheus/storage • Head"))
+    ]});
+    compact_calls(&mut held, &[], &repo_policy());
+    assert_eq!(
+        held["files"][0]["matches"][0]["detail"], "github.com/prometheus/prometheus/storage • Head",
+        "{held}"
+    );
+}

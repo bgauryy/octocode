@@ -447,3 +447,121 @@ fn tests_to_run_reach_past_the_depth_bound() {
         "{summary}"
     );
 }
+
+/// A Go importer binds its package, never one file of it: an importer whose
+/// linked references name only other items of the changed type's package
+/// is no candidate, as a TypeScript importer naming other exports is not.
+/// Proven rows (an implementer's file, a method that takes the type) come
+/// before any import-only candidate, whatever their depth.
+#[test]
+fn impact_on_a_go_interface_ranks_proven_rows_before_import_only_candidates() {
+    let dir = git_app(&[
+        ("go.mod", "module example.com/app\n"),
+        (
+            "storage/interface.go",
+            "package storage\n\ntype Appender interface {\n\tAppend(v int) error\n}\n",
+        ),
+        (
+            "storage/query.go",
+            "package storage\n\ntype Queryable interface {\n\tQuery() int\n}\n",
+        ),
+        (
+            "impl/impl.go",
+            "package impl\n\nimport \"example.com/app/storage\"\n\ntype mine struct{}\n\nfunc (m mine) Append(v int) error { return nil }\n\nfunc Wrap(a storage.Appender) error { return a.Append(1) }\n",
+        ),
+        (
+            "other/user.go",
+            "package other\n\nimport \"example.com/app/storage\"\n\nfunc Q(q storage.Queryable) int { return q.Query() }\n",
+        ),
+        (
+            "bare/bare.go",
+            "package bare\n\nimport _ \"example.com/app/storage\"\n",
+        ),
+    ]);
+    let root = dir.0.as_path();
+    assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
+    let out = ask(
+        root,
+        "impact",
+        Some("storage/interface.go#Appender"),
+        |_| {},
+    );
+    let rows = out.value["rows"].as_array().expect("rows");
+    let risk = |file: &str| {
+        rows.iter()
+            .find(|row| row["id"] == format!("app/{file}"))
+            .map(|row| row["risk"].as_str().unwrap_or_default().to_owned())
+    };
+    assert_eq!(
+        risk("impl/impl.go").as_deref(),
+        Some("direct"),
+        "{}",
+        out.value
+    );
+    assert_eq!(
+        risk("other/user.go"),
+        None,
+        "names only Queryable of the package: {}",
+        out.value
+    );
+    assert_eq!(
+        risk("bare/bare.go").as_deref(),
+        Some("candidate"),
+        "{}",
+        out.value
+    );
+    let first_candidate = rows.iter().position(|row| row["risk"] == "candidate");
+    let last_proven = rows.iter().rposition(|row| row["risk"] != "candidate");
+    if let (Some(candidate), Some(proven)) = (first_candidate, last_proven) {
+        assert!(proven < candidate, "proven rows first: {}", out.value);
+    }
+}
+
+/// `testsToRun` names each test file once and no helper: a file under a
+/// test directory that test files import, and whose name marks no test, is
+/// their support code, not a test to run.
+#[test]
+fn tests_to_run_lists_each_test_file_once_and_no_helper() {
+    let dir = git_app(&[
+        ("package.json", r#"{"name":"app"}"#),
+        ("src/errors.ts", "export function fail() { return 1; }\n"),
+        (
+            "tests/helpers.ts",
+            "import { fail } from '../src/errors';\nexport function boom() { return fail(); }\n",
+        ),
+        (
+            "tests/a.test.ts",
+            "import { boom } from './helpers';\nimport { fail } from '../src/errors';\nboom(); fail();\n",
+        ),
+        (
+            "tests/b.test.ts",
+            "import { boom } from './helpers';\nboom();\n",
+        ),
+    ]);
+    let root = dir.0.as_path();
+    assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
+    for target in ["src/errors.ts", "src/errors.ts#fail"] {
+        let out = ask(root, "impact", Some(target), |_| {});
+        let tests = out.value["summary"]["testsToRun"]
+            .as_array()
+            .expect("testsToRun")
+            .iter()
+            .map(|test| test.as_str().expect("path").to_owned())
+            .collect::<Vec<_>>();
+        let unique = tests.iter().collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(unique.len(), tests.len(), "{target}: {tests:?}");
+        for test in &tests {
+            assert!(
+                octocode_engine::text::test_paths::is_test_path(test),
+                "{target}: {test} is no test path"
+            );
+        }
+        assert!(
+            !tests.iter().any(|test| test.ends_with("tests/helpers.ts")),
+            "{target}: a helper is no test to run: {tests:?}"
+        );
+        for test in ["app/tests/a.test.ts", "app/tests/b.test.ts"] {
+            assert!(tests.iter().any(|t| t == test), "{target}: {tests:?}");
+        }
+    }
+}

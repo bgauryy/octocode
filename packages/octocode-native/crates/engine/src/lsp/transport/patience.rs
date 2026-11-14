@@ -117,14 +117,15 @@ impl WaitBudget {
     }
 
     /// `at`, or the ceiling when that comes first.
-    fn capped(&self, at: Instant) -> Instant {
+    pub(super) fn capped(&self, at: Instant) -> Instant {
         self.ceiling.map_or(at, |ceiling| at.min(ceiling))
     }
 
-    /// Where a wait that takes the base and no extension ends: `base` from
-    /// when the budget started, or its ceiling if that comes first.
-    pub(crate) fn first_cut(&self) -> Instant {
-        self.capped(self.created + self.base)
+    /// When every attempt ends however long the server works: the caller's
+    /// deadline less [`DEADLINE_RESERVE`], `None` for a caller with no
+    /// deadline, else `CEILING_FACTOR` times the base from its start.
+    pub(crate) fn ceiling(&self) -> Option<Instant> {
+        self.ceiling
     }
 
     /// `true` once no further attempt can be granted any time.
@@ -233,11 +234,29 @@ impl ServerActivity {
         self.cpu_clock.as_ref().and_then(|clock| clock())
     }
 
-    /// Whether the server shows progress over a wait of `waited` that began
-    /// at CPU time `before`: the same test a request wait applies.
-    pub(super) fn progressed_since(&self, before: Option<Duration>, waited: Duration) -> bool {
-        cpu_progressed(before, self.cpu_time(), waited) || self.progress.has_active()
+    /// What the server has shown so far, for [`Self::worked_since`].
+    pub(super) fn mark(&self) -> ActivityMark {
+        ActivityMark {
+            cpu: self.cpu_time(),
+            signals: self.signals(),
+            at: Instant::now(),
+        }
     }
+
+    /// Whether the server worked since `mark`: the same signs a request wait
+    /// extends on (CPU time, a new work-done notice, any message). A token
+    /// left open with nothing new said is none.
+    pub(super) fn worked_since(&self, mark: &ActivityMark) -> bool {
+        cpu_progressed(mark.cpu, self.cpu_time(), mark.at.elapsed())
+            || self.signals() != mark.signals
+    }
+}
+
+/// The server's activity at one instant ([`ServerActivity::mark`]).
+pub(crate) struct ActivityMark {
+    cpu: Option<Duration>,
+    signals: (u64, u64),
+    at: Instant,
 }
 
 /// `true` when CPU time grew by at least `step / CPU_PROGRESS_DIVISOR`

@@ -106,6 +106,44 @@ fn spells(content: &str, prefix: &str, word: &str) -> bool {
     )
 }
 
+/// The statement of `content` holding the dynamic load at `start..end`: back
+/// to the `;` or the enclosing `{` before it and on to the `;` or the
+/// enclosing `}` after it, through the brackets the load sits in
+/// (`Promise.all([…])`, `.then(({ name }) => …)`). Brackets inside strings
+/// and comments count too, which can only cut the statement short.
+fn load_statement(content: &str, start: usize, end: usize) -> &str {
+    let bytes = content.as_bytes();
+    let mut depth = 0usize;
+    let mut from = 0;
+    for index in (0..start).rev() {
+        match bytes[index] {
+            b')' | b']' | b'}' => depth += 1,
+            b'(' | b'[' => depth = depth.saturating_sub(1),
+            b'{' if depth > 0 => depth -= 1,
+            b'{' | b';' if depth == 0 => {
+                from = index + 1;
+                break;
+            }
+            _ => {}
+        }
+    }
+    let mut depth = 0usize;
+    let mut to = bytes.len();
+    for (index, byte) in bytes.iter().enumerate().skip(end) {
+        match byte {
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' => depth = depth.saturating_sub(1),
+            b'}' if depth > 0 => depth -= 1,
+            b'}' | b';' if depth == 0 => {
+                to = index;
+                break;
+            }
+            _ => {}
+        }
+    }
+    &content[from..to.max(from)]
+}
+
 fn is_relative(specifier: &str) -> bool {
     specifier == "."
         || specifier == ".."
@@ -265,16 +303,15 @@ impl AnchorModule {
         // one may name any module. A relay re-exports none of them.
         if reading != Reading::Relay {
             for load in DYNAMIC_IMPORT.captures_iter(content) {
-                // What binds the name: the load's own line destructuring it,
-                // or (for a candidate) any `.name` the file reads.
-                let start = load.get(0).map_or(0, |whole| whole.start());
-                let line = content[start..].lines().next().unwrap_or_default();
-                let line = format!(
-                    "{}{line}",
-                    content[..start].rsplit('\n').next().unwrap_or_default()
-                );
-                let binds =
-                    spells(&line, "", &self.symbol) || (reading == Reading::Candidate && member);
+                // What binds the name: the statement holding the load
+                // destructuring it, on whichever line (`const [a, { name }] =
+                // await Promise.all([\n import('x'), …`), or (for a
+                // candidate) any `.name` the file reads.
+                let (start, end) = load
+                    .get(0)
+                    .map_or((0, 0), |whole| (whole.start(), whole.end()));
+                let binds = spells(load_statement(content, start, end), "", &self.symbol)
+                    || (reading == Reading::Candidate && member);
                 let reached = match load.get(1).or_else(|| load.get(2)) {
                     Some(specifier) => {
                         self.reference(reading, specifier.as_str(), file, binds, relays)

@@ -47,13 +47,16 @@ fn ranged_spans(
                 ),
             ));
         }
-        spans.retain(|(start, end)| {
-            regions
-                .iter()
-                .any(|(_, (from, to))| (*from..*to).contains(start) && end <= to)
-        });
+        spans.retain(|span| in_regions(&regions, *span));
     }
     Ok(regions)
+}
+
+/// Whether the span lies inside one of `regions`.
+fn in_regions(regions: &[Region], (start, end): (usize, usize)) -> bool {
+    regions
+        .iter()
+        .any(|(_, (from, to))| (*from..*to).contains(&start) && end <= *to)
 }
 
 /// Requested context stays inside the selected source ranges.
@@ -99,6 +102,7 @@ pub(super) fn match_extract(
         mut spans,
         truncated,
         held: _spans_held,
+        missed,
     } = match_spans(q, content, patterns)?;
     let regions = ranged_spans(q, lines, &mut spans)?;
     let hits = hit_lines(lines, &spans);
@@ -124,8 +128,10 @@ pub(super) fn match_extract(
             blocks: vec![],
             match_limited: truncated,
             match_windows: vec![],
+            unmatched: vec![],
         });
     }
+    let unmatched = unmatched_terms(q, content, patterns, (&missed, &regions))?;
     let mut warnings = vec![];
     let windows = context_windows(q, lines, &hits, &regions);
     let mut blocks = vec![];
@@ -163,7 +169,39 @@ pub(super) fn match_extract(
         blocks,
         match_limited: limit_line.is_some(),
         match_windows,
+        unmatched,
     })
+}
+
+/// The entries of a list `matchString` that select no hit, as written:
+/// those whose scan of the file found none (`missed`), and, in a `ranges`
+/// read, those whose every match lies outside the requested `regions`.
+fn unmatched_terms(
+    q: &LocalFetchQuery,
+    content: &str,
+    patterns: &[&str],
+    (missed, regions): (&[usize], &[Region]),
+) -> Result<Vec<String>, ExtractionError> {
+    if patterns.len() < 2 {
+        return Ok(vec![]);
+    }
+    let mut unmatched = Vec::new();
+    for (index, pattern) in patterns.iter().enumerate() {
+        let selects = if missed.contains(&index) {
+            false
+        } else if local_fetch_query::has_ranges(q) {
+            match_spans(q, content, std::slice::from_ref(pattern))?
+                .spans
+                .iter()
+                .any(|span| in_regions(regions, *span))
+        } else {
+            true
+        };
+        if !selects {
+            unmatched.push((*pattern).to_owned());
+        }
+    }
+    Ok(unmatched)
 }
 
 /// Bytes shown on each side of a match in a line too long for a byte page:
@@ -173,7 +211,7 @@ pub(crate) const MATCH_MARGIN: usize = 80;
 
 /// Bytes a line holds at most when every byte page holds it whole, whatever
 /// its characters: the smallest page's room over the widest escape.
-const FITS_ANY_BYTE_PAGE: usize = super::super::pagination::MIN_BYTE_PAGE / 6;
+pub(crate) const FITS_ANY_BYTE_PAGE: usize = super::super::pagination::MIN_BYTE_PAGE / 6;
 
 /// The bytes of the view around each match in a line longer than
 /// [`FITS_ANY_BYTE_PAGE`]: [`MATCH_MARGIN`] on each side, inside the line,

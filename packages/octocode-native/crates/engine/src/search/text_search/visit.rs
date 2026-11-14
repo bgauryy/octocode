@@ -93,6 +93,15 @@ impl WalkScope<'_> {
                 return;
             }
         }
+        // A line scope leaves out, unread, every file it cannot hold a kept
+        // line of.
+        if opts
+            .line_scope
+            .as_ref()
+            .is_some_and(|scope| !(scope.holds)(path))
+        {
+            return;
+        }
         let Some((file, meta)) = self.open_within_ceiling(state, dent) else {
             return;
         };
@@ -183,7 +192,6 @@ impl WalkScope<'_> {
             declares: outcome.declares && self.identifier,
             source,
             not_utf8: outcome.not_utf8,
-            every_value: outcome.every_value,
             utf8_bom: outcome.utf8_bom,
             term_counts: outcome.term_counts,
         });

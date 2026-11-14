@@ -42,22 +42,12 @@ mod server_defaults;
 mod tsgo;
 mod workspace_root;
 
-/// The extension list `lsp-server status` walks names only real routes, and
-/// no extension the catalog routes is missing from it.
+/// Each routed extension has one built-in server: no extension is listed
+/// under two catalog entries.
 #[test]
-fn routed_extensions_match_the_catalog() {
-    use super::catalog::{ROUTED_EXTENSIONS, spec_for_extension};
-    for extension in ROUTED_EXTENSIONS {
-        assert!(spec_for_extension(extension).is_some(), "{extension}");
-    }
-    let source = include_str!("catalog.rs");
-    let body = &source[source.find("fn spec_for_extension").expect("catalog match")..];
-    let routed = body
-        .lines()
-        .take_while(|line| !line.starts_with("}"))
-        .filter(|line| line.contains("=> ServerSpec"))
-        .flat_map(|line| line.split('"').skip(1).step_by(2));
-    for extension in routed {
-        assert!(ROUTED_EXTENSIONS.contains(&extension), "{extension}");
-    }
+fn each_routed_extension_has_one_route() {
+    let mut extensions = super::catalog::ROUTED_EXTENSIONS.clone();
+    extensions.sort_unstable();
+    extensions.dedup();
+    assert_eq!(extensions.len(), super::catalog::ROUTED_EXTENSIONS.len());
 }

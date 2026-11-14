@@ -9,7 +9,7 @@ fn nested_file_fields_are_words() {
     // A file's own fields follow its path, on stdout with its hits.
     assert_eq!(
         lines.out,
-        "a.rs  [pagination (unit matches offset 0 length 1 total 471 hasMore)]\n3:x"
+        "a.rs  [pagination 1 of 471 matches hasMore]\n3:x"
     );
     assert_eq!(lines.notes, "");
 }
@@ -102,7 +102,7 @@ fn batches_and_other_tools_print_text() {
     let lines = render(ToolId::LocalSearch, &two, &json!({}), None).expect("text");
     assert_eq!(
         lines.out,
-        "## results[0]\n# status: empty\n## results[1]\n# status: empty"
+        "## results[0]\n# results[0] status: empty\n## results[1]\n# results[1] status: empty"
     );
     let lines = render(ToolId::LocalFetch, &sample(), &json!({}), None).expect("text");
     assert!(
@@ -163,10 +163,10 @@ fn warnings_and_hints_print_in_the_stdout_trailer_of_every_row_shape() {
     assert_eq!(
         lines.out,
         format!(
-            "a.rs:3:x\n# pagination: unit items offset 0 length 1 hasMore\n{ADVICE}\n# warnings: From the envelope.\n# next.nextPage: octocode localSearch '{{\"cursor\":\"c\"}}'"
+            "a.rs:3:x\n# pagination: 1 items hasMore\n{ADVICE}\n# warnings: From the envelope.\n# next.nextPage: octocode localSearch '{{\"cursor\":\"c\"}}'"
         )
     );
-    assert_eq!(lines.notes, "# matchCount: 1");
+    assert_eq!(lines.notes, "# matchCount 1");
     // `key: value` text.
     let read = json!({"results":[{"index":0,"data":advice(json!({"content":"x"}))}]});
     let lines = render(ToolId::LocalFetch, &read, &json!({}), None).expect("lines");

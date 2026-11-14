@@ -38,12 +38,16 @@ pub(super) fn match_spans(
                         .collect()
                 },
                 truncated: false,
+                missed: Vec::new(),
             }
         };
         found.truncated |= one.truncated;
         if local_fetch_query::whole_word(q) {
             one.spans
                 .retain(|&(start, end)| is_whole_word(content, start, end));
+        }
+        if patterns.len() > 1 && one.spans.is_empty() && !one.truncated {
+            found.missed.push(index);
         }
         if found.spans.is_empty() && one.held.is_some() {
             // The scan already holds its vector: the spans themselves become
@@ -187,6 +191,7 @@ impl HeldSpans {
             spans: self.spans,
             truncated: self.refused,
             held: self.held,
+            missed: Vec::new(),
         }
     }
 }

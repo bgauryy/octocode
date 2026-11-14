@@ -90,13 +90,118 @@ impl<'a> Placement<'a> {
 /// A line dense with matches is therefore walked in full pages from its
 /// first match, and a line with a few shows them on one page.
 pub(super) struct MatchFirst {
-    /// The line's bytes in the view, its line break included.
-    line: std::ops::Range<usize>,
+    /// The line's bytes in the view, its line break included, and its match
+    /// windows.
+    walk: LineWalk,
     /// The source byte the line starts at, for a selection view: the gap
     /// markers name source bytes, as the page's placed offset does.
     source_start: Option<usize>,
-    /// The line's match windows, near ones joined.
+}
+
+/// The order of [`MatchFirst`]'s byte walk of one line, as byte positions
+/// alone: each match window, in source order, then every other byte of the
+/// line, in source order. A source held whole walks its view's bytes; a
+/// streamed one (`tools::large_source`) walks the line's own bytes with the
+/// same steps, so both serve one contract.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct LineWalk {
+    /// The line's bytes, its line break included.
+    line: std::ops::Range<usize>,
+    /// The line's match windows: sorted, disjoint, inside the line, every
+    /// edge a clean cut, near ones joined ([`join_window`]).
     windows: Vec<(usize, usize)>,
+}
+
+/// Add `window`, which starts at or after the last of `windows`, joined with
+/// that last one when closer than the row around a page
+/// ([`crate::response::page_windows::ROW_SKELETON_CHARS`]): the bytes between
+/// them cost less shown with them than marked and paged apart.
+pub(crate) fn join_window(windows: &mut Vec<(usize, usize)>, (from, to): (usize, usize)) {
+    match windows.last_mut() {
+        Some(before)
+            if from.saturating_sub(before.1)
+                < crate::response::page_windows::ROW_SKELETON_CHARS =>
+        {
+            before.1 = before.1.max(to);
+        }
+        _ => windows.push((from, to)),
+    }
+}
+
+impl LineWalk {
+    /// The walk of the bytes `line` with the match `windows` (sorted,
+    /// disjoint, inside the line, clean cuts), near ones joined.
+    pub(crate) fn new(
+        line: std::ops::Range<usize>,
+        windows: impl IntoIterator<Item = (usize, usize)>,
+    ) -> Self {
+        let mut joined = Vec::new();
+        for window in windows {
+            join_window(&mut joined, window);
+        }
+        Self {
+            line,
+            windows: joined,
+        }
+    }
+
+    /// The line's match windows, near ones joined.
+    pub(crate) fn windows(&self) -> &[(usize, usize)] {
+        &self.windows
+    }
+
+    /// The first byte the walk shows: its first match window's.
+    pub(crate) fn first(&self) -> usize {
+        self.windows
+            .first()
+            .map_or(self.line.start, |window| window.0)
+    }
+
+    /// The match window holding byte `at`, by its index.
+    pub(crate) fn window_at(&self, at: usize) -> Option<usize> {
+        let index = self.windows.partition_point(|window| window.1 <= at);
+        self.windows
+            .get(index)
+            .is_some_and(|window| window.0 <= at)
+            .then_some(index)
+    }
+
+    /// The byte the walk shows after the windows before index `taken`: the
+    /// next window's first, else the first byte no window holds; `None` when
+    /// the line has none left.
+    pub(crate) fn after_windows(&self, taken: usize) -> Option<usize> {
+        self.windows
+            .get(taken)
+            .map(|window| window.0)
+            .or_else(|| self.rest_from(self.line.start))
+    }
+
+    /// The first byte at or after `at` that no window holds; `None` when the
+    /// line has none left.
+    fn rest_from(&self, mut at: usize) -> Option<usize> {
+        let from = self.windows.partition_point(|window| window.1 <= at);
+        for window in self.windows.get(from..).unwrap_or_default() {
+            if window.0 > at {
+                break;
+            }
+            at = window.1;
+        }
+        (at < self.line.end).then_some(at)
+    }
+
+    /// Where the run of the walk holding byte `at` ends (a match window, or
+    /// the bytes between two), and the byte the walk shows after it (`None`:
+    /// the line is done).
+    pub(crate) fn run(&self, at: usize) -> (usize, Option<usize>) {
+        let next = self.windows.partition_point(|window| window.1 <= at);
+        match self.windows.get(next) {
+            Some(&(start, end)) if start <= at => (end, self.after_windows(next + 1)),
+            later => {
+                let end = later.map_or(self.line.end, |window| window.0);
+                (end, self.rest_from(end))
+            }
+        }
+    }
 }
 
 impl MatchFirst {
@@ -119,23 +224,11 @@ impl MatchFirst {
         if crate::response::cut::window_end(content, start, room) >= end {
             return None;
         }
-        let mut windows: Vec<(usize, usize)> = Vec::new();
-        for &(from, to) in own {
-            match windows.last_mut() {
-                Some(before)
-                    if from - before.1 < crate::response::page_windows::ROW_SKELETON_CHARS =>
-                {
-                    before.1 = to;
-                }
-                _ => windows.push((from, to)),
-            }
-        }
         Some(Self {
-            line: start..end,
+            walk: LineWalk::new(start..end, own.iter().copied()),
             source_start: long_lines
                 .placement
                 .and_then(|placement| placement.source_byte(start)),
-            windows,
         })
     }
 
@@ -143,67 +236,37 @@ impl MatchFirst {
     /// for a selection view, else the view's.
     fn named(&self, at: usize) -> usize {
         self.source_start
-            .map_or(at, |start| start + (at - self.line.start))
+            .map_or(at, |start| start + (at - self.walk.line.start))
     }
 
     /// The first byte the walk shows: its first match window's.
     pub(super) fn first(&self) -> usize {
-        self.windows
-            .first()
-            .map_or(self.line.start, |window| window.0)
-    }
-
-    /// The first byte at or after `at` that no window holds; `None` when the
-    /// line has none left.
-    fn rest_from(&self, mut at: usize) -> Option<usize> {
-        let from = self.windows.partition_point(|window| window.1 <= at);
-        for window in self.windows.get(from..).unwrap_or_default() {
-            if window.0 > at {
-                break;
-            }
-            at = window.1;
-        }
-        (at < self.line.end).then_some(at)
-    }
-
-    /// Where the run of the walk holding byte `at` ends (a match window, or
-    /// the bytes between two), and the byte the walk shows after it (`None`:
-    /// the line is done).
-    fn run(&self, at: usize) -> (usize, Option<usize>) {
-        let next = self.windows.partition_point(|window| window.1 <= at);
-        match self.windows.get(next) {
-            Some(&(start, end)) if start <= at => (
-                end,
-                self.windows
-                    .get(next + 1)
-                    .map(|window| window.0)
-                    .or_else(|| self.rest_from(self.line.start)),
-            ),
-            later => {
-                let end = later.map_or(self.line.end, |window| window.0);
-                (end, self.rest_from(end))
-            }
-        }
+        self.walk.first()
     }
 
     /// The byte page at `at`: to the end of its run, or as far as `room`
     /// holds. A page that ends a match window goes on with the windows after
     /// it that `room` still holds whole, each behind a [`gap_marker`] naming
     /// the bytes it skips (they come with the rest of the line), so one page
-    /// shows as many hits as fit. After the line's last byte, line paging
-    /// resumes.
+    /// shows as many hits as fit; its length counts the bytes it shows. After
+    /// the line's last byte, line paging resumes.
     pub(super) fn page(&self, content: &str, at: usize, room: usize) -> Page {
-        let (run_end, after) = self.run(at);
+        let (run_end, after) = self.walk.run(at);
         let end = crate::response::cut::window_end(content, at, room).min(run_end);
         // `at` and `end` are character boundaries (`window_end` walks chars).
         let mut text = content.get(at..end).unwrap_or_default().to_owned();
         let mut next = if end < run_end { Some(end) } else { after };
         let mut last = end;
-        let held = self.windows.partition_point(|window| window.1 <= at);
-        if end == run_end && self.windows.get(held).is_some_and(|window| window.0 <= at) {
+        // The line's bytes the page shows: its runs, not the gaps between
+        // them, which later pages show.
+        let mut shown = end - at;
+        let windows = self.walk.windows();
+        if end == run_end
+            && let Some(held) = self.walk.window_at(at)
+        {
             let mut left = room.saturating_sub(crate::response::cut::escaped_len(&text));
             let mut taken = held + 1;
-            for &(from, to) in self.windows.get(taken..).unwrap_or_default() {
+            for &(from, to) in windows.get(taken..).unwrap_or_default() {
                 let marker = gap_marker(self.named(last), self.named(from));
                 let window = content.get(from..to).unwrap_or_default();
                 let cost = crate::response::cut::escaped_len(&marker)
@@ -214,18 +277,15 @@ impl MatchFirst {
                 left -= cost;
                 text.push_str(&marker);
                 text.push_str(window);
+                shown += to - from;
                 (last, taken) = (to, taken + 1);
             }
-            next = self
-                .windows
-                .get(taken)
-                .map(|window| window.0)
-                .or_else(|| self.rest_from(self.line.start));
+            next = self.walk.after_windows(taken);
         }
         let line = octocode_engine::text::line_containing(content, at);
         let (next_offset, resume_line) = match next {
             Some(byte) => (Some(byte), None),
-            None if self.line.end < content.len() => (Some(self.line.end), Some(line)),
+            None if self.walk.line.end < content.len() => (Some(self.walk.line.end), Some(line)),
             None => (None, None),
         };
         Page {
@@ -233,7 +293,7 @@ impl MatchFirst {
             pagination: Pagination {
                 unit: ReadProgressUnit::Bytes,
                 offset: at,
-                length: last - at,
+                length: shown,
                 window: room,
                 total_lines: line_count(content),
                 total_bytes: content.len(),
@@ -252,7 +312,7 @@ impl MatchFirst {
 /// bytes `start..end` between them (the source's, for a selection view; as
 /// the page's offset names them), which the line's later pages show.
 /// It sits on a line of its own, so the windows around it stay verbatim.
-pub(super) fn gap_marker(start: usize, end: usize) -> String {
+pub(crate) fn gap_marker(start: usize, end: usize) -> String {
     format!("\n... [bytes {start}-{end} on later pages] ...\n")
 }
 

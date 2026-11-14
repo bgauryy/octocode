@@ -1,19 +1,33 @@
 //! Where a whole-window answer sits. The provider answers typed values
 //! (`noul`, `choice`, `score`, `box`) and never a span of the text it
-//! judged, so a text judged whole in one request is sent with a marker line
-//! before each of its parts, and every question that can name lines takes one
-//! companion `choice` in the same request: which part holds the text that
-//! decides it. Its label is a part; its lines are the answer's `lines`, and
-//! the row's `next.read` reads only them.
+//! judged, so a text judged whole in one request is sent with each of its
+//! parts between an opening and a closing marker line that name the lines
+//! it holds (`<lines 1-167>` … `</lines 1-167>`), and every question that
+//! can name lines takes one companion `choice` in the same request: which
+//! part holds the text that decides it. Its labels are those spans, so the
+//! judge answers in lines; they are the answer's `lines`, and the row's
+//! `next.read` reads only them.
 //!
-//! A part is about one page of the read that follows: as many parts as the
+//! Both ends of a part carry its label so ownership reads the same from
+//! either side: a bare label before each part leaves the lines above it
+//! open to reading as the next label's, and a judge then names the next part
+//! for a fact near the end of its own.
+//!
+//! A part is at most one page of the read that follows: its share of the
 //! text's lines, counted as a read renders them (JSON text and `N\t`
-//! gutter), fill line pages of the automatic response page
+//! gutter), split into the line pages of the automatic response page
 //! ([`RuntimeLimits::auto_page_chars`], `DEFAULT_RESPONSE_CHARS` unless
 //! configured, less the row around its lines:
-//! [`crate::response::page_windows::page_budget`]), at least two, at most
-//! the labels one choice may list. Finer parts would cost the provider's output
-//! a probability per label and still leave the agent one read.
+//! [`crate::response::page_windows::page_budget`]), at least two parts, at
+//! most the labels one choice may list. Finer parts would cost the
+//! provider's output a probability per label and still leave the agent one
+//! read.
+//!
+//! A part ends at the last block edge within its share ([`block_ends`]), so
+//! a paragraph, a table, a fenced block or an indented body stays in one
+//! part with the text around it, and a fact is judged with its context. A
+//! block larger than a share is cut at a line, and the next part opens
+//! saying it carries that block on (`<lines 168-313 continues>`).
 //!
 //! No request is added for it: a companion rides only in a grouped request
 //! and is dropped when the provider's window splits the questions into
@@ -42,8 +56,8 @@ const NO_PART: &str = "unknown";
 /// A text cut into parts for one request, and the companion questions that
 /// point into it.
 pub(super) struct Located {
-    /// The state to send: the judged text with a marker line before each
-    /// part.
+    /// The state to send: the judged text with each part between its
+    /// opening and closing marker lines.
     pub state: Value,
     /// One companion per question that can name lines, in question order.
     pub companions: Vec<Value>,
@@ -101,14 +115,15 @@ pub(super) fn locate(
         Value::String(text) => *text = marked,
         other => other["text"] = json!(marked),
     }
+    let continued = parts.continues.contains(&true);
     let companions = serves
         .iter()
-        .map(|&index| companion(&questions[index], parts.len()))
+        .map(|&index| companion(&questions[index], &parts.spans, continued))
         .collect();
     Some(Located {
         state: screened,
         companions,
-        parts,
+        parts: parts.spans,
         serves,
     })
 }
@@ -129,9 +144,10 @@ pub(super) fn questions<'a>(
     }
 }
 
-/// The label of part `index` (0-based), as its marker line names it.
-fn label(index: usize) -> String {
-    format!("p{}", index + 1)
+/// The label of the part holding lines `start..=end`, as its marker lines
+/// and its companion's criteria name it: the span itself.
+fn label((start, end): (usize, usize)) -> String {
+    format!("lines {start}-{end}")
 }
 
 /// The response characters a line read takes as it renders: its JSON text
@@ -141,74 +157,168 @@ fn rendered(line: &str, gutter: usize) -> usize {
     octocode_engine::json_size::string_body_units(line) + gutter
 }
 
-/// The spans of whole `lines` a text is cut into: about one line page of
-/// `page_chars` rendered characters each, at least two and at most the labels
-/// one choice may list (and the lines there are). A part ends at the first
-/// line that brings the text read so far to its share of the whole, and
-/// holds at least one line.
-fn spans(lines: &[&str], page_chars: usize) -> Vec<(usize, usize)> {
+/// A text cut into parts: each part's first and last line, and whether it
+/// carries on a block the part before it ends in.
+struct Parts {
+    spans: Vec<(usize, usize)>,
+    continues: Vec<bool>,
+}
+
+/// Whether a part may end after each of `lines`: where the next line opens
+/// a top-level block. In a text with blank lines a block runs from one blank
+/// line to the next, so a part may end on a blank line whose next line is
+/// neither blank nor indented, outside a fenced block (```` ``` ```` or
+/// `~~~`): tables, paragraphs, fenced code, and declarations whose bodies
+/// are indented stay whole. A text without blank lines (a log, a listing) is
+/// made of its lines; one indented under another (a stack trace, a wrapped
+/// record) stays with it. A lead-in stays with what it introduces: no part
+/// ends on a block whose last line is a heading or ends with `:`
+/// ([`leads_in`]). The last line always ends a part.
+fn block_ends(lines: &[&str]) -> Vec<bool> {
+    let blank = |line: &str| line.trim().is_empty();
+    let indented = |line: &str| line.starts_with([' ', '\t']);
+    let separated = lines.iter().any(|line| blank(line));
+    let mut fence: Option<&str> = None;
+    let mut last_text = "";
+    let mut ends = Vec::with_capacity(lines.len());
+    for (index, line) in lines.iter().enumerate() {
+        if !blank(line) {
+            last_text = line;
+        }
+        let opened = line.trim_start();
+        match fence {
+            Some(open) if opened.starts_with(open) => fence = None,
+            Some(_) => {}
+            None => {
+                fence = ["```", "~~~"]
+                    .into_iter()
+                    .find(|open| opened.starts_with(open));
+            }
+        }
+        ends.push(match lines.get(index + 1) {
+            None => true,
+            Some(next) => {
+                fence.is_none()
+                    && !blank(next)
+                    && !indented(next)
+                    && (!separated || blank(line))
+                    && !leads_in(last_text)
+            }
+        });
+    }
+    ends
+}
+
+/// Whether `line` introduces what follows it: a heading (`#` to `######`
+/// and a space, as Markdown and comment banners write one) or a line that
+/// ends with `:`.
+fn leads_in(line: &str) -> bool {
+    let line = line.trim();
+    let heading = line.trim_start_matches('#');
+    let hashes = line.len() - heading.len();
+    line.ends_with(':') || ((1..=6).contains(&hashes) && heading.starts_with(' '))
+}
+
+/// The parts of whole `lines`: each at most one share of the text as a read
+/// renders it (the line pages it fills at `page_chars`, at least two and at
+/// most the labels one choice may list, and the lines there are), ending at
+/// the last block edge ([`block_ends`]) within its share. A block larger
+/// than a share is cut at the line that fills it, and the next part carries
+/// it on. A part holds at least one line; past the label limit the last
+/// part holds the rest.
+fn spans(lines: &[&str], page_chars: usize) -> Parts {
     let gutter = crate::tools::source_view::pagination::gutter_chars(lines.len());
     let widths: Vec<usize> = lines.iter().map(|line| rendered(line, gutter)).collect();
     let total: usize = widths.iter().sum();
-    let parts = total
+    let pages = total
         .div_ceil(page_chars.max(1))
         .clamp(2, LABELS - 1)
         .min(lines.len());
-    let mut spans = Vec::with_capacity(parts);
-    let (mut end, mut filled) = (0, 0);
-    for part in 1..parts {
-        let start = end + 1;
-        let due = (total * part).div_ceil(parts);
-        // Every later part keeps at least one line.
-        let last = lines.len() - (parts - part);
-        loop {
-            end += 1;
-            filled += widths[end - 1];
-            if filled >= due || end >= last {
+    let share = total.div_ceil(pages);
+    let ends = block_ends(lines);
+    let mut parts = Parts {
+        spans: Vec::with_capacity(pages),
+        continues: Vec::with_capacity(pages),
+    };
+    let (mut start, mut left, mut carried) = (0, total, false);
+    while start < lines.len() {
+        if left <= share || parts.spans.len() == LABELS - 2 {
+            parts.spans.push((start + 1, lines.len()));
+            parts.continues.push(carried);
+            break;
+        }
+        let (mut filled, mut fits, mut edge) = (0, start, None);
+        for (index, width) in widths.iter().enumerate().skip(start) {
+            filled += width;
+            if filled > share && index > start {
                 break;
             }
+            fits = index;
+            if ends[index] {
+                edge = Some(index);
+            }
         }
-        spans.push((start, end));
+        let end = edge.unwrap_or(fits);
+        parts.spans.push((start + 1, end + 1));
+        parts.continues.push(carried);
+        carried = edge.is_none();
+        left -= widths[start..=end].iter().sum::<usize>();
+        start = end + 1;
     }
-    spans.push((end + 1, lines.len()));
-    spans
+    parts
 }
 
-/// `text` with a marker line (`[p1]`, `[p2]`, …) before each part
-/// ([`spans`]), and each part's lines; `None` for a text of one line.
-fn mark(text: &str, page_chars: usize) -> Option<(String, Vec<(usize, usize)>)> {
+/// `text` with each part ([`spans`]) between an opening and a closing
+/// marker line naming its lines (`<lines 1-40>` … `</lines 1-40>`), and its
+/// parts; `None` for a text of one line. A part that carries on the block
+/// the part before it ends in opens saying so: `<lines 41-80 continues>`.
+fn mark(text: &str, page_chars: usize) -> Option<(String, Parts)> {
     let lines: Vec<&str> = text.split_inclusive('\n').collect();
     if lines.len() < 2 {
         return None;
     }
     let parts = spans(&lines, page_chars);
-    let mut marked = String::with_capacity(text.len() + parts.len() * 8);
-    for (index, &(start, end)) in parts.iter().enumerate() {
-        marked.push_str(&format!("[{}]\n", label(index)));
+    let mut marked = String::with_capacity(text.len() + parts.spans.len() * 24);
+    for (&(start, end), &continues) in parts.spans.iter().zip(&parts.continues) {
+        let name = label((start, end));
+        if continues {
+            marked.push_str(&format!("<{name} continues>\n"));
+        } else {
+            marked.push_str(&format!("<{name}>\n"));
+        }
         for line in &lines[start - 1..end] {
             marked.push_str(line);
         }
         if !marked.ends_with('\n') {
             marked.push('\n');
         }
+        marked.push_str(&format!("</{name}>\n"));
     }
     Some((marked, parts))
 }
 
 /// The companion of `question`: a choice of the part whose text decides it.
-fn companion(question: &Value, parts: usize) -> Value {
+/// When a block was cut (`continued`), it says how a carried-on part opens.
+fn companion(question: &Value, parts: &[(usize, usize)], continued: bool) -> Value {
     let asked = match &question["instructions"] {
         Value::String(text) => text.clone(),
         _ => question.to_string(),
     };
-    let mut criteria: Map<String, Value> = (0..parts)
-        .map(|index| (label(index), Value::Null))
+    let mut criteria: Map<String, Value> = parts
+        .iter()
+        .map(|&span| (label(span), Value::Null))
         .collect();
+    let first = parts.first().map(|&span| label(span)).unwrap_or_default();
     criteria.insert(NO_PART.into(), Value::Null);
     json!({
         "type": "choice",
         "instructions": format!(
-            "The text is cut into parts, each after its marker line ([p1], [p2], …). Which part holds the text that decides this question: {asked} Choose {NO_PART} when no part does."
+            "The text is cut into parts, each between an opening and a closing marker line naming the lines it holds (<{first}> … </{first}>).{} Which part holds the text that decides this question: {asked} Choose {NO_PART} when no part does.",
+            if continued {
+                " A part opening <lines A-B continues> carries on the block the part before it ends in."
+            } else {
+                ""
+            }
         ),
         "criteria": criteria,
     })
@@ -231,9 +341,7 @@ impl Located {
         for (&index, choice) in self.serves.iter().zip(companions) {
             let Some(part) = choice["choice"]
                 .as_str()
-                .and_then(|label| label.strip_prefix('p'))
-                .and_then(|number| number.parse::<usize>().ok())
-                .and_then(|number| self.parts.get(number.checked_sub(1)?))
+                .and_then(|chosen| self.parts.iter().find(|&&span| label(span) == chosen))
             else {
                 continue;
             };

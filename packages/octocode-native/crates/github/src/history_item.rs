@@ -112,7 +112,6 @@ mod tests {
             RetryPolicy {
                 max_attempts: 1,
                 base_delay: Duration::from_millis(1),
-                max_retry_after: Duration::from_secs(1),
             },
             crate::GitHubBudget::relaxed(),
         )
@@ -163,7 +162,6 @@ mod tests {
             RetryPolicy {
                 max_attempts: 1,
                 base_delay: Duration::from_millis(1),
-                max_retry_after: Duration::from_secs(1),
             },
             crate::GitHubBudget::relaxed(),
         )

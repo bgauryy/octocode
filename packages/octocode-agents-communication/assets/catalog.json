@@ -2195,11 +2195,6 @@
       "maximum": 9007199254740991,
       "description": "Exact owned lease ID."
     },
-    "presence": {
-      "default": "active",
-      "$ref": "#/$defs/presenceFilter",
-      "description": "Filter active, expired, or all presence."
-    },
     "pathTarget": {
       "type": "object",
       "properties": {

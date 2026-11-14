@@ -11,9 +11,8 @@
 //! these has reached a state where the answer means absence. Answers that
 //! list a use claim no absence and wait for nothing.
 
-use super::status::RESUME_REWAIT_MS;
 use super::{NativeLspClient, OPEN_READY_TIMEOUT_MS, RESPONSE_SCOPE};
-use crate::lsp::transport::{Readiness, WaitBudget};
+use crate::lsp::transport::{JsonRpcConnection, Readiness, WaitBudget};
 use std::sync::atomic::Ordering;
 use tokio::time::{Duration, Instant};
 
@@ -24,6 +23,11 @@ const CPU_SAMPLE: Duration = Duration::from_millis(500);
 /// in Metals and jdtls), and a starved one mid-load well over it.
 const WORKING_CPU_DIVISOR: u32 = 20;
 
+/// Whether `deadline` (none: never) has come.
+fn past(deadline: Option<Instant>) -> bool {
+    deadline.is_some_and(|at| Instant::now() >= at)
+}
+
 /// What an empty answer means, as far as the server shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EmptyAnswer {
@@ -31,54 +35,71 @@ pub enum EmptyAnswer {
     Stands,
     /// The server worked since the question: its answer is out of date.
     AskAgain,
-    /// The server was still working when the budget ended.
+    /// The server was still loading when the wait ended: the caller's
+    /// deadline came while it worked, or it held a load open with no sign
+    /// of work for a whole quiet window.
     StillLoading,
 }
 
-/// How much progress had begun when a question was asked.
+/// Progress that had begun, and whether it was still active, when a question was asked.
 #[derive(Clone, Copy, Debug)]
-pub struct AskedAt(u64);
+pub struct AskedAt {
+    begins: u64,
+    active: bool,
+}
 
 impl NativeLspClient {
     /// The mark to take before asking, for [`Self::judge_empty_answer`].
-    pub fn asked_at(&self) -> AskedAt {
-        AskedAt(self.inner.progress.begins())
+    pub async fn asked_at(&self) -> AskedAt {
+        let (begins, active) = self.inner.progress.work_state().await;
+        AskedAt { begins, active }
     }
 
-    /// When a request's waits for its server's load end: the language's
-    /// readiness budget from now, within the caller's deadline. Once a load
-    /// has outlasted that budget, a later call waits only
-    /// [`RESUME_REWAIT_MS`] for it, so a token that never closes costs each
-    /// call a bounded look, not the whole budget again.
-    pub fn load_deadline(&self) -> Instant {
-        let budget = crate::lsp::pool::readiness_timeout(self.language_id())
-            .unwrap_or(OPEN_READY_TIMEOUT_MS);
-        let budget = if self.inner.load_outlasted.load(Ordering::Acquire) {
-            budget.min(RESUME_REWAIT_MS)
-        } else {
-            budget
-        };
-        WaitBudget::new(budget).first_cut()
+    /// When a request's waits for its server's load end: the caller's
+    /// deadline (less the reserve its failure row needs), none for a caller
+    /// with no deadline, whose cancel ends them; a wait no caller bounds gets
+    /// the language's readiness budget, twice. Within it a load is waited for
+    /// as long as the server shows work, never a fixed span.
+    pub fn load_deadline(&self) -> Option<Instant> {
+        WaitBudget::new(self.load_quiet_ms()).ceiling()
+    }
+
+    /// How long a load may show no sign of work (no CPU, no new work-done
+    /// notice, no message) before an open token stops counting as work: the
+    /// language's readiness budget. It bounds silence, never work.
+    fn load_quiet_ms(&self) -> u32 {
+        crate::lsp::pool::readiness_timeout(self.language_id()).unwrap_or(OPEN_READY_TIMEOUT_MS)
     }
 
     /// Judge an empty answer to a question asked at `asked`. Waits, up to
-    /// `deadline`, only until the server shows it has nothing left to do; a
-    /// server already shown idle when asked costs nothing. Asking again
-    /// forgets the answers the call recorded: they predate the load.
-    pub async fn judge_empty_answer(&self, asked: AskedAt, deadline: Instant) -> EmptyAnswer {
+    /// `deadline` (none: until the caller cancels), only while the server
+    /// shows it has work left: an open `$/progress` token whose server keeps
+    /// working (CPU, a new notice, any message) or a process tree using CPU.
+    /// A server already shown idle when asked costs nothing; a token held
+    /// open with no sign of work for a whole quiet window
+    /// ([`Self::load_quiet_ms`]) is a load that shows none, which ends the
+    /// wait. Asking again forgets the answers the call recorded: they
+    /// predate the load.
+    pub async fn judge_empty_answer(
+        &self,
+        asked: AskedAt,
+        deadline: Option<Instant>,
+    ) -> EmptyAnswer {
         let progress = &self.inner.progress;
         let began = Instant::now();
         let _activity = self.lease();
         // Shown idle when asked, with nothing open now: whatever began since
         // has ended, and a server may wrap a request in its own progress
         // (pyright's "Finding references"), which is no load.
-        let begun = progress.begins();
-        if !progress.has_active() && self.inner.idle_at_begin.load(Ordering::Acquire) == asked.0 + 1
+        let (begun, active) = progress.work_state().await;
+        if !asked.active
+            && !active
+            && self.inner.idle_at_begin.load(Ordering::Acquire) == asked.begins + 1
         {
             self.inner.idle_at_begin.store(begun + 1, Ordering::Release);
             return EmptyAnswer::Stands;
         }
-        let mut worked = begun != asked.0;
+        let mut worked = asked.active || begun != asked.begins;
         let Ok(connection) = self.connection_handle().await else {
             // The server is gone: the next request reports that.
             return EmptyAnswer::Stands;
@@ -87,12 +108,7 @@ impl NativeLspClient {
         loop {
             if progress.has_active() {
                 worked = true;
-                let left = deadline.saturating_duration_since(Instant::now());
-                let left = u64::try_from(left.as_millis()).unwrap_or(u64::MAX);
-                let drained = progress
-                    .wait_until_idle_after(progress.subscribe(), 0, left)
-                    .await;
-                if drained == Readiness::Timeout {
+                if !self.outwait_load(&connection, deadline).await {
                     return self.still_loading(began);
                 }
             }
@@ -110,11 +126,10 @@ impl NativeLspClient {
                 self.inner
                     .idle_at_begin
                     .store(begins + 1, Ordering::Release);
-                self.inner.load_outlasted.store(false, Ordering::Release);
                 break;
             }
             worked = true;
-            if Instant::now() >= deadline {
+            if past(deadline) {
                 return self.still_loading(began);
             }
         }
@@ -122,7 +137,7 @@ impl NativeLspClient {
         if !worked {
             return EmptyAnswer::Stands;
         }
-        if Instant::now() >= deadline {
+        if past(deadline) {
             return self.still_loading(began);
         }
         let _ = RESPONSE_SCOPE.try_with(|scope| {
@@ -137,12 +152,66 @@ impl NativeLspClient {
         EmptyAnswer::AskAgain
     }
 
-    /// The load outlasted the budget. The readiness state stays as it is: a
+    /// Waits a load the startup readiness wait left under way
+    /// ([`Readiness::Timeout`]) out, for as long as the server works, within
+    /// `deadline` (none: until the caller cancels), and stores how it ended:
+    /// a server whose load ended is ready for the request, one still loading
+    /// stays `Timeout`. Any other readiness returns at once.
+    pub async fn finish_load(&self, deadline: Option<Instant>) -> Option<Readiness> {
+        if self.readiness() != Some(Readiness::Timeout) {
+            return self.readiness();
+        }
+        let began = Instant::now();
+        let _activity = self.lease();
+        let Ok(connection) = self.connection_handle().await else {
+            return self.readiness();
+        };
+        let ended = self.outwait_load(&connection, deadline).await;
+        self.record_wait(super::waits::WaitKind::Indexing, began);
+        if ended {
+            *self
+                .inner
+                .readiness
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Readiness::ProgressIdle);
+        }
+        self.readiness()
+    }
+
+    /// Waits while a load is open and the server works: `true` once no token
+    /// is open, `false` at `deadline` or after a whole quiet window
+    /// ([`Self::load_quiet_ms`]) in which the server showed no sign of work.
+    async fn outwait_load(
+        &self,
+        connection: &JsonRpcConnection,
+        deadline: Option<Instant>,
+    ) -> bool {
+        let progress = &self.inner.progress;
+        let quiet = Duration::from_millis(u64::from(self.load_quiet_ms()));
+        while progress.has_active() {
+            let mark = connection.activity_mark();
+            let window = Instant::now() + quiet;
+            let window = deadline.map_or(window, |at| window.min(at));
+            let left = window.saturating_duration_since(Instant::now());
+            let left = u64::try_from(left.as_millis()).unwrap_or(u64::MAX);
+            let drained = progress
+                .wait_until_idle_after(progress.subscribe(), 0, left)
+                .await;
+            if drained != Readiness::Timeout {
+                return true;
+            }
+            if past(deadline) || !connection.worked_since(&mark) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// The load outlasted the wait. The readiness state stays as it is: a
     /// server with a long-lived token still answers what it can, and only an
     /// answer with no use in it waits.
     fn still_loading(&self, began: Instant) -> EmptyAnswer {
         self.record_wait(super::waits::WaitKind::Indexing, began);
-        self.inner.load_outlasted.store(true, Ordering::Release);
         EmptyAnswer::StillLoading
     }
 }

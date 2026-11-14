@@ -72,18 +72,23 @@ fn no_store_sets_its_own_limit_or_bypasses_the_one_budget() {
     assert!(offenders.is_empty(), "{offenders:#?}");
 }
 
-/// The budget follows the host: an eighth of its memory, within the floor
-/// and ceiling, and the floor where the host's memory cannot be read.
+/// Known memory never gives the stores more than an eighth of the host;
+/// only an unknown host uses the default budget.
 #[test]
 fn the_budget_is_an_eighth_of_host_memory_within_its_bounds() {
-    use octocode_engine::memory::{MAX_MEMORY_BUDGET, MIN_MEMORY_BUDGET, memory_budget_for};
+    use octocode_engine::memory::{DEFAULT_MEMORY_BUDGET, MAX_MEMORY_BUDGET, memory_budget_for};
     const MIB: u64 = 1024 * 1024;
-    assert_eq!(memory_budget_for(None), MIN_MEMORY_BUDGET);
-    assert_eq!(memory_budget_for(Some(1024)), MIN_MEMORY_BUDGET);
-    assert_eq!(memory_budget_for(Some(u64::MAX / MIB)), MAX_MEMORY_BUDGET);
-    let between = (MIN_MEMORY_BUDGET + MAX_MEMORY_BUDGET) / 2;
-    let host_mb = u64::try_from(between).expect("fits") * 8 / MIB;
-    assert_eq!(memory_budget_for(Some(host_mb)), between);
+    assert_eq!(memory_budget_for(None), DEFAULT_MEMORY_BUDGET);
+    for host_mb in [0, 1, 256, 1024, 4096, u64::MAX / MIB, u64::MAX] {
+        let budget = memory_budget_for(Some(host_mb));
+        let share = u128::from(host_mb) * u128::from(MIB) / 8;
+        assert!(budget as u128 <= share, "{host_mb} MiB: {budget} > {share}");
+        assert!(budget <= MAX_MEMORY_BUDGET);
+        if share <= MAX_MEMORY_BUDGET as u128 {
+            assert_eq!(budget as u128, share);
+        }
+    }
+    assert_eq!(memory_budget_for(Some(u64::MAX)), MAX_MEMORY_BUDGET);
 }
 
 /// A tool store's value counts against the budget the engine's own stores

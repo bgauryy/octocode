@@ -6,12 +6,10 @@
 //
 //   node package-build.mjs docs <outDir>   copy repo docs/ to <cwd>/<outDir>/docs
 import { isMainModule } from './lib/entrypoint.mjs';
+import { ROOT } from './lib/workspaces.mjs';
 import { cpSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { builtinModules } from 'node:module';
 import { dirname, join, relative, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const repoRoot = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 
 const nodeBuiltins = new Set([...builtinModules, ...builtinModules.map(name => `node:${name}`)]);
 
@@ -119,7 +117,7 @@ export function rewriteEscapingLinks(markdown, docPath, sourceDocs) {
     const absolute = resolve(dirname(docPath), file);
     const inside = relative(sourceDocs, absolute);
     if (!inside.startsWith('..')) return match;
-    const repoPath = relative(repoRoot, absolute).split(sep).join('/');
+    const repoPath = relative(ROOT, absolute).split(sep).join('/');
     return `](${REPO_BLOB_URL}${repoPath}${fragment})`;
   });
 }
@@ -133,7 +131,7 @@ const markdownFiles = dir =>
 
 /** Copy the shared repo `docs/` into `<packageRoot>/<outDir>/docs`. */
 export function bundleDocs(packageRoot, outDir) {
-  const sourceDocs = join(repoRoot, 'docs');
+  const sourceDocs = join(ROOT, 'docs');
   if (!existsSync(sourceDocs)) {
     throw new Error(`Shared documentation directory is missing: ${sourceDocs}`);
   }

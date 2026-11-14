@@ -165,12 +165,16 @@ async fn long_unicode_lines_show_a_window_around_the_hit_and_lead_to_the_whole_l
     runtime.close().await;
 }
 
-/// A source under the read limit whose Latin-1 decodes past it, naming a Secret
-/// or not.
-fn grown_source(names_a_secret: bool) -> Vec<u8> {
-    let kind = if names_a_secret { "Secret" } else { "Config" };
+/// A source under the read limit whose Latin-1 decodes past it, holding a
+/// token (`QUJD…`) or a plain value of the same text.
+fn grown_source(holds_a_token: bool) -> Vec<u8> {
+    let value = if holds_a_token {
+        "ghp_QUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJD"
+    } else {
+        "plain QUJD"
+    };
     let mut text = format!(
-        "{{\"kind\":\"{kind}\",\"apiVersion\":\"v1\",\"metadata\":{{\"name\":\"f\"}},\"data\":{{\"a\":\"QUJD\"}}}}\n\"needle here\"\n"
+        "{{\"kind\":\"Config\",\"apiVersion\":\"v1\",\"metadata\":{{\"name\":\"f\"}},\"data\":{{\"a\":\"{value}\"}}}}\n\"needle here\"\n"
     )
     .into_bytes();
     let mut latin1 = vec![0xe9_u8; 79];

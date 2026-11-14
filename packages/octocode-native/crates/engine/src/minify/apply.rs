@@ -9,7 +9,7 @@ use super::syntax;
 use crate::text::extension_of;
 
 /// Documents whose whitespace and `#` or `//` lines can all be content.
-const STAYS_AS_IT_IS: &[&str] = &[
+pub(crate) const STAYS_AS_IT_IS: &[&str] = &[
     "md", "markdown", "mdx", "yaml", "yml", "toml", "json", "jsonc", "json5",
 ];
 

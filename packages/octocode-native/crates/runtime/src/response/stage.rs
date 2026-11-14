@@ -68,6 +68,8 @@ fn settle_value(
 ) -> Result<Vec<String>, ContractValidationError> {
     crate::response::selection_errors::decorate(tool, structured, response_query);
     super::pages::state_out_of_range(structured);
+    super::answered_leads::drop_answered_leads(tool, structured, response_query);
+    super::workflow_lead::keep_workflow_lead(tool, structured, response_query);
     super::notices::place(structured, "results");
     super::notices::state_shared_warnings(structured, "results");
     let call_notes = super::notices::take_timed_notices(structured, "results");
@@ -76,6 +78,7 @@ fn settle_value(
     // response is exactly what was checked.
     crate::response::numbered::number_read_rows(tool, structured);
     super::pages::state_shared_identity(tool, structured);
+    super::pages::state_once_per_batch(tool, structured);
     super::pages::publish_rows(structured);
     super::key_order::order_rows(tool, structured);
     // Validate the complete, sanitized rows before deriving error state or a

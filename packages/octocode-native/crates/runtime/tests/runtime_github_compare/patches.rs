@@ -30,8 +30,8 @@ async fn patch_selection_does_not_include_unrequested_commits() {
 }
 
 /// A comparison's patch view reads its top file at the head and at the
-/// merge base (the old side of a three-dot diff). Two files: a complete
-/// one-file answer offers one lead only.
+/// merge base (the old side of a three-dot diff), in its one lead: a
+/// complete answer offers one call, and it names both commits.
 #[tokio::test]
 async fn compare_patch_view_reads_head_and_merge_base() {
     let server = MockServer::builder().start().await;
@@ -75,10 +75,14 @@ async fn compare_patch_view_reads_head_and_merge_base() {
             .and(wiremock::matchers::query_param("ref",pinned))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({"type":"file","path":"src/a.rs","encoding":"base64","content":base64::engine::general_purpose::STANDARD.encode(content)})))
             .expect(1).mount(&server).await;
-        let lead = support::checks::related_call(data, "ghGetFileContent", |input| {
-            input["queries"][0]["ref"] == pinned
-        });
-        let read = call(&runtime, "ghGetFileContent", lead["input"].clone())
+        let lead = support::checks::related_call(data, "ghGetFileContent", |_| true);
+        let side = lead["input"]["queries"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|row| row["ref"] == pinned)
+            .unwrap_or_else(|| panic!("the {marker} side: {data}"));
+        let read = call(&runtime, "ghGetFileContent", json!({"queries": [side]}))
             .await
             .expect("pinned side read");
         assert!(

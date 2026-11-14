@@ -65,8 +65,9 @@ pub(in crate::tools::gh_get_history_item) fn head_text_needed(
 
 /// The patch view of one changed file: a `matchString` view keeps only the
 /// hit runs (widened from the head text when the hunks hold too little
-/// context); every other read is the whole patch. Code hunks are never
-/// minified. Either view is numbered (see [`number_patch`]).
+/// context) under the diff's own hunk headers; every other read is the
+/// whole patch. Code hunks are never minified. Either view is numbered
+/// (see [`number_patch`]).
 pub(super) fn history_patch_view(value: &str, path: &str, query: &HistoryItemRequest) -> PatchView {
     if let Some(needle) = needle(query) {
         let source = query
@@ -74,10 +75,9 @@ pub(super) fn history_patch_view(value: &str, path: &str, query: &HistoryItemReq
             .as_deref()
             .and_then(|sources| sources.lines(path));
         if let Some(found) = matching_hunks(value, &needle, match_context(query), source) {
-            let text = number_patch(&found.text);
-            let hits = line_starts(&text, &found.hit_lines);
+            let hits = line_starts(&found.text, &found.hit_lines);
             return PatchView {
-                text,
+                text: found.text,
                 narrowed: true,
                 clipped: found.clipped,
                 hits,

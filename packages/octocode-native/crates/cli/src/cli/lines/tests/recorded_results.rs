@@ -13,19 +13,19 @@
 //! OCTOCODE_ALIGNMENT_DUMP=/tmp/alignment cargo dev-test -- runtime_output_alignment::
 //! cp /tmp/alignment.outputs crates/cli/src/cli/lines/tests/fixtures/recorded_results.jsonl
 //! ```
-use super::done_facts::{commands, page_states};
+use super::done_facts::{commands, page_states, prints_alike_in_a_batch, roots};
 use super::*;
 use std::collections::BTreeSet;
 
-struct Recorded {
+pub(super) struct Recorded {
     /// `tool operation state`, with `#n` after a repeated one.
-    label: String,
-    tool: ToolId,
-    query: Value,
-    result: Value,
+    pub(super) label: String,
+    pub(super) tool: ToolId,
+    pub(super) query: Value,
+    pub(super) result: Value,
 }
 
-fn recorded() -> Vec<Recorded> {
+pub(super) fn recorded() -> Vec<Recorded> {
     let mut seen = BTreeSet::new();
     include_str!("fixtures/recorded_results.jsonl")
         .lines()
@@ -93,7 +93,7 @@ fn assert_aligned(rule: &str, (new, fixed): (Vec<String>, Vec<String>)) {
 /// list. The roast (F8) also named the history commit, the pull request and
 /// issue comments: the recorded commit and pull request now fit, and no
 /// recording holds issue comments.
-const LARGER_THAN_JSON: &[&str] = &["clasify sections hit", "securityCheck advisory hit"];
+const LARGER_THAN_JSON: &[&str] = &["securityCheck advisory hit"];
 
 /// C1: text stdout is no larger than the JSON of the same result.
 #[test]
@@ -163,7 +163,16 @@ fn locators(value: &Value, key: &str, paths: &mut BTreeSet<String>, lines: &mut 
 fn a_number_after_a_path_is_no_line(call: &Recorded) -> bool {
     let (mut paths, mut lines) = (BTreeSet::new(), BTreeSet::new());
     locators(&call.result, "", &mut paths, &mut lines);
-    text(call).out.lines().any(|line| {
+    let out = text(call).out;
+    // A path printed relative to its row's root is checked as printed.
+    for root in roots(&out) {
+        let relative: Vec<String> = paths
+            .iter()
+            .filter_map(|path| path.strip_prefix(&format!("{root}/")).map(str::to_owned))
+            .collect();
+        paths.extend(relative);
+    }
+    out.lines().any(|line| {
         paths.iter().any(|path| {
             line.strip_prefix(path.as_str())
                 .and_then(|rest| rest.strip_prefix(':'))
@@ -191,39 +200,15 @@ fn recorded_path_numbers_are_lines() {
 }
 
 /// Whether a row prints differently in a batch of itself, apart from its
-/// `## results[N]` heading and its `results[N]` name on stderr.
+/// heading, its name on its `# ` lines and the fields both rows share
+/// ([`prints_alike_in_a_batch`]).
 fn batch_differs(call: &Recorded) -> bool {
     let row = &call.result["results"][0];
     // A response page of its own belongs to the envelope, not to the row.
     if call.result.get("responsePagination").is_some() || row.is_null() {
         return false;
     }
-    let alone = render(call.tool, &json!({"results": [row]}), &call.query, None);
-    let mut second = row.clone();
-    second["index"] = 1.into();
-    let asked = &call.query["queries"][0];
-    let batch = render(
-        call.tool,
-        &json!({"results": [row, second]}),
-        &json!({"queries": [asked, asked]}),
-        None,
-    );
-    let (Some(alone), Some(batch)) = (alone, batch) else {
-        return true;
-    };
-    let mut out = Vec::new();
-    let mut notes = Vec::new();
-    for label in ["results[0]", "results[1]"] {
-        out.push(format!("## {label}"));
-        out.extend(alone.out.lines().map(str::to_owned));
-        notes.extend(
-            alone
-                .notes
-                .lines()
-                .map(|note| note.replacen("# ", &format!("# {label} "), 1)),
-        );
-    }
-    batch.out != out.join("\n") || batch.notes != notes.join("\n")
+    !prints_alike_in_a_batch(call.tool, row, &call.query["queries"][0])
 }
 
 /// Removed by Wave 1 (non-breaking, text renderer).

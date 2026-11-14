@@ -93,3 +93,28 @@ fn same_name_repeats_on_one_line_get_unique_keys_in_linear_work() {
     assert_eq!(keys[repeats - 1], format!("x.js#a@{line}.{repeats}"));
     assert_eq!(keys.iter().collect::<BTreeSet<_>>().len(), repeats);
 }
+
+/// A linkage ratio is a share, not a measurement: it keeps 4 significant
+/// digits, each within rounding of linked / eligible.
+#[test]
+fn a_linkage_ratio_keeps_four_significant_digits() {
+    for linked in 1..40_u64 {
+        for missed in 0..40_u64 {
+            let stats = CallStats {
+                linked,
+                unresolved: missed,
+                unresolved_by_reason: BTreeMap::from([("other", missed)]),
+                ..CallStats::default()
+            };
+            let linkage = stats.linkage();
+            let ratio = linkage["ratio"].as_f64().expect("ratio");
+            let exact = linked as f64 / (linked + missed) as f64;
+            assert_eq!(
+                format!("{ratio:.3e}").parse::<f64>().ok(),
+                Some(ratio),
+                "{linkage}"
+            );
+            assert!((ratio - exact).abs() <= exact * 5e-4, "{linkage}");
+        }
+    }
+}

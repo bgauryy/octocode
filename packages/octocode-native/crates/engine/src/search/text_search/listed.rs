@@ -33,12 +33,13 @@ fn note_read() {
 
 /// Whether [`count_listed`] answers `opts` as its walk would: a Rust or literal
 /// pattern (PCRE2 runs on its own worker driver), with no scope that reads more
-/// of a file than its matches (`testCode`, `fileHas`, `fileLacks`).
+/// of a file than its matches (`testCode`, a line scope, `fileHas`, `fileLacks`).
 #[must_use]
 pub fn listable(opts: &TextSearchOptions) -> bool {
     opts.syntax != PatternSyntax::Pcre2
         && opts.output == SearchOutput::FilesWithMatch
         && opts.test_code.is_none()
+        && opts.line_scope.is_none()
         && opts.file_contains_all.is_none()
         && opts.file_contains_none.is_none()
 }

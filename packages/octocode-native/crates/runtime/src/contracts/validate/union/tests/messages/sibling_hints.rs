@@ -5,7 +5,7 @@ use super::*;
 /// fits traversals, never `hubs`, so no `view` change can make it valid.
 #[test]
 fn a_sibling_hint_skips_forms_whose_other_selectors_reject_the_row() {
-    let error = prepare_many_and_validate(
+    let error = prepare_rows(
         "graphQuery",
         json!({"queries":[{"operation":"hubs","path":".","direction":"both"}]}),
     )

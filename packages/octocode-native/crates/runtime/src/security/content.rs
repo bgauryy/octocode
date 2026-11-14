@@ -303,6 +303,109 @@ pub struct ContentSecurity {
     judged: Option<std::sync::Arc<super::JudgedFiles>>,
 }
 
+/// Placeholder kind of a value of a dotenv file ([`dotenv_values_hidden`]).
+const DOTENV_VALUE: &str = "dotenvValue";
+
+/// An assignment line of a dotenv file: a diff's marker column, `export`, the
+/// name and `=`, then the value up to the line's end.
+fn dotenv_line() -> &'static regex::Regex {
+    static PATTERN: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    PATTERN.get_or_init(|| {
+        #[expect(clippy::expect_used, reason = "static pattern, valid by construction")]
+        regex::Regex::new(
+            r"(?m)^[ +\-]?[ \t]*(?:export[ \t]+)?[A-Za-z_][A-Za-z0-9_.\-]*[ \t]*=[ \t]*(?P<value>[^\r\n]*?)[ \t]*\r?$",
+        )
+        .expect("static dotenv pattern compiles")
+    })
+}
+
+/// `scanned`, the scan of the content of the file at `path`, with every value
+/// of a dotenv file hidden: the file is a known credential store
+/// ([`crate::policy::discovery::is_dotenv_name`]), so each `KEY=value` line
+/// (a diff line's marker and `export` aside) keeps its name and `=` and
+/// loses its value. A value a pattern already hid stays as it is. Any other
+/// file is returned as it came.
+fn dotenv_values_hidden<'a>(
+    scanned: SanitizationResult<'a>,
+    path: Option<&Path>,
+) -> SanitizationResult<'a> {
+    let named = path
+        .and_then(Path::file_name)
+        .and_then(std::ffi::OsStr::to_str)
+        .is_some_and(|name| crate::policy::discovery::is_dotenv_name(&name.to_ascii_lowercase()));
+    if !named {
+        return scanned;
+    }
+    let placeholder = octocode_engine::security::redaction_placeholder(DOTENV_VALUE);
+    let placeholders = octocode_engine::security::placeholder_regex();
+    let text = scanned.content.as_ref();
+    let values: Vec<std::ops::Range<usize>> = dotenv_line()
+        .captures_iter(text)
+        .filter_map(|captures| captures.name("value"))
+        .filter(|value| {
+            !value.is_empty()
+                && !placeholders
+                    .split(value.as_str())
+                    .all(|rest| rest.trim().is_empty())
+        })
+        .map(|value| value.range())
+        .collect();
+    if values.is_empty() {
+        return scanned;
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut from = 0;
+    // Regex capture ranges are ordered UTF-8 boundaries in this same text.
+    for value in &values {
+        out.push_str(text.get(from..value.start).unwrap_or_default());
+        out.push_str(&placeholder);
+        from = value.end;
+    }
+    out.push_str(text.get(from..).unwrap_or_default());
+    let pass = octocode_engine::security::Edits::of_pass(
+        values
+            .iter()
+            .map(|value| (value.clone(), placeholder.len())),
+    );
+    let mut secrets_detected = scanned.secrets_detected;
+    secrets_detected.push(DOTENV_VALUE.to_owned());
+    SanitizationResult {
+        content: out.into(),
+        has_secrets: true,
+        warnings: vec![format!("{} secret(s) redacted", secrets_detected.len())],
+        secrets_detected,
+        edits: scanned.edits.then(&pass),
+    }
+}
+
+/// The personal data a result masks beside its secrets: email addresses
+/// (`output.redactEmails`) and UUIDs (`output.redactUuid`), each off unless
+/// the user turns it on.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Pii {
+    pub(crate) emails: bool,
+    pub(crate) uuids: bool,
+}
+
+impl Pii {
+    /// Whether anything is masked.
+    pub(crate) fn any(self) -> bool {
+        self.emails || self.uuids
+    }
+}
+
+/// A UUID in its canonical 8-4-4-4-12 hexadecimal form, any version.
+fn uuid_pattern() -> &'static regex::Regex {
+    static PATTERN: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    PATTERN.get_or_init(|| {
+        #[expect(clippy::expect_used, reason = "static pattern, valid by construction")]
+        regex::Regex::new(
+            r"\b[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\b",
+        )
+        .expect("static UUID pattern compiles")
+    })
+}
+
 /// Conservative email shape for opt-in masking of gh outputs. Local-part
 /// and domain are both masked; the match is intentionally simple (no
 /// quoted local-parts) — commit metadata uses plain addresses.
@@ -394,12 +497,26 @@ impl ContentSecurity {
         self.limits
     }
 
-    /// Opt-in: mask every email address in `text`. Callers gate this on
-    /// `output.redactEmails` / `OCTOCODE_REDACT_EMAILS`.
-    pub(crate) fn redact_emails(&self, text: &str) -> String {
-        email_pattern()
-            .replace_all(text, "[REDACTED-EMAIL]")
-            .into_owned()
+    /// `text` with the personal data `pii` names masked (`[REDACTED-EMAIL]`,
+    /// `[REDACTED-UUID]`); `None` when nothing in it is.
+    pub(crate) fn redact_pii(&self, text: &str, pii: Pii) -> Option<String> {
+        let mut masked: Option<String> = None;
+        for (on, pattern, placeholder) in [
+            (pii.emails, email_pattern(), "[REDACTED-EMAIL]"),
+            (pii.uuids, uuid_pattern(), "[REDACTED-UUID]"),
+        ] {
+            if !on {
+                continue;
+            }
+            let next = match pattern.replace_all(masked.as_deref().unwrap_or(text), placeholder) {
+                std::borrow::Cow::Owned(next) => Some(next),
+                std::borrow::Cow::Borrowed(_) => None,
+            };
+            if next.is_some() {
+                masked = next;
+            }
+        }
+        masked
     }
 
     pub(crate) fn sanitize_text<'a>(
@@ -407,45 +524,37 @@ impl ContentSecurity {
         content: &'a str,
         file_path: Option<&Path>,
     ) -> SanitizationResult<'a> {
-        let path = file_path.map(|path| path.to_string_lossy());
-        let (path, limit) = (path.as_deref(), self.limits.whole_source);
         // Key blocks first, line by line, as every view hides them: the
         // detector then reads their bodies as hidden already.
         let (keyed, keys) = private_key_blocks_hidden(content);
         let native = if keys.is_empty() {
-            octocode_engine::security::sanitizer::sanitize_content_within(content, path, limit)
+            octocode_engine::security::sanitizer::sanitize_content(content)
         } else {
-            octocode_engine::security::sanitizer::sanitize_content_within(&keyed, path, limit).map(
-                |scanned| {
-                    let mut secrets_detected = vec![SPLIT_KEY_SECRET.to_owned()];
-                    secrets_detected.extend(
-                        scanned
-                            .secrets_detected
-                            .into_iter()
-                            .filter(|name| name != SPLIT_KEY_SECRET),
-                    );
-                    SanitizationResult {
-                        content: scanned.content.into_owned().into(),
-                        has_secrets: true,
-                        warnings: vec![format!("{} secret(s) redacted", secrets_detected.len())],
-                        secrets_detected,
-                        edits: keys.then(&scanned.edits),
-                    }
-                },
-            )
+            octocode_engine::security::sanitizer::sanitize_content(&keyed).map(|scanned| {
+                let mut secrets_detected = vec![SPLIT_KEY_SECRET.to_owned()];
+                secrets_detected.extend(
+                    scanned
+                        .secrets_detected
+                        .into_iter()
+                        .filter(|name| name != SPLIT_KEY_SECRET),
+                );
+                SanitizationResult {
+                    content: scanned.content.into_owned().into(),
+                    has_secrets: true,
+                    warnings: vec![format!("{} secret(s) redacted", secrets_detected.len())],
+                    secrets_detected,
+                    edits: keys.then(&scanned.edits),
+                }
+            })
         };
+        let native = native.map(|scanned| dotenv_values_hidden(scanned, file_path));
         self.guard_native(native, content.len(), file_path)
     }
 
-    /// Sanitize one string leaf of a tool result about the file at
-    /// `source_path` (`None`: no known file, the pathless output net): its
-    /// redacted text, or `None` when nothing in it is redacted. The path only
-    /// says what language the text is in, so source code is not mistaken for
-    /// configuration; every credential pattern still applies.
-    pub(crate) fn sanitize_leaf(&self, content: &str, source_path: Option<&str>) -> Option<String> {
-        guard_leaf(content, |text| {
-            octocode_engine::security::sanitizer::sanitize_leaf(text, source_path)
-        })
+    /// Sanitize one string leaf of a tool result: its redacted text, or
+    /// `None` when nothing in it is redacted.
+    pub(crate) fn sanitize_leaf(&self, content: &str) -> Option<String> {
+        guard_leaf(content, octocode_engine::security::sanitizer::sanitize_leaf)
     }
 
     /// [`Self::sanitize_leaf`] of a leaf of a response to the rows `own` was
@@ -457,17 +566,14 @@ impl ContentSecurity {
     pub(crate) fn sanitize_response_leaf(
         &self,
         content: &str,
-        source_path: Option<&str>,
         own: &super::Admitted,
     ) -> Option<String> {
         if own.is_empty() || !own.occurs_in(content) {
-            return self.sanitize_leaf(content, source_path);
+            return self.sanitize_leaf(content);
         }
         // Key blocks first, line by line, as every view hides them.
         let (keyed, keys) = leaf_key_blocks_hidden(content);
-        let Ok(scanned) =
-            octocode_engine::security::sanitizer::sanitize_leaf_edits(&keyed, source_path)
-        else {
+        let Ok(scanned) = octocode_engine::security::sanitizer::sanitize_leaf_edits(&keyed) else {
             return Some(octocode_engine::security::SANITIZER_FAILURE_PLACEHOLDER.to_owned());
         };
         // The replacements, each undone where it took only the caller's
@@ -483,21 +589,10 @@ impl ContentSecurity {
     }
 
     /// [`Self::sanitize_leaf`] of a leaf cut from text the whole-source pass
-    /// judged at `judged_path` ([`super::JudgedLeaves`]): the patterns that
-    /// pass did not apply, and the split-key guard.
-    pub(crate) fn sanitize_judged_leaf(
-        &self,
-        content: &str,
-        source_path: Option<&str>,
-        judged_path: &str,
-    ) -> Option<String> {
-        guard_leaf(content, |text| {
-            octocode_engine::security::sanitizer::sanitize_judged_leaf(
-                text,
-                source_path,
-                judged_path,
-            )
-        })
+    /// judged ([`super::JudgedLeaves`]): that pass applied every pattern, so
+    /// only the split-key guard is left.
+    pub(crate) fn sanitize_judged_leaf(&self, content: &str) -> Option<String> {
+        guard_leaf(content, |_| Ok(None))
     }
 
     /// [`Self::sanitize_leaf`] of a leaf about to be kept: its text when any
@@ -509,12 +604,11 @@ impl ContentSecurity {
         source_path: Option<&str>,
     ) -> Option<String> {
         let (keyed, keys) = leaf_key_blocks_hidden(content);
-        let redacted =
-            octocode_engine::security::sanitizer::sanitize_stored_leaf(&keyed, source_path)
-                .unwrap_or_else(|_| {
-                    Some(octocode_engine::security::SANITIZER_FAILURE_PLACEHOLDER.to_owned())
-                })
-                .or_else(|| (!keys.is_empty()).then(|| keyed.into_owned()));
+        let redacted = octocode_engine::security::sanitizer::sanitize_leaf(&keyed)
+            .unwrap_or_else(|_| {
+                Some(octocode_engine::security::SANITIZER_FAILURE_PLACEHOLDER.to_owned())
+            })
+            .or_else(|| (!keys.is_empty()).then(|| keyed.into_owned()));
         redact_split_private_key(
             redacted.as_deref().unwrap_or(content),
             source_path.map(Path::new),
@@ -566,8 +660,8 @@ impl ContentSecurity {
         if holds_private_key_body(text) {
             return self.sanitize_stored_leaf(text, None);
         }
-        match octocode_engine::security::sanitizer::sanitize_stored_leaf_edits(text, None) {
-            Ok(scanned) => scanned.map(|(clean, _)| clean),
+        match octocode_engine::security::sanitizer::sanitize_leaf(text) {
+            Ok(scanned) => scanned,
             Err(_) => Some(octocode_engine::security::SANITIZER_FAILURE_PLACEHOLDER.to_owned()),
         }
     }
@@ -598,8 +692,8 @@ impl ContentSecurity {
     /// reader wrote stay, and no rule of another file's class re-reads it
     /// (a `.properties` rule over a `.txt` line).
     pub(crate) fn sanitize_data(&self, value: &mut serde_json::Value) {
-        let stored = &mut |text: &str, path: Option<&str>| {
-            Ok::<_, std::convert::Infallible>(self.sanitize_leaf(text, path))
+        let stored = &mut |text: &str, _: Option<&str>| {
+            Ok::<_, std::convert::Infallible>(self.sanitize_leaf(text))
         };
         let source_path = value
             .pointer("/source/path")

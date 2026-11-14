@@ -287,3 +287,31 @@ async fn unknown_field_errors_list_only_the_published_fields() {
         assert_eq!(shown.contains("classification"), published, "{shown}");
     }
 }
+
+/// The transport cannot change a rejected call's structured guidance, either
+/// for a whole-call failure or an isolated invalid row in a mixed batch.
+#[tokio::test]
+async fn cli_and_mcp_share_whole_call_and_mixed_row_input_errors() {
+    let home = tempfile::tempdir().expect("home");
+    let runtime = runtime(home.path(), &[]);
+    let bad = serde_json::json!({"path":"a.ts","lineStart":1});
+    let good = serde_json::json!({"path":"a.ts"});
+    let mut by_surface = Vec::new();
+    for mcp in [false, true] {
+        let whole = serde_json::json!({"queries":[bad.clone()]});
+        let Err(error) = runtime.admit_queries(ToolId::LocalFetch, &whole, false, mcp) else {
+            panic!("an unknown field is rejected");
+        };
+        let rejected = error.payload.expect("payload");
+        let batch = serde_json::json!({"queries":[good.clone(), bad.clone()]});
+        let admitted = runtime
+            .admit_queries(ToolId::LocalFetch, &batch, false, mcp)
+            .unwrap_or_else(|error| panic!("one row runs: {error:?}"));
+        let row = admitted.rejected[0].1.clone();
+        for shown in [rejected.to_string(), row.to_string()] {
+            assert!(shown.contains("Example: "), "{shown}");
+        }
+        by_surface.push((rejected, row));
+    }
+    assert_eq!(by_surface[0], by_surface[1]);
+}

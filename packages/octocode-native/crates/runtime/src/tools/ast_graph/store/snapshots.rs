@@ -191,6 +191,19 @@ pub(super) struct SnapshotMetadata {
     pub(super) format_version: Option<u64>,
 }
 
+/// Whether `home` holds a snapshot of `root` published after `time`.
+pub(super) fn published_after(home: &Path, root: &Path, time: std::time::SystemTime) -> bool {
+    let root = root.to_string_lossy();
+    list_snapshots(home).into_iter().any(|id| {
+        let dir = home.join(&id);
+        read_snapshot_metadata(&dir)
+            .is_some_and(|manifest| manifest.root.as_deref() == Some(root.as_ref()))
+            && std::fs::metadata(dir.join(MANIFEST_FILE))
+                .and_then(|meta| meta.modified())
+                .is_ok_and(|published| published > time)
+    })
+}
+
 pub(super) fn read_snapshot_metadata(dir: &Path) -> Option<SnapshotMetadata> {
     read_snapshot::<SnapshotMetadata>(dir).filter(|manifest| manifest.kind == MANIFEST_KIND)
 }

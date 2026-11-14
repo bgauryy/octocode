@@ -134,7 +134,7 @@ fn a_late_hit_retains_only_its_neighborhood_with_exact_coordinates() {
         &mut open(&source),
         &[(hit_line - 1, hit_line + 1)],
         hit_line + 1,
-        None,
+        false,
         &NeverCancel,
     )
     .unwrap_or_else(|_| panic!("readable"));
@@ -159,8 +159,9 @@ fn streamed_key_state_matches_the_whole_file_scan() {
         let dir = tempfile::tempdir().expect("fixture");
         let source = dir.path().join("key.txt");
         std::fs::write(&source, &content).expect("fixture");
-        let read = read_verification_lines(&mut open(&source), &[], usize::MAX, None, &NeverCancel)
-            .unwrap_or_else(|_| panic!("readable"));
+        let read =
+            read_verification_lines(&mut open(&source), &[], usize::MAX, false, &NeverCancel)
+                .unwrap_or_else(|_| panic!("readable"));
         assert!(read.retained.is_empty());
         assert!(!read.unclassified);
         assert_eq!(
@@ -177,7 +178,7 @@ fn an_unbufferable_line_mentioning_a_private_key_fails_closed() {
     // Longer than a whole read keeps: a line that fits is read and judged.
     let giant = format!(
         "{}PRIVATE KEY{}",
-        " ".repeat(super::guard::MAX_VERIFY_RETAINED_BYTES + 1),
+        " ".repeat(octocode_engine::security::LONG_LINE_BYTES + 3),
         "-".repeat(10)
     );
     std::fs::write(
@@ -196,6 +197,7 @@ fn an_unbufferable_line_mentioning_a_private_key_fails_closed() {
             shape: RowShape::Span,
             cancel: &NeverCancel,
             judged: None,
+            hidden: &HiddenRows::default(),
         },
     )
     .expect("not cancelled");
@@ -222,6 +224,7 @@ fn an_unbufferable_line_mentioning_a_private_key_fails_closed() {
                 shape: RowShape::Span,
                 cancel: &NeverCancel,
                 judged: None,
+                hidden: &HiddenRows::default(),
             },
         )
         .expect("not cancelled"),
@@ -252,6 +255,7 @@ fn a_stored_digest_binds_the_check_to_the_stored_bytes() {
                 shape: RowShape::Lines(Default::default()),
                 cancel: &NeverCancel,
                 judged: None,
+                hidden: &HiddenRows::default(),
             },
         )
         .expect("not cancelled");
@@ -272,10 +276,10 @@ fn a_stored_digest_binds_the_check_to_the_stored_bytes() {
 
 /// A row of a line too long to keep stands as the search judged it.
 #[test]
-fn a_row_of_a_line_past_the_retained_budget_stands() {
+fn a_row_of_a_line_past_what_a_search_holds_whole_stands() {
     let dir = tempfile::tempdir().expect("fixture");
     let source = dir.path().join("source.txt");
-    let giant = "a".repeat(MAX_VERIFY_RETAINED_BYTES + 1);
+    let giant = "a".repeat(octocode_engine::security::LONG_LINE_BYTES + 3);
     std::fs::write(&source, format!("{giant}\n")).expect("fixture");
     let mut file = file_with(vec![hit(1, "…aaaa…")]);
     let verified = guard_source_secrets(
@@ -288,6 +292,7 @@ fn a_row_of_a_line_past_the_retained_budget_stands() {
             shape: RowShape::Lines(Default::default()),
             cancel: &NeverCancel,
             judged: None,
+            hidden: &HiddenRows::default(),
         },
     )
     .expect("not cancelled");
@@ -295,12 +300,13 @@ fn a_row_of_a_line_past_the_retained_budget_stands() {
     assert_eq!(file.matches[0].value, "…aaaa…");
 }
 
-/// Lines the search showed whole that outrun what one row's check keeps fail closed.
+/// Lines the search showed whole are checked however many bytes a page's
+/// rows hold together: no retained-byte budget withholds a row.
 #[test]
-fn a_neighborhood_over_the_retained_budget_fails_closed() {
+fn rows_of_lines_the_search_showed_whole_are_checked_whatever_they_sum_to() {
     let dir = tempfile::tempdir().expect("fixture");
     let source = dir.path().join("source.txt");
-    let line = "a".repeat(MAX_VERIFY_RETAINED_BYTES / 2 + 1);
+    let line = "a".repeat(octocode_engine::security::LONG_LINE_BYTES * 4 / 5);
     std::fs::write(&source, format!("{line}\n{line}\n")).expect("fixture");
     let mut file = file_with(vec![hit(1, "…aaaa…"), hit(2, "…aaaa…")]);
     let verified = guard_source_secrets(
@@ -313,11 +319,12 @@ fn a_neighborhood_over_the_retained_budget_fails_closed() {
             shape: RowShape::Lines(Default::default()),
             cancel: &NeverCancel,
             judged: None,
+            hidden: &HiddenRows::default(),
         },
     )
     .expect("not cancelled");
-    assert_eq!(verified, Verification::Unverified);
-    assert_eq!(file.matches[1].value, OVERSIZED_PLACEHOLDER);
+    assert_eq!(verified, Verification::Verified);
+    assert_eq!(file.matches[1].value, "…aaaa…");
 }
 
 #[test]
@@ -342,6 +349,7 @@ fn verification_stops_when_cancelled() {
             shape: RowShape::Lines(Default::default()),
             cancel: &Cancelled,
             judged: None,
+            hidden: &HiddenRows::default(),
         },
     )
     .expect_err("cancelled during the stream");
@@ -388,126 +396,12 @@ fn a_non_utf8_line_is_kept_as_the_search_decoded_it() {
     let source = dir.path().join("latin1.txt");
     let line = b"caf\xe9 aa ghp_Z9Q8W7E6R5T4Y3U2I1O0P9L8K7J6H5G4F3D2";
     std::fs::write(&source, [&line[..], b"\n"].concat()).expect("fixture");
-    let read = read_verification_lines(&mut open(&source), &[(1, 1)], 1, None, &NeverCancel)
+    let read = read_verification_lines(&mut open(&source), &[(1, 1)], 1, false, &NeverCancel)
         .unwrap_or_else(|_| panic!("readable"));
     assert_eq!(
         read.retained[&1],
         octocode_engine::text::Decoded::interior(line).text
     );
-}
-
-/// A walk of a source too large to keep masks a shown line where its secret is,
-/// whatever bytes come before the secret on that line: a Latin-1 line counts
-/// one character per raw byte, a UTF-8 one its own bytes. Nothing of the value
-/// shows, and nothing beside it is lost.
-#[test]
-fn a_walk_masks_a_non_utf8_line_exactly_where_its_secret_is() {
-    const VALUE: &str = "QmFzZTY0VmFsdWVIZXJlWFla";
-    let reversed: String = VALUE.chars().rev().collect();
-    for key in [vec![0xe9_u8; 12], "\u{e9}".repeat(12).into_bytes()] {
-        let mut yaml =
-            b"apiVersion: v1\nkind: Secret\nmetadata:\n  name: demo\ndata:\n  other: ".to_vec();
-        yaml.extend_from_slice(reversed.as_bytes());
-        yaml.extend_from_slice(b"\n  ");
-        yaml.extend_from_slice(&key);
-        yaml.extend_from_slice(format!(": {VALUE}\ntype: Opaque\n").as_bytes());
-        let mut json = b"{\"apiVersion\": \"v1\", \"kind\": \"Secret\", \"data\": {\"".to_vec();
-        json.extend_from_slice(&key);
-        json.extend_from_slice(
-            format!("\": \"{VALUE}\", \"tail\": \"{reversed}\"}},\n\"type\": \"Opaque\"}}\n")
-                .as_bytes(),
-        );
-        for (name, bytes, line, lines) in [("s.yaml", yaml, 7, 8), ("s.json", json, 1, 2)] {
-            let walked = super::exposed::walked_pass(
-                || Ok(std::io::Cursor::new(bytes.clone())),
-                Expected::Fresh,
-                &[(line, line)],
-                lines,
-                std::path::Path::new(name),
-                &NeverCancel,
-            )
-            .ok()
-            .flatten()
-            .expect("walked");
-            let shown = &walked.read.retained[&line];
-            for at in 0..VALUE.len() - 3 {
-                assert!(!shown.contains(&VALUE[at..at + 4]), "{name}: {shown:?}");
-            }
-            assert!(walked.masked.contains_key(&line), "{name}: {shown:?}");
-            if name == "s.json" {
-                assert_eq!(
-                    shown,
-                    "{\"apiVersion\": \"v1\", \"kind\": \"Secret\", \"data\": {[REDACTED-KUBERNETESSECRETJSON]},"
-                );
-            } else {
-                assert_eq!(shown, "  [REDACTED-KUBERNETESSECRETS]", "{name}");
-            }
-        }
-    }
-}
-
-/// On a source too large to scan whole, a content row with context is judged
-/// at the lines it starts at: a before-context line holding a Secret's value is
-/// masked, and each line shows its own text. That holds too when the search
-/// joined fewer lines than the context asks (`joined`): its before-context
-/// stopped at a line it left out, such as test code under `testCode`.
-#[test]
-fn a_walked_context_row_is_judged_at_its_own_lines() {
-    const VALUE: &str = "QmFzZTY0VmFsdWVIZXJlWFla";
-    let pad = format!("# {}\n", "x".repeat(998)).repeat(MAX_VERIFY_RETAINED_BYTES / 1000 + 64);
-    let text = format!(
-        "apiVersion: v1\nkind: Secret\ndata:\n  blob: {VALUE}\n# trailer marker line\nlast plain line\n{pad}"
-    );
-    let source: Vec<&str> = text.lines().collect();
-    for (before, joined, after) in [
-        (1u32, 1u32, 0u32),
-        (0, 0, 1),
-        (1, 1, 1),
-        (2, 2, 1),
-        (2, 1, 1),
-        (3, 1, 0),
-        (3, 2, 1),
-    ] {
-        let first = 5 - joined as usize;
-        let value = source[first - 1..5 + after as usize].join("\n");
-        let mut file = file_with(vec![hit(5, &value)]);
-        file.matches[0].first_line = u32::try_from(first).expect("line");
-        let verified = guard_read(
-            &mut file,
-            std::path::Path::new("big.yaml"),
-            || Ok(text.as_bytes()),
-            Expected::Fresh,
-            0..1,
-            &ValueCheck {
-                security: &ContentSecurity::new(),
-                shape: RowShape::Lines(octocode_engine::types::SearchContext { before, after }),
-                cancel: &NeverCancel,
-                judged: None,
-            },
-        )
-        .expect("not cancelled");
-        assert_eq!(verified, Verification::Verified, "{before}/{after}");
-        let shown = &file.matches[0].value;
-        for at in 0..VALUE.len() - 3 {
-            assert!(
-                !shown.contains(&VALUE[at..at + 4]),
-                "{before}/{after}: {shown:?}"
-            );
-        }
-        let lines: Vec<&str> = shown.split('\n').collect();
-        assert_eq!(lines.len(), value.split('\n').count(), "{shown:?}");
-        for (at, line) in (first..).zip(&lines) {
-            if at == 4 {
-                assert_eq!(
-                    line.trim(),
-                    "[REDACTED-KUBERNETESSECRETS]",
-                    "{before}/{after}"
-                );
-            } else {
-                assert_eq!(*line, source[at - 1], "{before}/{after}: line {at}");
-            }
-        }
-    }
 }
 
 /// A row whose lines disagree with the window the search reports for it is
@@ -542,6 +436,7 @@ fn a_row_its_window_cannot_place_is_withheld_as_unplaced() {
                 shape: RowShape::Lines(context),
                 cancel: &NeverCancel,
                 judged: None,
+                hidden: &HiddenRows::default(),
             },
         )
         .expect("not cancelled");
@@ -566,35 +461,12 @@ fn a_row_its_window_cannot_place_is_withheld_as_unplaced() {
             shape: RowShape::Lines(context),
             cancel: &NeverCancel,
             judged: None,
+            hidden: &HiddenRows::default(),
         },
     )
     .expect("not cancelled");
     assert_eq!(verified, Verification::Verified);
     assert_eq!(file.matches[0].value, "l3\nl4 marker\nl5");
-}
-
-/// A walk masks a last line no newline ends exactly where its secret is, as it
-/// masks any other line, whatever its encoding.
-#[test]
-fn a_walk_masks_an_unterminated_last_line_in_place() {
-    const VALUE: &str = "QmFzZTY0VmFsdWVIZXJlWFla";
-    for key in [vec![0xe9_u8; 12], "\u{e9}".repeat(12).into_bytes()] {
-        let mut yaml = b"apiVersion: v1\nkind: Secret\ndata:\n  ".to_vec();
-        yaml.extend_from_slice(&key);
-        yaml.extend_from_slice(format!(": {VALUE}").as_bytes());
-        let walked = super::exposed::walked_pass(
-            || Ok(std::io::Cursor::new(yaml.clone())),
-            Expected::Fresh,
-            &[(4, 4)],
-            4,
-            std::path::Path::new("s.yaml"),
-            &NeverCancel,
-        )
-        .ok()
-        .flatten()
-        .expect("walked");
-        assert_eq!(walked.read.retained[&4], "  [REDACTED-KUBERNETESSECRETS]");
-    }
 }
 
 /// In a source too large to scan whole, a row touching a private key's block
@@ -603,7 +475,10 @@ fn a_walk_masks_an_unterminated_last_line_in_place() {
 #[test]
 fn a_key_block_row_of_a_large_source_judges_its_other_lines_in_their_window() {
     const KEY: &str = "q8Zr4LmT2vXw9KpN7sYd3HfJ6gBc1QeRu5WaVo0MiExDzlUt";
-    let pad = format!("# {}\n", "x".repeat(998)).repeat(MAX_VERIFY_RETAINED_BYTES / 1000 + 64);
+    let pad = format!(
+        "# {}\n",
+        "x".repeat(octocode_engine::security::LONG_LINE_BYTES + 3)
+    );
     let text = format!(
         "untrusted comment: signify secret key\n{KEY}\n-----BEGIN PRIVATE KEY-----\nMIIBVQIBADANBgkqhkiG9w0BAQEFAASCAT8wggE7AgEAAkEA\n-----END PRIVATE KEY-----\n{pad}"
     );
@@ -623,6 +498,7 @@ fn a_key_block_row_of_a_large_source_judges_its_other_lines_in_their_window() {
             }),
             cancel: &NeverCancel,
             judged: None,
+            hidden: &HiddenRows::default(),
         },
     )
     .expect("not cancelled");
@@ -650,6 +526,7 @@ fn settled(
             shape: RowShape::Lines(Default::default()),
             cancel: &NeverCancel,
             judged: None,
+            hidden: &HiddenRows::default(),
         },
     )
     .expect("not cancelled");
@@ -753,42 +630,6 @@ fn a_changed_source_is_read_again_and_a_redacted_one_is_cut_the_same() {
     assert_eq!((scanned, asked), (0, 0));
 }
 
-/// What the lines of a source name is asked of each line once the source is
-/// no longer kept whole, of the lines read before that as of those after:
-/// a pattern only the whole source can judge is named whichever side of the
-/// line that ended the keeping it stands on.
-#[test]
-fn what_a_source_names_is_known_whichever_side_of_an_unkept_line() {
-    let across = Some(octocode_engine::security::WholeSourcePatterns::any_file());
-    let named = "{\"kty\":\"EC\",\"d\":\"c2VjcmV0c2VjcmV0c2VjcmV0\"}";
-    let giant = "a".repeat(MAX_VERIFY_RETAINED_BYTES + 1);
-    let read = |text: String| {
-        read_verification_lines(
-            &mut std::io::Cursor::new(text.into_bytes()),
-            &[(1, 1)],
-            1,
-            across,
-            &NeverCancel,
-        )
-        .unwrap_or_else(|_| panic!("readable"))
-    };
-    for (text, names) in [
-        (format!("{named}\n{giant}\nplain\n"), true),
-        (format!("plain\n{giant}\n{named}\n"), true),
-        (format!("plain\n{giant}\nplain\n"), false),
-    ] {
-        let read = read(text);
-        assert!(!read.whole_retained);
-        assert_eq!(read.source_wide, names);
-        assert_eq!(read.lines_read, 3);
-        assert_eq!(read.retained.len(), 1, "only the window's line is kept");
-    }
-    // A source kept whole is judged whole, whatever it names.
-    let whole = read(format!("{named}\nplain\n"));
-    assert!(whole.whole_retained);
-    assert_eq!(whole.retained.len(), 2);
-}
-
 /// A search that takes a source's judgment from what an earlier one kept
 /// notes it as judged whole for its own request, as the search that judged
 /// it did: the output gate honors its rows as cuts of that judgment either
@@ -825,6 +666,7 @@ fn a_source_proved_by_its_digest_is_noted_as_judged_whole() {
                         shape: RowShape::Lines(Default::default()),
                         cancel: &NeverCancel,
                         judged: None,
+                        hidden: &HiddenRows::default(),
                     },
                 )
                 .expect("not cancelled")

@@ -2,8 +2,15 @@
 use super::resolver::{bounded, resolution_stopped};
 use octocode_github::ProviderError;
 use octocode_io::budget::RequestBudget;
-use secrecy::SecretString;
-use std::{collections::BTreeMap, ffi::OsString, process::Stdio, time::Duration};
+use secrecy::{ExposeSecret, SecretString};
+use std::{
+    collections::{BTreeMap, HashMap},
+    ffi::OsString,
+    path::PathBuf,
+    process::Stdio,
+    sync::{LazyLock, Mutex, PoisonError},
+    time::{Duration, SystemTime},
+};
 
 const MAX_TOKEN_BYTES: u64 = 8192;
 /// The variable gh (Go's `os.UserHomeDir`) reads its home from. Its login and
@@ -30,10 +37,96 @@ fn discovery_path(path: Option<&str>) -> OsString {
     std::env::join_paths(dirs).unwrap_or_else(|_| OsString::from(path.unwrap_or("")))
 }
 
+/// Where gh keeps its logins: `hosts.yml` in its configuration directory
+/// (`GH_CONFIG_DIR`, else `XDG_CONFIG_HOME/gh`, else `%AppData%/GitHub CLI`
+/// on Windows, else `~/.config/gh`), as gh itself resolves it. gh rewrites it
+/// on every login, logout, account switch and token change it stores.
+fn hosts_file(env: &BTreeMap<&str, &str>) -> Option<PathBuf> {
+    let set = |name: &str| env.get(name).copied().filter(|value| !value.is_empty());
+    let dir = if let Some(dir) = set("GH_CONFIG_DIR") {
+        PathBuf::from(dir)
+    } else if let Some(xdg) = set("XDG_CONFIG_HOME") {
+        PathBuf::from(xdg).join("gh")
+    } else if cfg!(windows)
+        && let Some(app) = set("AppData").or_else(|| set("APPDATA"))
+    {
+        PathBuf::from(app).join("GitHub CLI")
+    } else {
+        PathBuf::from(set(HOME_VAR)?).join(".config").join("gh")
+    };
+    Some(dir.join("hosts.yml"))
+}
+
+/// The gh login state a token was read under: the host, the environment gh
+/// ran with (by digest), and its `hosts.yml` as last written. Any change of
+/// them asks gh again.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct GhAsked {
+    host: String,
+    env: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct GhStamp {
+    modified: SystemTime,
+    len: u64,
+}
+
+impl GhAsked {
+    fn of(host: &str, env: &BTreeMap<&str, &str>) -> (Self, Option<GhStamp>) {
+        let mut bytes = Vec::new();
+        for (name, value) in env {
+            bytes.extend_from_slice(name.as_bytes());
+            bytes.push(0);
+            bytes.extend_from_slice(value.as_bytes());
+            bytes.push(0);
+        }
+        let stamp = hosts_file(env)
+            .and_then(|file| std::fs::metadata(file).ok())
+            .and_then(|meta| {
+                Some(GhStamp {
+                    modified: meta.modified().ok()?,
+                    len: meta.len(),
+                })
+            });
+        let asked = Self {
+            host: host.to_owned(),
+            env: octocode_engine::digest::sha256(&bytes),
+        };
+        (asked, stamp)
+    }
+}
+
+/// Tokens gh answered, by what they were asked under: a repeat in this
+/// process reuses one while gh's `hosts.yml` is unchanged, instead of
+/// spawning gh for every GitHub call (100-220 ms each, measured
+/// 2026-11-13). One entry per host and environment: a newer answer replaces
+/// it.
+static REMEMBERED: LazyLock<Mutex<HashMap<GhAsked, (GhStamp, SecretString)>>> =
+    LazyLock::new(Mutex::default);
+
+fn remembered(asked: &GhAsked, stamp: &GhStamp) -> Option<SecretString> {
+    let held = REMEMBERED.lock().unwrap_or_else(PoisonError::into_inner);
+    held.get(asked)
+        .filter(|(kept, _)| kept == stamp)
+        .map(|(_, token)| token.clone())
+}
+
+fn remember(asked: GhAsked, stamp: GhStamp, token: &SecretString) {
+    REMEMBERED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .insert(asked, (stamp, token.clone()));
+}
+
+/// The token gh holds for `host`. One gh answered before under the same
+/// login state is reused, unless `refused` (GitHub rejected it): a token
+/// rotated in the keyring without a `hosts.yml` write is asked for again.
 pub(super) async fn gh_token<'a>(
     host: &str,
     env: impl Iterator<Item = (&'a str, &'a str)>,
     budget: &RequestBudget,
+    refused: &(dyn Fn(&str) -> bool + Sync),
 ) -> Result<Option<SecretString>, ProviderError> {
     budget.check().map_err(resolution_stopped)?;
     let mut env: BTreeMap<_, _> = env.collect();
@@ -47,6 +140,13 @@ pub(super) async fn gh_token<'a>(
     }
     env.remove("GH_ENTERPRISE_TOKEN");
     env.remove("GITHUB_ENTERPRISE_TOKEN");
+    let (asked, stamp) = GhAsked::of(host, &env);
+    if let Some(stamp) = &stamp
+        && let Some(token) = remembered(&asked, stamp)
+        && !refused(token.expose_secret())
+    {
+        return Ok(Some(token));
+    }
     let mut command = tokio::process::Command::new("gh");
     command
         .args(["auth", "token", "--hostname", host])
@@ -57,7 +157,11 @@ pub(super) async fn gh_token<'a>(
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .kill_on_drop(true);
-    run_command(command, budget).await
+    let token = run_command(command, budget).await?;
+    if let (Some(stamp), Some(token)) = (stamp, &token) {
+        remember(asked, stamp, token);
+    }
+    Ok(token)
 }
 
 async fn run_command(
@@ -116,7 +220,6 @@ async fn run_command(
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use secrecy::ExposeSecret;
     #[cfg(unix)]
     #[test]
     fn common_paths_are_added_without_duplicates() {
@@ -162,11 +265,65 @@ mod tests {
             ("GH_ENTERPRISE_TOKEN", "off-host"),
         ];
         let budget = RequestBudget::with_timeout(Duration::from_secs(30), 1);
-        let token = gh_token("enterprise.example", env.into_iter(), &budget)
+        let token = gh_token("enterprise.example", env.into_iter(), &budget, &|_| false)
             .await
             .unwrap()
             .unwrap();
         assert_eq!(token.expose_secret(), "discovered");
+    }
+
+    /// gh answers once per login state: a repeat reuses its token until gh
+    /// rewrites `hosts.yml` (a login, logout, switch or rotation it stores),
+    /// and a token GitHub rejected is asked for again.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn gh_is_asked_again_only_when_its_login_state_changes() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let runs = dir.path().join("runs");
+        let executable = dir.path().join("gh");
+        let script = format!(
+            "#!/bin/sh\necho run >> '{}'\nprintf \"token-$(/usr/bin/wc -l < '{}' | /usr/bin/tr -d ' ')\"\n",
+            runs.display(),
+            runs.display()
+        );
+        std::fs::write(&executable, script).unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let _ = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg("true")
+            .output();
+        let config = dir.path().join(".config/gh");
+        std::fs::create_dir_all(&config).unwrap();
+        std::fs::write(config.join("hosts.yml"), "github.com:\n  user: a\n").unwrap();
+        let path = dir.path().to_str().unwrap();
+        let env = || [("PATH", path), (HOME_VAR, path)].into_iter();
+        let budget = RequestBudget::with_timeout(Duration::from_secs(30), 1);
+        let ran = || std::fs::read_to_string(&runs).map_or(0, |text| text.lines().count());
+        let ask = |refused: &'static (dyn Fn(&str) -> bool + Sync)| {
+            let budget = &budget;
+            async move {
+                gh_token("github.com", env(), budget, refused)
+                    .await
+                    .unwrap()
+                    .map(|token| token.expose_secret().to_owned())
+            }
+        };
+        assert_eq!(ask(&|_| false).await.as_deref(), Some("token-1"));
+        assert_eq!(ask(&|_| false).await.as_deref(), Some("token-1"));
+        assert_eq!(ran(), 1, "an unchanged login state reuses the token");
+        std::fs::write(
+            config.join("hosts.yml"),
+            "github.com:\n  user: someone-else\n",
+        )
+        .unwrap();
+        assert_eq!(ask(&|_| false).await.as_deref(), Some("token-2"));
+        assert_eq!(ran(), 2, "a rewritten hosts.yml asks gh again");
+        assert_eq!(
+            ask(&|token| token == "token-2").await.as_deref(),
+            Some("token-3")
+        );
+        assert_eq!(ran(), 3, "a rejected token is asked for again");
     }
 
     #[cfg(unix)]
@@ -182,7 +339,7 @@ mod tests {
         let path = dir.path().to_str().unwrap();
         let budget = RequestBudget::with_timeout(Duration::from_secs(30), 1);
         for env in [vec![("PATH", path)], vec![("PATH", path), (HOME_VAR, "")]] {
-            let token = gh_token("github.com", env.into_iter(), &budget).await;
+            let token = gh_token("github.com", env.into_iter(), &budget, &|_| false).await;
             assert!(token.unwrap().is_none());
         }
         assert!(!ran.exists(), "gh ran without a home");

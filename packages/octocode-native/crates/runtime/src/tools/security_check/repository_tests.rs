@@ -145,7 +145,8 @@ async fn a_found_repository_states_facts_policy_and_the_day_read() {
     assert!(data["repository"]["observedAt"].is_string());
     assert!(data.get("policy").is_none(), "{data}");
     assert_eq!(data["cautions"][0]["rule"], "lowTraction");
-    assert_eq!(data["sources"][0]["status"], "found");
+    // Described, with no advisory: none known, not "found".
+    assert_eq!(data["sources"][0]["status"], "noneKnown");
 }
 
 #[tokio::test]

@@ -2,14 +2,9 @@
 // port should use. Reads files and probes localhost only, so the sandboxed runner can import it.
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { cdpHttp } from './engine-io.mjs';
+import { OCTOCODE_DIR, PACKAGE_TMP, cdpHttp } from './engine-io.mjs';
 
-export const STATE_SUBPATH = [
-  '.octocode',
-  'octocode-chrome-devtools',
-  'tmp',
-  'browser-state',
-];
+export const STATE_SUBPATH = [OCTOCODE_DIR, ...PACKAGE_TMP, 'browser-state'];
 export const DEFAULT_PORT = '9222';
 export const stateDirFor = (workspace: string) =>
   join(workspace, ...STATE_SUBPATH);

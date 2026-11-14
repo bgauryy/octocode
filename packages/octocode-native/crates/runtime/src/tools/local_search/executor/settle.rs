@@ -2,7 +2,7 @@
 //! the limits it ends at.
 use crate::tools::local_search::local_search_query::View;
 
-use super::super::coverage::Coverage;
+use super::super::coverage::{Beyond, Coverage};
 use super::super::layout::Layout;
 use super::super::leads::{BINARY_LISTING, Found, parent_folder_lead, restart_lead, scope_listing};
 use super::super::probes::{Ancestor, matching_ancestor};
@@ -148,42 +148,66 @@ pub(super) fn settle_row(
     // tell, the same search one folder up is the step, said as such. Skipped
     // binaries hold no text the search could match, so their listing never
     // stands in for this lead: it follows it.
+    let mut beyond = None;
     if status == SearchStatus::Empty && only_binary_listing(next.as_ref()) && coverage.plain_miss()
     {
-        match matching_ancestor(page.search_options, query, paths, page.root, cancel) {
-            Ancestor::Found { dir, files, floor } => {
-                let lead = restart_lead(query, json!({ "path": dir }))?;
-                lead_first(&mut next, "broadenSearch", lead);
+        beyond = match matching_ancestor(page.search_options, query, paths, page.root, cancel) {
+            Ancestor::Found {
+                dir,
+                holding,
+                files,
+                floor,
+                lifted,
+            } => {
+                let mut fields = json!({ "path": dir });
+                for cause in &lifted {
+                    let (field, value) = cause.flag();
+                    fields[field] = value;
+                }
+                let call = restart_lead(query, fields)?;
+                lead_first(&mut next, "broadenSearch", call);
                 let floor = if floor { "at least " } else { "" };
                 let what = if local_search_query::view(query) == View::FilesWithout {
                     "lack a match"
                 } else {
                     "match"
                 };
-                hints.push(format!(
-                    "No match in this path; {floor}{files} file(s) under {dir} {what}: related[] searches there."
-                ));
+                let within = holding
+                    .map(|holding| format!(", all in {holding}"))
+                    .unwrap_or_default();
+                Some(Beyond::Step(format!(
+                    "{floor}{files} file(s) under {dir} {what}{within}{}: related[] searches there",
+                    lifted_note(&lifted)
+                )))
             }
-            Ancestor::Nowhere { tree: None } => {
-                hints.push(
-                    "No match in this path, nor anywhere else in the workspace under the same filters."
-                        .to_owned(),
-                );
-            }
-            Ancestor::Nowhere { tree: Some(tree) } => {
-                hints.push(format!(
-                    "No match in this path, nor anywhere else under {tree} under the same filters."
-                ));
-            }
-            Ancestor::Unknown => {
-                if let Some(lead) = parent_folder_lead(query, paths, page.root)? {
-                    lead_first(&mut next, "broadenSearch", lead);
-                    hints.push(
-                        "No match in this path; related[] searches one folder up.".to_owned(),
-                    );
+            Ancestor::Nowhere { tree: None } => Some(Beyond::Nowhere(
+                "nor anywhere else in the workspace under the same filters".to_owned(),
+            )),
+            Ancestor::Nowhere { tree: Some(tree) } => Some(Beyond::Nowhere(format!(
+                "nor anywhere else under {tree} under the same filters"
+            ))),
+            Ancestor::Unknown => match parent_folder_lead(query, paths, page.root)? {
+                Some(call) => {
+                    lead_first(&mut next, "broadenSearch", call);
+                    Some(Beyond::Step("related[] searches one folder up".to_owned()))
                 }
-            }
-        }
+                None => None,
+            },
+        };
+    }
+    // An empty page that searched files and whose skipped paths hold nothing
+    // says what it covered in one sentence, before any other fact.
+    if status == SearchStatus::Empty
+        && stats.files_searched > 0
+        && !disclosed.skipped_match
+        && let Some(absence) = coverage.absence(
+            local_search_query::view(query),
+            (stats.files_searched, stats.binary_skipped.unwrap_or(0)),
+            disclosed.checked.as_ref(),
+            beyond,
+        )
+    {
+        hints.insert(0, absence);
     }
     let is_partial = coverage.gap() || capped;
     // A partial scan's file count is not final.
@@ -193,6 +217,7 @@ pub(super) fn settle_row(
     Ok(LocalSearchResult {
         status,
         stats,
+        unique_values: None,
         files: rows.files,
         pagination: file_paging(query, layout, total_files, page.leftover_matches),
         hints,
@@ -208,6 +233,29 @@ pub(super) fn settle_row(
         source_snapshot: None,
         selection: None,
     })
+}
+
+/// What a widened search lifts, and why: the searched path is skipped by
+/// those causes in the folder it widens to (` with includeIgnored: true (this
+/// path is ignored there)`); empty when it lifts nothing.
+fn lifted_note(lifted: &[crate::tools::empty_walk::Cause]) -> String {
+    if lifted.is_empty() {
+        return String::new();
+    }
+    let flags = lifted
+        .iter()
+        .map(|cause| {
+            let (field, value) = cause.flag();
+            format!("{field}: {value}")
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let causes = lifted
+        .iter()
+        .map(|cause| cause.label())
+        .collect::<Vec<_>>()
+        .join(" and ");
+    format!(" with {flags} (this path is {causes} there)")
 }
 
 /// Whether `next` holds no lead, or only the listing of skipped binaries.

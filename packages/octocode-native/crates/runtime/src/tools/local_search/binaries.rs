@@ -11,19 +11,6 @@ use octocode_contract_types::{
 use serde_json::Value;
 use std::num::NonZeroU64;
 
-/// `binarySkipped` warning: how many files were skipped as binary from
-/// their leading bytes, grouped by extension (`54 .woff2, 2 .png`).
-pub(super) fn leading_binary_warning(
-    groups: &[octocode_engine::types::BinaryExtensionCount],
-) -> String {
-    let total: u64 = groups.iter().map(|group| u64::from(group.count)).sum();
-    let total = octocode_engine::text::counted(total, "binary file", "binary files");
-    format!(
-        "binarySkipped: {total} not searched ({}).",
-        binary_counts(groups)
-    )
-}
-
 /// Most chars of exact names a binary listing's `nameRegex` spells out.
 pub(super) const MAX_LISTED_NAME_CHARS: usize = 2_000;
 
@@ -31,7 +18,7 @@ pub(super) const MAX_LISTED_NAME_CHARS: usize = 2_000;
 pub(super) const MAX_LISTED_EXTENSIONS: usize = 100;
 
 /// A structureSearch `files` query over the searched scope that lists every
-/// skipped binary: by `extensions`, or by a basename regex when one has no
+/// binary-cut file: by `extensions`, or by a basename regex when one has no
 /// extension (or there are more extensions than the filter takes). It may
 /// also list same-extension text files; it never misses a skipped one.
 pub(super) fn leading_binary_listing(
@@ -128,29 +115,6 @@ pub(super) fn binary_groups(paths: &[String]) -> Vec<octocode_engine::types::Bin
             .then_with(|| a.extension.cmp(&b.extension))
     });
     groups
-}
-
-/// Two extension groupings as one: counts summed, names joined.
-pub(super) fn merge_binary_groups(
-    first: &[octocode_engine::types::BinaryExtensionCount],
-    second: &[octocode_engine::types::BinaryExtensionCount],
-) -> Vec<octocode_engine::types::BinaryExtensionCount> {
-    let mut merged: Vec<octocode_engine::types::BinaryExtensionCount> = first.to_vec();
-    for group in second {
-        match merged
-            .iter_mut()
-            .find(|known| known.extension == group.extension)
-        {
-            Some(known) => {
-                known.count = known.count.saturating_add(group.count);
-                known.names.extend(group.names.iter().cloned());
-                known.names.sort();
-                known.names.dedup();
-            }
-            None => merged.push(group.clone()),
-        }
-    }
-    merged
 }
 
 /// The extensions of counted files: `54 .woff2, 2 .png, 1 with no

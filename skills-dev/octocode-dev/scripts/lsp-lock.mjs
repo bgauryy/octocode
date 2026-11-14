@@ -11,12 +11,12 @@
 // asset it names, the lock records GitHub's upload-time `digest`, the size and
 // the download URL. Generation fails when an asset is missing, when a digest is
 // null or not `sha256:` plus 64 hex characters, or when two different assets
-// share a digest. A token in GITHUB_TOKEN or GH_TOKEN (else `gh auth token`)
+// share a digest. A token in GH_TOKEN or GITHUB_TOKEN (else `gh auth token`)
 // raises the API limit from 60 to 5000 requests an hour.
-import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { isMainModule } from './lib/entrypoint.mjs';
+import { githubToken } from './lib/github-token.mjs';
 import { ROOT } from './lib/workspaces.mjs';
 
 const LSP_DIR = path.join(ROOT, 'packages/octocode-native/crates/engine/src/lsp');
@@ -120,13 +120,6 @@ export function withReleaseTag(source, server, tag) {
   return source.replace(block, (_, head, _old, tail) => `${head}${tag}${tail}`);
 }
 
-function token() {
-  const fromEnv = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
-  if (fromEnv) return fromEnv;
-  const gh = spawnSync('gh', ['auth', 'token'], { encoding: 'utf8' });
-  return gh.status === 0 ? gh.stdout.trim() || undefined : undefined;
-}
-
 async function api(route, auth) {
   const headers = { accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' };
   if (auth) headers.authorization = `Bearer ${auth}`;
@@ -142,7 +135,7 @@ async function main() {
     console.error('usage: lsp-lock.mjs [--check | --bump]');
     process.exit(2);
   }
-  const auth = token();
+  const auth = githubToken();
   let source = readFileSync(MANIFEST_PATH, 'utf8');
   let servers = parseManifest(source);
   if (args.includes('--bump')) {

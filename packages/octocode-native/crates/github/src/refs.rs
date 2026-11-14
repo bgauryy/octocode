@@ -52,9 +52,74 @@ pub struct NamedRef {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TagRef {
     pub name: String,
-    /// The commit a lightweight tag's ref names; `None` for an annotated tag
-    /// (its ref names the tag object) or a ref whose object GitHub left out.
-    pub commit: Option<String>,
+    /// The object its ref names; `None` when GitHub left it out.
+    pub object: Option<TagObject>,
+}
+
+/// The object a tag's ref names.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TagObject {
+    /// A lightweight tag: the object it tags, a commit (or, rarely, a tree
+    /// or blob).
+    Tagged(String),
+    /// An annotated tag: its tag object, whose target
+    /// [`GitHubTransport::tag_commits`] reads.
+    Annotated(String),
+}
+
+/// What one tag object targets: another tag object, or the object it tags.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum TagTarget {
+    Tag(String),
+    Tagged(String),
+}
+
+/// The GraphQL read of `count` tag objects' targets, `$t0`… in order: one
+/// request for a page of tags instead of one per tag.
+fn tag_targets_document(count: usize) -> String {
+    let declared = (0..count)
+        .map(|at| format!(",$t{at}:GitObjectID!"))
+        .collect::<String>();
+    let selected = (0..count)
+        .map(|at| format!("t{at}:object(oid:$t{at}){{...on Tag{{target{{__typename oid}}}}}}"))
+        .collect::<String>();
+    format!(
+        "query($owner:String!,$repo:String!{declared}){{repository(owner:$owner,name:$repo){{{selected}}}}}"
+    )
+}
+
+/// The target GraphQL's `object` answer names for `object`: a `Tag`'s
+/// target, or `object` itself when it is no tag; `None` when GitHub named
+/// no object.
+fn graphql_tag_target(object: &str, answer: &serde_json::Value) -> Option<TagTarget> {
+    if !answer.is_object() {
+        return None;
+    }
+    let Some(target) = answer.get("target") else {
+        return Some(TagTarget::Tagged(object.to_owned()));
+    };
+    let oid = target.get("oid")?.as_str()?.to_owned();
+    Some(
+        match target.get("__typename").and_then(serde_json::Value::as_str) {
+            Some("Tag") => TagTarget::Tag(oid),
+            _ => TagTarget::Tagged(oid),
+        },
+    )
+}
+
+/// `refs/tags/{prefix}` as route segments under `matching-refs/tags`: none
+/// for no prefix, or for one GitHub's route cannot carry (a `.`, `..` or
+/// empty segment before the last), which then lists every tag.
+fn prefix_segments(prefix: &str) -> Vec<&str> {
+    let segments = prefix.split('/').collect::<Vec<_>>();
+    let routable = segments.iter().enumerate().all(|(at, segment)| {
+        !matches!(*segment, "." | "..") && (at + 1 == segments.len() || !segment.is_empty())
+    });
+    if prefix.is_empty() || !routable {
+        Vec::new()
+    } else {
+        segments
+    }
 }
 
 /// One provider page of branches or tags, in GitHub's order.
@@ -74,6 +139,15 @@ struct RefRow {
 #[derive(Deserialize)]
 struct RefCommit {
     sha: String,
+}
+
+impl From<RefRow> for NamedRef {
+    fn from(row: RefRow) -> Self {
+        Self {
+            name: row.name,
+            sha: row.commit.sha,
+        }
+    }
 }
 
 impl GitHubTransport {
@@ -105,43 +179,42 @@ impl GitHubTransport {
             )
         })?;
         Ok(RefPage {
-            refs: rows
-                .into_iter()
-                .map(|row| NamedRef {
-                    name: row.name,
-                    sha: row.commit.sha,
-                })
-                .collect(),
+            refs: rows.into_iter().map(NamedRef::from).collect(),
             has_more: response.next.is_some(),
         })
     }
 
-    /// Every tag name of a repository ([`Self::repository_tag_refs`]).
-    pub async fn repository_tag_names(
+    /// Every ref of `kind` with the commit it names, every page read
+    /// ([`Self::list_all`]).
+    pub async fn all_refs(
         &self,
         owner: &str,
         repo: &str,
+        kind: RefKind,
         context: &RequestContext,
-    ) -> Result<Vec<String>, ProviderError> {
-        Ok(self
-            .repository_tag_refs(owner, repo, context)
-            .await?
-            .into_iter()
-            .map(|tag| tag.name)
-            .collect())
+    ) -> Result<Vec<NamedRef>, ProviderError> {
+        let rows: Vec<RefRow> = self
+            .list_all(
+                &["repos", owner, repo, kind.segment()],
+                kind.segment(),
+                context,
+            )
+            .await?;
+        Ok(rows.into_iter().map(NamedRef::from).collect())
     }
 
-    /// Every tag of a repository, from its git refs, read page by page
-    /// (`per_page=100`, by our own page number, whatever origin a forwarded
-    /// `Link` names) until GitHub links no next page, bounded by the
-    /// request's deadline: the whole set a caller orders itself, which
-    /// GitHub's tag pages (reverse-lexicographic) cannot give. Each tag
-    /// keeps the object its ref names, so a lightweight tag's commit needs no
-    /// further read. A repository with no commits has none.
+    /// Every tag of a repository whose name starts with `prefix` (every tag
+    /// for `""`), from its git refs: the whole set a caller orders itself,
+    /// which GitHub's tag pages (reverse-lexicographic) cannot give. GitHub
+    /// answers the prefix itself (`matching-refs`), so one release line
+    /// reads only its own refs. Each tag keeps the object its ref names, so a
+    /// lightweight tag's commit needs no further read
+    /// ([`Self::tag_commits`]). A repository with no commits has none.
     pub async fn repository_tag_refs(
         &self,
         owner: &str,
         repo: &str,
+        prefix: &str,
         context: &RequestContext,
     ) -> Result<Vec<TagRef>, ProviderError> {
         #[derive(Deserialize)]
@@ -157,40 +230,240 @@ impl GitHubTransport {
             #[serde(rename = "type")]
             kind: Option<String>,
         }
-        let mut tags = Vec::new();
-        for page in 1_usize.. {
-            let mut url =
-                self.endpoint()
-                    .rest(&["repos", owner, repo, "git", "matching-refs", "tags"])?;
-            url.query_pairs_mut()
-                .append_pair("per_page", "100")
-                .append_pair("page", &page.to_string());
-            let response = match self.execute(RequestSpec::get(url), context).await {
-                Ok(response) => response,
-                // GitHub answers an empty repository's refs with 409.
-                Err(error) if error.status == Some(409) => return Ok(tags),
-                Err(error) => return Err(repository_missing(error)),
-            };
-            let rows: Vec<Row> = serde_json::from_slice(&response.body).map_err(|_| {
-                ProviderError::new(
-                    ProviderErrorKind::Decode,
-                    "invalid GitHub tag refs response",
-                )
-            })?;
-            tags.extend(rows.into_iter().filter_map(|row| {
+        let mut segments = vec!["repos", owner, repo, "git", "matching-refs", "tags"];
+        segments.extend(prefix_segments(prefix));
+        let rows: Vec<Row> = match self.list_all(&segments, "tag refs", context).await {
+            Ok(rows) => rows,
+            // GitHub answers an empty repository's refs with 409.
+            Err(error) if error.status == Some(409) => return Ok(Vec::new()),
+            Err(error) => return Err(error),
+        };
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| {
                 let name = row.name.strip_prefix("refs/tags/")?.to_owned();
-                let object = row.object;
-                let commit = object
-                    .as_ref()
-                    .filter(|object| object.kind.as_deref() == Some("commit"))
-                    .and_then(|object| object.sha.clone());
-                Some(TagRef { name, commit })
-            }));
+                let object = row.object.and_then(|object| {
+                    let sha = object.sha?;
+                    Some(match object.kind.as_deref() {
+                        Some("tag") => TagObject::Annotated(sha),
+                        _ => TagObject::Tagged(sha),
+                    })
+                });
+                Some(TagRef { name, object })
+            })
+            .filter(|tag| tag.name.starts_with(prefix))
+            .collect())
+    }
+
+    /// The commit each of `tags` names, in order: a lightweight tag's
+    /// listed object, every annotated tag's target read together
+    /// ([`Self::peel_tags`]), and a tag listed without its object read by
+    /// name ([`Self::tag_commit`]). `None`: no longer a tag of the
+    /// repository.
+    pub async fn tag_commits(
+        &self,
+        owner: &str,
+        repo: &str,
+        tags: &[TagRef],
+        context: &RequestContext,
+    ) -> Result<Vec<Option<String>>, ProviderError> {
+        let annotated = tags
+            .iter()
+            .filter_map(|tag| match &tag.object {
+                Some(TagObject::Annotated(object)) => Some(object.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let mut peeled = self.peel_tags(owner, repo, &annotated, context).await?;
+        let unlisted = futures_util::future::join_all(tags.iter().map(|tag| async {
+            match tag.object {
+                None => self.tag_commit(owner, repo, &tag.name, context).await,
+                Some(_) => Ok(None),
+            }
+        }))
+        .await;
+        tags.iter()
+            .zip(unlisted)
+            .map(|(tag, unlisted)| {
+                Ok(match &tag.object {
+                    Some(TagObject::Tagged(object)) => Some(object.clone()),
+                    Some(TagObject::Annotated(object)) => peeled.remove(object),
+                    None => unlisted?,
+                })
+            })
+            .collect()
+    }
+
+    /// The object each annotated tag object in `objects` finally tags, by
+    /// tag object SHA: a tag of a tag is followed to what the last one
+    /// tags. Each step reads every pending target in one GraphQL request
+    /// when the request can use GraphQL ([`Self::tag_targets`]). An object
+    /// GitHub no longer has is left out.
+    pub(crate) async fn peel_tags(
+        &self,
+        owner: &str,
+        repo: &str,
+        objects: &[String],
+        context: &RequestContext,
+    ) -> Result<std::collections::HashMap<String, String>, ProviderError> {
+        let mut peeled = std::collections::HashMap::new();
+        let mut seen = objects
+            .iter()
+            .cloned()
+            .collect::<std::collections::HashSet<_>>();
+        let mut pending = seen
+            .iter()
+            .map(|object| (object.clone(), object.clone()))
+            .collect::<Vec<_>>();
+        while !pending.is_empty() {
+            let current = pending
+                .iter()
+                .map(|(_, current)| current.clone())
+                .collect::<Vec<_>>();
+            let targets = self.tag_targets(owner, repo, &current, context).await?;
+            let mut next = Vec::new();
+            for (object, current) in pending {
+                match targets.get(&current) {
+                    Some(TagTarget::Tagged(tagged)) => {
+                        peeled.insert(object, tagged.clone());
+                    }
+                    // A tag object names a tag object already followed only
+                    // in an answer no git history can hold: none is taken.
+                    Some(TagTarget::Tag(inner)) if seen.insert(inner.clone()) => {
+                        next.push((object, inner.clone()));
+                    }
+                    Some(TagTarget::Tag(_)) | None => {}
+                }
+            }
+            pending = next;
+        }
+        Ok(peeled)
+    }
+
+    /// What each tag object in `objects` targets: one GraphQL request per
+    /// [`crate::MAX_PER_PAGE`] objects (a refs page at most) when the
+    /// request carries a credential and GraphQL admits it, else, and for any
+    /// object that read left unanswered, the object's REST read.
+    async fn tag_targets(
+        &self,
+        owner: &str,
+        repo: &str,
+        objects: &[String],
+        context: &RequestContext,
+    ) -> Result<std::collections::HashMap<String, TagTarget>, ProviderError> {
+        let mut targets = std::collections::HashMap::new();
+        if context.resolved_credential().is_some() && self.graphql_available(context) {
+            for batch in objects.chunks(crate::MAX_PER_PAGE) {
+                let mut variables = serde_json::json!({ "owner": owner, "repo": repo });
+                for (at, object) in batch.iter().enumerate() {
+                    variables[format!("t{at}")] = serde_json::json!(object);
+                }
+                // A failed read leaves its objects to REST, which answers the same.
+                let Ok(page) = self
+                    .execute_graphql(&tag_targets_document(batch.len()), variables, context)
+                    .await
+                else {
+                    continue;
+                };
+                let repository = page.data.as_ref().and_then(|data| data.get("repository"));
+                for (at, object) in batch.iter().enumerate() {
+                    let answer = repository.and_then(|repository| repository.get(format!("t{at}")));
+                    if let Some(target) =
+                        answer.and_then(|answer| graphql_tag_target(object, answer))
+                    {
+                        targets.insert(object.clone(), target);
+                    }
+                }
+            }
+        }
+        let unanswered = objects
+            .iter()
+            .filter(|object| !targets.contains_key(*object))
+            .collect::<Vec<_>>();
+        if unanswered.is_empty() {
+            return Ok(targets);
+        }
+        context.check()?;
+        let answers = futures_util::future::join_all(
+            unanswered
+                .iter()
+                .map(|object| self.rest_tag_target(owner, repo, object, context)),
+        )
+        .await;
+        for (object, answer) in unanswered.into_iter().zip(answers) {
+            if let Some(target) = answer? {
+                targets.insert(object.clone(), target);
+            }
+        }
+        Ok(targets)
+    }
+
+    /// What tag object `object` targets, by its REST read; `None` when
+    /// GitHub has no such tag object.
+    async fn rest_tag_target(
+        &self,
+        owner: &str,
+        repo: &str,
+        object: &str,
+        context: &RequestContext,
+    ) -> Result<Option<TagTarget>, ProviderError> {
+        let url = self
+            .endpoint()
+            .rest(&["repos", owner, repo, "git", "tags", object])?;
+        let page = match self.execute(RequestSpec::get(url), context).await {
+            Ok(page) => page,
+            Err(error) if error.status == Some(404) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let value: serde_json::Value = serde_json::from_slice(&page.body).map_err(|_| {
+            ProviderError::new(ProviderErrorKind::Decode, "invalid GitHub tag response")
+        })?;
+        let field = |name: &str| {
+            value
+                .pointer(&format!("/object/{name}"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        };
+        Ok(field("sha").map(|sha| match field("type").as_deref() {
+            Some("tag") => TagTarget::Tag(sha),
+            _ => TagTarget::Tagged(sha),
+        }))
+    }
+
+    /// Every item of the list `segments` names (a `repos/{owner}/{repo}/…`
+    /// route), [`crate::MAX_PER_PAGE`] per page, by our own page number
+    /// (whatever origin a forwarded `Link` names) until GitHub links no next
+    /// page, bounded by the request's deadline. A missing repository is
+    /// `RepositoryNotFound`.
+    pub(crate) async fn list_all<T: for<'de> Deserialize<'de>>(
+        &self,
+        segments: &[&str],
+        what: &str,
+        context: &RequestContext,
+    ) -> Result<Vec<T>, ProviderError> {
+        let mut items = Vec::new();
+        for page in 1_usize.. {
+            let mut url = self.endpoint().rest(segments)?;
+            url.query_pairs_mut()
+                .append_pair("per_page", &crate::MAX_PER_PAGE.to_string())
+                .append_pair("page", &page.to_string());
+            let response = self
+                .execute(RequestSpec::get(url), context)
+                .await
+                .map_err(repository_missing)?;
+            items.extend(
+                serde_json::from_slice::<Vec<T>>(&response.body).map_err(|_| {
+                    ProviderError::new(
+                        ProviderErrorKind::Decode,
+                        format!("invalid GitHub {what} response"),
+                    )
+                })?,
+            );
             if response.next.is_none() {
                 break;
             }
         }
-        Ok(tags)
+        Ok(items)
     }
 
     /// Whether `reference` names a branch, a tag, or neither (a commit),
@@ -235,17 +508,10 @@ impl GitHubTransport {
             return Ok(Some(object));
         }
         // An annotated tag's ref names the tag object; its target is the commit.
-        let url = self
-            .endpoint()
-            .rest(&["repos", owner, repo, "git", "tags", &object])?;
-        let page = self.execute(RequestSpec::get(url), context).await?;
-        let value: serde_json::Value = serde_json::from_slice(&page.body).map_err(|_| {
-            ProviderError::new(ProviderErrorKind::Decode, "invalid GitHub tag response")
-        })?;
-        Ok(value
-            .pointer("/object/sha")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_owned))
+        Ok(self
+            .peel_tags(owner, repo, std::slice::from_ref(&object), context)
+            .await?
+            .remove(&object))
     }
 
     /// The object SHA of `refs/{namespace}/{name}`; `None` when it does not
@@ -332,7 +598,7 @@ impl GitHubTransport {
     }
 }
 
-fn repository_missing(error: ProviderError) -> ProviderError {
+pub(crate) fn repository_missing(error: ProviderError) -> ProviderError {
     if error.status == Some(404) {
         error.with_reason(ProviderErrorReason::RepositoryNotFound)
     } else {

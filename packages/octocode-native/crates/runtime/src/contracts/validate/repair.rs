@@ -197,33 +197,66 @@ fn folded(name: &str) -> String {
 }
 
 /// Whether two names differ only in case or separator style.
-pub(super) fn same_name(left: &str, right: &str) -> bool {
+pub(crate) fn same_name(left: &str, right: &str) -> bool {
     folded(left) == folded(right)
 }
 
-/// The one candidate `sent` most likely means: the same name in another
-/// case or separator style, else the single nearest within two edits. A tie
-/// or nothing near is no guess.
-pub(super) fn closest<'a>(
+/// The literal of `schema`'s `enum` a text outside it means, when it has one
+/// reading: the one literal it spells in another case or separator style
+/// (`pypi` for `PyPI`). A former value is no reading: its error names what
+/// it is now.
+pub(crate) fn literal_reading(schema: &Value, received: &Value) -> Option<Value> {
+    let sent = received.as_str()?;
+    let mut spelled = schema
+        .get("enum")?
+        .as_array()?
+        .iter()
+        .filter(|literal| literal.as_str().is_some_and(|name| same_name(name, sent)));
+    match (spelled.next(), spelled.next()) {
+        (Some(only), None) => Some(only.clone()),
+        _ => None,
+    }
+}
+
+/// The candidates `sent` most likely means, each once in candidate order:
+/// the same name in another case or separator style, else every one at the
+/// nearest distance within two edits. Nothing near is none.
+pub(super) fn nearest<'a>(
     sent: &str,
     candidates: impl IntoIterator<Item = &'a str>,
-) -> Option<&'a str> {
+) -> Vec<&'a str> {
     let sent = folded(sent);
-    let mut best: Option<(usize, &str)> = None;
-    let mut tied = false;
+    let mut least: Option<usize> = None;
+    let mut found = Vec::new();
     for candidate in candidates {
         let distance = super::levenshtein(&sent, &folded(candidate));
         if distance > 2 || distance >= sent.chars().count() {
             continue;
         }
-        match best {
-            Some((nearest, _)) if distance > nearest => {}
-            Some((nearest, current)) if distance == nearest => tied |= current != candidate,
+        match least {
+            Some(least) if distance > least => {}
+            Some(least) if distance == least => {
+                if !found.contains(&candidate) {
+                    found.push(candidate);
+                }
+            }
             _ => {
-                best = Some((distance, candidate));
-                tied = false;
+                least = Some(distance);
+                found = vec![candidate];
             }
         }
     }
-    best.filter(|_| !tied).map(|(_, candidate)| candidate)
+    found
+}
+
+/// The one candidate `sent` most likely means ([`nearest`]); a tie or
+/// nothing near is no guess.
+pub(super) fn closest<'a>(
+    sent: &str,
+    candidates: impl IntoIterator<Item = &'a str>,
+) -> Option<&'a str> {
+    match nearest(sent, candidates).as_slice() {
+        [only] => Some(*only),
+        _ => None,
+    }
 }

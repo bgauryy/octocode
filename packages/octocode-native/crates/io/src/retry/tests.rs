@@ -189,7 +189,7 @@ async fn bodies_are_read_within_the_limit_and_the_budget() {
     // One client, and the responses in hand before the budget starts:
     // client setup and connects under load must not spend the deadline
     // the body reads are checked against.
-    let client = reqwest::Client::new();
+    let client = crate::http::loopback_client(crate::http::ClientPolicy::default());
     let mut responses = Vec::new();
     for _ in 0..3 {
         responses.push(client.get(server.uri()).send().await.expect("response"));

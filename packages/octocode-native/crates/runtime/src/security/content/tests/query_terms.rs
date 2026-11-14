@@ -37,19 +37,17 @@ fn a_search_for_a_credential_named_declaration_runs() {
     }
 }
 
+/// A known secret format is refused whatever names it; a value in no known
+/// format under a credential's name is the caller's own text and runs.
 #[test]
-fn a_pasted_secret_is_still_refused_whatever_names_it() {
+fn a_known_secret_is_refused_whatever_names_it() {
     let github = format!("ghp_{}", "a1B2".repeat(9));
+    let named = format!("password: {github}");
     for term in [
-        "password: Tr0ub4dor&3xK9!zQ",
-        "password = \"Tr0ub4dor&3xK9!zQ\"",
-        "token: 9f8Kq2LmZx7Wv3Tn5Rb1Yc6H",
-        "api_key: str = \"I5PPdwnIQ10ynyepR7W5CsQV5VFxVbD8\"",
         github.as_str(),
+        named.as_str(),
         "AKIAIOSFODNN7EXAMPLE",
-        // A config line's rule hides any value under a password's name, a
-        // word too: the request holding one is refused as a read hides it.
-        "password: hunter",
+        "aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
     ] {
         for field in ["matchString", "keywords"] {
             assert!(
@@ -59,19 +57,29 @@ fn a_pasted_secret_is_still_refused_whatever_names_it() {
         }
         assert!(refused("matchString", serde_json::json!(term)), "{term:?}");
     }
+    for term in [
+        "password: Tr0ub4dor&3xK9!zQ",
+        "token: 9f8Kq2LmZx7Wv3Tn5Rb1Yc6H",
+    ] {
+        assert!(
+            !refused("matchString", serde_json::json!([term])),
+            "{term:?}"
+        );
+    }
 }
 
 #[test]
 fn a_refused_value_is_redacted_where_it_stands() {
+    let github = format!("ghp_{}", "a1B2".repeat(9));
     let result = ContentSecurity::new().validate_input_parameters(&serde_json::json!({
-        "matchString": ["password: Tr0ub4dor&3xK9!zQ", "password: str"],
+        "matchString": [format!("token: {github}"), "password: str"],
     }));
     let kept = serde_json::to_string(&result.sanitized_params).expect("serializable");
-    assert!(!kept.contains("Tr0ub4dor"), "{kept}");
+    assert!(!kept.contains(&github), "{kept}");
     assert!(kept.contains("password: str"), "{kept}");
 }
 
-const PASSWORD: &str = "Tr0ub4dor&3xK9!zQ";
+const TOKEN: &str = "ghp_Zq8Wv3Xr7Tn2Lp5Ab1Cd9Ef4Gh6Jk8Lm0Np2Q";
 const OPENSSH_BODY: &str = "b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAABlwAAAAdzc2gtcn";
 const BODY_LINE: &str = "WzHvuy3fEWJr5musirUr5JYe5CMpm8DI2mKvqGsxgG5oDTudHZGh0Z7tcHL5kVeqJy";
 
@@ -102,12 +110,12 @@ fn refused_everywhere(term: &str) -> bool {
 }
 
 #[test]
-fn a_named_secret_inside_a_sentence_is_refused() {
+fn a_known_secret_inside_a_sentence_is_refused() {
     for term in [
-        format!("locate password: {PASSWORD}"),
-        format!("find password={PASSWORD} in config"),
-        format!("Does the text contain password: {PASSWORD}?"),
-        format!("the password: {PASSWORD}"),
+        format!("locate password: {TOKEN}"),
+        format!("find token={TOKEN} in config"),
+        format!("Does the text contain {TOKEN}?"),
+        format!("the token {TOKEN}"),
     ] {
         assert!(refused_everywhere(&term), "{term:?} was run");
     }
@@ -178,60 +186,28 @@ fn a_key_body_is_refused_and_its_armor_line_runs() {
     }
 }
 
+/// A URL's userinfo password is a known format, the word `password` too; a
+/// URL with no password, or one whose password is wholly an interpolation or
+/// a template placeholder, runs.
 #[test]
-fn a_placeholder_url_runs_and_a_url_password_is_refused() {
+fn a_url_password_is_refused_and_a_url_without_one_runs() {
     for term in [
         "postgres://user:password@localhost:5432/db",
-        "mysql://username:password@host/db",
         "https://user:pass@example.com",
-        "postgres://user:pass@localhost",
-    ] {
-        assert!(!refused_everywhere(term), "{term:?} was refused");
-    }
-    for term in [
         "postgres://admin:Tr0ub4dor3xK9zQ@db.internal:5432/app",
         "https://deploy:s3cr3t!@example.com",
+        "postgres://u:${PGPASSWORD}x@db",
     ] {
         assert!(refused_everywhere(term), "{term:?} was run");
     }
-}
-
-/// A value a config line's rule hides under a credential's name, at any
-/// length, is refused in every screened field, a clasify question among
-/// them: nothing leaves the machine with it. Declarations, prose and
-/// placeholders under the same names run.
-#[test]
-fn a_short_named_secret_is_refused_as_a_file_hides_it() {
     for term in [
-        "password: Hunter2Xq9vB7mK",
-        "password = Hunter2Xq9vB7mK",
-        "token: Zq8Wv3Xr7Tn2Lp5",
-        "the password is Hunter2Xq9vB7mK",
-        "api_key: Zq8Wv3Xr7Tn2Lp5Ab1Cd9",
-        "Sec-WebSocket-Key: Zq8Wv3Xr7Tn2Lp5Ab1Cd9Ef4Gh6Jk8Lm0Np2Qr4St9Uv",
-    ] {
-        assert!(refused_everywhere(term), "{term:?} was run");
-        let question = serde_json::json!({
-            "content": "evidence",
-            "questions": {"q": {"type": "bool", "instructions": term}},
-        });
-        let checked = ContentSecurity::new().check_input(
-            question,
-            crate::security::InputPolicy::ClasifyEvidence {
-                content_limit: crate::id::clasify_policy::REQUEST_BYTES,
-            },
-        );
-        assert!(checked.is_err(), "a question with {term:?} was admitted");
-    }
-    for term in [
-        "password: str",
-        "token: Token",
-        "api_key: str = None",
-        "dispatchToken: string",
-        "the password is required",
-        "the token is expired",
-        "postgres://user:password@localhost",
-        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+        "postgres://localhost:5432/db",
+        "https://example.com/path",
+        "postgres://u:${PGPASSWORD}@db",
+        "postgresql://app:$DB_PASS@db.internal:5432/app",
+        "redis://default:{{ .Values.redis.password }}@redis:6379",
+        "mongodb://app:<password>@cluster0.mongodb.net/app",
+        "mysql://root:%(password)s@db/app",
     ] {
         assert!(!refused_everywhere(term), "{term:?} was refused");
     }
@@ -280,10 +256,10 @@ fn the_gate_refuses_exactly_what_a_read_hides() {
 /// syntax kept, one placeholder per value.
 #[test]
 fn clasify_evidence_is_judged_as_text_of_no_known_file() {
-    const KEY: &str = "Zq7Xk2Pm9Vt4Lw8Rb3Nc6Hy1Jd5Fg0Ts7Qe2Ua4";
+    const KEY: &str = TOKEN;
     let security = ContentSecurity::new();
     for evidence in [
-        "password = \"hunter2-Sup3rS3cret\"\n".to_owned(),
+        format!("password = \"{KEY}\"\n"),
         format!("API_KEY=\"${{API_KEY:-{KEY}}}\"\n"),
         format!("x = 1 # a\\.b {KEY}\n"),
     ] {
@@ -307,7 +283,7 @@ fn clasify_evidence_is_judged_as_text_of_no_known_file() {
         "{read}"
     );
     let quoted = security
-        .sanitize_text("password = \"hunter2-Sup3rS3cret\"\n", None)
+        .sanitize_text(&format!("password = \"{KEY}\"\n"), None)
         .content
         .into_owned();
     assert!(

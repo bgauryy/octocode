@@ -253,7 +253,7 @@ async fn an_immutable_release_verifies_its_attestation() {
 
 /// The GitHub token authenticates the metadata request to the API host and
 /// goes nowhere else. The download path takes no token at all
-/// (`download::fetch_allowlisted(url, file)`), and a host outside the release
+/// (`download::fetch_allowlisted(url, file, limit)`), and a host outside the release
 /// allowlist, like this local fixture, is refused before any request is sent.
 #[tokio::test(flavor = "current_thread")]
 async fn the_token_goes_to_the_api_host_and_never_to_a_download_host() {
@@ -288,7 +288,7 @@ async fn the_token_goes_to_the_api_host_and_never_to_a_download_host() {
         octocode_io::atomic::create_new(&dir.path().join("spool"), 0o600).expect("spool"),
     );
     let refused = github
-        .download(&format!("{download_base}/asset.gz"), spool)
+        .download(&format!("{download_base}/asset.gz"), spool, u64::MAX)
         .await
         .expect_err("a host outside the allowlist is refused");
     assert!(refused.contains("Blocked non-allowlisted"), "{refused}");

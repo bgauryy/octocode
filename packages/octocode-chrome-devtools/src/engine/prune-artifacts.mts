@@ -3,7 +3,7 @@ import { readdirSync, statSync, rmSync, existsSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { flagArgs, validateFlags } from './cli-flags.mjs';
 import { errorMessage } from './error-message.mjs';
-import { octocodeWorkspace } from './engine-io.mjs';
+import { octocodeWorkspace, packageTmpDir } from './engine-io.mjs';
 
 type RunDir = { name: string; path: string; mtimeMs: number };
 
@@ -42,7 +42,7 @@ const BASE_OVERRIDE = getArg('--base');
 const WORKSPACE_OUTPUT_BASE = octocodeWorkspace();
 const BASE = BASE_OVERRIDE
   ? resolve(BASE_OVERRIDE)
-  : join(WORKSPACE_OUTPUT_BASE, 'octocode-chrome-devtools', 'tmp');
+  : packageTmpDir(WORKSPACE_OUTPUT_BASE);
 const baseRelative = relative(WORKSPACE_OUTPUT_BASE, BASE);
 if (baseRelative.startsWith('..') || isAbsolute(baseRelative)) {
   console.error(`[PRUNE] --base must stay under ${WORKSPACE_OUTPUT_BASE}`);

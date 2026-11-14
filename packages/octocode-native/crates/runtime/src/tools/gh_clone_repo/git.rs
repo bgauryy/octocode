@@ -267,6 +267,9 @@ fn list_tree(
 ) -> Result<TreeListing, CloneError> {
     let mut withheld = Vec::new();
     let mut links = Vec::new();
+    // Blobs of the files a checkout of `rev` may write (not credential-named,
+    // in any scope).
+    let mut written = std::collections::HashSet::new();
     let request = GitRunRequest {
         args: hardened(scoped(directory, &["ls-tree", "-r", "-z", rev])),
         timeout: step_timeout(context),
@@ -299,14 +302,20 @@ fn list_tree(
                             .is_some_and(|rest| rest.starts_with('/'))
                 })
             });
-            if in_scope && is_sensitive_repository_file(path) {
+            if !is_sensitive_repository_file(path) {
+                written.insert(blob.to_owned());
+            } else if in_scope {
                 withheld.push(WithheldFile {
                     path: path.to_owned(),
                     blob: blob.to_owned(),
+                    shared: false,
                 });
             }
             Ok(())
         })?;
+    for file in &mut withheld {
+        file.shared = written.contains(&file.blob);
+    }
     Ok(TreeListing { withheld, links })
 }
 
@@ -323,6 +332,10 @@ pub(super) fn present_symlinks(directory: &Path, links: Vec<String>) -> Vec<Stri
 pub(super) struct WithheldFile {
     pub(super) path: String,
     blob: String,
+    /// Whether an ordinary file of the same commit has the same content (an
+    /// empty `.env` and a `.gitkeep`): a checkout writing that file stores
+    /// the blob, so the store holding it says nothing about the withheld one.
+    shared: bool,
 }
 
 /// Paths of `files`.
@@ -330,14 +343,16 @@ pub(super) fn withheld_paths(files: Vec<WithheldFile>) -> Vec<String> {
     files.into_iter().map(|file| file.path).collect()
 }
 
-/// Whether no blob of `files` is in the object store of `directory`. The
-/// walk reads the store without fetching: a missing blob of a partial clone
-/// is listed as `?<id>`.
+/// Whether no credential content of `files` is in the object store of
+/// `directory`: no blob that only a withheld file holds (a blob an ordinary
+/// file shares arrives with that file's checkout). The walk reads the store
+/// without fetching: a missing blob of a partial clone is listed as `?<id>`.
 pub(super) fn blobs_absent(
     context: &CloneContext<'_>,
     directory: &Path,
     files: &[WithheldFile],
 ) -> Result<bool, CloneError> {
+    let files = files.iter().filter(|file| !file.shared).collect::<Vec<_>>();
     if files.is_empty() {
         return Ok(true);
     }

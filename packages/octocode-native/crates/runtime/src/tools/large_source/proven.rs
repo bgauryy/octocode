@@ -5,26 +5,21 @@
 //! match page reads its source once plus the bytes around its windows.
 
 mod record;
-#[cfg(test)]
-mod tests;
 
 use record::split_line;
 
 use super::Streamed;
-use super::edit_map::{self, EditMap, make_room};
+use super::edit_map::EditMap;
 use super::error::ReadError;
 use super::held::{InLine, SealMap, Want, WindowLines};
-use super::masks::{Judged, judge};
 use super::sealed::{Edit, Recorder, outside_key_lines};
 use super::stream::{seek, streamed};
 use crate::execution::cancel::CancellationCheck;
 use crate::security::KeyBlockState;
 use crate::security::scan::ContentScan;
-use octocode_engine::security::{Named, SecretSpan, SourceNames};
 use octocode_engine::stamp::SourceStamp;
-use octocode_io::memo::Reservation;
 use std::io::Read;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 /// Source bytes between checkpoints: what a window may re-read before its
 /// first line. Sizes the work, never the result.
@@ -77,8 +72,6 @@ pub(super) struct Proof<'s> {
     /// The settle clock before `stamp`: a write after it cannot be told from
     /// the stamp unless the stamp is older than it by the settle window.
     started: std::time::SystemTime,
-    /// What the source spells that only its structure can judge.
-    names: SourceNames,
     /// Places inside long lines a later read can start from, and those lines.
     in_lines: Vec<InLine>,
     long_lines: Vec<LongLineExtent>,
@@ -103,18 +96,16 @@ pub(super) struct Pass {
 
 impl Pass {
     /// Seal the windows this pass holds: only now, with every byte seen, are
-    /// the source's redactions known.
-    pub(super) fn seal_windows(
-        &mut self,
-        file: &std::fs::File,
-        cancel: &impl CancellationCheck,
-    ) -> Result<(), ReadError> {
+    /// the source's redactions known. `file` must still have the stamp the
+    /// pass started from, so the windows hold the bytes the digest proves.
+    pub(super) fn seal_windows(&mut self, file: &std::fs::File) -> Result<(), ReadError> {
         if self.lines.held.is_empty() {
             return Ok(());
         }
-        let edits = self.proven.edits(file, cancel)?;
-        let judged = self.proven.judged(file, cancel)?;
-        self.lines.seal(&edits, file, judged)
+        if stamp(file)? != self.proven.stamp {
+            return Err("the source changed while it was read; read it again".into());
+        }
+        self.lines.seal(&self.proven.edits())
     }
 }
 
@@ -128,98 +119,11 @@ pub(super) struct Proven {
     scanned: Arc<[Edit]>,
     /// Each line a private-key block replaces, as [`Proof`] found it.
     pub(super) key_lines: Arc<[(std::ops::Range<usize>, usize)]>,
-    /// `scanned` with what the source's structure says is secret.
-    sealed: OnceLock<EditMap>,
-    named: Named,
-    /// What the source's structure says is secret: walked at most once, when a
-    /// window is first shown of a source that names something.
-    judged: OnceLock<Judged>,
     in_lines: Vec<InLine>,
     long_lines: Vec<LongLineExtent>,
 }
 
-/// The placeholder edits of `spans`, each read from `file` through one buffer. A
-/// chunk of `n` bytes ends at most `n / 2 + 1` lines, and the span's last line
-/// one more: that many edits, with their placeholders, are held through `held`
-/// before the chunk is fed, and what the chunk did not use is given back.
-fn exact_edits(
-    spans: &[SecretSpan],
-    file: &std::fs::File,
-    cancel: &impl CancellationCheck,
-    held: &mut Reservation<'static>,
-) -> Result<Vec<Edit>, ReadError> {
-    let mut edits: Vec<Edit> = Vec::new();
-    let mut buffer = vec![0u8; READ_BYTES];
-    for span in spans {
-        // The byte before the span says whether it starts its line.
-        let before = match span.range.start.checked_sub(1) {
-            Some(at) => {
-                seek(file, at as u64)?;
-                let mut byte = [0u8];
-                (&mut &*file)
-                    .read_exact(&mut byte)
-                    .map_err(|error| error.to_string())?;
-                super::count_read(1);
-                Some(byte[0])
-            }
-            None => {
-                seek(file, 0)?;
-                None
-            }
-        };
-        let text = octocode_engine::security::redaction_placeholder(span.form.pattern()).len();
-        let mut lines = super::masks::SpanEdits::new(span, before);
-        let mut left = span.range.len();
-        while left > 0 {
-            cancel.check()?;
-            let chunk = buffer.get_mut(..left.min(READ_BYTES)).unwrap_or_default();
-            (&mut &*file)
-                .read_exact(chunk)
-                .map_err(|error| error.to_string())?;
-            super::count_read(chunk.len());
-            let most = chunk.len() / 2 + 1;
-            let before = edits.len();
-            hold_edits(&mut edits, most, text, held)?;
-            lines.feed(chunk, &mut edits);
-            held.shrink((most - (edits.len() - before)) * text);
-            left -= chunk.len();
-        }
-        let before = edits.len();
-        hold_edits(&mut edits, 1, text, held)?;
-        lines.finish(&mut edits);
-        held.shrink((1 - (edits.len() - before)) * text);
-    }
-    Ok(edits)
-}
-
-/// Hold room through `held` for `more` edits of `text` placeholder bytes each.
-fn hold_edits(
-    edits: &mut Vec<Edit>,
-    more: usize,
-    text: usize,
-    held: &mut Reservation<'static>,
-) -> Result<(), ReadError> {
-    make_room(edits, more, held)?;
-    if held.grow(more.saturating_mul(text)) {
-        Ok(())
-    } else {
-        Err(ReadError::Refused)
-    }
-}
-
 impl Proven {
-    pub(super) fn judged(
-        &self,
-        file: &std::fs::File,
-        cancel: &impl CancellationCheck,
-    ) -> Result<&Judged, String> {
-        if let Some(judged) = self.judged.get() {
-            return Ok(judged);
-        }
-        let judged = judge(file, self.named, &self.digest, super::walk_budget(), cancel)?;
-        Ok(self.judged.get_or_init(|| judged))
-    }
-
     /// Whether `file` still has the stamp this pass started from, and `meta`
     /// saw that same state.
     pub(super) fn unchanged(&self, file: &std::fs::File, meta: &std::fs::Metadata) -> bool {
@@ -230,72 +134,16 @@ impl Proven {
     pub(super) fn weight(&self) -> usize {
         self.digest.len()
             + self.checkpoints.len() * std::mem::size_of::<Checkpoint>()
-            + self.judged.get().map_or(0, Judged::weight)
             + self.in_lines.iter().map(InLine::weight).sum::<usize>()
             + self.long_lines.len() * std::mem::size_of::<LongLineExtent>()
             + self.scanned.iter().map(Edit::weight).sum::<usize>()
             + self.key_lines.len() * std::mem::size_of::<(std::ops::Range<usize>, usize)>()
-            + self.sealed.get().map_or(0, EditMap::weight)
     }
 
-    /// Every edit a window of this source shows: the scanner's, and the values
-    /// the source's structure says are secret.
-    pub(super) fn edits(
-        &self,
-        file: &std::fs::File,
-        cancel: &impl CancellationCheck,
-    ) -> Result<EditMap, ReadError> {
-        if let Some(edits) = self.sealed.get() {
-            return Ok(edits.clone());
-        }
-        // `held` stays held until the map is built.
-        let (structural, _held) = match self.judged(file, cancel)? {
-            Judged::EveryValue => {
-                let index = edit_map::build(
-                    file,
-                    self.named,
-                    &self.digest,
-                    self.scanned.clone(),
-                    self.key_lines.clone(),
-                    cancel,
-                )?;
-                let map = EditMap::Blocks(Arc::new(index));
-                return Ok(self.sealed.get_or_init(|| map).clone());
-            }
-            Judged::Exact(spans) => {
-                // Every edit this builds is held against the budget before it
-                // exists, and given back when the map is built.
-                let mut held = super::memory().reserve(0).ok_or(ReadError::Refused)?;
-                let structural = exact_edits(spans, file, cancel, &mut held)?;
-                if stamp(file)? != self.stamp {
-                    return Err("the source changed while it was read; read it again".into());
-                }
-                if !(structural.is_empty() && self.scanned.is_empty()) {
-                    // The merge copies the scanner's edits beside them and builds
-                    // the merged list while both live; the key lines and the
-                    // shared list each copy that list once more (a source whose
-                    // structure names nothing copies the scanner's edits alone).
-                    let copies = self.scanned.len().saturating_add(structural.len());
-                    let scanned_text: usize = self.scanned.iter().map(|edit| edit.text.len()).sum();
-                    let room = copies
-                        .saturating_mul(2)
-                        .saturating_mul(std::mem::size_of::<Edit>())
-                        .saturating_add(scanned_text);
-                    if !held.grow(room) {
-                        return Err(ReadError::Refused);
-                    }
-                }
-                (structural, held)
-            }
-        };
-        let edits = outside_key_lines(
-            super::sealed::merge(self.scanned.to_vec(), structural),
-            &self.key_lines,
-        );
-        Ok(self
-            .sealed
-            .get_or_init(|| EditMap::Listed(edits.into()))
-            .clone())
+    /// Every edit a window of this source shows: the scanner's, off the
+    /// private-key lines.
+    pub(super) fn edits(&self) -> EditMap {
+        EditMap(self.scanned.clone())
     }
 
     /// The checkpoint to skip ahead to from `line` (a line start): the
@@ -318,26 +166,20 @@ impl Proven {
 
     /// The last place inside `want`'s line whose bytes before it the window
     /// skips: its sealed offset placed on the line's bytes by `map`.
-    fn in_line_before(&self, want: &Want, map: &SealMap) -> Result<Option<&InLine>, ReadError> {
-        let Some(line_at) = self
+    fn in_line_before(&self, want: &Want, map: &SealMap) -> Option<&InLine> {
+        let line_at = self
             .in_lines
             .iter()
             .find(|point| point.line == want.first)
-            .map(|point| point.line_at)
-        else {
-            return Ok(None);
-        };
-        let Some(from) = map.keyed(line_at, want.from)? else {
-            return Ok(None);
-        };
+            .map(|point| point.line_at)?;
+        let from = map.keyed(line_at, want.from)?;
         let at = self.in_lines.partition_point(|point| {
             point.line < want.first
                 || (point.line == want.first && point.offset - point.line_at <= from)
         });
-        Ok(at
-            .checked_sub(1)
+        at.checked_sub(1)
             .and_then(|index| self.in_lines.get(index))
-            .filter(|point| point.line == want.first))
+            .filter(|point| point.line == want.first)
     }
 
     /// The windows of `wants` from the proved source `file` with
@@ -351,12 +193,10 @@ impl Proven {
         total_lines: usize,
         cancel: &impl CancellationCheck,
     ) -> Result<Vec<Streamed>, ReadError> {
-        let judged = self.judged(file, cancel)?;
-        let edits = self.edits(file, cancel)?;
+        let edits = self.edits();
         let map = SealMap {
             edits: edits.clone(),
             key_lines: self.key_lines.clone(),
-            file: Arc::new(file.try_clone().map_err(|error| error.to_string())?),
         };
         let last = wants.iter().map(|want| want.last).max().unwrap_or(0);
         let mut lines = WindowLines::new(wants, KeyBlockState::default()).sealed_by(map.clone());
@@ -374,7 +214,7 @@ impl Proven {
             _ => None,
         };
         if let (Some(_), [want]) = (long_line, wants)
-            && let Some(point) = self.in_line_before(want, &map)?
+            && let Some(point) = self.in_line_before(want, &map)
         {
             seek(file, point.offset as u64)?;
             lines.resume(point);
@@ -423,7 +263,7 @@ impl Proven {
         if stamp(file)? != self.stamp {
             return Err("the source changed while it was read; read it again".into());
         }
-        lines.seal(&edits, file, judged)?;
+        lines.seal(&edits)?;
         Ok(streamed(lines, &self.digest, total_lines, false))
     }
 }

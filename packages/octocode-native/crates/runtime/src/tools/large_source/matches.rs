@@ -59,7 +59,7 @@ pub(super) fn fetch_matches<S: ContentScan>(
     let (resume, into_window) = resume_of(q);
     let kept = source
         .proven
-        .and_then(|_| super::kept::hits::<S>(q, source.path));
+        .and_then(|_| super::kept::hits(q, source.path, security));
     // A fresh scan's streamed judgment, when it proved and kept the source:
     // the page's windows are read from it, as from the scan's own proof.
     let mut judged_kept = None;
@@ -81,9 +81,9 @@ pub(super) fn fetch_matches<S: ContentScan>(
                         .sum();
                     (changed.len(), values)
                 });
-                let kept = judged_digest
-                    .as_deref()
-                    .and_then(|digest| super::kept::of_digest(digest, source.path, source.meta));
+                let kept = judged_digest.as_deref().and_then(|digest| {
+                    super::kept::of_digest(digest, source.path, source.meta, security)
+                });
                 let found = scan(
                     q,
                     super::scan::Judged {
@@ -143,61 +143,111 @@ pub(super) fn fetch_matches<S: ContentScan>(
             ..LocalFetchResult::blank(ReadStatus::Empty)
         }
     } else {
-        let page = local_fetch_query::updated(
-            q,
-            serde_json::json!({"matchString":null,"regexEngine":null,"caseMode":null,"wholeWord":null,"contextLines":null,"block":null,"readProgress":null}),
-        )
-        .and_then(|mut page| {
-            local_fetch_query::set_line_spans(&mut page, &found.windows).map(|()| page)
-        });
-        let mut result = match page {
-            Ok(mut page) => {
-                local_fetch_query::set_progress(
-                    &mut page,
-                    into_window.map(|bytes| ReadProgress {
-                        unit: ReadProgressUnit::Bytes,
-                        offset: wire_count(bytes),
-                    }),
+        // A pass read every byte: the windows come from its checkpoints,
+        // under the digest it proved.
+        let proved = Opened {
+            proven: found
+                .proven
+                .as_ref()
+                .map(|proven| (proven, found.total_lines))
+                .or(judged_kept
+                    .as_deref()
+                    .map(|kept| (&kept.proven, kept.total_lines)))
+                .or(source.proven),
+            ..*source
+        };
+        // A long hit line a line page cannot hold is walked alone, its
+        // matches first: it starts its own page, as in a source held whole.
+        let line_bytes = crate::tools::source_view::pagination::line_page_bytes(share);
+        let spans = super::walk::page_spans(&found, line_bytes);
+        let walked = spans.first().and_then(|(_, hit)| *hit);
+        let lines = spans
+            .iter()
+            .take_while(|(_, hit)| hit.is_none())
+            .map(|(span, _)| *span)
+            .collect::<Vec<_>>();
+        let more = spans.len() > lines.len().max(1);
+        let mut result = match walked.and_then(|index| found.long.get(index)) {
+            Some(hit) => {
+                let mut page = super::walk::walk_page(
+                    q,
+                    &proved,
+                    &found,
+                    (hit, into_window),
+                    share,
+                    security,
+                    cancel,
                 );
-                // A pass read every byte: the windows come from its
-                // checkpoints, under the digest it proved.
-                let proved = Opened {
-                    proven: found
-                        .proven
-                        .as_ref()
-                        .map(|proven| (proven, found.total_lines))
-                        .or(judged_kept
-                            .as_deref()
-                            .map(|kept| (&kept.proven, kept.total_lines)))
-                        .or(source.proven),
-                    ..*source
-                };
-                fetch_ranges(&page, &proved, share, security, cancel)
+                // A read's first page states that it streams.
+                if page.status != ReadStatus::Error && local_fetch_query::read_progress(q).is_none()
+                {
+                    page.warnings.insert(0, super::streamed_warning(source.len));
+                }
+                page
             }
-            Err(error) => {
-                return LocalFetchResult::error(
-                    path.to_owned(),
-                    ErrorCode::ExecutionFailed,
-                    error.to_string(),
-                );
+            None => {
+                let page = local_fetch_query::updated(
+                    q,
+                    serde_json::json!({"matchString":null,"regexEngine":null,"caseMode":null,"wholeWord":null,"contextLines":null,"block":null,"readProgress":null}),
+                )
+                .and_then(|mut page| {
+                    local_fetch_query::set_line_spans(&mut page, &lines).map(|()| page)
+                });
+                match page {
+                    Ok(mut page) => {
+                        local_fetch_query::set_progress(
+                            &mut page,
+                            into_window.map(|bytes| ReadProgress {
+                                unit: ReadProgressUnit::Bytes,
+                                offset: wire_count(bytes),
+                            }),
+                        );
+                        fetch_ranges(&page, &proved, share, security, cancel)
+                    }
+                    Err(error) => {
+                        return LocalFetchResult::error(
+                            path.to_owned(),
+                            ErrorCode::ExecutionFailed,
+                            error.to_string(),
+                        );
+                    }
+                }
             }
         };
         if result.status == ReadStatus::Error {
             return result;
         }
-        if let Err(error) = continue_matches(q, &mut result, &found) {
+        if let Err(error) = continue_matches(q, &mut result, &found, more) {
             return LocalFetchResult::error(path.to_owned(), ErrorCode::ExecutionFailed, error);
         }
-        if result
+        // A walk page's place says whether any page follows it.
+        let continues = result
             .next
             .as_ref()
-            .is_some_and(|next| next.continue_window.is_some())
-        {
-            keep_scan::<S>(q, source, &mut found, judged_kept.is_some());
+            .is_some_and(|next| next.continue_window.is_some());
+        if let Some(page) = result.pagination.as_mut() {
+            page.has_more = continues;
+        }
+        if continues {
+            keep_scan(q, source, &mut found, judged_kept.is_some());
         }
         result
     };
     result.selected_match_count = Some(found.count);
+    // A read's first page names the entries of a list that matched nothing.
+    if found.count > 0 && found.limited.is_none() && local_fetch_query::read_progress(q).is_none() {
+        let terms = local_fetch_query::match_strings(q);
+        let unmatched = found
+            .term_hits
+            .iter()
+            .zip(&terms)
+            .filter(|(hit, _)| !**hit)
+            .map(|(_, term)| (*term).to_owned())
+            .collect::<Vec<_>>();
+        result
+            .warnings
+            .extend(extraction::unmatched_warning(q, &unmatched));
+    }
     if let Some(warning) = super::edges::cut_warning(q, &found) {
         result.warnings.push(warning);
     }
@@ -214,12 +264,7 @@ pub(super) fn fetch_matches<S: ContentScan>(
 }
 
 /// Keep a fresh scan for the later pages of its read.
-fn keep_scan<S: ContentScan>(
-    q: &LocalFetchQuery,
-    source: &Opened<'_>,
-    found: &mut Scan,
-    judged_kept: bool,
-) {
+fn keep_scan(q: &LocalFetchQuery, source: &Opened<'_>, found: &mut Scan, judged_kept: bool) {
     // A scan whose streamed judgment proved and kept the source keeps only
     // its hits, under that judgment's digest.
     if judged_kept
@@ -227,7 +272,7 @@ fn keep_scan<S: ContentScan>(
         && let Some(digest) = found.digest.clone()
     {
         if let Some(hits) = KeptHits::of(found) {
-            super::kept::keep_hits::<S>(q, source.path, &digest, hits);
+            super::kept::keep_hits(q, source.path, &digest, hits, source.scan);
         }
         return;
     }
@@ -238,16 +283,18 @@ fn keep_scan<S: ContentScan>(
     if super::kept::keep(source, proven, found.total_lines)
         && let Some(hits) = KeptHits::of(found)
     {
-        super::kept::keep_hits::<S>(q, source.path, &digest, hits);
+        super::kept::keep_hits(q, source.path, &digest, hits, source.scan);
     }
 }
 
 /// The page's hits, and the read of all that is left: from where the page
-/// stopped, inside a window or past it, bound to this source version.
+/// stopped, inside a window or past it, bound to this source version. `more`:
+/// spans of the scan's windows lie past the page's.
 fn continue_matches(
     q: &LocalFetchQuery,
     result: &mut LocalFetchResult,
     found: &Scan,
+    more: bool,
 ) -> Result<(), String> {
     let served = result.source_line_ranges.clone();
     result.matched_lines = found
@@ -265,7 +312,7 @@ fn continue_matches(
         .next
         .as_mut()
         .and_then(|next| next.continue_window.take());
-    if cut.is_none() && !found.more {
+    if cut.is_none() && !found.more && !more {
         return Ok(());
     }
     let lines = |line: usize| ReadProgress {

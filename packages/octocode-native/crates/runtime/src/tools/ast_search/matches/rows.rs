@@ -223,12 +223,6 @@ fn put_span(
     Ok(())
 }
 
-pub(super) fn match_display_path(root: &std::path::Path, path: &str) -> String {
-    let candidate = std::path::Path::new(path);
-    let relative = candidate.strip_prefix(root).unwrap_or(candidate);
-    super::super::rooted_display(root, relative)
-}
-
 /// `q` moved to `to`, as a continuation bound to `snapshot`.
 pub(super) fn continuation_with(
     q: MatchQuery<'_>,

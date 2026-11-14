@@ -134,11 +134,12 @@ impl Selected {
             ));
             // The counts describe the kept hits, `matchedFiles` included:
             // a file selection kept no hit of is said, with the call that
-            // lists it.
+            // lists it. That call runs the search unclassified, so it lists
+            // every matched file, kept or not.
             if self.files_dropped > 0 {
                 notes.push(format!(
-                    "{} of {} matched files kept no hit: next.unfiltered lists them.",
-                    self.files_dropped, self.files_before
+                    "{} of {} matched files kept no hit; next.unfiltered lists all {} unclassified.",
+                    self.files_dropped, self.files_before, self.files_before
                 ));
             }
         }

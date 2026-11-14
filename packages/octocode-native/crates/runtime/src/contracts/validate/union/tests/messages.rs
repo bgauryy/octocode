@@ -9,7 +9,7 @@ fn selected_operation_reports_its_missing_field() {
         json!({"type":"choice","instructions":"Pick a label"}),
         json!({"type":"score","instructions":"Rate the evidence"}),
     ] {
-        let error=prepare_many_and_validate("clasify",json!({"queries":[{"operation":"evaluate","content":"Observed evidence","questions":{"check":question}}]})).expect_err("missing criteria");
+        let error=prepare_rows("clasify",json!({"queries":[{"operation":"evaluate","content":"Observed evidence","questions":{"check":question}}]})).expect_err("missing criteria");
         assert!(
             error
                 .issues
@@ -22,7 +22,7 @@ fn selected_operation_reports_its_missing_field() {
 
 #[test]
 fn unknown_operation_is_reported_at_the_selector() {
-    let error = prepare_many_and_validate(
+    let error = prepare_rows(
         "ghSearchHistory",
         json!({"queries":[{"operation":"invented","owner":"o","repo":"r"}]}),
     )
@@ -40,8 +40,8 @@ fn unknown_operation_is_reported_at_the_selector() {
 fn fields_from_a_different_view_are_rejected_without_changing_the_input() {
     let input = json!({"queries":[{"operation":"references","path":"a.rs","symbolName":"run","line":1,"view":"files","contextLines":{"before":1,"after":1}}]});
     let before = input.clone();
-    let error = prepare_many_and_validate("lspSearch", input.clone())
-        .expect_err("context belongs to content rows");
+    let error =
+        prepare_rows("lspSearch", input.clone()).expect_err("context belongs to content rows");
     assert!(!error.issues.is_empty());
     assert_eq!(input, before);
 }
@@ -144,7 +144,7 @@ fn reversed_source_ranges_keep_the_range_diagnostic_in_every_read_form() {
                 query["owner"] = json!("o");
                 query["repo"] = json!("r");
             }
-            let error = prepare_many_and_validate(tool, json!({"queries":[query.clone()]}))
+            let error = prepare_rows(tool, json!({"queries":[query.clone()]}))
                 .expect_err("reversed source range");
             assert_eq!(error.issues.len(), 1, "{tool}: {query}: {error:?}");
             assert_eq!(
@@ -162,7 +162,7 @@ fn reversed_source_ranges_keep_the_range_diagnostic_in_every_read_form() {
             assert!(!message.contains("not allowed"), "{message}");
 
             query["ranges"][0]["endLine"] = json!(12);
-            prepare_many_and_validate(tool, json!({"queries":[query]}))
+            prepare_rows(tool, json!({"queries":[query]}))
                 .expect("repairing the bound preserves the read form");
         }
     }
@@ -219,7 +219,7 @@ fn reader_matching_forms_report_the_invalid_field_types() {
                 query["owner"] = json!("o");
                 query["repo"] = json!("r");
             }
-            let error = prepare_many_and_validate(tool, json!({"queries":[query.clone()]}))
+            let error = prepare_rows(tool, json!({"queries":[query.clone()]}))
                 .expect_err("invalid field types");
             assert_eq!(error.issues.len(), fields.len(), "{tool}: {error:?}");
             for field in fields {
@@ -236,7 +236,7 @@ fn reader_matching_forms_report_the_invalid_field_types() {
             assert!(!rendered.contains("Unknown field"), "{tool}: {rendered}");
             query["matchString"] = json!(["needle"]);
             query["contextLines"] = json!({"before":8,"after":8});
-            prepare_many_and_validate(tool, json!({"queries":[query]}))
+            prepare_rows(tool, json!({"queries":[query]}))
                 .expect("correcting only the field types admits the matching form");
         }
     }
@@ -256,7 +256,7 @@ fn a_request_field_inside_a_query_names_where_it_goes_and_nothing_else() {
             "beside queries",
         ),
     ] {
-        let error = prepare_many_and_validate("localSearch", input).expect_err(field);
+        let error = prepare_rows("localSearch", input).expect_err(field);
         let shown = crate::contracts::validate::messages::format_input_error(
             "localSearch",
             &error,
@@ -275,7 +275,7 @@ fn a_request_field_inside_a_query_names_where_it_goes_and_nothing_else() {
 /// structureSearch, so the error says so instead of a bare missing field.
 #[test]
 fn a_missing_selector_names_the_value_the_sent_fields_require() {
-    let error = prepare_many_and_validate(
+    let error = prepare_rows(
         "structureSearch",
         json!({"queries":[{"path":"src","nameRegex":"zzqq"}]}),
     )
@@ -301,8 +301,7 @@ fn a_missing_selector_names_the_value_the_sent_fields_require() {
 #[test]
 fn an_unknown_field_in_a_row_without_its_selector_names_every_form() {
     let details = |tool: &str, row: serde_json::Value| {
-        let error = prepare_many_and_validate(tool, json!({"queries":[row]}))
-            .expect_err("missing operation");
+        let error = prepare_rows(tool, json!({"queries":[row]})).expect_err("missing operation");
         crate::contracts::validate::format_input_error(tool, &error, &[], &serde_json::Value::Null)
             .to_string()
     };
@@ -318,7 +317,7 @@ fn an_unknown_field_in_a_row_without_its_selector_names_every_form() {
 /// any form. Nothing is dropped: the selector follows in `details`.
 #[test]
 fn a_wrong_value_leads_over_a_missing_operation() {
-    let error = prepare_many_and_validate(
+    let error = prepare_rows(
         "astSearch",
         json!({"queries":[{"path":".","rule":{"kind":"x","nthChild":"y"}}]}),
     )
@@ -331,8 +330,8 @@ fn a_wrong_value_leads_over_a_missing_operation() {
         "{rendered}"
     );
     let details = rendered["details"].as_array().expect("details");
-    // Every other issue, then the call's example and schema command.
-    assert_eq!(details.len(), error.issues.len() - 1 + 2, "{rendered}");
+    // Every other issue, then the call's example.
+    assert_eq!(details.len(), error.issues.len() - 1 + 1, "{rendered}");
     assert!(
         details.iter().any(|detail| detail
             .as_str()
@@ -346,7 +345,7 @@ fn a_wrong_value_leads_over_a_missing_operation() {
 /// leaves unknown: only a wrong value outranks it.
 #[test]
 fn a_missing_operation_leads_when_no_value_is_wrong() {
-    let error = prepare_many_and_validate(
+    let error = prepare_rows(
         "astSearch",
         json!({"queries":[{"path":".","rule":{"kind":"x"}}]}),
     )

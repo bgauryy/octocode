@@ -135,7 +135,7 @@ fn compare_input_fixtures(stride: usize) {
                 continue;
             }
             let input = json!({"queries":[variant]});
-            let (fast, reference) = both(|| prepare_many_and_validate(tool, input.clone()));
+            let (fast, reference) = both(|| prepare_rows(tool, input.clone()));
             assert_eq!(fast, reference, "{}: {input}", fixture["id"]);
             compared += 1;
             rejected += usize::from(fast.is_err());

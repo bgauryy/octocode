@@ -256,15 +256,15 @@ async fn unsupported_ast_batch_keeps_indices_hints_and_executable_document_recov
     assert_eq!(rows[1]["index"], 1);
     assert_eq!(rows[0]["data"]["errorCode"], "invalidInput");
     // The error names the field and the allowed values; the hints add only
-    // the call reference (one accepted example and the schema command), never
-    // a repeat of the allowed values.
+    // the call reference (one accepted example; an MCP client holds the
+    // schema, so no command), never a repeat of the allowed values.
     let message = rows[0]["data"]["error"].as_str().expect("error message");
     assert!(
         message.contains("queries.0.operation") && message.contains("allowed: match"),
         "{message}"
     );
     let hints = rows[0]["data"]["hints"].as_array().expect("call reference");
-    assert_eq!(hints.len(), 2, "{}", rows[0]);
+    assert_eq!(hints.len(), 1, "{}", rows[0]);
     assert!(
         hints[0]
             .as_str()
@@ -272,7 +272,6 @@ async fn unsupported_ast_batch_keeps_indices_hints_and_executable_document_recov
         "{}",
         rows[0]
     );
-    assert_eq!(hints[1], "Schema: octocode schema astSearch", "{}", rows[0]);
     let data = &rows[1]["data"];
     assert_eq!(data["errorCode"], "languageUnsupported");
     assert!(

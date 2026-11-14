@@ -5,8 +5,9 @@
 // reach `#[cfg(test)]` library items.
 
 /// `source` with every item, statement or block gated by `#[cfg(test)]` (or
-/// `#[cfg(all(test, …))]`) blanked: an inline test module, a test-only
-/// `fn`, `impl`, `use`, `thread_local!` or `{ … }` block. Everything else
+/// `#[cfg(all(test, …))]`) or marked a test (`#[test]`, `#[tokio::test]`)
+/// blanked: an inline test module, a test `fn`, a test-only `impl`, `use`,
+/// `thread_local!` or `{ … }` block. Everything else
 /// stays, including production code after a test item, comments and string
 /// literals; blanked text keeps its newlines, so a byte's line number is the
 /// same as in the file. A file whose inner attribute is `#![cfg(test)]` is
@@ -62,10 +63,16 @@ fn blank(out: &mut [u8], range: std::ops::Range<usize>) {
     }
 }
 
-/// Whether the outer attribute text `#[…]` gates on `test`.
+/// Whether the outer attribute text `#[…]` compiles its item only for
+/// tests: it gates on `test`, or its path ends in `test` (`#[test]`,
+/// `#[tokio::test(…)]`).
 fn test_gated(attribute: &str) -> bool {
     let compact: String = attribute.chars().filter(|c| !c.is_whitespace()).collect();
-    compact == "#[cfg(test)]" || compact.starts_with("#[cfg(all(test,")
+    let content = compact.trim_start_matches("#[").trim_end_matches(']');
+    let path = content.split_once('(').map_or(content, |(path, _)| path);
+    compact == "#[cfg(test)]"
+        || compact.starts_with("#[cfg(all(test,")
+        || path.rsplit("::").next() == Some("test")
 }
 
 /// The end of the outer attribute `#[…]` starting at `at`.

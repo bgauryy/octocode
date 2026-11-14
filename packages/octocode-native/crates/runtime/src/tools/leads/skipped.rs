@@ -226,12 +226,13 @@ pub(crate) fn skipped_paths(
     Ok(grouped(entries, every_path, incomplete))
 }
 
-/// `entries` first seen first, one per cause and rule (per directory for
-/// withheld files): its first path with
-/// `count` when more sit behind it, or with `every_path`
-/// each path on its own. `sampled` when entries were
-/// collapsed or the walk did not finish (`incomplete`). A result stored with
-/// every path is shown either way through this. `None` when empty.
+/// `entries` first seen first, one per cause and rule: its first path with
+/// `count` when more sit behind it, or with `every_path` each path on its
+/// own. A withheld or unreadable entry's path is the directory that holds
+/// what was left out, so a group of them is the deepest directory holding
+/// them all, with their summed count. `sampled` when entries were collapsed
+/// or the walk did not finish (`incomplete`). A result stored with every
+/// path is shown either way through this. `None` when empty.
 pub(crate) fn grouped(
     entries: impl IntoIterator<Item = SkippedPath>,
     every_path: bool,
@@ -239,14 +240,17 @@ pub(crate) fn grouped(
 ) -> Option<SkippedPaths> {
     let mut groups: Vec<SkippedPath> = Vec::new();
     for entry in entries {
-        match groups.iter_mut().find(|group| {
-            group.cause == entry.cause
-                    && group.reason == entry.reason
-                    // A withheld entry is the directory holding the files: two
-                    // directories are two entries, whatever they hold.
-                    && (entry.cause != SkippedPathCause::Withheld || group.path == entry.path)
-        }) {
+        match groups
+            .iter_mut()
+            .find(|group| group.cause == entry.cause && group.reason == entry.reason)
+        {
             Some(group) if !every_path || group.path == entry.path => {
+                if group.path != entry.path && holds_what_was_left_out(entry.cause) {
+                    let shared = shared_dir(&group.path, &entry.path);
+                    if let Ok(shared) = shared.try_into() {
+                        group.path = shared;
+                    }
+                }
                 group.count = Some(group.count.unwrap_or(1) + entry.count.unwrap_or(1));
             }
             _ => groups.push(entry),
@@ -257,6 +261,27 @@ pub(crate) fn grouped(
         entries: groups,
         sampled: collapsed || incomplete,
     })
+}
+
+/// Whether an entry of `cause` names the directory holding what was left
+/// out ([`disclosure`]), not the first path left out.
+fn holds_what_was_left_out(cause: SkippedPathCause) -> bool {
+    matches!(
+        cause,
+        SkippedPathCause::Withheld | SkippedPathCause::Unreadable
+    )
+}
+
+/// The deepest directory holding both `a` and `b`.
+fn shared_dir(a: &str, b: &str) -> String {
+    std::path::Path::new(a)
+        .components()
+        .zip(std::path::Path::new(b).components())
+        .take_while(|(a, b)| a == b)
+        .map(|(a, _)| a)
+        .collect::<std::path::PathBuf>()
+        .to_string_lossy()
+        .into_owned()
 }
 
 pub(crate) fn skipped_path_error(error: impl std::fmt::Display) -> ToolError {

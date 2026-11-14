@@ -141,7 +141,7 @@ async fn an_empty_owner_search_states_unproven_absence_and_lists_repositories() 
         crate::tools::test_support::checks::related_call(&out.data, "ghSearchRepo", |_| true);
     assert_eq!(
         listing["input"]["queries"][0],
-        json!({"operation":"list","owner":"octo"}),
+        json!({"operation":"list","owner":"octo","limit":crate::tools::gh_shared::RECOVERY_LIMIT}),
         "{}",
         out.data
     );

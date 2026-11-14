@@ -104,14 +104,9 @@ pub(super) struct Held {
     runs: Vec<Run>,
     /// The source byte the last run reaches.
     run_end: Option<usize>,
-    /// The window hides every value ([`super::masks::Judged::EveryValue`]).
-    pub(super) every_value: bool,
     /// A sealed offset of this window could not be placed on the source's
     /// bytes: sealing it fails the read.
     unplaced: bool,
-    /// Placing a sealed offset failed to read the source: sealing fails the
-    /// read with that error.
-    failed: Option<super::error::ReadError>,
 }
 
 impl Held {
@@ -138,9 +133,7 @@ impl Held {
             full: false,
             runs: Vec::new(),
             run_end: None,
-            every_value: false,
             unplaced: false,
-            failed: None,
         }
     }
 
@@ -153,9 +146,8 @@ impl Held {
         let range = self.range.get_or_insert_with(|| {
             if let Some(map) = map {
                 match map.keyed(source, self.sealed_from) {
-                    Ok(Some(from)) => self.from = from,
-                    Ok(None) => self.unplaced = true,
-                    Err(error) => self.failed = Some(error),
+                    Some(from) => self.from = from,
+                    None => self.unplaced = true,
                 }
             }
             source..source
@@ -280,7 +272,7 @@ impl Held {
 mod lines;
 mod seal;
 pub(super) use lines::{InLine, WindowLines};
-pub(super) use seal::{SealMap, UNPLACED};
+pub(super) use seal::SealMap;
 
 #[cfg(test)]
 mod tests;

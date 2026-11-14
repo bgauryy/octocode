@@ -95,7 +95,7 @@ impl SavedAnswer {
     }
 
     /// A refused validation cannot override an origin's revalidation requirement.
-    pub(super) fn allows_stale(&self) -> bool {
+    pub fn allows_stale(&self) -> bool {
         !["no-store", "no-cache", "must-revalidate"]
             .iter()
             .any(|name| has_directive(&self.answer.headers, name))

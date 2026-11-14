@@ -19,17 +19,14 @@ impl From<std::io::Error> for VerifyReadError {
 pub(in crate::tools::local_search) struct VerificationLines {
     /// Private-key block ranges over every line read.
     pub(in crate::tools::local_search) key_ranges: Vec<(u32, u32)>,
-    /// Neighborhood lines (1-based) that fit the retained-byte budget.
+    /// Neighborhood lines (1-based), each no longer than a line the search
+    /// holds whole ([`octocode_engine::security::LONG_LINE_BYTES`]).
     pub(in crate::tools::local_search) retained: std::collections::BTreeMap<usize, String>,
     pub(in crate::tools::local_search) retained_bytes: usize,
     pub(in crate::tools::local_search) lines_read: usize,
     /// A line too long to buffer mentions `PRIVATE KEY`, so key-block state
     /// is unknown and nothing read from this source can be trusted.
     pub(in crate::tools::local_search) unclassified: bool,
-    /// A line holds what a pattern needing the whole source starts from, so
-    /// only all of it can say whether a shown value is a secret. Not asked
-    /// of a source `whole_retained` holds: that one is judged whole anyway.
-    pub(in crate::tools::local_search) source_wide: bool,
     /// `retained` holds every line of the source.
     pub(in crate::tools::local_search) whole_retained: bool,
     /// Wanted lines too long to keep whose rows the search itself judged
@@ -38,16 +35,15 @@ pub(in crate::tools::local_search) struct VerificationLines {
 }
 
 /// Stream up to `limit` lines of `reader`, tracking private-key blocks over
-/// all of them and keeping only lines inside `windows` (1-based inclusive),
-/// within [`MAX_VERIFY_RETAINED_BYTES`]. Any read failure is an error (a
-/// short source just yields fewer lines). With `across`, the whole source is
-/// read, and kept while the budget lasts: nothing short of it can settle a
-/// value once a line names one of those patterns.
+/// all of them and keeping the lines inside `windows` (1-based inclusive).
+/// Any read failure is an error (a short source just yields fewer lines).
+/// With `whole`, every line is kept while each is one the search holds whole,
+/// so the source can be judged as a read of it is.
 pub(in crate::tools::local_search) fn read_verification_lines(
     reader: &mut impl std::io::BufRead,
     windows: &[(usize, usize)],
     limit: usize,
-    across: Option<octocode_engine::security::WholeSourcePatterns>,
+    whole: bool,
     cancel: &impl CancellationCheck,
 ) -> Result<VerificationLines, VerifyReadError> {
     let mut tracker = crate::security::KeyBlockTracker::default();
@@ -57,11 +53,9 @@ pub(in crate::tools::local_search) fn read_verification_lines(
         retained_bytes: 0,
         lines_read: 0,
         unclassified: false,
-        source_wide: false,
-        whole_retained: across.is_some(),
+        whole_retained: whole,
         long_lines: std::collections::BTreeSet::new(),
     };
-    let limit = if across.is_some() { usize::MAX } else { limit };
     let in_window = |number: usize| windows.iter().any(|&(lo, hi)| lo <= number && number <= hi);
     let mut buf = Vec::new();
     // The kept lines, in the order read (ascending): the map is built of
@@ -73,8 +67,10 @@ pub(in crate::tools::local_search) fn read_verification_lines(
             cancel.check().map_err(VerifyReadError::Cancelled)?;
         }
         let wanted = read.whole_retained || in_window(number);
+        // A wanted line is kept whole up to the longest the search holds
+        // whole, with its line break; a longer one is the search's to judge.
         let cap = if wanted {
-            MAX_VERIFY_RETAINED_BYTES.saturating_sub(read.retained_bytes)
+            octocode_engine::security::LONG_LINE_BYTES + "\r\n".len()
         } else {
             MAX_PROBE_LINE_BYTES
         };
@@ -90,12 +86,6 @@ pub(in crate::tools::local_search) fn read_verification_lines(
                 let text = octocode_engine::text::Decoded::interior(&buf).text;
                 let text = text.trim_end_matches(['\n', '\r']);
                 tracker.push(text);
-                // A source still kept whole is judged whole, whatever its
-                // lines name; what they name is asked when a line ends that
-                // (below), of the lines kept until then.
-                if !read.whole_retained {
-                    read.source_wide |= across.is_some_and(|patterns| patterns.named_by(text));
-                }
                 if wanted {
                     read.retained_bytes += text.len();
                     kept.push((number, text.to_owned()));
@@ -113,11 +103,8 @@ pub(in crate::tools::local_search) fn read_verification_lines(
                     read.long_lines.insert(number);
                 }
                 if std::mem::take(&mut read.whole_retained) {
-                    // Every line before this one was kept: each is asked
-                    // now what it would have been asked as it was read.
-                    read.source_wide |= across.is_some_and(|patterns| {
-                        kept.iter().any(|(_, line)| patterns.named_by(line))
-                    });
+                    // The source is no longer held whole: only its rows'
+                    // windows are kept, and each is judged by its lines.
                     kept.retain(|(number, _)| in_window(*number));
                     read.retained_bytes = kept.iter().map(|(_, line)| line.len()).sum();
                 }

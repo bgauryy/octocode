@@ -74,7 +74,10 @@ impl ChannelRun {
             envelope,
             judged,
             &own,
-            self.output.redact_emails && self.id.is_github(),
+            crate::security::Pii {
+                emails: self.output.redact_emails && self.id.is_github(),
+                uuids: self.output.redact_uuid,
+            },
             || context.check(),
         )?;
         let mut response_query = self.response_query.clone();

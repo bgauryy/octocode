@@ -1,8 +1,7 @@
-//! A streamed source's proof, kept between the pages of one read. The first
-//! page passes over every byte; the pages after it name that pass's digest in
-//! their snapshot and read only their windows while the handle shows the same
-//! file. A changed file misses here, passes again, and its new digest fails
-//! the snapshot, so a stale page is never served.
+//! A streamed source's latest proof, kept by path and scanner policy. Later
+//! reads use its windows while the handle shows the same settled file. A
+//! continuation also requires its snapshot's digest; a changed file passes
+//! again, and its new digest fails the snapshot, so a stale page is never served.
 //!
 //! A match scan's hit lines are kept beside its pass. They are a pure function
 //! of the bytes the digest names and of the whole read, so their key holds all
@@ -27,32 +26,44 @@ pub(super) struct Kept {
 static STORE: PageMemo<Arc<Kept>> = PageMemo::new();
 static HITS: PageMemo<Arc<KeptHits>> = PageMemo::new();
 
-fn policy(path: &Path) -> String {
-    path.to_string_lossy().into_owned()
+fn policy(scan: &dyn ContentScan) -> Option<String> {
+    Some(format!("{:?}", scan.kept()?.limits()))
 }
 
-/// Where `path`'s value for `key` (a digest, or a scan key holding one) is
-/// kept. A digest names bytes, not a file: two files with the same bytes
-/// are read apart, so each keeps its own value and neither evicts the other.
+/// Where `path`'s value for a policy or a match scan is kept. Two files with
+/// the same bytes keep separate proofs and neither evicts the other's.
 fn slot(key: &str, path: &Path) -> String {
-    serde_json::json!([key, policy(path)]).to_string()
+    serde_json::json!([key, path.to_string_lossy()]).to_string()
 }
 
-/// The pass `q`'s snapshot names, while the opened file's stamp still stands
-/// in for its bytes.
+/// The current pass, also matching `q`'s snapshot when this is a continuation.
 pub(super) fn current(
     q: &LocalFetchQuery,
     path: &Path,
     meta: &std::fs::Metadata,
+    scan: &dyn ContentScan,
 ) -> Option<Arc<Kept>> {
-    of_digest(local_fetch_query::snapshot(q)?, path, meta)
+    let kept = load(path, meta, scan)?;
+    local_fetch_query::snapshot(q)
+        .is_none_or(|digest| digest == kept.proven.digest)
+        .then_some(kept)
 }
 
 /// The pass over the bytes `digest` names, while the opened file's stamp
 /// still stands in for them.
-pub(super) fn of_digest(digest: &str, path: &Path, meta: &std::fs::Metadata) -> Option<Arc<Kept>> {
-    let slot = slot(digest, path);
-    let kept = STORE.get(&slot, &policy(path), Arc::clone)?;
+pub(super) fn of_digest(
+    digest: &str,
+    path: &Path,
+    meta: &std::fs::Metadata,
+    scan: &dyn ContentScan,
+) -> Option<Arc<Kept>> {
+    load(path, meta, scan).filter(|kept| digest == kept.proven.digest)
+}
+
+fn load(path: &Path, meta: &std::fs::Metadata, scan: &dyn ContentScan) -> Option<Arc<Kept>> {
+    let policy = policy(scan)?;
+    let slot = slot(&policy, path);
+    let kept = STORE.get(&slot, &policy, Arc::clone)?;
     if cache_stamp(meta) == Some(kept.stamp) {
         return Some(kept);
     }
@@ -64,6 +75,9 @@ pub(super) fn of_digest(digest: &str, path: &Path, meta: &std::fs::Metadata) -> 
 /// recently for its stamp to stand in for its bytes, or changed during the pass:
 /// whether it was kept.
 pub(super) fn keep(source: &Opened<'_>, proven: Proven, total_lines: usize) -> bool {
+    let Some(policy) = policy(source.scan) else {
+        return false;
+    };
     let Some(stamp) = cache_stamp(source.meta)
         .and_then(|_| SourceStamp::settled(source.meta, proven.started))
         .filter(|_| proven.unchanged(source.file, source.meta))
@@ -72,8 +86,8 @@ pub(super) fn keep(source: &Opened<'_>, proven: Proven, total_lines: usize) -> b
     };
     let bytes = proven.weight() + std::mem::size_of::<Kept>();
     STORE.put(
-        slot(&proven.digest, source.path),
-        policy(source.path),
+        slot(&policy, source.path),
+        policy,
         bytes,
         Arc::new(Kept {
             proven,
@@ -86,7 +100,7 @@ pub(super) fn keep(source: &Opened<'_>, proven: Proven, total_lines: usize) -> b
 
 /// What a scan depends on besides the path: the bytes, the read without its
 /// position or the spelling of its path, and the scanner.
-fn scan_key<S: ContentScan>(q: &LocalFetchQuery, digest: &str) -> Option<String> {
+fn scan_key(q: &LocalFetchQuery, digest: &str, policy: &str) -> Option<String> {
     let mut read = q.clone();
     local_fetch_query::set_progress(&mut read, None);
     local_fetch_query::set_snapshot(&mut read, None).ok()?;
@@ -94,26 +108,35 @@ fn scan_key<S: ContentScan>(q: &LocalFetchQuery, digest: &str) -> Option<String>
     serde_json::to_string(&serde_json::json!({
         "digest": digest,
         "read": read,
-        "scan": std::any::type_name::<S>(),
+        "scan": policy,
     }))
     .ok()
 }
 
 /// The hits of `q`'s scan of the bytes its snapshot names.
-pub(super) fn hits<S: ContentScan>(q: &LocalFetchQuery, path: &Path) -> Option<Arc<KeptHits>> {
-    let key = scan_key::<S>(q, local_fetch_query::snapshot(q)?)?;
-    HITS.get(&slot(&key, path), &policy(path), Arc::clone)
+pub(super) fn hits(
+    q: &LocalFetchQuery,
+    path: &Path,
+    scan: &dyn ContentScan,
+) -> Option<Arc<KeptHits>> {
+    let policy = policy(scan)?;
+    let key = scan_key(q, local_fetch_query::snapshot(q)?, &policy)?;
+    HITS.get(&slot(&key, path), &policy, Arc::clone)
 }
 
 /// Keep the hits of `q`'s scan of the bytes `digest` names.
-pub(super) fn keep_hits<S: ContentScan>(
+pub(super) fn keep_hits(
     q: &LocalFetchQuery,
     path: &Path,
     digest: &str,
     hits: KeptHits,
+    scan: &dyn ContentScan,
 ) {
-    if let Some(key) = scan_key::<S>(q, digest) {
+    let Some(policy) = policy(scan) else {
+        return;
+    };
+    if let Some(key) = scan_key(q, digest, &policy) {
         let bytes = hits.weight();
-        HITS.put(slot(&key, path), policy(path), bytes, Arc::new(hits));
+        HITS.put(slot(&key, path), policy, bytes, Arc::new(hits));
     }
 }

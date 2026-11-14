@@ -30,11 +30,9 @@ fn line_delta(from: usize, to: usize) -> i32 {
         i32::try_from(from - to).map_or(i32::MIN, |distance| -distance)
     }
 }
-const MAX_POSITION_SOURCE_BYTES: u64 = super::MAX_LSP_SOURCE_BYTES;
-
 /// Whether a `len`-byte source is past the position-resolution cap.
 fn exceeds_source_cap(len: usize) -> bool {
-    u64::try_from(len).map_or(true, |len| len > MAX_POSITION_SOURCE_BYTES)
+    u64::try_from(len).map_or(true, |len| len > super::MAX_LSP_SOURCE_BYTES)
 }
 
 fn budget_error() -> Error {
@@ -54,7 +52,8 @@ fn check_budget(deadline: Instant) -> Result<()> {
 fn check_source_size(size: usize) -> Result<()> {
     if exceeds_source_cap(size) {
         Err(Error::new(format!(
-            "[lspSourceTooLarge] Symbol position source exceeds {MAX_POSITION_SOURCE_BYTES} bytes; narrow the source."
+            "[lspSourceTooLarge] Symbol position source exceeds {} bytes; narrow the source.",
+            super::MAX_LSP_SOURCE_BYTES
         )))
     } else {
         Ok(())

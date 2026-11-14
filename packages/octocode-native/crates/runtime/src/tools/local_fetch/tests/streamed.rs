@@ -5,10 +5,8 @@ use super::*;
 use octocode_contract_types::{LocalFetchQuery, ReadProgressUnit};
 
 fn checked_streamed_page(query: &LocalFetchQuery, paths: &Paths) -> LocalFetchResult {
-    let mut rows =
-        crate::contracts::prepare_many_built("localFetch", serde_json::json!({"queries":[query]}))
-            .expect("canonical input contract");
-    let query_json = rows.remove(0);
+    let query_json = crate::contracts::validate_built_query("localFetch", serde_json::json!(query))
+        .expect("canonical input contract");
     let admitted = serde_json::from_value(query_json.clone()).expect("admitted query");
     let result = fetch_with(&admitted, paths, &SmallSafe);
     crate::tools::test_support::published(

@@ -1,4 +1,4 @@
-use super::words;
+use super::{one_line, words};
 use serde_json::{Map, Value};
 
 /// A hit value's lines with their numbers: numbered source when the query
@@ -33,9 +33,10 @@ pub(super) fn heading(path: &str, file_note: Option<&str>, out: &mut Vec<String>
     if !out.is_empty() {
         out.push(String::new());
     }
+    let path = one_line(path);
     out.push(match file_note {
         Some(note) => format!("{path}  {note}"),
-        None => path.to_owned(),
+        None => path.into_owned(),
     });
 }
 
@@ -75,6 +76,7 @@ pub(super) fn hits(
     if heading {
         self::heading(path, file_note, out);
     }
+    let path = one_line(path);
     let mut last_line: Option<u64> = None;
     let mut last_owner: Option<String> = None;
     let labels = run_labels(matches);
@@ -161,7 +163,7 @@ pub(super) fn match_note(
             (Some(start), None) => format!(" {start}"),
             _ => String::new(),
         };
-        let owner = format!("{kind} {name}{span}");
+        let owner = format!("{} {}{span}", one_line(kind), one_line(name));
         if last_owner.as_deref() != Some(owner.as_str()) {
             parts.push(owner.clone());
         }

@@ -61,17 +61,17 @@ fn a_file_with_no_key_block_is_not_touched() {
     );
 }
 
-/// A string cut from a private JWK has nothing of `kty` in it: the object it
-/// came from says what it is. Its public members stay readable.
+/// A string cut from a keyed secret has nothing of its key in it: the line it
+/// came from says what it is. The other members stay readable.
 #[test]
-fn no_row_shows_a_private_member_of_a_jwk() {
-    let scalar = "Fake0Scalar9Not4Real8Value7Long6Enough5Xy";
+fn no_row_shows_a_keyed_secret_cut_from_its_line() {
+    let scalar = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
     let public = "Public0Coordinate9Stays8Readable7Always6Ab";
     let root = Fixture::new();
     let path = root.write(
         "k.ts",
         format!(
-            "export const k = {{\n  kty: \"EC\",\n  x: \"{public}\",\n  d: \"{scalar}\",\n}};\n"
+            "export const k = {{\n  region: \"eu\",\n  x: \"{public}\",\n  aws_secret_access_key: \"{scalar}\",\n}};\n"
         ),
     );
     let out = run(

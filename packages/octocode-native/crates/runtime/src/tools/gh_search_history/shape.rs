@@ -27,8 +27,6 @@ pub(super) struct Paging {
     matched: usize,
     /// A complete one-page REST list counts its rows exactly.
     exact_list_total: Option<usize>,
-    /// Rows a REST list has listed through this page.
-    loaded: usize,
     /// Rows this page shows.
     shown: usize,
     listed: bool,
@@ -59,10 +57,6 @@ impl Paging {
             capped: reach.capped,
             matched: result.total_count,
             exact_list_total: (result.listed && page == 1 && !more).then_some(result.items.len()),
-            loaded: page
-                .saturating_sub(1)
-                .saturating_mul(per)
-                .saturating_add(result.items.len()),
             shown: result.items.len(),
             listed: result.listed,
             incomplete: result.incomplete_results,
@@ -74,9 +68,9 @@ impl Paging {
     /// The page facts: where the page starts and the rows it shows, with
     /// the total when one is known. A search total the provider caps is a
     /// floor (`countScope:"capped"`), one it reported incomplete is
-    /// `partial`; a REST list page with more pages states the rows listed so
-    /// far (`loaded`). The cursor rides `next.nextPage`, bounded by the
-    /// contract's `page` maximum.
+    /// `partial`; a REST list with more pages states no total (the rows
+    /// listed so far read as the list's size). The cursor rides
+    /// `next.nextPage`, bounded by the contract's `page` maximum.
     fn pagination(&self) -> Value {
         use crate::response::pages::PageFacts;
         let facts = PageFacts::open(
@@ -94,8 +88,6 @@ impl Paging {
             (Some(self.total), scope)
         } else if let Some(total) = self.exact_list_total {
             (Some(total), None)
-        } else if self.more && !self.past_end {
-            (Some(self.loaded), Some("loaded"))
         } else {
             (None, None)
         };

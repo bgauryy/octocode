@@ -48,9 +48,9 @@ pub enum BinaryVerdict {
 pub const SNIFF_BYTES: usize = 8192;
 
 /// The one binary definition: a NUL byte, or a dense run of C0 control
-/// bytes (over 5% of the first [`SNIFF_BYTES`], `\t`/`\n`/`\r` and ANSI CSI
-/// sequences aside). UTF-8 validity is an encoding question, not a binary
-/// one: Latin-1 and other 8-bit text is text ([`decode`]).
+/// bytes (over 5% of the first [`SNIFF_BYTES`], [`text_control`] bytes and
+/// ANSI CSI sequences aside). UTF-8 validity is an encoding question, not a
+/// binary one: Latin-1 and other 8-bit text is text ([`decode`]).
 pub fn sniff(bytes: &[u8]) -> BinaryVerdict {
     if has_utf16_bom(bytes) {
         if bytes.len() < SNIFF_BYTES && !bytes.len().is_multiple_of(2) {
@@ -83,7 +83,7 @@ pub fn sniff(bytes: &[u8]) -> BinaryVerdict {
             continue;
         }
         counted += 1;
-        if sample[i] < 0x20 && !matches!(sample[i], b'\t' | b'\n' | b'\r') {
+        if sample[i] < 0x20 && !text_control(sample[i]) {
             controls += 1;
         }
         i += 1;
@@ -93,6 +93,14 @@ pub fn sniff(bytes: &[u8]) -> BinaryVerdict {
     } else {
         BinaryVerdict::Text
     }
+}
+
+/// A C0 control byte text holds: the whitespace controls, and the terminal
+/// controls (bell, backspace, vertical tab, form feed, escape) that logs and
+/// sources carry, which file(1) also counts as text. A stray one never makes a
+/// file binary, however short; other C0 bytes count toward the density.
+fn text_control(byte: u8) -> bool {
+    matches!(byte, 0x07..=0x0d | 0x1b)
 }
 
 /// Only a declared UTF-16 byte order is recognized; unmarked bytes are not guessed.

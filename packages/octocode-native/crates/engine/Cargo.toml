@@ -41,7 +41,6 @@ oxc_semantic = "=0.154.0"
 oxc_span = "=0.154.0"
 rayon = "1"
 regex = { workspace = true }
-regex-automata = { workspace = true, features = ["std", "syntax", "nfa-thompson", "hybrid"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

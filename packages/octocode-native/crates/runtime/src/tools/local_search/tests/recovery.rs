@@ -1,6 +1,6 @@
 //! An empty or partial page's next step: a plain miss under a narrow path
-//! leads to the narrowest folder above it where the same search matches
-//! (LS-5); an unreadable file
+//! leads to the nearest folder above it where the same search matches, naming
+//! the narrower folder that holds every match (LS-5); an unreadable file
 //! names its reason in `partialReasons` (LS-7); a skipped target names a
 //! reader only where that reader serves it.
 use super::*;
@@ -54,12 +54,12 @@ fn an_empty_row_states_coverage_and_no_zero_counter() {
     assert!(hit.get("bytesSearched").is_none(), "{hit}");
 }
 
-/// A plain miss leads straight to the narrowest folder that holds every
-/// match of the first folder above it with one, and says how many files
-/// match there: one call, where one folder up at a time took one empty call
-/// per level, and a lead to that ancestor left the agent to narrow again.
+/// A plain miss leads straight to the first folder above it with a match,
+/// and says how many files match there and the narrower folder that holds
+/// them all: one call, where one folder up at a time took one empty call per
+/// level.
 #[test]
-fn a_plain_miss_leads_to_the_narrowest_folder_above_it_with_a_match() {
+fn a_plain_miss_leads_to_the_nearest_folder_above_it_with_a_match() {
     let root = workspace();
     fs::create_dir_all(root.path().join("deep/a/b/c")).expect("dir");
     fs::create_dir_all(root.path().join("deep/other/sub")).expect("dir");
@@ -80,16 +80,16 @@ fn a_plain_miss_leads_to_the_narrowest_folder_above_it_with_a_match() {
     for path in [deep.clone(), format!("{deep}/x.txt")] {
         let row = search(root.path(), &path, serde_json::json!({}));
         assert_eq!(row["files"], serde_json::json!([]), "{row}");
-        assert_eq!(lead_path(&row), "deep/other", "{row}");
+        assert_eq!(lead_path(&row), "deep", "{row}");
         assert!(
             row["hints"]
                 .to_string()
-                .contains("2 file(s) under deep/other match"),
+                .contains("2 file(s) under deep match, all in deep/other"),
             "{row}"
         );
     }
     // The lead runs, and finds what the narrow scope could not.
-    let wider = search(root.path(), "deep/other", serde_json::json!({}));
+    let wider = search(root.path(), "deep", serde_json::json!({}));
     assert_eq!(wider["matchCount"], 2, "{wider}");
     // Matches in two folders (deep/other, and elsewhere.txt at the root):
     // the folder that holds them all.
@@ -145,8 +145,8 @@ fn a_plain_miss_nowhere_in_the_workspace_offers_no_wider_search() {
 }
 
 /// A skipped binary holds no text the search could match: an empty page
-/// that skipped one still leads first to the folder above where the same
-/// search matches; the binary stays a warning, with its listing after.
+/// that skipped one still leads to the folder above where the same search
+/// matches; the binary stays counted without an unrelated text listing.
 #[test]
 fn a_plain_miss_beside_a_skipped_binary_still_leads_to_the_match() {
     let root = workspace();
@@ -158,15 +158,12 @@ fn a_plain_miss_beside_a_skipped_binary_still_leads_to_the_match() {
     let narrow = root.path().join("narrow").to_string_lossy().into_owned();
     let row = search(root.path(), &narrow, serde_json::json!({}));
     assert_eq!(row["files"], serde_json::json!([]), "{row}");
-    assert!(
-        row["warnings"].to_string().contains("binarySkipped"),
-        "{row}"
-    );
+    assert_eq!(row["binarySkipped"], 1, "{row}");
     let related = row["related"].as_array().expect("related");
     assert_eq!(related[0]["tool"], "localSearch", "{row}");
     assert_eq!(related[0]["input"]["queries"][0]["path"], ".", "{row}");
     assert!(
-        related.iter().any(|call| call["tool"] == "structureSearch"),
+        related.iter().all(|call| call["tool"] != "structureSearch"),
         "{row}"
     );
     assert!(
@@ -210,10 +207,10 @@ fn a_plain_miss_in_a_clone_leads_to_the_match_in_its_checkout_only() {
     let lib = fs::canonicalize(checkout.join("lib")).expect("lib");
     let row = run(&lib, "needle");
     let lead = crate::tools::test_support::checks::related_call(&row, "localSearch", |_| true);
-    let test_dir = fs::canonicalize(checkout.join("test")).expect("test");
+    let top = fs::canonicalize(&checkout).expect("checkout");
     assert_eq!(
         lead["input"]["queries"][0]["path"],
-        test_dir.to_string_lossy().as_ref(),
+        top.to_string_lossy().as_ref(),
         "{row}"
     );
     assert!(
@@ -227,7 +224,6 @@ fn a_plain_miss_in_a_clone_leads_to_the_match_in_its_checkout_only() {
             .is_none(),
         "{row}"
     );
-    let top = fs::canonicalize(&checkout).expect("checkout");
     assert!(
         row["hints"].to_string().contains(&format!(
             "nor anywhere else under {} under the same filters",
@@ -371,4 +367,71 @@ fn a_regex_match_limit_is_named_in_partial_reasons() {
         serde_json::json!(["regexMatchLimit"]),
         "{row}"
     );
+}
+
+/// A widening lead searches an ancestor of the searched path, under the walk
+/// that reached the path: when that ancestor's walk would leave the path out
+/// (an ignore rule, a dot name), the lead lifts that cause, the hint says so,
+/// and the lead finds the files the hint counts. A path inside an ignored
+/// checkout widens to its ignored siblings, never to an unrelated tree the
+/// plain walk happens to reach first.
+#[test]
+fn a_widening_lead_searches_an_ancestor_under_the_walk_that_reached_the_path() {
+    let root = workspace();
+    fs::create_dir(root.path().join(".git")).expect("repository marker");
+    fs::write(root.path().join(".gitignore"), "repos/*\n").expect("gitignore");
+    for (file, text) in [
+        ("repos/one/a.txt", "nothing\n"),
+        ("repos/two/b.txt", "needle\n"),
+        ("repos/three/c.txt", "needle\n"),
+        (".dot/one/a.txt", "nothing\n"),
+        ("deep/a/b/c/x.txt", "nothing\n"),
+        ("deep/other/hit.txt", "needle\n"),
+    ] {
+        let path = root.path().join(file);
+        fs::create_dir_all(path.parent().expect("parent")).expect("dir");
+        fs::write(path, text).expect("fixture");
+    }
+    let (policy, security) = policy_for(root.path());
+    for (searched, lifted) in [
+        ("repos/one", Some("includeIgnored")),
+        (".dot/one", Some("includeHidden")),
+        ("deep/a/b/c", None),
+    ] {
+        let absolute = root.path().join(searched).to_string_lossy().into_owned();
+        let row = search(root.path(), &absolute, serde_json::json!({}));
+        assert_eq!(row["files"], serde_json::json!([]), "{searched}: {row}");
+        let lead = crate::tools::test_support::checks::related_call(&row, "localSearch", |_| true);
+        let query = lead["input"]["queries"][0].clone();
+        let widened = query["path"].as_str().expect("lead path");
+        assert!(
+            widened == "." || std::path::Path::new(searched).starts_with(widened),
+            "{searched}: the lead searches an ancestor, not {widened}: {row}"
+        );
+        for flag in ["includeIgnored", "includeHidden"] {
+            assert_eq!(
+                query.get(flag).is_some(),
+                lifted == Some(flag),
+                "{searched}: {flag}: {row}"
+            );
+        }
+        if let Some(flag) = lifted {
+            assert!(row["hints"].to_string().contains(flag), "{searched}: {row}");
+        }
+        let found = search_in(&ls_query(query.clone(), None), &policy, &security, None)
+            .expect("lead runs")
+            .to_row()
+            .expect("row");
+        let counted = row["hints"]
+            .as_array()
+            .expect("hints")
+            .iter()
+            .filter_map(|hint| hint.as_str()?.split_once("; ")?.1.split_once(" file(s)"))
+            .find_map(|(count, _)| count.parse::<u64>().ok())
+            .unwrap_or_else(|| panic!("{searched}: a counted hint: {row}"));
+        assert_eq!(
+            found["matchedFiles"], counted,
+            "{searched}: {query}: {found}"
+        );
+    }
 }

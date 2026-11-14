@@ -2,6 +2,7 @@
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { errorMessage } from './error-message.mjs';
+import { octocodeWorkspace } from './engine-io.mjs';
 import { getOctocodeHome } from './octocode-config.mjs';
 
 type Fail = (message: string) => never;
@@ -62,7 +63,7 @@ export function loadProxyConfig(
   configPath: string,
   io: LaunchIo
 ): ProxyConfig | null {
-  const cwdConfig = join(process.cwd(), '.octocode', 'chrome-devtools.json');
+  const cwdConfig = join(octocodeWorkspace(), 'chrome-devtools.json');
   const homeConfig = join(getOctocodeHome(), 'config.json');
   if (configPath && !existsSync(configPath))
     io.fail(`Config file not found: ${configPath}`);

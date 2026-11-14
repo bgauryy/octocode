@@ -98,7 +98,7 @@ ps -axo pid,ppid,etime,command | awk '$2 == 1' | grep -E 'octocode|node|tmux|car
 
 Also check the children of the lane's shells by PPID (macOS shows no environment for `/bin/zsh` or `sleep`) and processes whose `CLAUDE_PID` names an exited session. The lane stops what it started, by PID; everything else goes to the orchestrator as a leak candidate with PID, owner and evidence. Full attribution recipe: [who is using the machine](../../../skills/octocode-debugging/references/host-usage.md).
 
-**Target growth.** Before a gate run, compare `df -h .` with `du -sh packages/octocode-native/target/*/` (about a minute at 350 GB: run it once, in the background). When disk is short, report the sizes to the owner with the options in [Cargo builds](../docs/DEVELOPMENT.md#cargo-builds): `$DEV clean:cache` while no cargo job runs, `cargo sweep --toolchains` after a toolchain bump, `cargo sweep --dry-run --time <days>` to preview. Agents run none of them, and never `cargo clean`, without the owner's approval.
+**Target growth.** The build and test wrappers print `deps: N entries`; a count that keeps climbing means stray selections or leaked objects ([Cargo builds](../docs/DEVELOPMENT.md#cargo-builds): incremental `.rcgu.o` per-run names, rust-lang/rust#161824, stopped by `incremental = false`). At the end of a round, once no lane builds, the build owner runs `$DEV prune:rust` (it refuses while cargo, rustc or nextest runs, and lists what it removed) and checks `df -h .`. Larger resets go to the owner: `$DEV clean:cache` while no cargo job runs, `cargo sweep --toolchains` after a toolchain bump. Agents run neither, and never `cargo clean`, without the owner's approval.
 
 ## 2. Brief a subagent
 

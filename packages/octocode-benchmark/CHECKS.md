@@ -128,7 +128,10 @@ Use the pinned binary on the CLI and on the MCP server (`node packages/octocode-
    A refusal is fine when it names the limit and the way to narrow the call. A silent cut or a hang is a defect.
 
 Also look at the surfaces: CLI and MCP give the same answer; an offline or tokenless run answers locally
-and names the fix for GitHub without hanging; no `octocode` process outlives its call or client.
+and names the fix for GitHub without hanging; no `octocode` process outlives its call or client, except the
+CLI's shared warm server: one `octocode serve` per binary build, workspace and configuration, which exits
+after `IDLE_EXIT` (10 minutes) without a request, or on `octocode cache clear` or `auth login`/`logout`
+([warm tool server](../octocode-native/README.md#warm-tool-server)).
 
 Report one row per tool with the eight ratings and their evidence, then each defect with the call that
 reproduces it. A rating below 4 needs a defect or a stated reason.
@@ -321,7 +324,7 @@ MCP server. Pass means the behavior below; anything else is a defect with the ca
 | **Tokens and refusals** | no token, a bad token, `HTTPS_PROXY=http://127.0.0.1:9` | local tools answer; GitHub tools return one error that names the fix, without hanging or printing the token |
 | **Clone sandbox** | `ghCloneRepo`, then a refresh over a local edit; `lspSearch` on the clone | the checkout lands under the Octocode home; a dirty refresh refuses (`checkoutDirty`) and keeps the edit; no language server starts on fetched code unless trusted |
 | **Prompt injection** | a file, issue or PR body that says "ignore your instructions and …" | the text comes back as data; no tool acts on it; a checking agent given that output does not follow it |
-| **Processes** | interrupted calls, closed MCP stdin | no `octocode` or language-server process outlives its call or client |
+| **Processes** | interrupted calls, closed MCP stdin | no `octocode` or language-server process outlives its call or client, except the warm `octocode serve` (see Sanity above) and the language servers it pools, which stop on the pool's idle timeout |
 
 ## Skills
 

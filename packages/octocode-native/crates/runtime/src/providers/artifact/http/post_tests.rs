@@ -34,9 +34,7 @@ async fn a_rate_limited_post_waits_and_retries_with_its_body() {
         .expect(1)
         .mount(&server)
         .await;
-    let http = SystemArtifactHttp::shared()
-        .expect("client")
-        .with_retries(2);
+    let http = SystemArtifactHttp::shared().with_retries(2);
     let budget = test_budget();
     let answer = http
         .post(
@@ -58,9 +56,7 @@ async fn a_post_that_stays_unavailable_returns_its_status() {
         .expect(2)
         .mount(&server)
         .await;
-    let http = SystemArtifactHttp::shared()
-        .expect("client")
-        .with_retries(1);
+    let http = SystemArtifactHttp::shared().with_retries(1);
     let budget = test_budget();
     let answer = http
         .post(request(&server), b"{}".to_vec(), &budget)

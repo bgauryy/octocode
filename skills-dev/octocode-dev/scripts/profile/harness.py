@@ -87,12 +87,11 @@ def can_count():
     return None
 
 
-def clean_env(home, mode='memory', extra=None):
+def clean_env(home):
     """An isolated environment: its own home, memory storage, no user tokens, nothing auto-installed."""
     env = {key: value for key, value in os.environ.items() if not key.startswith(_ENV_DROP)}
-    env.update({'OCTOCODE_HOME': str(home), 'OCTOCODE_STORAGE_MODE': mode, 'OCTOCODE_LSP_AUTO_INSTALL': 'off',
+    env.update({'OCTOCODE_HOME': str(home), 'OCTOCODE_STORAGE_MODE': 'memory', 'OCTOCODE_LSP_AUTO_INSTALL': 'off',
                 'OCTOCODE_LSP_PREWARM': 'off', 'OCTOCODE_BETA': 'true', 'OCTOCODE_ENABLE_CLONE': 'true', 'GIT_TERMINAL_PROMPT': '0', 'GIT_CONFIG_NOSYSTEM': '1', 'NO_COLOR': '1'})
-    env.update(extra or {})
     return env
 
 
@@ -294,95 +293,3 @@ def row_error(content):
             if row.get('errorCode') or data.get('errorCode') or row.get('status') == 'error':
                 return str(row.get('errorCode') or data.get('errorCode') or 'error')[:80]
     return None
-
-
-def corpus(rev):
-    """A frozen copy of the native crates at one commit, so a change in the tree moves no count."""
-    target = ROOT / '.octocode/octocode-dev/profile' / f'corpus-{rev}'
-    workspace = target / 'packages/octocode-native'
-    if workspace.exists():
-        return extras(workspace)
-    target.mkdir(parents=True, exist_ok=True)
-    archive = subprocess.run(
-        ['git', 'archive', '--format=tar', rev, '--', 'packages/octocode-native/crates', 'packages/octocode-native/Cargo.toml',
-         'packages/octocode-native/Cargo.lock', 'packages/octocode-native/rust-toolchain.toml',
-         'packages/octocode-config/contract/tool_types.rs'],
-        cwd=ROOT, capture_output=True, check=False)
-    if archive.returncode != 0:
-        raise SystemExit(f'no corpus: commit {rev} is not in this clone ({archive.stderr.decode()[:200].strip()}). Re-pin CORPUS_REV and rewrite the baseline.')
-    subprocess.run(['tar', '-xf', '-', '-C', str(target)], input=archive.stdout, check=True)
-    # The largest source in the repo, inside the workspace so that path policy admits it.
-    (workspace / 'big').mkdir()
-    shutil.move(target / 'packages/octocode-config/contract/tool_types.rs', workspace / 'big/tool_types.rs')
-    subprocess.run(['git', 'init', '-q', str(workspace)], check=True)
-    return extras(workspace)
-
-
-def minified_line(size):
-    """One deterministic minified JavaScript line of `size` bytes; a `needle_call` every ~55 bytes."""
-    parts, total, i = [], 0, 0
-    while total < size:
-        part = f'function f{i}(a){{return needle_call(a,{i})}}var v{i}=f{i}(1);'
-        parts.append(part)
-        total += len(part)
-        i += 1
-    return ''.join(parts)[:size]
-
-
-def extras(workspace):
-    """Next-wave fixtures beside the frozen crates, outside `crates/` so no older flow sees them:
-    `longline/` one 1 MiB line, `longline-huge/` one 12 MiB line, `public/vite/` public MIT text for live flows."""
-    for directory, size in (('longline', 1 << 20), ('longline-huge', 12 << 20)):
-        target = workspace / directory / ('bundle.min.js' if directory == 'longline' else 'huge.min.js')
-        if not target.exists() or target.stat().st_size != size + 1:
-            target.parent.mkdir(exist_ok=True)
-            target.write_text(minified_line(size) + '\n')
-    vite = workspace / 'public/vite'
-    if not vite.exists():
-        shutil.copytree(Path(__file__).with_name('fixtures') / 'public-vite', vite)
-    return workspace
-
-
-def stub_server(work):
-    """The providers/ loopback GitHub, the registry proxy and OSV. Returns (process, {url, proxyUrl, caFile}),
-    or (None, reason) when it cannot start."""
-    url_file = Path(work) / 'stub.url'
-    env = {**os.environ, 'STUB_TOKENS': 'profile-fake-token', 'PROF_TMP': str(work)}
-    process = subprocess.Popen(['node', str(Path(__file__).with_name('stub.mjs')), str(url_file)], env=env,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
-    for _ in range(300):
-        if url_file.exists() and url_file.read_text():
-            return process, json.loads(url_file.read_text())
-        if process.poll() is not None:
-            return None, f'stub did not start: {process.stderr.read()[:300]}'
-        time.sleep(0.1)
-    process.terminate()
-    return None, 'stub did not start in 30 s'
-
-
-def stub_env(stub):
-    """GitHub and the classification provider at the stub; HTTPS registries and OSV through its proxy."""
-    url = stub['url']
-    return {'GITHUB_TOKEN': 'profile-fake-token', 'GITHUB_API_URL': f'{url}/api/v3', 'OCTOCODE_ALLOW_PRIVATE_REGISTRY': 'true',
-            'OCTOCODE_CLASSIFICATION_API_HOST': url, 'OCTOCODE_CLASSIFICATION_API': 'profile-fake-token', 'OCTOCODE_SECURITY_CHECKS': 'true',
-            'HTTPS_PROXY': stub['proxyUrl'], 'https_proxy': stub['proxyUrl'], 'SSL_CERT_FILE': stub['caFile'], 'SSL_CERT_DIR': '',
-            'NO_PROXY': '127.0.0.1,localhost,::1', 'no_proxy': '127.0.0.1,localhost,::1'}
-
-
-def live_env(kind):
-    """The configured classification key from ~/.octocode/.env, for live flows. The value is never printed."""
-    if kind != 'classification':
-        raise SystemExit(f'unknown live kind {kind}')
-    dotenv = Path.home() / '.octocode/.env'
-    for line in dotenv.read_text().splitlines() if dotenv.exists() else ():
-        match = re.match(r'\s*(?:export\s+)?OCTOCODE_CLASSIFICATION_API\s*=\s*[\'"]?([^\'"\s#]+)', line)
-        if match:
-            return {'OCTOCODE_CLASSIFICATION_API': match.group(1)}
-    raise SystemExit('live flow: no OCTOCODE_CLASSIFICATION_API in ~/.octocode/.env')
-
-
-def with_stub(query, stub):
-    """The query with every '{stub}' replaced by the stub's base URL."""
-    if not stub:
-        return query
-    return json.loads(json.dumps(query).replace('{stub}', stub['url']))

@@ -944,12 +944,13 @@ mod batch_walk {
         }
     }
 
-    /// A repeated question asks OSV for its current id list: OSV sends no
-    /// validator for `/v1/querybatch`, so a kept list could only answer as of
-    /// an earlier time, and a security answer is not served stale. Records
-    /// stay exact under `(id, modified)`, so an unchanged one is not read again.
+    /// A repeated question within the search window reuses the id list OSV
+    /// gave (OSV sends no validator for `/v1/querybatch`) and discloses when
+    /// it was observed, so a reused list never reads as current. Records stay
+    /// exact under `(id, modified)`, so an unchanged one is not read again.
+    /// A list kept past the window is asked for again.
     #[tokio::test]
-    async fn a_repeated_query_asks_for_the_current_list_and_reuses_unchanged_records() {
+    async fn a_repeated_query_reuses_the_list_disclosed_and_unchanged_records() {
         let store = KeptAnswers::new(None);
         let (budget, config) = (
             test_budget(),
@@ -980,13 +981,35 @@ mod batch_walk {
             .await
             .expect("walk");
         assert_eq!(walked.read.len(), 1);
-        assert_eq!(again.post_bodies().len(), 1, "the id list is asked again");
+        assert_eq!(again.post_bodies().len(), 0, "the kept list answers");
         assert_eq!(
             gets(&again, "A"),
             0,
             "an unchanged record is not read again"
         );
-        assert_eq!(reused.get(), None, "a current list discloses no reuse");
+        assert!(reused.get().is_some(), "a reused list is disclosed");
+
+        // The same list observed before the window opened is asked again.
+        let asked = first.post_bodies().remove(0);
+        let (scope, identity) = super::batch::list_key(&net, &asked).expect("key");
+        let mut saved =
+            octocode_github::SavedAnswers::load(&store, &scope, &identity).expect("kept list");
+        saved.observed_ms = saved.observed_ms.saturating_sub(
+            u64::try_from(octocode_github::SEARCH_REUSE_WINDOW.as_millis()).unwrap_or(u64::MAX),
+        );
+        octocode_github::SavedAnswers::save(&store, &scope, &identity, saved);
+        let stale = asking();
+        let reused = ReusedSince::default();
+        let net = net_of(&stale, &budget, &reused, &config, Some(&store));
+        walk::walk_one(&net, &lodash("1.0.0"), None)
+            .await
+            .expect("walk");
+        assert_eq!(
+            stale.post_bodies().len(),
+            1,
+            "an expired list is asked again"
+        );
+        assert_eq!(reused.get(), None, "{:?}", reused.get());
     }
 
     /// Listed records are read together, not one after another: five records

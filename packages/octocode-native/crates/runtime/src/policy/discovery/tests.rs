@@ -170,12 +170,43 @@ fn a_directory_holding_withheld_files_is_not_disclosed_as_the_file() {
         entries.iter().map(|entry| entry.count).sum::<usize>(),
         withheld.total()
     );
-    // Two directories holding one file each stay two entries.
+    // The default view groups the two holders at their common directory,
+    // preserving the count and saying that individual paths were grouped.
     let shown = crate::tools::leads::skipped::skipped_paths(entries, false, false)
         .expect("skipped paths")
-        .expect("some skipped")
-        .entries;
-    assert_eq!(shown.len(), 2, "{shown:?}");
+        .expect("some skipped");
+    assert_eq!(
+        serde_json::to_value(&shown).expect("shown paths"),
+        serde_json::json!({
+            "entries": [{"cause": "withheld", "count": withheld.total(),
+                "path": walked, "reason": WithheldKind::CredentialFile.reason()}],
+            "sampled": true
+        })
+    );
+    // The detailed view still exposes both holder directories exactly once,
+    // never the withheld files themselves, with the same total count.
+    let detailed = crate::tools::leads::skipped::skipped_paths(
+        unlifted(&walked, &withheld, Default::default()),
+        true,
+        false,
+    )
+    .expect("skipped paths")
+    .expect("some skipped");
+    assert!(!detailed.sampled);
+    let mut shown = serde_json::to_value(detailed.entries).expect("holder paths");
+    shown
+        .as_array_mut()
+        .expect("entries")
+        .sort_by(|a, b| a["path"].as_str().cmp(&b["path"].as_str()));
+    let mut expected = serde_json::json!([
+        {"cause": "withheld", "path": walked, "reason": WithheldKind::CredentialFile.reason()},
+        {"cause": "withheld", "path": held_at, "reason": WithheldKind::CredentialFile.reason()}
+    ]);
+    expected
+        .as_array_mut()
+        .expect("entries")
+        .sort_by(|a, b| a["path"].as_str().cmp(&b["path"].as_str()));
+    assert_eq!(shown, expected);
 }
 
 /// The notice names what it withheld: a `.git` pointer file is not
@@ -356,141 +387,65 @@ fn a_repository_file_passes_the_one_name_rule() {
     }
 }
 
-/// Credential files keep their names' shapes as real tools write them, not
-/// only the one exact name: a kubeconfig under any name a cluster tool or a
-/// person gives it, cloud and registry credentials with a qualifier, SSH keys
-/// with a suffix, Windows spellings. A source file that only mentions the word
-/// stays readable (RV-C3eF live leak, round 12).
+/// The known credential files are withheld however a tool or a filesystem
+/// spells them: any case, a backup copy, a Windows trailing dot, and a
+/// store at its known place (kubeadm's `/etc/kubernetes/admin.conf`).
 #[test]
-fn credential_files_are_matched_by_the_names_tools_write() {
-    for withheld in [
-        "/w/kube/kubeconfig-prod-cluster.yaml",
-        "/w/kubeconfig",
-        "/w/kubeconfig.yaml",
-        "/w/prod.kubeconfig",
-        "/w/.kubeconfig",
-        "/w/clusters/staging-kubeconfig.yml",
-        "/w/KubeConfig-Dev.JSON",
-        "/w/etc/kubernetes/admin.conf",
-        "/w/etc/kubernetes/super-admin.conf",
-        "/w/etc/kubernetes/kubelet.conf",
-        "/w/etc/kubernetes/controller-manager.conf",
-        "/w/etc/kubernetes/scheduler.conf",
-        "/w/etc/rancher/k3s/k3s.yaml",
-        "/w/etc/rancher/rke2/rke2.yaml",
-        "/w/gcp-credentials.json",
-        "/w/application_default_credentials.json",
-        "/w/aws_credentials",
-        "/w/credentials.csv",
-        "/w/alice_accessKeys.csv",
-        "/w/app-secrets.yaml",
-        "/w/my-project-service-account.json",
-        "/w/proj-firebase-adminsdk-ab12c.json",
-        "/w/keys/id_rsa_github",
-        "/w/keys/id_ed25519_sk",
-        "/w/_netrc",
-        "/w/AppData/postgresql/pgpass.conf",
-        "/w/etc/npmrc",
-        "/w/htpasswd",
-        "/w/infra/prod.tfstate",
-        "/w/infra/prod.tfstate.backup",
-        "/w/infra/prod.auto.tfvars",
-    ] {
-        assert!(
-            is_sensitive_path(Path::new(withheld)),
-            "withheld: {withheld}"
-        );
+fn known_credential_files_are_withheld_in_every_spelling() {
+    let names = CREDENTIAL_FILE_NAMES
+        .iter()
+        .map(|name| (*name).to_owned())
+        .chain(
+            CREDENTIAL_FILE_EXTENSIONS
+                .iter()
+                .map(|extension| format!("store{extension}")),
+        )
+        .chain([".env", ".env.production", "app.env", "id_ed25519_github"].map(str::to_owned));
+    for name in names {
+        for spelled in [
+            name.clone(),
+            name.to_ascii_uppercase(),
+            format!("{name}.bak"),
+            format!("{name}~"),
+            format!("{name}."),
+        ] {
+            assert!(
+                is_sensitive_path(&Path::new("/w/project").join(&spelled)),
+                "withheld: {spelled}"
+            );
+        }
     }
-    for readable in [
-        "/w/pkg/kubeconfig.go",
-        "/w/pkg/kubeconfig_test.go",
-        "/w/docs/kubeconfig.md",
-        "/w/src/credentials.ts",
-        "/w/src/credentials_store.py",
-        "/w/docs/secrets.md",
-        "/w/keys/id_rsa.pub",
-        "/w/keys/id_rsa_github.pub",
-        "/w/src/id_rsa_loader.rs",
-        "/w/app/admin.conf",
-        "/w/config/k3s-install.md",
-        "/w/infra/variables.tf",
-        "/w/infra/terraform.tfvars.example",
-    ] {
-        assert!(
-            !is_sensitive_path(Path::new(readable)),
-            "readable: {readable}"
-        );
+    for name in KUBEADM_CONFIGS {
+        assert!(is_sensitive_path(
+            &Path::new("/w/etc/kubernetes").join(name)
+        ));
+        assert!(!is_sensitive_path(&Path::new("/w/app").join(name)));
     }
 }
 
-/// Round 13 (RV-SEC round 12 review): the shapes that still bypassed the
-/// name rules are withheld; the ordinary files a substring match withheld are
-/// readable again; and a name is judged as Windows opens it (a trailing dot or
-/// space dropped). Every case round 12 pinned stays as it was.
+/// Only the known list withholds a file. A shell's history and rc files, a
+/// file whose name merely holds a credential word, public keys and
+/// certificates, and the source and docs about credentials read like any
+/// file: what they hold of a known secret format is redacted.
 #[test]
-fn credential_name_rules_close_bypasses_and_free_ordinary_files() {
-    for withheld in [
-        // Terraform loads JSON variable files; `terraform state` writes
-        // timestamped backups.
-        "/w/tf/prod.tfvars.json",
-        "/w/tf/prod.auto.tfvars.json",
-        "/w/tf/terraform.tfstate.1700000000.backup",
-        "/w/tf/terraform.tfstate.backup",
-        // Google's OAuth client downloads.
-        "/w/app/client_secret.json",
-        "/w/app/client_secret_1234.apps.googleusercontent.com.json",
-        // Editor and rotation copies of a withheld name.
-        "/w/kube/kubeconfig.yaml.swp",
-        "/w/kube/.kubeconfig.yaml.swp",
-        "/w/kube/kubeconfig.yaml.tmp",
-        "/w/kube/kubeconfig.yaml.1",
-        "/w/keys/.id_rsa.swp",
-        "/w/kube/#kubeconfig.yaml#",
-        // Windows opens these as `kubeconfig.yaml` and `.env`.
-        "/w/win/kubeconfig.yaml.",
-        "/w/win/kubeconfig.yaml ",
-        "/w/win/.env.",
-        // Words on a token boundary, as before.
+fn a_file_outside_the_known_list_is_readable() {
+    for readable in [
+        "/w/home/.zsh_history",
+        "/w/home/.bash_history",
+        "/w/home/.zshrc",
+        "/w/home/.bashrc",
+        "/w/home/.profile",
+        "/w/kube/kubeconfig-prod-cluster.yaml",
         "/w/app/app-secrets.yaml",
         "/w/app/secrets.toml",
         "/w/gcp-credentials.json",
-        "/w/aws_credentials",
-        "/w/my-project-service-account.json",
-        "/w/i18n/id_rsa",
-        // `sealed`/`external` describe only a secrets manifest: an
-        // "external" kubeconfig or credentials file is a real one (N13-1).
-        "/w/kube/kubeconfig-external.yaml",
-        "/w/app/credentials-external.json",
-        "/w/app/sealed-credentials.json",
-        // `lang/` is a programming language in SDK layouts, not a
-        // translation folder (N13-2).
-        "/w/lang/go/credentials.json",
-        "/w/langs/python/secrets.yaml",
-    ] {
-        assert!(
-            is_sensitive_path(Path::new(withheld)),
-            "withheld: {withheld}"
-        );
-    }
-    for readable in [
-        // A Kubernetes ServiceAccount manifest holds no secret.
-        "/w/helm/templates/service-account.yaml",
-        "/w/docs/service_account.txt",
-        // Sealed secrets are encrypted; ExternalSecrets hold references.
-        "/w/k8s/sealed-secrets.yaml",
-        "/w/k8s/external-secrets.yaml",
-        // Descriptions, not the credential.
-        "/w/schemas/credentials.schema.json",
-        "/w/i18n/credentials.json",
-        "/w/locales/en/secrets.json",
-        "/w/.github/workflows/secrets.yml",
-        // A word inside another word (AWS SDK models).
-        "/w/aws-sdk/secretsmanager-2017-10-17.normal.json",
-        "/w/src/credentialsprovider.xml",
-        // Still readable from round 12.
+        "/w/certs/server.crt",
+        "/w/keys/release.asc",
+        "/w/keys/id_rsa.pub",
         "/w/pkg/kubeconfig.go",
         "/w/src/credentials.ts",
-        "/w/keys/id_rsa.pub",
+        "/w/docs/secrets.md",
+        "/w/infra/variables.tf",
     ] {
         assert!(
             !is_sensitive_path(Path::new(readable)),

@@ -2,7 +2,7 @@
 use super::super::scan_window::window_files;
 use super::continuations::tree_repair;
 use super::query::MatchQuery;
-use super::rows::{diagnostic_error, error_diagnostic, match_display_path};
+use super::rows::{diagnostic_error, error_diagnostic};
 use super::snapshot::directory_source_digest;
 use super::types::{Scan, ScannedFile, Scope};
 use super::{demand, match_price};
@@ -281,7 +281,7 @@ pub(super) fn scan_directory(
             .files
             .into_iter()
             .map(|f| ScannedFile {
-                path: match_display_path(&scope.canonical, &f.path),
+                path: super::super::rooted_display(&scope.canonical, std::path::Path::new(&f.path)),
                 parser: parser_extension(scope, std::path::Path::new(&f.path)),
                 source: f
                     .source_sha256

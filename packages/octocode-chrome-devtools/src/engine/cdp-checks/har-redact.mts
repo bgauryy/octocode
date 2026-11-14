@@ -9,7 +9,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'path';
 import { flagArgs, validateFlags } from '../cli-flags.mjs';
-import { octocodeWorkspace } from '../engine-io.mjs';
+import { octocodeWorkspace, packageTmpDir } from '../engine-io.mjs';
 import type {
   HarEntry,
   HarFile,
@@ -40,13 +40,7 @@ const workspaceOutputBase = octocodeWorkspace();
 const defaultName = `${basename(inPath).replace(/\.har$/i, '')}.redacted.har`;
 const outPath = resolve(
   getArg('--out') ??
-    join(
-      workspaceOutputBase,
-      'octocode-chrome-devtools',
-      'tmp',
-      'redacted-har',
-      defaultName
-    )
+    join(packageTmpDir(workspaceOutputBase), 'redacted-har', defaultName)
 );
 const outRelative = relative(workspaceOutputBase, outPath);
 if (outRelative.startsWith('..') || isAbsolute(outRelative)) {

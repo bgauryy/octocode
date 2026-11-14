@@ -13,8 +13,8 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ROOT } from './lib/workspaces.mjs';
 
-const ROOT = process.cwd();
 const CONFIG = '.oxlintrc.json';
 const BASELINE = '.oxlintrc.baseline.json';
 const HEADER =

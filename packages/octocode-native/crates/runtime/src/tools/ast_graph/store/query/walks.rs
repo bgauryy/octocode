@@ -150,7 +150,6 @@ pub(super) fn path(
         return Ok(GraphOutput::empty(json!({
             "graph": g.summary(), "operation": "path", "found": false, "edges": edges,
             "from": g.key(from), "to": g.key(to),
-            "hint": "No directed path over these edges; try direction both or edges [\"imports\",\"calls\"]",
         })));
     }
     let mut hops = Vec::new();
@@ -438,7 +437,10 @@ pub(super) fn hubs(
         check(cancel)?;
         let mut row = g.node_json(hub.id, cancel)?;
         if let Some(rank) = hub.rank {
-            row.insert("pageRank".into(), json!(rank));
+            row.insert(
+                "pageRank".into(),
+                json!(super::super::detect::significant(rank)),
+            );
         }
         row.insert("fanIn".into(), json!(hub.fan_in));
         row.insert("fanOut".into(), json!(hub.fan_out));

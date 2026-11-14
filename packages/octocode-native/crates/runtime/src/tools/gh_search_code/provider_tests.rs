@@ -69,7 +69,7 @@ async fn mount_answer(
 fn next_page(out: &crate::response::result::ToolData) -> GhSearchCodeQuery {
     let input = out.data["next"]["nextPage"]["input"].clone();
     assert!(input.is_object(), "no next.nextPage: {}", out.data);
-    let prepared = crate::contracts::validate_built("ghSearchCode", input)
+    let prepared = crate::contracts::validate_saved("ghSearchCode", input)
         .expect("the continuation is a valid saved request");
     serde_json::from_value(prepared["queries"][0].clone()).expect("query")
 }

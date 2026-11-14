@@ -11,7 +11,11 @@ import {
   type JsonSchema,
 } from '../src/spec.js';
 import { flagToken, usagePattern } from '../src/usage.js';
-import { flagsFromZod } from '../src/zod-flags.js';
+
+/** The flags a Zod command gets: read from its input JSON Schema, as an MCP tool's are. */
+function zodFlags(schema: ZodType): readonly Flag[] {
+  return defineCommand({ name: 'probe', description: 'Probe', schema, run: input => input }).flags;
+}
 
 function view(flag: Flag) {
   return {
@@ -51,12 +55,12 @@ const jsonSchema: JsonSchema = {
 
 describe('flag parity', () => {
   it('matches Zod and JSON Schema flags for the supported subset', () => {
-    const zodFlags = flagsFromZod(zodSchema).flags.map(view);
+    const fromZod = zodFlags(zodSchema).map(view);
     const jsonFlags = flagsFromJsonSchema(jsonSchema).flags.map(view);
-    expect(jsonFlags).toEqual(zodFlags);
-    expect(zodFlags.map(flag => flag.kind)).toEqual(['string', 'integer', 'enum', 'boolean', 'array']);
-    expect(zodFlags.find(flag => flag.name === 'force')).toMatchObject({ presence: true, required: false, defaultValue: false });
-    expect(zodFlags.find(flag => flag.name === 'labels')).toMatchObject({ itemKind: 'string', required: true });
+    expect(jsonFlags).toEqual(fromZod);
+    expect(fromZod.map(flag => flag.kind)).toEqual(['string', 'integer', 'enum', 'boolean', 'array']);
+    expect(fromZod.find(flag => flag.name === 'force')).toMatchObject({ presence: true, required: false, defaultValue: false });
+    expect(fromZod.find(flag => flag.name === 'labels')).toMatchObject({ itemKind: 'string', required: true });
   });
 
   it('treats a default as optional even when JSON Schema still requires it', () => {
@@ -66,8 +70,7 @@ describe('flag parity', () => {
       required: ['query'],
     }).flags;
     expect(flags[0]).toMatchObject({ required: false, hasDefault: true, defaultValue: 'x' });
-    const zodFlags = flagsFromZod(z.object({ query: z.string().default('x') })).flags;
-    expect(zodFlags[0]).toMatchObject({ required: false, hasDefault: true, defaultValue: 'x' });
+    expect(zodFlags(z.object({ query: z.string().default('x') }))[0]).toMatchObject({ required: false, hasDefault: true, defaultValue: 'x' });
     expect(z.toJSONSchema(z.object({ query: z.string().default('x') })).required).toContain('query');
   });
 
@@ -113,7 +116,7 @@ describe('flag parity', () => {
   });
 
   it('turns a non-object root into one json input flag', () => {
-    expect(flagsFromZod(z.string()).flags[0]).toMatchObject({ name: 'input', kind: 'json', partial: true, required: true });
+    expect(zodFlags(z.string().describe('Raw text'))[0]).toMatchObject({ name: 'input', kind: 'json', partial: true, required: true, description: 'Raw text' });
     expect(flagsFromJsonSchema({ type: 'string' }).flags[0]).toMatchObject({ name: 'input', kind: 'json', partial: true });
     expect(flagsFromJsonSchema({ type: 'object' }).flags).toEqual([]);
     expect(flagsFromJsonSchema({ type: 'object', additionalProperties: false }).flags).toEqual([]);
@@ -127,7 +130,7 @@ describe('flag parity', () => {
     expect(parseCommandInput(empty, {})).toEqual({});
   });
 
-  it('records fidelity notes for refinements, unions, and nullable values', () => {
+  it('records fidelity notes for what a flag cannot hold: unions, nullable values, arrays of objects', () => {
     const refined = defineCommand({
       name: 'search',
       description: 'Search',
@@ -151,7 +154,7 @@ describe('flag parity', () => {
       }),
       run: input => input,
     });
-    expect(refined.fidelityNotes).toEqual(expect.arrayContaining(['refine', 'constraint', 'union', 'nullable', 'array', 'partial']));
+    expect(refined.fidelityNotes).toEqual(['array', 'partial', 'union']);
     expect(refined.flags.find(flag => flag.property === 'mode')?.enumValues).toEqual(['a', 'b']);
     expect(refined.flags.find(flag => flag.property === 'rank')?.enumValues).toEqual([1, 2]);
     expect(refined.flags.find(flag => flag.property === 'mixed')).toMatchObject({ kind: 'json', partial: true });
@@ -164,6 +167,23 @@ describe('flag parity', () => {
     expect(refined.flags.find(flag => flag.property === 'literal')?.enumValues).toEqual(['only']);
     expect(refined.flags.find(flag => flag.property === 'active')).toMatchObject({ presence: false, kind: 'boolean' });
     expect(flagToken(refined.flags.find(flag => flag.property === 'enabled') as Flag)).toBe('--enabled <true|false>');
+  });
+
+  it('reads a union of constants as an enum and a type JSON Schema cannot express as partial json', () => {
+    const mcp = flagsFromJsonSchema({
+      type: 'object',
+      properties: {
+        mode: { anyOf: [{ type: 'string', const: 'a' }, { type: 'string', const: 'b' }] },
+        level: { oneOf: [{ const: 1 }, { enum: [2, 3] }] },
+        mixed: { anyOf: [{ const: 'a' }, { type: 'string' }] },
+      },
+    });
+    expect(mcp.flags.find(flag => flag.property === 'mode')).toMatchObject({ kind: 'enum', enumValues: ['a', 'b'] });
+    expect(mcp.flags.find(flag => flag.property === 'level')).toMatchObject({ kind: 'enum', enumValues: [1, 2, 3] });
+    expect(mcp.flags.find(flag => flag.property === 'mixed')).toMatchObject({ kind: 'json', partial: true });
+    const dated = defineCommand({ name: 'dated', description: 'Dated', schema: z.object({ at: z.date(), label: z.string() }), run: input => input });
+    expect(dated.flags.find(flag => flag.property === 'at')).toMatchObject({ kind: 'json', partial: true, required: true });
+    expect(dated.flags.find(flag => flag.property === 'label')).toMatchObject({ kind: 'string' });
   });
 
   it('rejects object-valued enums and maps type arrays to partial json', () => {
@@ -273,10 +293,9 @@ describe('commands', () => {
     expect(parseCommandInput(raw, { input: 'hi' })).toEqual({ input: 'hi' });
     const broken = {
       ...command,
-      schema: {
-        def: { type: 'object', shape: {} },
-        parse: () => { throw new Error('boom'); },
-      } as unknown as ZodType,
+      schema: z.object({ query: z.string() }).transform(() => {
+        throw new Error('boom');
+      }),
     };
     expect(() => parseCommandInput(broken, { query: 'ab' })).toThrow('boom');
     expect(() => commandJsonSchema({ ...command, schema: undefined })).toThrow(/schema/);

@@ -52,16 +52,21 @@ The MCP launcher, CLI launcher and VS Code extension are thin adapters with no t
 - Stop processes by PID or task ID, never by pattern (`pkill -f`), even for your own run: another
   session may run the same command.
 - Clean up after yourself before you report: stop the processes you started (by PID), remove
-  your scratch files, private target directories and pinned test binaries, and keep only the
-  evidence a report cites. Never remove a worktree with uncommitted changes. In a multi-agent round one owner
-  runs full builds and suites; fixers run focused tests only.
+  your scratch files and pinned test binaries, and keep only the evidence a report cites. Never
+  remove a worktree with uncommitted changes. Build, test and lint Rust only through `dev.mjs
+  build:dev`, `yarn test:rust` or `cargo dev-test -- <filter>`, and `dev.mjs lint:rust` or
+  `lint:own`, in the repo's `target/`: never a bare `cargo test -p …` or `cargo nextest -p …`
+  with another selection, `CARGO_INCREMENTAL=1`, a private `CARGO_TARGET_DIR`, or a binary
+  copied into `target/`; each leaves build outputs nothing removes. In a multi-agent round one
+  owner runs full builds and suites and, at the end, `dev.mjs prune:rust` and `df -h .`; fixers
+  run focused tests only.
 - Don't use `facebook/react` as a live GitHub check target: it was renamed, and the GitHub API
   blocks or refuses some repositories, so a failure there says nothing about our tools. Check on
   other public repositories, and on more than one before calling a GitHub result a defect.
 - Several sessions may share this tree and one cargo lock. Apply a change with all its callers in
   one step and keep tests compiling; a break in a file you touched is your first job. Retry a
-  blocked build at most every 3 minutes, and report it after 20. Use the repo's `target/`, not a
-  private one, and don't run `cargo clean` or `cargo fmt --all` while others are building.
+  blocked build at most every 3 minutes, and report it after 20. Don't run `cargo clean` or
+  `cargo fmt --all` while others are building.
 - Communicate in known protocols: issues and tasks in 5W2H, results BLUF with claim–evidence,
   blockers as SBAR, delegation as a task contract with a Definition of Done. Separate facts,
   assumptions and unknowns; never present a guess as a fact. The rest, rated by fit:

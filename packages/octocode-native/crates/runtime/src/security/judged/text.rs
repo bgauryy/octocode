@@ -277,6 +277,27 @@ impl JudgedText {
             .is_some_and(|(_, edits, _)| edits.overlaps(range))
     }
 
+    /// Whether bytes `range` of the 1-based `line` as a read serves it
+    /// ([`Self::lines`]) hold text the pass wrote in place of the source's.
+    /// A pass that joined lines shows them by position: then any replaced
+    /// byte of the line counts.
+    pub(crate) fn writes_in_line(&self, line: usize, range: &Range<usize>) -> bool {
+        match &self.redacted {
+            None => false,
+            Some((clean, edits, Some(starts))) => {
+                starts.span(clean, line, 1).is_some_and(|served| {
+                    let at = served.start + range.start..served.start + range.end;
+                    edits
+                        .outputs()
+                        .any(|written| written.start < at.end && at.start < written.end)
+                })
+            }
+            Some((_, _, None)) => self
+                .line_span(line, 1)
+                .is_some_and(|source| self.exposes(&source)),
+        }
+    }
+
     /// The placeholder the pass wrote for what it replaced of source bytes
     /// `range`, when every run it replaced there states that one and no
     /// other: what a row that is some of those bytes, at no place of its own

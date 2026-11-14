@@ -6,16 +6,12 @@ use super::*;
 /// holds the same page number of both lists, and `next.nextPage` continues
 /// while either has more, so every ref is listed exactly once. Tags are
 /// names (each is a ref) from the repository's whole git tag-ref list,
-/// paged in one order; the default branch's head is `commitSha`.
+/// paged in one order. The listing resolves no ref, so it states no
+/// `commitSha`: each branch row carries its own head.
 #[tokio::test]
 async fn refs_list_every_branch_and_tag_once_with_the_default_branch() {
     let server = MockServer::builder().start().await;
     mount_default_branch(&server).await;
-    Mock::given(method("GET"))
-        .and(path("/api/v3/repos/a/b/commits/HEAD"))
-        .respond_with(ResponseTemplate::new(200).set_body_string("9".repeat(40)))
-        .mount(&server)
-        .await;
     let sha = |n: u8| format!("{n}").repeat(40);
     let pages = [
         (
@@ -75,13 +71,17 @@ async fn refs_list_every_branch_and_tag_once_with_the_default_branch() {
     );
     let data = row_data(&first);
     assert_eq!(data["defaultBranch"], "main", "{data}");
-    assert_eq!(data["commitSha"], sha(9), "{data}");
+    assert!(data.get("commitSha").is_none(), "{data}");
     assert_eq!(
         data["branches"],
         json!([{"name":"dev","sha":sha(1)},{"name":"main","sha":sha(2)}]),
         "{data}"
     );
-    assert_eq!(data["tags"], json!(["v1.0.0"]), "{data}");
+    assert_eq!(
+        data["tags"],
+        json!([{"name":"v1.0.0","sha":sha(4)}]),
+        "{data}"
+    );
     let next = data["next"]["nextPage"]["input"].clone();
     support::assert_cursor_only(&next);
     let second = call(&runtime, "ghStructure", next)

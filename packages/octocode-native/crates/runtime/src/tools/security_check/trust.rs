@@ -84,6 +84,8 @@ struct Listing {
     end: End,
     /// Compared with OSV's records: false until OSV's walk is whole.
     compared: bool,
+    /// Rows that are twins of OSV's records at the version, once compared.
+    twins: usize,
     /// OSV did not answer, so there was nothing to compare them with.
     osv_unanswered: bool,
     /// The version the row asks about; absent: the package alone.
@@ -137,6 +139,7 @@ async fn listing(owner: &str, name: &str, confirmed: &Confirmed, net: &Net<'_>) 
         rows,
         end,
         compared: false,
+        twins: 0,
         osv_unanswered: false,
         version: confirmed.version.clone(),
         others: Vec::new(),
@@ -382,6 +385,7 @@ impl Trust {
             .map(|row| row.id.clone())
             .collect();
         listing.compared = true;
+        listing.twins = twins.len();
         if !twins.is_empty() {
             let mut merged = SourceResult::new(Source::GitHub);
             merged.advisories = twins;
@@ -490,6 +494,15 @@ fn listed(
     let (RepoRead::Found(facts) | RepoRead::Moved(facts)) = read else {
         return;
     };
+    // Once compared, what GitHub holds at the version: its twins of OSV's
+    // records and the ids OSV does not list; before, what it holds about the
+    // package at all.
+    let held = if listing.compared {
+        listing.twins + listing.others.len()
+    } else {
+        listing.rows.len()
+    };
+    repository::advisory_status(entry, held);
     let repo = format!("{}/{}", facts.owner, facts.name);
     if listing.compared && !listing.others.is_empty() {
         entry["facts"]["repositoryAdvisories"] = json!(listing.others);

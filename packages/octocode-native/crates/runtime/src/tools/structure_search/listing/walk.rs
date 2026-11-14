@@ -107,6 +107,15 @@ pub(super) fn walk_listing<Q: Listing>(
     }
     let mut ranking = rows::Ranking::of(&native.entries, &lines, (root, security), &sort);
     let paused = ranked.sorted() && native.time_cut.is_some();
+    // Every row the walk ranked: its own entries follow the rows a standing
+    // kept, which the standing's tally counts with the rest its paused windows
+    // ranked. Only a walk of its whole scope ranked every row of the listing.
+    let tally = rows::Tally::of_entries(
+        &native.entries,
+        ranking.order().iter().copied().filter(|&at| at >= kept),
+    )
+    .with(standing.map_or_else(rows::Tally::default, |standing| standing.tally));
+    let whole_scope = !q.early_exit() && native.time_cut.is_none();
     let available =
         ranking.order().len() - kept + standing.map_or(start.before, |standing| standing.ranked);
     // A walk cut by time ranks only what it reached, so it pins nothing.
@@ -152,6 +161,7 @@ pub(super) fn walk_listing<Q: Listing>(
             available,
             lines: &lines,
             order: ranking.order(),
+            tally,
             test_code: test_code.as_ref(),
         },
     );
@@ -175,6 +185,7 @@ pub(super) fn walk_listing<Q: Listing>(
         names_only,
     );
     walk.meta.time_window = if paused { TimeWindow::Paused } else { window };
+    walk.meta.ranked = whole_scope.then_some(tally);
     walk.meta.pinned_before = pins.before;
     // A paused window's resume carries the pin of the windows before it.
     walk.meta.pins_through = if paused {

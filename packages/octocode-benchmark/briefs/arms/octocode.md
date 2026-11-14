@@ -2,8 +2,9 @@
 
 Your only research tools are Octocode's, through one surface the round names: the MCP tools, or
 the CLI (`octocode <tool> '{"queries":[…]}'`, and `{"cursor":"…"}` to continue a page). The MCP
-server instructions and tool descriptions are your primer; on the CLI, `octocode schema <tool>`
-prints a tool's input and counts as a research call.
+server instructions and tool descriptions are your primer. On the CLI, the primer is `octocode
+--help` (routing and each tool's required fields), and `octocode <tool> --help` shows a tool's
+forms and examples: read the one you need before a tool's first call. Both count as research calls.
 
 Pick the tool by the question:
 

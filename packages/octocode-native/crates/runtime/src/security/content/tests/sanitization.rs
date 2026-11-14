@@ -151,11 +151,8 @@ fn builtin_sanitization_result_is_lossless_through_policy_wrapper() {
         ),
     ];
     for (content, path) in corpus {
-        let expected = octocode_engine::security::sanitizer::sanitize_content(
-            &content,
-            path.map(|path| path.to_string_lossy()).as_deref(),
-        )
-        .expect("portable sanitizer");
+        let expected = octocode_engine::security::sanitizer::sanitize_content(&content)
+            .expect("portable sanitizer");
         let actual = policy.sanitize_text(&content, path);
         assert_eq!(actual.content, expected.content);
         assert_eq!(actual.has_secrets, expected.has_secrets);
@@ -258,48 +255,20 @@ fn frozen_input_bounds_and_nested_secret_projection_match_reference() {
     );
 }
 
-/// A source past what a read holds at once is judged like any other: a row cut
-/// from it shows the lines its object hides as the whole pass left them.
-#[test]
-fn past_the_bound_only_a_named_source_s_values_are_out_of_a_row_s_reach() {
-    use crate::security::JudgedText;
-    let pad = "ordinary words\n";
-    let lines = octocode_engine::security::MAX_CONTENT_SIZE / pad.len() + 1;
-    let named = format!(
-        "{{\"data\":{{\n\"k\":\"c2VjcmV0\"\n}},\"kind\":\"Secret\"}}\n{}",
-        pad.repeat(lines)
-    );
-    let security = ContentSecurity::new();
-    let judged = JudgedText::judge(&named, Path::new("dump.json"), &security);
-    let value = judged.line_span(2, 1).expect("line 2");
-    assert!(judged.exposes(&value));
-    assert!(!judged.cut(value).contains("c2VjcmV0"));
-    let pad_line = judged.line_span(4, 1).expect("line 4");
-    assert!(!judged.exposes(&pad_line));
-    assert_eq!(judged.cut(pad_line), "ordinary words");
-    let plain = JudgedText::judge(&pad.repeat(lines), Path::new("dump.json"), &security);
-    assert!(!plain.is_redacted());
-}
-
 /// The text a provider reads of a source a reader showed is the text the
 /// reader showed: the provider's pass over it hides nothing further, so each
 /// value keeps the one placeholder it has in every view, and what follows a
 /// value (a literal's escape, the next header) stays in both.
 #[test]
 fn the_provider_reads_a_shown_source_as_it_was_shown() {
-    let value = "Zq8Wv3Xr7Tn2Lp5Ab1Cd9Ef4Gh6Jk8Lm0Np2Qr4St";
+    let value = "ghp_Zq8Wv3Xr7Tn2Lp5Ab1Cd9Ef4Gh6Jk8Lm0Np2Q";
     let source = format!(
         "const apiKey = \"{value}\\r\\n\";\napiKey = \"{value}\\r\\nHost: example.com\";\nconst h = \"Authorization: Bearer {value}\";\n"
     );
     let policy = ContentSecurity::new();
-    // A properties file reads the rest of a line as one value, quotes and
-    // escapes included: its view hides that whole value, and the provider's
-    // view is that view all the same.
-    for (path, literal) in [
-        ("src/req.js", true),
-        ("docs/req.md", true),
-        ("conf/app.properties", false),
-    ] {
+    // Every file's view hides the token alone, and the provider's view is
+    // that view all the same.
+    for path in ["src/req.js", "docs/req.md", "conf/app.properties"] {
         let shown = policy
             .sanitize_text(&source, Some(Path::new(path)))
             .content
@@ -309,10 +278,8 @@ fn the_provider_reads_a_shown_source_as_it_was_shown() {
             shown.contains("Authorization: Bearer [REDACTED-"),
             "{path}: {shown}"
         );
-        if literal {
-            assert!(shown.contains("\\r\\n\";"), "{path}: {shown}");
-            assert!(shown.contains("Host: example.com"), "{path}: {shown}");
-        }
+        assert!(shown.contains("\\r\\n\";"), "{path}: {shown}");
+        assert!(shown.contains("Host: example.com"), "{path}: {shown}");
         let mut state = serde_json::json!({"content": shown.clone()});
         policy.sanitize_data(&mut state);
         assert_eq!(
@@ -340,27 +307,23 @@ fn the_provider_reads_a_shown_source_as_it_was_shown() {
 /// D6 (round 13): clasify's inline content reaches the provider judged as a
 /// read of text of no known file judges it: the provider's pass over the
 /// admitted evidence hides nothing a pathless read shows (`apiKey: null,`,
-/// `token: this.token,`, `DB_PASS=Fake0Moo`, a block scalar's header), and
-/// each value it hides keeps the read's one placeholder. A row naming its
-/// file is judged by that file's leaf rules.
+/// `token: this.token,`, `DB_PASS=Fake0Moo`, a block scalar), and each known
+/// secret it hides keeps the read's one placeholder.
 #[test]
 fn the_provider_reads_inline_content_as_a_pathless_read_shows_it() {
     let policy = ContentSecurity::new();
-    let content = "const config = {\n  apiKey: null,\n  token: this.token,\n  password: undefined,\n};\nDB_PASS=Fake0Moo\ndb:\n  password: |\n    Fz8kQ2mL9xW4\napi_key = \"Zq8Wv3Xr7Tn2Lp5Ab1Cd9Ef4Gh6Jk8Lm0Np2Qr4St\"\n";
+    let content = "const config = {\n  apiKey: null,\n  token: this.token,\n  password: undefined,\n};\nDB_PASS=Fake0Moo\ndb:\n  password: |\n    Fz8kQ2mL9xW4\napi_key = \"ghp_Zq8Wv3Xr7Tn2Lp5Ab1Cd9Ef4Gh6Jk8Lm0Np2Q\"\n";
     let read = policy.sanitize_text(content, None).content.into_owned();
     for shown in [
         "apiKey: null,",
         "token: this.token,",
         "password: undefined,",
         "DB_PASS=Fake0Moo",
-        "  password: |\n",
+        "  password: |\n    Fz8kQ2mL9xW4\n",
     ] {
         assert!(read.contains(shown), "{shown:?}: {read}");
     }
-    assert!(
-        !read.contains("Fz8kQ2mL9xW4") && !read.contains("Zq8Wv3Xr7"),
-        "{read}"
-    );
+    assert!(!read.contains("Zq8Wv3Xr7"), "{read}");
     for mut state in [
         serde_json::json!({"content": read.clone()}),
         serde_json::json!({"context": "  Research context\n", "content": {"file": {"text": read.clone()}}}),

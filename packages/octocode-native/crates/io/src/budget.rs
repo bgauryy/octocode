@@ -3,10 +3,6 @@
 use crate::cancellation::Cancellation;
 use std::{
     future::Future,
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
     time::{Duration, Instant},
 };
 
@@ -22,20 +18,13 @@ pub enum BudgetStop {
 
 /// Provider-neutral resource limits. Credentials remain in each provider's
 /// request context and cannot cross into another ecosystem through this type.
-/// Clones share the time credited to rate-limit waits.
 #[derive(Clone, Debug)]
 pub struct RequestBudget {
-    /// When the request time (the runtime's network timeout) runs out.
+    /// When the request time (the runtime's network timeout) runs out. Every
+    /// wait, rate-limit waits included, ends by it.
     pub deadline: Instant,
     pub cancellation: Cancellation,
     pub max_body_bytes: usize,
-    /// The latest a rate-limit wait may end: the tool call's own deadline.
-    /// Time spent waiting on a rate limit moves the deadline back by as much
-    /// (up to here), so a wait never spends the request time. Equal to
-    /// `deadline`: waits get no extra time.
-    pub wait_until: Instant,
-    /// Milliseconds of rate-limit waiting credited so far.
-    waited_ms: Arc<AtomicU64>,
     /// The longest one network read may wait for its next bytes
     /// ([`Self::wait_stalled`]); `None` for none beyond the deadline.
     stall: Option<Duration>,
@@ -47,8 +36,6 @@ impl RequestBudget {
             deadline,
             cancellation,
             max_body_bytes,
-            wait_until: deadline,
-            waited_ms: Arc::default(),
             stall: None,
         }
     }
@@ -71,29 +58,9 @@ impl RequestBudget {
         )
     }
 
-    /// The request deadline moved back by every credited wait, never past
-    /// `wait_until`.
-    pub fn effective_deadline(&self) -> Instant {
-        let waited = Duration::from_millis(self.waited_ms.load(Ordering::Relaxed));
-        (self.deadline + waited).min(self.wait_until.max(self.deadline))
-    }
-
-    /// The latest an admission wait may end: the call's own deadline
-    /// (`wait_until`), or the request time left when that is later. A
-    /// rate-limit wait is refused only when it ends past this.
-    pub fn admission_deadline(&self) -> Instant {
-        self.effective_deadline().max(self.wait_until)
-    }
-
-    /// Credit `waited` spent on a rate limit, not on the request.
-    pub fn credit_wait(&self, waited: Duration) {
-        let millis = u64::try_from(waited.as_millis()).unwrap_or(u64::MAX);
-        self.waited_ms.fetch_add(millis, Ordering::Relaxed);
-    }
-
     /// Cancellation first, then the deadline.
     pub fn check(&self) -> Result<(), BudgetStop> {
-        check_until(self.effective_deadline(), &self.cancellation)
+        check_until(self.deadline, &self.cancellation)
     }
 
     /// [`Self::wait`] for one network read: `future` must also finish within
@@ -101,7 +68,7 @@ impl RequestBudget {
     /// [`BudgetStop::Deadline`], as any request timeout does.
     pub async fn wait_stalled<T>(&self, future: impl Future<Output = T>) -> Result<T, BudgetStop> {
         let now = Instant::now();
-        let end = self.effective_deadline();
+        let end = self.deadline;
         let end = self.stall.map_or(end, |stall| end.min(now + stall));
         wait_until(end, &self.cancellation, future).await
     }
@@ -109,7 +76,7 @@ impl RequestBudget {
     /// `future`'s output, unless the budget is cancelled or its deadline
     /// passes first.
     pub async fn wait<T>(&self, future: impl Future<Output = T>) -> Result<T, BudgetStop> {
-        wait_until(self.effective_deadline(), &self.cancellation, future).await
+        wait_until(self.deadline, &self.cancellation, future).await
     }
 }
 

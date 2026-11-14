@@ -32,6 +32,7 @@ import { errorMessage } from './error-message.mjs';
 import { schemaOutput } from './cli-schema.mjs';
 import { chromeCommands } from './chrome-contract.mjs';
 import { resolvePort, stateDirFor } from './session-registry.mjs';
+import { packageTmpDir } from './engine-io.mjs';
 
 const scripts = dirname(fileURLToPath(import.meta.url));
 const usage = `octocode-cdp <command> [options]\n${Object.entries(
@@ -304,10 +305,7 @@ async function main(argv: string[]) {
       { BROWSER_PLAN: serialized },
       true
     );
-  const directory = join(
-    process.cwd(),
-    '.octocode/octocode-chrome-devtools/tmp/plans'
-  );
+  const directory = join(packageTmpDir(), 'plans');
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const file = join(directory, `plan-${randomUUID()}.json`);
   writeFileSync(file, serialized, { mode: 0o600, flag: 'wx' });

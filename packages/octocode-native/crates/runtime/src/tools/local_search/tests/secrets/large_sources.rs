@@ -2,7 +2,6 @@
 //! structure says withholds a row. Every value below is fake.
 use super::*;
 
-const VALUE: &str = "RmFrZTBWYWx1ZTlOb3Q0UmVhbDhCbG9iN0xvbmc2RW5vdWdo";
 /// The limits these searches judge at, and a source past what is judged whole.
 const LIMITS: crate::security::SourceLimits = crate::security::SourceLimits::SMALL;
 const OVER_THE_SCANNER: usize = LIMITS.whole_source + LIMITS.whole_source / 10;
@@ -71,46 +70,4 @@ fn a_reference_to_a_secret_withholds_nothing() {
         values("events.log", &text, "ordinary words"),
         vec!["{\"level\":\"info\",\"msg\":\"ordinary words\"}"]
     );
-}
-
-fn secret_beside_config_maps(secret: &str) -> String {
-    let map = "{\n  \"data\": {\n    \"plain\": \"ordinary words\"\n  },\n  \"kind\": \"ConfigMap\"\n},\n";
-    format!(
-        "[\n{secret},\n{}{{}}\n]\n",
-        map.repeat(OVER_THE_SCANNER / map.len())
-    )
-}
-
-/// A real Secret loses its value, on either side of its `kind`, and only its value.
-#[test]
-fn a_real_secret_hides_its_value_and_nothing_else() {
-    for secret in [
-        format!("{{\n  \"data\": {{\n    \"blob\": \"{VALUE}\"\n  }},\n  \"kind\": \"Secret\"\n}}"),
-        format!("{{\n  \"kind\": \"Secret\",\n  \"data\": {{\n    \"blob\": \"{VALUE}\"\n  }}\n}}"),
-    ] {
-        let text = secret_beside_config_maps(&secret);
-        // The hidden value is no hit: a read withholds it.
-        let hit = values("list.json", &text, "RmFrZTBWYWx1ZTlO");
-        assert!(hit.is_empty(), "{hit:?}");
-        let harmless = values("list.json", &text, "ordinary words");
-        assert_eq!(
-            harmless[0], "    \"plain\": \"ordinary words\"",
-            "{harmless:?}"
-        );
-    }
-}
-
-/// The same in YAML, with a `kind:` on every other manifest.
-#[test]
-fn a_large_yaml_hides_a_secret_s_block_and_nothing_else() {
-    let map = "apiVersion: v1\nkind: ConfigMap\ndata:\n  plain: ordinary words\n---\n";
-    let filler = map.repeat(OVER_THE_SCANNER / map.len());
-    let text = format!("apiVersion: v1\nstringData:\n  blob: {VALUE}\nkind: Secret\n---\n{filler}");
-    let hit = values("all.yaml", &text, "RmFrZTBWYWx1ZTlO");
-    assert!(hit.is_empty(), "{hit:?}");
-    let harmless = values("all.yaml", &text, "ordinary words");
-    assert_eq!(harmless[0], "  plain: ordinary words", "{harmless:?}");
-    // No Secret at all: every `kind:` of a large YAML leaves its rows readable.
-    let none = values("maps.yaml", &filler, "ordinary words");
-    assert_eq!(none[0], "  plain: ordinary words", "{none:?}");
 }

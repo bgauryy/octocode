@@ -47,16 +47,19 @@ pub(in super::super) fn empty(
     row
 }
 
-/// The row of a server whose load has not ended: no answer of its says what
-/// the project holds yet, so the row is partial and offers the same query
-/// again.
-pub(in super::super) fn still_indexing(query: &LspSearchQuery) -> Value {
-    let mut row = empty(
-        query,
-        "languageServerIndexing",
-        "The language server is still indexing the project; semantic results are not ready yet.",
-        true,
+/// The row of a server whose load has not ended after the call `waited`
+/// for it: no answer of its says what the project holds yet, so the row is
+/// partial and offers the same query again, which the server, kept loading,
+/// answers once its load ends.
+pub(in super::super) fn still_indexing(
+    query: &LspSearchQuery,
+    waited: std::time::Duration,
+) -> Value {
+    let reason = format!(
+        "The language server was still indexing the project when this call ended after {:.1} s; the server stays loaded, so the same query again continues from there.",
+        waited.as_secs_f64()
     );
+    let mut row = empty(query, "languageServerIndexing", &reason, true);
     let reason = crate::response::paging::PartialReason::LanguageServerIndexing;
     partial_with_related_rerun(&mut row, query, reason, &[]);
     row
@@ -225,8 +228,9 @@ pub(in super::super) fn stamp_coverage(row: &mut Value) {
     }
 }
 
-/// An empty diagnostics row with no retained report within `wait_ms`: the
-/// document may still have diagnostics, so the row is partial with a retry.
+/// An empty diagnostics row with no retained report by the end of its wait
+/// (while the server worked, then `wait_ms` quiet): the document may still
+/// have diagnostics, so the row is partial with a retry.
 pub(in super::super) fn mark_diagnostics_unpublished(
     row: &mut Value,
     query: &LspSearchQuery,
@@ -237,7 +241,7 @@ pub(in super::super) fn mark_diagnostics_unpublished(
     }
     row["category"] = json!("diagnosticsNotPublished");
     row["reason"] = json!(format!(
-        "No diagnostic report was available for this document within {wait_ms} ms; the server may not have published one, or the shared memory budget could not retain it."
+        "No diagnostic report was available for this document: none came while the server worked or in the {wait_ms} ms after its last sign of work; the server may not have published one, or the shared memory budget could not retain it."
     ));
     partial_with_related_rerun(
         row,

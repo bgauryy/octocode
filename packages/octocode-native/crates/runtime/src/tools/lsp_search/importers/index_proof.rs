@@ -211,7 +211,7 @@ pub(super) async fn open_and_index(
             opened.push(file.clone());
         }
     }
-    cancellable(cancel, client.wait_for_parses(opened, PARSE_WAIT_MS)).await?;
+    cancellable(cancel, client.wait_for_parses(opened, PARSE_QUIET_MS)).await?;
     Ok(())
 }
 
@@ -224,9 +224,11 @@ pub(in super::super) struct IndexWindow<'a> {
     pub(in super::super) window: WindowRequest<'a>,
 }
 
-/// How long one candidate's parse is waited for: the client's own bound on a
-/// diagnostics wait. A file not parsed by then is reported, never assumed.
-const PARSE_WAIT_MS: u32 = 10_000;
+/// How long the server may show no sign of work (CPU time, progress, any
+/// message) before the wait for the candidates' parses ends. The wait itself
+/// lasts as long as the server works, within the caller's deadline and its
+/// cancel; a file not parsed by then is reported, never assumed.
+const PARSE_QUIET_MS: u32 = 10_000;
 
 /// [`verify_occurrences`] by [`SiteProof::AnchorReferences`]: wait until every
 /// opened candidate is in the index, ask the anchor's references once, then
@@ -246,7 +248,7 @@ pub(super) async fn verify_by_references(
 ) -> Result<Verified, LspFailure> {
     let mut verified = Verified::default();
     let files = opened.iter().map(|(file, _)| file.clone()).collect();
-    let answered = cancellable(cancel, client.wait_for_parses(files, PARSE_WAIT_MS)).await?;
+    let answered = cancellable(cancel, client.wait_for_parses(files, PARSE_QUIET_MS)).await?;
     let mut parsed = Vec::with_capacity(opened.len());
     for (file, spots) in opened {
         if answered.contains(&file) {

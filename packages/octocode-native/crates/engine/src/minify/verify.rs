@@ -1,10 +1,8 @@
-//! Proof that a compact view changes no code, for the unit tests' fixtures and
-//! the corpus sweep (`examples/compact_sweep.rs`): parse the source and the
-//! view with the grammar compaction used, and compare their tokens without
-//! comments. Where the grammar's row has its language's lexis, also byte by
-//! byte against the spec (`holds_to_lexis`), which no parse can read wrong
-//! the same way on both sides. Also the parse work the linear bound is
-//! measured from.
+//! Proof that a compact view changes no code, for the unit tests' fixtures:
+//! parse the source and the view with the grammar compaction used, and
+//! compare their tokens without comments. Where the grammar's row has its
+//! language's lexis, also byte by byte against the spec (`holds_to_lexis`),
+//! which no parse can read wrong the same way on both sides.
 
 use tree_sitter::Language;
 
@@ -15,21 +13,13 @@ use super::apply::{KeptLine, WhitespaceOnly, apply_content_view_minification};
 use super::grammars::{Lexis, Spacing};
 use super::layout::RegionKind;
 use super::lexis::{Piece, spans};
-use crate::signatures::extractor::{measure, parse_with_deadline, whole_file_deadline};
+use crate::signatures::extractor::{parse_with_deadline, whole_file_deadline};
 
 /// A verified compact view.
 #[derive(Clone, Copy, Debug)]
 pub struct Verified {
     pub whitespace_only: Option<WhitespaceOnly>,
     pub view_bytes: usize,
-}
-
-/// The work a clean parse of a source did, per byte and per read chunk.
-#[derive(Clone, Copy, Debug)]
-pub struct ParseWork {
-    pub grammar: &'static str,
-    pub reports_per_byte: f64,
-    pub reads_per_chunk: f64,
 }
 
 /// `path`'s compact view keeps `source`'s tokens, and every kept line's text
@@ -91,23 +81,6 @@ pub fn verify(path: &str, source: &str) -> Result<Verified, String> {
         window(&after),
         window(&before)
     ))
-}
-
-/// The work a parse of `source` by its extension's owner grammar does, if
-/// that grammar reads it without an error.
-#[must_use]
-pub fn parse_work(path: &str, source: &str) -> Option<ParseWork> {
-    let extension = crate::text::extension_of(path, true, "");
-    let entry = crate::signatures::languages::find_entry(&extension)?;
-    let (Ok(tree), work) = measure(source, &entry.language) else {
-        return None;
-    };
-    (!tree.root_node().has_error()).then(|| ParseWork {
-        grammar: entry.name,
-        reports_per_byte: work.reports as f64 / (source.len() + 1) as f64,
-        reads_per_chunk: work.reads as f64
-            / crate::signatures::extractor::Work::chunks(source.len()) as f64,
-    })
 }
 
 /// The leaf tokens of `source`, without comments, an `ERROR` node as one

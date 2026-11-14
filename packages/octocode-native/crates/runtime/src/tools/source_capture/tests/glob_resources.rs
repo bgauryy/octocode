@@ -298,14 +298,14 @@ fn a_skip_that_cannot_be_named_is_counted_and_the_rest_named() {
 }
 
 /// A glob over a folder holding a renamed kubeconfig withholds it unnamed and
-/// keeps the Go source beside it (RV-C3eF live: `cred2/**/*` sent
-/// `kube/kubeconfig-prod-cluster.yaml` to the provider; round 12).
+/// keeps the Go source beside it (RV-C3eF live: `cred2/**/*` sent a renamed
+/// kubeconfig to the provider; round 12).
 #[test]
 fn a_glob_withholds_a_renamed_kubeconfig_and_keeps_its_source() {
     let reader = Keying::new();
     write(
         &reader,
-        "cred2/kube/kubeconfig-prod-cluster.yaml",
+        "cred2/kube/prod.kubeconfig",
         "apiVersion: v1\nkind: Config\n",
     );
     write(&reader, "cred2/kube/kubeconfig.go", "package kube\n");
@@ -323,7 +323,7 @@ fn a_glob_withholds_a_renamed_kubeconfig_and_keeps_its_source() {
         out.notices
     );
     assert!(
-        !out.notices[0].contains("kubeconfig-prod-cluster"),
+        !out.notices[0].contains("prod.kubeconfig"),
         "never named: {:?}",
         out.notices
     );

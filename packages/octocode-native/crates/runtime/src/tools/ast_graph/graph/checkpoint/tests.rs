@@ -5,6 +5,7 @@ use crate::tools::test_support::{Fixture, workspace_policy};
 mod completion;
 mod durability;
 mod locking;
+mod pruning;
 mod scan_and_reuse;
 
 fn fixture() -> (Fixture, GraphScan) {

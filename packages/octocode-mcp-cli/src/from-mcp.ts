@@ -3,8 +3,6 @@ import { StdioClientTransport, type StdioServerParameters } from '@modelcontextp
 import { cliView, contentText, type CliView } from './run.js';
 import { commandToken, defineCli, defineCommand, type CliSpec, type JsonSchema, type ToolAnnotations } from './spec.js';
 
-const PAGE_LIMIT = 100;
-
 export interface McpContentBlock {
   type: string;
   text?: string;
@@ -38,7 +36,7 @@ export interface McpToolResult {
 export interface McpClientLike {
   getInstructions(): string | undefined;
   getServerVersion(): { name?: string; version?: string } | undefined;
-  listTools(params?: { cursor?: string }): Promise<{ tools: readonly McpToolInfo[]; nextCursor?: string }>;
+  listTools(params?: { cursor?: string }, options?: { signal?: AbortSignal }): Promise<{ tools: readonly McpToolInfo[]; nextCursor?: string }>;
   callTool(params: { name: string; arguments?: Record<string, unknown> }): Promise<McpToolResult>;
 }
 
@@ -100,8 +98,8 @@ function asProtocol(client: Client): McpClientLike {
   return {
     getInstructions: () => client.getInstructions(),
     getServerVersion: () => client.getServerVersion(),
-    async listTools(params) {
-      const listed = await client.listTools(params);
+    async listTools(params, options) {
+      const listed = await client.listTools(params, options);
       return {
         nextCursor: listed.nextCursor,
         tools: listed.tools.map(tool => ({
@@ -142,29 +140,26 @@ function uniqueToken(name: string, used: Set<string>): string {
   return token;
 }
 
-export async function cliFromMcp(client: Client | McpClientLike): Promise<CliSpec> {
-  return cliFromProtocol(client instanceof Client ? asProtocol(client) : client);
+export async function cliFromMcp(client: Client | McpClientLike, options: { signal?: AbortSignal } = {}): Promise<CliSpec> {
+  return cliFromProtocol(client instanceof Client ? asProtocol(client) : client, options.signal);
 }
 
-async function cliFromProtocol(client: McpClientLike): Promise<CliSpec> {
+/** Every `tools/list` page, until the server sends no `nextCursor`; a repeated cursor is a server fault, and `signal` stops the paging. */
+async function cliFromProtocol(client: McpClientLike, signal: AbortSignal | undefined): Promise<CliSpec> {
   const tools: McpToolInfo[] = [];
   const seen = new Set<string>();
   let cursor: string | undefined;
-  for (let page = 0; page < PAGE_LIMIT; page += 1) {
+  do {
+    signal?.throwIfAborted();
+    const listed = await client.listTools(cursor ? { cursor } : undefined, signal ? { signal } : undefined);
+    tools.push(...listed.tools);
+    const next = listed.nextCursor;
+    cursor = typeof next === 'string' && next.length > 0 ? next : undefined;
     if (cursor !== undefined) {
       if (seen.has(cursor)) throw new Error('Repeated tools/list cursor');
       seen.add(cursor);
     }
-    const listed = await client.listTools(cursor ? { cursor } : undefined);
-    tools.push(...listed.tools);
-    const next = listed.nextCursor;
-    if (typeof next !== 'string' || next.length === 0) {
-      cursor = undefined;
-      break;
-    }
-    cursor = next;
-  }
-  if (cursor !== undefined) throw new Error('tools/list page limit');
+  } while (cursor !== undefined);
 
   const used = new Set<string>();
   const commands = tools.map(tool => {

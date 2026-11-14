@@ -32,8 +32,8 @@ The CLI lists 16 tools by default, including graph, clone and advisory tools. A 
 
 | Stream or format | What to read |
 |---|---|
-| Text on stdout | Search hits and source lines with their paths. A line number refers to the source. A batch labels rows `## results[N]`. Lines starting with `#` report status, coverage, warnings, hints and commands for remaining pages. |
-| Notes on stderr | Counts, related leads, runtime notices and, on a terminal, progress. |
+| Text on stdout | Search hits and source lines with their paths, relative to the `# root:` line when a row's files share a directory. A line number refers to the source. A batch labels rows `## results[N]` (N is the query's place) and names the row on each of its `#` lines. Lines starting with `#` report status, coverage, warnings, hints and commands for remaining pages. |
+| Notes on stderr | Counts (one line per row), related leads, runtime notices and, on a terminal, progress. |
 | `--json` on stdout | A result envelope with one indexed row per query or a structured call error. Keep the request with the response when consuming JSON. |
 
 When output includes a continuation command, run it unchanged. First follow `responsePagination.next`, then any remaining `next.nextPage`. Other `next` entries cover specific branches such as an exact read. For scripts, use the JSON form to reconstruct pages. [Tool data contract](TOOL_DATA_CONTRACT.md#executable-continuations)
@@ -101,4 +101,6 @@ Public skills are bundled with the binary. An install stores the skill under the
 
 ## Clear tool caches
 
-Use `octocode cache clear --json` to drain warm CLI servers and clear saved pages, provider results, materializations, URL captures and the current workspace's graph extraction checkpoints. Outstanding cursors become unusable. Stop other active tool calls and restart separate MCP servers to clear their in-memory state. Clones, published graph snapshots and credentials have separate lifecycles. [Storage and retention](STORAGE_AND_LIMITS.md)
+Read-only tool calls on macOS and Linux run on a shared warm server, `octocode serve`: one per binary build, workspace and configuration, started by the first call and exiting after 10 minutes without a request. [Warm tool server](../packages/octocode-native/README.md#warm-tool-server)
+
+Use `octocode cache clear --json` to stop those servers after their running calls finish and clear saved pages, provider results, materializations, URL captures and the current workspace's graph extraction checkpoints. Outstanding cursors become unusable. Stop other active tool calls and restart separate MCP servers to clear their in-memory state. Clones, published graph snapshots and credentials have separate lifecycles. [Storage and retention](STORAGE_AND_LIMITS.md)

@@ -23,33 +23,42 @@ enum Frame {
 /// member or element that starts first on the line, else the container the
 /// line sits in. Lines at the document root are left out.
 pub(super) fn line_key_paths(text: &str, lines: &[usize]) -> Vec<(usize, String)> {
+    let mut first = super::FirstKey::default();
+    visit_lines(text, lines, &mut first);
+    first.into_paths()
+}
+
+/// Walks `text` once and tells `visitor`, for each of `lines` (1-based,
+/// ascending), the container the line opens in and each member or element
+/// that starts on it, in order, while the visitor wants more of them.
+pub(super) fn visit_lines(text: &str, lines: &[usize], visitor: &mut dyn super::LineVisitor) {
     let mut wanted = lines.iter().copied().peekable();
-    let mut out = Vec::new();
     let Some(&last) = lines.last() else {
-        return out;
+        return;
     };
     let bytes = text.as_bytes();
     let mut stack: Vec<Frame> = Vec::new();
     let mut line = 1;
-    // The requested line being scanned: its path so far, and whether a
-    // member or element already started on it.
-    let mut current: Option<(String, bool)> = None;
     let mut at = 0;
-    let mut begin_line = |line: usize, stack: &[Frame], current: &mut Option<(String, bool)>| {
+    // Whether `line` is requested; the visitor is told of it first.
+    let mut begin_line = |line: usize, stack: &[Frame], visitor: &mut dyn super::LineVisitor| {
         while wanted.next_if(|&wanted| wanted < line).is_some() {}
-        *current = wanted
-            .next_if_eq(&line)
-            .map(|_| (path(text, stack, false), false));
+        let requested = wanted.next_if_eq(&line).is_some();
+        if requested {
+            visitor.line(line, &path(text, stack, false));
+        }
+        requested
     };
-    begin_line(line, &stack, &mut current);
+    // The line being scanned is requested and the visitor still wants the
+    // starts on it.
+    let mut current = begin_line(line, &stack, visitor);
     while at < bytes.len() && line <= last {
         let byte = bytes[at];
         match byte {
             b'\n' => {
-                finish(line, &mut current, &mut out);
                 line += 1;
                 at += 1;
-                begin_line(line, &stack, &mut current);
+                current = begin_line(line, &stack, visitor);
                 continue;
             }
             b' ' | b'\t' | b'\r' | b':' => {}
@@ -62,9 +71,8 @@ pub(super) fn line_key_paths(text: &str, lines: &[usize]) -> Vec<(usize, String)
                     .find("*/")
                     .map_or(bytes.len(), |end| at + 2 + end + 2);
                 for _ in text[at..end].matches('\n') {
-                    finish(line, &mut current, &mut out);
                     line += 1;
-                    begin_line(line, &stack, &mut current);
+                    current = begin_line(line, &stack, visitor);
                 }
                 at = end;
                 continue;
@@ -89,14 +97,14 @@ pub(super) fn line_key_paths(text: &str, lines: &[usize]) -> Vec<(usize, String)
                 {
                     *key = Some(key_span(bytes, at, token_end));
                     *expect_key = false;
-                    note(text, &stack, &mut current);
+                    current = current && visitor.start(&path(text, &stack, true));
                     at = token_end;
                     continue;
                 }
                 if let Some(Frame::Array { started, .. }) = stack.last_mut() {
                     *started = true;
                 }
-                note(text, &stack, &mut current);
+                current = current && visitor.start(&path(text, &stack, true));
                 match byte {
                     b'{' => stack.push(Frame::Object {
                         key: None,
@@ -114,27 +122,6 @@ pub(super) fn line_key_paths(text: &str, lines: &[usize]) -> Vec<(usize, String)
             }
         }
         at += 1;
-    }
-    finish(line, &mut current, &mut out);
-    out
-}
-
-/// The first member or element starting on a requested line names it.
-fn note(text: &str, stack: &[Frame], current: &mut Option<(String, bool)>) {
-    if let Some((line_path, started)) = current
-        && !*started
-    {
-        *line_path = path(text, stack, true);
-        *started = true;
-    }
-}
-
-/// Record the finished line's path, unless it is the document root.
-fn finish(line: usize, current: &mut Option<(String, bool)>, out: &mut Vec<(usize, String)>) {
-    if let Some((line_path, _)) = current.take()
-        && !line_path.is_empty()
-    {
-        out.push((line, line_path));
     }
 }
 

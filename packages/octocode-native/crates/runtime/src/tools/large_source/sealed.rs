@@ -548,9 +548,65 @@ fn line_edits(raw: &str, clean: &str, at: usize, out: &mut Vec<(Range<usize>, St
                 .into_iter()
                 .map(|(range, text)| (base + range.start..base + range.end, text)),
         ),
-        None => out.push((base..base + raw_mid.len(), clean_mid.to_owned())),
+        None => out.extend(
+            resync(raw_mid, clean_mid)
+                .into_iter()
+                .map(|(range, text)| (base + range.start..base + range.end, text)),
+        ),
     }
 }
+
+/// `clean`'s replacements of `raw` (a line's differing middles) when [`place`]
+/// cannot read its placeholders (a scanner's own form, no pattern's): every run
+/// of [`SYNC_BYTES`] or more bytes the two share in order is the source's own,
+/// and the bytes between two runs are one replacement, so each value hidden is
+/// its own edit. A stretch with no run in reach (a value longer than
+/// [`SECRET_REACH`], or the middle's tail) is one replacement. Applied to
+/// `raw`, the edits give `clean`, whatever runs they keep.
+fn resync(raw: &str, clean: &str) -> Vec<(Range<usize>, String)> {
+    let (r, c) = (raw.as_bytes(), clean.as_bytes());
+    let (mut i, mut j) = (0, 0);
+    let mut out = Vec::new();
+    loop {
+        while i < r.len() && j < c.len() && r[i] == c[j] {
+            (i, j) = (i + 1, j + 1);
+        }
+        // The shared bytes before a mismatch end on the same character edge.
+        while !raw.is_char_boundary(i) || !clean.is_char_boundary(j) {
+            (i, j) = (i - 1, j - 1);
+        }
+        if i == r.len() && j == c.len() {
+            return out;
+        }
+        // The nearest source run that `clean` shows again within a
+        // placeholder's reach.
+        let sync = (i..=r.len().min(i + SECRET_REACH))
+            .filter(|&at| at + SYNC_BYTES <= r.len() && raw.is_char_boundary(at))
+            .find_map(|at| {
+                let reach = c.get(j..(j + PLACEHOLDER_REACH + SYNC_BYTES).min(c.len()))?;
+                let found = memchr::memmem::find(reach, &r[at..at + SYNC_BYTES])?;
+                Some((at, j + found))
+            });
+        match sync.filter(|&(at, to)| (at, to) != (i, j)) {
+            Some((at, to)) => {
+                out.push((i..at, clean.get(j..to).unwrap_or_default().to_owned()));
+                (i, j) = (at, to);
+            }
+            None => {
+                out.push((i..r.len(), clean.get(j..).unwrap_or_default().to_owned()));
+                return out;
+            }
+        }
+    }
+}
+
+/// Bytes the source and a scanner's text must share in a row for [`resync`] to
+/// take them as the source's own.
+const SYNC_BYTES: usize = 8;
+/// The most text a scanner's placeholder [`resync`] reads past takes.
+const PLACEHOLDER_REACH: usize = 1024;
+/// The most source bytes a value [`resync`] reads past takes.
+const SECRET_REACH: usize = 64 * 1024;
 
 /// The placeholders of `clean` on the bytes of `raw` they stand for, the text
 /// between them matched in order; `None` when it does not match.
@@ -591,32 +647,6 @@ fn place(raw: &str, clean: &str) -> Option<Vec<(Range<usize>, String)>> {
         pos = end + between.len();
     }
     Some(edits)
-}
-
-/// Merge `more` edits (each a placeholder for its bytes; the structure's, which
-/// a source held whole puts first) into the sorted `edits`: an edit inside
-/// another goes with it, as a whole read hides a span inside another, so the
-/// same bytes show one placeholder, the structure's on a tie; edits that only
-/// overlap become one edit over both, showing each placeholder.
-pub(super) fn merge(edits: Vec<Edit>, more: Vec<Edit>) -> Vec<Edit> {
-    let mut all: Vec<Edit> = more.into_iter().chain(edits).collect();
-    // Stable: on the same bytes, `more` stays first.
-    all.sort_by_key(|edit| (edit.range.start, std::cmp::Reverse(edit.range.end)));
-    let mut out: Vec<Edit> = Vec::with_capacity(all.len());
-    for edit in all {
-        match out.last_mut() {
-            Some(last) if edit.range.end <= last.range.end && edit.range.start < last.range.end => {
-            }
-            Some(last) if edit.range.start < last.range.end => {
-                last.range.end = last.range.end.max(edit.range.end);
-                if !last.text.contains(&*edit.text) {
-                    last.text = format!("{}{}", last.text, edit.text).into();
-                }
-            }
-            _ => out.push(edit),
-        }
-    }
-    out
 }
 
 /// `edits` less their bytes on lines a private-key block replaces: such a line

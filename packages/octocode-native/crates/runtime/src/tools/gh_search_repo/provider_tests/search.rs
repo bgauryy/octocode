@@ -348,12 +348,13 @@ async fn search_failures_lead_to_their_repair() {
     let next = missing.calls.expect("find");
     assert_eq!(
         next["findRepository"]["input"]["queries"][0],
-        json!({"keywords":["missing"],"operation":"search"}),
+        json!({"keywords":["missing"],"operation":"search",
+            "limit":crate::tools::gh_shared::RECOVERY_LIMIT}),
         "{next}"
     );
     assert_eq!(
         next["findRepository2"]["input"]["queries"][0],
-        json!({"operation":"list","owner":"o"}),
+        json!({"operation":"list","owner":"o","limit":crate::tools::gh_shared::RECOVERY_LIMIT}),
         "{next}"
     );
 }

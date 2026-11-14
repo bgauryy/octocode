@@ -32,6 +32,24 @@ impl LockedFile {
             true
         }
     }
+
+    /// Remove the lock file at `path`, which this lock holds, before
+    /// releasing it; whether it was removed. A locker that opened the file
+    /// first finds on locking that the path names something else and goes
+    /// again ([`lock_path_within`]). Without inode numbers a locker could not
+    /// tell, so nothing is removed.
+    #[must_use]
+    pub fn remove_held(self, path: &std::path::Path) -> bool {
+        #[cfg(unix)]
+        {
+            self.still_at(path) && std::fs::remove_file(path).is_ok()
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = path;
+            false
+        }
+    }
 }
 
 /// Take the lock file at `path`, created when missing, polling every `poll` for

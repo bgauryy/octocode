@@ -1,11 +1,13 @@
 ---
 name: octocode-workflows
-description: "Use when selecting, designing, executing or resuming explicit workflows across agents, tools, services, processes or artifacts, including single-agent execution. Defines dependencies, ownership, handoffs and recovery."
+description: "Use when selecting, designing, executing or resuming explicit workflows across tools, services, processes, agents or artifacts. Defines workflow patterns, dependencies and acceptance; use octocode-orchestrator for live agent coordination."
 ---
 
 # Octocode Workflows
 
 Choose one primary workflow from the [catalog](references/catalog.md) by the needed outcome or proof. Ordinary tasks use their domain skill directly; a workflow selection needs no ledger or extra agent.
+
+For ongoing agent assignments, result integration and replanning, use `octocode-orchestrator` when installed. Keep this workflow's acceptance and existing ledger; the coordinator does not create a second one.
 
 1. State the observable outcome, current state, constraints and acceptance check.
 2. Name participants and capabilities: agents, tools, services, processes, stores or artifacts. Give each shared state a writer and every passive object a reader/writer.

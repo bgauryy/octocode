@@ -53,7 +53,7 @@ export function toolHelpSection(definition: Definition): string {
   lines.push('Examples:');
   for (const example of jsonExamples)
     lines.push(`  octocode ${name} ${shellQuote(exampleJson({ queries: [example] }))}`);
-  lines.push('', 'Input: {"queries":[…]} for fresh calls; copy {"cursor":"…"} from a continuation.');
+  lines.push('', 'Input: {"queries":[…]} for fresh calls, optionally with "responseChars" (page size target; the rest pages, nothing dropped); copy {"cursor":"…"} from a continuation.');
   const [only] = variants;
   if (only && variants.length === 1) {
     lines.push(

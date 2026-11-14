@@ -1,124 +1,11 @@
 use super::detector;
-use super::detector::Scope;
 use super::types::SanitizationResult;
 
-/// Redact JSON member values whose surrounding object identifies a secret.
-/// Raw text leaves still need their normal source-aware scan. Returns the
-/// removed values so a caller can also hide copies elsewhere in the data.
-pub fn sanitize_structure(
-    value: &mut serde_json::Value,
-) -> crate::error::Result<Vec<(String, String)>> {
-    let hidden = guarded(|| detector::structured::matches(value))??;
-    Ok(detector::structured::apply(value, hidden))
-}
-
-pub fn sanitize_content<'a>(
-    content: &'a str,
-    file_path: Option<&str>,
-) -> crate::error::Result<SanitizationResult<'a>> {
-    sanitize_content_within(content, file_path, super::MAX_CONTENT_SIZE)
-}
-
-/// [`sanitize_content`] judging a text longer than `whole_text_limit` in one
-/// pass over its spans, as one past [`super::MAX_CONTENT_SIZE`] always is.
-pub fn sanitize_content_within<'a>(
-    content: &'a str,
-    file_path: Option<&str>,
-    whole_text_limit: usize,
-) -> crate::error::Result<SanitizationResult<'a>> {
-    sanitize_in(
-        content,
-        file_path.map_or(Scope::Pathless, Scope::File),
-        whole_text_limit,
-    )
-}
-
-/// One string leaf of a tool result about the file at `source_path` (see
-/// [`Scope::Leaf`]; `None`: no known file, the pathless net): its redacted
-/// text, or `None` when it holds nothing to redact, so clean text is never
-/// copied.
-pub fn sanitize_leaf(
-    content: &str,
-    source_path: Option<&str>,
-) -> crate::error::Result<Option<String>> {
-    redact_leaf(content, Scope::of_leaf(source_path))
-}
-
-/// [`sanitize_leaf`] with what it replaced of `content`, by byte position,
-/// for a reader that decides by place which replacements stand.
-pub fn sanitize_leaf_edits(
-    content: &str,
-    source_path: Option<&str>,
-) -> crate::error::Result<Option<(String, super::Edits)>> {
+/// `content` with every known-format secret replaced by its placeholder
+/// ([`detector::secret_spans`]), borrowed unchanged when it holds none.
+pub fn sanitize_content(content: &str) -> crate::error::Result<SanitizationResult<'_>> {
     guarded(|| {
-        detector::redact(content, Scope::of_leaf(source_path))
-            .map(|result| (result.sanitized, result.edits))
-    })
-}
-
-/// [`sanitize_leaf`] of a leaf whose text was cut from what
-/// [`sanitize_content`] returned for the whole file at `judged_path` (see
-/// [`Scope::Judged`]): only the patterns that whole pass did not apply run,
-/// so a fragment is not judged again without the syntax around it.
-pub fn sanitize_judged_leaf(
-    content: &str,
-    source_path: Option<&str>,
-    judged_path: &str,
-) -> crate::error::Result<Option<String>> {
-    redact_leaf(
-        content,
-        Scope::Judged {
-            leaf: source_path,
-            source: judged_path,
-        },
-    )
-}
-
-/// [`sanitize_leaf`] of a leaf about to be kept (see [`Scope::Stored`]): what no
-/// later read, of any file, would have to redact.
-pub fn sanitize_stored_leaf(
-    content: &str,
-    source_path: Option<&str>,
-) -> crate::error::Result<Option<String>> {
-    redact_leaf(content, Scope::Stored(source_path))
-}
-
-/// [`sanitize_stored_leaf`] with what it replaced of `content`, by byte
-/// position.
-pub fn sanitize_stored_leaf_edits(
-    content: &str,
-    source_path: Option<&str>,
-) -> crate::error::Result<Option<(String, super::Edits)>> {
-    guarded(|| {
-        detector::redact(content, Scope::Stored(source_path))
-            .map(|result| (result.sanitized, result.edits))
-    })
-}
-
-/// Whether a string of a request holds a credential: whatever a read of a
-/// text of no known file would hide, as written or as a regex spells it (see
-/// [`detector::holds_credential_as_request`]).
-pub fn request_holds_credential(text: &str) -> crate::error::Result<bool> {
-    guarded(|| detector::holds_credential_as_request(text))
-}
-
-/// The literal a regex spelling of a request string matches
-/// ([`detector::literal_form`]); `None` when it is its own literal.
-pub fn request_literal_form(text: &str) -> Option<String> {
-    detector::literal_form(text)
-}
-
-fn redact_leaf(content: &str, scope: Scope<'_>) -> crate::error::Result<Option<String>> {
-    guarded(|| detector::redact(content, scope).map(|result| result.sanitized))
-}
-
-fn sanitize_in<'a>(
-    content: &'a str,
-    scope: Scope<'_>,
-    whole_text_limit: usize,
-) -> crate::error::Result<SanitizationResult<'a>> {
-    guarded(|| {
-        let Some(result) = detector::redact_within(content, scope, whole_text_limit) else {
+        let Some(result) = detector::redact(content) else {
             return SanitizationResult {
                 content: content.into(),
                 has_secrets: false,
@@ -140,6 +27,31 @@ fn sanitize_in<'a>(
     })
 }
 
+/// One string leaf of a tool result: its redacted text, or `None` when it
+/// holds nothing to redact, so clean text is never copied.
+pub fn sanitize_leaf(content: &str) -> crate::error::Result<Option<String>> {
+    guarded(|| detector::redact(content).map(|result| result.sanitized))
+}
+
+/// [`sanitize_leaf`] with what it replaced of `content`, by byte position,
+/// for a reader that decides by place which replacements stand.
+pub fn sanitize_leaf_edits(content: &str) -> crate::error::Result<Option<(String, super::Edits)>> {
+    guarded(|| detector::redact(content).map(|result| (result.sanitized, result.edits)))
+}
+
+/// Whether a string of a request holds a credential: whatever a read would
+/// hide, as written or as a regex spells it (see
+/// [`detector::holds_credential_as_request`]).
+pub fn request_holds_credential(text: &str) -> crate::error::Result<bool> {
+    guarded(|| detector::holds_credential_as_request(text))
+}
+
+/// The literal a regex spelling of a request string matches
+/// ([`detector::literal_form`]); `None` when it is its own literal.
+pub fn request_literal_form(text: &str) -> Option<String> {
+    detector::literal_form(text)
+}
+
 /// `scan`, failing closed when a detector panics on pathological input.
 fn guarded<T>(scan: impl FnOnce() -> T + std::panic::UnwindSafe) -> crate::error::Result<T> {
     std::panic::catch_unwind(scan)
@@ -153,53 +65,24 @@ mod tests {
     #[test]
     fn clean_source_is_borrowed_without_copying_bytes() {
         let content = "ordinary source line\n".repeat(4096);
-        let result = sanitize_content(&content, Some("src/plain.rs")).expect("scanned");
+        let result = sanitize_content(&content).expect("scanned");
         assert_eq!(result.content.as_ptr(), content.as_ptr());
         assert_eq!(result.content, content);
         assert!(!result.has_secrets);
-    }
-
-    #[test]
-    fn sanitize_content_returns_no_warnings_for_clean_content() {
-        let result = sanitize_content("plain text", None).expect("sanitized");
-
-        assert_eq!(result.content, "plain text");
-        assert!(!result.has_secrets);
-        assert!(result.secrets_detected.is_empty());
         assert!(result.warnings.is_empty());
-    }
-
-    /// An assignment keeps its identifier and quotes: only the value is a
-    /// secret, and redacted source must still parse as the same statement.
-    #[test]
-    fn env_var_secret_redaction_keeps_the_identifier() {
-        let result = sanitize_content(
-            "export const API_TOKEN = \"abcdefghijklmnopqrstuvwx\";\n",
-            None,
-        )
-        .expect("sanitized");
-        assert_eq!(
-            result.content,
-            "export const API_TOKEN = \"[REDACTED-ENVVARSECRETS]\";\n"
-        );
-        assert_eq!(result.secrets_detected, vec!["envVarSecrets"]);
     }
 
     /// A leaf is copied only when something in it is redacted: clean text
     /// comes back as `None`, a secret as the text `sanitize_content` makes.
     #[test]
     fn sanitize_leaf_returns_text_only_when_redacted() {
-        assert_eq!(sanitize_leaf("plain text", None).expect("scanned"), None);
-        assert_eq!(
-            sanitize_leaf("line", Some("src/a.rs")).expect("scanned"),
-            None
-        );
+        assert_eq!(sanitize_leaf("plain text").expect("scanned"), None);
         let token = format!("token: ghp_{}", "a".repeat(37));
-        let redacted = sanitize_leaf(&token, None).expect("scanned");
+        let redacted = sanitize_leaf(&token).expect("scanned");
         assert_eq!(
             redacted.as_deref(),
             Some(
-                sanitize_content(&token, None)
+                sanitize_content(&token)
                     .expect("sanitized")
                     .content
                     .as_ref()
@@ -208,35 +91,10 @@ mod tests {
         assert!(!redacted.expect("redacted").contains("ghp_"));
     }
 
-    /// A leaf of a source file is scanned as that language: a member of a
-    /// declaration stays, a bare `name: value` line (a label, how YAML pasted
-    /// into code parses) and a credential beside it do not.
     #[test]
-    fn sanitize_leaf_scopes_by_source_path() {
-        let declared = "interface Cfg {\n  password: hunter2hunter2hunter2;\n}";
-        assert_eq!(
-            sanitize_leaf(declared, Some("src/a.ts")).expect("scanned"),
-            None
-        );
-        let member = "  password: hunter2hunter2hunter2;";
-        assert!(
-            sanitize_leaf(member, Some("src/a.ts"))
-                .expect("scanned")
-                .is_some()
-        );
-        assert!(
-            sanitize_leaf(member, Some("config/app.yaml"))
-                .expect("scanned")
-                .is_some()
-        );
-        assert!(sanitize_leaf(member, None).expect("scanned").is_some());
-    }
-
-    #[test]
-    fn sanitize_content_adds_warning_when_secret_is_redacted() {
-        let result = sanitize_content("token: ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", None)
+    fn sanitize_content_warns_once_per_pattern_redacted() {
+        let result = sanitize_content("token: ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
             .expect("sanitized");
-
         assert!(result.has_secrets);
         assert_eq!(result.warnings, vec!["1 secret(s) redacted"]);
     }

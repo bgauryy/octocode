@@ -19,11 +19,11 @@ pub use catalog::{
     ROUTED_EXTENSIONS, available_server_languages, default_server_for_file, detect_language_id,
     typescript_server_fallback,
 };
-pub use defaults::{
-    allow_build_wrappers, rust_analyzer_headless_options, serves_requests_concurrently,
+pub use defaults::{allow_build_wrappers, rust_analyzer_headless_options};
+pub(crate) use defaults::{
+    apply_server_default_options, project_config_files, serves_requests_concurrently,
     workspace_symbol_cap_advice, workspace_symbol_limit,
 };
-pub(crate) use defaults::{apply_server_default_options, project_config_files};
 pub use directory::{
     default_server_for_directory, directory_languages, directory_representative,
     typescript_server_fallback_for_directory,

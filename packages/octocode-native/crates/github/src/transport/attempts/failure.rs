@@ -50,11 +50,7 @@ impl Attempts<'_> {
                         resource,
                     );
                 }
-                let bucket = headers
-                    .get("x-ratelimit-resource")
-                    .and_then(|value| value.to_str().ok())
-                    .unwrap_or(resource.bucket())
-                    .to_owned();
+                let bucket = crate::budget::rate_limit_resource(headers, resource.bucket());
                 // `retry-after` wins over the reset header: the bucket stays
                 // blocked until the moment GitHub says a retry may run.
                 let blocked_until = provider_retry_after(headers).map_or(reset, |after| {
@@ -81,7 +77,6 @@ impl Attempts<'_> {
                 waited_out.then_some(RetryWait {
                     wait,
                     sleep: Duration::ZERO,
-                    rate_limited: true,
                 })
             }
             Failure::Secondary { wait } => {
@@ -98,14 +93,13 @@ impl Attempts<'_> {
                 Some(RetryWait {
                     wait,
                     sleep: Duration::ZERO,
-                    rate_limited: true,
                 })
             }
             Failure::Server => {
                 *self.failed = Some(CircuitCause::Server);
                 let requested = provider_retry_after(headers);
                 if let Some(requested) = requested {
-                    // A long provider delay fails fast in `retry`; the
+                    // A delay past the deadline fails in `retry`; the
                     // caller still learns when to retry.
                     error.rate_limit = Some(Box::new(RateLimit {
                         remaining: None,
@@ -119,7 +113,6 @@ impl Attempts<'_> {
                 Some(RetryWait {
                     wait: delay,
                     sleep: delay,
-                    rate_limited: false,
                 })
             }
             Failure::Final => None,
@@ -184,13 +177,7 @@ pub(in crate::transport) fn secondary_cooldown(
         remaining: header_u64(headers, "x-ratelimit-remaining"),
         reset_epoch_seconds: Some(cooldown_end.div_ceil(1000)),
         retry_after_seconds: Some(crate::budget::ceil_secs(wait)),
-        resource: Some(
-            headers
-                .get("x-ratelimit-resource")
-                .and_then(|value| value.to_str().ok())
-                .unwrap_or(resource.bucket())
-                .into(),
-        ),
+        resource: Some(crate::budget::rate_limit_resource(headers, resource.bucket()).into()),
     }
 }
 

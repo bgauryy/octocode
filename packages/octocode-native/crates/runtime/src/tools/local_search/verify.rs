@@ -10,7 +10,6 @@ use octocode_contract_types::LocalSearchQuery;
 use octocode_engine::num::saturating_u32;
 
 mod decoded;
-mod exposed;
 mod guard;
 mod large;
 pub(super) mod lines;
@@ -19,12 +18,12 @@ mod settle;
 #[cfg(test)]
 mod verification_tests;
 
-pub(super) use guard::{
-    MAX_PROBE_LINE_BYTES, MAX_VERIFY_RETAINED_BYTES, RowShape, VERIFY_CANCEL_EVERY,
-    VERIFY_CHUNK_BYTES, ValueCheck, Verification, guard_read, guard_source_secrets,
-};
 #[cfg(test)]
-pub(super) use guard::{OVERSIZED_PLACEHOLDER, UNVERIFIED_PLACEHOLDER};
+pub(super) use guard::UNVERIFIED_PLACEHOLDER;
+pub(super) use guard::{
+    MAX_PROBE_LINE_BYTES, RowShape, VERIFY_CANCEL_EVERY, VERIFY_CHUNK_BYTES, ValueCheck,
+    Verification, guard_read, guard_source_secrets,
+};
 use lines::visit_values;
 pub(super) use lines::{VerifyReadError, materialize, read_verification_lines};
 pub(super) use settle::JudgedWindows;
@@ -58,6 +57,32 @@ pub(super) struct PageScope<'a, C> {
 /// changed: the returned text is then not verbatim source, and the row says
 /// so via a `redactedMatches` warning.
 pub(super) type Redacted = std::collections::HashSet<(String, u32, u32)>;
+
+/// (line, column) of each shown row of one file whose value shows text the
+/// redaction wrote: a [`Redacted`] row, whether the check cut that text or
+/// the search had (a window or span of the text a read serves, whose value
+/// the check keeps as it is).
+#[derive(Debug, Default)]
+pub(in crate::tools::local_search) struct HiddenRows(std::sync::Mutex<Vec<(u32, u32)>>);
+
+impl HiddenRows {
+    /// Notes `row` as showing text the redaction wrote.
+    pub(super) fn note(&self, row: &octocode_engine::types::TextSearchMatch) {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push((row.line, row.column));
+    }
+
+    /// Each noted row of the file at `path`, as a [`Redacted`] entry.
+    fn into_redacted(self, path: &str) -> impl Iterator<Item = (String, u32, u32)> + '_ {
+        self.0
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .into_iter()
+            .map(move |(line, column)| (path.to_owned(), line, column))
+    }
+}
 
 /// (path, line, column) of every match whose value redacting a fresh scan
 /// withheld because its file changed during the call (see
@@ -150,6 +175,7 @@ pub(super) fn verify_candidate(
         .map(|matched| matched.value.clone())
         .collect::<Vec<_>>();
     let rows = 0..file.matches.len();
+    let hidden = HiddenRows::default();
     let verification = guard_source_secrets(
         file,
         &source,
@@ -160,6 +186,7 @@ pub(super) fn verify_candidate(
             shape: RowShape::of(scope.query),
             cancel: scope.cancel,
             judged: Some(scope.judged),
+            hidden: &hidden,
         },
     )
     .map_err(ToolError::cancelled)?;
@@ -169,6 +196,7 @@ pub(super) fn verify_candidate(
             redacted.insert((file.path.clone(), matched.line, matched.column));
         }
     }
+    redacted.extend(hidden.into_redacted(&file.path));
     match verification {
         Verification::Verified => Ok(!held),
         Verification::Unverified => Ok(false),
@@ -204,12 +232,6 @@ pub(super) fn verify_shown(
         cancel,
         ..
     } = *scope;
-    let check = ValueCheck {
-        security,
-        shape: RowShape::of(query),
-        cancel,
-        judged: Some(scope.judged),
-    };
     if layout.list {
         for (index, _) in &layout.shown {
             let source = output_root.join(&parsed.files[*index].path);
@@ -227,6 +249,14 @@ pub(super) fn verify_shown(
     let mut to_outline: Vec<(std::path::PathBuf, Vec<u8>)> = Vec::new();
     for (index, rows) in &layout.shown {
         let file = &mut parsed.files[*index];
+        let hidden = HiddenRows::default();
+        let check = ValueCheck {
+            security,
+            shape: RowShape::of(query),
+            cancel,
+            judged: Some(scope.judged),
+            hidden: &hidden,
+        };
         let held = materialize(scope, file, rows.clone())?;
         cancel.check().map_err(ToolError::cancelled)?;
         // The check rewrites only the shown rows, so only they are compared.
@@ -283,6 +313,7 @@ pub(super) fn verify_shown(
                 redacted.insert((file.path.clone(), matched.line, matched.column));
             }
         }
+        redacted.extend(hidden.into_redacted(&file.path));
     }
     outlines.extend(parallel_outlines(to_outline, scope));
     Ok(unverified)

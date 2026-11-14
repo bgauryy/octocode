@@ -6,7 +6,7 @@ use super::layout::*;
 use super::local_search_query;
 use super::types::*;
 use octocode_contract_types::LocalSearchQuery;
-use octocode_engine::num::saturating_u32;
+use octocode_engine::num::{saturating_u32, saturating_usize};
 use octocode_engine::types::CapReason;
 
 /// The page's warning when some shown values are placeholders the secret
@@ -26,9 +26,6 @@ pub(super) struct Coverage {
     pub(super) binary_files: String,
     /// The returned files whose values are decoded text, not UTF-8 bytes.
     pub(super) not_utf8_files: Option<String>,
-    /// A returned long line hid every value of a Kubernetes Secret or JSON Web
-    /// Key, its walk having outgrown the memory budget.
-    pub(super) every_value: bool,
     /// The returned files whose leading UTF-8 byte-order mark was dropped.
     pub(super) utf8_bom_files: Option<String>,
     pub(super) skip_hint: Option<String>,
@@ -99,10 +96,6 @@ impl Coverage {
                 scanned.binary_file_count.unwrap_or(0),
                 output_root,
             ),
-            every_value: scanned
-                .every_value_files
-                .as_ref()
-                .is_some_and(|files| !files.is_empty()),
             not_utf8_files: scanned
                 .not_utf8_files
                 .as_deref()
@@ -150,16 +143,14 @@ impl Coverage {
     }
 
     /// The declared reasons of the gaps no cap names: unreadable files
-    /// (`filesSkipped`), files the regex hit its matching limit in
-    /// (`regexMatchLimit`), and long lines that hid every value of a named
-    /// structure (`securityLongTextEveryValue`), so a partial row states why.
+    /// (`filesSkipped`) and files the regex hit its matching limit in
+    /// (`regexMatchLimit`), so a partial row states why.
     pub(super) fn partial_reasons(&self) -> Vec<crate::response::paging::PartialReason> {
         use crate::response::paging::PartialReason;
         let unreadable = self.error_count.saturating_sub(self.pattern_error_count) > 0;
         [
             (unreadable, PartialReason::FilesSkipped),
             (self.pattern_error_count > 0, PartialReason::RegexMatchLimit),
-            (self.every_value, PartialReason::SecurityLongTextEveryValue),
         ]
         .into_iter()
         .filter_map(|(gap, reason)| gap.then_some(reason))
@@ -244,14 +235,85 @@ impl Coverage {
             vec![]
         } else if let Some(hint) = &self.skip_hint {
             vec![hint.clone()]
-        } else if self.withheld > 0 {
-            // Not a spelling problem: `skippedPaths` names what the policy
-            // withheld (once, there).
-            vec!["No matches where searched; the withheld entries in skippedPaths may hold it (unproven).".into()]
         } else {
             vec![]
         }
     }
+
+    /// An empty page's one absence sentence: what it searched and what it did
+    /// not, as counts, and what lies beyond it; `None` when it would only
+    /// restate the status and `filesScanned`. `checked` is
+    /// the check of the skipped paths, which found nothing in them. Entries
+    /// the path policy withholds are counted, never hedged over: no setting
+    /// lifts them, so no search could read them.
+    pub(super) fn absence(
+        &self,
+        view: super::local_search_query::View,
+        (files_searched, binary_skipped): (u32, u32),
+        checked: Option<&super::probes::Checked>,
+        beyond: Option<Beyond>,
+    ) -> Option<String> {
+        use octocode_engine::text::counted;
+        let withheld = self.withheld + checked.map_or(0, |checked| checked.withheld);
+        if checked.is_none() && beyond.is_none() && binary_skipped == 0 && withheld == 0 {
+            return None;
+        }
+        let files = counted(files_searched, "searched file", "searched files");
+        let mut sentence = if view == super::local_search_query::View::FilesWithout {
+            format!("Every one of {files} matches")
+        } else {
+            format!("No match in {files}")
+        };
+        if let Some(checked) = checked {
+            sentence.push_str(&format!(
+                ", nor in the skipped paths a check searched ({})",
+                checked.paths
+            ));
+        }
+        let step = match beyond {
+            Some(Beyond::Nowhere(clause)) => {
+                sentence.push_str(", ");
+                sentence.push_str(&clause);
+                None
+            }
+            Some(Beyond::Step(clause)) => Some(clause),
+            None => None,
+        };
+        let unsearched = [
+            (
+                saturating_usize(binary_skipped),
+                "binary file",
+                "binary files",
+            ),
+            (
+                withheld,
+                "entry the path policy withholds",
+                "entries the path policy withholds",
+            ),
+        ]
+        .into_iter()
+        .filter(|(count, ..)| *count > 0)
+        .map(|(count, one, many)| counted(count, one, many))
+        .collect::<Vec<_>>();
+        if !unsearched.is_empty() {
+            sentence.push_str("; not searched: ");
+            sentence.push_str(&unsearched.join(", "));
+        }
+        if let Some(step) = step {
+            sentence.push_str("; ");
+            sentence.push_str(&step);
+        }
+        sentence.push('.');
+        Some(sentence)
+    }
+}
+
+/// What an empty page's absence sentence says lies past its path.
+pub(super) enum Beyond {
+    /// No wider scope holds a match either (`nor anywhere else …`).
+    Nowhere(String),
+    /// The step a lead takes (`related[] searches one folder up`).
+    Step(String),
 }
 
 /// The empty row's fact when the walk found no file at all, with no

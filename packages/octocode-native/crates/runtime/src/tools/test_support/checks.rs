@@ -1,5 +1,8 @@
 //! Shared assertions for typed continuations and complete evidence page walks.
-use super::{partial_reasons, publish_for_assertion, validate_output, validate_test_input};
+use super::{
+    carried_identities, keep_workflow_lead, partial_reasons, publish_for_assertion,
+    validate_output, validate_test_input,
+};
 use serde_json::Value;
 
 /// No text of `response` says what a partial reason means: a row carries the
@@ -34,6 +37,43 @@ pub fn assert_output_contract(tool: &str, output: &Value) {
         .unwrap_or_else(|error| panic!("{tool} output contract: {error:?}\n{published}"));
     assert_leads_valid(output);
     assert_continued_listings_have_more(tool, output);
+    assert_no_fact_only_in_a_dropped_lead(tool, output);
+}
+
+/// No fact lives only in a lead the response stage drops: each identity a
+/// dropped related call carries (`carried_identities`) is stated by its row
+/// outside its calls, so the call is one documented request away.
+pub fn assert_no_fact_only_in_a_dropped_lead(tool: &str, output: &Value) {
+    fn states(value: &Value, identity: &str) -> bool {
+        match value {
+            Value::String(text) => text.contains(identity),
+            Value::Array(items) => items.iter().any(|item| states(item, identity)),
+            Value::Object(map) => map.iter().any(|(key, item)| {
+                !matches!(key.as_str(), "related" | "next") && states(item, identity)
+            }),
+            _ => false,
+        }
+    }
+    let mut lean = output.clone();
+    keep_workflow_lead(tool, &mut lean);
+    let rows = |value: &Value| value["results"].as_array().cloned().unwrap_or_default();
+    for (row, kept) in rows(output).iter().zip(rows(&lean)) {
+        let kept = kept["data"]["related"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        for call in row["data"]["related"].as_array().into_iter().flatten() {
+            if kept.contains(call) {
+                continue;
+            }
+            for identity in carried_identities(call) {
+                assert!(
+                    states(&row["data"], identity),
+                    "{tool}: `{identity}` lives only in a dropped lead {call}\n{row}"
+                );
+            }
+        }
+    }
 }
 
 /// Leads that list more of the same listing a row's `pagination` counts.

@@ -3,9 +3,14 @@
 //! lines, an object or a list of objects nested under its key (`- ` leads
 //! each list item), a list of strings one `- ` item per line, numbers and
 //! flags inline. A list whose items all hold the same single field names it
-//! once (`nodes[].node:`); a list of flat rows prints as a [`table`]. Every
+//! once (`nodes[].node:`); a list of flat rows prints as a [`table`]. A
+//! field every object of a list holds with one single-word value is stated
+//! once after the list's key in `[ … ]` ([`once::item_constants`]). A
+//! top-level block of numbered source lines (`N<TAB>text`, a read's
+//! `content`) prints them unindented: their numbers set them apart. Every
 //! field prints; nothing is clipped.
 use super::follow::split_stated;
+use super::once;
 use super::table::{is_word, table};
 use super::{Row, tail, words};
 use serde_json::{Map, Value};
@@ -56,7 +61,10 @@ fn entry(head: &str, value: &Value, indent: &str, out: &mut Vec<String>) {
     match value {
         Value::String(text) if text.contains('\n') => {
             out.push(format!("{head} |"));
-            out.extend(text.split('\n').map(|line| format!("{inner}{line}")));
+            match numbered_lines(text).filter(|_| indent.is_empty()) {
+                Some(lines) => out.extend(lines.into_iter().map(str::to_owned)),
+                None => out.extend(text.split('\n').map(|line| format!("{inner}{line}"))),
+            }
         }
         Value::String(text) if text.is_empty() => out.push(format!("{head} \"\"")),
         Value::String(text) => out.push(format!("{head} {text}")),
@@ -75,16 +83,43 @@ fn entry(head: &str, value: &Value, indent: &str, out: &mut Vec<String>) {
             out.push(format!("{head} {}", items.join(", ")));
         }
         Value::Array(items) => {
-            out.push(head.to_owned());
+            let constants = once::item_constants(items, true);
+            if constants.is_empty() {
+                out.push(head.to_owned());
+            } else {
+                out.push(format!("{head}  [{}]", words(&constants)));
+            }
+            let items: Vec<Value> = items
+                .iter()
+                .map(|item| once::without_constants(item, &constants))
+                .collect();
             // One layout per array: a row of single words stays inline only
             // when every row of its array does.
             let block = items.iter().any(needs_block);
-            for item in items {
+            for item in &items {
                 list_item(item, &inner, block, out);
             }
         }
         other => out.push(format!("{head} {other}")),
     }
+}
+
+/// The lines of a value that is numbered source lines (`N<TAB>text`, the
+/// value's final line break ending its last line); `None` for any other.
+fn numbered_lines(text: &str) -> Option<Vec<&str>> {
+    let lines: Vec<&str> = text
+        .strip_suffix('\n')
+        .unwrap_or(text)
+        .split('\n')
+        .collect();
+    lines
+        .iter()
+        .all(|line| {
+            line.split_once('\t').is_some_and(|(number, _)| {
+                !number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit())
+            })
+        })
+        .then_some(lines)
 }
 
 /// The field and the values of a list whose items are all objects holding

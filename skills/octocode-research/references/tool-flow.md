@@ -18,7 +18,7 @@ Load for tool selection, scouting or cross-source research. Live schemas own fie
 | Package source or version | `artifactSearch` → verified repository/ref → source |
 | Known vulnerabilities | `securityCheck` at the version in use; an empty result is not proof of safety |
 | Many searches or AST analysis in another repo | `ghStructure` materialize → returned `location.path` → local tools |
-| Unread evidence requiring judgment by meaning | `classification` or `clasify` → exact read |
+| Unread evidence requiring judgment by meaning | `classification` or `clasify`, when listed → exact read |
 
 Prefer the local checkout for code and GitHub for discussion. Trace `entry → transformations → state → output → consumers`; change tools when the next claim needs different evidence. Batch independent queries, wait for dependent results, and reuse observed paths, lines and refs.
 
@@ -27,7 +27,7 @@ Prefer the local checkout for code and GitHub for discussion. Trace `entry → t
 | Needed evidence | Select |
 |---|---|
 | File names | `localSearch view:files`; `ghSearchCode fields:[path]`; `structureSearch view:paths` |
-| Counts or distinct values | `countLines`, `countMatches`, or `matchOnly` + `unique:count` on `localSearch` |
+| Counts or distinct values | `localSearch` `view:"countLines"`, `view:"countMatches"`, or `view:"matchOnly"` + `unique:"count"` |
 | Outline | `localFetch view:symbols`; large code: filtered `astSearch` symbols |
 | One declaration | Unique `matchString` + `block:true`, or AST span → `ranges` |
 | Neighboring lines | `matchString` + `contextLines`; reuse search case, whole-word and regex options |
@@ -48,7 +48,7 @@ Views select evidence: files have no bodies, symbols no implementations, compact
 
 ## Scout: judge what you have not read
 
-Use exact tools for literal facts, counts, identity and absence. Narrow by path, glob or term first; scout only when judgment by meaning can change the next read. Discover concrete files before treating a directory as a source.
+Use exact tools for literal facts, counts, identity and absence. Narrow by path, glob or term first; scout only when judgment by meaning can change the next read, and only with `clasify` listed (the key that lists it also enables inline `classification`); otherwise page and read exactly. Discover concrete files before treating a directory as a source.
 
 | Unread material | Scout | Verify |
 |---|---|---|
@@ -85,7 +85,7 @@ Use exact tools for literal facts, counts, identity and absence. Narrow by path,
 ## Route conditions
 
 - **Version in use beats latest.** Omitting `version` resolves the latest stable release, so pass the lockfile's version and read installed files first.
-- **A CVE question goes to `securityCheck` when it is listed:** `package` at the lockfile's version, `url`, `advisory` with an id, or `commit`. `status:"empty"` is none known to OSV, not proof the version is safe; `status:"error"` is not checked. When it is not listed (MCP without `OCTOCODE_SECURITY_CHECKS`; the CLI always offers it), memory is not evidence: name the gap. `artifactSearch` carries `advisories` only for PyPI and NuGet, from the registry, and elsewhere the state is unknown, never clean. With a CVE already named, prove the fix from source: the release's `ref`, then `ghSearchHistory` and `ghGetHistoryItem` compare.
+- **A CVE question goes to `securityCheck` when it is listed:** `package` at the lockfile's version, `url`, `advisory` with an id, or `commit`. `affected:false` with `advisoryCount:0` is none known to OSV, not proof the version is safe; `status:"error"` is not checked. When it is not listed (MCP without `OCTOCODE_SECURITY_CHECKS`; the CLI always offers it), memory is not evidence: name the gap. `artifactSearch` carries `advisories` only for PyPI and NuGet, from the registry, and elsewhere the state is unknown, never clean. With a CVE already named, prove the fix from source: the release's `ref`, then `ghSearchHistory` and `ghGetHistoryItem` compare.
 - **Trust the ref by `verification`.** `provenance` and `tag` tie it to the version; with `registryRef` or `defaultBranch`, check that tree's manifest before citing. PyPI resolves only; custom registries are npm only.
 - **`ghSearchCode` sees only the default branch.** Its `ref` re-reads hits without widening the search. For another revision, use `ghStructure` at that ref; paths may differ. An empty index result is not absence.
 - **`ghSearchCode` requires `owner`.** With no owner, start from `artifactSearch` or `ghSearchRepo`; never guess.

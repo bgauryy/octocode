@@ -225,8 +225,9 @@ impl Authentication {
             Err(error) => storage_error = Some(error),
         }
         budget.check().map_err(resolution_stopped)?;
-        if let Some(token) = backend.gh(&host, budget).await?
-            && !(mode == AuthMode::Request && self.is_rejected(&host, token.expose_secret()))
+        let refused = |token: &str| mode == AuthMode::Request && self.is_rejected(&host, token);
+        if let Some(token) = backend.gh(&host, budget, &refused).await?
+            && !refused(token.expose_secret())
         {
             return Ok(Some(AuthSelection {
                 credential: ResolvedCredential::new(token, CredentialSource::GhCli),

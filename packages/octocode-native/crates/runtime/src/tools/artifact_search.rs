@@ -45,7 +45,7 @@ pub async fn execute(
     query: ArtifactSearchQuery,
     call: ArtifactCall<'_>,
 ) -> Result<Value, ArtifactError> {
-    let http = SystemArtifactHttp::shared()?.with_retries(call.max_retries);
+    let http = SystemArtifactHttp::shared().with_retries(call.max_retries);
     let budget = RequestBudget::new(call.deadline, call.cancellation, PROVIDER_BODY_BYTES)
         .with_stall(call.timeout);
     let npm_registry = npm_registry(&query, call.env)?;

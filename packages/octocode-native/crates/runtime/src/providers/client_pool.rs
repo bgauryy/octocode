@@ -77,10 +77,21 @@ mod tests {
     use std::cell::Cell;
     use std::convert::Infallible;
 
+    /// A client that skips the system proxy lookup: these tests count and
+    /// order builds, and that lookup is a real system service (on macOS a
+    /// configuration-daemon session that first scans the executable's
+    /// directory) whose time follows the machine's load.
+    fn client() -> reqwest::Client {
+        reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("client")
+    }
+
     fn counted(builds: &Cell<usize>) -> impl FnOnce() -> Result<reqwest::Client, Infallible> + '_ {
         || {
             builds.set(builds.get() + 1);
-            Ok(reqwest::Client::new())
+            Ok(client())
         }
     }
 
@@ -114,52 +125,29 @@ mod tests {
         assert_eq!(builds.get(), 2);
     }
 
-    /// A slow build (TLS roots, the system proxy lookup) holds no lock: a
-    /// get for another key on the same runtime finishes meanwhile.
+    /// A build in progress (TLS roots, the system proxy lookup) holds no
+    /// lock: from inside it, the pool is free and a get for another key on
+    /// the same runtime builds and returns.
     #[test]
     fn a_build_in_progress_does_not_block_other_keys() {
-        use std::sync::{Arc, mpsc};
-        use std::time::Duration;
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(1)
+        let runtime = tokio::runtime::Builder::new_current_thread()
             .build()
             .expect("runtime");
-        let clients = Arc::new(RuntimeClients::new(8));
-        let (release, held) = mpsc::channel::<()>();
-        let (started, building) = mpsc::channel::<()>();
-        let slow = {
-            let (clients, handle) = (Arc::clone(&clients), runtime.handle().clone());
-            std::thread::spawn(move || {
-                let _guard = handle.enter();
-                clients
-                    .get(1, || {
-                        started.send(()).expect("started");
-                        held.recv().expect("released");
-                        Ok::<_, Infallible>(reqwest::Client::new())
-                    })
-                    .expect("slow client");
+        let _guard = runtime.enter();
+        let clients = RuntimeClients::new(8);
+        let builds = Cell::new(0);
+        clients
+            .get(1, || {
+                assert!(
+                    clients.clients.try_lock().is_ok(),
+                    "a build holds the pool's lock"
+                );
+                clients.get(2, counted(&builds)).expect("other key");
+                Ok::<_, Infallible>(client())
             })
-        };
-        building.recv().expect("the slow build started");
-        let (done, finished) = mpsc::channel();
-        let fast = {
-            let (clients, handle) = (Arc::clone(&clients), runtime.handle().clone());
-            std::thread::spawn(move || {
-                let _guard = handle.enter();
-                clients
-                    .get(2, || Ok::<_, Infallible>(reqwest::Client::new()))
-                    .expect("fast client");
-                done.send(()).expect("done");
-            })
-        };
-        // The slow build is held until released below, so a blocked key
-        // never finishes: the bound only stands for "never", and a loaded
-        // machine building a client slowly stays inside it.
-        let waited = finished.recv_timeout(Duration::from_secs(60));
-        release.send(()).expect("release");
-        slow.join().expect("slow thread");
-        fast.join().expect("fast thread");
-        assert!(waited.is_ok(), "the other key waited for the slow build");
+            .expect("slow client");
+        assert_eq!(builds.get(), 1, "the other key built during the slow build");
+        assert_eq!(clients.clients.lock().expect("clients").len(), 2);
     }
 
     /// Two builds that race for one key keep one client: the second
@@ -177,7 +165,7 @@ mod tests {
                 // Another caller finishes its build of the same key first.
                 clients.get(1, counted(&builds)).expect("inner client");
                 builds.set(builds.get() + 1);
-                Ok::<_, Infallible>(reqwest::Client::new())
+                Ok::<_, Infallible>(client())
             })
             .expect("outer client");
         assert_eq!(builds.get(), 2);

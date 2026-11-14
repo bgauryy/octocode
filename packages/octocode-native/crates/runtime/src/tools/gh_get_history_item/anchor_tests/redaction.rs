@@ -295,7 +295,7 @@ async fn head_text_widening_skips_a_withheld_file_by_default() {
     let shown = out.to_string();
     assert_eq!(reads, 0, "a withheld head file is not read: {out}");
     assert!(!shown.contains("SETTING_2=on"), "no head text: {out}");
-    assert!(shown.contains("DEBUG=true"), "the patch stays: {out}");
+    assert!(shown.contains("DEBUG="), "the patch stays: {out}");
     assert!(shown.contains("\"contextClipped\":true"), "{out}");
 }
 
@@ -408,10 +408,10 @@ async fn head_text_widening_a_dotenv_patch_hides_credential_values() {
     assert_eq!(reads, 1, "the opt-in reads the head file: {out}");
     let shown = out.to_string();
     assert!(
-        shown.contains("SETTING_2=on"),
+        shown.contains("SETTING_2="),
         "head text widened the hunk: {out}"
     );
-    assert!(shown.contains("DEBUG=true"), "{out}");
+    assert!(shown.contains("DEBUG="), "{out}");
     for secret in ["CowSaysMoo", "Moo12"] {
         assert!(!shown.contains(secret), "{secret} leaked: {out}");
     }
@@ -505,16 +505,16 @@ async fn the_redaction_warning_counts_what_the_page_shows() {
 }
 
 /// Round 14, B: a patch's hunks are judged as the text they change, so a
-/// YAML block scalar's body on `+` and context lines, and a Secret's data in
-/// its own `+---` document, are hidden in `sections:["patches"]`, each line
-/// keeping its marker; the ConfigMap's value beside them stays.
+/// token on `+`, `-` and context lines of a non-credential file is hidden in
+/// `sections:["patches"]`, each line keeping its marker; plain values beside
+/// it stay.
 #[tokio::test]
-async fn a_yaml_patch_hides_block_bodies_and_secret_data() {
+async fn a_yaml_patch_hides_known_secrets_and_keeps_its_lines() {
     let server = MockServer::builder().start().await;
     let mut raw = commit_raw(HEAD, "Deploy");
     let mut manifest = changed_file("deploy/app.yaml");
     manifest["patch"] = json!(
-        "@@ -1,3 +1,11 @@\n config:\n   token: |-\n     Ab3Cd9Ef2Gh7Jk5Lm1\n+  token: |-\n+    Hk3Lm9Pq2Rs7Tv5Wx1\n+---\n+kind: ConfigMap\n+data:\n+  cacheKeyPrefix: app-cache\n+---\n+kind: Secret\n+data:\n+  username: YWRtaW4="
+        "@@ -1,3 +1,6 @@\n config:\n   token: ghp_Ab3Cd9Ef2Gh7Jk5Lm1Ab3Cd9Ef2Gh7Jk5Lm1\n-  slack: xoxb-1234567890-1234567890123-AbCdEfGhIjKlMnOpQrStUvWx\n+  token: |-\n+    ghp_Hk3Lm9Pq2Rs7Tv5Wx1Hk3Lm9Pq2Rs7Tv5Wx1\n+  cacheKeyPrefix: app-cache\n+  username: YWRtaW4="
     );
     raw["files"] = json!([manifest]);
     mount_json(
@@ -530,14 +530,20 @@ async fn a_yaml_patch_hides_block_bodies_and_secret_data() {
     )
     .await;
     let text = out.to_string();
-    for secret in ["Ab3Cd9Ef2Gh7Jk5Lm1", "Hk3Lm9Pq2Rs7Tv5Wx1", "YWRtaW4="] {
+    for secret in [
+        "Ab3Cd9Ef2Gh7Jk5Lm1",
+        "Hk3Lm9Pq2Rs7Tv5Wx1",
+        "AbCdEfGhIjKlMnOpQrStUvWx",
+    ] {
         assert!(!text.contains(secret), "{secret}: {out}");
     }
     for kept in [
+        "   token: [REDACTED-",
+        "-  slack: [REDACTED-",
         "+  token: |-",
         "+    [REDACTED-",
         "+  cacheKeyPrefix: app-cache",
-        "+  username: [REDACTED-",
+        "+  username: YWRtaW4=",
     ] {
         assert!(text.contains(kept), "{kept} lost: {out}");
     }

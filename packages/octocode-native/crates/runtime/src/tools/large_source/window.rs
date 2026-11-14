@@ -15,24 +15,14 @@ use octocode_contract_types::{ErrorCode, LocalFetchQuery, ReadProgressUnit};
 use octocode_engine::num::saturating_usize;
 use std::path::Path;
 
-/// Disclose a page of the every-value fallback: its values are hidden, secret
-/// or not, because the structure walk outgrew the memory budget.
-fn every_value_reason(result: &mut LocalFetchResult) {
-    result.terminal_limit(PartialReason::SecurityWalkMemoryBudget);
-}
-
 /// The row of a streamed read that failed: a read the memory budget has no room
-/// to place the values of is refused whole, and says why.
+/// to place the redactions of is refused whole, and says why.
 pub(super) fn read_failed(q: &LocalFetchQuery, error: ReadError) -> LocalFetchResult {
-    let mut result = LocalFetchResult::error(
+    LocalFetchResult::error(
         local_fetch_query::path(q).to_owned(),
         ErrorCode::FileReadFailed,
         error.message().to_owned(),
-    );
-    if error == ReadError::Refused {
-        every_value_reason(&mut result);
-    }
-    result
+    )
 }
 
 /// The file lines one streamed window of `q` holds.
@@ -280,11 +270,6 @@ pub(super) fn serve_window(
             return result;
         }
         map_to_file(&mut result, &streamed);
-        if streamed.every_value {
-            // The page's own count stands; `partialReasons` says why every
-            // value is hidden (its meaning is the contract's).
-            every_value_reason(&mut result);
-        }
         if !chunked && requested_last > total {
             // The in-memory read states the same clamp.
             result.warnings.push(format!(

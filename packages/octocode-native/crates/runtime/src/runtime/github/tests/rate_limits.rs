@@ -135,6 +135,7 @@ fn history_search_422_names_the_query() {
         retryable: false,
         reason: None,
         sso_url: None,
+        proxy: None,
     };
     let result = history_error(error, true);
     assert_eq!(

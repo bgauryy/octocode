@@ -22,14 +22,30 @@ pub(super) fn report(
     depth_limited: bool,
 ) -> Impact {
     let key = |id: u32| t.str(t.nodes[id as usize].key);
+    // Proven reach (a call, use or heritage edge bound to the change)
+    // before module-level candidates, as it outranks one in the walk; each
+    // by distance, then path.
     let reached_files = |reach: &[Option<Reach>]| {
         let mut files = t
             .node_ids()
             .filter(|id| t.nodes[*id as usize].kind == NodeKind::File)
             .filter_map(|id| reach[id as usize].map(|r| (id, r)))
             .collect::<Vec<_>>();
-        files.sort_by(|a, b| (a.1.depth, key(a.0)).cmp(&(b.1.depth, key(b.0))));
+        files.sort_by(|a, b| {
+            (a.1.candidate, a.1.depth, key(a.0)).cmp(&(b.1.candidate, b.1.depth, key(b.0)))
+        });
         files
+    };
+    // A test-directory file a test file imports (or declares as a module),
+    // whose own name marks no test, is their support code: no test to run.
+    let helper = |file: u32| {
+        let name = key(file).rsplit('/').next().unwrap_or_default();
+        !octocode_engine::text::test_paths::is_test_path(name)
+            && t.incoming(file).any(|edge| {
+                matches!(edge.kind, EdgeKind::Imports | EdgeKind::Contains)
+                    && t.nodes[edge.src as usize].kind == NodeKind::File
+                    && t.nodes[edge.src as usize].flags & ROLE_TEST != 0
+            })
     };
     let files = reached_files(reached.listed);
     let reach = reached.tests;
@@ -55,7 +71,7 @@ pub(super) fn report(
         rows.push(impact_row(t, *id, r));
     }
     for (id, _) in reached_files(reach) {
-        if t.nodes[id as usize].flags & ROLE_TEST != 0 {
+        if t.nodes[id as usize].flags & ROLE_TEST != 0 && !helper(id) {
             tests.push(key(id));
         }
     }
@@ -68,6 +84,7 @@ pub(super) fn report(
             node.kind == NodeKind::Symbol
                 && node.flags & FLAG_TEST != 0
                 && reach[*id as usize].is_some()
+                && !(node.file != NONE && helper(node.file))
         })
         .map(|id| (reach[id as usize].map_or(0, |r| r.depth), key(id)))
         .collect::<Vec<_>>();

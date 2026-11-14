@@ -211,10 +211,7 @@ pub(super) async fn materialize_tree(
         .await?;
     let root = store.root.clone();
     let now = std::time::Instant::now();
-    let time_left = context
-        .budget
-        .effective_deadline()
-        .saturating_duration_since(now);
+    let time_left = context.budget.deadline.saturating_duration_since(now);
     let stop_at = now + time_left.mul_f64(0.75);
     let read_limit = context.budget.max_body_bytes;
     let mut writer = MaterializeWriter {

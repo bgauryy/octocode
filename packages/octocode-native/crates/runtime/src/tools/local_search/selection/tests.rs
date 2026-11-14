@@ -55,14 +55,30 @@ fn search_with(
     let policy = crate::tools::test_support::workspace_policy(root);
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let selection = runtime_with(fail, &executor, max);
-    execute_local_search(
+    bills_only_itself(execute_local_search(
         &query,
         &policy,
         &ContentSecurity::new(),
         &NeverCancel,
         None,
         Some(&selection),
-    )
+    ))
+}
+
+/// `result`, once every call it offers is checked to bill nothing the
+/// caller did not ask for: each classified search here is a case of it.
+fn bills_only_itself(
+    result: Result<LocalSearchResult, ToolError>,
+) -> Result<LocalSearchResult, ToolError> {
+    let offered = match &result {
+        Ok(row) => row.next.clone().unwrap_or(Value::Null),
+        Err(error) => error.calls.as_deref().cloned().unwrap_or(Value::Null),
+    };
+    crate::tools::test_support::billing::assert_bills_only_itself(
+        crate::id::ToolId::LocalSearch,
+        &offered,
+    );
+    result
 }
 
 fn fixture() -> tempfile::TempDir {
@@ -169,13 +185,12 @@ fn each_hit_is_judged_and_counts_describe_the_kept_hits() {
     assert_eq!(result.stats.total_occurrences, Some(2));
     assert_eq!(result.stats.matched_lines, Some(2));
     // Every count states the kept hits: one file holds them. The two files
-    // classification kept no hit of are said, with the call that lists them.
+    // classification kept no hit of are said, with the call that lists every
+    // matched file unclassified (theirs and the kept one).
     assert_eq!(result.stats.matched_files, Some(1));
     assert!(
-        result
-            .warnings
-            .iter()
-            .any(|note| note == "2 of 3 matched files kept no hit: next.unfiltered lists them."),
+        result.warnings.iter().any(|note| note
+            == "2 of 3 matched files kept no hit; next.unfiltered lists all 3 unclassified."),
         "{:?}",
         result.warnings
     );
@@ -241,14 +256,14 @@ fn sorted_search_with(
         // A hit with its one-line state charges about a hundred characters.
         selection.limits.max_chars = max * 100;
     }
-    execute_local_search(
+    bills_only_itself(execute_local_search(
         query,
         &policy,
         &ContentSecurity::new(),
         &NeverCancel,
         None,
         Some(&selection),
-    )
+    ))
     .expect("search")
 }
 
@@ -541,6 +556,36 @@ fn a_long_context_retry_is_disclosed_on_the_scout_row() {
         notice.contains("longContext:false refuses instead"),
         "{notice}"
     );
+}
+
+/// An empty classified search of a list under a subfolder leads to the same
+/// search where it matches: a fresh search the caller runs unbilled, of the
+/// terms the caller wrote, never the alternation a list runs as.
+#[test]
+fn a_broader_lead_of_a_classified_list_search_bills_nothing_and_restates_the_terms() {
+    let root = tempfile::tempdir().expect("fixture");
+    std::fs::create_dir(root.path().join("sub")).expect("sub");
+    std::fs::write(root.path().join("sub").join("quiet.rs"), "nothing here\n").expect("quiet");
+    std::fs::write(root.path().join("loud.rs"), "Needle one\npin two\n").expect("loud");
+    let sub = root.path().join("sub");
+    let sent = json!({"path": sub, "matchString": ["Needle", "pin"]});
+    let result = search(root.path(), sent.clone(), None).expect("search");
+    assert_eq!(result.status, SearchStatus::Empty);
+    let offered = result.next.clone().expect("leads");
+    let broader = crate::tools::test_support::billing::offered_calls(&offered)
+        .into_iter()
+        .filter(|call| call["tool"] == "localSearch")
+        .collect::<Vec<_>>();
+    assert!(!broader.is_empty(), "a broader search: {offered}");
+    for call in broader {
+        let row = &call["input"]["queries"][0];
+        assert_eq!(row["matchString"], sent["matchString"], "{call}");
+        assert!(
+            row.get("regexEngine").is_none() && row.get("caseMode").is_none(),
+            "the caller set neither: {call}"
+        );
+        assert!(row.get("classification").is_none(), "{call}");
+    }
 }
 
 mod candidates;

@@ -139,7 +139,20 @@ fn page_rank_hubs_weight_edges_by_sites() {
         .iter()
         .map(|row| row["pageRank"].as_f64().unwrap())
         .collect::<Vec<_>>();
-    assert!((ranks.iter().sum::<f64>() - 1.0).abs() < 1e-6, "{ranks:?}");
+    // A rank is a share, not a measurement: 4 significant digits, so the
+    // listed ranks sum to 1 within that rounding.
+    for rank in &ranks {
+        assert_eq!(
+            format!("{rank:.3e}").parse::<f64>().ok(),
+            Some(*rank),
+            "{ranks:?}"
+        );
+    }
+    let rounding = ranks.iter().map(|rank| rank * 5e-4).sum::<f64>();
+    assert!(
+        (ranks.iter().sum::<f64>() - 1.0).abs() <= rounding + 1e-12,
+        "{ranks:?}"
+    );
     assert!(
         ranks.windows(2).all(|pair| pair[0] >= pair[1] - 1e-12),
         "{ranks:?}"

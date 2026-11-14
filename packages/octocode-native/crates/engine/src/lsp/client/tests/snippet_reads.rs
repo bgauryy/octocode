@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::lsp::client::snippets::{
-    CachedSource, MAX_SNIPPET_SOURCE_BYTES, SnippetContentCache, parse_position,
-    read_bounded_regular_file, slice_range_content, snippets_from_locations,
+    CachedSource, SnippetContentCache, parse_position, read_bounded_regular_file,
+    slice_range_content, snippets_from_locations,
 };
 use crate::lsp::types::{LspExactPosition, LspRange};
 use crate::lsp::uri::path_to_uri;
@@ -221,9 +221,9 @@ fn snippet_reads_reject_oversized_files_before_reading() {
     let path = tmp.0.join("octocode-engine-snippet-oversized");
     let file = std::fs::File::create(&path).unwrap();
     // Sparse: the size check must refuse it from metadata alone.
-    file.set_len(MAX_SNIPPET_SOURCE_BYTES + 1).unwrap();
+    file.set_len(crate::lsp::MAX_LSP_SOURCE_BYTES + 1).unwrap();
     drop(file);
-    let error = read_bounded_regular_file(&path, MAX_SNIPPET_SOURCE_BYTES)
+    let error = read_bounded_regular_file(&path, crate::lsp::MAX_LSP_SOURCE_BYTES)
         .expect_err("oversized file rejected");
     assert!(error.reason.contains("too large"), "{}", error.reason);
     // The same bound applies through `take`, not only through metadata.

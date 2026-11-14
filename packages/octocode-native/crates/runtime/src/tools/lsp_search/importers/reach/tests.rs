@@ -105,6 +105,20 @@ fn relative_imports_reach_the_anchor_or_a_relay_only() {
         "k.ts",
         "import { errorMessage } from './missing';\n"
     ));
+    // A dynamic load binds what its statement destructures, on any line.
+    assert!(reached(
+        "l.ts",
+        "async function f() {\n  const [other, { errorMessage }] = await Promise.all([\n    import('./shared/util'),\n    import('./cli'),\n  ]);\n  return errorMessage(other);\n}\n"
+    ));
+    assert!(reached(
+        "m.ts",
+        "import('./cli')\n  .then(({ errorMessage }) => errorMessage(1));\n"
+    ));
+    // Another statement's name is no binding of the load.
+    assert!(!reached(
+        "n.ts",
+        "await import('./cli');\nconst errorMessage = 1;\n"
+    ));
 }
 
 /// A bare or aliased specifier is the project's to resolve: it may reach

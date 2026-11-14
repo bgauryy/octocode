@@ -58,12 +58,3 @@ export function catalogWhitespace(source: string): string {
 export function isBlank(text: string): boolean {
   return UNICODE_BLANK.test(text);
 }
-
-/** At most `bytes` bytes, never splitting a character. */
-export function truncateUtf8(text: string, bytes: number): string {
-  const buffer = Buffer.from(text, 'utf8');
-  if (buffer.length <= bytes) return text;
-  let end = bytes;
-  while (end > 0 && (buffer[end]! & 0xc0) === 0x80) end -= 1;
-  return buffer.subarray(0, end).toString('utf8');
-}

@@ -2,8 +2,6 @@
 //! and markers are not in its raw bytes. Streamed, so a source of any size keeps
 //! the read's bounds; a malformed unit reads as U+FFFD, as it did in the search.
 
-use super::{CancellationCheck, VERIFY_CHUNK_BYTES, VerifyReadError};
-use octocode_engine::security::SourceNames;
 use std::io::{BufRead, Read};
 
 #[derive(Clone, Copy)]
@@ -22,36 +20,6 @@ pub(super) fn byte_order(reader: &mut impl BufRead) -> std::io::Result<Option<By
     };
     reader.consume(2);
     Ok(Some(order))
-}
-
-/// Whether the text of the source `reader` holds, UTF-16 or not, names a Kubernetes
-/// Secret or a JSON Web Key ([`SourceNames`]). Nothing is kept and no line is
-/// split, so a source that names neither costs one read.
-pub(super) fn names_an_object(
-    mut reader: impl BufRead,
-    cancel: &impl CancellationCheck,
-) -> Result<bool, VerifyReadError> {
-    match byte_order(&mut reader)? {
-        Some(order) => read_names(Utf16Text::new(reader, order), cancel),
-        None => read_names(reader, cancel),
-    }
-}
-
-fn read_names(
-    mut reader: impl Read,
-    cancel: &impl CancellationCheck,
-) -> Result<bool, VerifyReadError> {
-    // No path: what a path's YAML says is the line-by-line pass's to find.
-    let mut names = SourceNames::for_path("");
-    let mut chunk = vec![0u8; VERIFY_CHUNK_BYTES];
-    loop {
-        cancel.check().map_err(VerifyReadError::Cancelled)?;
-        let read = reader.read(&mut chunk)?;
-        if read == 0 {
-            return Ok(names.finish().objects.any());
-        }
-        names.feed(&chunk[..read]);
-    }
 }
 
 /// [`Read`] of the UTF-8 text a UTF-16 stream decodes to.
@@ -145,43 +113,6 @@ mod tests {
             .read_to_string(&mut text)
             .expect("decodes");
         text
-    }
-
-    /// A reader that hands out a few bytes at a time, so a literal falls across
-    /// reads wherever it sits.
-    struct Trickle<'a>(&'a [u8]);
-
-    impl Read for Trickle<'_> {
-        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
-            let taken = self.0.len().min(out.len()).min(3);
-            out[..taken].copy_from_slice(&self.0[..taken]);
-            self.0 = &self.0[taken..];
-            Ok(taken)
-        }
-    }
-
-    #[test]
-    fn a_name_is_found_across_reads_and_in_utf16() {
-        let cancel = crate::execution::cancel::NeverCancel;
-        let found = |bytes: &[u8]| {
-            let reader = std::io::BufReader::new(Trickle(bytes));
-            matches!(names_an_object(reader, &cancel), Ok(true))
-        };
-        assert!(found(b"{\"kind\": \"Secret\"}"));
-        assert!(found(b"{\"kty\": \"EC\"}"));
-        assert!(!found(b"a kty, a Secret, and a ky, in \"text\""));
-        let mut wide = vec![0xff, 0xfe];
-        wide.extend(
-            "{\"kind\": \"Secret\"}"
-                .encode_utf16()
-                .flat_map(u16::to_le_bytes),
-        );
-        assert!(found(&wide));
-        // Past a whole chunk, and cut by its edge.
-        let mut long = vec![b' '; VERIFY_CHUNK_BYTES - 2];
-        long.extend_from_slice(b"kty: \"EC\"");
-        let reader = std::io::BufReader::new(long.as_slice());
-        assert!(matches!(names_an_object(reader, &cancel), Ok(true)));
     }
 
     #[test]

@@ -43,6 +43,7 @@ fn source_secret_guard_fails_closed_when_the_source_cannot_be_reread() {
             shape: verify::RowShape::Lines(Default::default()),
             cancel: &NeverCancel,
             judged: None,
+            hidden: &verify::HiddenRows::default(),
         },
     )
     .expect("not cancelled");
@@ -91,6 +92,7 @@ fn source_secret_guard_fails_closed_when_the_match_line_is_gone() {
             shape: verify::RowShape::Lines(Default::default()),
             cancel: &NeverCancel,
             judged: None,
+            hidden: &verify::HiddenRows::default(),
         },
     )
     .expect("not cancelled");

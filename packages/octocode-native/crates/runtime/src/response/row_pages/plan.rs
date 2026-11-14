@@ -223,10 +223,12 @@ impl RowPlan {
         volatile: &[Option<Map<String, Value>>],
         cancelled: &Cancellation,
     ) -> Result<Vec<Value>, DependencyError> {
-        let mut parts: Vec<&Placed> = self.placed.iter().filter(|p| p.page == page).collect();
-        parts.sort_by_key(|p| (p.row, p.part));
-        parts
-            .into_iter()
+        // Placement appends pages, rows and parts in order. Borrow this
+        // page's range without scanning or sorting every other fragment.
+        let start = self.placed.partition_point(|p| p.page < page);
+        let end = self.placed.partition_point(|p| p.page <= page);
+        self.placed[start..end]
+            .iter()
             .map(|p| {
                 if cancelled.is_cancelled() {
                     return Err(DependencyError::Cancelled);

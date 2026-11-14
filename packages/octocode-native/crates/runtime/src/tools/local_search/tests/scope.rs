@@ -314,10 +314,10 @@ fn an_ignored_or_hidden_credential_is_disclosed_once_as_withheld_never_named() {
     assert_eq!(paths(&body), ["visible.txt".to_owned()].into());
 }
 
-/// An empty page's check of its skipped paths states only what it withheld
+/// An empty page's check of its skipped paths counts only what it withheld
 /// beyond the page's own `skippedPaths` count: the same credential is never
 /// counted twice, and one the check met only inside a skipped directory is
-/// still disclosed (RV-SEC round 5 N1).
+/// still counted (RV-SEC round 5 N1), in the one absence sentence.
 #[test]
 fn an_empty_pages_check_states_only_what_it_withheld_beyond_the_page() {
     let root = tempfile::tempdir().expect("fixture");
@@ -351,13 +351,15 @@ fn an_empty_pages_check_states_only_what_it_withheld_beyond_the_page() {
         .map(|entry| entry["count"].as_u64().unwrap_or(1))
         .sum::<u64>();
     assert_eq!(on_page, 2, "secret.pem and .env, on the page: {body}");
-    let warnings = body["warnings"].to_string();
+    // The absence sentence counts each withheld entry once: the page's two,
+    // and the one the check met inside build/.
+    let absence = body["hints"][0].as_str().expect("absence sentence");
     assert!(
-        !warnings.contains("2 entries withheld") && !warnings.contains("3 entries withheld"),
-        "the page's own count is not stated again: {warnings}"
+        absence.contains(&format!(
+            "{} entries the path policy withholds",
+            on_page + 1
+        )),
+        "{body}"
     );
-    assert!(
-        warnings.contains("Skipped paths: 1 entry withheld by path policy: 1 credential file."),
-        "the check's own find inside build/ is stated: {warnings}"
-    );
+    assert!(body.get("warnings").is_none(), "{body}");
 }

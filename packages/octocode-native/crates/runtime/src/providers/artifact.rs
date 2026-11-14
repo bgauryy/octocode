@@ -29,8 +29,8 @@ pub(crate) use npmrc::npm_authorization;
 use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
 pub(crate) use pins::{Pin, exact_pins};
 pub use release_ref::{
-    CheckFailure, CommitCheck, CommitFuture, FailedTags, ListedTag, ReleaseTag, ReleaseTags,
-    TagCommitFuture, TagRefsFuture, TreeFiles, TreeFilesFuture,
+    CheckFailure, CommitCheck, CommitFuture, FailedTags, ReleaseTag, ReleaseTags, TagCommitFuture,
+    TagCommitsFuture, TagRefsFuture, TreeFiles, TreeFilesFuture,
 };
 pub(crate) use types::alias_groups;
 pub use types::{

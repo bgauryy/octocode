@@ -77,6 +77,7 @@ const CANONICAL = [
   // A workspace may narrow, never widen: local tools off, redaction on.
   'OCTOCODE_ENABLE_LOCAL',
   'OCTOCODE_REDACT_EMAILS',
+  'OCTOCODE_REDACT_UUID',
   // Opens credential-named files to local reads: only narrowed by a workspace.
   'OCTOCODE_CREDENTIAL_FILES',
 ];

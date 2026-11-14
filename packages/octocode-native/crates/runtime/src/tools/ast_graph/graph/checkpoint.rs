@@ -16,7 +16,7 @@ pub(in crate::tools::ast_graph) use state::job_path;
 use state::{Manifest, Stage};
 
 use super::super::limits::LIMITS;
-const JOB_VERSION: u32 = 3;
+const JOB_VERSION: u32 = 4;
 
 /// The file's source judged whole at its path
 /// ([`crate::security::JudgedText`]): the one redaction decision a read of
@@ -100,7 +100,7 @@ fn secret_scan_fault(source: &str) {
 pub(super) struct Job<'a> {
     dir: PathBuf,
     /// Held for the job's life: one build at a time writes a scope's job.
-    _lock: std::fs::File,
+    _lock: octocode_io::lock::LockedFile,
     manifest: Manifest,
     resumed: bool,
     state: Mutex<State>,
@@ -389,22 +389,21 @@ impl Job<'_> {
     }
 }
 
-/// Releases a published build's extraction artifacts. A held or newer job
-/// belongs to its own build, even if the older build published first.
+/// Releases a published build's extraction artifacts and their lock file.
+/// A held or newer job belongs to its own build, even if the older build
+/// published first.
 pub(in crate::tools::ast_graph) fn complete(
     path: &Path,
     generation: &str,
 ) -> Result<(), ToolError> {
-    let held = lock::open(&lock::job_lock_path(path))
-        .map_err(|error| failure(format!("cannot lock graph checkpoint: {error}")))?;
-    match held.try_lock() {
-        Ok(()) => {}
-        Err(std::fs::TryLockError::WouldBlock) => return Ok(()),
-        Err(std::fs::TryLockError::Error(error)) => {
-            return Err(failure(format!("cannot lock graph checkpoint: {error}")));
-        }
-    }
+    let lock_path = lock::job_lock_path(path);
+    let Some(held) = lock::try_job(&lock_path)
+        .map_err(|error| failure(format!("cannot lock graph checkpoint: {error}")))?
+    else {
+        return Ok(());
+    };
     if !path.exists() {
+        let _ = held.remove_held(&lock_path);
         return Ok(());
     }
     let manifest = Manifest::read(path)
@@ -417,10 +416,75 @@ pub(in crate::tools::ast_graph) fn complete(
     manifest.write(path, Stage::Complete)?;
     std::fs::remove_dir_all(path)
         .map_err(|error| failure(format!("cannot remove completed graph checkpoint: {error}")))?;
+    let _ = held.remove_held(&lock_path);
     if let Some(parent) = path.parent() {
         state::sync_dir(parent)?;
     }
     Ok(())
+}
+
+/// Removes, under `base` (a graph home's `.facts`), every extraction job no
+/// build holds that no build can resume: one in a form this build cannot
+/// read, one whose scope root is gone, or one `superseded` says a snapshot
+/// of its root published after its last write replaced; and every lock file
+/// whose job is gone. A job a build holds is never touched. Returns the
+/// bytes of the unfinished jobs left on disk.
+pub(in crate::tools::ast_graph) fn prune_jobs(
+    base: &Path,
+    superseded: &dyn Fn(&Path, std::time::SystemTime) -> bool,
+) -> u64 {
+    let Ok(entries) = std::fs::read_dir(base.join("jobs")) else {
+        return 0;
+    };
+    let mut kept = 0_u64;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        if kind.is_dir() {
+            kept = kept.saturating_add(prune_job(&path, superseded));
+        } else if kind.is_file()
+            && path
+                .extension()
+                .is_some_and(|extension| extension == "lock")
+        {
+            let job = path.with_extension("");
+            let _ = octocode_io::lock::remove_unheld(&path, || !job.exists());
+        }
+    }
+    kept
+}
+
+/// [`prune_jobs`] for the job at `dir`: the bytes it keeps, 0 once removed.
+fn prune_job(dir: &Path, superseded: &dyn Fn(&Path, std::time::SystemTime) -> bool) -> u64 {
+    let bytes = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| entry.metadata().ok())
+        .map(|metadata| metadata.len())
+        .sum::<u64>();
+    let lock_path = lock::job_lock_path(dir);
+    let Ok(Some(held)) = lock::try_job(&lock_path) else {
+        return bytes;
+    };
+    let stale = match Manifest::read(dir) {
+        Some(manifest) if manifest.version == JOB_VERSION => {
+            let root = Path::new(&manifest.root);
+            let written = std::fs::metadata(dir.join("job.json")).and_then(|meta| meta.modified());
+            !root.exists() || written.is_ok_and(|time| superseded(root, time))
+        }
+        // A newer build's job is that build's to resume, as a newer
+        // snapshot format is ([`super::super::store`] retention); an older
+        // one, or one that never finished opening, no build resumes.
+        _ => state::Manifest::version_of(dir).is_none_or(|version| version < JOB_VERSION),
+    };
+    if !stale || std::fs::remove_dir_all(dir).is_err() {
+        return bytes;
+    }
+    let _ = held.remove_held(&lock_path);
+    0
 }
 
 /// The file's facts kept decoded, as an uncheckpointed build keeps them;

@@ -17,7 +17,6 @@ async fn retries_secondary_rate_limit_without_remaining_zero() {
         RetryPolicy {
             max_attempts: 3,
             base_delay: Duration::from_millis(1),
-            max_retry_after: Duration::from_secs(5),
         },
         GitHubBudget::relaxed(),
     )
@@ -104,16 +103,11 @@ async fn primary_limit_waits_for_a_short_reset_then_retries() {
     assert!(epoch_secs() >= reset, "retried before the reset");
 }
 
-/// A rate-limit wait (here a spent search quota's) runs on the call's time, not the request's: a 0.5 s
-/// request budget survives a 1–2 s reset wait, and the retried request still
-/// gets its own time. Without a call deadline past the request's, the same
-/// wait fails fast. The reset is two whole seconds away, so the wait (at
-/// least 1 s less the mount time) outlasts the 0.5 s budget whenever the 403
-/// arrives inside it; the reset is set once the transport is built, which
-/// alone can take seconds on a loaded machine (the HTTP client loads the
-/// system's root certificates).
+/// A rate-limit wait that would end past the request deadline fails fast as
+/// `rateLimited` instead of starting: the reset is two whole seconds away and
+/// the request has 0.5 s.
 #[tokio::test]
-async fn rate_limit_waits_do_not_spend_the_request_timeout() {
+async fn a_rate_limit_wait_past_the_request_deadline_fails_fast() {
     let server = MockServer::builder().start().await;
     let (transport, endpoint) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
     let reset = epoch_secs() + 2;
@@ -124,35 +118,13 @@ async fn rate_limit_waits_do_not_spend_the_request_timeout() {
         ]))
         .mount(&server)
         .await;
-    let mut context = with_token("t", Duration::from_millis(500), 1024);
-    context.budget.wait_until = std::time::Instant::now() + Duration::from_secs(10);
-    let page = transport
-        .execute(
-            RequestSpec::get(endpoint.rest(&["search", "issues"]).expect("route")),
-            &context,
-        )
-        .await
-        .expect("waited for the reset on the call's time");
-    assert_eq!(page.status, 200);
-    assert!(context.budget.effective_deadline() > context.budget.deadline);
-
-    let other = MockServer::builder().start().await;
-    let (transport, endpoint) = executor_transport(&other, GitHubBudget::relaxed(), short_retry());
-    let reset = epoch_secs() + 2;
-    Mock::given(method("GET"))
-        .respond_with(Sequence::new(vec![
-            primary_limit("search", reset),
-            ok_json(),
-        ]))
-        .mount(&other)
-        .await;
     let error = transport
         .execute(
             RequestSpec::get(endpoint.rest(&["search", "issues"]).expect("route")),
             &with_token("t", Duration::from_millis(500), 1024),
         )
         .await
-        .expect_err("no call time past the request's");
+        .expect_err("the wait outlasts the request");
     assert_eq!(error.kind, ProviderErrorKind::RateLimited);
 }
 
@@ -247,7 +219,7 @@ async fn a_spent_core_quota_is_disclosed_at_once_however_far_the_deadline() {
         .await;
     let (transport, endpoint) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
     let mut context = with_token("spent-far", Duration::from_secs(5), 1024);
-    context.budget.wait_until = std::time::Instant::now() + Duration::from_secs(24 * 60 * 60);
+    context.budget.deadline = std::time::Instant::now() + Duration::from_secs(24 * 60 * 60);
     let (scope, heard) = cancel_on_announced_wait(context.budget.cancellation.clone());
     for path in [["repos", "a", "b"], ["repos", "a", "c"]] {
         let error = scope

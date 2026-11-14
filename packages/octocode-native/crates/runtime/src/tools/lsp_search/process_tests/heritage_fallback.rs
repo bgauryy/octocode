@@ -393,6 +393,35 @@ fn rust_subtypes_list_an_impl_declared_inside_a_function_body() {
     assert!(row.get("isPartial").is_none(), "{row}");
 }
 
+/// Rust `supertypes` on a struct: the struct names no trait itself, its
+/// `impl Trait for Type` blocks do. The server's implementation answer at
+/// the struct lists its impl blocks; the trait implementation among them
+/// names the supertype, and the inherent one names none.
+#[test]
+fn rust_supertypes_of_a_struct_are_the_traits_its_impls_name() {
+    assert!(
+        node_available(),
+        "Node is required for the real LSP fixture"
+    );
+    let (_dir, root, script) = fixture();
+    std::fs::write(
+        root.join("a.rs"),
+        "pub trait Shape {}\npub struct Square;\nimpl Shape for Square {}\nimpl Square {}\n",
+    )
+    .expect("source");
+    octocode_engine::stamp::settle_written_so_far();
+    let server =
+        rust_implementation_server("at('a.rs', 2, 15, 6), at('a.rs', 3, 5, 6)", (0, 10, 15));
+    let row = rust_row(&root, &script, &server, ("supertypes", "Square", 1, 11));
+    assert_eq!(row["lsp"]["source"], "heritage", "{row}");
+    let lines = located(&row)
+        .into_iter()
+        .map(|(file, line, _)| (file, line))
+        .collect::<Vec<_>>();
+    assert_eq!(lines, [("a.rs".to_owned(), 1)], "{row}");
+    assert!(row.get("isPartial").is_none(), "{row}");
+}
+
 /// `implementation` on a trait method: the server lists the method of the
 /// top-level impl and leaves out the one of an impl declared inside a
 /// function body. The scan reads the methods of that name in the trait's

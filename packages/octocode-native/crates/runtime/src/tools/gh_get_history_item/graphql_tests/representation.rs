@@ -82,14 +82,17 @@ async fn renamed_patch_parent_read_uses_the_old_path() {
         }),
     )
     .await;
-    let parent =
+    let read =
         crate::tools::test_support::checks::related_call(&out.data, "ghGetFileContent", |input| {
-            input["queries"][0]["ref"] == BASE
+            input["queries"]
+                .as_array()
+                .is_some_and(|rows| rows.iter().any(|row| row["ref"] == BASE))
         });
-    assert_eq!(
-        parent["input"]["queries"][0]["path"], "src/old.rs",
-        "{}",
-        out.data
-    );
-    assert_eq!(parent["input"]["queries"][0]["ref"], BASE, "{}", out.data);
+    let parent = read["input"]["queries"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|row| row["ref"] == BASE)
+        .expect("the parent side");
+    assert_eq!(parent["path"], "src/old.rs", "{}", out.data);
 }

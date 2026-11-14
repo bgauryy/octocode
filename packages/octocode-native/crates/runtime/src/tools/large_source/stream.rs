@@ -33,7 +33,6 @@ pub(super) fn streamed(
                 total: held.view_pos,
                 redacted: held.redacted.into(),
             },
-            every_value: held.every_value,
             window: held.window,
             binary,
         })
@@ -93,7 +92,7 @@ pub(super) fn stream_pass(
     let windows = if binary {
         streamed(pass.lines, &pass.proven.digest, pass.total_lines, binary)
     } else if held {
-        pass.seal_windows(source, cancel)?;
+        pass.seal_windows(source)?;
         streamed(pass.lines, &pass.proven.digest, pass.total_lines, binary)
     } else {
         pass.proven

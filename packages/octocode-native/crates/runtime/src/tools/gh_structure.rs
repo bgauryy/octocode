@@ -204,13 +204,14 @@ struct Traversal {
     entries: Vec<TreeEntry>,
     failed_subtrees: usize,
     contents_limit: bool,
-    /// What the listing does not show, as `"<repo-relative path> (<kind>)"`:
-    /// symlinks and submodules, which have no listable content. Every
+    /// What the listing does not show, by kind (`symlink`, `submodule`):
+    /// the repository-relative paths of entries with no listable content,
+    /// each kind stated once beside its paths. Every
     /// committed directory is listed and walked: a tree holds only tracked
     /// content, so the local build-output prune names (`build/`,
     /// `coverage/`, `node_modules/`) do not apply to it.
     #[serde(default)]
-    omitted: std::collections::BTreeSet<String>,
+    omitted: std::collections::BTreeMap<String, std::collections::BTreeSet<String>>,
 }
 
 /// What one listing covers: the requested directory, the depth, and the
@@ -232,13 +233,10 @@ impl Scope {
         if let Some(filter) = &self.filter {
             let kept = |path: &str| filter.iter().any(|glob| glob.matches(path));
             traversal.entries.retain(|entry| kept(&entry.path));
-            traversal.omitted.retain(|named| {
-                kept(
-                    named
-                        .rsplit_once(" (")
-                        .map_or(named.as_str(), |(path, _)| path),
-                )
-            });
+            for paths in traversal.omitted.values_mut() {
+                paths.retain(|path| kept(path));
+            }
+            traversal.omitted.retain(|_, paths| !paths.is_empty());
         }
         let entries = &mut traversal.entries;
         let parent = |path: &str| path.rsplit_once('/').map_or("", |(dir, _)| dir).to_owned();

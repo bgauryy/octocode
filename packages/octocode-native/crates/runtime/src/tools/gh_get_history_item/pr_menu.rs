@@ -299,7 +299,8 @@ pub(super) fn first_unpatched(
     })
 }
 
-/// `readAtCommit` and `readParent`: the first file GitHub sent without a
+/// `readAtCommit` and `readParent` (one call reading both when the patch was
+/// delivered, named for its first side): the first file GitHub sent without a
 /// patch (its change is in no response, so both sides are read whole), else
 /// the change's most-changed code file (a test, doc or other file only when
 /// no code file has a patch), read over its hunks' windows at each side: the
@@ -336,17 +337,8 @@ pub(super) fn change_reads(
     let path = file.get("filename").and_then(Value::as_str).unwrap_or("");
     let status = file.get("status").and_then(Value::as_str).unwrap_or("");
     let patch = file.get("patch").and_then(Value::as_str).unwrap_or("");
-    let source_read = |row: Value| {
-        let read = wire_query::<GhGetFileContentQuery>(row)?;
-        Some(
-            if missing_patch.is_some() {
-                Continuation::continued_query(read)
-            } else {
-                Continuation::related_query(read)
-            }
-            .build(),
-        )
-    };
+    // A side read row the contract accepts.
+    let source_read = |row: Value| wire_query::<GhGetFileContentQuery>(row.clone()).map(|_| row);
     // A file with no patch has no hunks to bound a read: both sides read whole.
     let side_read = |path: &str, reference: &str, mark: char| {
         let mut row = json!({"owner": owner, "repo": repo, "path": path, "ref": reference});
@@ -364,11 +356,11 @@ pub(super) fn change_reads(
         }
         source_read(row)
     };
-    let mut reads = Vec::new();
+    let mut rows = Vec::new();
     if let Some(new_ref) = sides.new_ref.filter(|_| status != "removed")
         && let Some(read) = side_read(path, new_ref, '+')
     {
-        reads.push(("readAtCommit", read));
+        rows.push(("readAtCommit", read));
     }
     if let Some(old_ref) = sides.old_ref.filter(|_| status != "added") {
         let old_path = file
@@ -376,10 +368,32 @@ pub(super) fn change_reads(
             .and_then(Value::as_str)
             .unwrap_or(path);
         if let Some(read) = side_read(old_path, old_ref, '-') {
-            reads.push(("readParent", read));
+            rows.push(("readParent", read));
         }
     }
-    reads
+    // Missing source is the rest of the evidence: each side its own
+    // continuation. Optional source is one related call reading both
+    // sides, so the one lead a complete row keeps names both commits.
+    if missing_patch.is_some() {
+        return rows
+            .into_iter()
+            .map(|(name, row)| {
+                (
+                    name,
+                    Continuation::continued(ToolId::GhGetFileContent, row).build(),
+                )
+            })
+            .collect();
+    }
+    let Some((name, _)) = rows.first() else {
+        return Vec::new();
+    };
+    let name = *name;
+    let rows = rows.into_iter().map(|(_, row)| row).collect::<Vec<_>>();
+    vec![(
+        name,
+        Continuation::related_input(ToolId::GhGetFileContent, json!({"queries": rows})).build(),
+    )]
 }
 
 pub(super) fn remove_key(value: &mut Value, key: &str) {

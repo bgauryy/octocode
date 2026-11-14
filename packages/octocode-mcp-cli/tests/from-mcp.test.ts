@@ -52,7 +52,7 @@ describe('cliFromMcp', () => {
     expect(cli.commands[0]?.flags[0]).toMatchObject({ name: 'query', kind: 'string', description: 'Search text' });
   });
 
-  it('throws when a cursor repeats or the page limit is hit', async () => {
+  it('pages until the server sends no cursor, refuses a repeated cursor, and stops on abort', async () => {
     const repeated = fixture([
       { tools: [{ name: 'search', description: 'Search' }], nextCursor: 'same' },
       { tools: [], nextCursor: 'same' },
@@ -60,13 +60,24 @@ describe('cliFromMcp', () => {
     await expect(cliFromMcp(repeated)).rejects.toThrow('Repeated tools/list cursor');
     expect(repeated.calls).toHaveLength(2);
 
+    const pages = 250;
+    const long = fixture([], undefined, { name: 'issues', version: '1' }, '');
+    long.listTools = async params => {
+      long.calls.push(params);
+      const page = long.calls.length;
+      return { tools: [{ name: `tool${page}` }], ...(page < pages ? { nextCursor: `p${page}` } : {}) };
+    };
+    expect((await cliFromMcp(long)).commands).toHaveLength(pages);
+
+    const stop = new AbortController();
     const endless = fixture([], undefined, { name: 'issues', version: '1' }, '');
     endless.listTools = async params => {
       endless.calls.push(params);
+      if (endless.calls.length === 3) stop.abort(new Error('stopped by caller'));
       return { tools: [], nextCursor: `p${endless.calls.length}` };
     };
-    await expect(cliFromMcp(endless)).rejects.toThrow('tools/list page limit');
-    expect(endless.calls).toHaveLength(100);
+    await expect(cliFromMcp(endless, { signal: stop.signal })).rejects.toThrow('stopped by caller');
+    expect(endless.calls).toHaveLength(3);
   });
 
   it('calls the original tool name and prefers structured content', async () => {

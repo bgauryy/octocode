@@ -21,6 +21,7 @@ import {
   readMeasure,
 } from './measure-artifacts.mjs';
 import { errorMessage } from '../error-message.mjs';
+import { packageTmpDir } from '../engine-io.mjs';
 import type {
   JsonScalar,
   MeasureFinding,
@@ -89,7 +90,7 @@ const nameRe = nameRegexStr ? new RegExp(nameRegexStr, 'i') : null;
 
 const paths = measurePaths({
   latest: hasFlag('--latest'),
-  under: getArg('--under', '.octocode/octocode-chrome-devtools/tmp'),
+  under: getArg('--under', packageTmpDir()),
   dir: getArg('--dir'),
   perf: getArg('--perf'),
   net: getArg('--net'),

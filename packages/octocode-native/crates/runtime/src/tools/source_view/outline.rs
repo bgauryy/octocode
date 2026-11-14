@@ -1,55 +1,21 @@
 //! The `view:"symbols"` view: a file's declaration outline.
 
-#[cfg(test)]
-use super::prepare::*;
-#[cfg(test)]
-use crate::security::scan::ContentScan;
 use octocode_engine::signatures::OutlineUnavailable;
 
-/// A request's rendered outline and the source lines its redaction changed.
+/// A request's rendered outline, or why it has none, and the
+/// recovered-parse note.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SymbolsView {
     pub(crate) outline: Result<String, OutlineUnavailable>,
     pub(crate) warning: Option<String>,
-    pub(crate) redacted_lines: Vec<(usize, usize)>,
-}
-
-/// The outline of `source` with its declaration spans, or why it has none,
-/// and the recovered-parse note, produced from this request's source.
-/// The outline's lines are the source's own: no whitespace pass, which
-/// would join tokens (`boolean{`, `string,...args`).
-///
-/// Redact the source before rendering. A source the scanner refuses renders
-/// unredacted for this page only; the output stage scans what it returns.
-#[cfg(test)]
-pub(crate) fn symbols_view(
-    source: &str,
-    path: &str,
-    source_path: &std::path::Path,
-    security: &impl ContentScan,
-) -> SymbolsView {
-    match crate::security::scan::redact_lines(security, source, source_path) {
-        Ok((redacted, changed)) => {
-            let redacted_lines = if changed {
-                redacted_lines(source, &redacted)
-            } else {
-                Vec::new()
-            };
-            render_symbols_view(&redacted, path, redacted_lines)
-        }
-        Err(_) => render_symbols_view(source, path, Vec::new()),
-    }
 }
 
 /// The symbols view of `source`, which the caller has redacted (a read's
-/// selection is cut from its source redacted whole).
-pub(super) fn render_symbols_view(
-    source: &str,
-    path: &str,
-    redacted_lines: Vec<(usize, usize)>,
-) -> SymbolsView {
-    // The lines holding a placeholder, whichever pass redacted them (the
-    // whole-file key blocks before this view, or the line pass above).
+/// selection is cut from its source redacted whole), with its declaration
+/// spans. The outline's lines are the source's own: no whitespace pass,
+/// which would join tokens (`boolean{`, `string,...args`).
+pub(super) fn render_symbols_view(source: &str, path: &str) -> SymbolsView {
+    // The lines holding a placeholder: the source's redaction put them in.
     let redacted = source
         .lines()
         .enumerate()
@@ -100,11 +66,7 @@ pub(super) fn render_symbols_view(
             },
         },
     };
-    SymbolsView {
-        outline,
-        warning,
-        redacted_lines,
-    }
+    SymbolsView { outline, warning }
 }
 
 /// An outline whose declaration heads carry their line span: the gutter
@@ -173,7 +135,7 @@ mod tests {
                 "Title\n=====\n",
                 "```\n# Code\n```\n",
             ] {
-                let view = render_symbols_view(source, path, Vec::new());
+                let view = render_symbols_view(source, path);
                 assert_eq!(
                     view.outline,
                     Err(OutlineUnavailable::NoDeclarations),
@@ -182,7 +144,7 @@ mod tests {
             }
         }
         assert_eq!(
-            render_symbols_view("Ordinary prose.\n", "notes.txt", Vec::new()).outline,
+            render_symbols_view("Ordinary prose.\n", "notes.txt").outline,
             Err(OutlineUnavailable::UnsupportedLanguage)
         );
     }

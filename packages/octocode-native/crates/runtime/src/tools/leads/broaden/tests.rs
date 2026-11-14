@@ -32,11 +32,12 @@ fn broadening_drops_one_filter_group_or_keyword_and_keeps_public_scope() {
     }
 }
 
+/// A broader search is a fresh request: it bills no judgment the caller did
+/// not ask for, so the classification stays with the call that sent it.
 #[test]
-fn classification_context_survives_a_fresh_broader_search() {
-    let classification =
-        json!({"predicates":["Does this implement cache eviction?"],"context":"Trace expiration."});
-    let row = json!({"owner":"octo","repo":"demo","keywords":["cache","redis"],"classification":classification,"page":2});
+fn a_fresh_broader_search_never_carries_the_billed_classification() {
+    let row = json!({"owner":"octo","repo":"demo","keywords":["cache","redis"],
+        "classification":{"predicates":["Does this implement cache eviction?"],"context":"Trace expiration."},"page":2});
     let lead = broaden(
         ToolId::GhSearchCode,
         &row,
@@ -50,7 +51,7 @@ fn classification_context_survives_a_fresh_broader_search() {
     .expect("broader searches");
     crate::contracts::validate("ghSearchCode", lead["input"].clone()).expect("authored input");
     for variant in lead["input"]["queries"].as_array().unwrap() {
-        assert_eq!(variant["classification"], classification);
+        assert!(variant.get("classification").is_none(), "{variant}");
         assert!(variant.get("page").is_none());
     }
 }

@@ -10,10 +10,6 @@ use serde_json::{Map, Value};
 use super::validate::{ValidationIssue, validate_batch};
 use crate::id::ToolId;
 
-/// Repair rounds a call may take: one per nesting level of its values. A union
-/// reports one branch's issues at a time.
-const MAX_ROUNDS: usize = 4;
-
 mod guesses;
 pub(crate) use guesses::meant_field;
 
@@ -33,8 +29,10 @@ pub(crate) fn normalized_input(tool_name: &str, input: Value) -> (Value, Vec<Str
     if !input.get("queries").is_some_and(Value::is_array) {
         return (input, Vec::new());
     }
-    let notes = guesses::read(id, &mut input);
-    (repaired(tool_name, id, input), notes)
+    let mut notes = guesses::read(id, &mut input);
+    let (input, repairs) = repaired(tool_name, id, input);
+    notes.extend(guesses::per_call(repairs));
+    (input, notes)
 }
 
 /// The page size a request sets; a cursor carries the one its walk was cut at.
@@ -62,8 +60,13 @@ fn cursor_alone(input: Value) -> (Value, Option<String>) {
     (Value::Object(request), Some(note))
 }
 
-/// [`normalized_input`]'s value repairs of a shaped request.
-fn repaired(tool_name: &str, id: ToolId, mut input: Value) -> Value {
+/// [`normalized_input`]'s value repairs of a shaped request, and the row
+/// notes of those the caller learns a field or value from. Each round
+/// repairs what validation reports, one nesting level of a value (a union
+/// reports one branch's issues at a time), until the call validates or no
+/// repair applies. A round that brings back an input already seen is a
+/// cycle with no one reading: the call stays as sent.
+fn repaired(tool_name: &str, id: ToolId, mut input: Value) -> (Value, Vec<(usize, String)>) {
     let sent = input.clone();
     let query_schema = super::tool_contract(id)
         .map(|tool| tool["querySchema"].clone())
@@ -71,9 +74,15 @@ fn repaired(tool_name: &str, id: ToolId, mut input: Value) -> Value {
     let defs = query_schema["$defs"].clone();
     let mut operations = Vec::new();
     operation_values(&query_schema, &defs, &mut operations);
-    for _ in 0..MAX_ROUNDS {
+    let round = Round {
+        defs: &defs,
+        operations: &operations,
+    };
+    let mut seen = Vec::new();
+    let mut notes = Vec::new();
+    loop {
         let Ok((_, batch)) = validate_batch(tool_name, input.clone(), false) else {
-            return sent;
+            return (sent, Vec::new());
         };
         let issues: Vec<_> = batch
             .rows
@@ -83,13 +92,24 @@ fn repaired(tool_name: &str, id: ToolId, mut input: Value) -> Value {
             .cloned()
             .collect();
         if issues.is_empty() {
-            return input;
+            return (input, notes);
         }
-        if !repair_values(tool_name, &mut input, &issues, (&defs, &operations)) {
-            return input;
+        if seen.contains(&input) {
+            return (sent, Vec::new());
+        }
+        seen.push(input.clone());
+        if !repair_values(tool_name, &mut input, &issues, round, &mut notes) {
+            return (input, notes);
         }
     }
-    sent
+}
+
+/// What every round of [`repaired`] reads: the query schema's definitions
+/// and every `operation` it names.
+#[derive(Clone, Copy)]
+struct Round<'a> {
+    defs: &'a Value,
+    operations: &'a [String],
 }
 
 /// The envelope a request means: a bare row or list of rows wrapped, a row
@@ -244,25 +264,23 @@ fn is_list_item(path: &[String]) -> bool {
 }
 
 /// A row without `operation` whose fields only one operation accepts means that
-/// operation. Several accepting it, or none, leaves the choice to the caller.
+/// operation, and the note says so. Several accepting it, or none, leaves the
+/// choice to the caller.
 fn repair_operation(
     tool_name: &str,
     input: &mut Value,
     issue: &ValidationIssue,
     operations: &[String],
-) -> bool {
+) -> Option<(usize, String)> {
     let [queries, index, field] = issue.path.as_slice() else {
-        return false;
+        return None;
     };
     if queries != "queries" || field != "operation" || issue.rule_id != "schema.required" {
-        return false;
+        return None;
     }
-    let Some(row) = input
+    let row = input
         .pointer(&crate::json_pointer::of(&issue.path[..2]))
-        .cloned()
-    else {
-        return false;
-    };
+        .cloned()?;
     let accepting: Vec<&String> = operations
         .iter()
         .filter(|operation| {
@@ -277,13 +295,88 @@ fn repair_operation(
         })
         .collect();
     let [only] = accepting.as_slice() else {
-        return false;
+        return None;
     };
-    let Ok(index) = index.parse::<usize>() else {
-        return false;
-    };
+    let index = index.parse::<usize>().ok()?;
     input["queries"][index]["operation"] = Value::String((*only).clone());
-    true
+    Some((
+        index,
+        format!(
+            "read the row as `operation: \"{only}\"`, the one operation its fields fit; send `operation: \"{only}\"` next time."
+        ),
+    ))
+}
+
+/// A text sent for a field whose literals (`enum`) hold one value it spells
+/// in another case or separator style (`pypi` for `PyPI`): that value, and
+/// the note that names it.
+fn repair_literal(input: &mut Value, issue: &ValidationIssue) -> Option<(usize, String)> {
+    if issue.rule_id != "schema.enum" {
+        return None;
+    }
+    let (schema, received) = (issue.schema.as_ref()?, issue.received.as_ref()?);
+    let meant = super::validate::literal_reading(schema, received)?;
+    let [queries, index, at @ ..] = issue.path.as_slice() else {
+        return None;
+    };
+    let index = index
+        .parse::<usize>()
+        .ok()
+        .filter(|_| queries == "queries")?;
+    let slot = input.pointer_mut(&crate::json_pointer::of(&issue.path))?;
+    if *slot != *received {
+        return None;
+    }
+    *slot = meant.clone();
+    let label = at.join(".");
+    Some((
+        index,
+        format!(
+            "read `{label}: {received}` as `{label}: {meant}`; send `{label}: {meant}` next time."
+        ),
+    ))
+}
+
+/// A list item the row's operation refuses that names what every read of
+/// that operation returns ([`guesses::RETURNED`]): left out, every spelling
+/// of it, and the list too when it held nothing else. The note names the
+/// field that carries it.
+fn repair_returned(
+    tool_name: &str,
+    input: &mut Value,
+    issue: &ValidationIssue,
+) -> Option<(usize, String)> {
+    let id = ToolId::from_name(tool_name)?;
+    let [queries, index, field, item] = issue.path.as_slice() else {
+        return None;
+    };
+    let sent = issue.received.as_ref()?.as_str()?;
+    if queries != "queries" || item.parse::<usize>().is_err() {
+        return None;
+    }
+    let index = index.parse::<usize>().ok()?;
+    let row = input["queries"].get_mut(index)?.as_object_mut()?;
+    let operation = row.get("operation").and_then(Value::as_str)?;
+    let returned = guesses::RETURNED.iter().find(|returned| {
+        returned.tools.contains(&id)
+            && returned.operation == operation
+            && returned.field == field
+            && super::validate::same_name(sent, returned.sent)
+    })?;
+    let note = format!(
+        "left `{sent}` out of `{field}`: every {operation} read returns its whole `{}`; leave `{}` out next time.",
+        returned.returned_as, returned.sent
+    );
+    let items = row.get_mut(field.as_str())?.as_array_mut()?;
+    items.retain(|item| {
+        !item
+            .as_str()
+            .is_some_and(|item| super::validate::same_name(item, returned.sent))
+    });
+    if items.is_empty() {
+        row.remove(field.as_str());
+    }
+    Some((index, note))
 }
 
 /// Every value of `operation` a query schema names, through its variants.
@@ -342,17 +435,30 @@ fn drop_default(input: &mut Value, issue: &ValidationIssue) -> bool {
     true
 }
 
-/// Apply each issue's repair at its path; whether any applied.
+/// Apply each issue's repair at its path, adding the notes of those the
+/// caller learns from; whether any applied.
 fn repair_values(
     tool_name: &str,
     input: &mut Value,
     issues: &[ValidationIssue],
-    (defs, operations): (&Value, &[String]),
+    Round { defs, operations }: Round<'_>,
+    notes: &mut Vec<(usize, String)>,
 ) -> bool {
     let mut applied = false;
     for issue in issues {
+        let note = match issue.rule_id.as_str() {
+            "schema.required" => repair_operation(tool_name, input, issue, operations),
+            "schema.enum" => {
+                repair_literal(input, issue).or_else(|| repair_returned(tool_name, input, issue))
+            }
+            _ => None,
+        };
+        if let Some(note) = note {
+            applied = true;
+            notes.push(note);
+            continue;
+        }
         if issue.rule_id == "schema.required" {
-            applied |= repair_operation(tool_name, input, issue, operations);
             continue;
         }
         if issue.rule_id == "schema.unknown-field" {

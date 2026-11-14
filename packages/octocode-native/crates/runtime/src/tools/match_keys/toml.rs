@@ -58,8 +58,9 @@ impl Open {
     }
 
     /// Scan `line` from `at` to its end: containers open and close, and
-    /// the first element or member starting on the line sets `note`.
-    fn scan(&mut self, line: &str, mut at: usize, note: &mut Option<String>) {
+    /// each element or member starting on the line is told to `visitor`
+    /// while it wants more (`wanting`).
+    fn scan(&mut self, line: &str, mut at: usize, (visitor, wanting): Starts<'_, '_>) {
         let bytes = line.as_bytes();
         while at < bytes.len() {
             if let Some(delimiter) = self.string {
@@ -103,11 +104,11 @@ impl Open {
                             *key = Some(segments);
                             *expect_key = false;
                         }
-                        note.get_or_insert_with(|| self.path(true));
+                        *wanting = *wanting && visitor.start(&self.path(true));
                         at = end;
                         continue;
                     }
-                    note.get_or_insert_with(|| self.path(true));
+                    *wanting = *wanting && visitor.start(&self.path(true));
                     at = match byte {
                         b'[' => {
                             self.frames.push(Frame::Array { index: 0 });
@@ -158,21 +159,30 @@ struct Doc {
 }
 
 impl Doc {
-    /// The path `line` names, after the lines before it.
-    fn line(&mut self, line: &str) -> String {
+    /// Reads `line`, line `number`, after the lines before it, telling
+    /// `visitor` the container the line opens in and each member or
+    /// element starting on it while it wants more (`wanting`: the line is
+    /// requested).
+    fn line(&mut self, line: &str, number: usize, (visitor, wanting): Starts<'_, '_>) {
         if let Some(open) = self.open.as_mut() {
-            let container = open.path(open.string.is_some());
-            let mut note = None;
-            open.scan(line, 0, &mut note);
+            if *wanting {
+                visitor.line(number, &open.path(open.string.is_some()));
+            }
+            open.scan(line, 0, (visitor, wanting));
             if open.frames.is_empty() && open.string.is_none() {
                 self.open = None;
             }
-            return note.unwrap_or(container);
+            return;
         }
         let bytes = line.as_bytes();
         let at = skip_blanks(bytes, 0);
         match bytes.get(at) {
-            None | Some(b'#') => return self.table.clone(),
+            None | Some(b'#') => {
+                if *wanting {
+                    visitor.line(number, &self.table);
+                }
+                return;
+            }
             Some(b'[') => {
                 let array = bytes.get(at + 1) == Some(&b'[');
                 if let Some((segments, _)) = parse_key(line, at + 1 + usize::from(array), b']') {
@@ -181,29 +191,37 @@ impl Doc {
                     }
                     self.table = self.header(&segments);
                 }
-                return self.table.clone();
+                if *wanting {
+                    visitor.line(number, &self.table);
+                }
+                return;
             }
             Some(_) => {}
         }
         let Some((segments, after)) = parse_key(line, at, b'=') else {
-            return self.table.clone();
+            if *wanting {
+                visitor.line(number, &self.table);
+            }
+            return;
         };
         let mut key = self.table.clone();
         for segment in &segments {
             push_key(&mut key, segment);
         }
+        // The key names its own line, whatever its value opens.
+        if *wanting {
+            visitor.line(number, &self.table);
+            *wanting = visitor.start(&key);
+        }
         let mut open = Open {
-            key: key.clone(),
+            key,
             frames: Vec::new(),
             string: None,
         };
-        // The key names its own line, whatever its value opens.
-        let mut note = Some(String::new());
-        open.scan(line, after, &mut note);
+        open.scan(line, after, (visitor, wanting));
         if !open.frames.is_empty() || open.string.is_some() {
             self.open = Some(open);
         }
-        key
     }
 
     /// A new element of the `[[array]]` table `segments`: arrays nested in
@@ -240,24 +258,33 @@ impl Doc {
 /// The key path of each of `lines` (1-based, ascending) in `text`. Lines at
 /// the document root are left out.
 pub(super) fn line_key_paths(text: &str, lines: &[usize]) -> Vec<(usize, String)> {
+    let mut first = super::FirstKey::default();
+    visit_lines(text, lines, &mut first);
+    first.into_paths()
+}
+
+/// What a scan tells of one line: the visitor, and whether it still wants
+/// the starts on the line.
+type Starts<'v, 'w> = (&'v mut dyn super::LineVisitor, &'w mut bool);
+
+/// Walks `text` once and tells `visitor`, for each of `lines` (1-based,
+/// ascending), the container the line opens in and each member or element
+/// that starts on it, in order, while the visitor wants more of them.
+pub(super) fn visit_lines(text: &str, lines: &[usize], visitor: &mut dyn super::LineVisitor) {
     let Some(&last) = lines.last() else {
-        return Vec::new();
+        return;
     };
     let mut wanted = lines.iter().copied().peekable();
     let mut doc = Doc::default();
-    let mut out = Vec::new();
     for (index, line) in text.split('\n').enumerate() {
         let number = index + 1;
         if number > last {
             break;
         }
-        let path = doc.line(line);
         while wanted.next_if(|&wanted| wanted < number).is_some() {}
-        if wanted.next_if_eq(&number).is_some() && !path.is_empty() {
-            out.push((number, path));
-        }
+        let mut wanting = wanted.next_if_eq(&number).is_some();
+        doc.line(line, number, (visitor, &mut wanting));
     }
-    out
 }
 
 /// A dotted key from `at` through its `end` byte (`=` for a key, `]` for a

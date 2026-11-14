@@ -42,6 +42,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
             (self.words, self.terms),
         );
         sink.test_code = self.opts.test_code.as_ref().map(|scope| (scope, path));
+        sink.line_scope = self.opts.line_scope.as_ref().map(|scope| (scope, path));
         sink.source = Some(path);
         sink.inspect_deferred = self
             .opts
@@ -68,6 +69,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
                     (self.words, self.terms),
                 );
                 prefix_sink.source = Some(path);
+                prefix_sink.line_scope = self.opts.line_scope.as_ref().map(|scope| (scope, path));
                 prefix_searcher.search_slice(self.matcher, prefix, &mut prefix_sink)?;
                 let mut outcome = FileOutcome::from(prefix_sink);
                 outcome.binary = true;

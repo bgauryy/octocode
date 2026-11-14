@@ -85,6 +85,7 @@ impl AuthBackend for Backend {
         &self,
         _: &str,
         _: &RequestBudget,
+        _: &(dyn Fn(&str) -> bool + Sync),
     ) -> Result<Option<secrecy::SecretString>, ProviderError> {
         self.calls.lock().unwrap().push("gh");
         Ok(self.gh.map(Into::into))

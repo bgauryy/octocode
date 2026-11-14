@@ -196,3 +196,30 @@ fn a_nul_past_a_regex_limit_keeps_plain_reads_refused() {
     let page = fetch(&file, &plain, Some(1_500));
     assert!(page.error.is_some(), "{page:?}");
 }
+
+/// A streamed list read names each entry that matched nothing on its first
+/// page, fresh or replayed from the kept scan, and only there.
+#[test]
+fn a_streamed_list_read_names_its_unmatched_entries_on_its_first_page() {
+    let file = temp(&source('k'));
+    octocode_engine::stamp::settle_written_so_far();
+    let q = query(serde_json::json!({
+        "path":"f","matchString":["needle","absent term"],"contextLines":{"before":1,"after":1}
+    }));
+    let named = |page: &LocalFetchResult| {
+        page.warnings
+            .iter()
+            .filter(|warning| warning.contains("matchString entries matched nothing"))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    for _ in ["fresh", "kept"] {
+        let first = fetch(&file, &q, Some(1_500));
+        let warned = named(&first);
+        assert_eq!(warned.len(), 1, "{:?}", first.warnings);
+        assert!(warned[0].contains("\"absent term\""), "{warned:?}");
+        assert!(!warned[0].contains("\"needle\""), "{warned:?}");
+        let later = fetch(&file, &next_matches(&first), Some(1_500));
+        assert!(named(&later).is_empty(), "{:?}", later.warnings);
+    }
+}

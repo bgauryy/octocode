@@ -30,12 +30,9 @@ fn streamed_size() -> usize {
 fn walk(query: LocalFetchQuery, paths: &Paths, window: usize) -> Vec<LocalFetchResult> {
     let (mut pages, mut call) = (Vec::new(), Some(query));
     while let Some(query) = call {
-        let mut rows = crate::contracts::prepare_many_built(
-            "localFetch",
-            serde_json::json!({"queries":[query]}),
-        )
-        .expect("canonical input");
-        let admitted = serde_json::from_value(rows.remove(0)).expect("admitted");
+        let row = crate::contracts::validate_built_query("localFetch", serde_json::json!(query))
+            .expect("canonical input");
+        let admitted = serde_json::from_value(row).expect("admitted");
         let page = execute_local_fetch(&admitted, paths, &Safe, &NeverCancel, Some(window), None);
         assert_eq!(page.error_code, None, "{:?}", page.error);
         call = page

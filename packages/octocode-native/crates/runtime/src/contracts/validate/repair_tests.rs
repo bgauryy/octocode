@@ -297,11 +297,12 @@ fn a_validation_error_shown_as_text_states_its_issues() {
 }
 
 /// Every tool's rejected call ends with what repairs it when the cause is
-/// not enough: one request the tool accepts and the command that prints its
-/// schema, each once. The answer stays its causes and those two lines,
-/// never the schema itself.
+/// not enough: one request the tool accepts, once. The command that prints
+/// the schema is the CLI's to add (an MCP client holds the schema already),
+/// so the transport-neutral answer names none. The answer stays its causes
+/// and that line, never the schema itself.
 #[test]
-fn a_rejected_call_names_an_accepted_example_and_the_schema_command() {
+fn a_rejected_call_names_an_accepted_example() {
     for tool in crate::id::ToolId::ALL {
         let tool = tool.as_str();
         let error = prepare_rows(tool, json!({"queries": [{"noSuchField": 1}]}))
@@ -324,10 +325,15 @@ fn a_rejected_call_names_an_accepted_example_and_the_schema_command() {
         let example: Value = serde_json::from_str(example).expect("the example is a request");
         crate::contracts::validate(tool, example.clone())
             .unwrap_or_else(|error| panic!("{tool}: its example {example} is rejected: {error}"));
-        assert_eq!(
-            lines.last().copied(),
-            Some(format!("Schema: octocode schema {tool}").as_str()),
+        assert!(
+            lines
+                .last()
+                .is_some_and(|line| line.starts_with("Example: ")),
             "{tool}: {lines:?}"
+        );
+        assert!(
+            !envelope.to_string().contains("octocode schema"),
+            "{tool}: no CLI command in a transport-neutral answer: {envelope}"
         );
         assert!(
             !envelope["error"]
@@ -411,4 +417,90 @@ fn a_refused_value_is_its_own_repair_without_an_example() {
                 .is_some_and(|line| line.starts_with("Example: ")))),
         "{envelope}"
     );
+}
+
+/// The example beside a rejected row is of a form that takes every field the
+/// row sent, among the forms of the operation it named: each form's own
+/// example, sent with one unknown field, is shown an example of a form that
+/// takes all of its fields (a `source` row a `source` call, a commit `path`
+/// row a commit `path` call), never just the operation's first form.
+#[test]
+fn the_example_is_of_a_form_taking_every_field_the_row_sent() {
+    let presentation = crate::contracts::cli_presentation().expect("presentation");
+    let mut checked = 0;
+    for entry in presentation["tools"].as_array().expect("tools") {
+        let tool = entry["name"].as_str().expect("name");
+        let variants = entry["views"]["variants"]["variants"]
+            .as_array()
+            .expect("variants");
+        for variant in variants {
+            let Some(example) = variant["example"].as_object() else {
+                continue;
+            };
+            let mut row = example.clone();
+            row.insert("noSuchField".into(), json!(1));
+            let sent = json!({"queries": [row]});
+            let error = match prepare_rows(tool, sent.clone()) {
+                Err(error) => error,
+                Ok(rows) => rows.into_iter().find_map(Result::err).expect("rejected"),
+            };
+            let shown = format_input_error(tool, &error, &[], &sent)["details"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .find_map(|line| line.strip_prefix("Example: "))
+                .map(|line| serde_json::from_str::<Value>(line).expect("request"))
+                .unwrap_or_else(|| panic!("{tool}: an example"));
+            let takes_all = variants.iter().any(|form| {
+                form["example"] == shown["queries"][0]
+                    && example.keys().all(|field| {
+                        form["fields"]
+                            .as_array()
+                            .is_some_and(|fields| fields.iter().any(|known| known == field))
+                    })
+            });
+            assert!(takes_all, "{tool}: {sent} was shown {shown}");
+            checked += 1;
+        }
+    }
+    assert!(checked > 0);
+}
+
+/// A tie between nearest names is no one guess: the error names the tied
+/// fields only, not every field the object allows.
+#[test]
+fn a_tie_names_only_the_tied_fields() {
+    let line = first_line(
+        "ghSearchHistory",
+        json!({"queries":[{"operation":"pullRequest","owner":"o","repo":"r","filters":{"merged_":true}}]}),
+    );
+    assert_eq!(
+        line,
+        "Unknown field 'merged_' in queries[0].filters; use 'isMerged' or 'mergedAt'.",
+    );
+}
+
+/// A field this tool lacks that a tool its description names declares is
+/// that tool's: the error says which tool takes it.
+#[test]
+fn a_field_of_a_named_tool_says_which_tool_takes_it() {
+    for (tool, row, owner) in [
+        (
+            "graphBuild",
+            json!({"path":".","operation":"stats"}),
+            "graphQuery",
+        ),
+        (
+            "graphQuery",
+            json!({"operation":"stats","keep":2}),
+            "graphBuild",
+        ),
+    ] {
+        let line = first_line(tool, json!({"queries":[row]}));
+        assert!(
+            line.contains(&format!("is a {owner} field")),
+            "{tool}: {line}"
+        );
+    }
 }

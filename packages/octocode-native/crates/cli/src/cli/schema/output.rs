@@ -1,5 +1,5 @@
 //! Output references and the collection routes needed to reconstruct their pages.
-use super::{SchemaError, presentation, tools};
+use super::{SchemaError, presentation, tool_entry};
 use serde_json::{Value, json};
 
 /// What `tool`'s output fields and coverage reasons mean: the reference for
@@ -36,7 +36,5 @@ pub(super) fn output_view(tool: &Value) -> Result<Value, SchemaError> {
 /// [`output_view`] of the tool named `name`, for its MCP resource.
 pub(in crate::cli) fn output_of(name: &str) -> Option<Value> {
     let presentation = presentation().ok()?;
-    tools(presentation)
-        .find(|tool| tool["name"] == name)
-        .and_then(|tool| output_view(tool).ok())
+    tool_entry(presentation, name).and_then(|tool| output_view(tool).ok())
 }

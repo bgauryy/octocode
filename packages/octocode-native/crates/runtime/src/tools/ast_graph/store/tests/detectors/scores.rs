@@ -8,7 +8,7 @@ fn every_finding(root: &Path) -> Vec<Value> {
         o.min_tier = Some(0);
         o.limit = Some(500);
     });
-    issues.value["rows"].as_array().cloned().unwrap_or_default()
+    crate::tools::ast_graph::test_support::issue_rows(&issues.value)
 }
 
 /// Each row's score follows from the factors it states, and every factor

@@ -83,8 +83,9 @@ async fn pr_inventory_carries_the_identity_header_and_its_own_next_steps_only() 
 }
 
 /// The review pick is every source file, most changed first (not the
-/// changeset, not the tests), labelled as a ranking guess; a small PR keeps
-/// the every-patch read beside it.
+/// changeset, not the tests), labelled as a ranking guess: the row's one
+/// lead. Every patch is one documented call away (`sections:["patches"]`
+/// without `include`).
 #[tokio::test]
 async fn pr_inventory_picks_the_largest_source_patch_and_keeps_all_patches() {
     let server = MockServer::builder().start().await;
@@ -113,13 +114,13 @@ async fn pr_inventory_picks_the_largest_source_patch_and_keeps_all_patches() {
     assert_eq!(scope.len(), 2);
     assert!(scope.contains(&json!("src/server/webStandardStreamableHttp.ts")));
     assert!(scope.contains(&json!("src/server/sseKeepAlive.ts")));
-    let all = support::checks::related_call(&data, "ghGetHistoryItem", |input| {
-        input["queries"][0]["sections"] == json!(["patches"])
-            && input["queries"][0].get("include").is_none()
-    });
-    for (lead, count) in [(selected, 2), (all, 5)] {
-        assert_eq!(lead["kind"], "related");
-        let patches = run(&server, lead["input"]["queries"][0].clone()).await;
+    assert_eq!(selected["kind"], "related");
+    let mut all = selected["input"]["queries"][0].clone();
+    if let Some(row) = all.as_object_mut() {
+        row.remove("include");
+    }
+    for (read, count) in [(selected["input"]["queries"][0].clone(), 2), (all, 5)] {
+        let patches = run(&server, read).await;
         let files = patches["pullRequests"][0]["files"]
             .as_array()
             .expect("patch files");

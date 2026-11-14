@@ -7,6 +7,7 @@ use super::{
 use crate::providers::RuntimeClients;
 use octocode_contract_types::ErrorCode;
 use octocode_io::budget::{BudgetStop, RequestBudget};
+use octocode_io::http::Proxy;
 use octocode_io::retry::{Backoff, BodyError, StatusClass};
 use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderValue, USER_AGENT};
 use secrecy::ExposeSecret;
@@ -16,21 +17,17 @@ use std::time::Duration;
 
 #[derive(Clone)]
 pub struct SystemArtifactHttp {
-    client: reqwest::Client,
     /// Retries after a 5xx or 429 (the runtime's `max_retries`).
     retries: u8,
 }
 
 impl SystemArtifactHttp {
     /// The registry client for the current Tokio runtime: one connection pool
-    /// and TLS configuration for every call on it. A DNS-pinned registry
-    /// request uses a client pinned to its validated addresses (see
-    /// [`pinned_client`]).
-    pub fn shared() -> Result<Self, ArtifactError> {
-        static CLIENTS: RuntimeClients<()> = RuntimeClients::new(MAX_RUNTIME_CLIENTS);
-        CLIENTS
-            .get((), || build_client(None))
-            .map(|client| Self { client, retries: 1 })
+    /// and TLS configuration per proxy setting for every call on it, built on
+    /// a request's first need ([`SystemArtifactHttp::client_for`]).
+    #[must_use]
+    pub fn shared() -> Self {
+        Self { retries: 1 }
     }
 
     /// Retry a 5xx or 429 answer up to `retries` times.
@@ -44,6 +41,12 @@ impl SystemArtifactHttp {
 /// Clients kept for reuse per runtime; the oldest is dropped past this count.
 const MAX_RUNTIME_CLIENTS: usize = 8;
 
+/// The pooled client honoring `proxy` on the current runtime.
+fn pooled_client(proxy: Proxy) -> Result<reqwest::Client, ArtifactError> {
+    static CLIENTS: RuntimeClients<Proxy> = RuntimeClients::new(MAX_RUNTIME_CLIENTS);
+    CLIENTS.get(proxy, || build_client(proxy, None))
+}
+
 /// The client pinned to `pin`'s exact host and validated addresses, reused
 /// across calls on one runtime so a later GET to the same registry keeps its
 /// pooled connection and TLS session. A different address set (a new DNS
@@ -56,19 +59,16 @@ fn pinned_client(pin: &DnsPin) -> Result<reqwest::Client, ArtifactError> {
     addresses.sort_unstable();
     addresses.dedup();
     CLIENTS.get((pin.host.to_ascii_lowercase(), addresses), || {
-        build_client(Some(pin))
+        build_client(Proxy::Direct, Some(pin))
     })
 }
 
-fn build_client(dns_pin: Option<&DnsPin>) -> Result<reqwest::Client, ArtifactError> {
-    // A pinned name connects directly to the exact public addresses validated
-    // by npm policy: a proxy would resolve the target independently.
+/// A client honoring `proxy`. A pinned name connects directly to the exact
+/// public addresses validated by npm policy whatever `proxy` says: a proxy
+/// would resolve the target independently.
+fn build_client(proxy: Proxy, dns_pin: Option<&DnsPin>) -> Result<reqwest::Client, ArtifactError> {
     let policy = octocode_io::http::ClientPolicy {
-        proxy: if dns_pin.is_some() {
-            octocode_io::http::Proxy::Direct
-        } else {
-            octocode_io::http::Proxy::System
-        },
+        proxy,
         resolve: dns_pin.map(|pin| (pin.host.clone(), pin.addresses.clone())),
         ..octocode_io::http::ClientPolicy::default()
     };
@@ -81,12 +81,14 @@ fn build_client(dns_pin: Option<&DnsPin>) -> Result<reqwest::Client, ArtifactErr
 }
 
 impl SystemArtifactHttp {
-    /// The client a request connects through: the shared one, or the one
-    /// pinned to its validated addresses.
-    fn client_for(&self, request: &ArtifactHttpRequest) -> Result<reqwest::Client, ArtifactError> {
+    /// The client a request connects through: the one pinned to its
+    /// validated addresses, else the pooled one for its host: a loopback
+    /// registry is reached directly, any other through the user's system
+    /// proxy ([`octocode_github::proxy_for`]).
+    fn client_for(request: &ArtifactHttpRequest) -> Result<reqwest::Client, ArtifactError> {
         match request.dns_pin.as_ref() {
             Some(pin) => pinned_client(pin),
-            None => Ok(self.client.clone()),
+            None => pooled_client(octocode_github::proxy_for(&request.url)),
         }
     }
 
@@ -96,7 +98,6 @@ impl SystemArtifactHttp {
     /// refused.
     async fn send(
         &self,
-        client: &reqwest::Client,
         request: &ArtifactHttpRequest,
         post: Option<&[u8]>,
         budget: &RequestBudget,
@@ -104,6 +105,9 @@ impl SystemArtifactHttp {
     ) -> Result<(reqwest::Response, u8), ArtifactError> {
         for attempt in first..=self.retries {
             budget.check().map_err(budget_error)?;
+            // After the budget check: a request with no time left builds no
+            // client.
+            let client = Self::client_for(request)?;
             let builder = match post {
                 Some(body) => client
                     .post(request.url.clone())
@@ -181,12 +185,9 @@ impl SystemArtifactHttp {
         post: Option<Vec<u8>>,
         budget: &RequestBudget,
     ) -> Result<ArtifactHttpResponse, ArtifactError> {
-        let client = self.client_for(&request)?;
         let mut first = 0;
         loop {
-            let (response, attempt) = self
-                .send(&client, &request, post.as_deref(), budget, first)
-                .await?;
+            let (response, attempt) = self.send(&request, post.as_deref(), budget, first).await?;
             let status = response.status().as_u16();
             let headers = FRESHNESS_HEADERS
                 .into_iter()
@@ -251,8 +252,7 @@ impl ArtifactHttp for SystemArtifactHttp {
         sink: BodySink<'a>,
     ) -> StatusFuture<'a> {
         Box::pin(async move {
-            let client = self.client_for(&request)?;
-            let (mut response, _) = self.send(&client, &request, None, budget, 0).await?;
+            let (mut response, _) = self.send(&request, None, budget, 0).await?;
             let status = response.status().as_u16();
             if !(200..300).contains(&status) {
                 drain(response, budget).await?;

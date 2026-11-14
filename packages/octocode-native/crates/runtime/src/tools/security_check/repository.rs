@@ -455,6 +455,16 @@ pub(super) async fn read_github(
     (read, status)
 }
 
+/// GitHub's status as a source of advisories once it described the target:
+/// `found` only when it holds `held` advisories for it. A repository or
+/// commit it described with none is `noneKnown`; the description itself is
+/// the row's `repository` block or the entry's `facts`.
+pub(super) fn advisory_status(entry: &mut Value, held: usize) {
+    if held == 0 && entry["status"] == "found" {
+        entry["status"] = json!("noneKnown");
+    }
+}
+
 /// The `sources[]` entry for a GitHub read, with its failure's code and reason.
 pub(super) fn github_source(read: &RepoRead, status: &str, today: &str) -> Value {
     let mut source = json!({"source": "github", "status": status, "observedAt": today});
@@ -567,6 +577,7 @@ pub(super) async fn run(
             .iter()
             .filter(|row| row.get("withdrawn").is_some())
             .count();
+        advisory_status(&mut source, read - withdrawn);
         if read > 0 || stopped.is_none() {
             let mut clause = if stopped.is_none() {
                 advisories::count_clause(read - withdrawn)

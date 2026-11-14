@@ -28,7 +28,7 @@ fn names(prefix: &str) -> Vec<Value> {
         .collect()
 }
 
-/// Named rows (`{name, <value>}`): branches and engines, whose names are data
+/// Named rows (`{name, <value>}`): branches, tags and engines, whose names are data
 /// and never JSON keys.
 fn named(prefix: &str, value: &str) -> Vec<Value> {
     (0..80)
@@ -64,7 +64,7 @@ fn clone_symlinks_and_sparse_scope_each_page_once() {
 #[test]
 fn structure_branch_records_and_tags_are_each_delivered_once() {
     let branches = named("branch", "sha");
-    let tags = names("tag");
+    let tags = named("tag", "sha");
     let data = json!({"defaultBranch":"main","commitSha":"fixed","branches":branches,"tags":tags});
     let (mut seen_branches, mut seen_tags) = (Vec::new(), Vec::new());
     for row in pages(ToolId::GhStructure, data) {

@@ -62,7 +62,7 @@ flowchart TD
 | `responsePagination.next` | Finish the response pages first. A single continuation can carry several rows or sections forward. |
 | `next.nextPage` | Read the next tool page if the response has no continuation of its own. |
 | Other `next` entries | Continue the indicated branch when your claim depends on it, such as a patch, unfiltered results or an exact source read. |
-| `related[]` | Start optional fresh work with the supplied queries. The scope may differ. |
+| `related[]` | Start optional fresh work with the supplied queries. The scope may differ. An empty, failed or partial row lists its recovery calls; a complete row keeps every batch for its tool's usual next step, plus every call that carries a fact the row does not state or that a warning names. |
 | `hints[]` | Read the explanation for help interpreting or correcting the request. |
 
 A continuation has this shape. Pass **only its complete `input`** to its `tool`. Use the cursor the tool issued.

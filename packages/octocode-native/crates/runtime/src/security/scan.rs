@@ -295,28 +295,18 @@ mod tests {
         format!("{line}\n{}", pad.repeat(lines))
     }
 
-    /// Past what a read holds at once, a source is judged as any other: a value is
-    /// hidden by what its object says, and the text around it stays.
+    /// Past what a read holds at once, a source is judged as any other: a known
+    /// secret is hidden, and the text around it stays.
     #[test]
     fn past_the_limit_a_source_is_judged_whole() {
         let security = crate::security::ContentSecurity::new();
         let path = Path::new("/w/dump.json");
-        for (named, value) in [
-            (
-                "{\"data\":{\"k\":\"c2VjcmV0\"},\"kind\":\"Secret\"}",
-                "c2VjcmV0",
-            ),
-            (
-                "{\"kty\":\"EC\",\"d\":\"c2VjcmV0c2VjcmV0c2VjcmV0\"}",
-                "c2VjcmV0c2VjcmV0c2VjcmV0",
-            ),
-        ] {
-            let text = over_the_limit(named);
-            let (clean, changed) = security.redact_source_lines(&text, path).expect("read");
-            assert!(changed, "{named}");
-            assert!(!clean.contains(value), "{named}");
-            assert!(clean.contains("ordinary words"), "{named}");
-        }
+        let token = format!("ghp_{}", "c2VjcmV0".repeat(5));
+        let text = over_the_limit(&format!("{{\"token\":\"{token}\"}}"));
+        let (clean, changed) = security.redact_source_lines(&text, path).expect("read");
+        assert!(changed);
+        assert!(!clean.contains(&token));
+        assert!(clean.contains("ordinary words"));
         for plain in [
             "{\"SecretName\":\"a\"}",
             "\"kind\": \"Deployment\"",

@@ -65,8 +65,8 @@ async fn invalid_inputs_preserve_caller_intent_by_rejecting_without_executable_r
         ),
         (
             "astSearch",
-            json!({"queries":[{"operation":"symbols","path":".","pattern":"eval($X)"}]}),
-            "pattern",
+            json!({"queries":[{"operation":"symbols","path":".","rule":{"pattern":"eval($X)"}}]}),
+            "rule",
         ),
     ] {
         let error = runtime

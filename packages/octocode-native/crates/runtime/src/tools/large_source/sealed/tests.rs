@@ -189,27 +189,6 @@ fn sealed_offsets_map_to_keyed_offsets() {
     assert_eq!(shift(&edits, 116..2000), Shift::default());
 }
 
-/// Overlapping edits merge into one that shows each placeholder.
-#[test]
-fn overlapping_edits_merge() {
-    let edit = |range: Range<usize>, text: &str| Edit {
-        range,
-        text: text.into(),
-    };
-    let merged = merge(
-        vec![edit(2..6, "[A]"), edit(10..12, "[C]")],
-        vec![edit(4..8, "[B]")],
-    );
-    assert_eq!(merged, vec![edit(2..8, "[A][B]"), edit(10..12, "[C]")]);
-    // An edit inside another, or on the same bytes, goes with it: the
-    // structure's (`more`) stands on a tie, as a whole read shows one.
-    let merged = merge(
-        vec![edit(2..6, "[A]"), edit(12..14, "[C]")],
-        vec![edit(2..6, "[S]"), edit(10..16, "[T]")],
-    );
-    assert_eq!(merged, vec![edit(2..6, "[S]"), edit(10..16, "[T]")]);
-}
-
 /// A sealed length counts each placeholder's own bytes: one longer than its
 /// source (a short structural value) grows the view, one shorter shrinks it,
 /// and the two never cancel into a wrong total (review: 16 source bytes
@@ -270,18 +249,18 @@ fn a_broken_record_places_no_offset() {
     assert_eq!(keyed_offset(&edits, &keys, 0, 30), None);
 }
 
-/// B289: a data object on one line far longer than a chunk and its overlap
-/// seals as a whole-source scan seals it: the scanner's judgement of the
-/// object does not depend on which chunk holds a value.
+/// B289: one line far longer than a chunk and its overlap, holding many
+/// secrets, seals as a whole-source scan seals it: the scanner's judgement
+/// does not depend on which chunk holds a value.
 #[test]
-fn a_long_line_data_object_seals_as_a_whole_scan_does() {
-    let mut text = String::from(r#"{"kind":"Secret","data":{"#);
+fn a_long_line_of_secrets_seals_as_a_whole_scan_does() {
+    let mut text = String::from("Cookie: ");
     let mut n = 0;
     while text.len() < 3 * Limits::REAL.chunk {
-        text.push_str(&format!(r#""k{n:06}":"v{n:06}","#));
+        text.push_str(&format!("JSESSIONID=v{n:06}; "));
         n += 1;
     }
-    text.push_str("\"z\":\"zz\"}}\n");
+    text.push_str("end\n");
     let expected = whole(&text);
     assert!(
         !expected.contains("\"v0"),

@@ -126,7 +126,7 @@ async fn match_context_past_the_hunk_reads_the_head_text() {
     let file = &data["pullRequests"][0]["files"][0];
     let text = file["patch"].as_str().expect("patch");
     assert!(
-        text.starts_with("@@ -44,20 +44,20 @@ fn f\n44\t line 44\n"),
+        text.starts_with("@@ -50,7 +50,7 @@ fn f\n44\t line 44\n"),
         "{text}"
     );
     assert!(text.ends_with("63\t line 63\n"), "{text}");
@@ -245,7 +245,7 @@ async fn a_head_file_past_one_megabyte_is_read_through_its_blob() {
     let file = &data["pullRequests"][0]["files"][0];
     let text = file["patch"].as_str().expect("patch");
     assert!(
-        text.starts_with("@@ -44,20 +44,20 @@ fn f\n44\t line 44\n"),
+        text.starts_with("@@ -50,7 +50,7 @@ fn f\n44\t line 44\n"),
         "{text}"
     );
     assert!(file.get("contextClipped").is_none(), "{data}");

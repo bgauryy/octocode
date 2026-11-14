@@ -298,10 +298,12 @@ const WORKSPACE_SYMBOL_CAPPED_REASON: crate::response::paging::PartialReason =
 /// once and no row does: the row leads to the lexical search of `name` over
 /// `scope`, the check no page of this answer can make.
 /// `capped_at` is the server's own result limit when its answer reached it
-/// ([`octocode_engine::lsp::config::workspace_symbol_limit`]): a fact of this
-/// answer, so the row is partial and a warning says it outright. Both
-/// leads are the whole answer's: a later page of `query` (whose
-/// first page carried them) repeats none of them.
+/// ([`NativeLspClient::workspace_symbol_limit`]): a fact of this answer, so
+/// the row is partial and a warning says it outright. Both leads are the
+/// whole answer's: a later page of `query` (whose first page carried them)
+/// repeats none of them.
+///
+/// [`NativeLspClient::workspace_symbol_limit`]: octocode_engine::lsp::client::NativeLspClient::workspace_symbol_limit
 pub(super) fn workspace_symbols(
     row: &mut Value,
     query: &LspSearchQuery,

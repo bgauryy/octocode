@@ -119,8 +119,12 @@ async fn a_package_summary_is_the_verdict_the_counts_and_one_lead() {
         "{summary}"
     );
     assert_eq!(summary["outdated"], true, "{summary}");
+    // Outdated names the release to move to; the rest of the release facts
+    // stay in details.
+    assert_eq!(summary["latestVersion"], "4.18.1", "{summary}");
     for detail in DETAIL_FIELDS
         .iter()
+        .filter(|detail| **detail != "latestVersion")
         .chain(&["answer", "packageName", "version"])
     {
         assert!(summary.get(*detail).is_none(), "{detail}: {summary}");
@@ -295,7 +299,7 @@ async fn a_commit_summary_counts_and_links_and_details_lists() {
     // that says what it does not prove stays.
     let none = RouteHttp::new().osv_pages(vec![(200, json!({}))]);
     let summary = answer(&none, query("summary")).await.expect("summary");
-    assert_eq!(summary["status"], "empty", "{summary}");
+    assert!(summary.get("status").is_none(), "{summary}");
     assert_eq!(summary["advisoryCount"], 0, "{summary}");
     assert!(summary["answer"].is_string(), "{summary}");
     assert!(summary.get("affected").is_none(), "{summary}");

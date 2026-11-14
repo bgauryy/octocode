@@ -4,8 +4,19 @@ use octocode_github::ProviderErrorKind;
 use wiremock::matchers::path_regex;
 
 #[tokio::test]
-async fn a_missing_path_is_classified_as_missing_and_costs_one_listing_per_level_walked() {
+async fn a_missing_path_is_classified_as_missing_and_located_from_one_tree_read() {
     let server = server().await;
+    mount_json(
+        &server,
+        &format!("/api/v3/repos/a/b/git/trees/{SHA}"),
+        200,
+        json!({"sha": SHA, "truncated": false, "tree": [
+            {"path":"README.md","type":"blob","mode":"100644","size":3},
+            {"path":"docs","type":"tree","mode":"040000"},
+            {"path":"docs/guide","type":"tree","mode":"040000"}
+        ]}),
+    )
+    .await;
     Mock::given(method("GET"))
         .and(path_regex(r"^/api/v3/repos/a/b/contents/?$"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!([
@@ -40,8 +51,8 @@ async fn a_missing_path_is_classified_as_missing_and_costs_one_listing_per_level
     assert_eq!(calls["viewTree"]["input"]["queries"][0]["path"], "docs");
     // Cost: the repository and its head, the tree read, the Contents read
     // (a git tree answers 404 for a submodule path too, so only Contents
-    // tells a missing path from a submodule), then one listing per level
-    // walked up to the directory that exists.
+    // tells a missing path from a submodule), then one recursive tree read
+    // that locates the directory that exists, whatever the depth walked.
     let requests = server.received_requests().await.unwrap_or_default();
     let mut paths = requests
         .iter()
@@ -64,8 +75,7 @@ async fn a_missing_path_is_classified_as_missing_and_costs_one_listing_per_level
             "/commits/HEAD",
             &format!("/git/trees/{SHA}:docs%2Fnope%2Fmissing"),
             "/contents/docs%2Fnope%2Fmissing",
-            "/contents/docs%2Fnope",
-            "/contents/docs",
+            &format!("/git/trees/{SHA}"),
         ],
         "{paths:?}"
     );

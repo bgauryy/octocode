@@ -128,7 +128,8 @@ pub(super) fn disclose_limits(
     }
     if !traversal.omitted.is_empty() && page.current == 1 {
         // Symlinks and submodules have no listable content: name each
-        // instead of silently dropping it, once per listing.
+        // instead of silently dropping it, once per listing, grouped by
+        // kind so the kind is stated once.
         value["omitted"] = json!(traversal.omitted);
     }
     if traversal.failed_subtrees > 0 {
@@ -174,13 +175,19 @@ pub(super) fn entry_read(
     ))
 }
 
-/// The read a size-ranked page leads to: its top file, the rank's answer.
+/// The read a size-ranked page leads to: its largest file of a known text
+/// type (source, configuration, lock or docs). The largest files are often
+/// images, archives or binaries, which a file read refuses: the page itself
+/// ranks them, and a lead names only a read that answers.
 pub(super) fn top_read(
     query: &GhStructureQueryTree,
     ranked: &[TreeEntry],
     commit_sha: &str,
 ) -> Option<Value> {
-    let top = ranked.iter().find(|entry| entry.kind == EntryKind::File)?;
+    let top = ranked.iter().find(|entry| {
+        entry.kind == EntryKind::File
+            && crate::content::classify_file_type(&entry.path).is_some()
+    })?;
     Some(file_read(query, top.path.clone(), commit_sha))
 }
 

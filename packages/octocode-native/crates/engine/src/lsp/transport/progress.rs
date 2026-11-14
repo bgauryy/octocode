@@ -213,6 +213,13 @@ impl ProgressTracker {
         self.begins.load(Ordering::Acquire)
     }
 
+    /// The begin count and active work at one point between token transitions.
+    /// Reading them separately can pair a new begin with the previous idle count.
+    pub(crate) async fn work_state(&self) -> (u64, bool) {
+        let active = self.active.lock().await;
+        (self.begins(), open_work(&active) > 0)
+    }
+
     /// `true` while any progress token (or rust-analyzer's non-quiescent
     /// status) is open: the server says it is working.
     pub(crate) fn has_active(&self) -> bool {

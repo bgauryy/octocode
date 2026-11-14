@@ -162,6 +162,11 @@ pub struct ProviderError {
     /// token must be authorized there before the request can succeed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sso_url: Option<Box<str>>,
+    /// The proxy a request that failed in transport went through
+    /// (`scheme://host[:port]`, never its userinfo); `None`: it connected
+    /// directly, or the failure was not in transport.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy: Option<Box<str>>,
 }
 
 impl ProviderError {
@@ -181,6 +186,7 @@ impl ProviderError {
             ),
             reason: None,
             sso_url: None,
+            proxy: None,
         }
     }
 

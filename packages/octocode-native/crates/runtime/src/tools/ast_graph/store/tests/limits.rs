@@ -324,11 +324,11 @@ fn projection_releases_the_linked_facts_before_redaction() {
 /// clean strings keep their text beside a batch that holds its literal.
 #[test]
 fn redaction_judges_each_string_whatever_the_batch_holds() {
-    let block = "kind: Secret\ndata:\n  tls.crt: QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=\n";
+    let block = "aws_secret_access_key =\n  wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n";
     let strings = [
         block,
-        "kind: Secret",
-        "data:\n  tls.crt: QUJD\n",
+        "aws_secret_access_key =",
+        "  wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n",
         "kind: of clean text",
     ];
     let mut tables = super::super::format::GraphTables {
@@ -337,7 +337,7 @@ fn redaction_judges_each_string_whatever_the_batch_holds() {
     };
     super::super::ingest::redact_secrets(&mut tables, &ContentSecurity::new()).expect("redacted");
     assert!(
-        !tables.strings[0].contains("QUJDREVGR0hJ"),
+        !tables.strings[0].contains("wJalrXUtnFEMI"),
         "{:?}",
         &tables.strings[0]
     );

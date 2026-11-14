@@ -155,7 +155,7 @@ fn a_missing_repository_repair_labels_its_name_search() {
     assert_eq!(calls, &repository_recovery(Some("o"), "gone"));
     assert_eq!(
         calls["findRepository2"]["input"]["queries"][0],
-        json!({"operation":"list","owner":"o"}),
+        json!({"operation":"list","owner":"o","limit":crate::tools::gh_shared::RECOVERY_LIMIT}),
         "{calls}"
     );
     assert_eq!(owned.hints, [REPOSITORY_SEARCH_HINT.to_owned()]);

@@ -8,6 +8,7 @@ pub(crate) mod scan;
 mod walk;
 
 pub use content::ContentSecurity;
+pub(crate) use content::Pii;
 #[cfg(test)]
 pub(crate) use content::tests::{key_formats, marker_lines};
 pub(crate) use content::{
@@ -36,7 +37,7 @@ pub(crate) use walk::sanitize_json;
 /// gate's pathless pass over messages ([`walk::Messages::Authored`]) is the
 /// backstop until every site does.
 pub(crate) fn quoted(text: &str) -> std::borrow::Cow<'_, str> {
-    match ContentSecurity::new().sanitize_leaf(text, None) {
+    match ContentSecurity::new().sanitize_leaf(text) {
         Some(clean) => std::borrow::Cow::Owned(clean),
         None => std::borrow::Cow::Borrowed(text),
     }
@@ -98,7 +99,7 @@ pub(crate) fn placeholders_in(value: &serde_json::Value) -> usize {
 /// server or embedded in a provider payload is redacted; a sanitizer failure
 /// fails closed to a redaction placeholder.
 pub fn scrub_error_text(text: &str) -> String {
-    octocode_engine::security::sanitizer::sanitize_content(text, None)
+    octocode_engine::security::sanitizer::sanitize_content(text)
         .map(|result| result.content.into_owned())
         .unwrap_or_else(|_| octocode_engine::security::SANITIZER_FAILURE_PLACEHOLDER.to_owned())
 }

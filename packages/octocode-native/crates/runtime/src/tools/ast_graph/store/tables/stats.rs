@@ -49,7 +49,9 @@ impl CallStats {
 /// the ratio. Every call site is in exactly one of `eligible`, `excluded`.
 fn linkage(linked: u64, missed: u64, excluded: u64) -> serde_json::Value {
     let eligible = linked + missed;
-    let ratio = (eligible != 0).then(|| linked as f64 / eligible as f64);
+    // A share, not a measurement: 4 significant digits.
+    let ratio =
+        (eligible != 0).then(|| super::super::detect::significant(linked as f64 / eligible as f64));
     serde_json::json!({"linked":linked, "eligible":eligible, "excluded":excluded,
         "sites":eligible + excluded, "ratio":ratio, "population":"syntax-call-sites"})
 }

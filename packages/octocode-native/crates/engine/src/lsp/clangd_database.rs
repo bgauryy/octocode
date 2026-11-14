@@ -122,7 +122,7 @@ fn index_directory(config: &LspLanguageServerConfig) -> Option<PathBuf> {
 
 /// The file names clangd wrote an index shard for (`lib.c.<hash>.idx`). A listed
 /// file with none did not index: its flags failed.
-pub fn indexed_names(config: &LspLanguageServerConfig) -> std::collections::HashSet<String> {
+pub(crate) fn indexed_names(config: &LspLanguageServerConfig) -> std::collections::HashSet<String> {
     index_directory(config)
         .and_then(|directory| std::fs::read_dir(directory).ok())
         .into_iter()

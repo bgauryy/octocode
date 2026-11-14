@@ -12,7 +12,6 @@
   },
   "clippy::disallowed_methods(alloc::vec::Vec::truncate)": {
     "engine": {
-      "crates/engine/src/security/detector/yaml_secret.rs": 1,
       "crates/engine/src/signatures/graph_facts/receiver.rs": 1,
       "crates/engine/src/signatures/graph_facts/walk.rs": 1,
       "crates/engine/src/structural/files.rs": 1
@@ -36,20 +35,18 @@
     "engine": {
       "crates/engine/src/deep_stack.rs": 1,
       "crates/engine/src/fact_scan/evaluate/ordered.rs": 1,
-      "crates/engine/src/lsp/client/absence.rs": 1,
+      "crates/engine/src/lsp/client/absence.rs": 2,
       "crates/engine/src/lsp/client/lifecycle.rs": 1,
-      "crates/engine/src/lsp/client/parse_waits.rs": 1,
       "crates/engine/src/lsp/client/requests.rs": 1,
       "crates/engine/src/lsp/client/status.rs": 1,
       "crates/engine/src/lsp/config/probe.rs": 1,
       "crates/engine/src/lsp/pool/acquire.rs": 1,
       "crates/engine/src/lsp/pool/state.rs": 1,
-      "crates/engine/src/lsp/transport/connection.rs": 2,
+      "crates/engine/src/lsp/transport/connection.rs": 3,
       "crates/engine/src/lsp/transport/connection/shared.rs": 1,
       "crates/engine/src/lsp/transport/connection/tasks.rs": 2,
       "crates/engine/src/lsp/transport/patience.rs": 2,
       "crates/engine/src/lsp/transport/progress.rs": 5,
-      "crates/engine/src/lsp/transport/push_diagnostics.rs": 1,
       "crates/engine/src/search/text_search/pcre2.rs": 1
     },
     "github": {
@@ -62,7 +59,6 @@
       "crates/github/src/transport/saved.rs": 1
     },
     "io": {
-      "crates/io/src/budget.rs": 1,
       "crates/io/src/lock.rs": 1,
       "crates/io/src/retry.rs": 1
     },
@@ -106,7 +102,7 @@
       "crates/github/src/budget/config.rs": 3,
       "crates/github/src/budget/key_state/facts.rs": 1,
       "crates/github/src/budget/persist.rs": 1,
-      "crates/github/src/transport.rs": 2,
+      "crates/github/src/transport.rs": 1,
       "crates/github/src/transport/execute.rs": 1,
       "crates/github/src/transport/saved.rs": 1
     },
@@ -289,8 +285,7 @@
     },
     "engine": {
       "crates/engine/src/lsp/client/server_process.rs": 1,
-      "crates/engine/src/lsp/transport/progress.rs": 4,
-      "crates/engine/src/lsp/transport/push_diagnostics.rs": 1
+      "crates/engine/src/lsp/transport/progress.rs": 4
     },
     "io": {
       "crates/io/src/budget.rs": 2
@@ -327,9 +322,8 @@
       "crates/engine/src/minify/verify.rs": 6,
       "crates/engine/src/minify/verify/refinement.rs": 2,
       "crates/engine/src/search/text_search/sink/columns.rs": 2,
-      "crates/engine/src/security/detector/document.rs": 4,
+      "crates/engine/src/security/detector.rs": 5,
       "crates/engine/src/security/detector/long_line.rs": 2,
-      "crates/engine/src/security/detector/long_text.rs": 4,
       "crates/engine/src/signatures/graph_facts/macro_bodies.rs": 1,
       "crates/engine/src/signatures/graph_facts/receiver/type_text.rs": 5,
       "crates/engine/src/signatures/graph_facts/references.rs": 3,
@@ -397,7 +391,7 @@
       "crates/runtime/src/tools/lsp_search/heritage.rs": 3,
       "crates/runtime/src/tools/lsp_search/import_stop.rs": 1,
       "crates/runtime/src/tools/lsp_search/importers.rs": 3,
-      "crates/runtime/src/tools/lsp_search/importers/reach.rs": 2,
+      "crates/runtime/src/tools/lsp_search/importers/reach.rs": 1,
       "crates/runtime/src/tools/lsp_search/recovery/aliases.rs": 2,
       "crates/runtime/src/tools/lsp_search/scope/reach/cargo.rs": 1,
       "crates/runtime/src/tools/lsp_search/scope/reach/rust.rs": 2,

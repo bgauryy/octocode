@@ -4,7 +4,7 @@ use super::*;
 /// directory, including type stubs and build-definition dialects.
 #[test]
 fn every_routed_extension_can_root_a_directory_query() {
-    for extension in crate::lsp::config::ROUTED_EXTENSIONS {
+    for extension in crate::lsp::config::ROUTED_EXTENSIONS.iter() {
         let directory = tempfile::tempdir().expect("directory");
         let file = directory.path().join(format!("source{extension}"));
         std::fs::write(&file, "").expect("source");

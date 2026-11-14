@@ -9,9 +9,9 @@
 use octocode_io::memo::{Memo, MemoryBudget};
 use serde_json::{Value, json};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Notify;
-use tokio::time::{Duration, Instant, timeout};
+use tokio::time::{Instant, timeout_at};
 
 struct PushDiagnosticsRecord {
     params: Value,
@@ -25,8 +25,6 @@ struct PushDiagnosticsRecord {
 pub(super) struct PushDiagnosticsStore {
     records: Memo<String, PushDiagnosticsRecord>,
     changed: Notify,
-    /// Reports received, for any document, however many are kept.
-    published: AtomicU64,
 }
 
 impl Default for PushDiagnosticsStore {
@@ -44,17 +42,10 @@ impl PushDiagnosticsStore {
         Self {
             records: Memo::new(budget),
             changed: Notify::new(),
-            published: AtomicU64::new(0),
         }
     }
 
-    /// How many reports the server has published, for any document.
-    pub(super) fn published(&self) -> u64 {
-        self.published.load(Ordering::Relaxed)
-    }
-
     pub(super) fn record(&self, params: Value) {
-        self.published.fetch_add(1, Ordering::Relaxed);
         let Some(uri) = params.get("uri").and_then(Value::as_str).map(str::to_owned) else {
             return;
         };
@@ -137,29 +128,30 @@ impl PushDiagnosticsStore {
         }))
     }
 
-    /// A fresh report within `timeout_ms`, else the superseded one when the
-    /// server kept it (a server that publishes only on change has nothing
-    /// new to say), else `None`.
-    pub(super) async fn wait_for(
+    /// Waits until every one of `documents` (`uri`, minimum version) has a
+    /// fresh report, or `until`; `true` when every one has.
+    pub(super) async fn wait_for_all(
         &self,
-        uri: &str,
-        timeout_ms: u32,
-        min_version: Option<i64>,
-    ) -> Option<Value> {
-        let deadline = Instant::now() + Duration::from_millis(u64::from(timeout_ms));
+        documents: &[(String, Option<i64>)],
+        until: Instant,
+    ) -> bool {
+        let all_fresh = || {
+            documents
+                .iter()
+                .all(|(uri, min_version)| self.report(uri, *min_version, false).is_some())
+        };
         loop {
-            if let Some(report) = self.report(uri, min_version, false) {
-                return Some(report);
+            if all_fresh() {
+                return true;
             }
             let notified = self.changed.notified();
             tokio::pin!(notified);
             notified.as_mut().enable();
-            if let Some(report) = self.report(uri, min_version, false) {
-                return Some(report);
+            if all_fresh() {
+                return true;
             }
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() || timeout(remaining, notified).await.is_err() {
-                return self.report(uri, min_version, true);
+            if timeout_at(until, notified).await.is_err() {
+                return all_fresh();
             }
         }
     }
@@ -303,10 +295,12 @@ mod tests {
             "old clean report was replaced"
         );
         assert!(
-            store.wait_for(uri, 0, None).await.is_none(),
+            !store
+                .wait_for_all(&[(uri.to_owned(), None)], Instant::now())
+                .await
+                && store.report(uri, None, true).is_none(),
             "no invented empty report"
         );
-        assert_eq!(store.published(), 2);
         assert_eq!(BUDGET.used(), 0);
     }
 
@@ -315,9 +309,12 @@ mod tests {
         let store = PushDiagnosticsStore::new();
         let waiter_store = Arc::clone(&store);
         let waiter = tokio::spawn(async move {
+            let until = Instant::now() + std::time::Duration::from_secs(1);
             waiter_store
-                .wait_for("file:///workspace/a.ts", 1_000, Some(3))
+                .wait_for_all(&[("file:///workspace/a.ts".to_owned(), Some(3))], until)
                 .await
+                .then(|| waiter_store.report("file:///workspace/a.ts", Some(3), false))
+                .flatten()
         });
         tokio::task::yield_now().await;
 
@@ -375,9 +372,15 @@ mod supersede_tests {
         }));
         store.supersede("file:///w/a.ts");
         assert!(store.report("file:///w/a.ts", None, false).is_none());
+        let until = Instant::now() + std::time::Duration::from_millis(50);
+        assert!(
+            !store
+                .wait_for_all(&[("file:///w/a.ts".to_owned(), None)], until)
+                .await,
+            "no fresh report"
+        );
         let fallback = store
-            .wait_for("file:///w/a.ts", 50, None)
-            .await
+            .report("file:///w/a.ts", None, true)
             .expect("the superseded report stands in");
         assert_eq!(fallback["superseded"], true);
         assert_eq!(fallback["items"][0]["message"], "before");

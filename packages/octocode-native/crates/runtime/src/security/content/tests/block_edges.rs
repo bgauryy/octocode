@@ -207,15 +207,11 @@ fn a_numbered_armor_line_keeps_its_label() {
     let security = ContentSecurity::new();
     for number in ["7", "1520", "124169"] {
         let leaf = format!("{number}\t-----END PRIVATE KEY-----\n{number}1\tafter one");
-        assert_eq!(
-            security.sanitize_judged_leaf(&leaf, None, "big.log"),
-            None,
-            "{leaf}"
-        );
+        assert_eq!(security.sanitize_judged_leaf(&leaf), None, "{leaf}");
     }
     let glued = "Qx7Zk2Vb9Ls4Qx7Zk2Vb9Ls4-----END PRIVATE KEY-----\nafter one";
     let shown = security
-        .sanitize_judged_leaf(glued, None, "big.log")
+        .sanitize_judged_leaf(glued)
         .expect("key text hidden");
     assert!(!shown.contains("Qx7Zk2"), "{shown}");
     assert!(shown.contains("-----END PRIVATE KEY-----"), "{shown}");

@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 // Contract, lead and page-walk checks; the integration tests include the same
 // file (tests/support), so both kinds of test assert one way.
 use crate::contracts::{partial_reasons, validate, validate_output};
+pub(crate) mod billing;
 pub(crate) mod checks;
 pub(crate) mod selection_fake;
 
@@ -130,8 +131,18 @@ pub(crate) fn opened_input(tool: ToolId, input: &Value) -> Value {
     } else {
         input.clone()
     };
-    crate::contracts::validate_built(tool.as_str(), saved).expect("valid saved producer input")
+    crate::contracts::validate_saved(tool.as_str(), saved).expect("valid saved producer input")
 }
+
+/// The response stage's `related[]` rule, for the shared checks.
+fn keep_workflow_lead(tool: &str, output: &mut Value) {
+    crate::response::workflow_lead::keep_workflow_lead(
+        ToolId::from_name(tool).expect("tool"),
+        output,
+        &Value::Null,
+    );
+}
+use crate::response::workflow_lead::carried_identities;
 
 fn validate_test_input(
     tool: &str,
@@ -140,7 +151,7 @@ fn validate_test_input(
     if input.get("cursor").is_some() {
         validate(tool, input.clone())
     } else {
-        crate::contracts::validate_built(tool, input.clone())
+        crate::contracts::validate_saved(tool, input.clone())
     }
 }
 
@@ -367,6 +378,25 @@ mod production_text_tests {
             line(&text, "fn after_tests"),
             line(source, "fn after_tests")
         );
+    }
+
+    #[test]
+    fn test_attributes_blank_their_function_and_others_keep_it() {
+        for attribute in [
+            "#[test]",
+            "#[tokio::test]",
+            "#[tokio::test(flavor = \"multi_thread\")]",
+            "#[cfg(test)]",
+        ] {
+            let source = format!("{attribute}\nfn probe() {{ run(); }}\nfn kept() {{}}\n");
+            let text = production_text(&source);
+            assert!(!text.contains("probe") && !text.contains("run()"), "{text}");
+            assert!(text.contains("fn kept() {}"), "{text}");
+        }
+        for attribute in ["#[cfg(not(test))]", "#[must_use]", "#[expect(dead_code)]"] {
+            let source = format!("{attribute}\nfn probe() {{ run(); }}\n");
+            assert_eq!(production_text(&source), source);
+        }
     }
 
     #[test]

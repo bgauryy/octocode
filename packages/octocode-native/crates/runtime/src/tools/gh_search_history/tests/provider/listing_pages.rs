@@ -177,13 +177,13 @@ async fn a_capped_total_is_the_reachable_window() {
     }
 }
 
-/// A REST list page has no total: `total` counts the rows listed so far
-/// (`countScope: loaded`, a floor), with no static warning. A pull request
+/// A REST list page with more pages has no total: the rows listed so far
+/// are not stated as one, with no static warning. A pull request
 /// list also offers one count call: the same filters searched (created since
 /// the epoch, every pull request), one row, whose `total` is the count.
 /// A commit list has none: commit search needs keywords.
 #[tokio::test]
-async fn a_rest_list_page_with_more_counts_rows_so_far_and_offers_a_count() {
+async fn a_rest_list_page_with_more_states_no_total_and_offers_a_count() {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -228,8 +228,9 @@ async fn a_rest_list_page_with_more_counts_rows_so_far_and_offers_a_count() {
         .await
         .expect("listing");
         assert_eq!(data["pagination"]["hasMore"], true, "{data}");
-        assert_eq!(data["pagination"]["total"], 1, "{data}");
-        assert_eq!(data["pagination"]["countScope"], "loaded", "{data}");
+        // The rows listed so far are no total of a list with more pages.
+        assert!(data["pagination"].get("total").is_none(), "{data}");
+        assert!(data["pagination"].get("countScope").is_none(), "{data}");
         assert!(data.get("warnings").is_none(), "{row}: {data}");
         if row["operation"] == "pullRequest" {
             let count = &crate::tools::test_support::checks::related_call(

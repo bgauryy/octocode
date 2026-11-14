@@ -295,7 +295,7 @@ async fn empty_index_pages_keep_the_collection_when_partial_normalization_answer
                 let retry = &out.data["next"]["retry"];
                 assert_eq!(retry["tool"], "ghSearchCode", "{retry}");
                 let prepared =
-                    crate::contracts::validate_built("ghSearchCode", retry["input"].clone())
+                    crate::contracts::validate_saved("ghSearchCode", retry["input"].clone())
                         .expect("executable retry");
                 let continued = &prepared["queries"][0];
                 for field in ["owner", "repo", "keywords", "fields"] {

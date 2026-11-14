@@ -35,6 +35,7 @@ type RunResult = Result<Result<ToolOutcome, RuntimeError>, ExecutionError>;
 #[derive(Clone, Copy)]
 pub(super) struct OutputSettings {
     pub(super) redact_emails: bool,
+    pub(super) redact_uuid: bool,
     pub(super) auto_page_chars: usize,
 }
 

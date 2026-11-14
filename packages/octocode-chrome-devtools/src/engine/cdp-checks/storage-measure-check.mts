@@ -4,7 +4,8 @@
  * Never prints cookie/token values.
  */
 import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Session } from '../cdp-connection.mjs';
 import { errorMessage } from '../error-message.mjs';
 
@@ -34,6 +35,8 @@ type StorageSnapshot = {
 };
 
 const FIXTURE_ORIGIN = 'https://storage.test/measure';
+/** Cookie rows printed inline; the artifact keeps every row and `measure-query` pages the rest. */
+const COOKIE_LINES = 10;
 const FIXTURE_HTML = `<!doctype html><html><body>storage-measure<script>
 try {
   localStorage.setItem('theme','dark');
@@ -265,10 +268,31 @@ export async function run(cdp: Session) {
   console.log(
     `[METRIC] STORAGE health=${payload.score.health ?? 'unavailable'} cookies=${cookieRows.length} local=${storage.localStorageKeys?.length ?? 0} session=${storage.sessionStorageKeys?.length ?? 0} idb=${storage.indexedDBDatabases?.length ?? 0} caches=${storage.cacheNames?.length ?? 0} sw=${storage.serviceWorkers?.length ?? 0}`
   );
-  for (const f of findings.slice(0, 8))
+  for (const f of findings)
     console.log(`[FINDING] STORAGE_${f.code} ${JSON.stringify(f)}`);
-  for (const row of cookieRows.slice(0, 10))
+  for (const row of cookieRows.slice(0, COOKIE_LINES))
     console.log(`[COOKIE_META] ${JSON.stringify(row)}`);
+  if (cookieRows.length > COOKIE_LINES) {
+    console.log(
+      `[COOKIE_META] ${COOKIE_LINES} of ${cookieRows.length} cookies shown; every row is in the artifact`
+    );
+    console.log(
+      `[NEXT] ${JSON.stringify({
+        command: process.execPath,
+        args: [
+          join(dirname(fileURLToPath(import.meta.url)), 'measure-query.mjs'),
+          '--dir',
+          cdp.outputDir,
+          '--view',
+          'cookies',
+          '--page',
+          '2',
+          '--limit',
+          String(COOKIE_LINES),
+        ],
+      })}`
+    );
+  }
   console.log(`[ARTIFACT] STORAGE_MEASURE ${artifact}`);
   for (const error of errors)
     console.log(`[FINDING] STORAGE_UNAVAILABLE ${JSON.stringify(error)}`);

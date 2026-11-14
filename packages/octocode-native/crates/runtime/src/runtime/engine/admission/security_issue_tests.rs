@@ -8,8 +8,8 @@ use super::*;
 /// its context, and plain state is untouched.
 #[test]
 fn clasify_text_is_judged_as_if_it_could_be_any_file() {
-    const VALUE: &str = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIz";
-    let manifest = format!("apiVersion: v1\nkind: Secret\ndata:\n  tls.crt: {VALUE}\n");
+    const VALUE: &str = "ghp_QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIz";
+    let manifest = format!("apiVersion: v1\nkind: Config\ndata:\n  token: {VALUE}\n");
     let security = crate::security::ContentSecurity::new();
     let policy = InputPolicy::ClasifyEvidence {
         content_limit: 32_000,
@@ -28,9 +28,8 @@ fn clasify_text_is_judged_as_if_it_could_be_any_file() {
             .expect("redacted in place");
         assert_eq!(state["content"], evidence, "{row}");
     }
-    // The caller's words holding a Secret's data hold what a read of them
-    // hides (D2, round 13: the manifest names itself in any text), so the
-    // screen refuses them with the prose repair.
+    // The caller's words holding a token hold what a read of them hides, so
+    // the screen refuses them with the prose repair.
     for (row, field) in [
         (
             json!({"content": "plain", "questions": {"q": {"type": "noul", "instructions": manifest}}}),
@@ -83,7 +82,7 @@ fn clasify_text_is_judged_as_if_it_could_be_any_file() {
 #[test]
 fn a_credential_in_the_callers_words_is_refused_in_every_clasify_field() {
     let token = format!("ghp_{}", "a1B2".repeat(9));
-    let password = "password: Tr0ub4dor&3xK9!zQ";
+    let password = "aws_secret_access_key = Tr0ub4dorXK9zQwTr0ub4dorXK9zQwTr0ub4dorX";
     let security = crate::security::ContentSecurity::new();
     let policy = InputPolicy::ClasifyEvidence {
         content_limit: 32_000,
@@ -119,7 +118,7 @@ fn a_credential_in_the_callers_words_is_refused_in_every_clasify_field() {
             .expect("evidence is redacted in place");
         let shown = state.to_string();
         assert!(
-            !shown.contains(&token) && !shown.contains("Tr0ub4dor"),
+            !shown.contains(&token) && !shown.contains("Tr0ub4dorXK9"),
             "{shown}"
         );
         assert!(shown.contains("[REDACTED"), "{shown}");
@@ -140,8 +139,8 @@ fn a_credential_in_the_callers_words_is_refused_in_every_clasify_field() {
     }
 }
 
-/// A key's armor line alone and a placeholder URL are no credentials, so
-/// they refuse no field, and the question that passed the gate is the
+/// A key's armor line alone and a URL with no password are no credentials,
+/// so they refuse no field, and the question that passed the gate is the
 /// question asked: the provider reads the caller's words as a GitHub search
 /// sends them, not a placeholder nobody asked about.
 #[test]
@@ -152,7 +151,7 @@ fn what_the_gate_clears_in_a_clasify_question_is_sent_as_asked() {
     };
     for asked in [
         "Does it contain -----BEGIN RSA PRIVATE KEY-----?",
-        "Is postgres://user:password@localhost:5432/db the default?",
+        "Is postgres://localhost:5432/db the default?",
     ] {
         let state = security
             .check_input(
@@ -220,7 +219,7 @@ fn clasify_words_the_gate_cleared_stay_as_written() {
     };
     for words in [
         "Does it contain -----BEGIN RSA PRIVATE KEY-----?",
-        "Does it connect to postgres://user:password@localhost:5432/db",
+        "Does it connect to postgres://localhost:5432/db",
         "Is password: str declared, or token: Token, or api_key: str = None?",
         "Is dispatchToken: string a field?",
     ] {

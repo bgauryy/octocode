@@ -154,12 +154,9 @@ async fn a_small_refs_limit_walk_lists_every_ref_once() {
     for _ in 0..=5 {
         let out = list(&server, row.clone()).await.expect("refs page");
         let data = &out.data;
-        let tags = data["tags"].as_array().cloned().unwrap_or_default();
+        let tags = tag_names(data);
         assert!(tags.len() <= 2, "{data}");
-        listed_tags.extend(
-            tags.iter()
-                .map(|tag| tag.as_str().unwrap_or_default().to_owned()),
-        );
+        listed_tags.extend(tags);
         if let Some(page) = data["branches"].as_array() {
             assert!(page.len() <= 2, "{data}");
             listed_branches.extend(

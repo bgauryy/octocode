@@ -59,7 +59,7 @@ impl ScanBudget {
             context.check()?;
             let wait = context
                 .budget
-                .effective_deadline()
+                .deadline
                 .saturating_duration_since(std::time::Instant::now())
                 .min(std::time::Duration::from_millis(10));
             #[cfg(test)]

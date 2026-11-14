@@ -15,10 +15,11 @@ fn a_stalled_download_fails_within_the_read_timeout() {
         .expect("runtime");
     // Built inside the runtime, as production builds it inside the async fetch.
     let (result, elapsed) = runtime.block_on(async {
-        let client = download_client(Duration::from_millis(200)).expect("client");
+        let url = format!("http://{addr}/");
+        let client = download_client(&url, Duration::from_millis(200)).expect("client");
         // Platform client setup is separate from a request's read timeout.
         let started = std::time::Instant::now();
-        let result = client.get(format!("http://{addr}/")).send().await;
+        let result = client.get(url).send().await;
         (result, started.elapsed())
     });
     let error = result.expect_err("a stalled peer must not hang the request");
@@ -27,6 +28,27 @@ fn a_stalled_download_fails_within_the_read_timeout() {
         "the stalled read must time out: {error}"
     );
     assert!(elapsed < Duration::from_secs(4), "request took {elapsed:?}");
+}
+
+/// A loopback release server (every test's) is reached directly, so no test
+/// runs the system proxy lookup; the release hosts keep the user's proxy.
+#[test]
+fn a_loopback_download_connects_directly() {
+    use octocode_io::http::Proxy;
+    for (url, proxy) in [
+        ("http://127.0.0.1:1/asset", Proxy::Direct),
+        ("http://localhost:8080/repos", Proxy::Direct),
+        (
+            "https://github.com/clangd/clangd/releases/download/x.zip",
+            Proxy::System,
+        ),
+        (
+            "https://api.github.com/repos/a/b/releases/tags/v1",
+            Proxy::System,
+        ),
+    ] {
+        assert_eq!(download_policy(url, READ_TIMEOUT).proxy, proxy, "{url}");
+    }
 }
 
 #[test]
@@ -49,13 +71,10 @@ fn a_download_error_never_echoes_a_signed_url() {
         .build()
         .expect("runtime");
     let message = runtime.block_on(async {
-        let client = download_client(Duration::from_millis(200)).expect("client");
         // Port 1 refuses the connection; the URL carries a signed token.
-        let error = client
-            .get("http://127.0.0.1:1/asset?X-Amz-Signature=SECRET-TOKEN")
-            .send()
-            .await
-            .expect_err("refused");
+        let url = "http://127.0.0.1:1/asset?X-Amz-Signature=SECRET-TOKEN";
+        let client = download_client(url, Duration::from_millis(200)).expect("client");
+        let error = client.get(url).send().await.expect_err("refused");
         download_error(error)
     });
     assert!(!message.contains("SECRET-TOKEN"), "{message}");
@@ -172,7 +191,7 @@ async fn the_allowlist_refuses_a_plain_http_first_hop() {
     let file = tokio::fs::File::create(dir.path().join("spool"))
         .await
         .expect("spool");
-    let error = super::download::fetch_allowlisted("http://github.com/asset", file)
+    let error = super::download::fetch_allowlisted("http://github.com/asset", file, u64::MAX)
         .await
         .expect_err("plain http");
     assert!(error.contains("github.com"), "{error}");

@@ -49,13 +49,25 @@ pub(crate) fn is_secondary_rate_limit(
     if !matches!(status, 403 | 429) {
         return false;
     }
-    if mentions_secondary_rate(body) || mentions_abuse_detection(body) {
+    if names_secondary_limit(body) {
         return true;
     }
     if status == 429 && remaining != Some(0) {
         return true;
     }
     status == 403 && retry_after.is_some() && remaining != Some(0)
+}
+
+/// The bucket a response's rate-limit headers describe: its
+/// `x-ratelimit-resource`, or `fallback` when that is missing or blank.
+pub(crate) fn rate_limit_resource(headers: &reqwest::header::HeaderMap, fallback: &str) -> String {
+    headers
+        .get("x-ratelimit-resource")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(fallback)
+        .to_owned()
 }
 
 #[cfg(test)]

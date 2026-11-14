@@ -3,7 +3,6 @@
 
 use super::*;
 use crate::tools::local_search::sources::Expected;
-use octocode_engine::security::WholeSourcePatterns;
 
 /// Security: a matchOnly span can select a fragment of a secret that no
 /// longer matches a secret pattern on its own. For each
@@ -13,9 +12,9 @@ use octocode_engine::security::WholeSourcePatterns;
 /// Private-key blocks are detected from the whole file prefix, streamed once
 /// without retaining it; only the shown matches' neighborhoods are kept.
 ///
-/// Fails closed: when the source cannot be re-read, no longer holds a shown
-/// line, or its neighborhood exceeds the retained-byte budget, the value is
-/// replaced by a placeholder and the result is `Unverified`. With `expected`
+/// Fails closed: when the source cannot be re-read or no longer holds a shown
+/// line, the value is replaced by a placeholder and the result is
+/// `Unverified`. With `expected`
 /// (values from a stored scan), the whole source is hashed while it is read;
 /// bytes that differ from the stored digest, or a missing digest, return
 /// `Changed` and the values must not be shown. Cancellation stops the read
@@ -54,6 +53,9 @@ pub(in crate::tools::local_search) struct ValueCheck<'a, C> {
     /// The stored scan's judged windows, reused for a source whose read
     /// proved the stored digest (`None`: judge every window afresh).
     pub(in crate::tools::local_search) judged: Option<&'a settle::JudgedWindows>,
+    /// Where the check notes each shown row whose value shows text the
+    /// redaction wrote.
+    pub(in crate::tools::local_search) hidden: &'a HiddenRows,
 }
 
 /// What a shown row's value holds of its source.
@@ -92,6 +94,7 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
         shape,
         cancel,
         judged: known,
+        hidden,
     } = *check;
     if expected == Expected::Stored(None) {
         return Ok(Verification::Changed);
@@ -113,9 +116,9 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
             (first.saturating_sub(span).max(1), first + 2 * span - 1)
         })
         .collect::<Vec<_>>();
-    let Some(last_line) = windows.iter().map(|&(_, hi)| hi).max() else {
+    if windows.is_empty() {
         return Ok(Verification::Verified);
-    };
+    }
     // A source an earlier page of this walk judged whole is not read for a
     // scan again: its bytes are proved to be the ones judged, and each row is
     // cut from that judgment.
@@ -138,8 +141,8 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
                     shown,
                     &placed,
                     shape,
-                    &settle::WholeScan::Judged(verdict),
-                    usize::MAX,
+                    &verdict,
+                    (usize::MAX, hidden),
                     security,
                 ))
             }
@@ -159,74 +162,31 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
     if let Some((digest, kept)) = kept_whole(&open, source, security, cancel) {
         return Ok(kept.settle(shown, &placed, check, (expected, digest), source));
     }
-    // Every source is read whole: a row's lines alone hold nothing of the
-    // key that names a value on another line a secret, nor of the syntax
-    // that makes a line code, so only the whole source judges them.
-    let across = Some(
-        WholeSourcePatterns::any_file()
-            .and(WholeSourcePatterns::for_path(&source.to_string_lossy())),
-    );
-    let pass = |across| {
-        open().map_err(VerifyReadError::from).and_then(|opened| {
-            // Hashed for a fresh scan too: its judgment is kept under the
-            // digest, for the stored scan's later pages.
-            let mut reader = std::io::BufReader::new(HashingReader {
-                inner: opened,
-                hasher: Some(octocode_engine::digest::HashWriter::default()),
-            });
-            let read = match decoded::byte_order(&mut reader)? {
-                Some(order) => {
-                    let mut text =
-                        std::io::BufReader::new(decoded::Utf16Text::new(&mut reader, order));
-                    read_verification_lines(&mut text, &windows, last_line, across, cancel)?
-                }
-                None => read_verification_lines(&mut reader, &windows, last_line, across, cancel)?,
-            };
-            let digest = drain_digest(reader, cancel)?;
-            Ok((read, digest))
-        })
-    };
-    let read = pass(across).and_then(|(mut read, digest)| {
-        // A source held whole is judged whole. One too large to hold is
-        // judged whole only where a line names a pattern its windows cannot
-        // show; its other rows are judged in their windows.
-        if read.whole_retained {
-            read.source_wide = true;
-        }
-        if read.source_wide {
-            return Ok((read, digest));
-        }
-        read.source_wide = read
-            .retained
-            .values()
-            .any(|line| WholeSourcePatterns::shown_by(line).is_some())
-            && decoded::names_an_object(std::io::BufReader::new(open()?), cancel)?;
+    // Every source is read whole and judged as a read of it is; one with a
+    // line too long to hold is judged in its rows' windows.
+    let read = open().map_err(VerifyReadError::from).and_then(|opened| {
+        // Hashed for a fresh scan too: its judgment is kept under the
+        // digest, for the stored scan's later pages.
+        let mut reader = std::io::BufReader::new(HashingReader {
+            inner: opened,
+            hasher: Some(octocode_engine::digest::HashWriter::default()),
+        });
+        let read = match decoded::byte_order(&mut reader)? {
+            Some(order) => {
+                let mut text = std::io::BufReader::new(decoded::Utf16Text::new(&mut reader, order));
+                read_verification_lines(&mut text, &windows, usize::MAX, true, cancel)?
+            }
+            None => read_verification_lines(&mut reader, &windows, usize::MAX, true, cancel)?,
+        };
+        let digest = drain_digest(reader, cancel)?;
         Ok((read, digest))
     });
-    let judged = read.and_then(|(read, digest)| {
-        // A source too large to scan whole fails closed only where its windows
-        // cannot decide; a key block's own rows are settled by its ranges below.
-        let scan = (read.source_wide || !read.key_ranges.is_empty())
-            .then(|| settle::whole_source_scan(&read, source, security, known.zip(digest)));
-        let none = std::collections::BTreeMap::new();
-        let held = matches!(scan, Some(settle::WholeScan::Judged(_)));
-        if read.unclassified || !read.source_wide || held {
-            return Ok((read, digest, scan, none));
-        }
-        // What its structure says then decides each row. Only when that outruns the
-        // memory budget do its rows stay withheld.
-        let walked = exposed::walked_pass(&open, expected, &windows, last_line, source, cancel)?;
-        Ok(match walked {
-            Some(walked) => (walked.read, walked.digest, None, walked.masked),
-            None => (read, digest, None, none),
-        })
-    });
-    let (read, proven, scan, masked) = match judged {
-        Ok((_, Some(digest), ..)) if matches!(expected, Expected::Stored(stored) if stored != Some(digest)) =>
+    let (read, proven) = match read {
+        Ok((_, Some(digest))) if matches!(expected, Expected::Stored(stored) if stored != Some(digest)) =>
         {
             return Ok(Verification::Changed);
         }
-        Ok((read, proven, scan, masked)) if !read.unclassified => (read, proven, scan, masked),
+        Ok((read, proven)) if !read.unclassified => (read, proven),
         Ok(_) | Err(VerifyReadError::Io) => {
             for matched in shown.iter_mut() {
                 matched.value = UNVERIFIED_PLACEHOLDER.to_owned();
@@ -235,25 +195,18 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
         }
         Err(VerifyReadError::Cancelled(reason)) => return Err(reason),
     };
-    let whole = match scan {
-        Some(settle::WholeScan::Judged(verdict)) => Some(settle::WholeScan::Judged(verdict)),
-        _ if read.source_wide => Some(settle::WholeScan::Unheld),
-        _ => None,
-    };
-    if let (Some(settle::WholeScan::Judged(verdict)), Some(digest)) = (&whole, proven) {
+    let whole = settle::whole_source_scan(&read, source, security, known.zip(proven));
+    if let (Some(verdict), Some(digest)) = (&whole, proven) {
         keep_whole(verdict, read.lines_read, &digest, source, security);
     }
     Ok(settle::settle_rows(
         shown,
         &windows,
-        &settle::Judged {
-            read: &read,
-            whole,
-            masked: &masked,
-        },
+        &settle::Judged { read: &read, whole },
         source,
         security,
         (&placed, shape, known.zip(proven)),
+        hidden,
     ))
 }
 
@@ -281,13 +234,12 @@ impl KeptWhole {
             return Verification::Changed;
         }
         check.security.note_judged_whole(source);
-        let whole = settle::WholeScan::Judged(self.verdict);
         settle::settle_judged(
             shown,
             placed,
             check.shape,
-            &whole,
-            self.lines,
+            &self.verdict,
+            (self.lines, check.hidden),
             check.security,
         )
     }
@@ -442,14 +394,11 @@ pub(in crate::tools::local_search) const UNVERIFIED_PLACEHOLDER: &str =
 pub(in crate::tools::local_search) const UNPLACED_PLACEHOLDER: &str =
     "[REDACTED: row window disagrees with its source]";
 
-/// Value shown in place of a match whose source neighborhood exceeds
-/// [`MAX_VERIFY_RETAINED_BYTES`].
+/// Value shown in place of a match of a source too large to hold whole whose
+/// streamed read could not serve its lines (the memory budget refused the
+/// redactions it must hold).
 pub(in crate::tools::local_search) const OVERSIZED_PLACEHOLDER: &str =
     "[REDACTED: source lines too large for secret check]";
-
-/// Source bytes one file's verification may retain for the shown matches'
-/// neighborhoods; the rest of the prefix is streamed for key-block state only.
-pub(in crate::tools::local_search) const MAX_VERIFY_RETAINED_BYTES: usize = 16 * 1024 * 1024;
 
 /// Bytes of a line outside every neighborhood buffered to classify it; a
 /// longer line is consumed in chunks without being stored.

@@ -1,8 +1,7 @@
 //! A hit on one very long line: what a row shows of it. The line is judged whole, so
 //! no value sits across an edge; the row keeps a window around the hit, with only
 //! a secret's own bytes hidden.
-use super::long_text::{Judged, secret_spans, secret_spans_within};
-use super::{Scope, replacement_for};
+use super::{SecretSpan, secret_spans};
 use std::ops::Range;
 
 /// A line past this shows a window around its hit in a row: below it a row holds the
@@ -14,38 +13,16 @@ const WINDOW_SIDE_BYTES: usize = 8 * 1024;
 
 /// One long line's secrets, judged once for all the rows it gives.
 pub struct LongLine {
-    spans: Vec<(Range<usize>, usize)>,
-    every_value: bool,
+    spans: Vec<SecretSpan>,
 }
 
 impl LongLine {
-    /// The secrets of `text`, the line of the file at `path` (`None`: no known file).
+    /// The secrets of `text`, one line.
     #[must_use]
-    pub fn judged(text: &str, path: Option<&str>) -> Self {
-        let scope = path.map_or(Scope::Pathless, Scope::File);
-        Self::of(secret_spans(text, scope))
-    }
-
-    /// [`Self::judged`] with a document walk held to `budget` bytes.
-    #[must_use]
-    pub fn judged_within(text: &str, path: Option<&str>, budget: usize) -> Self {
-        let scope = path.map_or(Scope::Pathless, Scope::File);
-        Self::of(secret_spans_within(text, scope, budget))
-    }
-
-    fn of(judged: Judged) -> Self {
+    pub fn judged(text: &str) -> Self {
         Self {
-            spans: judged.spans,
-            every_value: judged.every_value,
+            spans: secret_spans(text),
         }
-    }
-
-    /// Whether the line names a Kubernetes Secret or a JSON Web Key whose walk
-    /// outgrew the memory budget, so a row hides every value it shows of it,
-    /// secret or not.
-    #[must_use]
-    pub fn every_value(&self) -> bool {
-        self.every_value
     }
 
     /// `text[hit]` as a row shows it, each secret's part of it replaced by its
@@ -83,17 +60,17 @@ impl LongLine {
     fn with_placeholders(&self, text: &str, shown: Range<usize>) -> String {
         let first = self
             .spans
-            .partition_point(|(range, _)| range.end <= shown.start);
+            .partition_point(|span| span.range.end <= shown.start);
         let mut out = String::with_capacity(shown.len());
         let mut from = shown.start;
-        for (range, idx) in self.spans[first..]
+        for span in self.spans[first..]
             .iter()
-            .take_while(|(range, _)| range.start < shown.end)
+            .take_while(|span| span.range.start < shown.end)
         {
-            let start = range.start.max(from);
+            let start = span.range.start.max(from);
             out.push_str(&text[from..start]);
-            out.push_str(replacement_for(*idx));
-            from = range.end.min(shown.end);
+            out.push_str(span.placeholder());
+            from = span.range.end.min(shown.end);
         }
         out.push_str(&text[from..shown.end]);
         out

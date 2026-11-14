@@ -15,7 +15,8 @@ pub(super) struct DiffLine<'a> {
 
 /// One `@@ -a,b +c,d @@ heading` hunk.
 pub(super) struct Hunk<'a> {
-    pub(super) heading: &'a str,
+    /// Its header line as the diff has it, line ending included.
+    pub(super) header: &'a str,
     pub(super) old_start: usize,
     pub(super) new_start: usize,
     pub(super) lines: Vec<DiffLine<'a>>,
@@ -49,15 +50,11 @@ pub(super) fn parse_hunks(patch: &str) -> Vec<Hunk<'_>> {
     let mut hunks: Vec<Hunk<'_>> = Vec::new();
     let (mut old, mut new) = (0usize, 0usize);
     for text in patch.split_inclusive('\n') {
-        if let Some(rest) = text.strip_prefix("@@ -") {
+        if text.starts_with("@@ -") {
             old = hunk_side(text, '-').map_or(0, |(start, _)| start);
             new = hunk_side(text, '+').map_or(0, |(start, _)| start);
-            let heading = rest
-                .split_once(" @@")
-                .map_or("", |(_, heading)| heading)
-                .trim_end_matches(['\r', '\n']);
             hunks.push(Hunk {
-                heading,
+                header: text,
                 old_start: old,
                 new_start: new,
                 lines: Vec::new(),

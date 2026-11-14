@@ -19,8 +19,7 @@ pub(super) use commands::{LspServerCommand, run};
 pub use download::host_allowed;
 pub use install::uninstall_server;
 use install::{
-    MAX_DOWNLOAD_BYTES, MAX_EXTRACTED_BYTES, SPOOL_SUFFIX, Spool, sweep_interrupted_installs,
-    verify_and_install,
+    MAX_EXTRACTED_BYTES, SPOOL_SUFFIX, Spool, sweep_interrupted_installs, verify_and_install,
 };
 use octocode_engine::lsp::managed::{
     AssetIdentity, ManifestAsset, ManifestServer, cached_server_bin_path, manifest_server,
@@ -200,7 +199,9 @@ async fn provision_entry(
         Ok(file) => tokio::fs::File::from_std(file),
         Err(e) => return ProvisionOutcome::fail(format!("Cannot create the download file: {e}")),
     };
-    match upstream.download(&lock.url, file).await {
+    // The lock's exact size bounds the transfer: a mis-redirected page or a
+    // hostile asset stops there, before its checksum is computed.
+    match upstream.download(&lock.url, file, lock.size).await {
         // Flushing waits for the last write in flight before the file is read.
         Ok(mut file) => {
             if let Err(e) = tokio::io::AsyncWriteExt::flush(&mut file).await {

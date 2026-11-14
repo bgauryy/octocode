@@ -89,42 +89,63 @@ async fn exact(
     let (mut artifact, version) = manifest_row(name, row, registry)?;
     // An older manifest has no upload record to date it: npm keeps every
     // version's publish time in the full packument. A packument that cannot
-    // be read leaves the date unknown, and the row says so.
-    if artifact.published_at.is_none() {
-        match packument_published_at(&encoded, &version, registry, client, dns_pin.clone()).await {
-            Ok(date) => artifact.published_at = date,
-            Err(error) if error.code == ErrorCode::Cancelled => return Err(error),
-            Err(error) => note_unread(
+    // be read leaves the date unknown, and the row says so. The date and the
+    // attestation are separate registry reads: they run together.
+    let undated = artifact.published_at.is_none();
+    let (dated, attested) = tokio::join!(
+        async {
+            match undated {
+                true => Some(
+                    packument_published_at(&encoded, &version, registry, client, dns_pin.clone())
+                        .await,
+                ),
+                false => None,
+            }
+        },
+        attested_commit(&artifact, &version, row, registry, client, dns_pin.clone()),
+    );
+    match dated {
+        Some(Ok(date)) => artifact.published_at = date,
+        Some(Err(error)) if error.code == ErrorCode::Cancelled => return Err(error),
+        Some(Err(error)) => note_unread(
+            &mut artifact,
+            &version,
+            "publish date unread, the full packument could not be read",
+            &error,
+            "publishedAt is unknown, not absent",
+        ),
+        None => {}
+    }
+    let attested = match attested {
+        Ok(attested) => attested,
+        Err(error) if error.code == ErrorCode::Cancelled => return Err(error),
+        Err(error) => {
+            note_unread(
                 &mut artifact,
                 &version,
-                "publish date unread, the full packument could not be read",
+                "provenance unchecked, the attestation bundle could not be read",
                 &error,
-                "publishedAt is unknown, not absent",
-            ),
+                "the source ref is not attested",
+            );
+            None
         }
-    }
-    let attested =
-        match attested_commit(&artifact, &version, row, registry, client, dns_pin.clone()).await {
-            Ok(attested) => attested,
-            Err(error) if error.code == ErrorCode::Cancelled => return Err(error),
-            Err(error) => {
-                note_unread(
-                    &mut artifact,
-                    &version,
-                    "provenance unchecked, the attestation bundle could not be read",
-                    &error,
-                    "the source ref is not attested",
-                );
-                None
-            }
-        };
+    };
+    let package = artifact.package_name.clone();
+    // The release tag a recorded commit is checked against, looked up beside
+    // the check that the commit exists: neither waits for the other.
+    let mut searched = None;
     if let Some(attested) = attested {
         artifact.source_ref = Some(attested);
         artifact.source_attested = true;
     } else if let (Some(repository), Some(head)) =
         (artifact.repository.clone(), artifact.source_ref.clone())
     {
-        match super::release_ref::commit_check(&repository, &head, client).await {
+        let (check, search) = tokio::join!(
+            super::release_ref::commit_check(&repository, &head, client),
+            super::release_ref::release_tag_search(&artifact, &package, &version, client),
+        );
+        searched = search;
+        match check {
             Ok(check) => {
                 if check == super::release_ref::CommitCheck::Missing {
                     // A `gitHead` GitHub does not have pins no lead: the default
@@ -143,7 +164,6 @@ async fn exact(
     // Without an attested or recorded commit, the upstream release tag pins
     // the source, as for every registry that names no commit; a recorded
     // commit is checked against that tag.
-    let package = artifact.package_name.clone();
     super::release_ref::pin_release_tag(&mut artifact, &package, &version, None, client).await;
     // Both checks that can find the repository gone (the recorded commit's
     // above, the release-tag path's check of `HEAD`) have run: a gone
@@ -157,14 +177,24 @@ async fn exact(
         && !artifact.source_tag
         && let Some(commit) = artifact.source_ref.clone()
     {
-        super::release_ref::check_commit_against_tag(
-            &mut artifact,
-            &package,
-            &version,
-            &commit,
-            client,
-        )
-        .await;
+        match &searched {
+            Some(search) => super::release_ref::settle_commit_against_tag(
+                &mut artifact,
+                &version,
+                &commit,
+                search,
+            ),
+            None => {
+                super::release_ref::check_commit_against_tag(
+                    &mut artifact,
+                    &package,
+                    &version,
+                    &commit,
+                    client,
+                )
+                .await;
+            }
+        }
     }
     artifact.version = Some(version);
     Ok(ArtifactProviderPage {
@@ -445,6 +475,9 @@ fn published_versions(view: &Value) -> (Vec<String>, Option<String>) {
     (versions, string(view.get("latest")))
 }
 
+/// What a peer `peerDependenciesMeta` marks optional ends with.
+pub(super) const OPTIONAL_PEER: &str = " (optional)";
+
 /// Release facts the version manifest already carries.
 fn release_facts(artifact: &mut ArtifactItem, row: &serde_json::Map<String, Value>) {
     // A manifest without `dependencies` declares none. npm also lists each
@@ -469,8 +502,28 @@ fn release_facts(artifact: &mut ArtifactItem, row: &serde_json::Map<String, Valu
         .map(|optional| optional.iter().map(entry).collect::<Vec<_>>())
         .filter(|optional| !optional.is_empty());
     // Peers are rare: a version that declares none shows no list (its
-    // `dependencies` list already says the manifest was read).
-    let peers = declared("peerDependencies");
+    // `dependencies` list already says the manifest was read). A peer that
+    // `peerDependenciesMeta` marks optional says so.
+    let meta = row.get("peerDependenciesMeta").and_then(Value::as_object);
+    let optional_peer = |name: &str| {
+        meta.and_then(|meta| meta.get(name))
+            .and_then(|entry| entry.get("optional"))
+            .and_then(Value::as_bool)
+            == Some(true)
+    };
+    let peers = row
+        .get("peerDependencies")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .map(|(name, range)| {
+            let mut peer = entry((name, range));
+            if optional_peer(name) {
+                peer.push_str(OPTIONAL_PEER);
+            }
+            peer
+        })
+        .collect::<Vec<_>>();
     artifact.peer_dependencies = (!peers.is_empty()).then_some(peers);
     artifact.deprecated = string(row.get("deprecated"));
     artifact.engines = row

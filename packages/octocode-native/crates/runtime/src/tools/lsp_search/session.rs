@@ -232,12 +232,15 @@ async fn open_leased(
     } = leased;
     let advertises = |capability: &str| client.has_capability(capability.to_owned());
     // A readiness timeout means the live server announced progress and is
-    // still indexing. Do not sync or query it yet: return the established
-    // incomplete row, naming the server, with an optional same-query
-    // reattempt instead.
-    if client.readiness() == Some(Readiness::Timeout) {
+    // still indexing: the call waits it out while the server works, within
+    // the caller's deadline. A load still under way then is not queried: the
+    // row says how long the call waited and offers the same query again, on
+    // the server the pool keeps loading.
+    if cancellable(cancel, client.finish_load(client.load_deadline())).await?
+        == Some(Readiness::Timeout)
+    {
         return Err(receipt::naming(
-            Exit::Row(failure::still_indexing(query)),
+            Exit::Row(failure::still_indexing(query, began.elapsed())),
             receipt::server_receipt(&config, false),
         ));
     }

@@ -4,9 +4,23 @@ import { z, ZodError, type ZodType } from 'zod';
 import { flagsFromJsonSchema, objectProperties } from './json-schema-flags.js';
 import { notesOf } from './flag-names.js';
 import { isRecord } from './json-schema.js';
-import { flagsFromZod, zodRootIsObject } from './zod-flags.js';
 
 const RESERVED_COMMANDS = new Set(['help', 'version']);
+const zodInputSchemas = new WeakMap<ZodType, JsonSchema>();
+
+/**
+ * The input JSON Schema a Zod command's flags are read from. A type JSON Schema cannot
+ * express (a date, a custom check) becomes `{}`, so its property is one partial JSON flag
+ * and Zod still validates it.
+ */
+function zodInputSchema(schema: ZodType): JsonSchema {
+  let json = zodInputSchemas.get(schema);
+  if (!json) {
+    json = z.toJSONSchema(schema, { io: 'input', unrepresentable: 'any' }) as JsonSchema;
+    zodInputSchemas.set(schema, json);
+  }
+  return json;
+}
 const COMMAND_WORD = /^[A-Za-z0-9_.][A-Za-z0-9_.-]*$/;
 
 export type FlagKind =
@@ -108,9 +122,7 @@ export function defineCommand(input: DefineCommandInput): CliCommand {
   if (source === 'mcp' && !input.inputSchema) {
     throw new Error(`MCP command ${input.name} requires inputSchema`);
   }
-  const built = source === 'zod'
-    ? flagsFromZod(input.schema as ZodType)
-    : flagsFromJsonSchema(input.inputSchema as JsonSchema);
+  const built = flagsFromJsonSchema(source === 'zod' ? zodInputSchema(input.schema as ZodType) : input.inputSchema as JsonSchema);
   return {
     name: input.name,
     description: input.description,
@@ -183,7 +195,7 @@ export function parseCommandInput(
     }
   }
   if (command.source === 'zod' && command.schema) {
-    const payload = zodRootIsObject(command.schema) ? value : value.input;
+    const payload = objectProperties(zodInputSchema(command.schema)) !== undefined ? value : value.input;
     try {
       const parsed = command.schema.parse(payload);
       if (isRecord(parsed)) return parsed;

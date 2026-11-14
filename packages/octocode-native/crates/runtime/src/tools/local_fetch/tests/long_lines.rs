@@ -473,3 +473,35 @@ fn a_selection_ending_on_a_long_line_ends_its_walk() {
         }
     }
 }
+
+/// A page of several match windows of one long line states what it shows:
+/// its `length` is the source bytes of its windows (not the span from its
+/// first window to its last, which later pages show), and `returnedLines`
+/// counts the one source line, not the gap markers between its windows.
+#[test]
+fn a_page_of_match_windows_states_the_bytes_and_lines_it_shows() {
+    let fixture = Fixture::new();
+    let filler = positional(300_000);
+    let line = format!(
+        "{}NEEDLE{}NEEDLE{}NEEDLE{}",
+        &filler[..50_000],
+        &filler[50_000..150_000],
+        &filler[150_000..250_000],
+        &filler[250_000..]
+    );
+    let path = fixture.write("bundle.min.js", &line);
+    let paths = Paths(fixture.0.clone());
+    let read = fetch(
+        &qj(&path, serde_json::json!({"matchString":["NEEDLE"]})),
+        &paths,
+    );
+    assert_eq!(read.status, ReadStatus::Success, "{read:?}");
+    let page = read.pagination.clone().expect("pagination");
+    let text = read.content.as_deref().expect("content");
+    let pieces = crate::tools::source_view::pagination::placed_pieces(page.offset, text);
+    assert!(pieces.len() > 1, "one page shows several windows: {text}");
+    let shown: usize = pieces.iter().map(|(_, piece)| piece.len()).sum();
+    assert_eq!(page.length, shown, "{page:?}");
+    assert_eq!(read.returned_lines, Some(1), "{read:?}");
+    assert!(page.has_more, "the rest of the line follows: {page:?}");
+}

@@ -220,6 +220,8 @@ pub(super) struct Keeping<'a> {
     pub(super) available: usize,
     pub(super) lines: &'a [Option<rows::Lines>],
     pub(super) order: &'a [usize],
+    /// What the rows the walk ranked total, the windows' before it included.
+    pub(super) tally: rows::Tally,
     pub(super) test_code: Option<&'a TestCodeLeft>,
 }
 
@@ -286,6 +288,7 @@ pub(super) fn keep_window<Q: Listing>(
             lines: keeping.lines,
             order: keeping.order,
             ranked: keeping.available,
+            tally: keeping.tally,
             digest,
             window_end: start.window_end,
             names_only: keeping.names_only,

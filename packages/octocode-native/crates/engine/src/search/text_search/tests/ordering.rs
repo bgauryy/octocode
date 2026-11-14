@@ -34,7 +34,6 @@ fn sorting_an_unordered_record_set_is_deterministic() {
             covered: 0,
             source: None,
             not_utf8: false,
-            every_value: false,
             utf8_bom: false,
             term_counts: Vec::new(),
         }

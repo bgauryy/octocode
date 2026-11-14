@@ -6,12 +6,15 @@
 //! `diagnostics.add(`, a `"hints"` key, `let hint = …`, a classification
 //! error's hint), a `*_HINT`/`*_TIP`/`*_NOTE`/`*_NOTICE` constant, or the
 //! body of a function named for a hint, tip, note, notice or disclosure.
-//! Test files, `test_support` and `#[cfg(test)]` modules are skipped. A literal without a
-//! space (a key, a code, a lead name), or with fewer than two letters (a
-//! separator), is not prose.
+//! Test files, `test_support` and test-only items
+//! ([`production_text`]) are skipped. A literal without a space (a key, a
+//! code, a lead name), or with fewer than two letters (a separator), is not
+//! prose.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+
+use crate::tools::test_support::production_text;
 
 /// One emitted template: where it is written and its text.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -237,52 +240,6 @@ fn literal_spans(src: &str, literals: &[Literal]) -> Vec<usize> {
     jump
 }
 
-/// `#[cfg(test)]` module bodies.
-fn test_modules(src: &str, skip: &[usize]) -> Vec<(usize, usize)> {
-    let mut out = Vec::new();
-    let mut at = 0;
-    while let Some(found) = src[at..].find("#[cfg(test)]") {
-        let start = at + found;
-        let rest = src[start + 12..].trim_start();
-        let item = start + 12 + (src[start + 12..].len() - rest.len());
-        if rest.starts_with("mod ")
-            && src[item..]
-                .find('{')
-                .is_some_and(|b| !src[item..item + b].contains(';'))
-        {
-            out.push((start, block_end(src, item, skip)));
-        }
-        at = start + 12;
-    }
-    out
-}
-
-/// Whether the function declared at `at` is a test (`#[test]`,
-/// `#[tokio::test]`, `#[tokio::test(flavor = …)]`, `#[cfg(test)]` among the
-/// attributes above it): its literals are expectations, never emitted prose,
-/// whatever it is named. `#[cfg(not(test))]` is production code.
-fn is_test_fn(src: &str, at: usize) -> bool {
-    let line_start = src[..at].rfind('\n').map_or(0, |n| n + 1);
-    src[..line_start]
-        .lines()
-        .rev()
-        .map(str::trim)
-        .take_while(|line| line.starts_with("#[") || line.starts_with("//"))
-        .filter_map(|line| line.strip_prefix("#[")?.strip_suffix(']'))
-        .any(is_test_attribute)
-}
-
-/// Whether an attribute's content (inside `#[…]`) marks a test: a path
-/// ending in `test`, or `cfg(test)`.
-fn is_test_attribute(attribute: &str) -> bool {
-    let attribute = attribute.trim();
-    let path = attribute
-        .split_once('(')
-        .map_or(attribute, |(path, _)| path)
-        .trim();
-    path.rsplit("::").next() == Some("test") || attribute.replace(' ', "") == "cfg(test)"
-}
-
 /// Spans of `src` whose literals are hint or notice prose.
 fn hint_spans(src: &str, skip: &[usize]) -> Vec<(usize, usize)> {
     let mut spans = Vec::new();
@@ -324,7 +281,6 @@ fn hint_spans(src: &str, skip: &[usize]) -> Vec<(usize, usize)> {
         if FN_MARKS
             .iter()
             .any(|mark| name.split('_').any(|part| part.starts_with(mark)))
-            && !is_test_fn(src, at)
         {
             spans.push((at, block_end(src, at, skip)));
         }
@@ -332,42 +288,53 @@ fn hint_spans(src: &str, skip: &[usize]) -> Vec<(usize, usize)> {
     spans
 }
 
-/// Every hint or notice template under `src_root`, file paths relative to it.
-pub(super) fn templates(src_root: &Path) -> BTreeSet<Template> {
+/// The production source files under `src_root`, each with its path
+/// relative to it and its [`production_text`].
+fn production_files(src_root: &Path) -> Vec<(String, String)> {
     let mut files = Vec::new();
     source_files(src_root, &mut files);
-    let mut out = BTreeSet::new();
-    for path in files {
-        let src = std::fs::read_to_string(&path).expect("read source");
-        let literals = literals(&src);
-        let skip = literal_spans(&src, &literals);
-        let tests = test_modules(&src, &skip);
-        let spans = hint_spans(&src, &skip);
-        let file = path
-            .strip_prefix(src_root)
-            .expect("under src")
-            .to_string_lossy()
-            .replace('\\', "/");
-        for literal in &literals {
-            let inside = |spans: &[(usize, usize)]| {
-                spans
-                    .iter()
-                    .any(|(a, b)| literal.start >= *a && literal.start < *b)
-            };
-            if inside(&tests) || !inside(&spans) || !literal.text.contains(' ') {
-                continue;
-            }
-            // A separator (`", "`, `"; "`) or a bare slot is no wording.
-            if literal.text.chars().filter(|c| c.is_alphabetic()).count() < 2 {
-                continue;
-            }
-            out.insert(Template {
-                file: file.clone(),
-                text: literal.text.clone(),
-            });
-        }
-    }
-    out
+    files
+        .into_iter()
+        .map(|path| {
+            let file = path
+                .strip_prefix(src_root)
+                .expect("under src")
+                .to_string_lossy()
+                .replace('\\', "/");
+            let src = std::fs::read_to_string(&path).expect("read source");
+            (file, production_text(&src))
+        })
+        .collect()
+}
+
+/// Every hint or notice template under `src_root`, file paths relative to it.
+pub(super) fn templates(src_root: &Path) -> BTreeSet<Template> {
+    production_files(src_root)
+        .iter()
+        .flat_map(|(file, src)| file_templates(file, src))
+        .collect()
+}
+
+/// The hint or notice templates of one file's production text.
+fn file_templates(file: &str, src: &str) -> Vec<Template> {
+    let literals = literals(src);
+    let skip = literal_spans(src, &literals);
+    let spans = hint_spans(src, &skip);
+    literals
+        .iter()
+        .filter(|literal| {
+            spans
+                .iter()
+                .any(|(a, b)| literal.start >= *a && literal.start < *b)
+        })
+        .filter(|literal| literal.text.contains(' '))
+        // A separator (`", "`, `"; "`) or a bare slot is no wording.
+        .filter(|literal| literal.text.chars().filter(|c| c.is_alphabetic()).count() >= 2)
+        .map(|literal| Template {
+            file: file.to_owned(),
+            text: literal.text.clone(),
+        })
+        .collect()
 }
 
 /// A wire field only its owner writes, and how a writer builds it raw.
@@ -398,29 +365,14 @@ fn is_written(src: &str, start: usize, end: usize) -> bool {
 /// Every raw write of `hints`, `isPartial` or `"kind":"continue"` in the
 /// production source under `src_root` outside `response/`.
 pub(super) fn raw_writes(src_root: &Path) -> BTreeSet<RawWrite> {
-    let mut files = Vec::new();
-    source_files(src_root, &mut files);
     let mut out = BTreeSet::new();
-    for path in files {
-        let file = path
-            .strip_prefix(src_root)
-            .expect("under src")
-            .to_string_lossy()
-            .replace('\\', "/");
+    for (file, src) in production_files(src_root) {
         if file.starts_with("response/") {
             continue;
         }
-        let src = std::fs::read_to_string(&path).expect("read source");
         let literals = literals(&src);
         let skip = literal_spans(&src, &literals);
-        let tests = test_modules(&src, &skip);
         for literal in &literals {
-            if tests
-                .iter()
-                .any(|(a, b)| literal.start >= *a && literal.start < *b)
-            {
-                continue;
-            }
             let end = skip[literal.start];
             if let Some(field) = OWNED_FIELDS.iter().find(|f| **f == literal.text)
                 && is_written(&src, literal.start, end)
@@ -447,51 +399,62 @@ pub(super) fn raw_writes(src_root: &Path) -> BTreeSet<RawWrite> {
     out
 }
 
-/// The raw-write registry rows: `file<TAB>field<TAB>reason`.
-pub(super) fn raw_registry(text: &str) -> BTreeMap<RawWrite, String> {
-    text.lines()
-        .filter(|line| !line.is_empty() && !line.starts_with('#'))
-        .map(|line| {
-            let mut cells = line.splitn(3, '\t');
-            let file = cells.next().expect("file").to_owned();
-            let field = cells.next().expect("field");
-            let reason = cells.next().expect("reason").to_owned();
-            let field = OWNED_FIELDS
-                .iter()
-                .chain(&["kind:continue"])
-                .find(|f| **f == field)
-                .unwrap_or_else(|| panic!("{field} is not an owned field"));
-            (RawWrite { file, field }, reason)
-        })
-        .collect()
-}
-
-/// The registry rows: `owner<TAB>file<TAB>template` (template escapes `\n`).
-pub(super) fn registry(text: &str) -> BTreeMap<Template, String> {
-    text.lines()
-        .filter(|line| !line.is_empty() && !line.starts_with('#'))
-        .map(|line| {
-            let mut cells = line.splitn(3, '\t');
-            let owner = cells.next().expect("owner").to_owned();
-            let file = cells.next().expect("file").to_owned();
-            let text = cells.next().expect("template").replace("\\n", "\n");
-            (Template { file, text }, owner)
-        })
-        .collect()
-}
-
+/// Each emission form the scan reads hint prose from yields its literal;
+/// the same literal in test-only code, outside an emission, or without
+/// wording yields none.
 #[test]
-fn only_test_attributes_exempt_a_function() {
-    let at = |src: &str| is_test_fn(src, src.find("fn ").expect("a function"));
-    for attribute in [
-        "#[test]",
-        "#[tokio::test]",
-        "#[tokio::test(flavor = \"multi_thread\")]",
-        "#[cfg(test)]",
-    ] {
-        assert!(at(&format!("{attribute}\nfn f() {{}}\n")), "{attribute}");
+fn every_emission_form_yields_its_prose_and_test_code_none() {
+    const PROSE: &str = "read the file first";
+    let texts = |src: &str| {
+        file_templates("f.rs", &production_text(src))
+            .into_iter()
+            .map(|template| template.text)
+            .collect::<Vec<_>>()
+    };
+    let mut forms = EMITTERS
+        .iter()
+        .map(|(emitter, argument)| {
+            let args = "x, ".repeat(*argument);
+            let close = if emitter.ends_with('[') { "]" } else { ")" };
+            let open = emitter.ends_with(['(', '[']);
+            let tail = if open { close } else { "" };
+            format!("fn f() {{ {emitter}{args}\"{PROSE}\"{tail}; }}\n")
+        })
+        .collect::<Vec<_>>();
+    forms.extend(
+        CONST_MARKS
+            .iter()
+            .map(|mark| format!("const A_{mark}: &str = \"{PROSE}\";\n")),
+    );
+    forms.extend(
+        FN_MARKS
+            .iter()
+            .map(|mark| format!("fn {mark}_text() -> &'static str {{ \"{PROSE}\" }}\n")),
+    );
+    forms.push(format!("fn f() {{ let hint = \"{PROSE}\"; }}\n"));
+    for form in &forms {
+        assert_eq!(texts(form), [PROSE], "{form}");
+        for gate in [
+            "#[test]",
+            "#[tokio::test]",
+            "#[tokio::test(flavor = \"multi_thread\")]",
+            "#[cfg(test)]",
+        ] {
+            let gated = format!("{gate}\n{form}");
+            assert!(texts(&gated).is_empty(), "{gated}");
+        }
+        let in_tests = format!("#[cfg(test)]\nmod tests {{\n{form}}}\n");
+        assert!(texts(&in_tests).is_empty(), "{in_tests}");
+        for production in ["#[cfg(not(test))]", "#[must_use]", "#[expect(dead_code)]"] {
+            let kept = format!("{production}\n{form}");
+            assert_eq!(texts(&kept), [PROSE], "{kept}");
+        }
     }
-    for attribute in ["#[cfg(not(test))]", "#[must_use]", "#[expect(dead_code)]"] {
-        assert!(!at(&format!("{attribute}\nfn f() {{}}\n")), "{attribute}");
+    for not_prose in [
+        "fn f() { x.hint(\"code\"); }",
+        "fn f() { x.hint(\", \"); }",
+        "fn f() { let s = \"read the file first\"; }",
+    ] {
+        assert!(texts(not_prose).is_empty(), "{not_prose}");
     }
 }

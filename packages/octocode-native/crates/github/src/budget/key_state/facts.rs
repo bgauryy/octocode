@@ -23,13 +23,7 @@ impl KeyState {
         ) else {
             return;
         };
-        let resource = headers
-            .get("x-ratelimit-resource")
-            .and_then(|value| value.to_str().ok())
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .unwrap_or(fallback_resource)
-            .to_owned();
+        let resource = crate::budget::rate_limit_resource(headers, fallback_resource);
         let paces = Group::paces_bucket(&resource);
         self.facts()
             .buckets

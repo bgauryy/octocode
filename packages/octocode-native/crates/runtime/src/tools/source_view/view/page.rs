@@ -47,11 +47,7 @@ pub(super) fn cut_page<'a>(
     let q = std::borrow::Cow::Borrowed(q);
     // A configured response window owns the page budget. Keep the smaller
     // fallback for direct callers without one and any explicit preview.
-    let line_page_bytes = facts
-        .window
-        .map_or(super::super::pagination::LINE_PAGE_BYTES, |window| {
-            crate::response::page_windows::page_budget(Some(window))
-        });
+    let line_page_bytes = super::super::pagination::line_page_bytes(facts.window);
     let page_q = q.as_ref();
     let off = match &facts.byte_origin {
         None => off_edge_offset(page_q, &view.text),
@@ -236,6 +232,10 @@ pub(super) fn page_result(
     );
     // The read's first page states what every page shares.
     if pg.pagination.offset == 0 || local_fetch_query::read_progress(asked).is_none() {
+        warnings.extend(super::super::extraction::unmatched_warning(
+            asked,
+            &ext.unmatched,
+        ));
         warn_unmatchable(q, source, ext, &mut warnings);
         warnings.extend(
             selection_outcome
@@ -275,7 +275,15 @@ pub(super) fn page_result(
     matched_lines.retain(|n| source_ranges.iter().any(|r| *n >= r.start && *n <= r.end));
     let match_keys =
         crate::tools::match_keys::line_key_paths(source_path, &source.text, &matched_lines);
-    let (chars, ret_bytes, ret_lines) = result_counts(&pg.text);
+    let (chars, ret_bytes, _) = result_counts(&pg.text);
+    // The view lines the page shows, as `sourceLineRanges` places them: a
+    // page of match windows of one long line shows that line once, whatever
+    // the gap markers between its windows add to the text.
+    let ret_lines = if pg.text.is_empty() {
+        0
+    } else {
+        (pg.view_lines.1 + 1).saturating_sub(pg.view_lines.0)
+    };
     let minified_away = pg.text.is_empty() && view.mode.is_some() && !out_of_range;
     let budget_cut = budget_cut_hint(read, &pg.pagination, out_of_range);
     let mut result = LocalFetchResult {

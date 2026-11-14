@@ -41,16 +41,16 @@ pub use content::{
 pub use credentials::{CredentialSource, ResolvedCredential};
 pub use endpoint::{
     Deployment, GitHubEndpoint, api_base_for_host, credential_host, is_loopback, names_localhost,
+    proxy_for,
 };
 pub use error::{ProviderError, ProviderErrorKind, ProviderErrorReason, RateLimit};
 pub use history::{CommitListRequest, HistoryPage, HistoryRequest, PullListRequest};
 pub use partition::Partition;
 pub use query_syntax::{
     qualifier_value, quote_search_keyword, search_phrase, validate_person_name,
-    validate_qualifier_value,
 };
 pub use ref_memo::{RefMemo, SettleOnDrop};
-pub use refs::{NamedRef, RefKind, RefMatch, RefPage, TagRef};
+pub use refs::{NamedRef, RefKind, RefMatch, RefPage, TagObject, TagRef};
 pub use search::{
     CodeSearchItem, CodeSearchPage, CodeSearchRequest, RepositoryMetadata, RepositorySearchItem,
     RepositorySearchPage, RepositorySearchRequest, SEARCH_RESULT_CAP, TextMatch, TreeEntry,
@@ -64,7 +64,8 @@ pub use security::{
 pub use transport::{
     AnswerBody, GitHubTransport, GraphQlError, GraphQlPage, HTTP_USER_AGENT, HttpMethod,
     ProviderAnswer, ProviderEvidence, RequestContext, RequestSpec, ResponsePage, RetryPolicy,
-    Reuse, SavedAnswer, SavedAnswers, requested_file, sso_partial_warning, worth_keeping,
+    Reuse, SEARCH_REUSE_WINDOW, SavedAnswer, SavedAnswers, requested_file, sso_partial_warning,
+    worth_keeping,
 };
 pub use tree::{ContentsEntry, ContentsListing};
 

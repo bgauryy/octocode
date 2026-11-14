@@ -31,6 +31,37 @@ pub(super) fn skip_of(
         })
 }
 
+/// The causes among `causes` that keep `path` out of a walk of `dir` (a
+/// directory above it): what that walk lifts to reach `path`, as the walk of
+/// `path` itself, which starts there, never needed to.
+pub(crate) fn keeping_out(dir: &Path, path: &Path, is_dir: bool, causes: &[Cause]) -> Vec<Cause> {
+    let prefixes = prefixes(dir, path);
+    let names = || {
+        prefixes
+            .iter()
+            .filter_map(|(prefix, above)| Some((prefix.file_name()?, *above || is_dir)))
+    };
+    causes
+        .iter()
+        .copied()
+        .filter(|cause| match cause {
+            Cause::Ignored => IgnoreRules::new(dir).why(path, is_dir).is_some(),
+            Cause::Hidden => names().any(|(name, _)| name.to_string_lossy().starts_with('.')),
+            Cause::DefaultExcluded => {
+                let prune = Prune::new(prune::directories(true));
+                names().any(|(name, directory)| {
+                    if directory {
+                        prune.names(name)
+                    } else {
+                        crate::policy::discovery::generated_file_pattern(&name.to_string_lossy())
+                            .is_some()
+                    }
+                })
+            }
+        })
+        .collect()
+}
+
 /// The path's ancestors below `root` and itself, shortest first, each with
 /// whether it is a directory on the way to `file`.
 pub(super) fn prefixes(root: &Path, file: &Path) -> Vec<(PathBuf, bool)> {

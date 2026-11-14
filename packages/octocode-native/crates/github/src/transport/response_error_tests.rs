@@ -22,12 +22,39 @@ fn a_loopback_api_connects_directly() {
     }
 }
 
+/// A transport builds its client on its first request: constructing one,
+/// as tests and providers do without sending, never runs the system proxy
+/// lookup.
+#[test]
+fn a_transport_that_never_sends_builds_no_client() {
+    let endpoint = GitHubEndpoint::new(url::Url::parse("https://api.github.com").expect("url"))
+        .expect("endpoint");
+    let transport = GitHubTransport::new(endpoint, RetryPolicy::default(), GitHubBudget::relaxed())
+        .expect("transport");
+    assert!(transport.client.get().is_none());
+    let transport = loopback_transport();
+    transport.client().expect("client");
+    assert!(transport.client.get().is_some(), "the first use builds it");
+}
+
+/// A transport for a loopback API: its client connects directly, with no
+/// system proxy lookup.
+fn loopback_transport() -> GitHubTransport {
+    let endpoint = GitHubEndpoint::new(url::Url::parse("http://127.0.0.1:1/api/v3").expect("url"))
+        .expect("endpoint");
+    GitHubTransport::new(endpoint, RetryPolicy::default(), GitHubBudget::relaxed())
+        .expect("transport")
+}
+
 /// Review open item: the token header is marked sensitive so `Debug`
 /// output of a request or header map never prints it.
 #[test]
 fn authorization_header_is_sensitive() {
     let request = authorize(
-        reqwest::Client::new().get("https://api.github.com/"),
+        loopback_transport()
+            .client()
+            .expect("client")
+            .get("https://api.github.com/"),
         "ghp_secret",
     )
     .build()
@@ -110,7 +137,11 @@ async fn a_body_that_stalls_after_the_headers_hits_the_request_deadline() {
             tokio::time::sleep(Duration::from_secs(30)).await;
         }
     });
-    let response = reqwest::get(format!("http://{addr}/"))
+    let response = loopback_transport()
+        .client()
+        .expect("client")
+        .get(format!("http://{addr}/"))
+        .send()
         .await
         .expect("headers arrive");
     let context = RequestContext::with_timeout(Duration::from_millis(300), 1 << 20);

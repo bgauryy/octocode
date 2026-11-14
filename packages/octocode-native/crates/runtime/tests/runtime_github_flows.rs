@@ -113,11 +113,12 @@ fn commit_with_files(sha: &str, message: &str) -> Value {
     })
 }
 
-/// The commit→PR lead survives the lead cap beside the commit's own
-/// re-read (ahead of the diff's side reads), whether the PR is named by a
-/// `(#N)` headline or a `PR-URL:` trailer.
+/// A commit's patch read keeps one lead, its source read naming the commit
+/// and its parent; the pull request it names stays reachable: a `(#N)`
+/// headline states it on the row, and the whole message (one documented
+/// call, the commit without `sections`) states a `PR-URL:` trailer.
 #[tokio::test]
-async fn a_commit_patch_read_keeps_its_pull_request_lead() {
+async fn a_commit_patch_read_keeps_its_pull_request_reachable() {
     let server = MockServer::builder().start().await;
     let squash = "30df32a13f9cf5f129b913b967ff6f137c5511d6";
     let trailer = "464cbbda0000000000000000000000000000000a";
@@ -146,20 +147,36 @@ async fn a_commit_patch_read_keeps_its_pull_request_lead() {
         .await
         .expect("commit patches");
         let data = row_data(&out).clone();
-        let read = &crate::support::checks::find_related_call(&data, "ghGetHistoryItem", |input| {
-            input["queries"][0]["operation"] == "pullRequest"
-        })
-        .unwrap_or(&serde_json::Value::Null);
-        assert_eq!(read["tool"], "ghGetHistoryItem", "{data}");
-        assert_eq!(read["input"]["queries"][0]["number"], number, "{data}");
+        let read = crate::support::checks::related_call(&data, "ghGetFileContent", |_| true);
+        let refs = read["input"]["queries"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|row| row["ref"].clone())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            refs,
+            [
+                json!(sha),
+                json!("5555555eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee")
+            ],
+            "{data}"
+        );
+        let named = format!("#{number}");
+        let full = call(
+            &runtime,
+            "ghGetHistoryItem",
+            json!({"operation":"commit","owner":"a","repo":"b","ref":sha}),
+        )
+        .await
+        .expect("whole commit");
+        let stated = |value: &Value| {
+            value.as_str().is_some_and(|text| {
+                text.contains(&named) || text.contains(&format!("/pull/{number}"))
+            })
+        };
         assert!(
-            crate::support::checks::find_related_call(
-                &data,
-                "ghSearchHistory",
-                |input| input["queries"][0]["operation"] == "pullRequest"
-            )
-            .unwrap_or(&serde_json::Value::Null)
-            .is_null(),
+            stated(&data["messageHeadline"]) || stated(&row_data(&full)["message"]),
             "{data}"
         );
     }

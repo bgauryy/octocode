@@ -28,29 +28,6 @@ fn a_match_inside_a_binary_header_yields_no_row_and_no_read() {
     );
 }
 
-/// The skipped-binary warning reads as a count and the files' extensions.
-#[test]
-fn the_binary_warning_names_counts_and_extensions_plainly() {
-    let group = |extension: &str, count: u32| octocode_engine::types::BinaryExtensionCount {
-        extension: extension.into(),
-        count,
-        names: Vec::new(),
-    };
-    let warning = crate::tools::local_search::binaries::leading_binary_warning;
-    assert_eq!(
-        warning(&[group("", 1)]),
-        "binarySkipped: 1 binary file not searched (no extension)."
-    );
-    assert_eq!(
-        warning(&[group("png", 2)]),
-        "binarySkipped: 2 binary files not searched (all .png)."
-    );
-    assert_eq!(
-        warning(&[group("woff2", 54), group("", 1)]),
-        "binarySkipped: 55 binary files not searched (54 .woff2, 1 with no extension)."
-    );
-}
-
 /// A binary file named alone searched nothing: refused as
 /// `binaryFileUnsupported` (as astSearch and localFetch refuse it), never
 /// an empty row that reads as absence.
@@ -127,42 +104,37 @@ fn zero_match_binary_cut_search_leads_to_narrow_the_scope() {
     );
 }
 
-/// Binaries are not what a row with hits was asked about: `binarySkipped`
-/// states their count and no listing call follows; an empty row, whose miss
-/// they may explain, offers the listing.
+/// Binaries skipped whole from their leading bytes hold no text a search
+/// could match: every row states their count in `binarySkipped`, an empty
+/// row's absence sentence too, and no row lists them.
 #[test]
-fn only_an_empty_row_offers_the_skipped_binaries_listing() {
+fn every_row_counts_whole_binaries_and_none_lists_them() {
     let files = [("a.txt", "alpha\n"), ("img.jpg", "\u{0}\u{1}alpha")];
-    let hits = search_fixture(
-        &files,
-        ls_query(serde_json::json!({"matchString": ["alpha"]}), None),
-    );
-    assert_eq!(hits["binarySkipped"], 1, "{hits}");
     let lists_binaries =
         |input: &serde_json::Value| input["queries"][0]["extensions"] == serde_json::json!(["jpg"]);
-    assert!(
-        crate::tools::test_support::checks::find_related_call(
-            &hits,
-            "structureSearch",
-            lists_binaries
-        )
-        .is_none(),
-        "{hits}"
-    );
-    let empty = search_fixture(
-        &files,
-        ls_query(serde_json::json!({"matchString": ["zzqqxx"]}), None),
-    );
-    assert_eq!(empty["files"], serde_json::json!([]), "{empty}");
-    assert!(
-        crate::tools::test_support::checks::find_related_call(
-            &empty,
-            "structureSearch",
-            lists_binaries
-        )
-        .is_some(),
-        "{empty}"
-    );
+    for (pattern, empty) in [("alpha", false), ("zzqqxx", true)] {
+        let body = search_fixture(
+            &files,
+            ls_query(serde_json::json!({"matchString": [pattern]}), None),
+        );
+        assert_eq!(body["binarySkipped"], 1, "{body}");
+        assert!(
+            crate::tools::test_support::checks::find_related_call(
+                &body,
+                "structureSearch",
+                lists_binaries
+            )
+            .is_none(),
+            "{body}"
+        );
+        assert_eq!(
+            body["hints"][0]
+                .as_str()
+                .is_some_and(|hint| hint.contains("not searched: 1 binary file")),
+            empty,
+            "{body}"
+        );
+    }
 }
 
 /// A warning never names a lead the lead cap may drop.
@@ -178,17 +150,22 @@ fn binary_warning_never_names_a_capped_lead() {
     crate::tools::test_support::checks::assert_absent(&body["warnings"], "hints.binarySkipped");
 }
 
-/// The listing lead reaches the same scope the search walked: a binary
-/// skipped under `includeHidden` is one the lead lists with it, not an
-/// empty listing that contradicts the row's warning.
+/// The listing of binary-cut files too many to name reaches the same scope
+/// the search walked: a file cut under `includeHidden` is one the lead lists
+/// with it, not an empty listing that contradicts the row's warning.
 #[test]
 fn binary_listing_lead_walks_the_hidden_scope_the_search_did() {
+    use crate::tools::local_search::binaries::MAX_NAMED_BINARY_FILES;
+    // The NUL sits past the leading bytes: the scan quits there, a cut.
+    let cut = format!("{}\u{0}tail\n", "line of text\n".repeat(2000));
+    let names = (0..=MAX_NAMED_BINARY_FILES)
+        .map(|index| format!(".img{index}.png"))
+        .collect::<Vec<_>>();
+    let mut files = vec![("a.rs", "fn other() {}\n")];
+    files.extend(names.iter().map(|name| (name.as_str(), cut.as_str())));
     for hidden in [false, true] {
         let body = search_fixture(
-            &[
-                ("a.rs", "fn other() {}\n"),
-                (".img.png", "\u{0}\u{1}needle"),
-            ],
+            &files,
             ls_query(
                 serde_json::json!({"matchString": ["zzqqxx"], "includeHidden": hidden}),
                 None,

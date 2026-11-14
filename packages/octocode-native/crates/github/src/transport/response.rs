@@ -208,6 +208,7 @@ pub(super) fn response_error(
             .and_then(|parameters| sso_parameter(parameters, "url"))
             .filter(|url| Url::parse(url).is_ok_and(|url| matches!(url.scheme(), "http" | "https")))
             .map(Into::into),
+        proxy: None,
     }
 }
 

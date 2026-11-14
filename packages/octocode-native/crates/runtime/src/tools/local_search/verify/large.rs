@@ -10,7 +10,7 @@ use super::guard::{
     Verification, drain_digest,
 };
 use super::lines::{VerificationLines, VerifyReadError, read_verification_lines};
-use super::settle::{self, RowLines, WholeScan};
+use super::settle::{self, RowLines};
 use super::*;
 use crate::tools::local_search::sources::{Digest, Expected};
 use octocode_engine::security::Edits;
@@ -21,15 +21,13 @@ fn raw_lines(
     spans: &[(usize, usize)],
     cancel: &impl CancellationCheck,
 ) -> Result<(VerificationLines, Option<Digest>), VerifyReadError> {
-    let last = spans.iter().map(|&(_, last)| last).max().unwrap_or(0);
     let mut reader = std::io::BufReader::new(HashingReader {
         inner: opened,
         hasher: Some(octocode_engine::digest::HashWriter::default()),
     });
     // Read to its end, as a source judged whole is: a line too long to
     // classify anywhere in it leaves its key-block state unknown.
-    let across = Some(octocode_engine::security::WholeSourcePatterns::any_file());
-    let read = read_verification_lines(&mut reader, spans, last, across, cancel)?;
+    let read = read_verification_lines(&mut reader, spans, usize::MAX, false, cancel)?;
     let digest = drain_digest(reader, cancel)?;
     Ok((read, digest))
 }
@@ -79,6 +77,7 @@ pub(super) fn guard_large(
         security,
         shape,
         cancel,
+        hidden,
         ..
     } = *check;
     if expected == Expected::Stored(None) {
@@ -207,8 +206,7 @@ pub(super) fn guard_large(
         // The judged text is the row's own lines, from its first.
         let own = [Some(RowLines { first: 1, ..lines })];
         let one = std::slice::from_mut(matched);
-        let whole = WholeScan::Judged(judged);
-        if settle::settle_judged(one, &own, shape, &whole, usize::MAX, security)
+        if settle::settle_judged(one, &own, shape, &judged, (usize::MAX, hidden), security)
             != Verification::Verified
         {
             verified = Verification::Unverified;

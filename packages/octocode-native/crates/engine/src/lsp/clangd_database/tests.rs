@@ -293,6 +293,7 @@ fn a_mirror_leaves_out_entries_that_read_outside_the_project() {
         {"directory": dir, "file": "x.c", "arguments": ["clang-cl", "-FI/elsewhere/h.h", "x.c"]},
         {"directory": dir, "file": "y.c", "arguments": ["clang", "/clang:-include", "/clang:/elsewhere/h.h", "y.c"]},
     ]);
+    std::fs::write(root.join("own.h"), "").expect("owned header");
     std::fs::write(root.join("compile_commands.json"), entries.to_string()).expect("db");
     #[cfg(unix)]
     {

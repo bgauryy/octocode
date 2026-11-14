@@ -2,9 +2,10 @@
 //! where it lives (branches, pull requests, tags, the default branch), and the
 //! repository's published security advisories, page by page.
 use super::{
-    GitHubTransport, NamedRef, ProviderError, ProviderErrorKind, ProviderErrorReason, RefKind,
-    RequestContext, RequestSpec,
+    GitHubTransport, NamedRef, ProviderError, ProviderErrorKind, RefKind, RequestContext,
+    RequestSpec,
 };
+use crate::refs::repository_missing;
 use futures_util::{StreamExt, stream};
 use serde::{Deserialize, Serialize};
 
@@ -244,14 +245,6 @@ fn decode<T: for<'de> Deserialize<'de>>(body: &[u8], what: &str) -> Result<T, Pr
     })
 }
 
-fn repository_missing(error: ProviderError) -> ProviderError {
-    if error.status == Some(404) {
-        error.with_reason(ProviderErrorReason::RepositoryNotFound)
-    } else {
-        error
-    }
-}
-
 impl GitHubTransport {
     /// The commit `sha` of a repository. `None`: the repository has no such
     /// commit (GitHub answers 422 for a hash it cannot resolve); a missing
@@ -296,32 +289,6 @@ impl GitHubTransport {
             Err(error) if error.status == Some(422) => Ok(None),
             Err(error) => Err(repository_missing(error)),
         }
-    }
-
-    /// Every item of a list read under `repos/{owner}/{repo}/{segments}`,
-    /// `per_page=100` page by page until GitHub links no next page.
-    async fn list_all<T: for<'de> Deserialize<'de>>(
-        &self,
-        segments: &[&str],
-        what: &str,
-        context: &RequestContext,
-    ) -> Result<Vec<T>, ProviderError> {
-        let mut items = Vec::new();
-        for page in 1_usize.. {
-            let mut url = self.endpoint().rest(segments)?;
-            url.query_pairs_mut()
-                .append_pair("per_page", &crate::MAX_PER_PAGE.to_string())
-                .append_pair("page", &page.to_string());
-            let response = self
-                .execute(RequestSpec::get(url), context)
-                .await
-                .map_err(repository_missing)?;
-            items.extend(decode::<Vec<T>>(&response.body, what)?);
-            if response.next.is_none() {
-                break;
-            }
-        }
-        Ok(items)
     }
 
     /// The branches whose head is `sha`.
@@ -378,24 +345,7 @@ impl GitHubTransport {
         repo: &str,
         context: &RequestContext,
     ) -> Result<Vec<NamedRef>, ProviderError> {
-        let mut tips = Vec::new();
-        for page in 1_usize.. {
-            let listed = self
-                .repository_refs(
-                    owner,
-                    repo,
-                    RefKind::Tags,
-                    page,
-                    crate::MAX_PER_PAGE,
-                    context,
-                )
-                .await?;
-            tips.extend(listed.refs);
-            if !listed.has_more {
-                break;
-            }
-        }
-        Ok(tips)
+        self.all_refs(owner, repo, RefKind::Tags, context).await
     }
 
     /// Whether `sha` is on the history of `base` (a branch): GitHub's compare

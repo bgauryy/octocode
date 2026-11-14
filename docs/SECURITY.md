@@ -16,8 +16,9 @@ Relative paths resolve against the workspace root, which defaults to the process
 
 | Default | Effect |
 |---|---|
-| `security.credentialFiles: "withhold"` | Discovery and reads withhold credential-named files such as `.env`, private keys, credential stores and their backups. Ordinary source and documentation can remain readable in directories named `credentials` or `secrets`. |
-| `output.redactEmails: false` | Email addresses, such as commit authors, can appear in results. Enable the setting to mask them. |
+| `security.credentialFiles: "withhold"` | Discovery and reads withhold the known credential files and their backups (`.bak`, `.old`, `~`): the dotenv family (`.env`, `.env.*`, `.envrc`, `*.env`), private keys and keystores (`id_rsa*`, `*.pem`, `*.key`, `*.p12`, `*.jks`), and named credential stores (`.netrc`, `.npmrc`, `.pgpass`, `.git-credentials`, `credentials.json`, `kubeconfig`, Terraform state and variables, Octocode, Claude and Codex logins). Credential directories (`.ssh`, `.aws`, `.azure`, `.kube`, `.docker`, `.gnupg`, `.password-store`, `.config/gh`, `.config/gcloud`) are withheld whole. Every other file, such as `~/.zshrc` or a shell history, is readable. |
+| `output.redactEmails: false` | Email addresses, such as commit authors, can appear in GitHub tool results. Enable the setting to mask them in those results; local source email addresses stay readable. |
+| `output.redactUuid: false` | UUIDs can appear in results. Enable the setting to mask every UUID in a tool result. |
 | `lsp.trustProjectConfig: false` | A project's custom server configuration requires trust before it can launch an executable. |
 | `lsp.trustFetchedCode: false` | Language servers cannot start against checkouts, materializations or URL captures acquired by Octocode. Text and syntax tools can inspect admitted files. |
 | `lsp.allowBuildScripts: false` | Rust queries asking to enable Cargo build scripts or procedural macros receive a policy error. |
@@ -26,7 +27,7 @@ A trusted home or process setting can set `security.credentialFiles` to `allow` 
 
 ## Content sanitization
 
-The runtime redacts recognized secret values from text evidence, including file reads, search results and provider output. Returned markers and warnings identify affected evidence. Redaction is pattern-based. Unrecognized secrets can appear in results, and benign values that resemble credentials can also be masked. Treat an explicit image as disclosed when you send it for classification.
+The runtime redacts known secret formats from text evidence, including file reads, search results and provider output. One list of known patterns decides: provider token formats (GitHub, GitLab, AWS, Google, Slack, Stripe, OpenAI, Anthropic, npm and others), private-key armors, JSON Web Tokens, connection strings that carry a password, and well-known credential keys with a fixed value shape (`aws_secret_access_key = <40 characters>`). Only the matched secret is replaced, by a `[REDACTED-<PATTERN>]` placeholder; the text around it stays as written, and a multi-line key keeps its line count. A dotenv file (`.env`, `.env.*`, `*.env`) is a known credential store, so wherever its text is shown, in a read under `allow`, a GitHub read or a commit or pull-request patch, every `KEY=value` value is replaced and each name stays. No value is judged by its name, length or look: a secret in no known format, such as a password in a config file, can appear in results, and ordinary code that names a credential stays readable. `output.redactEmails` masks email addresses in GitHub tool results; `output.redactUuid` masks UUIDs in all tool results. Both settings default to off. Returned markers and warnings identify affected evidence. Treat an explicit image as disclosed when you send it for classification.
 
 ### Classification egress
 

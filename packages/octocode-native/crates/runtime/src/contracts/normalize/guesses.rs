@@ -5,208 +5,337 @@
 use crate::id::ToolId;
 use serde_json::{Map, Value, json};
 
-/// What one sent field means.
-enum Reading {
-    /// The declared field and the value it takes.
-    Field(&'static str, Value),
-    /// More than one value or field fits: validation rejects it, naming this
-    /// field.
-    Ambiguous,
+/// The declared fields a sent one reads as, with their values: one, or a
+/// field with the field that says how its value reads (`matchString` with
+/// `regexEngine`).
+type Fields = Vec<(&'static str, Value)>;
+
+/// How a guess reads the value sent; what it does not read has more than
+/// one reading, and validation refuses it naming the field.
+pub(super) enum Read {
+    /// Never: a former name of the field.
+    Refused,
+    /// `true` as this value of the field.
+    Switch(&'static str),
+    /// A text, as it is.
+    Text,
+    /// A scalar (text, number or switch), as it is: the field's own
+    /// validation judges the value.
+    Same,
+    /// A text, or a list of texts, as a list.
+    Listed,
+    /// By the value's shape and the row it sits in.
+    Shaped(fn(&Value, &Map<String, Value>) -> Option<Fields>),
 }
 
-/// A field sent for `field` of the tools in `tools`, read by `read` from its
-/// value and the row it sits in.
-struct Guess {
-    tools: &'static [ToolId],
+/// A field sent for `field` of the tools in `tools`, read as `read` says.
+pub(super) struct Guess {
+    pub(super) tools: &'static [ToolId],
     /// The row field whose object holds `sent`: empty for the row itself.
-    within: &'static str,
-    sent: &'static str,
-    field: &'static str,
+    pub(super) within: &'static str,
+    pub(super) sent: &'static str,
+    pub(super) field: &'static str,
     /// What `field` takes, where the sent name promises something else: said
     /// with the field when the guess is refused.
     takes: Option<&'static str>,
-    read: fn(&Value, &Map<String, Value>) -> Reading,
+    pub(super) read: Read,
+}
+
+impl Guess {
+    fn reading(&self, value: &Value, row: &Map<String, Value>) -> Option<Fields> {
+        let meant = match (&self.read, value) {
+            (Read::Switch(meant), Value::Bool(true)) => json!(meant),
+            (Read::Text, Value::String(_)) => value.clone(),
+            (Read::Same, Value::String(_) | Value::Number(_) | Value::Bool(_)) => value.clone(),
+            (Read::Listed, Value::String(_)) => json!([value]),
+            (Read::Listed, Value::Array(items)) if items.iter().all(Value::is_string) => {
+                value.clone()
+            }
+            (Read::Shaped(read), _) => return read(value, row),
+            _ => return None,
+        };
+        Some(vec![(self.field, meant)])
+    }
 }
 
 const SEARCH: &[ToolId] = &[ToolId::LocalSearch];
+/// The tools whose walks take `maxDepth` and no `depth`.
+const WALKS: &[ToolId] = &[
+    ToolId::LocalSearch,
+    ToolId::StructureSearch,
+    ToolId::AstSearch,
+    ToolId::GhStructure,
+];
 const READERS: &[ToolId] = &[ToolId::LocalFetch, ToolId::GhGetFileContent];
 
-const GUESSES: &[Guess] = &[
+/// A guess at a row field.
+const fn row(
+    tools: &'static [ToolId],
+    sent: &'static str,
+    field: &'static str,
+    read: Read,
+) -> Guess {
     Guess {
+        tools,
         within: "",
-        tools: SEARCH,
-        sent: "mode",
-        field: "regexEngine",
-        takes: Some("literal, rust or pcre2 (a files-only listing is view:\"files\")"),
-        read: |value, _| match value.as_str() {
-            Some(engine @ ("literal" | "rust" | "pcre2")) => {
-                Reading::Field("regexEngine", json!(engine))
-            }
-            // The former search mode that listed matching files only.
-            Some("discovery") => Reading::Field("view", json!("files")),
-            // A regex runs in `rust` or `pcre2`: two readings.
-            _ => Reading::Ambiguous,
-        },
-    },
-    Guess {
-        within: "",
-        tools: SEARCH,
-        sent: "literal",
-        field: "regexEngine",
+        sent,
+        field,
         takes: None,
-        read: |value, _| match value {
-            Value::Bool(true) => Reading::Field("regexEngine", json!("literal")),
-            _ => Reading::Ambiguous,
-        },
-    },
-    // After the guesses that set `regexEngine`: an engine in the row says
-    // how the value is read.
+        read,
+    }
+}
+
+/// A guess at a row field that says what `field` takes when refused.
+const fn takes(
+    tools: &'static [ToolId],
+    sent: &'static str,
+    field: &'static str,
+    takes: &'static str,
+    read: Read,
+) -> Guess {
     Guess {
-        within: "",
-        tools: SEARCH,
-        sent: "pattern",
-        field: "matchString",
-        takes: Some("literal text, or a regex with regexEngine:\"rust\""),
-        read: |value, row| {
+        takes: Some(takes),
+        ..row(tools, sent, field, read)
+    }
+}
+
+pub(super) const GUESSES: &[Guess] = &[
+    takes(
+        SEARCH,
+        "mode",
+        "regexEngine",
+        "literal, rust or pcre2 (a files-only listing is view:\"files\")",
+        // An engine, or the former mode that listed matching files only; a
+        // regex runs in `rust` or `pcre2`: two readings.
+        Read::Shaped(|value, _| match value.as_str()? {
+            engine @ ("literal" | "rust" | "pcre2") => Some(vec![("regexEngine", json!(engine))]),
+            "discovery" => Some(vec![("view", json!("files"))]),
+            _ => None,
+        }),
+    ),
+    row(SEARCH, "literal", "regexEngine", Read::Switch("literal")),
+    row(SEARCH, "regex", "regexEngine", Read::Switch("rust")),
+    // After the guesses that set `regexEngine`: an engine in the row says
+    // how the value reads. `matchString` is literal text unless the row
+    // names an engine, while `pattern` names a regex in most tools: terms
+    // that read as a regex matching other text are that regex, run by the
+    // engine the field's error names.
+    takes(
+        SEARCH,
+        "pattern",
+        "matchString",
+        "literal text, or a regex with regexEngine:\"rust\"",
+        Read::Shaped(|value, row| {
             let terms: Vec<&str> = match value {
                 Value::String(term) => vec![term],
-                Value::Array(terms) => terms.iter().filter_map(Value::as_str).collect(),
-                _ => Vec::new(),
+                Value::Array(items) => items.iter().map(Value::as_str).collect::<Option<_>>()?,
+                _ => return None,
             };
-            // `matchString` is literal text unless the row names an engine;
-            // `pattern` names a regex in most tools. Terms that also read as
-            // a regex have both readings.
+            let mut fields = vec![("matchString", value.clone())];
             if !row.contains_key("regexEngine") && reads_as_regex(&terms) {
-                Reading::Ambiguous
-            } else {
-                Reading::Field("matchString", value.clone())
+                fields.push(("regexEngine", json!("rust")));
             }
-        },
-    },
-    Guess {
-        within: "",
-        tools: SEARCH,
-        sent: "filesOnly",
-        field: "view",
-        takes: None,
-        read: |value, _| when_true(value, "view", "files"),
-    },
-    Guess {
-        within: "",
-        tools: SEARCH,
-        sent: "countOnly",
-        field: "view",
-        takes: None,
-        read: |value, _| when_true(value, "view", "countMatches"),
-    },
-    Guess {
-        within: "",
-        tools: SEARCH,
-        sent: "perFileCount",
-        field: "view",
-        takes: None,
-        read: |value, _| when_true(value, "view", "countMatches"),
-    },
-    Guess {
-        within: "",
-        tools: SEARCH,
-        sent: "excludeDir",
-        field: "exclude",
-        takes: None,
-        read: |value, _| match value {
-            Value::String(_) => Reading::Field("exclude", json!([value])),
-            Value::Array(items) if items.iter().all(Value::is_string) => {
-                Reading::Field("exclude", value.clone())
-            }
-            _ => Reading::Ambiguous,
-        },
-    },
-    Guess {
-        within: "",
-        tools: &[ToolId::GhSearchHistory],
-        sent: "type",
-        field: "operation",
-        takes: None,
-        read: |value, _| Reading::Field("operation", value.clone()),
-    },
-    Guess {
-        within: "",
-        tools: &[ToolId::GhSearchCode],
-        sent: "match",
-        field: "matchIn",
-        takes: None,
-        read: |value, _| match value {
-            Value::String(_) => Reading::Field("matchIn", json!([value])),
-            Value::Array(_) => Reading::Field("matchIn", value.clone()),
-            _ => Reading::Ambiguous,
-        },
-    },
+            Some(fields)
+        }),
+    ),
+    // ripgrep's `--type`.
+    takes(
+        SEARCH,
+        "type",
+        "fileType",
+        "a ripgrep file type, e.g. rust",
+        Read::Text,
+    ),
+    row(SEARCH, "filesOnly", "view", Read::Switch("files")),
+    row(SEARCH, "matchOnly", "view", Read::Switch("matchOnly")),
+    row(WALKS, "depth", "maxDepth", Read::Same),
+    row(SEARCH, "countOnly", "view", Read::Switch("countMatches")),
+    row(SEARCH, "perFileCount", "view", Read::Switch("countMatches")),
+    row(SEARCH, "excludeDir", "exclude", Read::Listed),
+    // `find -name`: a glob on entry names. A name without a glob is that
+    // name or, as `fd` reads it, names holding it; a path is no name.
+    takes(
+        &[ToolId::StructureSearch],
+        "name",
+        "include",
+        "globs on names: \"x.ts\" for that name, \"*x*\" for names holding x",
+        Read::Shaped(|value, _| {
+            let name = value.as_str()?;
+            (name.contains(['*', '?', '[']) && !name.contains(['/', '\\']))
+                .then(|| vec![("include", json!([name]))])
+        }),
+    ),
+    // A pattern on names written in regex syntax a glob lacks (`^`, `$`,
+    // `\\`, a group, `|`, `+`) is that regex, which only a files listing
+    // takes; a glob or a bare name has more than one reading.
+    takes(
+        &[ToolId::StructureSearch],
+        "pattern",
+        "nameRegex",
+        "a regex on entry names, with operation:\"files\"",
+        Read::Shaped(|value, _| {
+            let pattern = value.as_str()?;
+            (pattern.contains(['^', '$', '\\', '(', ')', '|', '+'])
+                && regex::Regex::new(pattern).is_ok())
+            .then(|| vec![("nameRegex", json!(pattern)), ("operation", json!("files"))])
+        }),
+    ),
+    // A GitHub search query of plain words: the terms it ANDs. A qualifier,
+    // operator, quote, group or exclusion is a field or phrase of its own.
+    takes(
+        &[ToolId::GhSearchCode],
+        "query",
+        "keywords",
+        "ANDed literal terms; owner, repo, path and other qualifiers are fields of their own",
+        Read::Shaped(|value, _| {
+            let words: Vec<&str> = value.as_str()?.split_whitespace().collect();
+            let plain = |word: &&str| {
+                !word.contains([':', '"', '(', ')', '\\'])
+                    && !word.starts_with('-')
+                    && !["AND", "OR", "NOT"]
+                        .iter()
+                        .any(|operator| word.eq_ignore_ascii_case(operator))
+            };
+            (!words.is_empty() && words.iter().all(plain)).then(|| vec![("keywords", json!(words))])
+        }),
+    ),
+    row(&[ToolId::GhSearchHistory], "type", "operation", Read::Text),
+    row(&[ToolId::GhSearchCode], "match", "matchIn", Read::Listed),
     // `startLine` and `endLine` beside `path` read as one range below.
-    Guess {
-        within: "",
-        tools: READERS,
-        sent: "startLine",
-        field: "ranges",
-        takes: None,
-        read: |_, _| Reading::Ambiguous,
-    },
-    Guess {
-        within: "",
-        tools: READERS,
-        sent: "endLine",
-        field: "ranges",
-        takes: None,
-        read: |_, _| Reading::Ambiguous,
-    },
-    // Former names of renamed fields: refused, the error names the field.
-    Guess {
-        within: "",
-        tools: &[ToolId::StructureSearch],
-        sent: "sizeBytes",
-        field: "bytes",
-        takes: None,
-        read: |_, _| Reading::Ambiguous,
-    },
-    Guess {
-        within: "",
-        tools: &[ToolId::LspSearch],
-        sent: "symbolQuery",
-        field: "symbolFuzzy",
-        takes: None,
-        read: |_, _| Reading::Ambiguous,
-    },
-    Guess {
-        within: "",
-        tools: &[ToolId::GraphQuery],
-        sent: "name",
-        field: "symbolName",
-        takes: None,
-        read: |_, _| Reading::Ambiguous,
-    },
+    row(READERS, "startLine", "ranges", Read::Refused),
+    row(READERS, "endLine", "ranges", Read::Refused),
+    // Former names of renamed fields.
+    row(
+        &[ToolId::StructureSearch],
+        "sizeBytes",
+        "bytes",
+        Read::Refused,
+    ),
+    row(
+        &[ToolId::LspSearch],
+        "symbolQuery",
+        "symbolFuzzy",
+        Read::Refused,
+    ),
+    row(&[ToolId::GraphQuery], "name", "symbolName", Read::Refused),
     // Filter names follow the output fields they filter.
     Guess {
         within: "filters",
-        tools: &[ToolId::GhSearchRepo],
-        sent: "forkCount",
-        field: "forks",
-        takes: None,
-        read: |_, _| Reading::Ambiguous,
+        ..row(&[ToolId::GhSearchRepo], "forkCount", "forks", Read::Refused)
     },
     Guess {
         within: "filters",
-        tools: &[ToolId::GhSearchHistory],
-        sent: "commentCount",
-        field: "commentsCount",
-        takes: None,
-        read: |_, _| Reading::Ambiguous,
+        ..row(
+            &[ToolId::GhSearchHistory],
+            "commentCount",
+            "commentsCount",
+            Read::Refused,
+        )
+    },
+    Guess {
+        within: "filters",
+        ..row(&[ToolId::GhSearchHistory], "merged", "isMerged", Read::Same)
     },
 ];
 
-fn when_true(value: &Value, field: &'static str, meant: &str) -> Reading {
-    if value == &Value::Bool(true) {
-        Reading::Field(field, json!(meant))
-    } else {
-        Reading::Ambiguous
+/// A value a declared field refuses that has one reading: as another value
+/// of it, or as a value of another field of the same object. A value in
+/// another case or separator style of one the field takes needs no entry:
+/// validation reads it (`normalize::repaired`).
+pub(super) struct Spelling {
+    pub(super) tools: &'static [ToolId],
+    /// The row field whose object holds `field`: empty for the row itself.
+    pub(super) within: &'static str,
+    pub(super) field: &'static str,
+    /// The value sent, in any case or separator style.
+    pub(super) sent: &'static str,
+    /// The field it reads as, and that field's value as JSON text.
+    pub(super) reads: (&'static str, &'static str),
+}
+
+pub(super) const SPELLINGS: &[Spelling] = &[
+    // GitHub's `is:merged`: a merged pull request is closed and merged.
+    Spelling {
+        tools: &[ToolId::GhSearchHistory],
+        within: "filters",
+        field: "state",
+        sent: "merged",
+        reads: ("isMerged", "true"),
+    },
+    // The registry's own name and its host name: each tool takes one.
+    Spelling {
+        tools: &[ToolId::SecurityCheck],
+        within: "",
+        field: "ecosystem",
+        sent: "crates",
+        reads: ("ecosystem", "\"crates.io\""),
+    },
+    Spelling {
+        tools: &[ToolId::ArtifactSearch],
+        within: "",
+        field: "ecosystem",
+        sent: "crates.io",
+        reads: ("ecosystem", "\"crates\""),
+    },
+    // A size sort has one key: the file's size in bytes.
+    Spelling {
+        tools: &[ToolId::GhStructure, ToolId::StructureSearch],
+        within: "sort",
+        field: "by",
+        sent: "size",
+        reads: ("by", "\"sizeBytes\""),
+    },
+];
+
+/// A value a list field of one operation refuses that names what every read
+/// of that operation already returns under another field. It adds nothing:
+/// it is left out (the list too when it held nothing else), and the note
+/// names the field that carries it.
+pub(super) struct Returned {
+    pub(super) tools: &'static [ToolId],
+    pub(super) operation: &'static str,
+    pub(super) field: &'static str,
+    /// The item sent, in any case or separator style.
+    pub(super) sent: &'static str,
+    /// The output field every read of `operation` carries it in.
+    pub(super) returned_as: &'static str,
+}
+
+pub(super) const RETURNED: &[Returned] = &[
+    // A commit's body is its message past the first line; every commit read
+    // returns the whole `message`.
+    Returned {
+        tools: &[ToolId::GhGetHistoryItem],
+        operation: "commit",
+        field: "sections",
+        sent: "body",
+        returned_as: "message",
+    },
+];
+
+impl Spelling {
+    /// The field and value `value` of `field` reads as, when it is this
+    /// spelling's.
+    fn reading(&self, field: &str, value: &Value) -> Option<(&'static str, Value)> {
+        let sent = value.as_str()?;
+        if field != self.field || !crate::contracts::validate::same_name(sent, self.sent) {
+            return None;
+        }
+        let meant = serde_json::from_str(self.reads.1).ok()?;
+        Some((self.reads.0, meant))
+    }
+}
+
+/// `field: value` sent in the object `within` of an `id` row, read as the
+/// one spelling it is: the field and value it means, else as sent.
+fn spelled(id: ToolId, within: &str, field: &str, value: Value) -> (String, Value) {
+    let read = SPELLINGS
+        .iter()
+        .filter(|spelling| spelling.within == within && spelling.tools.contains(&id))
+        .find_map(|spelling| spelling.reading(field, &value));
+    match read {
+        Some((field, meant)) => (field.to_owned(), meant),
+        None => (field.to_owned(), value),
     }
 }
 
@@ -215,7 +344,7 @@ fn when_true(value: &Value, field: &'static str, meant: &str) -> Reading {
 /// Text whose regex reading spells itself (`defects-queue`: `-` is literal
 /// outside a class), or that does not compile (`call(`), has the literal
 /// reading alone.
-pub(crate) fn reads_as_regex(terms: &[&str]) -> bool {
+fn reads_as_regex(terms: &[&str]) -> bool {
     use octocode_engine::search::text_pattern::regex_spells_itself;
     terms.iter().any(|term| !regex_spells_itself(term))
         && terms.iter().all(|term| regex::Regex::new(term).is_ok())
@@ -238,7 +367,8 @@ pub(crate) fn meant_field(
 }
 
 /// Read each row's guesses that have one reading as their declared fields;
-/// what was read, one note per field.
+/// what was read, one note per repair for the whole call, naming every row
+/// it was made on (`queries[0,2]: …`).
 pub(super) fn read(id: ToolId, input: &mut Value) -> Vec<String> {
     let Some(rows) = input.get_mut("queries").and_then(Value::as_array_mut) else {
         return Vec::new();
@@ -248,15 +378,15 @@ pub(super) fn read(id: ToolId, input: &mut Value) -> Vec<String> {
         let Some(row) = row.as_object_mut() else {
             continue;
         };
+        let mut said = |note: String| notes.push((index, note));
         if READERS.contains(&id) {
-            notes.extend(read_range(row).map(|note| format!("queries[{index}]: {note}")));
-            notes.extend(read_pairs(row).map(|note| format!("queries[{index}]: {note}")));
+            read_range(row).into_iter().for_each(&mut said);
+            read_range_items(row).into_iter().for_each(&mut said);
         }
-        notes.extend(
-            read_tool_queries(id, row)
-                .into_iter()
-                .map(|note| format!("queries[{index}]: {note}")),
-        );
+        read_tool_queries(id, row)
+            .into_iter()
+            .chain(read_switches(id, row))
+            .for_each(&mut said);
         for guess in GUESSES
             .iter()
             .filter(|guess| guess.within.is_empty() && guess.tools.contains(&id))
@@ -264,30 +394,248 @@ pub(super) fn read(id: ToolId, input: &mut Value) -> Vec<String> {
             let Some(value) = row.get(guess.sent) else {
                 continue;
             };
-            let Reading::Field(field, meant) = (guess.read)(value, row) else {
+            let Some(fields) = guess.reading(value, row) else {
                 continue;
             };
-            let merged = match (row.get(field), &meant) {
-                (None, _) => meant,
-                // Paths to skip add up: both lists are one reading.
-                (Some(Value::Array(have)), Value::Array(more)) if field == "exclude" => {
-                    Value::Array(have.iter().chain(more).cloned().collect())
-                }
-                // The row sets the field too: two values, no one reading.
-                (Some(_), _) => continue,
+            let Some(read) = fields
+                .into_iter()
+                .map(|(field, meant)| Some((field, merged(row, field, meant)?)))
+                .collect::<Option<Vec<_>>>()
+            else {
+                continue;
             };
-            // The repair names its value when the field takes another than
-            // was sent (`filesOnly: true` is `view: "files"`).
-            let repair = if &merged == value {
-                format!("`{field}`")
-            } else {
-                format!("`{field}: {merged}`")
-            };
+            // The repair names each value the call runs with other than the
+            // one sent (`filesOnly: true` is `view: "files"`).
+            let repair = read
+                .iter()
+                .map(|(field, merged)| {
+                    if merged == value {
+                        format!("`{field}`")
+                    } else {
+                        format!("`{field}: {merged}`")
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" with ");
             row.remove(guess.sent);
-            row.insert(field.to_owned(), merged);
+            for (field, merged) in read {
+                row.insert(field.to_owned(), merged);
+            }
+            notes.push((
+                index,
+                format!(
+                    "read `{}` as {repair}; send {repair} next time.",
+                    guess.sent
+                ),
+            ));
+        }
+        let mut said = |note: String| notes.push((index, note));
+        read_owned(id, row).into_iter().for_each(&mut said);
+        read_within(id, row).into_iter().for_each(&mut said);
+        read_spellings(id, row).into_iter().for_each(&mut said);
+    }
+    per_call(notes)
+}
+
+/// Each row field no form of the row declares that exactly one row field's
+/// object declares (`state` of `filters`, `pattern` of `rule`), read inside
+/// that object, as the [`SPELLINGS`] there read it. A field the object
+/// already sets, a value beside an owner that is no object, or a field
+/// several objects declare has no one reading. One note per field read.
+fn read_owned(id: ToolId, row: &mut Map<String, Value>) -> Vec<String> {
+    use super::super::schema_facts::{property_names, property_schemas};
+    let Ok(tool) = super::super::tool_contract(id) else {
+        return Vec::new();
+    };
+    let (query, defs) = (&tool["querySchema"], &tool["querySchema"]["$defs"]);
+    let declared = property_names(query, defs);
+    let guessed = |key: &str| {
+        GUESSES
+            .iter()
+            .any(|guess| guess.within.is_empty() && guess.sent == key && guess.tools.contains(&id))
+    };
+    let sent = row
+        .keys()
+        .filter(|key| !declared.contains(key.as_str()) && !guessed(key))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut notes = Vec::new();
+    for key in sent {
+        let owners = declared
+            .iter()
+            .copied()
+            .filter(|owner| {
+                property_schemas(query, defs, owner)
+                    .iter()
+                    .any(|schema| property_names(schema, defs).contains(key.as_str()))
+            })
+            .collect::<Vec<&str>>();
+        let [owner] = owners.as_slice() else {
+            continue;
+        };
+        let owner: &str = owner;
+        let (field, value) = spelled(id, owner, &key, row[&key].clone());
+        let holder = row.get(owner).cloned().unwrap_or_else(|| json!({}));
+        let Value::Object(mut holder) = holder else {
+            continue;
+        };
+        if holder.contains_key(&field) {
+            continue;
+        }
+        holder.insert(field, value);
+        let holder = Value::Object(holder);
+        let repair = format!("`{owner}: {holder}`");
+        row.remove(&key);
+        row.insert(owner.to_owned(), holder);
+        notes.push(format!(
+            "read `{key}` as {repair}; send {repair} next time."
+        ));
+    }
+    notes
+}
+
+/// The [`GUESSES`] at fields of a row field's object (`filters.merged`)
+/// with one reading, read as their declared fields. One note per field read.
+fn read_within(id: ToolId, row: &mut Map<String, Value>) -> Vec<String> {
+    let mut notes = Vec::new();
+    for guess in GUESSES
+        .iter()
+        .filter(|guess| !guess.within.is_empty() && guess.tools.contains(&id))
+    {
+        let Some(Value::Object(holder)) = row.get_mut(guess.within) else {
+            continue;
+        };
+        let Some(value) = holder.get(guess.sent) else {
+            continue;
+        };
+        let Some(fields) = guess.reading(value, holder) else {
+            continue;
+        };
+        let Some(read) = fields
+            .into_iter()
+            .map(|(field, meant)| Some((field, merged(holder, field, meant)?)))
+            .collect::<Option<Vec<_>>>()
+        else {
+            continue;
+        };
+        holder.remove(guess.sent);
+        let within = guess.within;
+        let repair = read
+            .iter()
+            .map(|(field, merged)| format!("`{within}.{field}: {merged}`"))
+            .collect::<Vec<_>>()
+            .join(" with ");
+        for (field, merged) in read {
+            holder.insert(field.to_owned(), merged);
+        }
+        notes.push(format!(
+            "read `{within}.{}` as {repair}; send {repair} next time.",
+            guess.sent
+        ));
+    }
+    notes
+}
+
+/// Each [`SPELLINGS`] value of the row, or of a row field's object, read as
+/// the field and value it means. One note per value read.
+fn read_spellings(id: ToolId, row: &mut Map<String, Value>) -> Vec<String> {
+    let mut notes = Vec::new();
+    for spelling in SPELLINGS
+        .iter()
+        .filter(|spelling| spelling.tools.contains(&id))
+    {
+        let holder = match spelling.within {
+            "" => Some(&mut *row),
+            within => row.get_mut(within).and_then(Value::as_object_mut),
+        };
+        let Some(holder) = holder else {
+            continue;
+        };
+        let Some(sent) = holder.get(spelling.field).cloned() else {
+            continue;
+        };
+        let Some((field, meant)) = spelling.reading(spelling.field, &sent) else {
+            continue;
+        };
+        if field != spelling.field && holder.get(field).is_some_and(|have| *have != meant) {
+            continue;
+        }
+        holder.remove(spelling.field);
+        holder.insert(field.to_owned(), meant.clone());
+        let at = |field: &str| match spelling.within {
+            "" => field.to_owned(),
+            within => format!("{within}.{field}"),
+        };
+        let (from, to) = (at(spelling.field), at(field));
+        notes.push(format!(
+            "read `{from}: {sent}` as `{to}: {meant}`; send `{to}: {meant}` next time."
+        ));
+    }
+    notes
+}
+
+/// Each distinct repair note once, in the order first made, prefixed with
+/// the rows it was made on: a batch that sent one guess on every row reads
+/// one line, not one per row.
+pub(super) fn per_call(notes: Vec<(usize, String)>) -> Vec<String> {
+    let mut grouped: Vec<(Vec<usize>, String)> = Vec::new();
+    for (index, note) in notes {
+        match grouped.iter_mut().find(|(_, said)| *said == note) {
+            Some((rows, _)) if !rows.contains(&index) => rows.push(index),
+            Some(_) => {}
+            None => grouped.push((vec![index], note)),
+        }
+    }
+    grouped
+        .into_iter()
+        .map(|(rows, note)| {
+            let rows = rows
+                .iter()
+                .map(usize::to_string)
+                .collect::<Vec<_>>()
+                .join(",");
+            format!("queries[{rows}]: {note}")
+        })
+        .collect()
+}
+
+/// `meant` for `field` of `row`, beside what the row already sets there;
+/// none when the row sets another value: two values, no one reading.
+fn merged(row: &Map<String, Value>, field: &str, meant: Value) -> Option<Value> {
+    match (row.get(field), meant) {
+        (None, meant) => Some(meant),
+        // Paths to skip add up: both lists are one reading.
+        (Some(Value::Array(have)), Value::Array(more)) if field == "exclude" => {
+            Some(Value::Array(have.iter().chain(&more).cloned().collect()))
+        }
+        (Some(have), meant) => (*have == meant).then_some(meant),
+    }
+}
+
+/// A switch (`true`, `false`) sent for a field whose values include `on`
+/// and `off`: that value. One note per field read.
+fn read_switches(id: ToolId, row: &mut Map<String, Value>) -> Vec<String> {
+    use super::super::schema_facts::{child_schemas, resolve_ref};
+    let Ok(tool) = super::super::tool_contract(id) else {
+        return Vec::new();
+    };
+    let (query, defs) = (&tool["querySchema"], &tool["querySchema"]["$defs"]);
+    let mut notes = Vec::new();
+    for (key, value) in row.iter_mut() {
+        let Some(on) = value.as_bool() else {
+            continue;
+        };
+        let switched = child_schemas(query, defs, key).iter().any(|field| {
+            resolve_ref(field, defs)["enum"]
+                .as_array()
+                .is_some_and(|values| {
+                    values.contains(&json!("on")) && values.contains(&json!("off"))
+                })
+        });
+        if switched {
+            *value = json!(if on { "on" } else { "off" });
             notes.push(format!(
-                "queries[{index}]: read `{}` as {repair}; send {repair} next time.",
-                guess.sent
+                "read `{key}: {on}` as `{key}: {value}`; send `{key}: {value}` next time."
             ));
         }
     }
@@ -467,23 +815,50 @@ fn read_range(row: &mut Map<String, Value>) -> Option<String> {
     )
 }
 
-/// `ranges` as `[[start, end], …]`: each pair one range. A flat list of
-/// numbers (`[2, 4]`: lines 2 and 4, or 2 through 4) has no one reading.
-fn read_pairs(row: &mut Map<String, Value>) -> Option<String> {
-    let items = row.get("ranges")?.as_array()?;
-    let pairs = items
-        .iter()
-        .map(|item| match item.as_array()?.as_slice() {
-            [start, end] if start.is_u64() && end.is_u64() => {
-                Some(json!({"startLine": start, "endLine": end}))
-            }
+/// Items of `ranges` sent as `[start, end]` pairs or `{start, end}`: the
+/// ranges they bound, beside declared items. A flat list of numbers (`[2, 4]`:
+/// lines 2 and 4, or 2 through 4), half a range or a bound sent twice has no
+/// one reading.
+fn read_range_items(row: &mut Map<String, Value>) -> Option<String> {
+    let bounds = |item: &Value| match item {
+        Value::Array(pair) => match pair.as_slice() {
+            [start, end] => Some((start.clone(), end.clone(), true)),
             _ => None,
-        })
-        .collect::<Option<Vec<_>>>()
-        .filter(|pairs| !pairs.is_empty())?;
-    row.insert("ranges".to_owned(), Value::Array(pairs));
+        },
+        Value::Object(sent) if sent.len() == 2 => {
+            let line = |name: &str| sent.get(name).cloned();
+            match (
+                line("start"),
+                line("end"),
+                line("startLine"),
+                line("endLine"),
+            ) {
+                (Some(start), Some(end), ..) => Some((start, end, true)),
+                (.., Some(start), Some(end)) => Some((start, end, false)),
+                _ => None,
+            }
+        }
+        _ => None,
+    };
+    let read = row
+        .get("ranges")?
+        .as_array()?
+        .iter()
+        .map(bounds)
+        .collect::<Option<Vec<_>>>()?;
+    let lines = read
+        .iter()
+        .all(|(start, end, _)| start.is_u64() && end.is_u64());
+    if !lines || !read.iter().any(|(.., guessed)| *guessed) {
+        return None;
+    }
+    let ranges = read
+        .into_iter()
+        .map(|(start, end, _)| json!({"startLine": start, "endLine": end}))
+        .collect();
+    row.insert("ranges".to_owned(), Value::Array(ranges));
     Some(
-        "read each `[start, end]` pair of `ranges` as `{startLine, endLine}`; send `ranges:[{startLine,endLine}]` next time."
+        "read each `[start, end]` or `{start, end}` in `ranges` as `{startLine, endLine}`; send `ranges:[{startLine,endLine}]` next time."
             .to_owned(),
     )
 }

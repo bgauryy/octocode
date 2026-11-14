@@ -220,7 +220,6 @@ mod empty_pages;
 mod large_sources;
 mod limit;
 mod long_line_rows;
-mod long_text_every_value;
 mod match_list;
 mod pages;
 mod recovery;
@@ -231,6 +230,7 @@ mod seek;
 #[cfg(unix)]
 mod special_files;
 mod stored;
+mod tally;
 mod test_code;
 mod timing;
 mod windows;

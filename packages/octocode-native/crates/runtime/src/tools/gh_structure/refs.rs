@@ -1,27 +1,36 @@
 //! `operation:"refs"` (branches and tags) and `operation:"languages"`.
 use super::*;
 use octocode_github::MAX_PER_PAGE;
-use octocode_github::{NamedRef, RefKind, RefMatch};
+use octocode_github::{NamedRef, RefKind, RefMatch, TagRef};
 
 /// Refs per provider page are the query's `limit`; the contract's largest
 /// is GitHub's own page maximum.
 const _: () =
     assert!(crate::contracts::query_limits::gh_structure::refs::LIMIT_MAXIMUM <= MAX_PER_PAGE);
 
-/// The default branch and its head commit, one page of branches
-/// (`[{name, sha}]`), and tags ordered newest version first ([`super::tag_order`]).
-/// Saved cursor progress continues while either list has more. Tags carry
-/// names because each name is already a ref. With `ref`, return only that
-/// ref's commit and `refKind`.
+/// The default branch, one page of branches and one of tags ordered newest
+/// version first ([`super::tag_order`]), each `{name, sha}` with the commit
+/// it names (an annotated tag's target, every one on the page read
+/// together). Saved cursor progress continues while either list has more.
+/// A listing resolves no ref, so it states no `commitSha`: one beside the
+/// tags would read as theirs. With `ref`,
+/// return only that ref's commit and `refKind`; with a glob `ref`
+/// ([`ref_pattern`]), the listing of the tags and branches it matches.
 pub(super) async fn refs(
     provider: &GitHubProvider,
     query: &GhStructureQueryRefs,
     context: &RequestContext,
 ) -> Result<ToolData, ProviderError> {
     let (owner, repo) = (query.owner.as_str(), query.repo.as_str());
+    let pattern = query
+        .ref_
+        .as_deref()
+        .map(|reference| ref_pattern(reference))
+        .transpose()?
+        .flatten();
     // One named ref resolves to its commit (gh `api git/ref/tags/X`), not a
     // page of every tag.
-    if let Some(reference) = query.ref_.as_deref() {
+    if let Some(reference) = query.ref_.as_deref().filter(|_| pattern.is_none()) {
         let sha = match provider
             .resolve_reference(owner, repo, Some(reference), context)
             .await
@@ -81,27 +90,39 @@ pub(super) async fn refs(
     let asked = query_row(query, &["page"]);
     let wanted = RefLists::of(&asked);
     let branches = async {
-        if wanted.branches {
-            transport
+        match (wanted.branches, &pattern) {
+            (false, _) => Ok(None),
+            (true, None) => transport
                 .repository_refs(owner, repo, RefKind::Branches, page, per_page, context)
                 .await
-                .map(Some)
-        } else {
-            Ok(None)
+                .map(Some),
+            // A pattern selects from every branch: GitHub filters none, so
+            // a page of the matches is cut from the whole list.
+            (true, Some(pattern)) => transport
+                .all_refs(owner, repo, RefKind::Branches, context)
+                .await
+                .map(|all| Some(matching_page(all, pattern, page, per_page))),
         }
+    };
+    // A failed whole-list read remains a typed failure: substituting
+    // GitHub's page order would change the cursor's ordering. A glob's
+    // literal start is GitHub's to match: only refs that can match are read.
+    let prefix = match (&pattern, query.ref_.as_deref()) {
+        (Some(_), Some(glob)) => literal_prefix(glob),
+        _ => "",
     };
     let tags = async {
         if wanted.tags {
-            tag_page(transport, owner, repo, page, per_page, context)
+            transport
+                .repository_tag_refs(owner, repo, prefix, context)
                 .await
                 .map(Some)
         } else {
             Ok(None)
         }
     };
-    let (default_branch, head, branches, tags) = tokio::try_join!(
+    let (default_branch, branches, tags) = tokio::try_join!(
         default_branch(provider, owner, repo, context),
-        provider.resolve_reference(owner, repo, None, context),
         branches,
         tags,
     )?;
@@ -109,13 +130,9 @@ pub(super) async fn refs(
         "owner": owner,
         "repo": repo,
         "defaultBranch": default_branch,
-        "commitSha": head,
     });
-    if let Some(tags) = &tags {
-        value["tags"] = json!(tags.names);
-    }
-    let tags = tags.unwrap_or_default();
-    // The default-branch read named the canonical repository: leads use it.
+    // The default-branch read named the canonical repository: leads use it,
+    // and the tag order knows the repository's own tags by its name.
     let (renamed_warning, canonical) = crate::tools::gh_shared::canonical_query(
         provider,
         query,
@@ -126,12 +143,39 @@ pub(super) async fn refs(
     .await?
     .unzip();
     let query = canonical.as_ref().unwrap_or(query);
+    let tags = tags.map(|mut refs| {
+        if let Some(pattern) = &pattern {
+            refs.retain(|tag| pattern.is_match(&tag.name));
+        }
+        tag_page(refs, query.repo.as_str(), page, per_page)
+    });
+    let mut listed_tags = 0;
+    if let Some(tags) = &tags {
+        let commits = transport
+            .tag_commits(
+                query.owner.as_str(),
+                query.repo.as_str(),
+                &tags.refs,
+                context,
+            )
+            .await?;
+        // A tag deleted since the list was read is no tag of the repository.
+        let rows = tags
+            .refs
+            .iter()
+            .zip(commits)
+            .filter_map(|(tag, sha)| Some(json!({ "name": tag.name, "sha": sha? })))
+            .collect::<Vec<_>>();
+        listed_tags = rows.len();
+        value["tags"] = Value::Array(rows);
+    }
+    let tags = tags.unwrap_or_default();
     if let Some(warning) = renamed_warning {
         push_warning_front(&mut value, warning);
     }
     let mut continued = query_row(query, &["page"]);
     let listed_branches = branches.as_ref().map_or(0, |branches| branches.refs.len());
-    let past_end = page > 1 && tags.names.is_empty() && listed_branches == 0;
+    let past_end = page > 1 && tags.refs.is_empty() && listed_branches == 0;
     let more = tags.has_more || branches.as_ref().is_some_and(|branches| branches.has_more);
     // Rows, never `{name: sha}`: a branch name is data, and in a JSON key the
     // output secret gate reads `"…-token-x":"<sha>"` as a credential.
@@ -144,7 +188,7 @@ pub(super) async fn refs(
     }
     // The refs this page lists, tags and branches together, from the start
     // of its provider page.
-    let shown = tags.names.len() + listed_branches;
+    let shown = listed_tags + listed_branches;
     let pages = crate::response::pages::PageFacts::open(
         crate::response::pages::PageFacts::start_of(page, per_page),
         shown,
@@ -163,6 +207,53 @@ pub(super) async fn refs(
     }
     crate::response::result::finish_calls(&mut value);
     Ok(ToolData::from(value))
+}
+
+/// A `ref` holding a glob character (`*`, `?`, `[`) names no ref (git's
+/// `check-ref-format` refuses each in a ref name): it selects the listed
+/// tags and branches whose whole name it matches (`v4.*`, `release/*`), so
+/// one release line is one call. `None`: a ref name, resolved to its commit.
+fn ref_pattern(reference: &str) -> Result<Option<globset::GlobMatcher>, ProviderError> {
+    if !reference.contains(['*', '?', '[']) {
+        return Ok(None);
+    }
+    globset::GlobBuilder::new(reference)
+        .literal_separator(false)
+        .build()
+        .map(|glob| Some(glob.compile_matcher()))
+        .map_err(|error| {
+            ProviderError::new(
+                octocode_github::ProviderErrorKind::Validation,
+                format!("ref {reference:?} is neither a ref name nor a valid glob: {error}"),
+            )
+        })
+}
+
+/// The start of glob `glob` every name it matches begins with: up to its
+/// first glob character (`*`, `?`, `[`, `{`, or a `\\` escape).
+fn literal_prefix(glob: &str) -> &str {
+    glob.split_once(['*', '?', '[', '{', '\\'])
+        .map_or(glob, |(prefix, _)| prefix)
+}
+
+/// Page `page` of the refs in `all` whose name `pattern` matches, in
+/// GitHub's order.
+fn matching_page(
+    all: Vec<NamedRef>,
+    pattern: &globset::GlobMatcher,
+    page: usize,
+    per_page: usize,
+) -> octocode_github::RefPage {
+    let matched = all
+        .into_iter()
+        .filter(|named| pattern.is_match(&named.name))
+        .collect::<Vec<_>>();
+    let start = page.saturating_sub(1).saturating_mul(per_page);
+    let has_more = matched.len() > start.saturating_add(per_page);
+    octocode_github::RefPage {
+        refs: matched.into_iter().skip(start).take(per_page).collect(),
+        has_more,
+    }
 }
 
 /// The ref lists one read returns: the request's `refKinds` (`"tags"`,
@@ -192,33 +283,34 @@ impl RefLists {
     }
 }
 
-/// One page of a repository's tag names.
+/// One page of a repository's tags.
 #[derive(Default)]
 struct TagPage {
-    names: Vec<String>,
+    refs: Vec<TagRef>,
     has_more: bool,
 }
 
-/// Page `page` of the repository's tags, newest version first: the whole
-/// tag list is read (one git-refs listing) and ordered, so every page
-/// continues one order. A failed whole-list read remains a typed failure:
-/// substituting GitHub's page order would change the cursor's ordering.
-async fn tag_page(
-    transport: &octocode_github::GitHubTransport,
-    owner: &str,
-    repo: &str,
-    page: usize,
-    per_page: usize,
-    context: &RequestContext,
-) -> Result<TagPage, ProviderError> {
-    let mut names = transport.repository_tag_names(owner, repo, context).await?;
-    super::tag_order::newest_first(&mut names);
+/// Page `page` of repository `repo`'s tags, newest version first: the
+/// whole tag list (one git-refs listing) is ordered, so every page
+/// continues one order.
+fn tag_page(refs: Vec<TagRef>, repo: &str, page: usize, per_page: usize) -> TagPage {
+    let mut names = refs.iter().map(|tag| tag.name.clone()).collect::<Vec<_>>();
+    super::tag_order::newest_first(&mut names, repo);
+    let mut by_name = refs
+        .into_iter()
+        .map(|tag| (tag.name.clone(), tag))
+        .collect::<std::collections::HashMap<_, _>>();
     let start = page.saturating_sub(1).saturating_mul(per_page);
     let has_more = names.len() > start.saturating_add(per_page);
-    Ok(TagPage {
-        names: names.into_iter().skip(start).take(per_page).collect(),
+    TagPage {
+        refs: names
+            .into_iter()
+            .skip(start)
+            .take(per_page)
+            .filter_map(|name| by_name.remove(&name))
+            .collect(),
         has_more,
-    })
+    }
 }
 
 /// Bytes of code per language on the default branch, largest first, with

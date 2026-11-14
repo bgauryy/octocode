@@ -183,14 +183,6 @@ impl SourceResult {
     }
 }
 
-/// `status:"empty"`: every source covering the target finished with nothing.
-fn all_none_known(results: &[SourceResult]) -> bool {
-    !results.is_empty()
-        && results
-            .iter()
-            .all(|result| result.status() == SourceStatus::NoneKnown)
-}
-
 /// How a row states its advisories.
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(super) enum View {
@@ -240,9 +232,8 @@ pub(super) fn into_row(mut data: Value, results: &[SourceResult], view: View) ->
                 .collect::<Vec<_>>(),
         });
     }
-    if all_none_known(results) {
-        data["status"] = json!("empty");
-    }
+    // A finished check that found nothing is an answer (`affected:false`,
+    // each source `noneKnown`), not an empty row: none known is what was asked.
     data
 }
 

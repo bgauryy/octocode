@@ -5,7 +5,7 @@ use octocode_contract_types::{ErrorCode, LocalFetchQuery};
 mod lines;
 pub(crate) use lines::LineOffsets;
 mod matches;
-pub(crate) use matches::MATCH_MARGIN;
+pub(crate) use matches::{FITS_ANY_BYTE_PAGE, MATCH_MARGIN};
 mod search_lead;
 mod spans;
 
@@ -58,6 +58,32 @@ pub struct Extraction {
     /// for any byte page: sorted, disjoint, each inside its line. The byte
     /// walk of such a line shows them first.
     pub match_windows: Vec<(usize, usize)>,
+    /// A list `matchString` read with hits: the entries that selected none
+    /// of them, as written, in order.
+    pub unmatched: Vec<String>,
+}
+
+/// The warning that names the entries of a list `matchString` that selected
+/// nothing while the others did: each as written, in order.
+pub(crate) fn unmatched_warning(q: &LocalFetchQuery, unmatched: &[String]) -> Option<String> {
+    if unmatched.is_empty() {
+        return None;
+    }
+    let total = local_fetch_query::match_strings(q).len();
+    let terms = unmatched
+        .iter()
+        .map(|term| serde_json::to_string(term).unwrap_or_default())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let scope = if local_fetch_query::has_ranges(q) {
+        " in the requested ranges"
+    } else {
+        ""
+    };
+    Some(format!(
+        "{} of {total} matchString entries matched nothing{scope}: {terms}.",
+        unmatched.len()
+    ))
 }
 
 /// View-line sentinel for an omission marker (source lines are 1-based).
@@ -118,6 +144,7 @@ impl Extraction {
             blocks: vec![],
             match_limited: false,
             match_windows: vec![],
+            unmatched: vec![],
         }
     }
 }
@@ -182,6 +209,7 @@ fn ranges_extract(
         blocks: vec![],
         match_limited: false,
         match_windows: vec![],
+        unmatched: vec![],
     })
 }
 

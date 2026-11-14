@@ -15,7 +15,8 @@ fn missing_items_list_where_the_right_one_is() {
         assert_eq!(next[name]["tool"], "ghSearchHistory", "{next}");
         assert_eq!(
             next[name]["input"]["queries"][0],
-            json!({"operation":operation,"owner":"o","repo":"r"}),
+            json!({"operation":operation,"owner":"o","repo":"r",
+                "limit":crate::tools::gh_shared::RECOVERY_LIMIT}),
             "{next}"
         );
         assert!(recovery(ProviderErrorKind::RateLimited, None, &query).is_none());

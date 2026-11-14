@@ -81,6 +81,7 @@ mod fs_query;
 pub(crate) mod fs_resume;
 mod graph_scan;
 mod ignore;
+mod line_scope;
 mod test_code;
 mod text_search;
 
@@ -91,6 +92,7 @@ pub use fs_query::{
 pub use fs_resume::{WalkCursor, WalkTally};
 pub use graph_scan::{GraphFactsScanDiagnostic, GraphFactsScanOptions, GraphLanguageGlob};
 pub use ignore::IgnorePolicy;
+pub use line_scope::LineScope;
 pub use test_code::{PathTest, TestCodeExcluded, TestCodeScope, WHOLE_FILE, wholly_left_out};
 pub use text_search::{
     BinaryExtensionCount, CapReason, CaseRule, DeferredInspector, InspectDeferred, JudgeSource,

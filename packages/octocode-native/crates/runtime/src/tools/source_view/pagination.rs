@@ -6,6 +6,7 @@ mod long_lines;
 mod source_lines;
 #[cfg(test)]
 pub(crate) use long_lines::placed_pieces;
+pub(crate) use long_lines::{LineWalk, gap_marker, join_window};
 pub(super) use long_lines::{LongLines, Placement};
 use long_lines::{MatchFirst, filled_page, oversized_line_end};
 pub(super) use source_lines::SourceLines;
@@ -94,6 +95,21 @@ pub(crate) const MIN_BYTE_PAGE: usize = 4_096;
 /// page budget when that is smaller, and never under [`MIN_BYTE_PAGE`].
 fn byte_page(line_page_bytes: usize) -> usize {
     line_page_bytes.clamp(MIN_BYTE_PAGE, LINE_PAGE_BYTES)
+}
+
+/// The bytes a line page holds under the response `window` a read is served
+/// in: [`LINE_PAGE_BYTES`] without one. A line longer than this is read in
+/// byte pages.
+pub(crate) fn line_page_bytes(window: Option<usize>) -> usize {
+    window.map_or(LINE_PAGE_BYTES, |window| {
+        crate::response::page_windows::page_budget(Some(window))
+    })
+}
+
+/// A byte page's room under the response `window` a read is served in
+/// ([`byte_page`] of [`line_page_bytes`]).
+pub(crate) fn byte_page_room(window: Option<usize>) -> usize {
+    byte_page(line_page_bytes(window))
 }
 
 /// The page of `content` that `q` asks for, with a line page of at most

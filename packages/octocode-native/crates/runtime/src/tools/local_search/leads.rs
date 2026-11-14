@@ -28,6 +28,8 @@ pub(super) struct Disclosed {
     /// Skipped paths hold a match, or may: a retry over them reaches it.
     pub(super) skipped_match: bool,
     pub(super) skipped_paths: Option<SkippedPaths>,
+    /// The check of an empty page's skipped paths found nothing in them.
+    pub(super) checked: Option<Checked>,
 }
 
 /// A page's result, for its leads.
@@ -94,16 +96,13 @@ impl Found<'_> {
                 Continuation::related(ToolId::LspSearch, row).build(),
             );
         }
-        // Binaries were never text to search: a row with hits states their
-        // count in `stats`, an empty row says it in `warnings` with their
-        // listing, where they may explain the miss.
-        if let Some((warning, listing)) = self.skipped_binaries() {
-            if self.empty {
-                warnings.extend(Some(warning).filter(|warning| !warning.is_empty()));
-            } else {
-                stats.binary_skipped = self.leading_binaries();
-            }
-            if let Some(listing) = listing {
+        // Binaries were never text to search: every row states their count
+        // in `stats` (an empty row's absence sentence restates it). Only
+        // binary-cut files too many to name get a listing: their text past
+        // the NUL is unread.
+        if let Some(disclosure) = self.skipped_binaries() {
+            stats.binary_skipped = self.leading_binaries();
+            if let Some(listing) = disclosure.listing {
                 add(BINARY_LISTING.into(), listing);
             }
         }
@@ -125,8 +124,10 @@ impl Found<'_> {
         // already answers; its skipped paths stay counted, not re-offered.
         // Thousands of hits page for dozens of calls: one count call ranks
         // the files first, so the next read or narrowing is chosen, not paged.
+        // A page that shows no hit rows (a `countAll` tally) pages nothing.
         if self.first_page()
             && !list_view(local_search_query::view(query))
+            && !self.files.is_empty()
             && self
                 .scanned
                 .match_count
@@ -162,7 +163,6 @@ impl Found<'_> {
                 },
                 next,
                 hints,
-                warnings,
             )?,
             None => Unsearched::default(),
         };
@@ -174,6 +174,7 @@ impl Found<'_> {
         Ok(Disclosed {
             skipped_match: unsearched.may_hold_matches,
             skipped_paths,
+            checked: unsearched.checked,
         })
     }
 

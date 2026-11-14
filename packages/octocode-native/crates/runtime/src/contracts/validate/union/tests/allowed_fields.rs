@@ -5,8 +5,7 @@ use super::super::validate_schema;
 use super::*;
 
 fn unknown_field_error(tool: &str, row: Value) -> String {
-    let error =
-        prepare_many_and_validate(tool, json!({ "queries": [row] })).expect_err("unknown field");
+    let error = prepare_rows(tool, json!({ "queries": [row] })).expect_err("unknown field");
     let shown =
         crate::contracts::validate::format_input_error(tool, &error, &[], &serde_json::Value::Null);
     shown["error"].as_str().unwrap_or_default().to_owned()
@@ -115,7 +114,7 @@ fn the_row_s_other_fields_narrow_the_allowed_forms() {
 /// the message gives no suggestion.
 #[test]
 fn an_unknown_field_is_never_corrected_to_a_field_already_sent() {
-    let error = prepare_many_and_validate("localSearch", json!({"cursor": "x", "cursor2": "y"}))
+    let error = prepare_rows("localSearch", json!({"cursor": "x", "cursor2": "y"}))
         .expect_err("unknown field");
     let message = crate::contracts::validate::format_input_error(
         "localSearch",
@@ -143,8 +142,7 @@ fn an_unknown_field_is_never_corrected_to_a_field_already_sent() {
 fn a_value_choosing_no_form_names_every_form_with_an_example() {
     let questions = json!({"q":{"type":"noul","instructions":"Is it ok?"}});
     let shown = |row: Value| {
-        let error =
-            prepare_many_and_validate("clasify", json!({ "queries": [row] })).expect_err("no form");
+        let error = prepare_rows("clasify", json!({ "queries": [row] })).expect_err("no form");
         crate::contracts::validate::format_input_error("clasify", &error, &[], &Value::Null)
             .to_string()
     };

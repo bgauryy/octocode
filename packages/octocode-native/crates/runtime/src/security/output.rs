@@ -158,7 +158,10 @@ impl ContentSecurity {
             value,
             &JudgedLeaves::default(),
             &Admitted::default(),
-            emails,
+            super::Pii {
+                emails,
+                uuids: false,
+            },
             check,
         )
     }
@@ -171,13 +174,14 @@ impl ContentSecurity {
     /// `own` is the text of the rows the value answers: where a leaf repeats
     /// a string of it, the gate leaves those bytes as the caller sent them
     /// ([`Self::sanitize_response_leaf`]). A marked leaf is text of a file
-    /// and is never read against `own`.
+    /// and is never read against `own`. The personal data `pii` names is
+    /// masked last ([`Self::redact_pii`]).
     pub(crate) fn seal_judged<E>(
         &self,
         mut value: Value,
         judged: &JudgedLeaves,
         own: &Admitted,
-        emails: bool,
+        pii: super::Pii,
         check: impl Fn() -> Result<(), E>,
     ) -> Result<Sanitized, E> {
         check()?;
@@ -198,14 +202,14 @@ impl ContentSecurity {
             &mut |text, path, source| {
                 held |= path.is_some_and(crate::policy::discovery::is_sensitive_repository_file);
                 Ok(match source {
-                    Some(source) => self.sanitize_judged_leaf(text, path, source),
-                    None => self.sanitize_response_leaf(text, path, own),
+                    Some(_) => self.sanitize_judged_leaf(text),
+                    None => self.sanitize_response_leaf(text, own),
                 })
             },
         )?;
-        if emails {
+        if pii.any() {
             check()?;
-            sanitize_json(&mut value, &mut |text, _| Ok(self.redact_emails(text)))?;
+            sanitize_json(&mut value, &mut |text, _| Ok(self.redact_pii(text, pii)))?;
         }
         Ok(Sanitized::of(value, held, honored, own))
     }
@@ -233,13 +237,13 @@ fn assert_gate_fixed_point(value: &Value, judged: &[(String, String)], own: &Adm
         &JudgedLeaves::default(),
         own,
         super::walk::Messages::Authored,
-        &mut |text, path, _| {
+        &mut |text, _, _| {
             let source = judged
                 .iter()
                 .find(|(whole, _)| !text.is_empty() && whole.contains(text));
             Ok::<_, std::convert::Infallible>(match source {
-                Some((_, source)) => security.sanitize_judged_leaf(text, path, source),
-                None => security.sanitize_response_leaf(text, path, own),
+                Some(_) => security.sanitize_judged_leaf(text),
+                None => security.sanitize_response_leaf(text, own),
             })
         },
     );
@@ -296,6 +300,39 @@ mod tests {
         );
     }
 
+    /// UUIDs are masked only when asked, apart from emails: each switch
+    /// masks its own kind, wherever a leaf holds one.
+    #[test]
+    fn uuid_and_email_masking_are_opt_in_and_independent() {
+        const ID: &str = "123e4567-e89b-12d3-a456-426614174000";
+        let row = || json!({"id": ID, "author": "dev@example.com", "text": format!("run {ID} by dev@example.com")});
+        let seal = |pii: crate::security::Pii| {
+            ContentSecurity::new()
+                .seal_judged(
+                    row(),
+                    &JudgedLeaves::default(),
+                    &Admitted::default(),
+                    pii,
+                    || Ok::<_, std::convert::Infallible>(()),
+                )
+                .unwrap_or_else(|never| match never {})
+                .into_value()
+        };
+        assert_eq!(seal(crate::security::Pii::default()), row());
+        let uuids = seal(crate::security::Pii {
+            emails: false,
+            uuids: true,
+        });
+        assert_eq!(uuids["id"], "[REDACTED-UUID]");
+        assert_eq!(uuids["author"], "dev@example.com");
+        assert_eq!(uuids["text"], "run [REDACTED-UUID] by dev@example.com");
+        let both = seal(crate::security::Pii {
+            emails: true,
+            uuids: true,
+        });
+        assert_eq!(both["text"], "run [REDACTED-UUID] by [REDACTED-EMAIL]");
+    }
+
     #[test]
     fn email_redaction_is_opt_in_and_masks_commit_authors() {
         let commit_row = || {
@@ -331,42 +368,6 @@ mod tests {
     /// File text a tool returns beside its source-code `path`
     /// is not re-redacted as YAML by the output net, while every credential in
     /// it, and `password:` in config files, stay redacted.
-    #[test]
-    fn output_net_applies_source_code_context_from_the_result_path() {
-        let member = "interface Cfg {\n  password: hunter2hunter2hunter2;\n}\n";
-        let token = format!("ghp_{}", "a".repeat(37));
-        let pem =
-            "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAxyz\n-----END RSA PRIVATE KEY-----";
-        let run = |path: &str, content: &str| {
-            let mut value = json!({"files":[{"path": path, "matches":[{"value": content}]}]});
-            value = seal(value, false);
-            value["files"][0]["matches"][0]["value"]
-                .as_str()
-                .expect("value")
-                .to_owned()
-        };
-        let rust_member = "struct Cfg {\n    password: hunter2hunter2hunter2,\n}\n";
-        for (path, member) in [("src/a.ts", member), ("crates/b.rs", rust_member)] {
-            assert_eq!(run(path, member), member, "{path}");
-            let credential = format!("const t = \"{token}\";\n{pem}\n");
-            let out = run(path, &credential);
-            assert!(!out.contains(&token) && !out.contains("MIIEow"), "{out}");
-        }
-        for path in ["config/app.yaml", ".env", "Procfile", ""] {
-            let out = run(path, member);
-            assert!(!out.contains("hunter2"), "{path}: {out}");
-        }
-        // No `path` anywhere: the pathless net applies as before.
-        let mut bare = json!({"content": member});
-        bare = seal(bare, false);
-        assert!(
-            !bare["content"]
-                .as_str()
-                .expect("content")
-                .contains("hunter2")
-        );
-    }
-
     #[test]
     fn sanitizer_redacts_real_secret_in_next_query_and_location() {
         // A real GitHub token embedded in a continuation query or a location
@@ -429,9 +430,7 @@ mod tests {
             "responsePagination": {"hasMore": true, "next": walk(json!({"cursor": handle}))},
         });
         assert!(
-            ContentSecurity::new()
-                .sanitize_leaf(&token, Some("vendor/lib.min.js"))
-                .is_some(),
+            ContentSecurity::new().sanitize_leaf(&token).is_some(),
             "the detector hides the state value"
         );
         let sealed = seal(response.clone(), false);
@@ -479,7 +478,7 @@ mod tests {
             "compact view: 177 of 184 bytes the content view serves for the selected lines, all pages (96.19%).",
             "Pass the password the server expects through ~/.octocode/.env; the token is never written to a file.",
         ];
-        let secret = "Xq9vB7mKz2Lp8RtW4nYcQ";
+        let secret = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
         let token = format!("ghp_{}", "a1B2".repeat(9));
         let row = |content: String, quoted: &str| {
             let mut warnings: Vec<Value> = wordings.iter().map(|wording| json!(wording)).collect();
@@ -498,7 +497,7 @@ mod tests {
         let envelope = json!({
             "results": [
                 row("name=demo\n".into(), ""),
-                row(format!("db.password={secret}\n"), &format!("the line `db.password={secret}` was read")),
+                row(format!("aws_secret_access_key={secret}\n"), &format!("the line `aws_secret_access_key={secret}` was read")),
                 row(
                     "name=demo\n".into(),
                     &format!(
@@ -563,7 +562,8 @@ mod tests {
     }
 
     const ARMOR: &str = "-----BEGIN RSA PRIVATE KEY-----";
-    const PLACEHOLDER_URL: &str = "postgres://user:password@localhost:5432/db";
+    /// A secret only its well-known key name makes one.
+    const AWS_SECRET: &str = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
 
     /// `value` sealed as the response to `rows`, which the input gate admits.
     fn seal_for(rows: &[Value], value: Value, marks: &JudgedLeaves) -> Value {
@@ -572,9 +572,13 @@ mod tests {
             .map(|row| crate::security::CheckedQuery::checked(row.clone()))
             .collect();
         ContentSecurity::new()
-            .seal_judged(value, marks, &Admitted::of(&rows), false, || {
-                Ok::<_, std::convert::Infallible>(())
-            })
+            .seal_judged(
+                value,
+                marks,
+                &Admitted::of(&rows),
+                crate::security::Pii::default(),
+                || Ok::<_, std::convert::Infallible>(()),
+            )
             .unwrap_or_else(|never| match never {})
             .into_value()
     }
@@ -586,7 +590,6 @@ mod tests {
     fn an_admitted_request_value_is_echoed_as_sent() {
         for own in [
             ARMOR,
-            PLACEHOLDER_URL,
             "password: str",
             "token: Token",
             "api_key: str = None",
@@ -610,20 +613,17 @@ mod tests {
                 "{own}"
             );
         }
-        // No request sent these: the gate judges them as any text. An armor
-        // line holds no key and a URL whose password is the word `password`
-        // holds a placeholder, so no view hides either (D8), sent or not; a
-        // body beside the armor is hidden either way.
-        for own in [ARMOR, PLACEHOLDER_URL] {
-            let response = json!({"related": [{"input": {"matchString": own}}]});
-            let sealed = seal_for(
-                &[json!({"matchString": "other"})],
-                response.clone(),
-                &JudgedLeaves::default(),
-            );
-            assert_eq!(sealed, response, "{own}");
-            assert_eq!(sealed, seal(response, false), "{own}");
-        }
+        // No request sent this: the gate judges it as any text. An armor
+        // line holds no key, so no view hides it (D8), sent or not; a body
+        // beside the armor is hidden either way.
+        let response = json!({"related": [{"input": {"matchString": ARMOR}}]});
+        let sealed = seal_for(
+            &[json!({"matchString": "other"})],
+            response.clone(),
+            &JudgedLeaves::default(),
+        );
+        assert_eq!(sealed, response);
+        assert_eq!(sealed, seal(response, false));
         let body = "MIIEowIBAAKCAQEAxyzMIIEowIBAAKCAQEAxyzMIIEowIBAAKCAQEAxyzMIIEowIB";
         let keyed = json!({"hit": format!("{ARMOR}\n{body}")});
         for sent in [ARMOR, "other"] {
@@ -655,12 +655,12 @@ mod tests {
             "lead": format!("{ARMOR} was found beside {token}"),
             "window": format!("{ARMOR}\n{body}\n{body}"),
             "prefix": format!("ghp_aaaa is the start of {token}"),
-            "files": [{"path": "config/app.yaml", "matches": [{"value": "password: hunter2hunter2hunter2"}]}],
+            "files": [{"path": "config/app.yaml", "matches": [{"value": format!("aws_secret_access_key = {AWS_SECRET}")}]}],
         });
         let sealed = seal_for(&rows, response.clone(), &JudgedLeaves::default());
         let text = sealed.to_string();
         assert!(
-            !text.contains(&token) && !text.contains(body) && !text.contains("hunter2"),
+            !text.contains(&token) && !text.contains(body) && !text.contains(AWS_SECRET),
             "{text}"
         );
         assert_eq!(
@@ -697,39 +697,35 @@ mod tests {
     /// placeholder per value, as a read of each source shows it.
     #[test]
     fn a_value_hidden_elsewhere_stays_in_the_echoed_request_value() {
-        let rows = [json!({"matchString": "hunter2hunter2 login"})];
+        let asked = format!("{AWS_SECRET} login");
+        let line = format!("aws_secret_access_key = {AWS_SECRET}\nname: {AWS_SECRET}");
+        let rows = [json!({"matchString": asked})];
         let response = json!({
             "files": [
                 {
                     "path": "config/app.yaml",
-                    "matches": [{"value": "password: hunter2hunter2\nname: hunter2hunter2"}],
-                    "capture": "hunter2hunter2",
-                    "related": [{"input": {"matchString": "hunter2hunter2 login"}}],
+                    "matches": [{"value": line}],
+                    "capture": AWS_SECRET,
+                    "related": [{"input": {"matchString": asked}}],
                 },
-                {"path": "notes.txt", "matches": [{"value": "hunter2hunter2"}]},
+                {"path": "notes.txt", "matches": [{"value": AWS_SECRET}]},
             ],
         });
         let sealed = seal_for(&rows, response, &JudgedLeaves::default());
         let file = &sealed["files"][0];
-        assert_eq!(
-            file["related"][0]["input"]["matchString"],
-            json!("hunter2hunter2 login")
-        );
+        assert_eq!(file["related"][0]["input"]["matchString"], json!(asked));
         assert_eq!(
             file["capture"],
-            json!("[REDACTED-YAMLSECRETVALUE]"),
+            json!("[REDACTED-AWSSECRETACCESSKEY]"),
             "{sealed}"
         );
         let read = ContentSecurity::new()
-            .sanitize_leaf(
-                "password: hunter2hunter2\nname: hunter2hunter2",
-                Some("config/app.yaml"),
-            )
-            .expect("the read hides the password");
+            .sanitize_leaf(&line)
+            .expect("the read hides the key");
         assert_eq!(file["matches"][0]["value"], json!(read), "{sealed}");
         assert_eq!(
             sealed["files"][1]["matches"][0]["value"],
-            json!("hunter2hunter2"),
+            json!(AWS_SECRET),
             "{sealed}"
         );
     }
@@ -741,9 +737,8 @@ mod tests {
         let token = format!("ghp_{}", "a".repeat(36));
         for refused in [
             token.clone(),
-            format!("{}\\w\\w", &token[..38]),
             "postgres://admin:Tr0ub4dor3xK9zQ@db.internal:5432/app".to_owned(),
-            "the password is Tr0ub4dor&3xK9!zQ".to_owned(),
+            format!("aws_secret_access_key = {AWS_SECRET}"),
         ] {
             let checked = ContentSecurity::new().check_input(
                 json!({"matchString": refused}),

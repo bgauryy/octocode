@@ -200,19 +200,19 @@ fn a_secret_longer_than_a_window_never_shows_across_its_pages() {
     assert!(shown == sealed, "the sealed view, byte for byte");
 }
 
-/// Short structural secrets (`"k":"v"` shows as a longer placeholder) on one
-/// streamed line: the pages walk the sealed view, grown past the source's
-/// length, contiguously and to its end, as an in-memory read seals it
-/// (review: a growing edit was counted as none, so totals and continuation
-/// offsets fell short of the sealed bytes).
+/// Short secrets (a one-character session id shows as a longer placeholder)
+/// on one streamed line: the pages walk the sealed view, grown past the
+/// source's length, contiguously and to its end, as an in-memory read seals
+/// it (review: a growing edit was counted as none, so totals and
+/// continuation offsets fell short of the sealed bytes).
 #[test]
 fn growing_placeholders_are_walked_once_to_the_sealed_end() {
-    let object = r#"{"data":{"k":"v"},"kind":"Secret"},"#;
-    let mut raw = String::from(r#"{"items":["#);
+    let object = "JSESSIONID=v; ";
+    let mut raw = String::from("Cookie: ");
     while raw.len() < past_whole() {
         raw.push_str(object);
     }
-    raw.push_str("{\"kind\":\"ConfigMap\"}]} é日🦀\n");
+    raw.push_str("end é日🦀\n");
     let file = temp(raw.as_bytes());
     let sealed = crate::tools::source_view::prepare::sealed_view(
         raw.as_bytes(),
@@ -223,7 +223,7 @@ fn growing_placeholders_are_walked_once_to_the_sealed_end() {
     .text
     .into_owned();
     assert!(sealed.len() > raw.len(), "the placeholders grow the view");
-    assert!(!sealed.contains(r#""k":"v""#));
+    assert!(!sealed.contains("JSESSIONID=v;"));
     let (shown, pages) = walk(&file);
     assert!(pages > 2, "{pages} pages");
     assert_eq!(shown.len(), sealed.len(), "the sealed view, once");

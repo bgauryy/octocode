@@ -33,10 +33,6 @@ use std::path::PathBuf;
 // child slices in `src/security/patterns/` as it does in the library.
 #[path = "src/security"]
 mod security {
-    #[expect(
-        dead_code,
-        reason = "the gate reads only each pattern's name and regex"
-    )]
     pub(crate) mod patterns;
 }
 use security::patterns;
@@ -189,7 +185,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo:rerun-if-changed=src/security/patterns.rs");
     println!("cargo:rerun-if-changed=src/security/patterns");
     let mut gates = String::new();
-    let mut fallback = Vec::new();
     let mut fallback_gates = String::new();
     let mut longest = 0usize;
     for (index, pattern) in patterns::PATTERNS.iter().enumerate() {
@@ -208,7 +203,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
             }
             None => {
-                fallback.push(index.to_string());
                 let weak = weak_gate_literals(pattern.regex)
                     .map_err(|error| format!("secret pattern {}: {error}", pattern.name))?
                     .unwrap_or_default();
@@ -223,14 +217,11 @@ fn main() -> Result<(), Box<dyn Error>> {
          /// Every gated pattern's lowercased prefix literal and the index of the\n\
          /// pattern it belongs to, in pattern order.\n\
          pub(super) static GATE_LITERALS: &[(&[u8], usize)] = &[\n{gates}];\n\
-         /// Patterns with no provable literal: always candidates.\n\
-         pub(super) static FALLBACK: &[usize] = &[{}];\n\
          /// Each fallback pattern with its weak gate: text one of whose entries\n\
          /// occurs in every match, or no entry for a pattern with none.\n\
          pub(super) static FALLBACK_GATES: &[(usize, &[&str])] = &[\n{fallback_gates}];\n\
          /// Bytes of the longest match any pattern with a bound can make.\n\
          pub const LONGEST_BOUNDED_MATCH: usize = {longest};\n",
-        fallback.join(", ")
     );
     let out_dir = PathBuf::from(std::env::var("OUT_DIR")?);
     std::fs::write(out_dir.join("secret_gates.rs"), output)?;

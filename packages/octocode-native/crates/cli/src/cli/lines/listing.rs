@@ -1,5 +1,5 @@
 use super::hits::heading;
-use super::{annotation, hits, value_lines};
+use super::{annotation, hits, one_line, value_lines};
 use serde_json::{Map, Value};
 
 /// Whether `root` is `cwd`, the directory the command runs in.
@@ -10,9 +10,11 @@ pub(super) fn is_working_directory(root: &str, cwd: Option<&std::path::Path>) ->
 }
 
 /// A listing: each `dir/` once, its entries indented under it exactly as
-/// the result spells them, so a name is parsed for nothing. A group's other
-/// fields follow its `dir/` in `[ … ]`. `None` unless `files` is such groups
-/// (`{dir, files: [entry, …]}`), whichever tool lists them.
+/// the result spells them, so a name is parsed for nothing; a group of one
+/// entry and no other field is one line, `dir/entry` (a listing sorted by
+/// size or date is such groups). A group's other fields follow its `dir/`
+/// in `[ … ]`. `None` unless `files` is such groups (`{dir, files: [entry,
+/// …]}`), whichever tool lists them.
 pub(super) fn listing(data: &Map<String, Value>, out: &mut Vec<String>) -> Option<()> {
     let groups = data.get("files")?.as_array()?;
     let mut lines = Vec::new();
@@ -23,18 +25,20 @@ pub(super) fn listing(data: &Map<String, Value>, out: &mut Vec<String>) -> Optio
         let Value::Array(entries) = rest.shift_remove("files")? else {
             return None;
         };
-        let mut head = match dir {
-            "" => "./".to_owned(),
-            dir if dir.ends_with('/') => dir.to_owned(),
+        let mut head = match one_line(dir) {
+            dir if dir.is_empty() => "./".to_owned(),
+            dir if dir.ends_with('/') => dir.into_owned(),
             dir => format!("{dir}/"),
         };
         if let Some(note) = annotation(&rest) {
             head.push_str(&format!("  {note}"));
+        } else if let [entry] = entries.as_slice() {
+            lines.push(format!("{head}{}", one_line(entry.as_str()?)));
+            continue;
         }
         lines.push(head);
         for entry in &entries {
-            let entry = entry.as_str().filter(|entry| !entry.contains('\n'))?;
-            lines.push(format!("  {entry}"));
+            lines.push(format!("  {}", one_line(entry.as_str()?)));
         }
     }
     if lines.is_empty() {
@@ -77,6 +81,7 @@ fn declarations(
     grouped: bool,
     out: &mut Vec<String>,
 ) -> Option<()> {
+    let shown = one_line(path);
     for symbol in symbols {
         let mut symbol = symbol.as_object()?.clone();
         let line = symbol.shift_remove("line")?.as_u64()?;
@@ -123,7 +128,7 @@ fn declarations(
                 .into_iter()
                 .map(|site| {
                     if declared.is_some() {
-                        format!("{path}:{site}")
+                        format!("{shown}:{site}")
                     } else {
                         site
                     }
@@ -136,11 +141,13 @@ fn declarations(
         }
         let name = name
             .as_str()
-            .map_or_else(|| name.to_string(), str::to_owned);
+            .map_or_else(|| name.to_string(), |name| one_line(name).into_owned());
+        let kind = one_line(kind);
+        let declared = declared.as_deref().map(one_line);
         let mut entry = match (&declared, grouped) {
             (Some(declared), _) => format!("{declared}:{line}: {indent}{kind} {name}"),
             (None, true) => format!("{line}: {indent}{kind} {name}"),
-            (None, false) => format!("{path}:{line}: {indent}{kind} {name}"),
+            (None, false) => format!("{shown}:{line}: {indent}{kind} {name}"),
         };
         if !note.is_empty() {
             entry.push_str(&format!("  [{}]", note.join(" ")));
@@ -308,16 +315,57 @@ fn spelled_only_at(text: &str, symbol: &str, column: u64) -> bool {
     }
 }
 
+/// A page block (`unit`, `offset`, `length`, `hasMore`, any `total`) as
+/// its count: `10 of 37 lines`, `after 20` when it does not start the list,
+/// any other field as words, then `hasMore` (or `hasMore false`) last.
+/// `None` for any other object.
+fn page(fields: &Map<String, Value>) -> Option<String> {
+    let unit = fields.get("unit")?.as_str()?;
+    let offset = fields.get("offset")?.as_u64()?;
+    let length = fields.get("length")?.as_u64()?;
+    let more = fields.get("hasMore")?.as_bool()?;
+    let total = fields.get("total");
+    let mut text = match total {
+        Some(total) => format!("{length} of {} {}", total.as_u64()?, one_line(unit)),
+        None => format!("{length} {}", one_line(unit)),
+    };
+    if offset > 0 {
+        text.push_str(&format!(" after {offset}"));
+    }
+    let rest: Map<String, Value> = fields
+        .iter()
+        .filter(|(key, _)| {
+            !matches!(
+                key.as_str(),
+                "unit" | "offset" | "length" | "total" | "hasMore"
+            )
+        })
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    if !rest.is_empty() {
+        text.push(' ');
+        text.push_str(&words(&rest));
+    }
+    text.push_str(if more { " hasMore" } else { " hasMore false" });
+    Some(text)
+}
+
 /// Fields as words: `key` for true, `key value` for a scalar or a list of
-/// scalars, `key (words)` for a nested object; JSON only for a list of
-/// objects or lists.
+/// scalars, `key (words)` for a nested object, a page block as its count
+/// ([`page`]); JSON only for a list of objects or lists.
 pub(super) fn words(fields: &Map<String, Value>) -> String {
+    if let Some(page) = page(fields) {
+        return page;
+    }
     fields
         .iter()
         .map(|(key, value)| match value {
             Value::Bool(true) => key.clone(),
-            Value::String(text) => format!("{key} {text}"),
-            Value::Object(inner) => format!("{key} ({})", words(inner)),
+            Value::String(text) => format!("{key} {}", one_line(text)),
+            Value::Object(inner) => match page(inner) {
+                Some(page) => format!("{key} {page}"),
+                None => format!("{key} ({})", words(inner)),
+            },
             Value::Array(items)
                 if items
                     .iter()
@@ -327,7 +375,7 @@ pub(super) fn words(fields: &Map<String, Value>) -> String {
                     .iter()
                     .map(|item| {
                         item.as_str()
-                            .map_or_else(|| item.to_string(), str::to_owned)
+                            .map_or_else(|| item.to_string(), |item| one_line(item).into_owned())
                     })
                     .collect();
                 format!("{key} {}", items.join(","))

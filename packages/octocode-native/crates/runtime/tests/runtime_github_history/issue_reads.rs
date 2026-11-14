@@ -213,8 +213,9 @@ async fn issue_body_windows_keep_closing_reference_coverage() {
     runtime.close().await;
 }
 
-/// An issue summary counts its comments and offers the discussion
-/// read; an issue without comments offers neither.
+/// An issue summary counts its comments, and the discussion read is one
+/// documented call away; an issue without comments states no count and
+/// leads to no discussion.
 #[tokio::test]
 async fn history_a_issue_summary_counts_comments_and_offers_the_discussion() {
     for (comments, offered) in [(1, true), (0, false)] {
@@ -244,9 +245,11 @@ async fn history_a_issue_summary_counts_comments_and_offers_the_discussion() {
             input["queries"][0]["sections"] == json!(["comments"])
         });
         if offered {
-            let read = read.expect("optional discussion");
+            // The count is the indication; the discussion is one documented
+            // call away (the issue with `sections:["comments"]`).
             assert_eq!(issue["commentsCount"], 1, "{data}");
-            assert_eq!(read["tool"], "ghGetHistoryItem", "{data}");
+            let read = json!({"input": {"queries": [{"operation": "issue", "owner": "a",
+                "repo": "b", "number": 42, "sections": ["comments"]}]}});
             Mock::given(method("GET")).and(path("/api/v3/repos/a/b/issues/42/comments"))
                 .respond_with(ResponseTemplate::new(200).set_body_json(json!([{"id":17,"body":"discussion","user":{"login":"bob"},"created_at":"2026-09-21T00:00:00Z"}])))
                 .mount(&server).await;

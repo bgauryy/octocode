@@ -150,8 +150,19 @@ async fn gh_file_read_on_a_missing_repository_reports_repository_access() {
         json!(["Confirm the owner before using a related[] repository."]),
         "{data}"
     );
+    // Each lead asks for a page smaller than the tool's default: a lead
+    // never costs more than the failed call; its listing pages on.
+    let mut related = data["related"].clone();
+    for call in related.as_array_mut().into_iter().flatten() {
+        let query = &mut call["input"]["queries"][0];
+        let limit = query["limit"]
+            .as_u64()
+            .expect("a recovery lead states its page");
+        assert!(limit > 0, "{data}");
+        query.as_object_mut().map(|row| row.remove("limit"));
+    }
     assert_eq!(
-        data["related"],
+        related,
         json!([
             {"kind":"related","tool":"ghSearchRepo","input":{"queries":[{"operation":"search","keywords":["nope"]}]}},
             {"kind":"related","tool":"ghSearchRepo","input":{"queries":[{"operation":"list","owner":"ghost"}]}}

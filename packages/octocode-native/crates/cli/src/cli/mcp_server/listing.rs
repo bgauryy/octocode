@@ -68,11 +68,7 @@ pub(super) fn build(presentation: &Value, catalog: &Value) -> Result<Listing, St
         .map(|servers| servers.iter().filter_map(Value::as_str).collect::<Vec<_>>());
     let mut tools = Vec::new();
     for name in &names {
-        let mcp = presentation["tools"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|tool| tool["name"] == *name)
+        let mcp = super::super::schema::tool_entry(presentation, name)
             .map(|tool| &variant(tool, selection)["mcp"])
             .filter(|mcp| mcp.is_object())
             .ok_or_else(|| format!("Native catalog tool has no contract: {name}"))?;

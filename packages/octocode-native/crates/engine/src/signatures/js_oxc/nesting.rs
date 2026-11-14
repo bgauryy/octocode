@@ -108,6 +108,52 @@ fn measured_depth(content: &str, ext: &str) -> Option<(usize, usize)> {
     Some(measured)
 }
 
+/// The depth of `content`'s deepest syntax node read with the tree-sitter
+/// grammar of `ext`, and its 0-based row. `None` when no grammar reads `ext`
+/// or the parse was stopped.
+pub(super) fn syntax_depth(content: &str, ext: &str) -> Option<(usize, usize)> {
+    syntax_tree(content, ext).map(|tree| deepest(&tree))
+}
+
+fn syntax_tree(content: &str, ext: &str) -> Option<tree_sitter::Tree> {
+    let grammar = crate::text::file_extension::grammar_extension(content, ext);
+    let entry = crate::signatures::languages::find_entry(grammar)?;
+    crate::signatures::extractor::parse_until_stopped(content, &entry.language, &job_cancelled).ok()
+}
+
+/// The depth of `tree`'s deepest node (the root is level 1) and its 0-based
+/// row, walked iteratively. A region tree-sitter could not parse is kept as a
+/// flat `ERROR` node, where oxc may still recurse once per token (`((((` with
+/// no operand, `!!!!` at the end of the file): it counts as deep as its depth
+/// plus everything under it.
+fn deepest(tree: &tree_sitter::Tree) -> (usize, usize) {
+    let mut cursor = tree.walk();
+    let (mut depth, mut max, mut row) = (1, 1, cursor.node().start_position().row);
+    loop {
+        let node = cursor.node();
+        let error = node.is_error();
+        let reach = if error {
+            depth + node.descendant_count()
+        } else {
+            depth
+        };
+        if reach > max {
+            max = reach;
+            row = node.start_position().row;
+        }
+        if !error && cursor.goto_first_child() {
+            depth += 1;
+            continue;
+        }
+        while !cursor.goto_next_sibling() {
+            if !cursor.goto_parent() {
+                return (max, row);
+            }
+            depth -= 1;
+        }
+    }
+}
+
 /// Test-only count of the nesting parses ([`measured_depth`] misses) of each
 /// text, by its digest, on any worker.
 #[cfg(test)]
@@ -133,108 +179,5 @@ pub(super) mod measures {
             .get(&crate::digest::sha256_digest(content.as_bytes()))
             .copied()
             .unwrap_or(0)
-    }
-}
-
-/// The depth of `content`'s deepest syntax node read with the tree-sitter
-/// grammar of `ext`, and its 0-based row. `None` when no grammar reads `ext`
-/// or the parse was stopped.
-pub(super) fn syntax_depth(content: &str, ext: &str) -> Option<(usize, usize)> {
-    syntax_tree(content, ext).map(|tree| deepest(&tree, true))
-}
-
-fn syntax_tree(content: &str, ext: &str) -> Option<tree_sitter::Tree> {
-    let grammar = crate::text::file_extension::grammar_extension(content, ext);
-    let entry = crate::signatures::languages::find_entry(grammar)?;
-    crate::signatures::extractor::parse_until_stopped(content, &entry.language, &job_cancelled).ok()
-}
-
-/// What the corpus sweep (`examples/nesting_sweep.rs`) reads of one JS/TS
-/// file.
-#[doc(hidden)]
-pub struct NestingSweep {
-    /// The one-pass bound; `None`: not vouched for.
-    pub bound: Option<usize>,
-    /// The depth of its syntax tree node by node (an `ERROR` node as deep as
-    /// its own children).
-    pub tree_depth: usize,
-    /// The tree holds an `ERROR` or `MISSING` node.
-    pub tree_error: bool,
-    /// The depth of the AST oxc builds, when oxc reads the file.
-    pub oxc_depth: Option<usize>,
-}
-
-/// [`NestingSweep`] of `content`; `None` for another language or a file no
-/// tree-sitter parse read.
-#[doc(hidden)]
-#[must_use]
-pub fn nesting_sweep_check(content: &str, file_path: &str) -> Option<NestingSweep> {
-    let ext = crate::text::extension_of(file_path, true, "");
-    if !crate::text::JS_TS_EXTENSIONS.contains(&ext.as_str()) {
-        return None;
-    }
-    let tree = syntax_tree(content, &ext)?;
-    Some(NestingSweep {
-        bound: pass_bound(content, &ext),
-        tree_depth: deepest(&tree, false).0,
-        tree_error: tree.root_node().has_error(),
-        oxc_depth: super::on_oxc_worker(content, file_path, None, |content, file_path| {
-            super::with_js_program::<false, _>(content, file_path, None, |_, parsed| {
-                let mut depth = AstDepth::default();
-                oxc_ast_visit::Visit::visit_program(&mut depth, &parsed.program);
-                Some(depth.deepest)
-            })
-        }),
-    })
-}
-
-/// How deep oxc's AST nests: one level per node a visit enters.
-#[derive(Default)]
-struct AstDepth {
-    now: usize,
-    deepest: usize,
-}
-
-impl<'a> oxc_ast_visit::Visit<'a> for AstDepth {
-    fn enter_node(&mut self, _: oxc_ast::AstKind<'a>) {
-        self.now += 1;
-        self.deepest = self.deepest.max(self.now);
-    }
-
-    fn leave_node(&mut self, _: oxc_ast::AstKind<'a>) {
-        self.now -= 1;
-    }
-}
-
-/// The depth of `tree`'s deepest node (the root is level 1) and its 0-based
-/// row, walked iteratively. A region tree-sitter could not parse is kept as a
-/// flat `ERROR` node, where oxc may still recurse once per token (`((((` with
-/// no operand, `!!!!` at the end of the file): with `error_reach`, it counts
-/// as deep as its depth plus everything under it.
-fn deepest(tree: &tree_sitter::Tree, error_reach: bool) -> (usize, usize) {
-    let mut cursor = tree.walk();
-    let (mut depth, mut max, mut row) = (1, 1, cursor.node().start_position().row);
-    loop {
-        let node = cursor.node();
-        let error = error_reach && node.is_error();
-        let reach = if error {
-            depth + node.descendant_count()
-        } else {
-            depth
-        };
-        if reach > max {
-            max = reach;
-            row = node.start_position().row;
-        }
-        if !error && cursor.goto_first_child() {
-            depth += 1;
-            continue;
-        }
-        while !cursor.goto_next_sibling() {
-            if !cursor.goto_parent() {
-                return (max, row);
-            }
-            depth -= 1;
-        }
     }
 }

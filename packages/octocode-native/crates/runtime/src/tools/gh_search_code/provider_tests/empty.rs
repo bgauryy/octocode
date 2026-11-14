@@ -333,12 +333,13 @@ async fn a_missing_repository_labels_its_name_search_and_lists_the_owner() {
     let calls = failure.calls.as_deref().expect("recovery calls");
     assert_eq!(
         calls["findRepository"]["input"]["queries"][0],
-        json!({"operation":"search","keywords":["missing"]}),
+        json!({"operation":"search","keywords":["missing"],
+            "limit":crate::tools::gh_shared::RECOVERY_LIMIT}),
         "{calls}"
     );
     assert_eq!(
         calls["findRepository2"]["input"]["queries"][0],
-        json!({"operation":"list","owner":"a"}),
+        json!({"operation":"list","owner":"a","limit":crate::tools::gh_shared::RECOVERY_LIMIT}),
         "{calls}"
     );
     assert_eq!(

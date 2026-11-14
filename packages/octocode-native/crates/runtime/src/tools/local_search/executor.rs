@@ -48,13 +48,21 @@ pub fn execute_local_search(
     check_each_term(query)?;
     let terms = local_search_query::term_patterns(query);
     let joined = &*local_search_query::normalized(query)?;
+    // Every call the row offers restates the terms as the caller wrote them.
+    let written = |mut error: ToolError| {
+        if let Some(calls) = error.calls.as_deref_mut() {
+            local_search_query::as_written(calls, query, joined);
+        }
+        error
+    };
     let mut scan = scan_resumed(
         joined,
         (paths, security.limits()),
         cancel,
         (response_window, terms),
         resumed,
-    )?;
+    )
+    .map_err(written)?;
     if let Some(pause) = scan.paused.take() {
         return super::window::paused_row(query, pause, (&scan.query_key, &scan.policy_key));
     }
@@ -67,8 +75,12 @@ pub fn execute_local_search(
         scan,
         selection,
         &alternates,
-    )?;
+    )
+    .map_err(written)?;
     alternates.offer_regex_reading(paths, &mut row, cancel);
+    if let Some(next) = row.next.as_mut() {
+        local_search_query::as_written(next, query, joined);
+    }
     Ok(row)
 }
 
@@ -162,13 +174,18 @@ pub(super) fn page_of(
         &|| cancel.check().is_err(),
     )?;
     cancel.check().map_err(ToolError::cancelled)?;
-    let rows = annotate_rows(
+    let mut rows = annotate_rows(
         &scope,
         &view.layout,
         (std::mem::take(&mut view.parsed.files), &view.facts),
         &shaped.redacted,
         shaped.outlines,
     );
+    // A tally shows its values in place of rows: their redaction is said
+    // as a shown row's is.
+    if let Some(tally) = &shaped.tally {
+        rows.shown_redacted = tally.redacted;
+    }
     let page = Page {
         root,
         layout: &view.layout,
@@ -226,6 +243,8 @@ pub(super) fn page_of(
             .workspace_relative(&absolute)
             .unwrap_or_else(|| absolute.to_string_lossy().into_owned());
     }
+    result.warnings.extend(shaped.notes);
+    result.unique_values = shaped.tally.map(|tally| tally.values);
     result.source_snapshot = Some(scan.identity);
     result.selection = shaped
         .selection
@@ -266,6 +285,10 @@ pub(super) struct Shaped {
     /// Outlines parsed from the verified reads (see [`verify_shown`]).
     pub(super) outlines: Outlines,
     pub(super) selection: Option<super::selection::Selected>,
+    /// `unique: "countAll"`: the scan's tally, shown in place of rows.
+    pub(super) tally: Option<super::tally::Tally>,
+    /// Scan-wide facts the row states (a `keyPath` scope's shared lines).
+    pub(super) notes: Vec<String>,
 }
 
 /// Redact the scan, order it, cut the page, and verify what it shows.
@@ -296,6 +319,22 @@ pub(super) fn shape_page(
     } = *scope;
     let cancelled = || scope.cancel.check().is_err();
     let (mut redacted, withheld, redaction) = redact_scan(scope, parsed, stored_redaction)?;
+    // What a keyPath scope cannot separate is said once, on the first page.
+    let notes = local_search_query::key_path(query)
+        .filter(|_| {
+            local_search_query::page(query).max(1) == 1
+                && local_search_query::match_page(query).max(1) == 1
+        })
+        .and_then(|key_path| {
+            super::key_scope::shared_note(key_path, (paths, output_root), &parsed.files)
+        })
+        .into_iter()
+        .collect::<Vec<_>>();
+    if super::tally::counts_all(query) {
+        let mut shaped = super::tally::shape(scope, parsed, (redacted, withheld), redaction)?;
+        shaped.notes = notes;
+        return Ok(shaped);
+    }
     let whole = local_search_query::has_classification(query)
         || super::layout::list_view(local_search_query::view(query))
         || !local_search_query::streamed_layout(query);
@@ -383,6 +422,8 @@ pub(super) fn shape_page(
         unverified,
         outlines,
         selection,
+        tally: None,
+        notes,
     })
 }
 
@@ -435,5 +476,7 @@ fn shape_stored_page(
         unverified,
         outlines,
         selection: None,
+        tally: None,
+        notes: Vec::new(),
     })
 }

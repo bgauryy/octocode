@@ -180,6 +180,11 @@ pub(crate) fn multiline(q: &LocalSearchQuery) -> Multiline {
         },
     }
 }
+/// The `keyPath` scope: hits kept to the value at a key path of JSON and
+/// TOML documents ([`super::key_scope`]).
+pub(crate) fn key_path(q: &LocalSearchQuery) -> Option<&str> {
+    common!(q, key_path, key_path.as_deref().map(String::as_str))
+}
 pub(crate) fn unique(q: &LocalSearchQuery) -> Unique {
     match q {
         LocalSearchQuery::MatchOnly(LocalSearchQueryMatchOnly { unique, .. }) => *unique,
@@ -269,6 +274,77 @@ pub(crate) fn normalized(
             )
         })
 }
+/// The terms of every fresh call in `calls` (a page's `next`, an error's
+/// calls) built from `joined`, the [`normalized`] form of `written`, as the
+/// caller wrote them: a list runs as one alternation, which is how the scan
+/// matches it, never what a follow-up sends. A row holding the joined terms
+/// gets the written terms, engine and case rule (a default one left out, as
+/// a built call leaves it); any other row, and saved work (its cursor seals
+/// it), stays as built.
+pub(crate) fn as_written(
+    calls: &mut serde_json::Value,
+    written: &LocalSearchQuery,
+    joined: &LocalSearchQuery,
+) {
+    use serde_json::Value;
+    const TERMS: [&str; 3] = ["matchString", "regexEngine", "caseMode"];
+    fn each_fresh_row(value: &mut Value, restate: &dyn Fn(&mut Value)) {
+        match value {
+            Value::Object(fields) => {
+                if fields.get("kind").and_then(Value::as_str) == Some("related") {
+                    let tool = fields
+                        .get("tool")
+                        .and_then(Value::as_str)
+                        .and_then(crate::id::ToolId::from_name);
+                    let rows = fields
+                        .get_mut("input")
+                        .and_then(|input| input.get_mut("queries"))
+                        .and_then(Value::as_array_mut);
+                    for row in rows.into_iter().flatten() {
+                        restate(row);
+                        // A restated field at its default is its omission,
+                        // as every built call states it.
+                        if let Some(tool) = tool {
+                            crate::response::result::canonical_row(tool, row);
+                        }
+                    }
+                    return;
+                }
+                fields
+                    .values_mut()
+                    .for_each(|field| each_fresh_row(field, restate));
+            }
+            Value::Array(items) => items
+                .iter_mut()
+                .for_each(|item| each_fresh_row(item, restate)),
+            _ => {}
+        }
+    }
+    if std::ptr::eq(written, joined) {
+        return;
+    }
+    let (Ok(written), Ok(joined)) = (serde_json::to_value(written), serde_json::to_value(joined))
+    else {
+        return;
+    };
+    let restate = |row: &mut Value| {
+        if row.get(TERMS[0]) != joined.get(TERMS[0]) {
+            return;
+        }
+        for field in TERMS {
+            match written.get(field).filter(|value| !value.is_null()) {
+                Some(value) => row[field] = value.clone(),
+                None => {
+                    if let Some(fields) = row.as_object_mut() {
+                        fields.remove(field);
+                    }
+                }
+            }
+        }
+    };
+    each_fresh_row(calls, &restate);
+}
+
 /// The contract's default matches per file (`semanticPolicy`).
 pub(super) fn default_matches_per_file() -> u32 {
     saturating_u32(local_search_policy::MATCHES_PER_FILE)

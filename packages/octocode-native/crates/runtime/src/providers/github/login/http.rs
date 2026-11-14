@@ -10,15 +10,24 @@ use std::{
 
 pub(super) const LOGIN_HTTP_TIMEOUT: Duration = Duration::from_secs(15);
 
-/// The OAuth web-origin client (device code, polling, refresh) pooled per
-/// Tokio runtime; admission goes through the executor's `auth` group.
-pub(super) fn login_client() -> Result<reqwest::Client, ProviderError> {
-    static CLIENTS: crate::providers::RuntimeClients<()> = crate::providers::RuntimeClients::new(4);
-    CLIENTS.get((), || {
+/// The OAuth web-origin client (device code, polling, refresh) for
+/// `endpoints`, pooled per Tokio runtime and proxy setting: a loopback origin
+/// is reached directly, any other through the user's system proxy
+/// ([`octocode_github::proxy_for`]). Admission goes through the executor's
+/// `auth` group.
+pub(super) fn login_client(endpoints: &LoginEndpoints) -> Result<reqwest::Client, ProviderError> {
+    static CLIENTS: crate::providers::RuntimeClients<octocode_io::http::Proxy> =
+        crate::providers::RuntimeClients::new(4);
+    let proxy = url::Url::parse(&endpoints.web_origin)
+        .map_or(octocode_io::http::Proxy::System, |origin| {
+            octocode_github::proxy_for(&origin)
+        });
+    CLIENTS.get(proxy, || {
         // Never follow redirects: a 307/308 would replay the device-code,
         // poll, or refresh-token body to wherever `Location` points.
         octocode_io::http::client(&octocode_io::http::ClientPolicy {
             timeout: Some(LOGIN_HTTP_TIMEOUT),
+            proxy,
             ..octocode_io::http::ClientPolicy::default()
         })
         .map_err(|_| {

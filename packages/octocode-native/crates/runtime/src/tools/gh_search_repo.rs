@@ -271,8 +271,8 @@ const REPO_ID: &[&str] = &["owner", "repo", "visibility"];
 /// What a listed row leaves to a `fields` pick: a search or an owner listing
 /// answers with each repository's name, stars and description (and its
 /// `archived`, `fork` and `visibility` marks), which choose the repository;
-/// its branch, language, license, dates and forks are read by `fields` or by
-/// `operation: get`.
+/// its branch, language, license, dates, forks, homepage, open issue count
+/// and size are read by `fields` or by `operation: get`.
 const LISTED_DETAIL: &[&str] = &[
     "defaultBranch",
     "language",
@@ -282,12 +282,23 @@ const LISTED_DETAIL: &[&str] = &[
     "topics",
     "forks",
     "updatedAt",
+    "homepage",
+    "openIssuesCount",
+    "sizeKiB",
 ];
 
 /// What one repository's own row leaves to a `fields` pick: `get` names the
 /// repository, its default branch, its size in stars, its language and
 /// license, and when it was last pushed.
-const EXACT_DETAIL: &[&str] = &["createdAt", "topics", "forks", "updatedAt"];
+const EXACT_DETAIL: &[&str] = &[
+    "createdAt",
+    "topics",
+    "forks",
+    "updatedAt",
+    "homepage",
+    "openIssuesCount",
+    "sizeKiB",
+];
 
 /// The filters a query can set beside its keywords, by wire name, one
 /// group each: the one table every narrowing check reads.

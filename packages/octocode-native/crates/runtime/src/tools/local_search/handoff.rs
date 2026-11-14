@@ -39,9 +39,9 @@ pub(super) fn declaration_read(
     ranges_read(joined_path(query, root, file), &[(start, end)])
 }
 
-/// localFetch read of `path` over the inclusive line `windows`.
-fn ranges_read(path: String, windows: &[(u32, u32)]) -> Option<Value> {
-    let ranges = windows
+/// The inclusive line `windows` as localFetch `ranges`.
+fn line_ranges(windows: &[(u32, u32)]) -> Option<Vec<SourceLineRange>> {
+    windows
         .iter()
         .map(|&(start, end)| {
             Some(SourceLineRange {
@@ -49,7 +49,12 @@ fn ranges_read(path: String, windows: &[(u32, u32)]) -> Option<Value> {
                 end_line: NonZeroU64::new(u64::from(end))?,
             })
         })
-        .collect::<Option<Vec<_>>>()?;
+        .collect()
+}
+
+/// localFetch read of `path` over the inclusive line `windows`.
+fn ranges_read(path: String, windows: &[(u32, u32)]) -> Option<Value> {
+    let ranges = line_ranges(windows)?;
     let query = LocalFetchQueryContentRanges {
         block: None,
         classification: None,
@@ -97,9 +102,6 @@ pub(super) fn source_of(root: &std::path::Path, file: &SearchFile) -> std::path:
     }
 }
 
-/// Hits a handed-off read may cover (each opens a ±6-line window).
-pub(super) const READ_HANDOFF_MAX_HITS: usize = 20;
-
 /// Lines a handed-off read shows on each side of a hit.
 pub(super) const READ_HANDOFF_CONTEXT: u32 = 6;
 
@@ -120,50 +122,65 @@ pub(super) fn hit_windows(
 }
 
 /// localFetch read of one file's hits in context (the file declaring the
-/// searched symbol, else the top file): ±6-line `ranges`
-/// around exactly the shown hits, or (when they need more windows than one
-/// read holds) the search text as `matchString`. Paths join the caller's
-/// own `path`, so the read resolves wherever the search did.
+/// searched symbol, else the top file), however many: ±6-line `ranges`
+/// around exactly the shown hits; or, when a hit is a window of a line too
+/// long for a row, or the hits need more windows than one read holds, the
+/// search's own `matchString` read, which localFetch pages and which opens
+/// a long line at its hits instead of at its first byte (within the hits'
+/// `ranges` when they fit). A window row's context is its own line: a read of
+/// only window rows takes no context lines. A multiline search reads its
+/// hits' lines, which localFetch's line matching would not find, while one
+/// read holds their windows. Paths join the caller's own `path`, so the read
+/// resolves wherever the search did.
 pub(super) fn read_handoff(
     query: &LocalSearchQuery,
     root: &std::path::Path,
     top: &SearchFile,
 ) -> Option<Value> {
     let hits = top.matches.as_ref()?;
-    if hits.is_empty() || hits.len() > READ_HANDOFF_MAX_HITS {
+    if hits.is_empty() {
         return None;
     }
     let path = joined_path(query, root, top);
-    // A window row shows part of a line too long for a row: the read is of
-    // that line alone, which localFetch pages whole. Every other hit opens
-    // its context.
-    let (partial, whole): (Vec<_>, Vec<_>) =
-        hits.iter().partition(|row| row.window_start.is_some());
-    let windows = crate::tools::line_spans::merge_spans(
-        hit_windows(
-            whole.into_iter().flat_map(row_lines),
-            SearchContext::symmetric(READ_HANDOFF_CONTEXT),
-        )
-        .into_iter()
-        .chain(partial.into_iter().map(|row| (row.line, row.line))),
+    let windowed = hits.iter().filter(|row| row.window_start.is_some()).count();
+    let context = if windowed == hits.len() {
+        0
+    } else {
+        READ_HANDOFF_CONTEXT
+    };
+    let windows = hit_windows(
+        hits.iter().flat_map(row_lines),
+        SearchContext::symmetric(context),
     );
-    if windows.len() <= RANGES_MAX_ITEMS {
+    let fits = windows.len() <= RANGES_MAX_ITEMS;
+    // localFetch matches line by line: a multiline search's hits are not
+    // its matches, so only its lines are read.
+    let line_matches = local_search_query::multiline(query) == local_search_query::Multiline::Off;
+    if (windowed == 0 || !line_matches) && fits {
         return ranges_read(path, &windows);
     }
-    let context = i64::from(READ_HANDOFF_CONTEXT);
+    if !line_matches {
+        return None;
+    }
+    let ranges = if fits {
+        line_ranges(&windows)?
+    } else {
+        Vec::new()
+    };
+    let context = i64::from(context);
     let query = LocalFetchQueryContentMatchString {
         block: None,
         case_mode: local_search_query::case_mode(query),
         classification: None,
-        context_lines: Some(LocalFetchQueryContentMatchStringContextLines {
+        context_lines: (context > 0).then_some(LocalFetchQueryContentMatchStringContextLines {
             after: context,
             before: context,
         }),
         limit: None,
         main_goal: None,
-        match_string: vec![local_search_query::pattern(query).try_into().ok()?].into(),
+        match_string: local_search_query::patterns(query).clone(),
         path: path.try_into().ok()?,
-        ranges: Vec::new(),
+        ranges,
         read_progress: None,
         reasoning: None,
         regex_engine: local_search_query::regex_mode(query),

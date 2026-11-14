@@ -1,6 +1,6 @@
 //! A ghGetFileContent batch resolves each repository ref once, and reads
-//! only the files: when a file last changed is one call away (each row's
-//! `lastChange` lead), never a request of the read.
+//! only the files: when a file last changed is its history, one documented
+//! call away (ghSearchHistory), never a request or a lead of the read.
 
 use crate::support::{Workspace, call, github_api};
 use serde_json::{Value, json};
@@ -47,8 +47,7 @@ async fn read_batch(server: &MockServer, owner: &str, repo: &str, files: &[&str]
 }
 
 /// Three rows at one ref: one resolution, then the three contents reads and
-/// nothing else. Each row leads to its own file's last change at the read
-/// commit instead of stating it.
+/// nothing else. No row states its file's last change or leads to it.
 #[tokio::test]
 async fn three_rows_resolve_their_ref_once_and_read_only_the_files() {
     let server = server("a", "b").await;
@@ -80,17 +79,13 @@ async fn three_rows_resolve_their_ref_once_and_read_only_the_files() {
         let data = &out["results"][index]["data"];
         assert!(data.get("modifiedAt").is_none(), "{out}");
         assert!(data.get("lastModifiedBy").is_none(), "{out}");
-        let lead = data["related"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|lead| lead["tool"] == "ghSearchHistory")
-            .unwrap_or_else(|| panic!("a last-change lead: {out}"));
-        assert_eq!(
-            lead["input"]["queries"][0],
-            json!({"operation":"commit","owner":"a","repo":"b","path":file,"ref":SHA,
-                "limit":1,"fields":["committedAt","author"]}),
-            "{out}"
+        assert!(
+            data["related"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .all(|lead| lead["tool"] != "ghSearchHistory"),
+            "{file}: {out}"
         );
     }
 }

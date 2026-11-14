@@ -50,7 +50,7 @@ pub(super) fn unresolved_imports(root: &Path, scope: &str) -> (Vec<String>, Vec<
     let (mut outside, mut broken) = (Vec::new(), Vec::new());
     let (mut outside_confidence, mut broken_confidence) = (Vec::new(), Vec::new());
     let mut count = 0;
-    for row in issues["rows"].as_array().into_iter().flatten() {
+    for row in &crate::tools::ast_graph::test_support::issue_rows(&issues) {
         let is_outside = row["evidence"]["outsideRoot"] == true;
         count += row["evidence"]["count"].as_u64().unwrap_or(0);
         let confidence = row["confidence"].as_f64().unwrap_or(f64::NAN);

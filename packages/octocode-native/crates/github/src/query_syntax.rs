@@ -107,21 +107,6 @@ pub fn validate_person_name(field: &str, value: &str) -> Result<(), ProviderErro
     ))
 }
 
-/// Reject a free-form qualifier value that would break out of its term.
-pub fn validate_qualifier_value(field: &str, value: &str) -> Result<(), ProviderError> {
-    if !value.is_empty()
-        && !value
-            .chars()
-            .any(|c| c.is_whitespace() || matches!(c, '"' | '\\' | '(' | ')'))
-    {
-        return Ok(());
-    }
-    Err(ProviderError::new(
-        ProviderErrorKind::Validation,
-        format!("{field}: \"{value}\" must be one term without spaces, quotes, or parentheses"),
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,7 +156,5 @@ mod tests {
         ] {
             assert!(validate_person_name("author", good).is_ok(), "{good}");
         }
-        assert!(validate_qualifier_value("created", ">2026-01-01").is_ok());
-        assert!(validate_qualifier_value("created", "x OR y").is_err());
     }
 }

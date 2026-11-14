@@ -1,7 +1,7 @@
 //! Rust-owned secret detection and content sanitization.
 //!
-//! `patterns.rs` joins the canonical ordered pattern set; `build.rs` derives the
-//! detector's prescan gate from it.
+//! `patterns.rs` is the one list of known secret formats; `build.rs` derives the
+//! detector's prescan gate from it. Only what a pattern matches is redacted.
 
 pub(crate) mod detector;
 mod edits;
@@ -9,25 +9,10 @@ pub(crate) mod patterns;
 pub mod sanitizer;
 pub mod types;
 
-#[cfg(feature = "test-hooks")]
-pub use detector::set_walk_budget;
 pub use detector::{
-    BlockValues, EveryValueScan, LONG_LINE_BYTES, LONGEST_BOUNDED_MATCH, LongLine,
-    MAX_CONTENT_SIZE, Named, Objects, SecretForm, SecretSpan, SecretSpans, SourceNames, SourceWalk,
-    WholeSourcePatterns, every_value_spans,
+    LONG_LINE_BYTES, LONGEST_BOUNDED_MATCH, LongLine, MAX_CONTENT_SIZE, SecretSpan, secret_spans,
 };
 pub use edits::Edits;
-
-/// Whether `path` (a path or a file name, either separator) names a dotenv
-/// file: the class whose credential names hold credentials, and the `.env`
-/// family the local path policy withholds.
-#[expect(clippy::expect_used, reason = "static pattern, valid by construction")]
-pub fn is_dotenv_name(path: &str) -> bool {
-    static CLASS: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-        regex::Regex::new(patterns::DOTENV_FILE_CONTEXT).expect("dotenv name class")
-    });
-    CLASS.is_match(path)
-}
 
 /// Prefix of detector placeholders (`[REDACTED-<NAME>]`).
 pub const REDACTION_PREFIX: &str = "[REDACTED";

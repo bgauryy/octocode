@@ -3,10 +3,9 @@ use super::*;
 use serde_json::json;
 use std::path::Path;
 
-const PASSWORD: &str = "Zr0ub4dor&3xK9!zQw";
-const CFG: &str =
-    "export const cfg = { user: \"svc\", password: \"Zr0ub4dor&3xK9!zQw\" } as const;\n";
-const USE: &str = "import { cfg } from \"./cfg\";\nexport const p = cfg.password;\n";
+const PASSWORD: &str = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+const CFG: &str = "export const cfg = { user: \"svc\", aws_secret_access_key: \"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\" } as const;\n";
+const USE: &str = "import { cfg } from \"./cfg\";\nexport const p = cfg.aws_secret_access_key;\n";
 
 /// `raw` judged whole as the file `name`.
 fn judged(name: &str, raw: &str) -> Arc<JudgedText> {
@@ -78,17 +77,17 @@ fn a_hover_shows_a_value_of_the_file_its_definition_names_as_a_read_does() {
 
 #[test]
 fn a_diagnostic_message_shows_a_value_of_its_file_as_a_read_does() {
-    let source = "export const password = \"Tr0ub4dor&3xK9!zQ\" as const;\nexport function useIt(p: typeof password) { return p; }\nuseIt(\"wrong-Value-9f86d081\");\n";
+    let source = "export const aws_secret_access_key = \"Tr0ub4dorXK9zQwTr0ub4dorXK9zQwTr0ub4dorX\" as const;\nexport function useIt(p: typeof aws_secret_access_key) { return p; }\nuseIt(\"wrong-Value-9f86d081\");\n";
     let anchor = judged("x.ts", source);
     let mut row = json!({"operation": "diagnostics", "matches": [{
         "source": "typescript",
         "severity": "error",
-        "message": "Argument of type '\"wrong-Value-9f86d081\"' is not assignable to parameter of type '\"Tr0ub4dor&3xK9!zQ\"'.",
-        "relatedInformation": [{"message": "The expected type comes from \"Tr0ub4dor&3xK9!zQ\""}],
+        "message": "Argument of type '\"wrong-Value-9f86d081\"' is not assignable to parameter of type '\"Tr0ub4dorXK9zQwTr0ub4dorXK9zQwTr0ub4dorX\"'.",
+        "relatedInformation": [{"message": "The expected type comes from \"Tr0ub4dorXK9zQwTr0ub4dorXK9zQwTr0ub4dorX\""}],
     }]});
     scrub(&mut row, std::slice::from_ref(&anchor), false);
-    assert!(!row.to_string().contains("Tr0ub4dor"), "{row}");
-    let placeholder = read_placeholder(&anchor, "Tr0ub4dor&3xK9!zQ");
+    assert!(!row.to_string().contains("Tr0ub4dorXK9"), "{row}");
+    let placeholder = read_placeholder(&anchor, "Tr0ub4dorXK9zQwTr0ub4dorXK9zQwTr0ub4dorX");
     // The value the file shows in the clear stays: a read shows it too.
     assert_eq!(
         row["matches"][0]["message"],

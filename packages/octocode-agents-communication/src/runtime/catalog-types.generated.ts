@@ -456,13 +456,6 @@ export type UsageScope = ("request" | "turn" | "cumulative")
  * via the `definition` "presenceFilter".
  */
 export type PresenceFilter = ("active" | "expired" | "all")
-/**
- * Filter active, expired, or all presence.
- *
- * This interface was referenced by `CatalogTypes`'s JSON-Schema
- * via the `definition` "presence".
- */
-export type Presence = ("active" | "expired" | "all")
 
 interface CatalogTypes {
 JoinInput: JoinInput

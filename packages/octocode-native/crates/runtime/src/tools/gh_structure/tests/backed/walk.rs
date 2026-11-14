@@ -351,7 +351,7 @@ async fn a_one_level_listing_types_symlinks_like_a_deep_one() {
         "{}",
         root.data
     );
-    assert_eq!(root.data["omitted"], json!(["CHANGELOG.md (symlink)"]));
+    assert_eq!(root.data["omitted"], json!({"symlink":["CHANGELOG.md"]}));
     let deep = run(
         &server,
         json!({"operation":"tree","owner":"a","repo":"b",
@@ -359,7 +359,7 @@ async fn a_one_level_listing_types_symlinks_like_a_deep_one() {
     )
     .await
     .expect("two levels");
-    assert_eq!(deep.data["omitted"], json!(["CHANGELOG.md (symlink)"]));
+    assert_eq!(deep.data["omitted"], json!({"symlink":["CHANGELOG.md"]}));
     let nested = run(
         &server,
         json!({"operation":"tree","owner":"a","repo":"b",
@@ -373,7 +373,42 @@ async fn a_one_level_listing_types_symlinks_like_a_deep_one() {
         "{}",
         nested.data
     );
-    assert_eq!(nested.data["omitted"], json!(["src/link.rs (symlink)"]));
+    assert_eq!(nested.data["omitted"], json!({"symlink":["src/link.rs"]}));
+}
+
+/// A listing that names a symlink and a submodule, grouped by kind, is a
+/// response the published output contract accepts: the kinds are the
+/// contract's own keys and each path list is its declared collection.
+#[tokio::test]
+async fn a_listing_naming_a_symlink_and_a_submodule_meets_the_output_contract() {
+    let server = MockServer::builder().start().await;
+    mount_ref(&server, "main").await;
+    mount_json(
+        &server,
+        format!("/api/v3/repos/a/b/git/trees/{TREE_SHA}"),
+        200,
+        json!({"sha":"c".repeat(40),"truncated":false,"tree":[
+            {"path":"README.md","type":"blob","mode":"100644","size":5},
+            {"path":"docs","type":"tree","mode":"040000"},
+            {"path":"docs/link.md","type":"blob","mode":"120000","size":9},
+            {"path":"vendor/lib","type":"commit","mode":"160000"}
+        ]}),
+    )
+    .await;
+    let out = run(
+        &server,
+        json!({"operation":"tree","owner":"a","repo":"b",
+                "ref":"main","maxDepth":2}),
+    )
+    .await
+    .expect("tree");
+    assert_eq!(
+        out.data["omitted"],
+        json!({"submodule":["vendor/lib"],"symlink":["docs/link.md"]}),
+        "{}",
+        out.data
+    );
+    crate::tools::test_support::assert_row_contract(crate::id::ToolId::GhStructure, &out.data);
 }
 
 /// A deep listing of a directory reads the recursive git tree of that

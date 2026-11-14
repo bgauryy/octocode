@@ -1,14 +1,14 @@
 use super::schema::validate_schema;
-use crate::contracts::prepare_many_and_validate;
+use crate::contracts::prepare_rows;
 use serde_json::{Value, json};
 
 #[test]
 fn integral_json_numbers_decode_through_canonical_generated_types() {
     for lexeme in ["1.0", "1e0", "1E+0"] {
         let input: Value = serde_json::from_str(&format!(r#"{{"queries":[{{"path":"a.rs","ranges":[{{"startLine":{lexeme},"endLine":{lexeme}}}]}}]}}"#)).unwrap();
-        let rows = prepare_many_and_validate("localFetch", input).unwrap();
+        let mut rows = prepare_rows("localFetch", input).unwrap();
         let parsed: octocode_contract_types::LocalFetchQuery =
-            serde_json::from_value(rows[0].clone()).unwrap();
+            serde_json::from_value(rows.remove(0).unwrap()).unwrap();
         assert_eq!(
             serde_json::to_value(parsed).unwrap()["ranges"][0]["startLine"],
             1
@@ -16,7 +16,7 @@ fn integral_json_numbers_decode_through_canonical_generated_types() {
     }
     for value in [json!(1.25), json!("1"), json!(0), json!(-1)] {
         assert!(
-            prepare_many_and_validate(
+            prepare_rows(
                 "localFetch",
                 json!({"queries":[{"path":"a.rs","ranges":[{"startLine":value,"endLine":2}]}]})
             )
@@ -32,14 +32,15 @@ fn untyped_input_state_keeps_its_float_representation() {
     )
     .expect("float state");
     let before = state.to_string();
-    let rows = prepare_many_and_validate(
+    let mut rows = prepare_rows(
         "clasify",
         json!({"queries":[{"operation":"evaluate","content":state,"questions":{"check":{
             "type":"noul","instructions":"The state contains numeric evidence."
         }}}]}),
     )
     .expect("untyped state is accepted");
-    assert_eq!(rows[0]["content"].to_string(), before);
+    let row = rows.remove(0).expect("untyped state is accepted");
+    assert_eq!(row["content"].to_string(), before);
 }
 
 #[test]

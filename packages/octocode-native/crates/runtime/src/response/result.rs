@@ -79,8 +79,10 @@ impl Continuation {
     /// The call: its input's rows without the fields that hold their
     /// contract default ([`without_defaults`]). A related call is a fresh
     /// public request, so its rows also drop the tool's private progress
-    /// and the caller's brief ([`fresh_query_row`]); only continued work
-    /// keeps them, for its cursor.
+    /// and the caller's brief ([`fresh_query_row`]), and it bills nothing
+    /// ([`unbilled`]): a judgment is the caller's to ask for, never a lead's.
+    /// Only continued work, the same call's saved page, keeps them, for its
+    /// cursor.
     #[track_caller]
     fn new(tool: ToolId, input: Value, related: bool) -> Self {
         let input = if related {
@@ -131,14 +133,27 @@ impl Continuation {
     }
 }
 
-/// `input` with each query row as [`fresh_query_row`].
+/// `input` with each query row as [`fresh_query_row`], [`unbilled`].
 fn without_private_progress(tool: ToolId, mut input: Value) -> Value {
     if let Some(rows) = input.get_mut("queries").and_then(Value::as_array_mut) {
         for row in rows.iter_mut() {
             *row = fresh_query_row(tool, row);
+            unbilled(row);
         }
     }
     input
+}
+
+/// `row` without the fields that ask a classification provider for a
+/// judgment ([`crate::contracts::PROVIDER_FIELDS`]): a fresh call a result
+/// offers runs unbilled, since a broader or other search judging under the
+/// caller's question would bill a scope the caller never asked it of.
+fn unbilled(row: &mut Value) {
+    if let Some(fields) = row.as_object_mut() {
+        for field in crate::contracts::PROVIDER_FIELDS {
+            fields.remove(field);
+        }
+    }
 }
 
 /// `input` with each query row as [`canonical_row`]: the call (and a cursor
@@ -242,6 +257,11 @@ pub(crate) struct ToolData {
     pub diagnostics: ToolDiagnostics,
     #[serde(skip)]
     pub status: Option<&'static str>,
+    /// Leaves of `data` judged against their whole source, for the output
+    /// gate ([`crate::security::JudgedLeaves`]): a file's text a read cut
+    /// from it is judged there as a local read of the file is.
+    #[serde(skip)]
+    pub judged: crate::security::JudgedLeaves,
 }
 impl From<Value> for ToolData {
     fn from(data: Value) -> Self {
@@ -249,6 +269,7 @@ impl From<Value> for ToolData {
             data,
             diagnostics: ToolDiagnostics::default(),
             status: None,
+            judged: crate::security::JudgedLeaves::default(),
         }
     }
 }

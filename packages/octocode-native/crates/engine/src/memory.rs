@@ -12,9 +12,9 @@ pub static MEMORY: MemoryBudget = MemoryBudget::new(memory_budget);
 /// can be worked out again: a read restarts it.
 pub const IDLE: Duration = Duration::from_secs(600);
 
-/// The budget's floor: what a host whose memory cannot be read, or a small
-/// one, still gets, so one large scan's continuation stays retained.
-pub const MIN_MEMORY_BUDGET: usize = 512 * 1024 * 1024;
+/// The budget when the host's memory cannot be read. A known host always
+/// uses its proportional share, even when that is smaller than this default.
+pub const DEFAULT_MEMORY_BUDGET: usize = 512 * 1024 * 1024;
 /// The budget's ceiling: retained continuation state is a convenience, so a
 /// large host keeps most of its memory for language servers and its users.
 pub const MAX_MEMORY_BUDGET: usize = 2 * 1024 * 1024 * 1024;
@@ -23,13 +23,13 @@ fn memory_budget() -> usize {
     memory_budget_for(crate::host::memory_mb())
 }
 
-/// An eighth of `host_mb` MiB, within [`MIN_MEMORY_BUDGET`] and
-/// [`MAX_MEMORY_BUDGET`]; the floor when the host's memory is unknown.
+/// An eighth of `host_mb` MiB, at most [`MAX_MEMORY_BUDGET`];
+/// [`DEFAULT_MEMORY_BUDGET`] when the host's memory is unknown.
 #[must_use]
 pub fn memory_budget_for(host_mb: Option<u64>) -> usize {
-    host_mb.map_or(MIN_MEMORY_BUDGET, |mb| {
+    host_mb.map_or(DEFAULT_MEMORY_BUDGET, |mb| {
         usize::try_from(mb.saturating_mul(1024 * 1024) / 8)
             .unwrap_or(usize::MAX)
-            .clamp(MIN_MEMORY_BUDGET, MAX_MEMORY_BUDGET)
+            .min(MAX_MEMORY_BUDGET)
     })
 }

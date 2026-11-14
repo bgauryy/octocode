@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import { existsSync, realpathSync, mkdirSync, copyFileSync } from 'fs';
 import { propagateOctocodeEnv } from './octocode-config.mjs';
 import { flagArgs } from './cli-flags.mjs';
-import { octocodeOutputBase } from './engine-io.mjs';
+import { octocodeOutputBase, packageTmpDir } from './engine-io.mjs';
 import { errorMessage } from './error-message.mjs';
 
 function requireNode24() {
@@ -62,7 +62,7 @@ propagateOctocodeEnv({ cwd: process.cwd(), trusted: true });
 
 const OCTOCODE_OUTPUT_BASE = octocodeOutputBase();
 const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-const RUNS_DIR = join(OCTOCODE_OUTPUT_BASE, 'octocode-chrome-devtools', 'tmp');
+const RUNS_DIR = packageTmpDir(OCTOCODE_OUTPUT_BASE);
 mkdirSync(RUNS_DIR, { recursive: true, mode: 0o700 });
 const OUTPUT_DIR = (() => {
   for (let n = 1; ; n++) {
@@ -75,13 +75,7 @@ const OUTPUT_DIR = (() => {
     }
   }
 })();
-const SESSION_META_DIR = join(
-  OCTOCODE_OUTPUT_BASE,
-  'octocode-chrome-devtools',
-  'tmp',
-  'session-meta',
-  `port-${PORT}`
-);
+const SESSION_META_DIR = join(RUNS_DIR, 'session-meta', `port-${PORT}`);
 mkdirSync(SESSION_META_DIR, { recursive: true, mode: 0o700 });
 
 const safePath = (p: string) => {

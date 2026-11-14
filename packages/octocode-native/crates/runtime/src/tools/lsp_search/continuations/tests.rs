@@ -207,7 +207,6 @@ fn retained_answers_hold_no_credential_and_replay_what_the_output_gate_shows() {
 #[test]
 fn protocol_data_the_gate_rewrites_is_held_in_process_and_never_stored() {
     let range = json!({"start":{"line":0,"character":0},"end":{"line":0,"character":4}});
-    let handle = r#"=guava-tests/test=/<com.google{T.java[T~T=)="Ljava.util.function.Function;!1865!1895!1870=&apply!1="Ljava.lang.Object;="key="Ljava.util.Map$Entry\<**>;="Lcom\/google;!0!true=)"#;
     for (answer, secret) in [
         (
             json!([{"name":"load","kind":12,"uri":"file:///repo/a.ts","range":range,"selectionRange":range,"detail":format!("token = \"{TOKEN}\"")}]),
@@ -216,10 +215,6 @@ fn protocol_data_the_gate_rewrites_is_held_in_process_and_never_stored() {
         (
             json!([{"name":"load","kind":12,"location":{"uri":"file:///repo/a.ts","range":range},"data":{"token":TOKEN}}]),
             TOKEN,
-        ),
-        (
-            json!([{"name":"T$1","kind":5,"uri":"file:///repo/T.java","range":range,"selectionRange":range,"data":{"element":handle}}]),
-            handle,
         ),
     ] {
         let dir = tempfile::tempdir().expect("directory");

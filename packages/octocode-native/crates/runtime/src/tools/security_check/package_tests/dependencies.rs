@@ -29,7 +29,9 @@ async fn an_umbrella_package_leads_to_its_exactly_pinned_dependencies() {
     )
     .await
     .expect("row");
-    assert_eq!(data["status"], "empty");
+    // None known is an answer, not an empty row.
+    assert!(data.get("status").is_none(), "{data}");
+    assert_eq!(data["affected"], false, "{data}");
     let sentence = data["answer"].as_str().expect("answer");
     assert!(
         sentence.contains("pins 2 runtime dependencies"),

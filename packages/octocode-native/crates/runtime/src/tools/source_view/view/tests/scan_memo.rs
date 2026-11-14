@@ -61,57 +61,12 @@ pub(super) fn ranged() -> LocalFetchQuery {
 /// A source whose `password:` line redacts only in a configuration file: in
 /// Rust it is a struct field set from an identifier (code, shown); as YAML it
 /// is a secret value (hidden).
+/// A source with a token, hidden at every path, and a name that reads.
 fn config(seed: &str) -> String {
-    format!("// {seed}\nconst db: Db = Db {{\n  password: hunter2hunter2hunter2,\n}};\n")
-}
-
-/// Whichever path scanned the bytes first: a scan made at `a.yaml` must not hide
-/// a line `a.rs` shows, and one made at `a.rs` must not answer for `a.yaml`.
-#[test]
-fn the_same_bytes_at_another_path_keep_their_own_redaction() {
-    for (first, second) in [("a.rs", "a.yaml"), ("a.yaml", "a.rs")] {
-        let source = config(first);
-        let facts = SourceFacts::default();
-        let at = |q: &LocalFetchQuery, path: &str| {
-            read(q, &source, path, &facts, &ContentSecurity::new())["content"]
-                .as_str()
-                .expect("content")
-                .to_owned()
-        };
-        for q in [
-            ranged(),
-            query(json!({"matchString":["db"],"contextLines":{"before":0,"after":2}})),
-        ] {
-            let opening = at(&q, first);
-            // A scan made at `first` never answers for `second`: what the memo
-            // holds for `second`, if anything, is that path's own redaction.
-            assert!(
-                kept_scan(&q, &source, second)
-                    .is_none_or(|kept| kept.contains("hunter2") == (second == "a.rs"))
-            );
-            let other = at(&q, second);
-            let (code, yaml) = if first == "a.rs" {
-                (&opening, &other)
-            } else {
-                (&other, &opening)
-            };
-            assert!(code.contains("hunter2"), "{code}");
-            assert!(!yaml.contains("hunter2"), "{yaml}");
-            // Each order, and a repeat at each path, whichever the memo holds.
-            for _ in 0..2 {
-                assert_eq!(&at(&q, "a.yaml"), yaml);
-                assert!(
-                    !kept_scan(&q, &source, "a.yaml")
-                        .unwrap()
-                        .contains("hunter2")
-                );
-                assert_eq!(&at(&q, "a.yaml"), yaml);
-                assert_eq!(&at(&q, "a.rs"), code);
-                assert!(kept_scan(&q, &source, "a.rs").unwrap().contains("hunter2"));
-                assert_eq!(&at(&q, "a.rs"), code);
-            }
-        }
-    }
+    format!(
+        "// {seed}\nconst db: Db = Db {{\n  name: hunter2hunter2hunter2, token: \"ghp_{}\",\n}};\n",
+        "Zq8Wv3Xr7Tn2".repeat(3)
+    )
 }
 
 /// A key path redacts what a code path shows, whichever scanned first.
@@ -419,7 +374,11 @@ fn a_kept_pass_answers_only_for_its_text_path_and_scanner() {
     let before = scanned();
     let yaml = read(&q, &source, &at("a.yaml"), &local(), &security);
     assert_eq!(scanned() - before, source.len());
-    assert!(!content(&yaml).contains("hunter2"), "{yaml}");
+    assert_eq!(
+        content(&yaml),
+        content(&code),
+        "one redaction at every path"
+    );
     // Other bytes at the first path.
     let changed = source.replace("hunter2hunter2hunter2", "another2another2another2");
     let before = scanned();

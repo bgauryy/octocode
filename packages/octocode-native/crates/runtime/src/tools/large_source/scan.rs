@@ -77,6 +77,9 @@ pub(super) struct Scan {
     pub(super) runs: Runs,
     /// The line a regex scan stopped at its match limit.
     pub(super) limited: Option<usize>,
+    /// A list `matchString`: per entry, in order, whether any window held a
+    /// match of it.
+    pub(super) term_hits: Vec<bool>,
     /// Scan edges the source crossed: at a line start, and inside a line (one
     /// too long to cut at a line start, or a match that reached over the edge).
     pub(super) line_edges: usize,
@@ -89,6 +92,12 @@ pub(super) struct Scan {
     pub(super) proven: Option<super::proven::Proven>,
     /// The digest of the bytes the scan read.
     pub(super) digest: Option<String>,
+    /// Every hit line too long for a byte page to hold whole, placed in the
+    /// text a read shows, with its match windows: its byte walk shows them
+    /// first ([`super::walk`]).
+    pub(super) long: std::sync::Arc<Vec<super::walk::LongHit>>,
+    /// The bytes of the text a read shows of the whole source.
+    pub(super) shown_bytes: usize,
     /// The lines the scan matched that differ from the source's, and the
     /// placeholders they show: text a redaction hid, where no pattern can
     /// match it.
@@ -262,6 +271,10 @@ pub(super) fn scan_with(
         text: String::new(),
         pending: Vec::new(),
         line: 1,
+        consumed: 0,
+        line_start: 0,
+        tail: String::new(),
+        long: super::walk::LongHits::default(),
         owned_from: 0,
         counted: 0,
         newlines: 0,
@@ -305,6 +318,15 @@ struct Scanner<'a, C: CancellationCheck> {
     pending: Vec<u8>,
     /// The 1-based line `text` starts in.
     line: usize,
+    /// The shown bytes slid out of the window: where `text` starts.
+    consumed: usize,
+    /// The shown byte `line` starts at.
+    line_start: usize,
+    /// The last shown bytes slid out of the window, so a match window's edge
+    /// near the window's start is cut as cleanly as any other.
+    tail: String,
+    /// The long hit lines found so far.
+    long: super::walk::LongHits,
     /// Where the window's own bytes start, behind the one character of context.
     owned_from: usize,
     /// The last line counted as a hit.
@@ -342,6 +364,7 @@ impl<C: CancellationCheck> Scanner<'_, C> {
                 return Ok(true);
             }
             let read = piece.len();
+            self.found.shown_bytes += read;
             self.newlines += piece.iter().filter(|byte| **byte == b'\n').count();
             self.last = piece.last().copied();
             if !self.proven
@@ -422,12 +445,14 @@ impl<C: CancellationCheck> Scanner<'_, C> {
             self.found.peak = self.found.peak.max(self.text.len());
         }
         let found = extraction::match_spans(self.q, &self.text)?;
+        self.note_terms(&found.missed);
         let mut edge = if last || found.truncated {
             self.text.len()
         } else {
             self.edge()
         };
         let starts = line_starts(&self.text);
+        self.close_long(&starts, last);
         let (mut hit, owned_from) = (0, self.owned_from);
         for &(start, end) in found.spans.iter().filter(|span| span.0 >= owned_from) {
             if start >= edge && !(last || found.truncated) {
@@ -454,6 +479,12 @@ impl<C: CancellationCheck> Scanner<'_, C> {
                 hit = line;
             }
             self.counted = self.counted.max(end_line);
+            self.long_windows(
+                &starts,
+                (start, end.min(self.text.len())),
+                (first, end_line),
+                last,
+            );
         }
         if found.truncated {
             self.found.limited = Some(if hit > 0 { hit } else { self.line });
@@ -462,6 +493,20 @@ impl<C: CancellationCheck> Scanner<'_, C> {
             self.slide(edge);
         }
         Ok(())
+    }
+
+    /// Mark each entry of a list `matchString` that this window's scan
+    /// matched: every entry it did not list as missed.
+    fn note_terms(&mut self, missed: &[usize]) {
+        let terms = local_fetch_query::match_strings(self.q).len();
+        if terms < 2 {
+            return;
+        }
+        let hits = &mut self.found.term_hits;
+        hits.resize(terms, false);
+        for (index, hit) in hits.iter_mut().enumerate() {
+            *hit |= !missed.contains(&index);
+        }
     }
 
     /// Count hit `line` with its context window, within the read's ranges.
@@ -482,18 +527,145 @@ impl<C: CancellationCheck> Scanner<'_, C> {
             self.found.mid_edges += 1;
         }
         let drop = self.boundary(edge - 1);
-        self.line += self.text.as_bytes()[..drop]
-            .iter()
-            .filter(|byte| **byte == b'\n')
-            .count();
+        let dropped = self.text.get(..drop).unwrap_or_default();
+        self.line += dropped.bytes().filter(|byte| *byte == b'\n').count();
+        if let Some(at) = memchr::memrchr(b'\n', dropped.as_bytes()) {
+            self.line_start = self.consumed + at + 1;
+        }
+        let kept = dropped.ceil_char_boundary(drop.saturating_sub(super::walk::CUT_REACH));
+        self.tail.push_str(dropped.get(kept..).unwrap_or_default());
+        let excess = self.tail.len().saturating_sub(super::walk::CUT_REACH);
+        let excess = self.tail.ceil_char_boundary(excess);
+        self.tail.drain(..excess);
+        self.consumed += drop;
         self.text.drain(..drop);
         self.owned_from = edge - drop;
+    }
+
+    /// Close the long hit line whose end an earlier judgement had not
+    /// reached, when the window holds it: its line break, or the source's end.
+    fn close_long(&mut self, starts: &[usize], last: bool) {
+        let Some((line, _)) = self.long.open() else {
+            return;
+        };
+        let end = line
+            .checked_sub(self.line)
+            .and_then(|index| starts.get(index + 1))
+            .map(|at| self.consumed + at)
+            .or(last.then_some(self.consumed + self.text.len()));
+        if let Some(end) = end {
+            self.long.close(end);
+        }
+    }
+
+    /// Record the match window of the match at `start..end` of the window in
+    /// each line it touches (`first..=last_line`) too long for a byte page to
+    /// hold whole, as a source held whole places it:
+    /// [`crate::tools::source_view::extraction::MATCH_MARGIN`] around
+    /// the match, inside the line, every edge a clean cut of the shown text.
+    fn long_windows(
+        &mut self,
+        starts: &[usize],
+        (start, end): (usize, usize),
+        (first, last_line): (usize, usize),
+        last: bool,
+    ) {
+        use crate::tools::source_view::extraction::{FITS_ANY_BYTE_PAGE, MATCH_MARGIN};
+        if self.long.given_up() {
+            return;
+        }
+        let shown_end = self.consumed + self.text.len();
+        for line in first..=last_line {
+            let Some(index) = line.checked_sub(self.line) else {
+                continue;
+            };
+            if self.shape.window(line).is_none() {
+                continue;
+            }
+            let line_start = match index {
+                0 => self.line_start,
+                _ => match starts.get(index) {
+                    Some(at) => self.consumed + at,
+                    None => continue,
+                },
+            };
+            let line_end = starts
+                .get(index + 1)
+                .map(|at| self.consumed + at)
+                .or(last.then_some(shown_end));
+            if line_end.unwrap_or(shown_end) - line_start <= FITS_ANY_BYTE_PAGE {
+                continue;
+            }
+            let from = (self.consumed + start)
+                .saturating_sub(MATCH_MARGIN)
+                .max(line_start);
+            let to = (self.consumed + end)
+                .saturating_add(MATCH_MARGIN)
+                .min(line_end.unwrap_or(shown_end))
+                .min(shown_end);
+            let window = self.clean_window(self.long.last_window(line), line_start, (from, to));
+            self.long.add(line, line_start, line_end, window);
+        }
+    }
+
+    /// The match window `from..to` (shown bytes) cut clean: past the line's
+    /// last window `before`, extending it when it reaches back into it.
+    fn clean_window(
+        &self,
+        before: Option<(usize, usize)>,
+        line_start: usize,
+        (from, to): (usize, usize),
+    ) -> (usize, usize) {
+        use crate::response::cut::{clean_cut_from, clean_cut_past};
+        let low = before.map_or(from, |before| before.1.min(from));
+        let (around, base) = self.around(low, to.max(from));
+        let at = |shown: usize| shown.saturating_sub(base).min(around.len());
+        match before {
+            Some(before) if from <= before.1 => (
+                before.0,
+                base + clean_cut_past(&around, at(before.1), at(to.max(before.1))),
+            ),
+            _ => {
+                let floor = before.map_or(line_start, |before| before.1).max(base);
+                let start = base + clean_cut_from(&around, at(floor), at(from));
+                (
+                    start,
+                    base + clean_cut_past(&around, at(start), at(to.max(start))),
+                )
+            }
+        }
+    }
+
+    /// The shown text from [`super::walk::CUT_REACH`] before shown byte `low`
+    /// to as far after `high`, as far as the window and the tail behind it
+    /// hold it, with the shown byte it starts at.
+    fn around(&self, low: usize, high: usize) -> (std::borrow::Cow<'_, str>, usize) {
+        let reach = super::walk::CUT_REACH;
+        let tail_start = self.consumed - self.tail.len();
+        let low = low.saturating_sub(reach).max(tail_start);
+        let high = high
+            .saturating_add(reach)
+            .min(self.consumed + self.text.len())
+            .max(self.consumed);
+        let to = self.text.floor_char_boundary(high - self.consumed);
+        if low >= self.consumed {
+            let from = self.text.floor_char_boundary(low - self.consumed);
+            return (
+                std::borrow::Cow::Borrowed(self.text.get(from..to).unwrap_or_default()),
+                self.consumed + from,
+            );
+        }
+        let from = self.tail.ceil_char_boundary(low - tail_start);
+        let mut around = self.tail.get(from..).unwrap_or_default().to_owned();
+        around.push_str(self.text.get(..to).unwrap_or_default());
+        (std::borrow::Cow::Owned(around), tail_start + from)
     }
 
     /// The scan's totals, once the source ended.
     fn finish(mut self) -> Result<Scan, ExtractionError> {
         let lines = self.newlines + usize::from(self.last.is_some_and(|byte| byte != b'\n'));
         self.found.close(lines);
+        self.found.long = std::sync::Arc::new(std::mem::take(&mut self.long).finish());
         if let Some(proof) = self.proof {
             let pass = proof.finish().map_err(|error| {
                 ExtractionError::new(ErrorCode::FileReadFailed, error.message())

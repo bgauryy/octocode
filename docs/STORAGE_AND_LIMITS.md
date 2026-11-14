@@ -66,7 +66,7 @@ In persistent mode, startup checks for expired entries at most once per 24 hours
 | Provider classification and URL capture | No default whole-call time budget. A silent connection can time out after 300 seconds without incoming bytes. |
 | Classification concurrency | Up to 10 in-flight requests to a provider endpoint per process, shared across calls. Throttling reduces concurrency and a provider's `Retry-After` pauses new requests. |
 | Classification page or section batch | About 131,000 characters of evidence and questions, with at least one unit admitted. The next batch covers the remaining units. |
-| Retained work | The RAM budget is one eighth of available memory, bounded to 512 MiB–2 GiB. Each persistent store directory has a separate byte budget of the same size. |
+| Retained work | The RAM budget is one eighth of known host memory, capped at 2 GiB; when host memory cannot be read, it defaults to 512 MiB. Each persistent store directory has a separate byte budget of the same size. |
 | Language-server memory | The default per-server cap is one quarter of host RAM, bounded to 4,096–8,192 MiB. Override with the server's `maxMemoryMb`. |
 
 A CLI or MCP tool call has no default wall-clock deadline. A caller can cancel it with CLI Ctrl-C or an MCP cancellation notification. For GitHub, a spent core or GraphQL quota returns `rateLimited` with its reset and retry route. Search quotas and secondary limits can wait until reset or `Retry-After`, subject to the caller's deadline. During long waits, terminal CLI clients get progress on stderr and MCP clients with a progress token receive notifications.

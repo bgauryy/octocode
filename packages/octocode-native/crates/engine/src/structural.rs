@@ -35,6 +35,7 @@ pub use types::{
     StructuralSearchFilesOptions, TextJudge, WalkErrors,
 };
 
+use crate::security::MAX_CONTENT_SIZE;
 use crate::signatures::languages;
 use language::AgLanguage;
 #[cfg(test)]
@@ -42,13 +43,6 @@ use octo::all_matches;
 use octo::{compile_matcher, matches_with_recovery};
 use query::{StructuralQuery, invalid_query_explanation};
 use serde_json::Value;
-
-/// Defense-in-depth cap on content handed to the single-content structural
-/// entry points (`search`, `search_detailed`). The file walker already bounds
-/// per-file bytes via `max_file_bytes`; this mirrors that backstop on the
-/// single-content path, so a multi-MB blob can't hang tree-sitter parsing or `match_multi_capture` backtracking with no
-/// timeoutMs escape. At-or-below passes; over returns an error / `truncated`.
-const MAX_STRUCTURAL_CONTENT_BYTES: usize = crate::security::MAX_CONTENT_SIZE;
 
 /// Test helper: a structural search over `content`, parsed with the grammar
 /// resolved from `ext`, returning bare matches. Exactly one of `pattern` /
@@ -63,9 +57,9 @@ pub(crate) fn search(
     pattern: Option<&str>,
     rule: Option<&Value>,
 ) -> Result<Vec<StructuralMatch>, String> {
-    if content.len() > MAX_STRUCTURAL_CONTENT_BYTES {
+    if content.len() > MAX_CONTENT_SIZE {
         return Err(format!(
-            "[structural.content.tooLarge] structural search content exceeds {MAX_STRUCTURAL_CONTENT_BYTES} byte limit"
+            "[structural.content.tooLarge] structural search content exceeds {MAX_CONTENT_SIZE} byte limit"
         ));
     }
     let query = StructuralQuery::new(pattern, rule)
@@ -273,13 +267,15 @@ pub(crate) fn evaluate_source(
     pattern: Option<&str>,
     rule: Option<&Value>,
 ) -> StructuralSearchDetailedResult {
-    if content.len() > MAX_STRUCTURAL_CONTENT_BYTES {
+    // The single-content path holds a source whole, as every read does: a
+    // larger blob is refused here, as the file walker refuses it per file.
+    if content.len() > MAX_CONTENT_SIZE {
         let diagnostic = StructuralDiagnostic::new(
             "structural.content.tooLarge",
             "warning",
             "parse",
             format!(
-                "Structural search content is {} bytes, above the single-content limit of {MAX_STRUCTURAL_CONTENT_BYTES} bytes.",
+                "Structural search content is {} bytes, above the single-content limit of {MAX_CONTENT_SIZE} bytes.",
                 content.len()
             ),
         )

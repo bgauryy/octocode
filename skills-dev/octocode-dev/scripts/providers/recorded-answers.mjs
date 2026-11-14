@@ -7,7 +7,7 @@
 // test_http/recorded.rs). Refresh: `dev.mjs answers:record`.
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT } from './paths.mjs';
+import { ROOT } from '../lib/workspaces.mjs';
 
 export const ANSWERS = path.join(ROOT, 'test-utils/provider-answers');
 

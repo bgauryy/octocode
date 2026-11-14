@@ -132,6 +132,31 @@ async fn redact_emails_masks_github_rows() {
     assert!(redacted.contains("mail "), "the row stays: {redacted}");
 }
 
+/// `output.redactUuid` masks UUIDs in a local tool's rows; off, they read.
+#[tokio::test]
+async fn redact_uuid_masks_uuids_in_local_rows() {
+    const ID: &str = "123e4567-e89b-12d3-a456-426614174000";
+    let home = tempfile::tempdir().expect("home");
+    let cwd = tempfile::tempdir().expect("cwd");
+    std::fs::write(cwd.path().join("ids.txt"), format!("request {ID} done\n")).expect("file");
+    let content = |redact: bool| {
+        let rc = json!({"output":{"redactUuid":redact}});
+        let runtime = runtime(home.path(), cwd.path(), &rc);
+        async move {
+            let outcome = call(&runtime, "localFetch", json!({"path":"ids.txt"})).await;
+            data(&outcome)["content"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned()
+        }
+    };
+    let plain = content(false).await;
+    assert!(plain.contains(ID), "{plain}");
+    let masked = content(true).await;
+    assert!(!masked.contains(ID), "{masked}");
+    assert!(masked.contains("request [REDACTED-UUID] done"), "{masked}");
+}
+
 /// A GitHub read of a credential-named file follows the local rule: refused
 /// with `pathPolicyDenied` before any request by default; `security.
 /// credentialFiles: allow` opens it with its values redacted and nothing of
@@ -194,15 +219,18 @@ async fn credential_files_setting_governs_github_file_reads() {
     );
     let opened = read(true, ".env").await;
     let shown = opened.to_string();
-    assert!(shown.contains("needle_line=1"), "{opened}");
+    // A dotenv file is a known credential store: every value goes, each name
+    // stays.
+    assert!(shown.contains("needle_line="), "{opened}");
     for secret in [token.as_str(), "CowSaysMoo"] {
         assert!(!shown.contains(secret), "{secret} leaked: {opened}");
     }
+    assert!(shown.contains("DB_PASS="), "{opened}");
     let still = read(true, ".ssh/id_rsa").await;
     assert_eq!(still["errorCode"], "pathPolicyDenied", "{still}");
     let on_disk = walkdir_text(home.path());
     assert!(
-        !on_disk.contains("needle_line=1"),
+        !on_disk.contains("needle_line="),
         "an opened credential file is kept in memory only"
     );
 }
@@ -365,7 +393,8 @@ async fn credential_files_setting_opens_local_reads_only() {
     let (fetched, found, built) =
         run(json!({"local":{"beta":true},"security":{"credentialFiles":"allow"}})).await;
     let content = fetched["data"]["content"].as_str().unwrap_or_default();
-    assert!(content.contains("needle=1"), "{fetched}");
+    // A dotenv file's every value goes; its names stay.
+    assert!(content.contains("needle=[REDACTED-"), "{fetched}");
     assert!(
         !content.contains(&token),
         "the value stays redacted: {fetched}"

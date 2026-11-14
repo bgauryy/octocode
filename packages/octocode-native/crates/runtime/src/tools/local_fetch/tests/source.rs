@@ -150,6 +150,25 @@ fn a_late_nul_byte_makes_an_in_memory_source_binary() {
     );
 }
 
+/// A stray terminal control in text (a bell, a backspace, a form feed) keeps
+/// the file text, as file(1) counts them; a NUL makes even a short file binary.
+#[test]
+fn a_stray_control_is_text_and_a_nul_is_binary() {
+    let t = Fixture::new();
+    let paths = Paths(t.0.clone());
+    let bell = t.write("bell.log", "build done\x07\n");
+    let r = fetch(&q(&bell), &paths);
+    assert_eq!(r.status, ReadStatus::Success, "{r:?}");
+    assert_eq!(r.content.as_deref(), Some("build done\x07\n"));
+    let nul = t.write("nul.log", "build done\0\n");
+    let r = fetch(&q(&nul), &paths);
+    assert_eq!(
+        r.error_code,
+        Some(ErrorCode::BinaryFileUnsupported),
+        "{r:?}"
+    );
+}
+
 /// Each page reads its own bytes; a walk of one version prepares it once
 /// (later pages replay the first page's view and scan their own cut), and
 /// a source edit is observed: the new version is prepared again.

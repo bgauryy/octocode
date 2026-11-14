@@ -395,6 +395,25 @@ impl Query<'_> {
         );
         out.value["graph"] = self.g.summary();
         let shown = page.rows.len();
+        // Each listed candidate's call: this request with the reference
+        // replaced by that candidate's exact id, runnable as written.
+        let calls = page
+            .rows
+            .iter()
+            .filter_map(|candidate| candidate["id"].as_str())
+            .map(|id| {
+                let mut row = query_row(self.options, &self.g.id);
+                naming(&mut row, reference, id);
+                crate::response::result::Continuation::related(
+                    crate::id::ToolId::GraphQuery,
+                    Value::Object(row),
+                )
+                .build()
+            })
+            .collect::<Vec<_>>();
+        if !calls.is_empty() {
+            out.value["related"] = Value::Array(calls);
+        }
         out.value["candidates"] = json!(page.rows);
         out.value["pagination"] = pagination(
             self.options.offset.unwrap_or(0),
@@ -419,5 +438,23 @@ impl Query<'_> {
                 .push((Channel::NextPage, Resume::Query(Box::new(next))));
         }
         Err(out)
+    }
+}
+
+/// `row` with each field that names `reference` (a target, `to`, a
+/// `changed` or `entries` item) naming `id` instead.
+fn naming(row: &mut Map<String, Value>, reference: &str, id: &str) {
+    for field in ["target", "to", "changed", "entries"] {
+        match row.get_mut(field) {
+            Some(Value::String(named)) if named == reference => *named = id.to_owned(),
+            Some(Value::Array(items)) => {
+                for item in items {
+                    if item == reference {
+                        *item = json!(id);
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 }

@@ -405,10 +405,14 @@ impl<'a> SafeSource<'a> {
                     "The complete source could not be sanitized before section planning.",
                 )
             })?;
-        let safe = if dispatcher.config().resolved.output.redact_emails {
-            std::borrow::Cow::Owned(dispatcher.security().redact_emails(&safe))
-        } else {
-            safe
+        let output = &dispatcher.config().resolved.output;
+        let pii = crate::security::Pii {
+            emails: output.redact_emails,
+            uuids: output.redact_uuid,
+        };
+        let safe = match dispatcher.security().redact_pii(&safe, pii) {
+            Some(masked) => std::borrow::Cow::Owned(masked),
+            None => safe,
         };
         Self::from_redacted(raw, &safe)
     }

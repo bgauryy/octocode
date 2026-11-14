@@ -97,13 +97,16 @@ fn flags_stay_inside(
             .iter()
             .find_map(|flag| forced_value(word, flag))
         {
-            // Clang also finds a forced file on the search paths; one the project
-            // owns spells no way out of it.
+            // Clang looks for a relative forced file in the working directory
+            // first, then along the search paths, which reach outside the project
+            // (`-I`, `-isystem`, `-iquote`, the system headers): only a file the
+            // project holds there, or an absolute path inside it, stays.
             let value = match value {
                 "" => words.next().map_or("", String::as_str),
                 value => value,
             };
-            if !inside(Path::new(value)) {
+            let path = Path::new(value);
+            if !(path.is_absolute() || directory.join(path).is_file()) || !inside(path) {
                 return false;
             }
             continue;
@@ -204,7 +207,7 @@ impl Scans {
         if let Some(known) = self.0.get(text) {
             return Ok(known.clone());
         }
-        let found = crate::security::sanitizer::sanitize_stored_leaf(text, None)?;
+        let found = crate::security::sanitizer::sanitize_leaf(text)?;
         self.0.insert(text.to_owned(), found.clone());
         Ok(found)
     }

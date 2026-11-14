@@ -1,6 +1,5 @@
 //! Compaction must not change code (`minify::verify`), on one fixture per
-//! shape that went wrong before. The corpus sweep is
-//! `examples/compact_sweep.rs`.
+//! shape that went wrong before.
 
 use std::path::Path;
 

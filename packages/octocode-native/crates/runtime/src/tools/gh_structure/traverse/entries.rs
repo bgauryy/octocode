@@ -100,14 +100,19 @@ pub(super) fn git_kind(entry: &octocode_github::TreeEntry) -> &str {
 }
 
 /// A symlink or submodule has no listable content: name it by its
-/// repository-relative `path` instead of dropping it silently.
+/// repository-relative `path`, under its kind, instead of dropping it
+/// silently.
 pub(super) fn note_unlisted(traversal: &mut Traversal, path: &str, kind: &str) {
     let label = match kind {
         "symlink" => "symlink",
         "submodule" | "commit" => "submodule",
         _ => return,
     };
-    traversal.omitted.insert(format!("{path} ({label})"));
+    traversal
+        .omitted
+        .entry(label.to_owned())
+        .or_default()
+        .insert(path.to_owned());
 }
 
 /// The entry kind [`note_unlisted`] names: the listing's own type, or a

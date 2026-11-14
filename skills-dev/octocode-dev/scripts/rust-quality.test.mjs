@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
+import { ROOT } from './lib/workspaces.mjs';
 import {
   NATIVE,
   crateDirs,
@@ -65,7 +66,7 @@ test('pins name each tool at its manifest version for CI installs', () => {
 });
 
 test('CI installs Rust dev tools only through the dev-tools.json pins', () => {
-  const workflows = path.join(NATIVE, '..', '..', '.github', 'workflows');
+  const workflows = path.join(ROOT, '.github', 'workflows');
   for (const file of readdirSync(workflows).filter(name => name.endsWith('.yml'))) {
     const text = readFileSync(path.join(workflows, file), 'utf8');
     for (const [, value] of text.matchAll(/^\s*tool:\s*(.+)$/gm)) {

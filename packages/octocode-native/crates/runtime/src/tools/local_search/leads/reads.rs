@@ -5,6 +5,11 @@ use octocode_contract_types::RegexEngine;
 use super::super::local_search_query;
 use super::*;
 
+/// A first-page binary disclosure, with a listing only for unread cut text.
+pub(in crate::tools::local_search) struct BinaryDisclosure {
+    pub(in crate::tools::local_search) listing: Option<Value>,
+}
+
 impl Found<'_> {
     /// The natural next step on a first page with hits: read the top hit in
     /// context. A shown declaration of the searched symbol reads that
@@ -69,13 +74,11 @@ impl Found<'_> {
     }
 
     /// Files binary from their leading bytes are outside a text search, not
-    /// a coverage gap: disclosed once, on the first page, as a count by
-    /// extension. Only an empty row, whose miss they may explain, lists them.
-    /// The listing also covers binary-cut files too many to name in their
-    /// own warning ([`binary_file_list`]), on any row: their text is unread.
-    pub(in crate::tools::local_search) fn skipped_binaries(
-        &self,
-    ) -> Option<(String, Option<Value>)> {
+    /// a coverage gap: disclosed once, on the first page, as a count
+    /// (`binarySkipped`). `Some` when there are any, with the listing of the
+    /// binary-cut files too many to name in their own warning
+    /// ([`binary_file_list`]), on any row: their text past the NUL is unread.
+    pub(in crate::tools::local_search) fn skipped_binaries(&self) -> Option<BinaryDisclosure> {
         if !self.first_page() || self.root.is_file() {
             return None;
         }
@@ -93,20 +96,10 @@ impl Found<'_> {
         if skipped.is_empty() && cut_groups.is_empty() {
             return None;
         }
-        let listed = if self.empty {
-            merge_binary_groups(skipped, &cut_groups)
-        } else {
-            cut_groups
-        };
-        let listing = (!listed.is_empty())
-            .then(|| leading_binary_listing(self.query, &listed))
-            .flatten();
-        let warning = if skipped.is_empty() {
-            // The cut files' own warning carries the count.
-            String::new()
-        } else {
-            leading_binary_warning(skipped)
-        };
-        Some((warning, listing))
+        Some(BinaryDisclosure {
+            listing: (!cut_groups.is_empty())
+                .then(|| leading_binary_listing(self.query, &cut_groups))
+                .flatten(),
+        })
     }
 }

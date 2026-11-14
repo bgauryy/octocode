@@ -110,7 +110,6 @@ async fn provider(server: &MockServer) -> GitHubProvider {
         RetryPolicy {
             max_attempts: 2,
             base_delay: Duration::from_millis(1),
-            max_retry_after: Duration::from_secs(1),
         },
         GitHubBudget::relaxed(),
     )
@@ -172,7 +171,6 @@ fn short_retry() -> RetryPolicy {
     RetryPolicy {
         max_attempts: 3,
         base_delay: Duration::from_millis(1),
-        max_retry_after: Duration::from_secs(5),
     }
 }
 

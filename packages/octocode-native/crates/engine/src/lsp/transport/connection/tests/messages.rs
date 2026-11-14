@@ -200,9 +200,12 @@ async fn connection_caches_push_diagnostics_for_bounded_on_demand_reads() {
             }
         }))
         .await;
+    let document = [("file:///workspace/a.ts".to_owned(), Some(3))];
     let report = connection
-        .wait_for_push_diagnostics("file:///workspace/a.ts", 1_000, Some(3))
+        .wait_for_push_diagnostics(&document, 1_000)
         .await
+        .pop()
+        .flatten()
         .expect("push diagnostics report");
     assert_eq!(report["kind"], "full");
     assert_eq!(report["version"], 3);
@@ -211,8 +214,10 @@ async fn connection_caches_push_diagnostics_for_bounded_on_demand_reads() {
     connection.clear_push_diagnostics("file:///workspace/a.ts");
     assert!(
         connection
-            .wait_for_push_diagnostics("file:///workspace/a.ts", 1, Some(3))
+            .wait_for_push_diagnostics(&document, 1)
             .await
+            .pop()
+            .flatten()
             .is_none()
     );
 }

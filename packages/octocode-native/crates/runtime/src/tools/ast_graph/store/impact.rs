@@ -199,14 +199,40 @@ impl<'t> Propagation<'t> {
     /// any of its declarations has a linked reference into the target
     /// (`paging::push_warnings()` through a module import): then only those
     /// symbols, not the whole module, carry the change.
+    ///
+    /// One import that links several files of one directory (a Go package,
+    /// a Java package glob) imports that package: a linked reference into
+    /// any of its files binds the import, as one into the target does.
     fn binds(&self, importer: u32, target: u32, import_line: u32) -> bool {
         let t = self.t;
-        t.out(importer).iter().any(|edge| {
+        let out = t.out(importer);
+        out.iter().any(|edge| {
             edge.kind == EdgeKind::Uses
                 && (edge.dst == target
                     || t.nodes[edge.dst as usize].file == target
                     || (import_line != NONE && edge.line == import_line))
         }) || self.referrers().contains(&(target, importer))
+            || (import_line != NONE && {
+                let dir = |file: u32| {
+                    crate::tools::ast_graph::paths::parent(t.str(t.nodes[file as usize].key))
+                };
+                let detail = out
+                    .iter()
+                    .find(|edge| {
+                        edge.kind == EdgeKind::Imports
+                            && edge.dst == target
+                            && edge.line == import_line
+                    })
+                    .map(|edge| edge.detail);
+                out.iter().any(|edge| {
+                    edge.kind == EdgeKind::Imports
+                        && edge.line == import_line
+                        && Some(edge.detail) == detail
+                        && edge.dst != target
+                        && dir(edge.dst) == dir(target)
+                        && self.referrers().contains(&(edge.dst, importer))
+                })
+            })
     }
 
     fn referrers(&self) -> &BTreeSet<(u32, u32)> {

@@ -48,7 +48,7 @@ async fn a_refs_page_of_a_renamed_repository_warns_and_leads_canonically() {
         "{}",
         out.data
     );
-    assert_eq!(out.data["tags"], json!(["v1"]));
+    assert_eq!(tag_names(&out.data), ["v1"]);
     assert!(
         out.data.get("next").is_none(),
         "complete refs need no continuation"

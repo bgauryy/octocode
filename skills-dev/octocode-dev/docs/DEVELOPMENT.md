@@ -81,7 +81,7 @@ Regeneration needs `cargo install cargo-typify --version 0.8.0 --locked`. `tool_
 
 1. Add it in core and regenerate as above.
 2. Implement it, then declare its effect in `crates/runtime/src/contracts/field-effect-coverage.json`, or confirm it inherits its nearest declared ancestor's effect (a path with no entry inherits). `cargo test -p octocode-native --test integration field_effect_coverage::` fails on an unresolved path or a stale key.
-3. A public limit change trips the `public_response_and_tree_limits_are_pinned` test by design. Update it deliberately.
+3. A public limit lives in core and reaches native as the contract's `limits`: change it there and regenerate (`check:tool-contract` fails on a stale copy). Tests assert the invariant the limit protects, never its value.
 4. Check the result against [TOOL_QUALITY.md](TOOL_QUALITY.md), then update `<repo>/docs/OCTOCODE_TOOLS.md`.
 
 A new configuration setting follows [ADDING_CONFIG.md](ADDING_CONFIG.md).
@@ -152,8 +152,7 @@ regression net: native `cargo` tests with mocked providers and the packages' uni
 The native mocks replay real provider answers from `test-utils/provider-answers`. `$DEV answers:record [id,...]`
 re-records them live through the built CLI ([recorder](../scripts/providers/record.mjs), cases in
 `recorded-plan.mjs`); it refuses a recording that holds the token or a private repository, loses a field path
-when trimmed, or makes the tool ask anything else. The same folder's loopback GitHub, registry, OSV and
-classification mock, over `test-utils/fixtures/demo-repo`, serves the `profile` stub flows.
+when trimmed, or makes the tool ask anything else.
 
 ### Cargo builds
 
@@ -162,9 +161,10 @@ classification mock, over `test-utils/fixtures/demo-repo`, serves the `profile` 
 - Rust integration tests are one binary per crate: `tests/main.rs` declares each `tests/*.rs` as a `mod`.
 - Don't commit local lld or sccache Cargo configuration.
 - Use the repository’s shared `target/` and one build owner, per the [working rules](../../../AGENTS.md#working-rules). Other lanes run focused checks and reuse matching artifacts; do not create private targets or clean a concurrent build.
-- Reset a bloated `target/` explicitly with `dev.mjs clean:cache` (stale native copies) or `dev.mjs clean` (all build outputs), after coordinating with other sessions. `dev.mjs build:dev` never cleans the shared cache: process discovery cannot safely exclude a concurrent build or a running test binary. Most of the bloat is `target/debug/deps`: Cargo keeps one copy of our crates per feature, package, and toolchain selection and never removes one (on 2026-11-01, 244 GB in `deps/` and 20 GB in `incremental/`, with 114 copies of `octocode_native`); `clean:cache` drops them and keeps dependencies warm.
+- Most of the `target/` bloat was incremental `.rcgu.o` objects: since rustc 1.88 their names carry a random per-run segment and `split-debuginfo = "unpacked"` keeps them, so every rebuild left a new set ([rust-lang/rust#161824](https://github.com/rust-lang/rust/issues/161824); on 2026-11-13, 731k of 737k `target/debug/deps` entries, 307 GiB). `[profile.dev] incremental = false` stops it; never set `CARGO_INCREMENTAL=1`. The rest is one copy of our crates per package, feature and toolchain selection, which Cargo never removes (78 copies of `octocode_native` the same day).
+- `build:dev`, `test:rust` and `lint:rust` record the units each run used (from Cargo's JSON messages) in `target/.keep/`; the build and test runs also delete stale `.rcgu.o` of the units they recompiled and print `deps: N entries`. At the end of a round the build owner runs `$DEV prune:rust` (`--dry-run` previews): it refuses while any cargo, rustc or nextest process runs, then deletes `deps/`, `.fingerprint/` and `build/` entries no keep record of the last 7 days lists, `incremental/` dirs, `target/rust-lint/{debug,tmp}`, and files copied into `target/<profile>/`. It leaves profile dirs no record names and everything outside `target/`, such as the staged `npm/<platform>/octocode`. `$DEV clean:cache` (every copy of our crates, dependencies stay warm) and `$DEV clean` (all build outputs) remain the full resets, after coordinating with other sessions.
 - Benchmark campaigns keep a `build/` snapshot so a resumed run uses the same build. Remove it only when the campaign is final; `fingerprint.txt` records which build ran.
-- After a `rust-toolchain.toml` bump, the old toolchain's dependency builds stay in `target/` (about 29 GiB on the 1.99.1 bump). `cargo sweep --toolchains <new-toolchain> .` (cargo-sweep) removes them, `target/platforms/` included, then `clean:cache` drops the stale incremental sessions.
+- After a `rust-toolchain.toml` bump, the old toolchain's dependency builds stay in `target/` (about 29 GiB on the 1.99.1 bump). `cargo sweep --toolchains <new-toolchain> .` (cargo-sweep) removes them, `target/platforms/` included; `prune:rust` also drops them from the profile dirs a keep record names once each selection has run on the new toolchain.
 
 ### Rust dev tools
 
@@ -200,7 +200,6 @@ One command, macOS and Linux:
 ```bash
 cargo build --locked --profile profiling -p octocode-cli   # in packages/octocode-native; or pass --build
 $DEV profile localSearch '{"path":"crates","matchString":["fn "]}' --cwd packages/octocode-native --phase repeat
-$DEV profile --flow as.symbols.crates      # a named flow on a frozen corpus; --list shows them
 samply load .octocode/octocode-dev/profile/<run>/profile.json.gz   # the flamegraph
 ```
 
@@ -209,8 +208,6 @@ samply load .octocode/octocode-dev/profile/<run>/profile.json.gz   # the flamegr
 A plain CLI tool call is a thin client of the shared warm `octocode serve` process (`crates/cli/src/cli/serve.rs`). `time -l` on it shows near-zero CPU and about 12 MB RSS, and a repeated CLI call measures that server's memory, not the disk caches, so separate CLI processes are not separate runs. Measure through `$DEV profile` or a fresh `octocode mcp` process. `OCTOCODE_STORAGE_MODE=memory` runs in-process but refuses any answer that needs a continuation (`executionFailed`), so it cannot measure large answers.
 
 `--heap` adds what the server still holds after the flow: `malloc_history` on macOS, `heaptrack` on Linux. It shows retained memory, not a transient peak; peak footprint is in the counters. `dhat` is not wired in because it needs a global allocator in the product.
-
-`$DEV perf:check` compares the cheap flows' instructions with `scripts/profile/perf-baseline.json`, on a corpus frozen at one commit, for a quick "did this edit cost more". It uses the same profiling binary. A flow fails past both +10% and +20M instructions; a flow past the same limits downward prints `cheaper`, so you can `--write`. It reports measured and compared counts against every requested flow: exit 0 means every comparison passed, 1 means a regression or failed tool answer, 2 means invalid arguments, and 3 means unverified (missing counters, stub flows or compatible baselines). Every repetition needs a finite positive instruction count. `--write` refuses incomplete measurements and retains previous rows only under the same corpus and toolchain. It is a local command, not a CI gate. Flows behind a real language server and real GitHub answers are not in it, and stub GitHub answers show a mechanism, not the cost of a real answer.
 
 ## Development environment variables
 

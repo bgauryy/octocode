@@ -4,13 +4,11 @@ use crate::id::ToolId;
 /// Finish a classified provider page after shared sanitization and selection.
 /// Read leads may only name selected evidence; `unfiltered` remains the explicit
 /// route to the original page. Output fields never change the judged evidence.
-/// A hidden unresolved file may need source judgment: its keyword read keeps
-/// this query's classification. Resolved files already supply every hit line.
-pub(super) fn finish_code_selection(
-    value: &mut serde_json::Value,
-    query: &serde_json::Value,
-    hidden: &[serde_json::Value],
-) {
+/// A file the classification hid whose hits the page could not list stays
+/// reachable by a plain keyword read of the whole file: a fresh lead is never
+/// billed (no `classification`), so following it judges nothing again.
+/// Resolved files already supply every hit line.
+pub(super) fn finish_code_selection(value: &mut serde_json::Value, hidden: &[serde_json::Value]) {
     use serde_json::Value;
     type Identity = (String, String, String);
     let identities = |file: &Value| -> Vec<Identity> {
@@ -47,7 +45,7 @@ pub(super) fn finish_code_selection(
             read["path"].as_str()?.to_owned(),
         ))
     };
-    let mut judged = Vec::new();
+    let mut unjudged = Vec::new();
     for lead in value
         .get("next")
         .and_then(Value::as_object)
@@ -77,10 +75,9 @@ pub(super) fn finish_code_selection(
                 if let Some(fields) = read.as_object_mut() {
                     fields.remove("ranges");
                     fields.remove("contextLines");
-                    fields.insert("classification".into(), query["classification"].clone());
                 }
-                if !judged.contains(&read) {
-                    judged.push(read);
+                if !unjudged.contains(&read) {
+                    unjudged.push(read);
                 }
             }
         }
@@ -90,7 +87,7 @@ pub(super) fn finish_code_selection(
         read_identity(read).is_some_and(|id| selected.contains(&id))
     });
 
-    for batch in judged.chunks(crate::response::result::rows_per_call(
+    for batch in unjudged.chunks(crate::response::result::rows_per_call(
         ToolId::GhGetFileContent,
     )) {
         let call = crate::response::result::Continuation::related_input(

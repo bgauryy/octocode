@@ -183,7 +183,8 @@ fn plan(
 /// `text`, one line no window of the read holds whole, as a read judges it
 /// alone: in windows of the scanner's size, each overlapping the next by a
 /// quarter, so a value across a window's edge is whole in one of them. A
-/// window the scanner refuses is withheld.
+/// window the scanner refuses is withheld whole; the windows' redactions
+/// merge into their union ([`union`]).
 #[cfg_attr(
     octocode_clippy_ratchet,
     expect(
@@ -220,21 +221,54 @@ fn judged_alone(text: &str, path: &Path, security: &impl ContentScan) -> String 
         let next = boundary(end.saturating_sub(overlap));
         start = if next > start { next } else { end };
     }
-    hidden.sort_by_key(|(range, _)| (range.start, std::cmp::Reverse(range.end)));
     let mut out = String::with_capacity(text.len());
     let mut at = 0;
-    for (range, shown) in hidden {
-        if range.end <= at {
-            continue;
-        }
-        if range.start >= at {
-            out.push_str(&text[at..range.start]);
-            out.push_str(&shown);
-        }
+    for (range, shown) in union(hidden) {
+        out.push_str(&text[at..range.start]);
+        out.push_str(&shown);
         at = range.end;
     }
     out.push_str(&text[at.min(text.len())..]);
     out
+}
+
+/// The redactions of overlapping windows as one sorted, disjoint list over the
+/// same bytes: a redaction inside another (the same value both windows saw)
+/// goes with it; ones that only overlap hide the union of their bytes, showing
+/// each placeholder, or one [`crate::security::cut::REDACTED`] when either
+/// shows text of the source too. No byte outside every redaction is dropped,
+/// and none inside one shows.
+fn union(
+    mut hidden: Vec<(std::ops::Range<usize>, String)>,
+) -> Vec<(std::ops::Range<usize>, String)> {
+    hidden.sort_by_key(|(range, _)| (range.start, std::cmp::Reverse(range.end)));
+    let mut out: Vec<(std::ops::Range<usize>, String)> = Vec::with_capacity(hidden.len());
+    for (range, shown) in hidden {
+        match out.last_mut() {
+            Some((last, _))
+                if range.end <= last.end && (range.start < last.end || range == *last) => {}
+            Some((last, text)) if range.start < last.end => {
+                last.end = range.end;
+                *text = if !placeholders_only(text) || !placeholders_only(&shown) {
+                    crate::security::cut::REDACTED.to_owned()
+                } else if text.contains(&shown) {
+                    std::mem::take(text)
+                } else {
+                    format!("{text}{shown}")
+                };
+            }
+            _ => out.push((range, shown)),
+        }
+    }
+    out
+}
+
+/// Whether `shown` is placeholders alone, no text of the source beside them.
+fn placeholders_only(shown: &str) -> bool {
+    octocode_engine::security::placeholder_regex()
+        .replace_all(shown, "")
+        .replace(crate::security::cut::REDACTED, "")
+        .is_empty()
 }
 
 /// The bytes of a source with each of its changed lines (1-based) replaced by
@@ -302,3 +336,6 @@ impl<R: BufRead> Read for Patched<'_, R> {
         Ok(n)
     }
 }
+
+#[cfg(test)]
+mod tests;

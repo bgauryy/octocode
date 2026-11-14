@@ -614,7 +614,6 @@ async fn a_release_osv_does_not_know_is_disclosed_not_none_known() {
     let data = answer(&http, debian(Some("twelve"), Some("3.0.8-1")))
         .await
         .expect("row");
-    assert_ne!(data["status"], "empty", "{data}");
     assert!(
         data["answer"].as_str().expect("answer").contains("release"),
         "{data}"
@@ -647,7 +646,7 @@ async fn a_release_that_lists_the_package_reads_clean_at_a_version_with_no_recor
             .await
             .expect("row");
         assert_eq!(data["affected"], false, "{name}: {data}");
-        assert_eq!(data["status"], "empty", "{name}: {data}");
+        assert!(data.get("status").is_none(), "{name}: {data}");
         assert_eq!(data["sources"][0]["status"], "noneKnown", "{name}: {data}");
         let lead = data["answer"].as_str().expect("answer");
         assert!(lead.contains("none known"), "{name}: {lead}");
@@ -855,7 +854,7 @@ async fn an_empty_commit_answer_never_reads_as_clean() {
     let data = answer(&http, json!({"operation": "commit", "commit": COMMIT}))
         .await
         .expect("row");
-    assert_eq!(data["status"], "empty");
+    assert!(data.get("status").is_none(), "{data}");
     assert!(
         data.get("affected").is_none(),
         "unknown is not false: {data}"
@@ -1033,7 +1032,7 @@ async fn a_github_actions_version_is_compared_with_the_records_ranges() {
     );
     let (data, _) = actions("46.0.1", records()).await;
     assert_eq!(data["affected"], false, "{data}");
-    assert_eq!(data["status"], "empty", "{data}");
+    assert!(data.get("status").is_none(), "{data}");
 }
 
 /// A record whose range cannot be compared is listed and says so: neither
@@ -1043,7 +1042,6 @@ async fn a_record_that_cannot_be_compared_is_listed_not_claimed() {
     let unreadable = actions_record("GHSA-X", json!([{"introduced": "0"}, {"fixed": "nightly"}]));
     let (data, _) = actions("40.0.0", vec![unreadable]).await;
     assert!(data.get("affected").is_none(), "{data}");
-    assert_ne!(data["status"], "empty", "{data}");
     assert_eq!(data["advisories"][0]["id"], "GHSA-X", "{data}");
     let said = data["answer"].as_str().expect("answer");
     assert!(

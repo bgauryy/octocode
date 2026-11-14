@@ -101,7 +101,7 @@ fn query_walk(query: &LocalSearchQuery) -> Walk {
 /// or directory, and the lead searches again with only those lifted.
 /// Default-excluded directories the re-run could not finish are named with
 /// the lead that searches them. Returns whether skipped paths were shown to
-/// hold a match.
+/// hold a match, or what the check searched when they hold none.
 pub(super) fn disclose_unsearched(
     query: &LocalSearchQuery,
     search_options: &TextSearchOptions,
@@ -109,7 +109,6 @@ pub(super) fn disclose_unsearched(
     skipped: Skipped<'_>,
     next: &mut Option<Value>,
     hints: &mut Vec<String>,
-    warnings: &mut Vec<String>,
 ) -> Result<Unsearched, ToolError> {
     let walk = query_walk(query);
     let root = std::path::PathBuf::from(&search_options.path);
@@ -124,10 +123,13 @@ pub(super) fn disclose_unsearched(
     });
     let Ok(verdict) = verdict;
     if let Verdict::Absent = verdict {
-        if let Ok(lifted) = &lifted {
-            absent(query, &skipped, &lifted.withheld, hints, warnings);
-        }
-        return Ok(Unsearched::default());
+        return Ok(Unsearched {
+            checked: lifted
+                .as_ref()
+                .ok()
+                .and_then(|lifted| absent(&skipped, &lifted.withheld)),
+            ..Unsearched::default()
+        });
     }
     let subject = if local_search_query::view(query) == View::FilesWithout {
         ["file that lacks a match", "files that lack a match"]
@@ -164,45 +166,37 @@ pub(super) fn disclose_unsearched(
     Ok(Unsearched {
         may_hold_matches: true,
         observed: observed_paths(&named)?,
+        checked: None,
     })
 }
 
 /// The check of the skipped paths searched them and found nothing, so no
-/// lead lifts them: the hint says so, and what the path policy withheld
-/// from that walk (a skipped directory of symlinks) is counted in a warning,
-/// since absence there is unproven.
-fn absent(
-    query: &LocalSearchQuery,
-    skipped: &Skipped<'_>,
-    withheld: &crate::policy::discovery::Withheld,
-    hints: &mut Vec<String>,
-    warnings: &mut Vec<String>,
-) {
-    let counts = skipped.walk.counts();
-    if counts.is_empty() {
-        return;
+/// lead lifts them: what it searched, by cause, and what the path policy
+/// withheld from its walk beyond the page's own, both stated as counts in the
+/// empty page's one absence sentence. Security-policy directories (`.git/`)
+/// are left out of that count: no setting lifts them, so they hide nothing
+/// a search could reach.
+fn absent(skipped: &Skipped<'_>, withheld: &crate::policy::discovery::Withheld) -> Option<Checked> {
+    let paths = skipped.walk.counts();
+    if paths.is_empty() {
+        return None;
     }
-    let what = if local_search_query::view(query) == View::FilesWithout {
-        "file lacking a match"
-    } else {
-        "match"
-    };
-    // The page's `skippedPaths` already counts what its own walk withheld:
-    // the check states only what it withheld beyond that.
     let beyond = withheld.beyond(&skipped.walk.withheld);
-    let hint = match beyond.notice() {
-        Some(notice) => {
-            warnings.push(format!("Skipped paths: {notice}"));
-            format!(
-                "Skipped paths ({counts}) hold no {what} outside what their check withheld (warnings)."
-            )
-        }
-        None if withheld.total() > 0 => format!(
-            "Skipped paths ({counts}) hold no {what} outside what the path policy withheld (skippedPaths)."
-        ),
-        None => format!("Skipped paths ({counts}) hold no {what} either; the check searched them."),
-    };
-    hints.insert(0, hint);
+    let policy_dirs: usize = beyond.dirs.values().sum();
+    Some(Checked {
+        paths,
+        withheld: beyond.total().saturating_sub(policy_dirs),
+    })
+}
+
+/// What the check of an empty page's skipped paths proved: they hold nothing
+/// the page could list.
+pub(super) struct Checked {
+    /// The skipped paths it searched, counted by cause (`1 ignored, 23 hidden`).
+    pub(super) paths: String,
+    /// Entries its walk withheld beyond the page's own, less security-policy
+    /// directories.
+    pub(super) withheld: usize,
 }
 
 /// What a page's walk skipped, by cause, for the empty page's check of it.
@@ -219,6 +213,8 @@ pub(super) struct Unsearched {
     pub(super) may_hold_matches: bool,
     /// The skipped paths the check named, each with its rule.
     pub(super) observed: Option<SkippedPaths>,
+    /// The check found nothing in them.
+    pub(super) checked: Option<Checked>,
 }
 
 fn insert_lead(next: &mut Option<Value>, lead: Value) {
@@ -315,13 +311,18 @@ fn charged_search(
 
 /// Where the same search finds a match above an empty page's searched path.
 pub(super) enum Ancestor {
-    /// The narrowest folder holding every match of the first folder above
-    /// the searched path with one, as rows name paths: how many files match
-    /// there, a floor when the probe was cut inside that folder.
+    /// The first folder above the searched path with a match, as rows name
+    /// paths: how many files match there, a floor when the probe was cut
+    /// inside that folder; the narrower folder under it that holds every
+    /// match, when the probe finished it; and the causes its walk lifted
+    /// because they keep the searched path out of it (the searched path is
+    /// ignored, hidden or default-excluded there).
     Found {
         dir: String,
+        holding: Option<String>,
         files: usize,
         floor: bool,
+        lifted: Vec<Cause>,
     },
     /// The search finds nothing anywhere in the tree the path lies in
     /// ([`PathPolicy::tree_root`]): the workspace (`None`), or the named one
@@ -337,7 +338,10 @@ pub(super) enum Ancestor {
 /// top of the tree `root` lies in ([`PathPolicy::tree_root`]: the workspace,
 /// a clone's checkout), each walking only what the folder below it did not, so
 /// every entry is read once; it stops at the first folder with a match and
-/// names the narrowest folder under it that holds every match.
+/// names the narrowest folder under it that holds every match. Each folder is
+/// walked as the search reached `root`: a cause that would keep `root` out of
+/// that folder's walk (`root` is ignored there, say) is lifted for it, so the
+/// folders `root` sits among are searched as `root` was.
 pub(super) fn matching_ancestor(
     options: &TextSearchOptions,
     query: &LocalSearchQuery,
@@ -353,19 +357,23 @@ pub(super) fn matching_ancestor(
     let Some(top) = paths.tree_root(root).filter(|top| top.as_path() != root) else {
         return Ancestor::Unknown;
     };
-    let defaults = query_walk(query).default_excludes;
+    let asked = query_walk(query);
     let work = Arc::new(ProbeWork::new());
     let mut searched = root.to_path_buf();
     while let Some(dir) = searched.parent().map(std::path::Path::to_path_buf) {
         if !dir.starts_with(&top) {
             return Ancestor::Unknown;
         }
+        let lifted =
+            crate::tools::empty_walk::keeping_out(&dir, root, root.is_dir(), &asked.skipping());
+        let reach = asked.lifting(&lifted);
         let mut level = options.probe(output);
         level.path = dir.to_string_lossy().into_owned();
+        level.ignore = reach.policy();
         let walk = Arc::new(crate::policy::discovery::WalkAdmission::search(
             paths.clone(),
             dir.clone(),
-            defaults,
+            reach.default_excludes,
             level.include.as_deref().unwrap_or_default(),
         ));
         let admitted = Arc::new(Outside {
@@ -383,12 +391,13 @@ pub(super) fn matching_ancestor(
             let holding = (!cut)
                 .then(|| common_dir(found.files.iter().map(|file| dir.join(&file.path))))
                 .flatten()
-                .filter(|holding| holding.starts_with(&dir))
-                .unwrap_or_else(|| dir.clone());
+                .filter(|holding| holding.starts_with(&dir) && *holding != dir);
             return Ancestor::Found {
-                dir: paths.shown(holding),
+                dir: paths.shown(&dir),
+                holding: holding.map(|holding| paths.shown(holding)),
                 files: found.files.len(),
                 floor: cut,
+                lifted,
             };
         }
         if cut {

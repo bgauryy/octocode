@@ -3,7 +3,7 @@
 Everything local runs on pinned clones under `local/repos/` (gitignored). This page lists every repository
 the local question sets, the [local flows benchmark](FLOWS.md), the
 [graph battery](../../../skills-dev/octocode-graph-dev/references/battery.md) and the grammar checks need,
-at the commit they are pinned to. Keep the path: graph-dev and the engine's `compact_sweep` read it too.
+at the commit they are pinned to. Keep the path: graph-dev reads it too.
 
 ## Clone
 

@@ -85,7 +85,7 @@ async fn a_spent_graphql_quota_is_disclosed_at_once_however_far_the_deadline() {
         .await;
     let (transport, _) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
     let mut context = with_token("spent-graphql", Duration::from_secs(5), 1024);
-    context.budget.wait_until = std::time::Instant::now() + Duration::from_secs(24 * 60 * 60);
+    context.budget.deadline = std::time::Instant::now() + Duration::from_secs(24 * 60 * 60);
     let (scope, heard) = cancel_on_announced_wait(context.budget.cancellation.clone());
     let error = scope
         .run(transport.execute_graphql(
@@ -203,7 +203,6 @@ async fn graphql_semantic_retry_backoff_honors_cancellation() {
     let retry = RetryPolicy {
         max_attempts: 3,
         base_delay: Duration::from_secs(30),
-        ..short_retry()
     };
     let (transport, _) = executor_transport(&server, GitHubBudget::relaxed(), retry);
     let context = with_token("t", Duration::from_secs(60), 1024);

@@ -22,7 +22,15 @@ fn auth_failure(code: ErrorCode, message: &str, next_step: Option<&str>, json_ou
     super::exit_code(ExitClass::of(code))
 }
 
-const LOGIN_NEXT_STEP: &str = "Run `octocode auth login`, or set GITHUB_TOKEN / GH_TOKEN.";
+/// The token environment variables, in the order the runtime reads them.
+fn token_vars() -> String {
+    octocode_native::config::ENV_TOKEN_VARS.join(" / ")
+}
+
+/// The next step of a missing or unusable login.
+fn login_next_step() -> String {
+    format!("Run `octocode auth login`, or set {}.", token_vars())
+}
 
 pub async fn auth_status(runtime: &ToolRuntime, json_out: bool) -> u8 {
     let status = runtime.auth_status().await;
@@ -78,7 +86,7 @@ pub async fn auth_status(runtime: &ToolRuntime, json_out: bool) -> u8 {
         }
         Verification::None => {
             eprintln!("unauthenticated");
-            eprintln!("{LOGIN_NEXT_STEP}");
+            eprintln!("{}", login_next_step());
             unauthenticated
         }
     }
@@ -111,9 +119,11 @@ pub async fn login(
             }
             use std::io::IsTerminal;
             if !std::io::stdin().is_terminal() {
-                let message =
-                    "login requires an interactive terminal, or set GITHUB_TOKEN / GH_TOKEN.";
-                return auth_failure(ErrorCode::InvalidInput, message, None, json_out);
+                let message = format!(
+                    "login requires an interactive terminal, or set {}.",
+                    token_vars()
+                );
+                return auth_failure(ErrorCode::InvalidInput, &message, None, json_out);
             }
             device_login(runtime, &target, json_out).await
         }
@@ -143,7 +153,7 @@ async fn refresh_login(runtime: &ToolRuntime, target: &LoginTarget, json_out: bo
     auth_failure(
         ErrorCode::Authentication,
         error,
-        Some(LOGIN_NEXT_STEP),
+        Some(&login_next_step()),
         json_out,
     )
 }
@@ -190,7 +200,7 @@ async fn device_login(runtime: &ToolRuntime, target: &LoginTarget, json_out: boo
         Err(error) => auth_failure(
             error.kind.code(),
             &error.message,
-            Some(LOGIN_NEXT_STEP),
+            Some(&login_next_step()),
             json_out,
         ),
     }

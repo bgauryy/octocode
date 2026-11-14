@@ -42,7 +42,7 @@ async fn commit_patch_continuations_preserve_match_context_and_exact_stream() {
             let Some(next) = data.pointer("/next/patches/input") else {
                 break;
             };
-            let normalized = crate::contracts::validate_built("ghGetHistoryItem", next.clone())
+            let normalized = crate::contracts::validate_saved("ghGetHistoryItem", next.clone())
                 .expect("executable copied patch continuation");
             query = normalized["queries"][0].clone();
             assert_eq!(
@@ -291,22 +291,30 @@ async fn dotenv_patch_rows_hide_credential_values_before_numbering() {
     .await
     .expect("history item")
     .data;
-    for file in [0, 1] {
-        let shown = out["files"][file]["patch"]
-            .as_str()
-            .unwrap_or_else(|| panic!("patch row {file}: {out}"));
-        for secret in ["CowSaysMoo", "OldMoo", "NewMoo"] {
-            assert!(!shown.contains(secret), "{secret} leaked: {shown}");
-        }
-        for kept in [
-            "25\t TLS_KEYSTORE_PASS=",
-            "26\t-DB_PASS=",
-            "26\t+DB_PASS=",
-            "DB_HOST=db",
-            "shepherdKeystore.p12",
-        ] {
-            assert!(shown.contains(kept), "{kept} lost: {shown}");
-        }
-        assert!(shown.contains("[REDACTED-"), "{shown}");
+    // Both files redact to the same text, so the second names the first's.
+    assert_eq!(out["files"][1]["samePatchAs"], ".env", "{out}");
+    let shown = out["files"][0]["patch"]
+        .as_str()
+        .unwrap_or_else(|| panic!("patch row: {out}"));
+    // A dotenv file is a known credential store: every value goes, each name
+    // and marker stays.
+    for secret in [
+        "CowSaysMoo",
+        "OldMoo",
+        "NewMoo",
+        "shepherdKeystore.p12",
+        "DB_HOST=db",
+    ] {
+        assert!(!shown.contains(secret), "{secret} leaked: {shown}");
     }
+    for kept in [
+        "24\t TLS_KEYSTORE_FILE=",
+        "25\t TLS_KEYSTORE_PASS=",
+        "26\t-DB_PASS=",
+        "26\t+DB_PASS=",
+        "DB_HOST=",
+    ] {
+        assert!(shown.contains(kept), "{kept} lost: {shown}");
+    }
+    assert!(shown.contains("[REDACTED-"), "{shown}");
 }

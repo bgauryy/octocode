@@ -120,14 +120,11 @@ async fn status_of_a_rejected_token_names_the_fix() {
     assert_eq!(output.status.code(), Some(4));
     assert!(stdout(&output).is_empty(), "{}", stdout(&output));
     let text = stderr(&output);
-    assert!(
-        text.contains("invalid token (source: env): GitHub rejected it (HTTP 401)"),
-        "{text}"
-    );
-    assert!(
-        text.contains("an invalid env token overrides stored login"),
-        "{text}"
-    );
+    // The facts of the rejection: the token's source, GitHub's status, and
+    // the login command that replaces it.
+    for fact in ["env", "401", "octocode auth login"] {
+        assert!(text.contains(fact), "{fact}: {text}");
+    }
 }
 
 #[test]
@@ -140,10 +137,12 @@ fn status_without_any_token_is_unauthenticated_with_the_login_step() {
     assert_eq!(text.status.code(), Some(4));
     let lines = stderr(&text).lines().collect::<Vec<_>>();
     assert_eq!(lines[0], "unauthenticated");
-    assert_eq!(
-        lines[1],
-        "Run `octocode auth login`, or set GITHUB_TOKEN / GH_TOKEN."
-    );
+    // The login step names the login command and every token variable.
+    for fact in std::iter::once("octocode auth login")
+        .chain(octocode_native::config::ENV_TOKEN_VARS.iter().copied())
+    {
+        assert!(lines[1].contains(fact), "{fact}: {}", lines[1]);
+    }
 
     let json = cli(&workspace)
         .args(["auth", "status", "--json"])
@@ -194,11 +193,13 @@ fn login_refresh_without_a_stored_credential_is_an_authentication_failure() {
         .output()
         .expect("auth login --refresh");
     assert_eq!(text.status.code(), Some(4), "{}", stderr(&text));
-    assert!(
-        stderr(&text).contains("Run `octocode auth login`, or set GITHUB_TOKEN / GH_TOKEN."),
-        "{}",
-        stderr(&text)
-    );
+    // The next step names the login command and every token variable.
+    let next_step = stderr(&text);
+    for fact in std::iter::once("octocode auth login")
+        .chain(octocode_native::config::ENV_TOKEN_VARS.iter().copied())
+    {
+        assert!(next_step.contains(fact), "{fact}: {next_step}");
+    }
 
     let json = cli(&workspace)
         .args([
@@ -253,12 +254,10 @@ fn login_keeps_a_live_stored_credential_unless_forced() {
     let forced = forced.output().expect("auth login --force");
     assert_eq!(forced.status.code(), Some(2), "{}", stderr(&forced));
     let text = stderr(&forced);
-    assert!(
-        text.contains("⚠ GITHUB_TOKEN is set and takes priority over stored credentials"),
-        "{text}"
-    );
-    assert!(
-        text.contains("login requires an interactive terminal"),
-        "{text}"
-    );
+    // The overriding variable is named before the terminal refusal.
+    let named = text
+        .find("GITHUB_TOKEN")
+        .unwrap_or_else(|| panic!("{text}"));
+    let refused = text.find("terminal").unwrap_or_else(|| panic!("{text}"));
+    assert!(named < refused, "{text}");
 }

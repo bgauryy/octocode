@@ -237,3 +237,74 @@ async fn a_settle_cap_bounds_every_silent_server_wait() {
     );
     let (_reader, _writer) = server.await.expect("mock server");
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_load_ending_before_empty_judgment_invalidates_the_recorded_answer() {
+    let (client, mut reader, mut writer) =
+        client_with_fake_server_using(NativeLspClient::new(ts_config()), 64 * 1024).await;
+    let connection = client.connection_handle().await.expect("connection");
+    let server = tokio::spawn(async move {
+        for answer in [json!([]), json!([{ "name": "loaded" }])] {
+            let request = read_client_frame(&mut reader).await;
+            assert_eq!(request["method"], "textDocument/documentSymbol");
+            send(
+                &mut writer,
+                json!({"jsonrpc":"2.0","id":request["id"],"result":answer}),
+            )
+            .await;
+        }
+        (reader, writer)
+    });
+    let scope = ResponseScope::default();
+    let answers = Arc::clone(scope.answers.as_ref().expect("selected answers"));
+    let tmp = TmpDir::new();
+    let path = tmp.0.join("a.ts").to_string_lossy().into_owned();
+    RESPONSE_SCOPE
+        .scope(std::cell::RefCell::new(scope), async {
+            client.inner.progress.on_begin("load".into()).await;
+            let asked = client.asked_at().await;
+            let empty = client.get_document_symbols(path.clone()).await.unwrap();
+            assert_eq!(*empty, json!([]));
+            assert_eq!(answers.lock().unwrap().0.len(), 1);
+
+            // The response was produced during loading, but its judgment runs
+            // after the load ended. No new begin separates these two moments.
+            client.inner.progress.on_end("load").await;
+            assert_eq!(
+                client.judge_empty_answer(asked, None).await,
+                EmptyAnswer::AskAgain,
+                "a loading-era empty answer cannot establish absence"
+            );
+            assert!(answers.lock().unwrap().0.is_empty());
+            let loaded = client.get_document_symbols(path).await.unwrap();
+            assert_eq!(*loaded, json!([{ "name": "loaded" }]));
+        })
+        .await;
+    assert!(Arc::ptr_eq(
+        &connection,
+        &client.connection_handle().await.expect("same connection")
+    ));
+    let (_reader, _writer) = server.await.expect("two actual provider requests");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_later_idle_judgment_cannot_validate_an_answer_asked_during_loading() {
+    let (client, _reader, _writer) =
+        client_with_fake_server_using(NativeLspClient::new(ts_config()), 64 * 1024).await;
+    client.inner.progress.on_begin("load".into()).await;
+    let asked_while_loading = client.asked_at().await;
+    client.inner.progress.on_end("load").await;
+
+    assert_eq!(
+        client
+            .judge_empty_answer(client.asked_at().await, None)
+            .await,
+        EmptyAnswer::Stands,
+        "a request made after loading sees an idle server"
+    );
+    assert_eq!(
+        client.judge_empty_answer(asked_while_loading, None).await,
+        EmptyAnswer::AskAgain,
+        "another request's later idle observation cannot validate the earlier answer"
+    );
+}

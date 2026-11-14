@@ -9,6 +9,23 @@ use oxc_semantic::ScopeFlags;
 use super::names::{callee_name, jsx_component_name, ts_type_name, unwrap_expr};
 use super::{CallCollector, MODULE_OWNER};
 
+impl<'a> CallCollector<'_, '_> {
+    /// A class field or accessor (`x = f()`, `accessor x = f()`): its
+    /// decorators, its key, and its value attributed to the member.
+    fn visit_class_field(
+        &mut self,
+        decorators: &oxc_allocator::Vec<'a, Decorator<'a>>,
+        key: &PropertyKey<'a>,
+        value: Option<&Expression<'a>>,
+    ) {
+        self.visit_decorators(decorators);
+        self.visit_property_key(key);
+        if let Some(value) = value {
+            self.visit_member_value(key, value);
+        }
+    }
+}
+
 impl<'a> VisitJs<'a> for CallCollector<'_, '_> {
     fn visit_statement(&mut self, it: &Statement<'a>) {
         if job_cancelled() {
@@ -180,19 +197,11 @@ impl<'a> VisitJs<'a> for CallCollector<'_, '_> {
     }
 
     fn visit_property_definition(&mut self, it: &PropertyDefinition<'a>) {
-        self.visit_decorators(&it.decorators);
-        self.visit_property_key(&it.key);
-        if let Some(value) = &it.value {
-            self.visit_member_value(&it.key, value);
-        }
+        self.visit_class_field(&it.decorators, &it.key, it.value.as_ref());
     }
 
     fn visit_accessor_property(&mut self, it: &AccessorProperty<'a>) {
-        self.visit_decorators(&it.decorators);
-        self.visit_property_key(&it.key);
-        if let Some(value) = &it.value {
-            self.visit_member_value(&it.key, value);
-        }
+        self.visit_class_field(&it.decorators, &it.key, it.value.as_ref());
     }
 
     fn visit_object_property(&mut self, it: &ObjectProperty<'a>) {

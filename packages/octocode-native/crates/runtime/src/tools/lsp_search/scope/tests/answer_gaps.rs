@@ -125,3 +125,69 @@ fn a_site_that_names_the_anchor_flags_the_row_and_leads_to_its_file() {
     let row = callers_row(&scope, &path, &root);
     assert_eq!(row, json!({"operation": "callers", "files": []}));
 }
+
+/// A warning states each file once per category, without losing any site or
+/// confusing an unresolved spelling with a verified omitted call. Counts
+/// are sites, not file groups; the lexical recovery still names both files.
+#[test]
+fn answer_gap_warnings_group_files_without_losing_sites_or_categories() {
+    let (_dir, root) = fixture();
+    let (scope, path) = answered(&root, true, &[1]);
+    let other = root.join("nested/β.ts");
+    write(&other, SOURCE);
+    let other = other.to_string_lossy().into_owned();
+    scope.answer([other.clone()]);
+    scope.answer_gaps("replaceAllElements");
+    scope.settle_gaps(
+        "replaceAllElements",
+        vec![
+            answered::Gap {
+                file: path.clone(),
+                left_out: vec![2, 5],
+                unverified: vec![3],
+            },
+            answered::Gap {
+                file: other,
+                left_out: vec![1],
+                unverified: vec![2, 5],
+            },
+        ],
+    );
+    let row = callers_row(&scope, &path, &root);
+    assert_eq!(row["isPartial"], true, "{row}");
+    assert_eq!(row["partialReasons"], json!(["serverUnanswered"]), "{row}");
+    let warnings = row["warnings"].as_array().expect("warnings");
+    assert_eq!(
+        warnings.len(),
+        2,
+        "one warning per evidence category: {row}"
+    );
+    for (warning, positions, category) in [
+        (
+            &warnings[0],
+            ["a.ts:3,6", "nested/β.ts:2"],
+            "leaves out 3 lines",
+        ),
+        (
+            &warnings[1],
+            ["a.ts:4", "nested/β.ts:3,6"],
+            "3 lines in files",
+        ),
+    ] {
+        let warning = warning.as_str().expect("warning text");
+        assert!(warning.contains(category), "{warning}");
+        for (file, positions) in ["a.ts", "nested/β.ts"].into_iter().zip(positions) {
+            assert_eq!(warning.matches(file).count(), 1, "{warning}");
+            assert!(warning.contains(positions), "{warning}");
+        }
+    }
+    assert!(warnings[1].as_str().unwrap().contains("unverified"));
+    assert!(!warnings[1].as_str().unwrap().contains("leaves out"));
+    let lead = crate::tools::test_support::checks::related_call(&row, "localSearch", |_| true);
+    let queries = lead["input"]["queries"]
+        .as_array()
+        .expect("recovery queries");
+    assert_eq!(queries.len(), 2);
+    assert_eq!(queries[0]["path"], "a.ts");
+    assert_eq!(queries[1]["path"], "nested/β.ts");
+}

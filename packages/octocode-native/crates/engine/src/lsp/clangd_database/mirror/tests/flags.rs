@@ -51,6 +51,14 @@ fn every_spelling_of_a_flag_reading_outside_the_project_is_left_out() {
         vec!["-W", "--imacros", outside],
         vec!["--gcc-toolchain=/opt/gcc", "-include/elsewhere/x.h"],
         vec!["--gcc-toolchain", "-include/elsewhere/x.h"],
+        // A relative forced file the project does not hold is found along the
+        // search paths, which another flag or the system headers point outside.
+        vec!["-I/elsewhere", "-include", "x.h"],
+        vec!["-isystem", "/elsewhere", "-include", "x.h"],
+        vec!["-iquote", "/elsewhere", "-include", "x.h"],
+        vec!["-I/elsewhere", "-imacros", "x.h"],
+        vec!["-include", "stdio.h"],
+        vec!["-include"],
     ]
     .into_iter()
     .map(|words| words.into_iter().map(str::to_owned).collect())
@@ -64,11 +72,17 @@ fn every_spelling_of_a_flag_reading_outside_the_project_is_left_out() {
             json!({"directory": dir, "file": format!("r{index}.c"), "arguments": arguments})
         })
         .collect::<Vec<_>>();
+    for owned in ["own.h", "own.h.pch", "sub/own.h"] {
+        let file = real.join(owned);
+        std::fs::create_dir_all(file.parent().expect("parent")).expect("folder");
+        std::fs::write(file, "").expect("owned file");
+    }
     database.extend([
         json!({"directory": dir, "file": "own1.c", "arguments": ["clang", "--imacros", "own.h", "own1.c"]}),
         json!({"directory": dir, "file": "own2.c", "arguments": ["clang", "-include-pch", "own.h.pch", "own2.c"]}),
         json!({"directory": dir, "file": "own3.c", "arguments": ["clang", format!("-fprofile-use={dir}/own.prof"), "own3.c"]}),
         json!({"directory": dir, "file": "own4.c", "command": "clang --include=sub/own.h own4.c"}),
+        json!({"directory": dir, "file": "own5.c", "arguments": ["clang", "-I/elsewhere", "-include", "own.h", "own5.c"]}),
     ]);
     let (_, entries) = mirror_of(&root, &home, &json!(database));
     let refused_left = kept_files(&entries)
@@ -82,7 +96,7 @@ fn every_spelling_of_a_flag_reading_outside_the_project_is_left_out() {
     assert!(refused_left.is_empty(), "still mirrored: {refused_left:?}");
     assert_eq!(
         kept_files(&entries),
-        ["own1.c", "own2.c", "own3.c", "own4.c"]
+        ["own1.c", "own2.c", "own3.c", "own4.c", "own5.c"]
     );
 }
 

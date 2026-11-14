@@ -222,6 +222,16 @@ pub(super) fn impl_node(
     }))
 }
 
+/// Whether the traits of the type `node` (in `path`) are named apart from
+/// its declaration: a Rust struct or enum names none itself, and each
+/// `impl Trait for Type` names one ([`impl_node`]).
+pub(super) fn named_by_impls(node: &serde_json::Value, path: &str) -> bool {
+    matches!(
+        node.get("kind").and_then(serde_json::Value::as_str),
+        Some("struct" | "enum")
+    ) && octocode_engine::lsp::config::detect_language_id(path).as_deref() == Some("rust")
+}
+
 pub(super) fn direct_bases(
     document: &GraphFactsDocument,
     content: &str,

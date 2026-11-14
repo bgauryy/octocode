@@ -96,16 +96,10 @@ fn workspace_crate_edges_form_no_cycle() {
 /// Files of `response/` that may name a `ToolId` variant in production code,
 /// each with its reason. The stage is shared: any other tool-specific branch
 /// belongs to the tool and reaches the stage through its output.
-const TOOL_AWARE_RESPONSE_FILES: &[(&str, &str)] = &[
-    (
-        "selection_errors.rs",
-        "SHR-16: receipt_kind names the classified tools; moves to tools/selection with that module",
-    ),
-    (
-        "result/error.rs",
-        "missing_path_lead: the one structureSearch tree lead every local tool gives a missing path",
-    ),
-];
+const TOOL_AWARE_RESPONSE_FILES: &[(&str, &str)] = &[(
+    "result/error.rs",
+    "missing_path_lead: the one structureSearch tree lead every local tool gives a missing path",
+)];
 
 fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
     for entry in std::fs::read_dir(dir).expect("read dir").flatten() {

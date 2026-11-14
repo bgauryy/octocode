@@ -134,13 +134,18 @@ impl RegistryClient<'_> {
             kept.confirm(&response.headers, now_millis());
             let decoded = decode(kept.answer.body.as_bytes());
             if let Some(store) = self.answers {
-                store.save(&scope, &identity, kept);
+                if worth_keeping(&kept.answer.headers, false, None) {
+                    store.save(&scope, &identity, kept);
+                } else {
+                    store.forget(&scope, &identity);
+                }
             }
             return decoded.map(Some).ok_or_else(|| invalid(artifact_type));
         }
-        // Rate-limited: the last answer, disclosed, beats no answer.
+        // A rate limit permits disclosed fallback only when the origin allows it.
         if status == 429
             && let Some(kept) = &kept
+            && kept.allows_stale()
         {
             self.reused.record(kept.observed_ms);
             return decode(kept.answer.body.as_bytes())
@@ -156,7 +161,14 @@ impl RegistryClient<'_> {
         let Some(bytes) = response_body(artifact_type, response, not_found_is_empty)? else {
             return Ok(None);
         };
-        let decoded = decode(&bytes).ok_or_else(|| invalid(artifact_type))?;
+        let decoded = decode(&bytes).ok_or_else(|| {
+            // A successful replacement supersedes the old representation even
+            // when its body cannot be decoded by this caller.
+            if let Some(store) = self.answers {
+                store.forget(&scope, &identity);
+            }
+            invalid(artifact_type)
+        })?;
         self.keep(status, &scope, identity, headers, bytes);
         Ok(Some(decoded))
     }
@@ -184,9 +196,11 @@ impl RegistryClient<'_> {
             return;
         };
         if status != 200 || !worth_keeping(&headers, false, None) {
+            store.forget(scope, &identity);
             return;
         }
         let Ok(body) = String::from_utf8(body) else {
+            store.forget(scope, &identity);
             return;
         };
         store.save(

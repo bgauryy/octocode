@@ -22,9 +22,10 @@ use std::sync::atomic::AtomicBool;
 
 /// Hard heap ceiling for a single `Searcher` pass. `grep-searcher` buffers a
 /// whole line (or multiline block) before matching; without a cap a huge single
-/// line can allocate unbounded. Files above [`DEFAULT_MAX_SEARCH_FILE_BYTES`](super::DEFAULT_MAX_SEARCH_FILE_BYTES)
-/// are already skipped, so this only bounds a within-ceiling pathological line;
-/// exceeding it fails that file (recorded as an error), never the whole search.
+/// line can allocate unbounded. Files above the search's byte ceiling
+/// (`collect::byte_ceiling`) are already skipped, so this only bounds a
+/// within-ceiling pathological line; exceeding it fails that file (recorded as
+/// an error), never the whole search.
 pub(super) const SEARCH_HEAP_LIMIT_BYTES: usize = 64 * 1024 * 1024;
 
 /// Largest pre-NUL prefix re-searched when a file is quit as binary. The
@@ -185,9 +186,6 @@ pub(super) struct FileOutcome {
     pub(super) copied: Option<CopiedRead>,
     /// A returned line was not UTF-8 (see [`CollectSink::not_utf8`]).
     pub(super) not_utf8: bool,
-    /// A returned long line hid every value of a named structure (see
-    /// [`CollectSink::every_value`]).
-    pub(super) every_value: bool,
     /// A matched file starts with a UTF-8 byte-order mark the searcher
     /// dropped: line 1's columns and byte offsets count the text after it.
     pub(super) utf8_bom: bool,
@@ -215,7 +213,6 @@ impl<M: Matcher> From<CollectSink<'_, M>> for FileOutcome {
             generated_header: None,
             copied: None,
             not_utf8: sink.not_utf8,
-            every_value: sink.every_value,
             utf8_bom: false,
             term_counts: sink.term_counts,
             test_lines_excluded: sink.test_lines_excluded,
@@ -341,6 +338,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
             (self.words, self.terms),
         );
         sink.test_code = self.opts.test_code.as_ref().map(|scope| (scope, path));
+        sink.line_scope = self.opts.line_scope.as_ref().map(|scope| (scope, path));
         sink.source = Some(path);
         sink.inspect_deferred = self
             .opts
@@ -388,6 +386,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
             (self.words, self.terms),
         );
         prefix_sink.test_code = self.opts.test_code.as_ref().map(|scope| (scope, path));
+        prefix_sink.line_scope = self.opts.line_scope.as_ref().map(|scope| (scope, path));
         prefix_sink.source = Some(path);
         prefix_sink.inspect_deferred = self
             .opts

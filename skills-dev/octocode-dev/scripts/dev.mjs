@@ -14,7 +14,6 @@ const CI_EXCLUDE = ['--exclude', '@octocodeai/octocode-native'];
 const script = (name, ...args) => ['node', [path.join(HERE, name), ...args]];
 const health = (...args) => script('workspace-health.mjs', ...args);
 const yarn = (...args) => ['yarn', args];
-const profile = (name, ...args) => ['python3', ['-I', path.join(HERE, 'profile', name), ...args]];
 // Shared assets have a private workspace; skill folders remain independently installable.
 const skill = (rel, ...args) => ['node', [path.join(ROOT, 'skills', rel), ...args]];
 const skillChecks = () => [
@@ -51,6 +50,7 @@ const TASKS = {
   'check-outputs': ['Build outputs and host native version/contract match (--all checks every staged platform)', [health('check-outputs')]],
   clean: ['Remove every workspace build output (dist/, out/, native target/ + staged binaries)', [yarn('workspaces', 'foreach', '-A', 'run', 'clean')]],
   'clean:cache': ['Drop stale native build copies; compiled dependencies stay warm', [yarn('workspace', '@octocodeai/octocode-native', 'clean:cache')]],
+  'prune:rust': ['Delete native target/ outputs no build:dev, test:rust or lint:rust run of the last 7 days used, and copied binaries; refuses while cargo runs ([--dry-run] [--days N])', [['node', [path.join(ROOT, 'packages', 'octocode-native', 'scripts', 'target-hygiene.cjs'), 'prune']]]],
   'docs:verify': ['Docs links, catalog, config keys, publishing contracts', [script('docs-verify.mjs')]],
   'deps:dedupe': ['One version range per external dependency (--fix rewrites)', [script('dedupe-deps.mjs')]],
   'contracts:regen': ['Build sibling core, refresh its copy (yarn install), then regenerate the tool contract', [script('core-build.mjs'), yarn('install'), yarn('workspace', '@octocodeai/config', 'generate:tool-contract')]],
@@ -64,8 +64,7 @@ const TASKS = {
   fuzz: ['A longer libFuzzer campaign (600 s per target; [--seconds N] [target...])', [script('rust-quality.mjs', 'fuzz')]],
   miri: ['The selected Miri tests on the pinned nightly, with a deadline', [script('rust-quality.mjs', 'miri')]],
   mutants: ['Mutation test of chosen code, never per commit (-f <file>, --in-diff <diff>, -p <package>; slow: copies the tree and builds it)', [yarn('workspace', '@octocodeai/octocode-native', 'mutants')]],
-  profile: ['Profile one tool flow: instructions, peak memory, flamegraph, top frames (<tool> <query json> [--phase first|repeat|page:N|one], or --flow <id>; --list, --heap, --build)', [profile('profile.py')]],
-  'perf:check': ['Local check: retired instructions of the cheap flows against a per-platform baseline ([--bin PATH]; --write records it)', [profile('perf_check.py')]],
+  profile: ['Profile one tool flow: instructions, peak memory, flamegraph, top frames (<tool> <query json> [--phase first|repeat|page:N|one] [--cwd DIR]; --heap, --build)', [['python3', ['-I', '-B', path.join(HERE, 'profile', 'profile.py')]]]],
   'llvm-lines': ['LLVM IR lines per generic instantiation of one crate ([package] [--timings])', [script('rust-quality.mjs', 'llvm-lines')]],
 };
 

@@ -23,13 +23,6 @@ pub(super) fn line_of(bytes: &[u8]) -> Decoded<'_> {
 }
 
 impl<M: Matcher> CollectSink<'_, M> {
-    fn judged(&mut self, text: &str) -> LongLine {
-        let path = self.source.map(std::path::Path::to_string_lossy);
-        let judged = LongLine::judged(text, path.as_deref());
-        self.every_value |= judged.every_value();
-        judged
-    }
-
     /// The first hit's row of this long line, in place of the row of its text.
     pub(super) fn long_line_row(
         &mut self,
@@ -55,7 +48,7 @@ impl<M: Matcher> CollectSink<'_, M> {
         // ([`super::row_window`]); one that holds the whole line is its row.
         let shown = LongLine::window_of(text, hit);
         let window_start = (shown != (0..text.len())).then(|| saturating_u32(shown.start));
-        let value = self.judged(text).cut(text, shown);
+        let value = LongLine::judged(text).cut(text, shown);
         if self.work.deferred_line {
             self.entry.prepared.push(TextSearchMatch {
                 deferred: None,
@@ -90,7 +83,7 @@ impl<M: Matcher> CollectSink<'_, M> {
         let decoded = line_of(bytes);
         self.not_utf8 |= decoded.warning.is_some();
         let text = decoded.text.as_ref();
-        self.judged(text).window(text, 0..0)
+        LongLine::judged(text).window(text, 0..0)
     }
 
     /// One row per submatch of this long line, each with only a secret's own bytes
@@ -104,7 +97,7 @@ impl<M: Matcher> CollectSink<'_, M> {
         let decoded = line_of(bytes);
         self.not_utf8 |= decoded.warning.is_some();
         let text = decoded.text.as_ref();
-        let judged = self.judged(text);
+        let judged = LongLine::judged(text);
         let mut count = 0u32;
         let mut columns = super::SpanColumns::new(bytes, text);
         let (om, charge, stop) = (&mut self.om_matches, &mut self.charge, self.stop);

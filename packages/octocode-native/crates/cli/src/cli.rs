@@ -35,8 +35,7 @@ use tool_call::run_tool;
     name = "octocode",
     version,
     about = "Native Octocode research tools",
-    long_about = ROOT_HELP,
-    after_help = "Run: octocode <tool> '<json>' or --input FILE|-\nUse --help for output rules and exit codes; <tool> --help for JSON examples."
+    after_help = ROOT_HELP_AFTER
 )]
 pub struct Args {
     #[command(subcommand)]
@@ -46,34 +45,46 @@ pub struct Args {
     json: bool,
 }
 
-const ROOT_HELP: &str = r#"Native Octocode research tools.
+/// The long root help, composed by `help_command`: this opening (routing and
+/// the call envelope), each listed tool's required fields, then the tail, so
+/// the fields are read before the output rules.
+const ROOT_HELP_HEAD: &str = r#"Native Octocode research tools.
 
 Route by where the evidence is: this checkout (local tools, lspSearch), a package
 (artifactSearch), another repo (gh tools); read the deciding span before a claim.
 Which tool, how little to ask for: schema --view flow.
 
-Tools: one JSON envelope ({"queries":[…]} or {"cursor":"…"} alone); a query takes
-mainGoal (the task) and reasoning (why this query). --input FILE|- reads the same
-JSON from a file or stdin; clasify --content - reads one row's text from stdin.
-Examples: <tool> --help.
-Discovery, smallest first: schema <tool> --view variants (operations, required
+Tools: one JSON envelope: {"queries":[…]}, optionally with "responseChars" (page
+size target; the rest pages, nothing dropped), or {"cursor":"…"} alone. A query
+takes mainGoal (the task) and reasoning (why this query). --input FILE|- reads the
+same JSON from a file or stdin; clasify --content - reads one row's text from stdin."#;
+
+/// The long root help after the required fields: discovery and output rules.
+const ROOT_HELP_TAIL: &str = r#"Discovery, smallest first: schema <tool> --view variants (operations, required
 fields, an example); schema <tool> (every field); schema --view full (all tools).
-All tools run here, including the MCP opt-ins graphBuild, graphQuery, ghCloneRepo:
+All tools run here, MCP opt-ins included, for example:
   graphBuild '{"queries":[{"path":"."}]}', then graphQuery with operation stats;
   ghCloneRepo '{"queries":[{"owner":"o","repo":"r"}]}', then local tools at location.path.
 
 Output: text, on a terminal or a pipe; --json prints JSON (schema always does).
+Text shows control characters as pictures (␛, ␇, ␊); --json keeps them exact.
 Text on stdout: search hits (line:text, context line-text), sites and outlines
 under their file's path once, a lone one as path:line:…; path:N is always a line,
-and [ … ] after a line or path lists its other fields. A listing puts entries
-under their dir/. Any other result is indented key: value lines; a batch heads
-each row with ## results[N].
+and [ … ] after a line or path lists its other fields. Files sharing a directory
+print relative to the # root: line before them. Counts by file are a table,
+count first. A listing puts entries under their dir/ (one entry: dir/entry).
+Any other result is indented key: value lines (a read's numbered lines
+unindented); a field every item of a list shares follows the list's key in
+[ … ]. Fractions print to 4 significant digits (--json keeps them exact). A
+batch heads each row with ## results[N] (N: its query's place) and names it
+on each of its # lines; objects every row shares print once before the rows.
 After each row's content, as # lines on stdout: its status unless ok (empty,
-error, outOfRange), each page state (hasMore), its warnings and hints, then the
-commands to run next. So stdout alone tells no hits, a failure and a first page
-apart, and says how to read the answer.
-Every stderr line is a # note: counters, related leads and notices, and progress
-when stderr is a terminal.
+error, outOfRange), each page state (length of total unit, after offset,
+hasMore), its warnings and hints, then the commands to run next. So stdout
+alone tells no hits, a failure and a first page apart, and says how to read
+the answer.
+Every stderr line is a # note: the row's counters on one line, related leads
+and notices, and progress when stderr is a terminal.
 Errors: a failed row as above. A call rejected before it runs (invalid input,
 timeout) prints the same way: errorCode and error, then # status: error; with
 --json, the JSON envelope. Both are on stdout.
@@ -83,6 +94,9 @@ A batch exits 2 if any row rejected its input, else its failed rows' code (5 if
 they differ), else 1 only when every row is empty or out of range, else 0;
 stdout still carries every row's result.
 More pages still exit 0: run responsePagination.next, else next.nextPage, until neither remains."#;
+
+/// The last lines of both root helps.
+const ROOT_HELP_AFTER: &str = "Run: octocode <tool> '<json>' or --input FILE|-\nUse --help for output rules and exit codes; <tool> --help for JSON examples.";
 
 /// How a command answers: JSON or text, and whether a pipe chose JSON.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

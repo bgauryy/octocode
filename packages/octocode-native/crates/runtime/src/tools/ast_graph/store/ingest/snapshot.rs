@@ -141,8 +141,15 @@ pub(super) fn publish_snapshot(
         return error;
     }
     let pruned = prune(job.home, &job.built.root, job.options.keep);
+    let unfinished = super::super::super::graph::checkpoint::prune_jobs(
+        &job.home.join(".facts"),
+        &|root, written| super::super::snapshots::published_after(job.home, root, written),
+    );
     progress::emit(|| format!("published {id} ({bytes} bytes)"));
     let mut receipt = receipt(&id, &dir, &manifest, started);
+    if unfinished > 0 {
+        receipt["unfinishedJobBytes"] = json!(unfinished);
+    }
     if !pruned.is_empty() {
         let warnings = pruned_warnings(&pruned, job.options.keep);
         receipt["pruned"] = json!(
@@ -156,33 +163,29 @@ pub(super) fn publish_snapshot(
     GraphOutput::ok(receipt)
 }
 
-/// What a build's prune removed and why, one sentence per reason: the
-/// snapshots of this root beyond `keep` (another session's among them, if it
-/// built this root) and those in a format this build cannot read. A
-/// pruned ID fails `notFound` from then on.
+/// Why a build's prune removed what it removed, one sentence per reason
+/// with its count: the snapshots of this root beyond `keep` (another
+/// session's among them, if it built this root) and those in a format this
+/// build cannot read. The IDs are the receipt's `pruned` list, stated
+/// there alone; a pruned ID fails `notFound` from then on.
 fn pruned_warnings(pruned: &[super::super::snapshots::Pruned], keep: usize) -> Vec<String> {
-    let named = |outdated: bool| {
+    let counted = |outdated: bool| {
         pruned
             .iter()
             .filter(|pruned| pruned.outdated == outdated)
-            .map(|pruned| pruned.id.as_str())
-            .collect::<Vec<_>>()
+            .count()
     };
     let mut warnings = Vec::new();
-    let older = named(false);
-    if !older.is_empty() {
+    let older = counted(false);
+    if older > 0 {
         warnings.push(format!(
-            "Pruned {} older snapshot(s) of this root beyond keep:{keep}, whichever session built them: {}. Their IDs now fail notFound; raise keep to retain more.",
-            older.len(),
-            older.join(", ")
+            "Pruned {older} older snapshot(s) of this root beyond keep:{keep}, whichever session built them; their IDs (pruned) now fail notFound. Raise keep to retain more."
         ));
     }
-    let outdated = named(true);
-    if !outdated.is_empty() {
+    let outdated = counted(true);
+    if outdated > 0 {
         warnings.push(format!(
-            "Pruned {} snapshot(s) in an older graph format this build cannot read: {}.",
-            outdated.len(),
-            outdated.join(", ")
+            "Pruned {outdated} snapshot(s) in an older graph format this build cannot read."
         ));
     }
     warnings
@@ -217,9 +220,10 @@ mod pruned_tests {
     use super::super::super::snapshots::Pruned;
     use super::pruned_warnings;
 
-    /// A prune names every snapshot it removed and why it removed it.
+    /// A prune states each reason with its count; the removed IDs are the
+    /// receipt's `pruned` list, so no warning repeats one.
     #[test]
-    fn a_prune_names_each_removed_snapshot_and_its_reason() {
+    fn a_prune_states_each_reason_once_and_names_no_id_twice() {
         let pruned = [
             Pruned {
                 id: "20261109T163855Z-a".into(),
@@ -237,14 +241,21 @@ mod pruned_tests {
         let warnings = pruned_warnings(&pruned, 1);
         assert_eq!(warnings.len(), 2, "{warnings:?}");
         assert!(
-            warnings[0].contains("keep:1")
-                && warnings[0].contains("20261109T163855Z-a, 20261109T181915Z-a"),
+            warnings[0].contains("keep:1") && warnings[0].contains('2'),
             "{warnings:?}"
         );
         assert!(
-            warnings[1].contains("older graph format")
-                && warnings[1].contains("20250101T000000Z-b"),
+            warnings[1].contains("older graph format") && warnings[1].contains('1'),
             "{warnings:?}"
         );
+        for snapshot in &pruned {
+            assert!(
+                warnings
+                    .iter()
+                    .all(|warning| !warning.contains(&snapshot.id)),
+                "{} repeated in {warnings:?}",
+                snapshot.id
+            );
+        }
     }
 }

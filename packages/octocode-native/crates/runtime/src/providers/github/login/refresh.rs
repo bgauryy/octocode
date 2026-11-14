@@ -246,7 +246,7 @@ pub(super) async fn exchange_refresh_token(
     client_id: &str,
     refresh_token: &str,
 ) -> Result<RefreshedToken, ProviderError> {
-    let client = &login_client()?;
+    let client = &login_client(endpoints)?;
     let token: TokenResponse = auth_call(endpoints, &Cancellation::new(), async {
         post_form(
             client,

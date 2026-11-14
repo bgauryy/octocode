@@ -141,7 +141,6 @@ fn stopped_budget_waiter(timeout: bool, items: &[usize]) {
     let mut context = test_context();
     if timeout {
         context.budget.deadline = Instant::now() + Duration::from_millis(250);
-        context.budget.wait_until = context.budget.deadline;
     }
     let ran = AtomicUsize::new(0);
     let (tx, rx) = std::sync::mpsc::channel();

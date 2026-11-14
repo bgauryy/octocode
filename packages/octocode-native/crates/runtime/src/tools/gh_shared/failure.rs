@@ -91,7 +91,10 @@ pub(crate) fn provider_message(error: &ProviderError) -> String {
         ProviderErrorKind::Server if matches!(error.status, Some(502..=504)) => {
             "GitHub API temporarily unavailable".to_owned()
         }
-        ProviderErrorKind::Transport => "Network connection failed".to_owned(),
+        ProviderErrorKind::Transport => match error.proxy.as_deref() {
+            Some(proxy) => format!("Network connection failed through proxy {proxy}"),
+            None => "Network connection failed".to_owned(),
+        },
         ProviderErrorKind::Timeout => "Request timeout".to_owned(),
         _ => error.message.to_string(),
     }
@@ -156,12 +159,19 @@ pub(crate) fn ref_recovery(owner: &str, repo: &str) -> Value {
     Continuation::related(ToolId::GhStructure, refs).build()
 }
 
+/// The page a recovery lead asks for: enough candidates to spot a
+/// misspelled name or a nearby number at a fraction of a full page's cost
+/// (a full page of an owner's repositories or a repository's pull requests
+/// costs more than the failed call); the listing's own next page reads on,
+/// so nothing is cut.
+pub(crate) const RECOVERY_LIMIT: u32 = 10;
+
 /// A repository that did not resolve: a search for its name across every
 /// owner, which names the owner that holds it.
 fn repository_search(repo: &str) -> Value {
     Continuation::related(
         ToolId::GhSearchRepo,
-        json!({"operation":"search","keywords": [repo]}),
+        json!({"operation":"search","keywords": [repo],"limit": RECOVERY_LIMIT}),
     )
     .build()
 }
@@ -172,7 +182,7 @@ fn repository_search(repo: &str) -> Value {
 pub(crate) fn owner_listing(owner: &str) -> Value {
     Continuation::related(
         ToolId::GhSearchRepo,
-        json!({"operation":"list","owner": owner}),
+        json!({"operation":"list","owner": owner,"limit": RECOVERY_LIMIT}),
     )
     .build()
 }
@@ -228,4 +238,26 @@ pub(crate) fn with_ref_recovery(mut failure: GhFailure, owner: &str, repo: &str)
     next["viewRefs"] = ref_recovery(owner, repo);
     failure.calls = Some(next);
     failure
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use octocode_github::ProviderErrorKind;
+
+    /// A network failure names the proxy the request went through, so a
+    /// proxy that refuses GitHub is told from GitHub being down; a direct
+    /// request names none.
+    #[test]
+    fn a_network_failure_names_the_proxy_in_effect() {
+        let mut error = ProviderError::new(ProviderErrorKind::Transport, "GitHub transport failed");
+        assert_eq!(provider_message(&error), "Network connection failed");
+        error.proxy = Some("http://proxy.internal:3128".into());
+        let message = provider_message(&error);
+        assert!(message.contains("http://proxy.internal:3128"), "{message}");
+        assert!(
+            message.starts_with("Network connection failed"),
+            "{message}"
+        );
+    }
 }

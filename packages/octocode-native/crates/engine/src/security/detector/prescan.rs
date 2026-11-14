@@ -62,14 +62,6 @@ impl PatternSet {
         self.0[idx / 64] |= 1 << (idx % 64);
     }
 
-    pub(super) fn is_empty(&self) -> bool {
-        self.0.iter().all(|word| *word == 0)
-    }
-
-    pub(super) fn intersects(self, other: Self) -> bool {
-        self.0.iter().zip(other.0).any(|(a, b)| a & b != 0)
-    }
-
     /// The members, in canonical pattern order.
     pub(super) fn iter(self) -> impl Iterator<Item = usize> {
         self.0.into_iter().enumerate().flat_map(|(at, word)| {
@@ -82,15 +74,6 @@ impl PatternSet {
                 })
             })
         })
-    }
-
-    /// The members `keep` accepts.
-    pub(super) fn filter(self, mut keep: impl FnMut(usize) -> bool) -> Self {
-        let mut kept = Self::default();
-        for idx in self.iter().filter(|&idx| keep(idx)) {
-            kept.insert(idx);
-        }
-        kept
     }
 }
 
@@ -113,17 +96,6 @@ pub(super) fn prescan_candidates(content: &str) -> PatternSet {
         }
     }
     candidates
-}
-
-/// Where each literal a gated pattern requires starts in `content`, with
-/// the pattern it gates: every occurrence, overlapping ones too.
-pub(super) fn gate_hits(content: &str) -> impl Iterator<Item = (usize, usize)> + '_ {
-    PRESCAN.find_overlapping_iter(content).map(|hit| {
-        (
-            hit.start(),
-            gates::GATE_LITERALS[hit.pattern().as_usize()].1,
-        )
-    })
 }
 
 /// Whether `content` holds `needle`, exactly.

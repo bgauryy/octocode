@@ -2,7 +2,7 @@
 //! row keeps the package, its version, where its source lives and how the
 //! release ref was tied to the version; a search row keeps the name, the
 //! version and the registry's description. Everything else the registry
-//! said is the `details` view, one `related` call away.
+//! said is the `details` view, one call away (`view:"details"`).
 use crate::id::ToolId;
 use crate::providers::artifact::query::artifact_search_query;
 use crate::response::result::Continuation;

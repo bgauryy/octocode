@@ -102,7 +102,7 @@ async fn rows_carry_creation_date_as_a_detail_and_counts_as_stats() {
             "full_name":"o/r","name":"r","html_url":"h","default_branch":"main",
             "stargazers_count":5,"forks_count":0,"open_issues_count":3,
             "pushed_at":"2026-01-02T00:00:00Z","created_at":"2019-05-06T00:00:00Z",
-            "updated_at":"2026-01-03T00:00:00Z","homepage":""
+            "updated_at":"2026-01-03T10:20:30+02:00","homepage":"","size":2048
         })]),
     )
     .await;
@@ -117,15 +117,28 @@ async fn rows_carry_creation_date_as_a_detail_and_counts_as_stats() {
     let out = run(
         &server,
         json!({"keywords":["x"],"operation":"search",
-            "fields":["createdAt","pushedAt","forks","updatedAt","homepage","openIssuesCount"]}),
+            "fields":["createdAt","pushedAt","forks","updatedAt","homepage","openIssuesCount","sizeKiB"]}),
     )
     .await;
     let row = &out.data["repositories"][0];
     assert_eq!(row["createdAt"], "2019-05-06", "{row}");
     assert_eq!(row["pushedAt"], "2026-01-02", "{row}");
-    for absent in ["homepage", "openIssuesCount"] {
-        assert!(row.get(absent).is_none(), "{absent}: {row}");
-    }
+    // The sort key keeps its time: rows sorted by update order within a day.
+    assert_eq!(row["updatedAt"], "2026-01-03T08:20:30Z", "{row}");
+    assert_eq!(row["openIssuesCount"], 3, "{row}");
+    assert_eq!(row["sizeKiB"], 2048, "{row}");
+    // An empty homepage is no homepage.
+    assert!(row.get("homepage").is_none(), "{row}");
+    let homepage = run(
+        &server,
+        json!({"keywords":["x"],"operation":"search","fields":["homepage"]}),
+    )
+    .await;
+    assert!(
+        homepage.data["repositories"][0].get("homepage").is_none(),
+        "{}",
+        homepage.data
+    );
     for field in ["createdAt", "pushedAt", "forks", "updatedAt"] {
         assert!(
             row.get(field).is_some(),

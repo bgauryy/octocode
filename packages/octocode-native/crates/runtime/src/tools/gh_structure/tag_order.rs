@@ -1,5 +1,5 @@
-//! The order a refs page lists tags in: grouped by tag prefix, newest
-//! version first within each group.
+//! The order a refs page lists tags in: grouped by tag prefix, the
+//! repository's own groups first, newest version first within each group.
 //!
 //! A tag's version is the first dotted number run in its name that starts
 //! the name, follows a `v`, or follows a separator (`v1.2.3`, `15.2.0`,
@@ -7,12 +7,20 @@
 //! before that run, without the `v` (`""`, `ignore-`, `pkg@`, `rmcp-`).
 //! Tags of one prefix are listed together, so a package's releases never
 //! interleave by number with another's (`termcolor-1.4.1` stays with its
-//! own, apart from `13.0.0`). The repository's own releases lead: the group
-//! with no prefix (`v8.3.8`, `15.2.0`), since a version alone names the
-//! repository, and a package's number says nothing against it
-//! (`create-vite@9.3.4` is not newer than `v8.3.8`). The other groups go by
-//! their newest version, then reverse-lexicographic prefix; tags without a
-//! version are the last group.
+//! own, apart from `13.0.0`).
+//!
+//! The repository's own releases lead: the groups whose prefix names the
+//! repository, either none (`v8.3.8`, `15.2.0`: a version alone names the
+//! repository) or a package named like the repository, scoped or not
+//! (`kit` lists `@sveltejs/kit@3.2.0`, `astro` lists `astro@5.0.0`, `bun`
+//! lists `bun-v1.1.0`). A package's number says nothing against them
+//! (`create-vite@9.3.4` is not newer than `v8.3.8`, nor
+//! `@sveltejs/adapter-cloudflare@8.0.2` than `@sveltejs/kit@3.2.0`). Every
+//! group, own or not, goes by its newest version, then reverse-lexicographic
+//! prefix, so a current package line leads an abandoned unprefixed one
+//! (`astro@5.0.0` before `v0.0.12`); tags without a version are the last
+//! group. GitHub's latest release does not decide it: in a monorepo that
+//! releases each package it names whichever package published last.
 //!
 //! Within a group, versions compare by their numbers (a missing component
 //! is 0), then a release ranks above its pre-releases (`1.0.0` above
@@ -23,9 +31,9 @@
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
-/// Sort `names` by prefix group, newest version first within it
-/// ([module docs](self)).
-pub(super) fn newest_first(names: &mut [String]) {
+/// Sort the tag `names` of repository `repo` by prefix group, its own
+/// groups first, newest version first within each ([module docs](self)).
+pub(super) fn newest_first(names: &mut [String], repo: &str) {
     // Parse each name once, not at every comparison of the sort.
     let listed = names.to_vec();
     let parsed = listed
@@ -45,7 +53,11 @@ pub(super) fn newest_first(names: &mut [String]) {
         .collect::<Vec<_>>();
     keyed.sort_by(
         |(left_best, left_version, left), (right_best, right_version, right)| {
-            let own = |version: &TagVersion<'_>| version.prefix() == Some("");
+            let own = |version: &TagVersion<'_>| {
+                version
+                    .prefix()
+                    .is_some_and(|prefix| names_repository(prefix, repo))
+            };
             own(right_version)
                 .cmp(&own(left_version))
                 .then_with(|| right_best.cmp(left_best))
@@ -57,6 +69,15 @@ pub(super) fn newest_first(names: &mut [String]) {
     for (slot, (_, _, name)) in names.iter_mut().zip(keyed) {
         slot.clone_from(name);
     }
+}
+
+/// Whether a tag prefix names the repository `repo` itself: none, or a
+/// package name (its last `/` segment, without the separator before the
+/// version) equal to the repository's name, ignoring case.
+fn names_repository(prefix: &str, repo: &str) -> bool {
+    let package = prefix.trim_end_matches(|c: char| !c.is_alphanumeric());
+    let package = package.rsplit('/').next().unwrap_or(package);
+    package.is_empty() || package.eq_ignore_ascii_case(repo)
 }
 
 /// A tag name's version: `None` sorts below every version, and a lone
@@ -263,7 +284,7 @@ mod tests {
     #[test]
     fn ties_keep_reverse_lexicographic_order() {
         let mut names = ["a-1.0.0", "c-1.0.0", "b-1.0.0", "beta", "alpha"].map(str::to_owned);
-        newest_first(&mut names);
+        newest_first(&mut names, "repo");
         assert_eq!(names, ["c-1.0.0", "b-1.0.0", "a-1.0.0", "beta", "alpha"]);
     }
 
@@ -272,7 +293,7 @@ mod tests {
             .iter()
             .map(|name| (*name).to_owned())
             .collect::<Vec<_>>();
-        newest_first(&mut names);
+        newest_first(&mut names, "repo");
         names
     }
 

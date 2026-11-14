@@ -8,12 +8,13 @@
 // answer holds the token or a private repository, when trimming loses a field path, or when the
 // trimmed recording makes the tool ask anything else. A case's `unread` list survives a refresh.
 // OCTOCODE_NATIVE_BIN with NODE_ENV=test or development runs a chosen binary.
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { githubToken } from '../lib/github-token.mjs';
 import { CLI } from './paths.mjs';
 import { startRegistryProxy } from './mock-registry-proxy.mjs';
 import { REGISTRY_HOSTS } from './mock-routes-registry.mjs';
@@ -39,13 +40,6 @@ const check = (name, ok, detail = '') => {
   if (ok) passed += 1; else failed.push(name);
   return ok;
 };
-
-function githubToken() {
-  const inherited = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
-  if (inherited) return inherited;
-  const gh = spawnSync('gh', ['auth', 'token'], { encoding: 'utf8', timeout: 10_000 });
-  return gh.status === 0 ? gh.stdout.trim() : '';
-}
 
 /** The caller's environment without credentials or Octocode settings, in a fresh home. */
 function isolatedEnv(home, tmp) {
@@ -232,7 +226,7 @@ async function replaysAsAsked(entry, run, before) {
 const token = githubToken();
 try {
   for (const entry of planned) {
-    if (entry.github && !token) say(`SKIP ${entry.id}.recorded — no GitHub token: set GITHUB_TOKEN or run gh auth login`);
+    if (entry.github && !token) say(`SKIP ${entry.id}.recorded — no GitHub token: set GH_TOKEN or GITHUB_TOKEN, or run gh auth login`);
     else await record(entry, token);
   }
 } catch (error) {

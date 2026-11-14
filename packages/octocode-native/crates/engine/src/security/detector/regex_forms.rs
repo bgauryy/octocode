@@ -9,9 +9,6 @@
 //! one accented letter, or a key name or spacing outside ASCII, stops matching.
 use super::super::patterns::PATTERNS;
 use regex::Regex;
-use regex_automata::hybrid::dfa::DFA;
-use regex_automata::nfa::thompson::{self, NFA, WhichCaptures};
-use regex_automata::{MatchKind, util::syntax};
 use std::sync::{LazyLock, OnceLock};
 
 type Cells = LazyLock<Vec<OnceLock<Regex>>>;
@@ -21,10 +18,6 @@ type Cells = LazyLock<Vec<OnceLock<Regex>>>;
 /// can never be shorter than the pattern set it indexes.
 static FULL_CELLS: Cells = LazyLock::new(|| (0..PATTERNS.len()).map(|_| OnceLock::new()).collect());
 static ASCII_CELLS: Cells =
-    LazyLock::new(|| (0..PATTERNS.len()).map(|_| OnceLock::new()).collect());
-static ANCHORED_FULL_CELLS: Cells =
-    LazyLock::new(|| (0..PATTERNS.len()).map(|_| OnceLock::new()).collect());
-static ANCHORED_ASCII_CELLS: Cells =
     LazyLock::new(|| (0..PATTERNS.len()).map(|_| OnceLock::new()).collect());
 
 /// Rewrite Unicode `\\b` to ASCII `(?-u:\\b)`. A Unicode word boundary makes the
@@ -134,65 +127,4 @@ pub(super) fn pattern_regex_for(idx: usize, haystack: &str) -> &'static Regex {
     } else {
         pattern_regex(idx)
     }
-}
-
-/// The Regex of pattern `idx` that matches only at the start of its haystack
-/// (`\A`), in the form that answers exactly for text like `ascii`'s. A search from
-/// the one place a match can begin ends where that match fails, instead
-/// of reading on to the haystack's end for a later start.
-pub(super) fn anchored_pattern_regex(idx: usize, ascii: bool) -> &'static Regex {
-    if ascii {
-        compiled(&ANCHORED_ASCII_CELLS, idx, || {
-            format!(
-                r"\A(?:{})",
-                ascii_classes(&ascii_word_boundaries(PATTERNS[idx].regex))
-            )
-        })
-    } else {
-        compiled(&ANCHORED_FULL_CELLS, idx, || {
-            format!(r"\A(?:{})", ascii_word_boundaries(PATTERNS[idx].regex))
-        })
-    }
-}
-
-static ANCHORED_DFAS: LazyLock<Vec<OnceLock<DFA>>> =
-    LazyLock::new(|| (0..PATTERNS.len()).map(|_| OnceLock::new()).collect());
-static NFAS: LazyLock<Vec<OnceLock<NFA>>> =
-    LazyLock::new(|| (0..PATTERNS.len()).map(|_| OnceLock::new()).collect());
-
-/// The Thompson NFA of pattern `idx`, with its capture groups, built once, in
-/// the form that answers like [`anchored_pattern_regex`]'s full form: CRLF
-/// line ends, ASCII word boundaries. Its anchored start reads a text one byte
-/// at a time, so a caller can tell where two searches that start apart meet
-/// ([`anchored_dfa`], [`super::tail_captures::TailCaptures`]).
-pub(super) fn pattern_nfa(idx: usize) -> &'static NFA {
-    // Built-in pattern strings are constants validated by the pattern tests; a
-    // build failure is a build-time bug, not a runtime condition.
-    #[expect(
-        clippy::expect_used,
-        reason = "built-in patterns are valid by construction"
-    )]
-    NFAS[idx].get_or_init(|| {
-        thompson::Compiler::new()
-            .syntax(syntax::Config::new().crlf(true))
-            .configure(thompson::Config::new().which_captures(WhichCaptures::All))
-            .build(&ascii_word_boundaries(PATTERNS[idx].regex))
-            .expect(PATTERNS[idx].name)
-    })
-}
-
-/// The lazy DFA of [`pattern_nfa`], built once: it reads a text one byte at a
-/// time and ignores the captures, so a caller can tell where two searches that
-/// start apart meet in one state ([`super::tail_reach::Reach`]).
-pub(super) fn anchored_dfa(idx: usize) -> &'static DFA {
-    #[expect(
-        clippy::expect_used,
-        reason = "built-in patterns are valid by construction"
-    )]
-    ANCHORED_DFAS[idx].get_or_init(|| {
-        DFA::builder()
-            .configure(DFA::config().match_kind(MatchKind::LeftmostFirst))
-            .build_from_nfa(pattern_nfa(idx).clone())
-            .expect(PATTERNS[idx].name)
-    })
 }

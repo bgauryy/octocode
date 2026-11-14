@@ -102,26 +102,22 @@ fn idle_entries_live_while_read_and_expire_when_unused() {
     );
 }
 
-/// No literal entry cap: under the derived policy an envelope far larger than
-/// the retired 32 MiB cap is retained in memory and on disk, and the disk
-/// budget follows the memory budget.
+/// No literal entry cap: an envelope over the retired 32 MiB cap is retained
+/// when the budget permits it. The derived disk budget follows the process
+/// memory budget, which can be smaller than this fixture on constrained hosts.
 #[test]
 fn derived_policy_retains_entries_over_the_retired_fixed_cap() {
     const RETIRED_CAP: usize = 32 * 1024 * 1024;
     let size = RETIRED_CAP + 8 * 1024 * 1024;
-    assert!(size <= octocode_engine::memory::MIN_MEMORY_BUDGET);
     assert_eq!(
         CacheConfig::derived().disk_bytes,
         octocode_engine::memory::MEMORY.limit() as u64
     );
     let memory = Store::<u8>::new(CacheConfig::derived(), None);
-    assert!(
-        memory
-            .put_confirmed(key("big", "x"), 1, size, CacheClass::Immutable)
-            .1
-    );
+    let (_, kept) = memory.put_confirmed(key("big", "x"), 1, size, CacheClass::Immutable);
+    assert_eq!(kept, size <= octocode_engine::memory::MEMORY.limit());
     let dir = tempfile::tempdir().unwrap();
-    let disk = Store::<String>::new(CacheConfig::derived(), Some(dir.path().into()));
+    let disk = Store::<String>::new(CacheConfig::for_memory(size * 2), Some(dir.path().into()));
     let (_, saved) = disk.put_confirmed(
         key("big", "x"),
         "x".repeat(size),

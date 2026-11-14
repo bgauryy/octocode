@@ -101,10 +101,10 @@ async fn shared_pipeline_ranges_redacts_and_pins_remote_identity() {
     let wire = serde_json::to_value(&result.file).expect("file json");
     assert_eq!(wire["commitSha"], sha);
     assert!(wire.get("ref").is_none(), "{wire}");
-    // A bounded range is complete: its one lead is the file's last change.
+    // A bounded range is complete: nothing is left to continue or recover.
     let calls = result.file.calls.as_ref().and_then(Value::as_object);
     assert!(
-        calls.is_some_and(|calls| calls.keys().eq(["lastChange"])),
+        calls.is_none_or(serde_json::Map::is_empty),
         "bounded range is complete: {calls:?}"
     );
 }
@@ -209,7 +209,8 @@ impl ContentScan for CountedSecurity {
 }
 
 /// A repeat of a remote range read answers the same row without scanning the
-/// file again, and identical bytes at another path keep that path's redaction.
+/// file again; identical bytes at another path are scanned for that path and
+/// redact alike, as every path does.
 #[tokio::test]
 async fn a_repeated_range_reuses_its_scan_under_its_own_path() {
     let server = MockServer::builder().start().await;
@@ -222,7 +223,8 @@ async fn a_repeated_range_reuses_its_scan_under_its_own_path() {
     )
     .await;
     let body = format!(
-        "// shared gh bytes\nconst db: Db = Db {{\n  password: hunter2hunter2hunter2,\n}};\n{}",
+        "// shared gh bytes\nconst db: Db = Db {{\n  name: hunter2hunter2hunter2, token: \"ghp_{}\",\n}};\n{}",
+        "Zq8Wv3Xr7Tn2".repeat(3),
         "const FILLER: u8 = 0;\n".repeat(5_000)
     );
     for file in ["src%2Fa.rs", "conf%2Fa.yaml"] {
@@ -271,13 +273,11 @@ async fn a_repeated_range_reuses_its_scan_under_its_own_path() {
     assert_eq!(scans(), 2);
     assert_eq!(read("conf/a.yaml").await, yaml);
     assert_eq!(scans(), 2);
-    assert!(
-        code["content"].as_str().unwrap().contains("hunter2"),
-        "{code}"
-    );
-    assert!(
-        !yaml["content"].as_str().unwrap().contains("hunter2"),
-        "{yaml}"
-    );
+    for row in [&code, &yaml] {
+        let content = row["content"].as_str().unwrap();
+        assert!(content.contains("hunter2"), "{row}");
+        assert!(!content.contains("Zq8Wv3Xr7Tn2"), "{row}");
+    }
+    assert_eq!(code["content"], yaml["content"]);
     assert_eq!(read("src/a.rs").await, code);
 }

@@ -3,7 +3,7 @@
 use crate::support::{self};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use serde_json::json;
+use serde_json::{Value, json};
 use support::{Workspace, call, row_data, row_status};
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -308,4 +308,80 @@ async fn gh_full_content_paging_keeps_an_explicit_view() {
         joined == whole,
         "the paged outline equals the unpaged outline"
     );
+}
+
+/// A GitHub read of a code file is judged as a local read of the same bytes
+/// is: its windows with the file's grammar, so a code line a configuration
+/// rule would read as an entry (an interface member `password: Type;`) stays,
+/// and its twin, a credential the same file holds, is hidden. Every window
+/// returns the text the local read of that window returns.
+#[tokio::test]
+async fn a_github_code_window_is_judged_as_the_local_read_of_its_file() {
+    let token = format!("ghp_{}", "Zq7xK9mP".repeat(5));
+    let source = format!(
+        "interface Cfg {{\n  password: hunter2hunter2hunter2;\n  mode: string;\n}}\nconst fallback = \"{token}\";\n"
+    );
+    let server = MockServer::builder().start().await;
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits/main"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha": sha})))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents/src%2Fconfig.ts"))
+        .and(query_param("ref", sha))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "type": "file",
+            "encoding": "base64",
+            "content": STANDARD.encode(&source),
+            "size": source.len(),
+            "sha": "f".repeat(40),
+            "path": "src/config.ts"
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    workspace.write("src/config.ts", &source);
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    for read in [
+        json!({"ranges":[{"startLine":2,"endLine":2}]}),
+        json!({"matchString":["mode"],"contextLines":{"before":1,"after":0}}),
+        json!({"ranges":[{"startLine":1,"endLine":5}]}),
+        json!({}),
+    ] {
+        let row = |fields: Value| {
+            let mut row = fields;
+            for (key, value) in read.as_object().expect("read fields") {
+                row[key] = value.clone();
+            }
+            row
+        };
+        let local = call(
+            &runtime,
+            "localFetch",
+            row(json!({"path": "src/config.ts"})),
+        )
+        .await
+        .expect("local read");
+        let github = call(
+            &runtime,
+            "ghGetFileContent",
+            row(json!({"owner": "a", "repo": "b", "path": "src/config.ts", "ref": "main"})),
+        )
+        .await
+        .expect("github read");
+        let local = row_data(&local)["content"]
+            .as_str()
+            .unwrap_or("")
+            .to_owned();
+        let github = row_data(&github)["content"]
+            .as_str()
+            .unwrap_or("")
+            .to_owned();
+        assert!(local.contains("hunter2hunter2hunter2;"), "{read}: {local}");
+        assert_eq!(github, local, "{read}");
+        assert!(!github.contains(&token), "{read}: {github}");
+    }
+    runtime.close().await;
 }

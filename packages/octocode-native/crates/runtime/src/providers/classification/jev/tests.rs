@@ -294,17 +294,17 @@ fn model_discovery_reads_a_local_servers_openai_list_without_inventing_fields() 
 }
 
 /// A question is the caller's words as the input gate admitted them: what the
-/// gate cleared (a key's armor line, a placeholder URL, a declaration) is
+/// gate cleared (a key's armor line, a URL with no password, a declaration) is
 /// sent as written, and text only a file's rule hides is still hidden. The
 /// state is evidence and is judged as kept text is.
 #[test]
 fn an_admitted_question_is_sent_as_written_and_the_state_is_judged() {
-    const VALUE: &str = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIz";
-    let manifest = format!("apiVersion: v1\nkind: Secret\ndata:\n  tls.crt: {VALUE}\n");
+    const VALUE: &str = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+    let manifest = format!("aws_secret_access_key = {VALUE}\n");
     let token = format!("ghp_{}", "a".repeat(36));
     for words in [
         "Does it contain -----BEGIN RSA PRIVATE KEY-----?",
-        "Does it connect to postgres://user:password@localhost:5432/db",
+        "Does it connect to postgres://localhost:5432/db",
         "Is password: str declared, or token: Token, or api_key: str = None?",
         "Is dispatchToken: string a field?",
     ] {

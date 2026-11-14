@@ -7,8 +7,8 @@
 use crate::support::{Workspace, call, query_path};
 use serde_json::{Value, json};
 
-/// A private-key body (its first line opens with `aMD5auQ`), and a value a
-/// credential name makes secret, beside ordinary text.
+/// A private-key body (its first line opens with `aMD5auQ`), and a fake
+/// known-format GitHub token, beside ordinary text.
 const SOURCE: &str = "# config fixture\n\
 -----BEGIN RSA PRIVATE KEY-----\n\
 aMD5auQx7Tq2Lw9Pz4Vb8Nc3Kd6Hf1Jg5Rs0Ym2Xe7Wu4Ai9Oo3Pl8Ki1Uj6Yh5Tg\n\
@@ -18,7 +18,7 @@ GID8oALScFwSq8QUTrTMNjt1vFm/OggvV/WWqzn/14Za0zHRVUAXgZdzJPJLb8jk\n\
 sXO9T06LUONoub+PfCmycfYV3VG5c35JxAQPKGZo5LBJpWr3g79KfusAfRdEUaRa\n\
 -----END RSA PRIVATE KEY-----\n\
 ordinary line hello world\n\
-db_password = \"Hx8vQ2mLp9Zr4Tn7Wk3Bd\"  # hello world\n";
+db_password = \"ghp_Hx8vQ2mLp9Zr4Tn7Wk3BdHx8vQ2mLp9Zr4Tn\"  # hello world\n";
 
 const VIEWS: [&str; 5] = [
     "content",
@@ -77,7 +77,7 @@ async fn a_search_never_matches_what_a_read_withholds() {
     }
     // What surrounds a hidden value does not see it either: a lookahead
     // into it, or a file-level term spelling it.
-    let ahead = json!({"matchString": ["db_password = \"(?=Hx8vQ)"], "regexEngine": "pcre2", "view": "countMatches"});
+    let ahead = json!({"matchString": ["db_password = \"(?=ghp_Hx8vQ)"], "regexEngine": "pcre2", "view": "countMatches"});
     assert_eq!(hits(&run("localSearch", ahead).await), 0);
     let term = json!({"matchString": ["hello"], "fileHas": ["Hx8vQ2m"], "view": "files"});
     assert_eq!(hits(&run("localSearch", term).await), 0);
@@ -106,9 +106,9 @@ async fn a_search_never_matches_what_a_read_withholds() {
     }
 }
 
-/// A JavaScript source whose credential-named literal a read hides, between
+/// A JavaScript source whose known-format token literal a read hides, between
 /// an ordinary literal and a declaration that follows it.
-const SCRIPT: &str = "const greeting = \"hello\";\nconst db_password = \"Hx8vQ2mLp9Zr4Tn7Wk3Bd\";\nconst after = 1;\n";
+const SCRIPT: &str = "const greeting = \"hello\";\nconst db_password = \"ghp_Hx8vQ2mLp9Zr4Tn7Wk3BdHx8vQ2mLp9Zr4Tn\";\nconst after = 1;\n";
 
 /// astSearch matches the text a read serves: a `regex` walk over a hidden
 /// value, or a `follows` rule that depends on it, finds nothing in the match
@@ -137,10 +137,10 @@ async fn an_ast_match_never_reads_what_a_read_withholds() {
     };
     let follows = |regex: &str| json!({"kind":"lexical_declaration","follows":{"kind":"lexical_declaration","has":{"kind":"string_fragment","regex":regex,"stopBy":"end"}}});
     for rule in [
-        json!({"kind":"string_fragment","regex":"^Hx8v[A-M]"}),
-        json!({"kind":"string_fragment","regex":"^Hx8v[N-Z]"}),
-        follows("^Hx8v[A-M]"),
-        follows("^Hx8v[N-Z]"),
+        json!({"kind":"string_fragment","regex":"^ghp_Hx8v[A-M]"}),
+        json!({"kind":"string_fragment","regex":"^ghp_Hx8v[N-Z]"}),
+        follows("^ghp_Hx8v[A-M]"),
+        follows("^ghp_Hx8v[N-Z]"),
     ] {
         for target in [path.as_path(), dir.as_path()] {
             for view in ["content", "countMatches"] {

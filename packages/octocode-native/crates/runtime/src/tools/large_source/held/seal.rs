@@ -2,7 +2,6 @@
 //! window's runs, and its place restated in the sealed view's bytes.
 use super::super::edit_map::EditMap;
 use super::super::error::ReadError;
-use super::super::masks::Judged;
 use super::Held;
 use std::ops::Range;
 use std::sync::Arc;
@@ -12,8 +11,6 @@ use std::sync::Arc;
 pub(in crate::tools::large_source) struct SealMap {
     pub(in crate::tools::large_source) edits: EditMap,
     pub(in crate::tools::large_source) key_lines: Arc<[(Range<usize>, usize)]>,
-    /// The source, which a block-kept map reads its edits from.
-    pub(in crate::tools::large_source) file: Arc<std::fs::File>,
 }
 
 impl SealMap {
@@ -23,9 +20,8 @@ impl SealMap {
         &self,
         range_start: usize,
         sealed: usize,
-    ) -> Result<Option<usize>, ReadError> {
-        self.edits
-            .keyed(&self.file, &self.key_lines, range_start, sealed)
+    ) -> Option<usize> {
+        self.edits.keyed(&self.key_lines, range_start, sealed)
     }
 }
 
@@ -38,19 +34,10 @@ fn placeholders(text: &str) -> usize {
 }
 
 impl Held {
-    /// Show `edits` in place of the bytes they hide, and hide what `judged`
-    /// leaves to every window. An edit the window's end cuts shows whole, so no
-    /// window ends inside a redaction. A sealed offset the edits cannot place
-    /// fails the read: its pages would gap or repeat.
-    pub(super) fn seal(
-        &mut self,
-        edits: &EditMap,
-        file: &std::fs::File,
-        judged: &Judged,
-    ) -> Result<(), ReadError> {
-        if let Some(error) = self.failed.take() {
-            return Err(error);
-        }
+    /// Show `edits` in place of the bytes they hide. An edit the window's end
+    /// cuts shows whole, so no window ends inside a redaction. A sealed offset
+    /// the edits cannot place fails the read: its pages would gap or repeat.
+    pub(super) fn seal(&mut self, edits: &EditMap) -> Result<(), ReadError> {
         if self.unplaced {
             return Err(UNPLACED.into());
         }
@@ -58,10 +45,9 @@ impl Held {
             return Ok(());
         };
         self.view_pos = edits
-            .shift(file, range.clone())?
+            .shift(range.clone())
             .apply(self.view_pos)
             .ok_or(UNPLACED)?;
-        let mut view = edits.view(file);
         if let (Some(start), Some(window_source)) = (self.start.as_mut(), self.window_source) {
             let len = self.window.len();
             let mut out = Vec::with_capacity(len);
@@ -82,8 +68,8 @@ impl Held {
                 };
                 let to = source + bytes.len();
                 let mut pos = source;
-                for edit in view
-                    .over(source..to)?
+                for edit in edits
+                    .over(source..to)
                     .iter()
                     .take_while(|edit| edit.range.start < to)
                 {
@@ -111,7 +97,7 @@ impl Held {
                 out.extend_from_slice(&bytes[pos - source..]);
             }
             let before = window_source.checked_sub(lead_back).ok_or(UNPLACED)?;
-            let skipped = edits.shift(file, range.start..before)?;
+            let skipped = edits.shift(range.start..before);
             start.base = start
                 .base
                 .checked_sub(lead_back)
@@ -119,12 +105,9 @@ impl Held {
                 .ok_or(UNPLACED)?;
             self.window = out;
         }
-        // Hidden values are edits of the one view; the page still says why every
-        // value of the source is hidden, secret or not.
-        self.every_value = matches!(judged, Judged::EveryValue);
         Ok(())
     }
 }
 
 /// Why a window whose offsets the recorded edits cannot place is not served.
-pub(in crate::tools::large_source) const UNPLACED: &str = "the source's recorded redactions do not fit its bytes, so this window's offsets cannot be placed; read it again";
+const UNPLACED: &str = "the source's recorded redactions do not fit its bytes, so this window's offsets cannot be placed; read it again";

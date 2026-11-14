@@ -20,7 +20,7 @@ use crate::{Partition, ProviderError, ProviderErrorKind};
 
 /// Disclosed reuse window for search answers without origin validators or cache policy.
 /// Hits remain leads; source reads verify them. See [`RequestContext::reused_since`].
-pub(crate) const SEARCH_REUSE_WINDOW: Duration = Duration::from_secs(300);
+pub const SEARCH_REUSE_WINDOW: Duration = Duration::from_secs(300);
 
 /// Disclosed GraphQL PR reuse window (owner decision GHI-3).
 /// The origin's REST cache policy takes precedence.
@@ -505,7 +505,7 @@ impl GitHubTransport {
     /// Load this credential's answer and reuse policy; oversized bodies require a new read.
     fn saved(&self, spec: &RequestSpec, context: &RequestContext) -> Option<Saved> {
         let store = self.answers.as_ref()?;
-        if !matches!(spec.method, HttpMethod::Get) && !spec.keeps_graphql_answer() {
+        if !matches!(spec.method, HttpMethod::Get) && !spec.reads_pull_request {
             return None;
         }
         let scope = self.answer_scope(context)?;

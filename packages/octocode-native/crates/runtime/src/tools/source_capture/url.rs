@@ -72,9 +72,13 @@ pub(crate) fn capture(
             dispatcher.text_capture_limit(),
         ),
     };
+    let output = &dispatcher.config().resolved.output;
     let redaction = Redaction {
         security: dispatcher.security(),
-        emails: dispatcher.config().resolved.output.redact_emails,
+        pii: crate::security::Pii {
+            emails: output.redact_emails,
+            uuids: output.redact_uuid,
+        },
     };
     let check = || context.check().map_err(stopped);
     let selection = select(&network, target, &redaction, &check, max_chars)?;
@@ -169,7 +173,7 @@ fn check_target(url: &Url) -> Result<(), ClassificationError> {
 
 struct Redaction<'a> {
     security: &'a ContentSecurity,
-    emails: bool,
+    pii: crate::security::Pii,
 }
 
 impl Redaction<'_> {
@@ -180,11 +184,7 @@ impl Redaction<'_> {
             .security
             .sanitize_stored_leaf(text, None)
             .unwrap_or_else(|| text.to_owned());
-        if self.emails {
-            self.security.redact_emails(&text)
-        } else {
-            text
-        }
+        self.security.redact_pii(&text, self.pii).unwrap_or(text)
     }
 }
 

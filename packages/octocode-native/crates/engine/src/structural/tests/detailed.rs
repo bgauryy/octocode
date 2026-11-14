@@ -310,7 +310,7 @@ fn every_demand_counts_the_same_matches_and_a_priced_file_rebuilds_them() {
 /// changed file.
 #[test]
 fn a_rebuild_cut_by_a_limit_is_incomplete_not_changed() {
-    let oversize = "x".repeat(MAX_STRUCTURAL_CONTENT_BYTES + 1);
+    let oversize = "x".repeat(crate::security::MAX_CONTENT_SIZE + 1);
     let cut = evaluate_source(&oversize, "big.rs", "rs", Some("$A"), None);
     assert_eq!(cut.status, "truncated");
     match files::Rebuilt::of(cut) {

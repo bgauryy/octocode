@@ -21,7 +21,9 @@ mod slots;
 mod waits;
 
 pub(crate) use circuit::CircuitCause;
-pub(crate) use classify::{is_primary_rate_limit, is_secondary_rate_limit, names_secondary_limit};
+pub(crate) use classify::{
+    is_primary_rate_limit, is_secondary_rate_limit, names_secondary_limit, rate_limit_resource,
+};
 pub use config::LimiterKey;
 pub(crate) use config::{ExecutorConfig, GitHubResource, Group};
 pub use key_state::AuthAdmission;

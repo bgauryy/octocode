@@ -9,7 +9,8 @@
 //! with the same single-word value on every row is stated once after the
 //! head in `[ … ]`, as a path's other fields are. A row without a field
 //! prints `-` in its column. Any other list keeps its `key: value` layout.
-use super::words;
+//! Counts by file are such a table, the count first ([`count_table`]).
+use super::{one_line, words};
 use serde_json::{Map, Value};
 
 /// The mark of a field a row does not have.
@@ -115,11 +116,35 @@ pub(super) fn table(key: &str, items: &[Value], indent: &str) -> Option<Vec<Stri
             .map(|name| match row.get(*name) {
                 None => ABSENT.to_owned(),
                 Some(Value::String(text)) if text.is_empty() => "\"\"".to_owned(),
-                Some(Value::String(text)) => text.clone(),
+                Some(Value::String(text)) => one_line(text).into_owned(),
                 Some(other) => other.to_string(),
             })
             .collect();
         lines.push(format!("{indent}  {}", cells.join(" ")));
     }
     Some(lines)
+}
+
+/// Counts by file (every file only its `path` and `matchCount`, two or
+/// more) as a table, the count first as `uniq -c` prints it:
+/// `files[]: matchCount path`, then `389 a.rs` per file. `None` for any
+/// other files.
+pub(super) fn count_table(files: &[Value]) -> Option<Vec<String>> {
+    if files.len() < 2 {
+        return None;
+    }
+    let rows = files
+        .iter()
+        .map(|file| {
+            let fields = file.as_object().filter(|fields| fields.len() == 2)?;
+            let mut row = Map::new();
+            row.insert(
+                "matchCount".into(),
+                fields.get("matchCount")?.as_u64()?.into(),
+            );
+            row.insert("path".into(), fields.get("path")?.as_str()?.into());
+            Some(Value::Object(row))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    table("files", &rows, "")
 }

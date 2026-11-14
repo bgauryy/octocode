@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import {
   mkdtempSync,
@@ -188,6 +188,59 @@ try {
   assert.equal(measured.complete, false);
   assert.equal(process.exitCode, 1);
   process.exitCode = 0;
+  cases++;
+  // More cookies than print inline: the check says how many it showed and leads to the rest.
+  const cookieCount = 13;
+  cdp.send = async method => {
+    if (method === 'Network.getAllCookies')
+      return {
+        cookies: Array.from({ length: cookieCount }, (_, n) => ({
+          name: `c${n}`,
+          domain: 'a.test',
+          path: '/',
+          expires: -1,
+          size: 4,
+          httpOnly: true,
+          secure: true,
+        })),
+      };
+    if (method === 'Runtime.evaluate')
+      return { result: { value: storageValue } };
+    return {};
+  };
+  const printed = [];
+  console.log = line => printed.push(String(line));
+  try {
+    await storage.run(cdp);
+  } finally {
+    console.log = log;
+  }
+  const shown = printed.filter(line => line.startsWith('[COOKIE_META] {'));
+  assert.ok(shown.length < cookieCount);
+  assert.ok(
+    printed.includes(
+      `[COOKIE_META] ${shown.length} of ${cookieCount} cookies shown; every row is in the artifact`
+    )
+  );
+  const lead = printed.find(line => line.startsWith('[NEXT] '));
+  assert.ok(
+    lead,
+    'a cookie list longer than the inline rows leads to the rest'
+  );
+  const next = JSON.parse(lead.slice('[NEXT] '.length));
+  const rest = spawnSync(next.command, next.args, {
+    encoding: 'utf8',
+    env: process.env,
+    cwd: WORK,
+  });
+  assert.equal(rest.status, 0, rest.stderr);
+  assert.deepEqual(
+    JSON.parse(rest.stdout).cookies.map(cookie => cookie.name),
+    Array.from(
+      { length: Math.min(shown.length, cookieCount - shown.length) },
+      (_, n) => `c${shown.length + n}`
+    )
+  );
   cases++;
   const perf =
     await import('../dist/engine/cdp-checks/performance-measure-check.mjs');

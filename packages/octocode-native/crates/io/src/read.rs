@@ -2,7 +2,7 @@
 //! ([`read_limited_async`], a child's pipe): at most `limit` bytes, and an
 //! input that holds more is reported, never silently cut to a prefix.
 //! (The HTTP body reader is [`retry::read_bounded`](crate::retry::read_bounded);
-//! the engine, a leaf below this crate, keeps its own cancellable source
+//! the engine, which depends on this crate, keeps its own cancellable source
 //! read.)
 use std::io::{self, Read};
 use tokio::io::{AsyncRead, AsyncReadExt};

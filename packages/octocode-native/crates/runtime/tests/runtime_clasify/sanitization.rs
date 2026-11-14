@@ -1,25 +1,65 @@
 use super::*;
 
 /// A JSON object's structure is evidence, just as its serialized form is.
-/// Keep the public members, folders, types and question ids while hiding data.
+/// Keep public members, folders, types and question ids while hiding a fake
+/// known-format token in content. Questions containing that token are refused;
+/// nonsecret questions keep the same structure and reach the provider intact.
 #[tokio::test]
 async fn sensitive_boundary_structured_content_and_questions_keep_their_context() {
-    let secret = "SyntheticCredentialMaterial987654321abcdef";
+    let secret = "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789";
     let folder = "src/secrets/credentials/private/source.pem";
     let documents = [
-        json!({"password":secret,"folder":folder,"enabled":true,"count":3}),
-        json!({"kind":"Secret","data":{"payload":secret},"folder":folder}),
-        json!({"nested":[{"d":secret,"kty":"RSA","n":"publicModulus","e":"AQAB"}],"folder":folder}),
+        (
+            json!({"password":secret,"folder":folder,"enabled":true,"count":3}),
+            "/password",
+        ),
+        (
+            json!({"kind":"Secret","data":{"payload":secret},"folder":folder}),
+            "/data/payload",
+        ),
+        (
+            json!({"nested":[{"d":secret,"kty":"RSA","n":"publicModulus","e":"AQAB"}],"folder":folder}),
+            "/nested/0/d",
+        ),
     ];
-    for document in documents {
+    for (document, secret_path) in documents {
         let workspace = crate::support::Workspace::new();
         let server = provider(1).await;
         let runtime = crate::support::clasify_runtime(&workspace, &server, &[]);
+        let refused = runtime
+            .run(
+                "credential-question".into(),
+                "clasify".into(),
+                json!({"queries":[{
+                    "operation":"evaluate", "content":document,
+                    "questions":{"inspect":{"type":"noul","instructions":document}}
+                }]}),
+            )
+            .await
+            .expect_err("credential-bearing questions are refused before execution");
+        assert_eq!(
+            refused.code,
+            octocode_contract_types::ErrorCode::InvalidInput,
+            "{refused:?}"
+        );
+        assert!(
+            refused.message.contains("questions.inspect.instructions"),
+            "{refused:?}"
+        );
+        assert!(
+            sent(&server).await.is_empty(),
+            "a refused question never reaches the provider"
+        );
+
+        let mut instructions = document.clone();
+        *instructions
+            .pointer_mut(secret_path)
+            .expect("fixture value") = json!("Is this field configured?");
         let result = clasify(
             &runtime,
             vec![json!({
                 "operation":"evaluate", "content":document,
-                "questions":{"inspect":{"type":"noul","instructions":document}}
+                "questions":{"inspect":{"type":"noul","instructions":instructions}}
             })],
         )
         .await;
@@ -28,29 +68,27 @@ async fn sensitive_boundary_structured_content_and_questions_keep_their_context(
             "{result}"
         );
         let requests = sent(&server).await;
+        assert_eq!(requests.len(), 1, "only the nonsecret question is sent");
         let request = &requests[0];
         assert!(!request.to_string().contains(secret), "{request}");
         assert!(request.to_string().contains("REDACTED"), "{request}");
         assert_eq!(request["state"]["folder"], folder);
-        assert_eq!(
-            request["questions"]["answer"]["instructions"]["folder"],
-            folder
-        );
+        assert_eq!(request["questions"]["answer"]["instructions"], instructions);
         if document.get("enabled").is_some() {
             assert_eq!(request["state"]["enabled"], true);
             assert_eq!(request["state"]["count"], 3);
         }
+        runtime.close().await;
     }
 }
 
 /// D2: a source a clasify row captures reaches the provider as its reader
-/// showed it. The reader judged the file by its own path's rules; the
-/// provider's text is judged by the same rules, so a `.properties` rule
-/// never re-reads a `.txt` line, the reader's placeholders stay, and the
-/// text before and after each stays too.
+/// showed it. A known-format token is hidden in each source representation;
+/// the reader's placeholders and the surrounding text reach the provider
+/// unchanged, including text whose credential-shaped names are not secrets.
 #[tokio::test]
 async fn a_captured_source_reaches_the_provider_as_its_reader_shows_it() {
-    let key = "Zq7Xk2Pm9Vt4Lw8Rb3Nc6Hy1Jd5Fg0Ts7Qe2Ua4";
+    let key = "ghp_Zq7Xk2Pm9Vt4Lw8Rb3Nc6Hy1Jd5Fg0Ts7Qe2";
     let nonce = "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==  tailH\n";
     let files = [
         (
@@ -119,18 +157,22 @@ async fn a_captured_source_reaches_the_provider_as_its_reader_shows_it() {
             .find(|(read, _)| read.ends_with(path) || path.ends_with(read.as_str()))
             .map(|(_, view)| view)
             .unwrap_or_else(|| panic!("no read for {path}: {body}"));
-        // The text judged whole carries a marker line before each part
-        // (`[p1]`, …); the lines between them are the reader's view.
+        // The text judged whole carries each part between its marker lines
+        // (`<lines 1-40>` … `</lines 1-40>`, `<lines 41-80 continues>`); the
+        // lines between them are the reader's view.
         let sent_text = body["state"]["text"]
             .as_str()
             .unwrap_or_default()
             .split_inclusive('\n')
             .filter(|line| {
+                let line = line.trim_end();
                 !line
-                    .trim_end()
-                    .strip_prefix("[p")
-                    .and_then(|rest| rest.strip_suffix(']'))
-                    .is_some_and(|number| number.parse::<usize>().is_ok())
+                    .strip_prefix("</lines ")
+                    .or_else(|| line.strip_prefix("<lines "))
+                    .and_then(|rest| rest.strip_suffix('>'))
+                    .map(|rest| rest.strip_suffix(" continues").unwrap_or(rest))
+                    .and_then(|rest| rest.split_once('-'))
+                    .is_some_and(|(a, b)| a.parse::<usize>().is_ok() && b.parse::<usize>().is_ok())
             })
             .collect::<String>();
         assert_eq!(

@@ -151,26 +151,7 @@ fn judge_json<E, R: Rewrite>(
         Messages::Judged => Held(Vec::new()),
     };
     let mut redacted: Vec<Hidden> = Vec::new();
-    let mut changed;
-    match octocode_engine::security::sanitizer::sanitize_structure(value) {
-        Ok(removed) => {
-            changed = !removed.is_empty();
-            let mut values = Vec::new();
-            for (secret, placeholder) in removed {
-                push_value(&secret, &placeholder, &mut values);
-            }
-            redacted.extend(values.into_iter().map(|(secret, placeholder)| Hidden {
-                secret,
-                placeholder,
-                source: Reach::Everywhere,
-                origin: None,
-            }));
-        }
-        Err(_) => {
-            *value = Value::String(octocode_engine::security::SANITIZER_FAILURE_PLACEHOLDER.into());
-            return Ok(true);
-        }
-    }
+    let mut changed = false;
     let mut marks = if judged.is_empty() {
         HashMap::new()
     } else {
@@ -238,25 +219,15 @@ fn judge_json<E, R: Rewrite>(
 }
 
 /// A value the walk hid, and where else it is hidden: in the leaves about the
-/// same source (`source`: the path the leaf was judged with, a fragment of
-/// that file such as a capture or a hover), except the leaf it was judged in
-/// (`origin`, the digest of its judged text), whose own rules already said
-/// which of its occurrences are secret. A value a JSON member's name hid
-/// ([`Reach::Everywhere`]) is hidden wherever it recurs.
+/// same source (`source`: the path the leaf was judged with, `None` for no
+/// known file; a fragment of that file such as a capture or a hover), except
+/// the leaf it was judged in (`origin`, the digest of its judged text), whose
+/// own rules already said which of its occurrences are secret.
 struct Hidden {
     secret: String,
     placeholder: String,
-    source: Reach,
-    origin: Option<[u8; 32]>,
-}
-
-/// Which leaves a hidden value is hidden in.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum Reach {
-    /// Every leaf: a JSON member's name hid it.
-    Everywhere,
-    /// The leaves about this source (`None`: about no known file).
-    Source(Option<String>),
+    source: Option<String>,
+    origin: [u8; 32],
 }
 
 impl Hidden {
@@ -267,8 +238,8 @@ impl Hidden {
         out.extend(values.into_iter().map(|(secret, placeholder)| Self {
             secret,
             placeholder,
-            source: Reach::Source(path.map(str::to_owned)),
-            origin: Some(origin),
+            source: path.map(str::to_owned),
+            origin,
         }));
     }
 
@@ -279,15 +250,11 @@ impl Hidden {
         path: Option<&str>,
         digest: &std::cell::OnceCell<[u8; 32]>,
     ) -> bool {
-        if let Reach::Source(source) = &self.source
-            && source.as_deref() != path
-        {
+        if self.source.as_deref() != path {
             return false;
         }
-        self.origin.is_none_or(|origin| {
-            *digest.get_or_init(|| octocode_engine::digest::sha256_digest(text.as_bytes()))
-                != origin
-        })
+        *digest.get_or_init(|| octocode_engine::digest::sha256_digest(text.as_bytes()))
+            != self.origin
     }
 }
 
