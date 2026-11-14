@@ -40,6 +40,7 @@ fn resolve(file: &Path, server_root: &Path, policy_root: &Path, id: &str) -> Sco
         None,
         &workspace_policy(policy_root),
         Some(id),
+        &octocode_engine::lsp::config::LspDiscoveryOptions::default(),
     )
 }
 
@@ -317,6 +318,7 @@ fn an_explicit_workspace_root_holding_the_anchor_bounds_the_scope() {
             workspace_root.as_deref(),
             &policy,
             Some("typescript"),
+            &octocode_engine::lsp::config::LspDiscoveryOptions::default(),
         )
     };
     let inner = scoped(Some(&package));

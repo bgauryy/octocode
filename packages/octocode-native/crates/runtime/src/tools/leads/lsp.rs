@@ -3,7 +3,6 @@ use octocode_contract_types::TestCode;
 use octocode_engine::lsp::config::{
     LspDiscoveryOptions, default_server_for_file, server_command_resolves,
 };
-use octocode_engine::lsp::workspace::resolve_workspace_root_for_file;
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -77,8 +76,8 @@ pub fn verify_query(
 /// [`crate::tools::editor_lock::editor_covers`]), or a discovered server that
 /// would launch ([`server_available`]).
 fn level_above_syntax(path: &str) -> bool {
-    let workspace = workspace_of(path);
     let discovery = discovery().for_one_request();
+    let workspace = workspace_of(path, &discovery);
     server_available(path, &workspace, &discovery) || {
         // The rung takes canonical paths; the lead keeps the producer's.
         let canonical = std::fs::canonicalize(path).map_or_else(
@@ -91,8 +90,8 @@ fn level_above_syntax(path: &str) -> bool {
 
 /// The workspace a request for `path` resolves: its project root, else the
 /// file's directory.
-fn workspace_of(path: &str) -> String {
-    resolve_workspace_root_for_file(path.to_owned()).unwrap_or_else(|_| {
+fn workspace_of(path: &str, discovery: &LspDiscoveryOptions) -> String {
+    octocode_engine::lsp::config::workspace_root_for_file(path, discovery).unwrap_or_else(|_| {
         Path::new(path)
             .parent()
             .map(|parent| parent.to_string_lossy().into_owned())
@@ -147,7 +146,8 @@ mod tests {
 
     /// [`server_available`] as a lead probes it.
     fn server_resolves(path: &str) -> bool {
-        server_available(path, &workspace_of(path), &discovery())
+        let discovery = discovery();
+        server_available(path, &workspace_of(path, &discovery), &discovery)
     }
 
     #[cfg(unix)]

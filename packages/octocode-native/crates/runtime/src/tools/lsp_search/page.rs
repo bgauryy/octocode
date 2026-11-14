@@ -100,7 +100,7 @@ pub(super) async fn execute_page(
     if unpinned_later_page(&query) {
         return Ok(unpinned_page_row(&query));
     }
-    let path = match resolve_paths(&mut query, paths) {
+    let path = match resolve_paths(&mut query, paths, &execution_config.discovery()) {
         Ok(path) => path,
         Err(failure) => return failure::path_failure(&query, paths, failure),
     };
@@ -202,6 +202,7 @@ pub(super) async fn run_target(
         lsp_search_query::workspace_root(query),
         paths,
         language_id,
+        &target.fallback.discovery,
     );
     // Read the anchor document once (bounded, regular files only). The same
     // text is sent in didOpen, resolves the anchor, and serves same-file

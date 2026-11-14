@@ -62,6 +62,17 @@ pub fn resolve_workspace_root_for_file(file_path: String) -> Result<String> {
     Ok(root.to_string_lossy().into_owned())
 }
 
+/// The root `markers` (file or directory names) give `file_path`: the nearest
+/// ancestor of its directory holding one, within its repository; `None` when
+/// none does, and the built-in rules ([`resolve_workspace_root_for_file`]) stand.
+pub fn marked_root_for_file(file_path: &str, markers: &[String]) -> Option<String> {
+    let directory = Path::new(file_path).parent()?;
+    within_repository(directory)
+        .into_iter()
+        .find(|dir| markers.iter().any(|marker| dir.join(marker).exists()))
+        .map(|dir| dir.to_string_lossy().into_owned())
+}
+
 /// The files naming a C-family project's build, nearest being a module of it.
 const C_BUILD_FILES: [&str; 4] = ["CMakeLists.txt", "meson.build", "Makefile", "configure.ac"];
 

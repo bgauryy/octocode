@@ -7,7 +7,9 @@ return. This file is the whole method for checks; [METHOD.md](METHOD.md) owns be
 carries the answer, identity for the next call, one indication, and the way to get more; detail is one call
 away and nothing is lost.
 
-A round fills in one [scorecard](briefs/SCORECARD.md), so what is ready is visible at a glance. Ready briefs
+A round fills in one [scorecard](briefs/SCORECARD.md), using the [1–10 rating rubric](RATINGS.md),
+so what is ready is visible at a glance. Every tool has [specific questions](questions/tools/README.md).
+Ready briefs
 for a checking agent: [local vs smart rg and ast-grep](briefs/check-local.md), [GitHub and packages vs gh
 lean](briefs/check-github.md), and the [local flows benchmark](local/FLOWS.md).
 
@@ -44,6 +46,8 @@ scorecard; their owners keep the details.
 - **Paid and private:** clasify bills per request; keep a count. Never send anything secret-shaped to a real
   host; use a loopback server for anything near credentials.
 - **Pinned binary:** check one binary, the one the round pinned, and name its hash in the report.
+- **One home:** questions, common checks, campaign fixtures/receipts and ratings belong under this
+  package. Put raw evidence in `campaigns/<round>/` and publish its result in `results/rounds/<round>/`.
 
 How to call (CLI text is what agents read; `--json` shows structure; `schema <tool>` prints the schema,
 `schema <tool> --select operation=X` one operation):
@@ -64,10 +68,10 @@ The core tools come first: a round that has not checked them is not ready, whate
 
 | Check | Pass when |
 |---|---|
-| Answer | right for the question; the deciding row is on page 1 |
+| Answer | right for the selected question after all required pages; page 1 is useful and identifies how to continue |
 | Identity | the next call can be built from the row (path and line, owner/repo and commitSha, number, id) |
 | Lean | no request echo, no value under two names, no per-row constant, no static prose in results |
-| More | `next.nextPage`, a `related[]` call or `view:"details"` returns the rest; nothing unreachable |
+| More | `responsePagination.next` first, then required `next.*` calls reach all selected evidence; `related[]` is optional guidance, not a replacement for pagination |
 | Paging | page 2 continues page 1 with no gap or repeat; a cursor with a changed request is refused |
 | Incomplete | `isPartial`, coverage, skipped paths or `countScope` say what was not covered |
 | Empty | an empty row says what was searched (`filesScanned`, coverage) and offers a lead |
@@ -75,10 +79,26 @@ The core tools come first: a round that has not checked them is not ready, whate
 | Redaction | a secret in a file shows as `[REDACTED-…]`, only the secret part, the same in every view |
 | CLI = MCP | the same call gives the same answer on both surfaces, apart from cursors and timings |
 
+For each registered tool, record the question IDs, operation/view coverage, valid and invalid
+inputs, actual output, source oracle and both-surface result. Match CLI schema with a fresh MCP
+`tools/list` under the same configuration; disabled opt-in tools are a configuration fact, not
+a successful tool check. Verify the actual native executable behind both launchers. Capture
+CLI stdout and stderr, plus structured JSON when testing field/continuation contracts. A schema
+inspection or validation error alone cannot pass the positive execution path.
+
+Do the common checks on local files without network access where appropriate. Distinguish an
+empty answer from denied scope, partial coverage, missing credentials, provider refusal and a
+failed process. For comparisons, use the same selected evidence and frozen inputs, count setup
+and failed attempts, and separate fresh clients, persistent sessions and explicit provider caches.
+End by stopping owned processes and removing only owned scratch/runtime assets.
+
 ### Sanity (after a build): review every tool the way an agent meets it
 
-This is a review, not a checklist to tick. Pick your own inputs from the repository and from public
-GitHub, call, read, judge, and rate each tool on the dimensions below (1–5, with one line of evidence each).
+This is a review, not a checklist to tick. Start with each tool's [question set](questions/tools/README.md),
+freeze the assigned source/ref, then add held-out questions when needed. Call, read and judge.
+Rate each tool from **1 to 10** using [RATINGS.md](RATINGS.md), with one line of evidence per dimension.
+The observations below feed those ratings; stress and agent-understanding coverage remain explicit.
+Historical 1–5 results retain their original scale and are never silently doubled.
 Use the pinned binary on the CLI and on the MCP server (`node packages/octocode-mcp/dist/index.js`, stdio).
 
 1. **Schema and description**: what an agent sees before its first call (`schema <tool>`, MCP `tools/list`).
@@ -88,8 +108,8 @@ Use the pinned binary on the CLI and on the MCP server (`node packages/octocode-
    once?
 2. **Input.** Write the call a first-time agent would write from the description alone, then near misses:
    a wrong type, a sibling tool's field, a missing field, an impossible combination. A valid call is
-   accepted; a repairable one is repaired and names the real field; a wrong one gets one cause and a runnable
-   example, and starts no provider work.
+   accepted; a wrong one names the real field and an actionable repair, and starts no provider work.
+   Unknown fields must not be silently ignored or accepted as aliases.
 3. **Output** (`schema <tool> --view output`, then real answers). The answer comes first, with identity for
    the next call, one indication of completeness, and a way to get more. Check for: no echo, no value under
    two names, no static prose, counts that are true, a partial answer that says what it did not cover,
@@ -100,7 +120,8 @@ Use the pinned binary on the CLI and on the MCP server (`node packages/octocode-
    Where did you have to guess, re-read, loop or over-fetch?
 5. **Agent understanding.** Give a fresh agent (a cheaper model is fine) only the MCP surface and a few
    real questions. Watch which tool it picks, which fields it uses, which leads it follows and what it
-   misreads. A misreading is a description or output defect, not an agent defect.
+   misreads. Trace the cause: misleading schema/output and a runner's unsupported assumption are
+   different findings. A capability check is not a blind research-agent experiment.
 6. **Efficiency.** Characters and calls per answered question against the lean expert path in
    [COMPARISONS](COMPARISONS.md); first and repeat time; anything returned
    that the question did not need.
@@ -133,8 +154,10 @@ CLI's shared warm server: one `octocode serve` per binary build, workspace and c
 after `IDLE_EXIT` (10 minutes) without a request, or on `octocode cache clear` or `auth login`/`logout`
 ([warm tool server](../octocode-native/README.md#warm-tool-server)).
 
-Report one row per tool with the eight ratings and their evidence, then each defect with the call that
-reproduces it. A rating below 4 needs a defect or a stated reason.
+Report one row per tool with the weighted 1–10 overall score, underlying dimensions, measured
+coverage/confidence and question evidence, then each defect with its reproducing call. Explain
+every deduction; a score below 8 names the material weakness. Good behavior may score well without
+invented criticism. Apply the correctness/completeness cap in [RATINGS.md](RATINGS.md).
 
 ### End to end (before a release)
 

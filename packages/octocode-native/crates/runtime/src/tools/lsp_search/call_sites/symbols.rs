@@ -18,13 +18,25 @@ pub(in super::super) struct FlatSymbol<'a> {
     end: (u64, u64),
     selection_start: (u64, u64),
     selection_end: (u64, u64),
+    /// Whether the server sent a `selectionRange` (else it is `range`).
+    selected: bool,
 }
 
 impl FlatSymbol<'_> {
-    /// Whether `range` is exactly this symbol's `selectionRange`.
+    /// Whether `range` names this symbol: it starts where the symbol's
+    /// `selectionRange` starts and ends inside it. Most servers select the
+    /// name alone; sourcekit-lsp selects the signature (`f(_ x: Int)`), whose
+    /// name a reference ranges alone. Without a sent selection (the whole
+    /// `range` stands in) only that exact range names it.
     fn is_named_by(&self, range: &LspRange) -> bool {
         let point = |at: &LspExactPosition| (u64::from(at.line), u64::from(at.character));
-        self.selection_start == point(&range.start) && self.selection_end == point(&range.end)
+        let end = point(&range.end);
+        self.selection_start == point(&range.start)
+            && if self.selected {
+                end <= self.selection_end
+            } else {
+                end == self.selection_end
+            }
     }
 }
 
@@ -50,10 +62,10 @@ pub(in super::super) fn flatten_symbols<'a>(value: &'a Value, out: &mut Vec<Flat
             .get("range")
             .or_else(|| symbol.pointer("/location/range"))
         {
-            let selection = symbol
+            let sent = symbol
                 .get("selectionRange")
-                .filter(|selection| !selection.is_null())
-                .unwrap_or(range);
+                .filter(|selection| !selection.is_null());
+            let selection = sent.unwrap_or(range);
             out.push(FlatSymbol {
                 name: symbol.get("name").unwrap_or(&Value::Null),
                 kind: symbol.get("kind").unwrap_or(&Value::Null),
@@ -63,6 +75,7 @@ pub(in super::super) fn flatten_symbols<'a>(value: &'a Value, out: &mut Vec<Flat
                 end: point(range, "end"),
                 selection_start: point(selection, "start"),
                 selection_end: point(selection, "end"),
+                selected: sent.is_some(),
             });
         }
         if let Some(children) = symbol.get("children") {

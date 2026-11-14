@@ -6,7 +6,7 @@ The battery checks the graph on one pinned repository per grammar: the files `ca
 
 ## Run
 
-Clones live in `packages/octocode-benchmark/local/repos` at the commits the [local benchmark README](../../../packages/octocode-benchmark/local/README.md) pins. Point `OCTOCODE_NATIVE_BIN` at the binary under test and name its hash. Run every row once before the change (`before`) and once after the rebuild (`after`); save both receipts under `.octocode/octocode-graph-dev/<date>-battery/`.
+Clones live in `packages/octocode-benchmark/local/repos` at the commits the [local benchmark README](../../../packages/octocode-benchmark/local/README.md) pins. Point `OCTOCODE_NATIVE_BIN` at the binary under test and name its hash. Run every row once before the change (`before`) and once after the rebuild (`after`); save both receipts under `packages/octocode-benchmark/campaigns/<version>-<date>-graph-battery/`.
 
 | Row | Clone | Ingest dir | Probe | Oracle extensions | Exclude |
 |---|---|---|---|---|---|

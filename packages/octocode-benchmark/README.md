@@ -9,11 +9,13 @@ there are no driver scripts.
 
 | Doc | What it owns |
 |---|---|
-| [CHECKS.md](CHECKS.md) | Every check of Octocode, core tools first: the 8-dimension tool review, end to end, per tool, workflows, security, skills, and the areas other packages own |
+| [CHECKS.md](CHECKS.md) | Every check of Octocode, core tools first: the tool review and 1–10 ratings, end to end, per tool, workflows, security, skills, and the areas other packages own |
 | [METHOD.md](METHOD.md) | Benchmark rounds: arms, isolation, what to measure, blind judging, aggregation, comparing a new version, what a round records |
 | [COMPARISONS.md](COMPARISONS.md) | Each Octocode tool and workflow against its expert competitor (rg, ast-grep, graphify, gh and gh-lean, registries, OSV, RTK, Headroom), and what "better" means |
 | [briefs/](briefs/) | What an agent is handed: [runner](briefs/runner.md), [judge](briefs/judge.md), [arm briefs](briefs/arms/), [check-local](briefs/check-local.md) and [check-github](briefs/check-github.md) capability rounds, and the [scorecard](briefs/SCORECARD.md) every round fills in |
-| [questions/](questions/README.md) | Question sets as data: 30 GitHub, 30 + 40 + 12 local, 30 local scenarios |
+| [questions/](questions/README.md) | Specific capability questions for all 17 tools, plus the GitHub and local research sets |
+| [RATINGS.md](RATINGS.md) | The 1–10 tool rubric, weighted dimensions, confidence and completeness gates |
+| [ARCHIVES.md](ARCHIVES.md) | Relocated historical archives and the one-package storage policy |
 | [results/README.md](results/README.md) | The version timeline, per-question [baselines](results/baselines/) and the index of every stored round |
 | [local/](local/README.md) | The pinned clones (repositories, commits, clone form) and the [local flows benchmark](local/FLOWS.md) |
 
@@ -30,15 +32,27 @@ flowchart LR
 
 1. **Pick** the comparison from [COMPARISONS.md](COMPARISONS.md) and the question set that tests
    it. A tool change gets a capability round; a release headline gets a research round.
-2. **Reuse stored baselines.** Run only the Octocode arm being improved; gh, gh-lean, RTK,
-   Headroom and older Octocode builds are already stored ([METHOD.md](METHOD.md#arms)).
+2. **Choose the baseline deliberately.** Stored research answers remain useful for historical
+   comparisons. Run fresh expert arms for current speed claims, changed inputs or an explicit
+   comparison request; keep these separate from historical results ([METHOD.md](METHOD.md#arms)).
 3. **Pin** one build, name its SHA-256, and check every arm answers one real call.
 4. **Answer, judge, aggregate and record** as [METHOD.md](METHOD.md) describes; for a release, also run
    every area of [CHECKS.md](CHECKS.md). Fill in one [scorecard](briefs/SCORECARD.md) in
    `results/rounds/<version>-<date>/` and add the version to the
-   [timeline](results/README.md#version-timeline). A new headline also updates [Results](#results).
+   [timeline](results/README.md#version-timeline). A new headline also updates the results index.
 
-## Results
+## Current tool ratings
+
+Use [one question file per tool](questions/tools/README.md), the shared CLI/MCP checks in
+[CHECKS.md](CHECKS.md), and the [1–10 rubric](RATINGS.md). Rate every tool separately, including
+`graphBuild` and `graphQuery`. Record correctness, input, output, pagination, workflow, efficiency
+and cache behavior; a passed schema check alone is not a passed tool. The [results index](results/README.md)
+links completed rounds and their exact builds.
+
+## Historical research results
+
+The following results describe their named builds and dates. They are not measurements of the
+current local binary. Current capability comparisons and per-tool ratings live in the round reports.
 
 ### GitHub research, 30 questions
 
@@ -69,7 +83,7 @@ xychart-beta
 | **Setup** | The tool the agent was given, per its [arm brief](briefs/arms/). Every `gh` setup is read-only. gh lean projects fields and reads regions; RTK filters and compresses `gh` output; Headroom compresses `gh` output before the model reads it. |
 | **Run** | The date, the number of passes over the 30 questions, and the blind judge model. |
 | **Correctness** | The judge's mean score, 0–10, checked against the source at the commit the answer cites. Correctness is scored first, so a wrong answer never wins on characters. |
-| **Characters per question** | Text that reached the model: tool output plus the agent's commands and final answer. Characters ≈ tokens, so fewer means a leaner context and lower cost. |
+| **Characters per question** | Text that reached the model: tool output plus the agent's commands and final answer. Characters measure text volume, not exact token usage or provider billing. |
 | **Characters vs Octocode v20** | The setup's characters divided by v20's, per question, averaged as a geometric mean (which resists outliers), with a bootstrap 95% interval. Below 1× means the setup was leaner. |
 | **Questions where v20 used fewer characters** | On how many of the 30 questions v20 used fewer characters than this setup. |
 | **Speed** | From a paired timing run on one machine ([Speed](#speed)). **In a session** means v20's warm `octocode serve` process is running; a **cold call** has nothing running yet. **not measured:** no fair `gh` timing exists, because the 2026-08 campaign timed Octocode through an `npx` start on every call. |
@@ -176,7 +190,7 @@ Single calls, v20 warm against v18:
 Raw data: `results/github30-v20-2026-10-29/timing/v18-vs-v20.json` and `v18-vs-v20.log`. To time a new release the same way: fresh CLI processes, 5 reps per task with the order rotated and a different query each rep, GitHub reads pinned to one commit plus the `rust` and `huge-ts` clones, and each version timed warm and cold ([COMPARISONS.md](COMPARISONS.md#version-against-version)).
 
 > [!IMPORTANT]
-> Run `node skills-dev/octocode-dev/scripts/dev.mjs build` (the release build) before timing. `build:dev` installs a **debug** binary, which is several times slower.
+> Run `yarn workspace @octocodeai/octocode-native build` (the host release build) before timing. `build:dev` installs a **debug** binary, which is several times slower.
 
 ### Classification
 
@@ -184,7 +198,7 @@ Main-agent token savings per task are owned by the [classification guide](../../
 
 Offering it is not the same as using it. In a paired run over 40 local and 30 GitHub questions (2026-10-13, `gpt-5.6-terra`), agents made no `clasify` or goal calls in the enabled arm, so no general saving appeared: enabled ÷ disabled character ratios were 1.009 (95% CI 0.885–1.137) locally and 1.041 (0.923–1.179) on GitHub.
 
-## What we learned
+## Lessons from the historical rounds
 
 1. **The speed win comes from the warm server, not from process start.** The Rust port pays off when calls reuse a running session. Cold start needs work so that one-off calls benefit too.
 2. **Correctness gains come from complete answers.** v20 lost points mainly by misquoting code it had read (a hunk header, a call signature), not by missing evidence. Runners must quote exact lines.
@@ -195,19 +209,20 @@ Offering it is not the same as using it. In a paired run over 40 local and 30 Gi
    - failed calls: 7.5%
 
    The next cuts are a leaner search default, smaller history pages, and a line view for reads.
-4. **16% of calls failed on guessed field names.** Examples: `path` (the field is `path`), `sha` (it's `ref`) and `limit`.
-   - Every runner recovered from the error message, but the failures cost 35k characters.
-   - Fix: accept those spellings, or teach them in the primer.
+4. **Guessed input fields caused recovery calls in the historical campaign.**
+   - Validate current examples against the served schema and return actionable errors.
+   - Keep one canonical field name; do not add aliases to conceal stale instructions.
 5. **Benchmark hygiene:**
    - **Build:** time release builds only.
    - **Primer:** check the [Octocode arm brief](briefs/arms/octocode.md) against `octocode schema` for each release.
-   - **Concurrency:** keep GitHub runners to about 7 at once, because GitHub rate-limits code search.
+   - **Concurrency:** serialize paired timing windows and honor provider rate-limit responses; record shared-host interference.
 
 
 ## Layout and checks
 
 ```text
-README.md        purpose, how to run a round, headline results
+README.md        purpose, how to run a round, dated historical results
+RATINGS.md       current 1–10 tool rubric and confidence rules
 CHECKS.md        every check: core tools, security, skills, areas owned elsewhere
 METHOD.md        benchmark rounds and version-to-version comparison
 COMPARISONS.md   Octocode against each expert competitor

@@ -27,7 +27,6 @@ use octocode_engine::lsp::config::{
     directory_representative, typescript_server_fallback, typescript_server_fallback_for_directory,
 };
 use octocode_engine::lsp::pool::LspClientPool;
-use octocode_engine::lsp::workspace::resolve_workspace_root_for_file;
 use octocode_engine::num::saturating_u32;
 use serde_json::{Value, json};
 use std::future::Future;

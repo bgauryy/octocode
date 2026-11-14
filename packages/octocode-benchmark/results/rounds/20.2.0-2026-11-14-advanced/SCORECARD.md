@@ -24,7 +24,7 @@ excluded from efficiency ratios. No product implementation defect was establishe
 The temporary pin was removed after acceptance. [Build provenance](../../../campaigns/20.2.0-2026-11-14-advanced/build-provenance.json)
 and [build log](../../../campaigns/20.2.0-2026-11-14-advanced/build-release.log) retain the identity.
 No product code or generated contract changed for these comparisons. The earlier
-[all-tool and Rust/API audit](../../../../../.octocode/octocode-dev/final-verification-2026-11-14.md)
+[all-tool and Rust/API audit](../20.2.0-2026-11-14-final-verification/REPORT.md)
 is separate evidence, not a new release-profile test suite.
 
 ## Verdict

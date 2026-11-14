@@ -128,7 +128,8 @@ impl Operation<'_, '_> {
             .chain(recovered.into_iter().map(labelled(RECOVERED_ALIAS)))
             .chain(from_importers.into_iter().map(labelled(RECOVERED_IMPORTER)))
             .collect::<Vec<_>>();
-        super::super::roles::assign_roles(&mut found, self.sources, self.cancel).await?;
+        super::super::roles::assign_roles(&mut found, self.sources, self.cancel, Some(self.client))
+            .await?;
         let mut row = salted_locations(
             self.query,
             self.sources,

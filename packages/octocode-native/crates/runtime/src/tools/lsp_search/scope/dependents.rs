@@ -71,14 +71,22 @@ impl Scope {
         if let Some(known) = self.dependents.get() {
             return Ok(known);
         }
-        let (root, server_root, anchor, extension) = (
+        let (root, server_root, anchor, extension, discovery) = (
             PathBuf::from(&self.root),
             canonical_path(server_root),
             PathBuf::from(anchor),
             extension.to_owned(),
+            self.discovery.clone(),
         );
         let found = blocking_cancellable(cancel, move |stopped| {
-            kept_or_read(&root, &server_root, &anchor, &extension, stopped)
+            kept_or_read(
+                &root,
+                &server_root,
+                &anchor,
+                &extension,
+                &discovery,
+                stopped,
+            )
         })
         .await?
         .flatten();
@@ -113,6 +121,7 @@ fn kept_or_read(
     server_root: &Path,
     anchor: &Path,
     extension: &str,
+    discovery: &octocode_engine::lsp::config::LspDiscoveryOptions,
     stopped: &(dyn Fn() -> bool + Sync),
 ) -> Option<Dependents> {
     let key = [
@@ -130,7 +139,7 @@ fn kept_or_read(
     reads::note(root);
     // Before the walk's first read, on the request's own clock.
     let started = octocode_engine::stamp::settle_clock();
-    let (found, read) = read_dependents(root, server_root, anchor, extension, stopped)?;
+    let (found, read) = read_dependents(root, server_root, anchor, extension, discovery, stopped)?;
     if let Some(proof) = read.and_then(|read| read.proof(root, started)) {
         let bytes = std::mem::size_of::<Dependents>()
             + found
@@ -218,6 +227,7 @@ fn read_dependents(
     server_root: &Path,
     anchor: &Path,
     extension: &str,
+    discovery: &octocode_engine::lsp::config::LspDiscoveryOptions,
     stopped: &(dyn Fn() -> bool + Sync),
 ) -> Option<(Dependents, Option<Read>)> {
     let Some((identity, own)) = Identity::of(anchor, extension) else {
@@ -249,8 +259,9 @@ fn read_dependents(
             continue;
         };
         let probe = dir.join(format!("probe.{extension}"));
-        let own = octocode_engine::lsp::workspace::resolve_workspace_root_for_file(
-            probe.to_string_lossy().into_owned(),
+        let own = octocode_engine::lsp::config::workspace_root_for_file(
+            &probe.to_string_lossy(),
+            discovery,
         )
         .map_or_else(|_| dir.to_path_buf(), |own| canonical_path(&own));
         read.watched.push(entry.path().to_path_buf());

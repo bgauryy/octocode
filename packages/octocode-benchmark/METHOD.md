@@ -25,10 +25,11 @@ An arm is the toolset an agent gets. The arms are Octocode (CLI or MCP, one pinn
 gh, gh-lean, gh + RTK, gh + Headroom and the lean local shell; their briefs are in
 [briefs/arms/](briefs/arms/).
 
-- **Reuse stored baselines.** Don't rerun gh, gh-lean, RTK, Headroom or an old Octocode build:
-  their answers and numbers are stored (see the [results index](results/README.md)). Run only the
-  Octocode arm being improved, on a subset big enough to show a direction (about 10 questions:
-  file-heavy and history questions), or all of them when asked.
+- **Reuse or refresh deliberately.** Stored gh, gh-lean, RTK, Headroom and old-version answers
+  remain useful historical baselines (see the [results index](results/README.md)). Rerun the
+  relevant competitors when the user requests a fresh comparison, inputs/provider behavior have
+  changed, or a current speed/cache claim needs paired observations. Label historical and fresh
+  evidence separately. Do not pool different questions, representations or cache states.
 - **What is stored where.** gh-lean answers are stored in full, so a new Octocode answer can be
   judged blind against them. Plain gh, RTK and Headroom survive only as per-question numbers
   from August 2026 (characters and correctness from another judge and date): compare against
@@ -41,9 +42,10 @@ gh, gh-lean, gh + RTK, gh + Headroom and the lean local shell; their briefs are 
 
 ## Isolation and fairness
 
-- **One fresh agent per question and arm**, with only its brief, its arm and the question. No
-  answer key, no other arm's answer, no project instructions, skills or memory. An agent that
-  seeks the judge, the other arm or a hidden reference invalidates that run.
+- **Research rounds: one fresh agent per question and arm**, with only its brief, its arm and
+  the question. No answer key, other arm's answer, project instructions, skills or memory. Seeking
+  a hidden reference invalidates that research run. Capability rounds may use one checker with
+  frozen questions and separate source oracles; label those as direct checks, not blind agent trials.
 - **Same question, same frozen refs, same model and budget** for every arm in a comparison; only
   the tools differ. Arms run on different days or with different models are labelled as such.
 - **Leanest legitimate path for every arm.** Each brief asks for it. A whole-tree or whole-file
@@ -51,13 +53,15 @@ gh, gh-lean, gh + RTK, gh + Headroom and the lean local shell; their briefs are 
 - **Format asymmetry.** Octocode returns shaped output; gh returns raw output unless the arm
   projects it (gh-lean) or compresses it (RTK, Headroom). That difference is the product, but
   state it beside the ratio.
-- **Read-only.** Every arm is read-only: no writes to repositories, GitHub or the clones. This is
-  a rule in each arm brief, enforced only by the host's permission allowlist (for example, an
-  allowlist of read-only `gh` and shell prefixes). **Risk:** nothing outside the host stops an
-  unattended agent that ignores the rule, so give runners only the allowlisted commands, and
-  treat any write as an invalid run.
-- **Rate limits.** Runs share one GitHub token: keep about 4 to 7 GitHub runners at once and
-  interleave arms, so throttling lands evenly.
+- **Protect source and upstream state.** Research arms do not edit the source repositories or
+  write to GitHub. Capability questions may create owned disposable fixtures, checkouts and
+  caches, and make the explicit edits needed to test freshness or dirty-checkout protection.
+  Freeze originals, record each mutation, restore them and clean up only owned state. An
+  unplanned source/upstream write invalidates the run; do not claim permission enforcement
+  unless the host actually supplies it.
+- **Rate limits.** Serialize paired timing windows. Outside them, honor provider limits and
+  record throttling, retry cost and shared-token contention; do not infer a universal safe
+  concurrency count.
 - **Live GitHub targets.** Public repositories; never `facebook/react` (renamed, and some
   repositories are refused by the API). Confirm a GitHub defect on a second repository.
 - **Overfitting.** The questions are public and Octocode is developed against them. Before a
@@ -72,7 +76,7 @@ gh, gh-lean, gh + RTK, gh + Headroom and the lean local shell; their briefs are 
 |---|---|---|
 | **Correctness** 0–10 | blind judge, from the source | the gate: cost counts only when correctness holds |
 | **Depth** 1–5 | blind judge | evidence behind each claim; length earns nothing |
-| **Characters** | text that reached the model: every tool result read, every call written, and the final answer, in Unicode code points | ≈ 4 characters per token. Count it from the host's transcript of the run (each tool call and result), or per call with `wc -c` in a capability round. Never self-reported by the answering agent. The fixed brief is setup and not counted; help, schema and failed calls during research are counted |
+| **Characters** | text that reached the model: every tool result read, every call written, and the final answer, in Unicode code points | Count from receipts/transcripts with a Unicode-aware counter. `wc -c` measures bytes, so record UTF-8 bytes separately. Character/token ratios vary; token cost stays unknown without provider usage. Capture both CLI streams. Setup/help/schema and failed calls remain separately visible; do not charge shared environment bookkeeping on every logical request or claim unread captured help was model context |
 | **Calls** and **failed calls** | from the transcript | name the cause of each failure (a guessed field name, a refused command) |
 | **Time** | wall clock per question; Octocode first and repeat call separately; warm (session server running) and cold | compare only arms timed in the same round on the same machine |
 | **Provider tokens and cost** | host-reported, when available | report beside characters; unknown stays unknown, never zero |
@@ -125,7 +129,8 @@ comparisons use the same questions and the same per-question pairing.
      row: rating, characters, calls and time.
 3. **Against the stored baselines.** Use the per-question tables in [results/baselines](results/baselines/):
    gh-lean blind (its answers are stored), plain gh, RTK and Headroom as numbers, the lean shell for local.
-   Never rerun them.
+   Refresh the relevant arms when required by the current question or the user's request, and
+   keep the refreshed measurements distinct from stored numbers.
 4. **Per tool across versions.** Match tools by name; where a tool was renamed, use the
    [v18 → v20 tool map](results/baselines/release-notes-v18-v20.json). A workflow must not need more calls
    than the previous round recorded.
@@ -157,3 +162,8 @@ What the verdicts mean:
 - **Regression:** the new build is measurably worse than the previous one.
 - **Inconclusive:** the direction holds, but the size needs a cleaner run.
 - **Invalid:** the comparison was not fair or not measured; no claim.
+
+For per-tool evaluations, use the [specific questions](questions/tools/README.md), shared
+[CLI/MCP checks](CHECKS.md#every-tool-every-time) and [1–10 rubric](RATINGS.md). Every tool gets its
+own row, including graphBuild and graphQuery. A provisional rating must name the unverified
+dimension; historical ratings are never a substitute for a new execution result.

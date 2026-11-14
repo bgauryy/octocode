@@ -36,30 +36,36 @@ area Not ready. Core tools come first: without them the round is Not ready overa
 
 ## Core tools
 
-Ratings 1–5 per the eight dimensions of [the review](../CHECKS.md#sanity-after-a-build-review-every-tool-the-way-an-agent-meets-it),
-plus security. A rating below 4 names a defect ID or a stated reason. "Δ" is the change against the previous
-version's scorecard.
+Ratings are **1–10**, using [RATINGS.md](../RATINGS.md). Do not convert historical 1–5
+ratings. Name the question IDs, exact build, measured weight and confidence. Every deduction
+needs an observed cost, limitation or defect; a good tool may receive a good score.
 
-| Tool | Schema and description | Input | Output | Workflows | Agent understanding | Efficiency | Pagination | Stress | Security | Δ | Defects |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| localSearch | … | … | … | … | … | … | … | … | … | … | … |
-| localFetch | … | … | … | … | … | … | … | … | … | … | … |
-| structureSearch | … | … | … | … | … | … | … | … | … | … | … |
-| astSearch | … | … | … | … | … | … | … | … | … | … | … |
-| lspSearch | … | … | … | … | … | … | … | … | … | … | … |
-| graphBuild, graphQuery | … | … | … | … | … | … | … | … | … | … | … |
-| clasify | … | … | … | … | … | … | … | … | … | … | … |
-| ghSearchRepo | … | … | … | … | … | … | … | … | … | … | … |
-| ghSearchCode | … | … | … | … | … | … | … | … | … | … | … |
-| ghStructure | … | … | … | … | … | … | … | … | … | … | … |
-| ghGetFileContent | … | … | … | … | … | … | … | … | … | … | … |
-| ghSearchHistory | … | … | … | … | … | … | … | … | … | … | … |
-| ghGetHistoryItem | … | … | … | … | … | … | … | … | … | … | … |
-| artifactSearch | … | … | … | … | … | … | … | … | … | … | … |
-| securityCheck | … | … | … | … | … | … | … | … | … | … | … |
-| ghCloneRepo | … | … | … | … | … | … | … | … | … | … | … |
+| Tool | Correctness | Schema/input | Output | Pagination | Workflow | Efficiency | Cache/freshness | Overall | Confidence / weight | Question IDs / evidence |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|
+| localSearch | … | … | … | … | … | … | … | … | … | … |
+| localFetch | … | … | … | … | … | … | … | … | … | … |
+| structureSearch | … | … | … | … | … | … | … | … | … | … |
+| astSearch | … | … | … | … | … | … | … | … | … | … |
+| lspSearch | … | … | … | … | … | … | … | … | … | … |
+| graphBuild | … | … | … | … | … | … | … | … | … | … |
+| graphQuery | … | … | … | … | … | … | … | … | … | … |
+| clasify | … | … | … | … | … | … | … | … | … | … |
+| ghSearchRepo | … | … | … | … | … | … | … | … | … | … |
+| ghSearchCode | … | … | … | … | … | … | … | … | … | … |
+| ghStructure | … | … | … | … | … | … | … | … | … | … |
+| ghGetFileContent | … | … | … | … | … | … | … | … | … | … |
+| ghSearchHistory | … | … | … | … | … | … | … | … | … | … |
+| ghGetHistoryItem | … | … | … | … | … | … | … | … | … | … |
+| artifactSearch | … | … | … | … | … | … | … | … | … | … |
+| securityCheck | … | … | … | … | … | … | … | … | … | … |
+| ghCloneRepo | … | … | … | … | … | … | … | … | … | … |
 
-Workflows ([table](../CHECKS.md#workflows-each-must-finish-in-the-same-number-of-calls-as-last-round)):
+Below 8, explain the practical weakness. Use NA only for an inapplicable dimension and
+unverified for missing evidence; the latter makes the overall rating provisional. Publish
+CLI and MCP coverage, actual valid/invalid outputs, complete-page reconstruction, first/repeat
+times, Unicode characters and bytes, both output streams and the lean rival commands.
+
+Workflows ([shared checks](../CHECKS.md)):
 
 | Workflow | Calls this round | Calls last round | Answer right? | Note |
 |---|---|---|---|---|

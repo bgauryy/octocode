@@ -38,6 +38,8 @@ pub(super) struct Request<'a> {
     pub(super) cancel: &'a dyn CancellationCheck,
     pub(super) budget: usize,
     pub(super) security: &'a crate::security::ContentSecurity,
+    /// The request's language server discovery, which roots the anchor's project.
+    pub(super) discovery: &'a octocode_engine::lsp::config::LspDiscoveryOptions,
 }
 
 /// The anchor file and the scope the syntax answer reads.
@@ -91,13 +93,15 @@ impl Request<'_> {
         file.outline()?;
         let anchor =
             anchor::resolve_anchor(self.query, &file.path, &file.uri, Some(&file.content)).ok()?;
-        let (workspace, _) = resolve_workspace(self.query, self.path, self.paths).ok()?;
+        let (workspace, _) =
+            resolve_workspace(self.query, self.path, self.paths, self.discovery).ok()?;
         let scope = Scope::resolve(
             self.path,
             &workspace,
             lsp_search_query::workspace_root(self.query),
             self.paths,
             file.language_id.as_deref(),
+            self.discovery,
         );
         scope.anchor_site(self.path, anchor.line, anchor.character);
         scope.asks(scope::Question::of(lsp_search_query::op(self.query)));
@@ -216,7 +220,7 @@ impl Request<'_> {
             .map(|snippet| serde_json::to_value(snippet).unwrap_or(Value::Null))
             .collect::<Vec<_>>();
         if op == Op::References {
-            super::roles::assign_roles(&mut found, &mut sources, self.cancel).await?;
+            super::roles::assign_roles(&mut found, &mut sources, self.cancel, None).await?;
             if lsp_search_query::include_declaration(self.query) == Some(false) {
                 found.retain(|row| row["role"] != "declaration");
             }

@@ -34,6 +34,7 @@ pub use probe::{is_command_available, repository_toolchain_refusal, server_comma
 pub use types::{FETCHED_CODE_REFUSAL, LspDiscoveryOptions};
 pub use user_config::{
     UserConfigReport, route_problems, user_config_problems_for, user_config_reports,
+    workspace_root_for_file,
 };
 pub use workspace_root::{
     representative_source_for, workspace_root_languages, workspace_root_marker_names,

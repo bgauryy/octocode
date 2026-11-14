@@ -127,6 +127,77 @@ fn response(row: Value) -> Value {
     json!({"results": [row]})
 }
 
+/// An explicit recovery names the tool that runs its promised call. Such a
+/// call stays even when its selectors carry no new scalar identity.
+#[test]
+fn a_note_promised_tool_retains_its_related_calls() {
+    for tool in ToolId::ALL {
+        for target in ToolId::ALL {
+            let preferred = tool.workflow_leads().first();
+            for channel in ["warnings", "hints", "notices", "diagnostics"] {
+                let recovery = format!("Run the related `{target}` request to inspect the alternatives.");
+                let mut data = json!({"files": [], "related": every_lead()});
+                data[channel] = if channel == "diagnostics" {
+                    json!([{"message": "A different spelling exists.", "recovery": recovery}])
+                } else {
+                    json!([recovery])
+                };
+                let mut output = response(json!({"index": 0, "data": data}));
+                keep_workflow_lead(tool, &mut output, &Value::Null);
+                let expected = every_lead()
+                    .as_array()
+                    .expect("leads")
+                    .iter()
+                    .filter(|call| {
+                        call["tool"] == target.as_str()
+                            || preferred.is_some_and(|preferred| call["tool"] == preferred.as_str())
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    output["results"][0]["data"]["related"],
+                    json!(expected),
+                    "{tool} -> {target}, {channel}: the note's promised call stays"
+                );
+            }
+        }
+    }
+}
+
+/// Source text, an explanatory diagnostic, and an identifier containing a
+/// tool name do not promise a recovery call to that tool.
+#[test]
+fn source_and_tool_name_substrings_do_not_retain_optional_calls() {
+    for tool in ToolId::ALL {
+        for target in ToolId::ALL {
+            let prose = format!("Run the related {target} request.");
+            let mut output = response(json!({"index": 0, "data": {
+                "content": prose,
+                "files": [{"value": prose}],
+                "diagnostics": [{"message": prose}],
+                "warnings": [format!("prefix_{target}_suffix")],
+                "hints": [format!("x{target}x")],
+                "notices": [format!("α{target}β")],
+                "related": every_lead()
+            }}));
+            keep_workflow_lead(tool, &mut output, &Value::Null);
+            let preferred = tool.workflow_leads().first();
+            let expected = every_lead()
+                .as_array()
+                .expect("leads")
+                .iter()
+                .filter(|call| preferred.is_some_and(|target| call["tool"] == target.as_str()))
+                .cloned()
+                .collect::<Vec<_>>();
+            let related = output["results"][0]["data"]["related"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            assert_eq!(related, expected, "{tool} -> {target}: {output}");
+        }
+    }
+}
+
 /// A complete row keeps one related call, the first that runs the most
 /// preferred of its tool's declared workflow targets, or none when its
 /// tool declares none; `next` is the same call before and after.

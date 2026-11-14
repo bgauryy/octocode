@@ -26,6 +26,11 @@ struct UserServerSpec {
     max_memory_mb: Option<u32>,
     /// Extra environment variables for the server process.
     env: Option<HashMap<String, String>>,
+    /// File or directory names that mark this language's project root: the
+    /// nearest ancestor of a file holding one roots its server, within the
+    /// file's repository. Unset, the built-in project rules decide.
+    #[serde(rename = "rootMarkers", default)]
+    root_markers: Vec<String>,
 }
 
 impl UserServerSpec {
@@ -47,13 +52,14 @@ impl UserServerSpec {
 }
 
 /// The fields of one entry; any other is reported, never fatal.
-const ENTRY_FIELDS: [&str; 6] = [
+const ENTRY_FIELDS: [&str; 7] = [
     "command",
     "args",
     "languageId",
     "initializationOptions",
     "maxMemoryMb",
     "env",
+    "rootMarkers",
 ];
 
 /// One `lsp-servers.json`: the entries that can route, and what is wrong with
@@ -114,7 +120,7 @@ fn parse_user_config(content: &str) -> ParsedConfig {
         }
         let Ok(server) = serde_json::from_value::<UserServerSpec>(entry.clone()) else {
             problem(
-                "is ignored: `command` and `languageId` are required strings, `args` a string array, `maxMemoryMb` a number, `env` an object of strings"
+                "is ignored: `command` and `languageId` are required strings, `args` and `rootMarkers` string arrays, `maxMemoryMb` a number, `env` an object of strings"
                     .to_owned(),
             );
             continue;
@@ -122,6 +128,17 @@ fn parse_user_config(content: &str) -> ParsedConfig {
         if server.is_rejected_launch() {
             problem(
                 "is ignored: its `command` is a shell or an interpreter told to evaluate its arguments"
+                    .to_owned(),
+            );
+            continue;
+        }
+        if server
+            .root_markers
+            .iter()
+            .any(|marker| !is_marker_name(marker))
+        {
+            problem(
+                "is ignored: each `rootMarkers` entry is a file or directory name relative to an ancestor (`Package.swift`), never empty, absolute or climbing with `..`"
                     .to_owned(),
             );
             continue;
@@ -283,6 +300,92 @@ pub(super) fn user_server_for_extension(
     workspace_root: &str,
     options: &LspDiscoveryOptions,
 ) -> Option<UserServer> {
+    let UserEntry {
+        parsed,
+        key,
+        language_id,
+        source,
+    } = user_entry_for_extension(extension, workspace_root, options)?;
+    let server = &parsed.servers[&key];
+    let trust_workspace = options.trusts_project();
+    // The entry is the user's choice wherever its program resolves.
+    let (command, args, _) = resolve_server_invocation(
+        &server.command,
+        server.args.clone(),
+        workspace_root,
+        trust_workspace,
+        options.invocation_dir.as_deref(),
+    );
+    Some(UserServer {
+        config: LspLanguageServerConfig {
+            command,
+            args: Some(args),
+            workspace_root: workspace_root.to_owned(),
+            language_id: Some(language_id),
+            document_language_ids: parsed
+                .servers
+                .iter()
+                .filter(|(_, candidate)| server.same_launch(candidate))
+                .map(|(extension, entry)| (extension.clone(), entry.language_id.clone()))
+                .collect(),
+            initialization_options: server.initialization_options.clone(),
+            env: server.env.clone(),
+            max_memory_mb: server.max_memory_mb,
+            source,
+        },
+        command: server.command.clone(),
+    })
+}
+
+/// The `rootMarkers` of the user entry that routes `extension` from
+/// `workspace_root`; `None` when no entry routes it or the entry names none.
+pub(super) fn user_root_markers(
+    extension: &str,
+    workspace_root: &str,
+    options: &LspDiscoveryOptions,
+) -> Option<Vec<String>> {
+    let UserEntry {
+        mut parsed, key, ..
+    } = user_entry_for_extension(extension, workspace_root, options)?;
+    let markers = parsed.servers.remove(&key)?.root_markers;
+    (!markers.is_empty()).then_some(markers)
+}
+
+/// The language server root of `file_path`: where its user entry's
+/// `rootMarkers` place it, else the built-in project rules
+/// ([`resolve_workspace_root_for_file`]). The entry is looked up from the
+/// built-in root, where a trusted project `lsp-servers.json` lives.
+///
+/// [`resolve_workspace_root_for_file`]: crate::lsp::workspace::resolve_workspace_root_for_file
+pub fn workspace_root_for_file(
+    file_path: &str,
+    options: &LspDiscoveryOptions,
+) -> crate::error::Result<String> {
+    let built_in = crate::lsp::workspace::resolve_workspace_root_for_file(file_path.to_owned())?;
+    let extension = crate::text::extension_of(file_path, true, "");
+    let marked = (!extension.is_empty())
+        .then(|| user_root_markers(&format!(".{extension}"), &built_in, options))
+        .flatten()
+        .and_then(|markers| crate::lsp::workspace::marked_root_for_file(file_path, &markers));
+    Ok(marked.unwrap_or(built_in))
+}
+
+/// The consulted `lsp-servers.json` entry that routes one extension.
+struct UserEntry {
+    parsed: ParsedConfig,
+    /// The entry's own key: the extension, or the family sibling that routes it.
+    key: String,
+    language_id: String,
+    source: ServerSource,
+}
+
+/// The entry that routes `extension` from `workspace_root`: the first consulted
+/// file holding one, for the extension or a language-family sibling.
+fn user_entry_for_extension(
+    extension: &str,
+    workspace_root: &str,
+    options: &LspDiscoveryOptions,
+) -> Option<UserEntry> {
     for (config_path, source) in user_config_paths(workspace_root, options) {
         let Ok(content) = std::fs::read_to_string(config_path) else {
             continue;
@@ -292,51 +395,38 @@ pub(super) fn user_server_for_extension(
         // family (`.ts` also `.mts`, `.cts`, `.tsx`): one project, one
         // server, not two project models split by spelling. The entry's own
         // extension keeps its language id; a sibling takes the built-in one.
-        let (server, language_id) = match parsed.servers.get(extension) {
-            Some(server) => (server, server.language_id.clone()),
+        let (key, language_id) = match parsed.servers.get(extension) {
+            Some(server) => (extension.to_owned(), server.language_id.clone()),
             None => {
-                let Some((server, spec)) = family_siblings(extension).iter().find_map(|sibling| {
-                    let server = parsed.servers.get(*sibling)?;
-                    Some((server, spec_for_extension(extension)?))
+                let Some((key, spec)) = family_siblings(extension).iter().find_map(|sibling| {
+                    parsed.servers.get(*sibling)?;
+                    Some(((*sibling).to_owned(), spec_for_extension(extension)?))
                 }) else {
                     continue;
                 };
-                (server, spec.language_id.to_owned())
+                (key, spec.language_id.to_owned())
             }
         };
-        if server.is_rejected_launch() {
+        if parsed.servers[&key].is_rejected_launch() {
             continue;
         }
-        let trust_workspace = options.trusts_project();
-        // The entry is the user's choice wherever its program resolves.
-        let (command, args, _) = resolve_server_invocation(
-            &server.command,
-            server.args.clone(),
-            workspace_root,
-            trust_workspace,
-            options.invocation_dir.as_deref(),
-        );
-        return Some(UserServer {
-            config: LspLanguageServerConfig {
-                command,
-                args: Some(args),
-                workspace_root: workspace_root.to_owned(),
-                language_id: Some(language_id),
-                document_language_ids: parsed
-                    .servers
-                    .iter()
-                    .filter(|(_, candidate)| server.same_launch(candidate))
-                    .map(|(extension, entry)| (extension.clone(), entry.language_id.clone()))
-                    .collect(),
-                initialization_options: server.initialization_options.clone(),
-                env: server.env.clone(),
-                max_memory_mb: server.max_memory_mb,
-                source,
-            },
-            command: server.command.clone(),
+        return Some(UserEntry {
+            parsed,
+            key,
+            language_id,
+            source,
         });
     }
     None
+}
+
+/// Whether `marker` names a file or directory relative to an ancestor.
+fn is_marker_name(marker: &str) -> bool {
+    let path = Path::new(marker);
+    !marker.is_empty()
+        && path
+            .components()
+            .all(|component| matches!(component, std::path::Component::Normal(_)))
 }
 
 /// The extensions one `lsp-servers.json` entry also routes, in the order

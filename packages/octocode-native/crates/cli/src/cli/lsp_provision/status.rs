@@ -24,13 +24,12 @@ pub(super) fn run_status(
     let absolute = absolute_path(path);
     let path = absolute.as_str();
 
-    let workspace =
-        octocode_engine::lsp::workspace::resolve_workspace_root_for_file(path.to_owned())
-            .unwrap_or_else(|_| {
-                std::env::current_dir()
-                    .map(|p| p.to_string_lossy().into_owned())
-                    .unwrap_or_else(|_| ".".to_owned())
-            });
+    let workspace = octocode_engine::lsp::config::workspace_root_for_file(path, discovery)
+        .unwrap_or_else(|_| {
+            std::env::current_dir()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_else(|_| ".".to_owned())
+        });
     let language_id = detect_language_id(path);
     let config = default_server_for_file(path, &workspace, discovery);
     let problems =

@@ -30,7 +30,7 @@ use std::sync::Arc;
 
 mod symbols;
 pub(in crate::tools::lsp_search) mod text_rule;
-pub(super) use symbols::{enclosing_callable, flatten_symbols};
+pub(super) use symbols::{enclosing_callable, flatten_symbols, is_declaration_name};
 use text_rule::is_text_call;
 
 /// LSP `SymbolKind`s that own call sites: method, constructor, function.

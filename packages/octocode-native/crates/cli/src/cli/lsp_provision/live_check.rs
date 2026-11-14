@@ -59,9 +59,8 @@ pub(super) async fn live_report(
     let mut targets = Vec::new();
     if let Some(path) = file {
         let absolute = absolute_path(path);
-        let workspace =
-            octocode_engine::lsp::workspace::resolve_workspace_root_for_file(absolute.clone())
-                .unwrap_or_else(|_| ".".to_owned());
+        let workspace = octocode_engine::lsp::config::workspace_root_for_file(&absolute, discovery)
+            .unwrap_or_else(|_| ".".to_owned());
         if discovery.opens_fetched_code(&absolute, &workspace) {
             eprintln!("{}", octocode_engine::lsp::config::FETCHED_CODE_REFUSAL);
             return Err(1);

@@ -55,6 +55,7 @@ pub(super) async fn run_page(
                 cancel,
                 budget: crate::response::page_windows::page_budget(response_window),
                 security: &execution_config.security,
+                discovery: &execution_config.discovery().for_one_request(),
             }
             .answer(failed)
             .await

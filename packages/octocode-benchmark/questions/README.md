@@ -1,10 +1,12 @@
 # Question sets
 
-Each set is data: one file per question, with no hints, approach or answer. Pick a set by what
+Research sets are data: one file per question, with no hints, approach or answer.
+The tool capability set groups specific questions by tool; common execution checks remain in CHECKS.md. Pick a set by what
 the round compares ([COMPARISONS.md](../COMPARISONS.md)), and never pool sets in one aggregate.
 
 | Set | Questions | Scope | Stored answers or numbers (see the [results index](../results/README.md)) |
 |---|---:|---|---|
+| [tools/](tools/README.md) | 17 tool files | all local CLI/MCP tools, input/output, pages, workflows and expert comparisons | each dated tool-rating campaign; assignments and source oracles stored separately |
 | [github/](github/README.md) | 30 | public GitHub repositories | Octocode v20 (2026-10-29) and v18 (2026-08, 3 passes); gh-lean answers (2026-10-09); plain gh, gh + RTK, gh + Headroom as numbers only (2026-08); MCP builds and clasify A/B (2026-10) |
 | [local-core/](local-core/README.md) | 30 | pinned clones listed in [local/README.md](../local/README.md); judge rubrics in `answers/` | Octocode local MCP builds, 19.1.0 and the lean shell (2026-10-10) |
 | [local-goals/](local-goals/README.md) | 40 | nine pinned checkouts, `{{REPO:id}}` tokens resolved per `catalog.json` and `repositories.json`; Q33–Q40 are a Terraform slice | local MCP with and without clasify (2026-10-13) |

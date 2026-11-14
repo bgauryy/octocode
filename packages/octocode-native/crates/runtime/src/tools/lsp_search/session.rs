@@ -15,9 +15,9 @@ pub(super) fn discover_server(
     let fail =
         |code: ErrorCode, message: &str| Exit::Row(failure(query, &uri, code, message, false));
     let root_only = Path::new(&path).is_dir();
-    let (workspace, root_note) = resolve_workspace(query, &path, paths)
-        .map_err(|message| fail(ErrorCode::WorkspaceRootInvalid, &message))?;
     let discovery = execution_config.discovery().for_one_request();
+    let (workspace, root_note) = resolve_workspace(query, &path, paths, &discovery)
+        .map_err(|message| fail(ErrorCode::WorkspaceRootInvalid, &message))?;
     if discovery.opens_fetched_code(&path, &workspace) {
         return Err(fail(
             ErrorCode::Policy,
@@ -90,11 +90,12 @@ pub(super) fn resolve_workspace(
     query: &LspSearchQuery,
     path: &str,
     paths: &PathPolicy,
+    discovery: &octocode_engine::lsp::config::LspDiscoveryOptions,
 ) -> Result<(String, Option<String>), String> {
     let root_only = Path::new(path).is_dir();
     let workspace_candidate = lsp_search_query::workspace_root(query)
         .map(str::to_owned)
-        .or_else(|| resolve_workspace_root_for_file(path.to_owned()).ok())
+        .or_else(|| octocode_engine::lsp::config::workspace_root_for_file(path, discovery).ok())
         .unwrap_or_else(|| {
             Path::new(path)
                 .parent()

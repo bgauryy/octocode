@@ -4,15 +4,19 @@
 //! ([`lands`]), and one on a name its imports bind is an import
 //! ([`imports_at`], each line of a multi-line import group). JS/TS sites read one oxc parse of their file
 //! ([`classify_sites`]); every other site, and a name the parse holds no
-//! node for, reads the text rule of its own line.
-use super::call_sites::classify_sites;
+//! node for, reads the text rule of its own line. In a file with no
+//! declarations parse (a language octocode has no grammar for), the
+//! server's own outline names its declarations, as the callers walk reads it.
 use super::call_sites::text_rule::is_call_site;
+use super::call_sites::{classify_sites, flatten_symbols, is_declaration_name};
 use super::failure::LspFailure;
 use super::recovery::{Landing, imports_at, lands};
 use super::render::uri_to_path;
 use super::source::SourceCache;
 use crate::execution::cancel::CancellationCheck;
 use octocode_engine::graph::GraphPosition;
+use octocode_engine::lsp::client::NativeLspClient;
+use octocode_engine::lsp::types::LspRange;
 use octocode_engine::text::LineIndex;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -20,11 +24,13 @@ use std::collections::BTreeMap;
 /// Set `role` on each location row of `rows` (LSP `uri` and 0-based
 /// `range`). A row keeps no role only when its file's source cannot be
 /// read here (outside the read policy, unreadable, or over the size bound):
-/// no rule can classify a site whose text is not available.
+/// no rule can classify a site whose text is not available. `server`, when
+/// one answers, gives the outline of a file without a declarations parse.
 pub(super) async fn assign_roles(
     rows: &mut [Value],
     sources: &mut SourceCache<'_>,
     cancel: &dyn CancellationCheck,
+    server: Option<&NativeLspClient>,
 ) -> Result<(), LspFailure> {
     let mut by_file = BTreeMap::<String, Vec<usize>>::new();
     for (index, row) in rows.iter().enumerate() {
@@ -48,10 +54,12 @@ pub(super) async fn assign_roles(
             .iter()
             .map(|index| point(&rows[*index], "start"))
             .collect::<Vec<_>>();
-        let parsed_roles = parsed_roles(cancel, &path, &source, &starts).await?;
+        let declared = parsed_roles(cancel, &path, &source, &starts).await?;
         let parsed = classify_sites(cancel, &source, &path, starts).await?;
         let lines = LineIndex::new(&source.content);
-        for (position, index) in indices.into_iter().enumerate() {
+        let mut text_decided = Vec::new();
+        let parsed_roles = declared.clone().unwrap_or_default();
+        for (position, &index) in indices.iter().enumerate() {
             let site = parsed.as_ref().and_then(|sites| sites.get(position));
             let row = &mut rows[index];
             let (start, end) = (point(row, "start"), point(row, "end"));
@@ -69,55 +77,84 @@ pub(super) async fn assign_roles(
                     "reference"
                 }
             };
+            let mut by_text = || {
+                text_decided.push(index);
+                text()
+            };
             let role = match (parsed_roles.get(position).copied().flatten(), site) {
                 (Some(role), _) => role,
                 (None, Some(site)) if site.is_import == Some(true) => "import",
                 (None, Some(site)) => match site.is_call {
                     Some(true) => "call",
                     Some(false) if site.is_import == Some(false) => "reference",
-                    _ => text(),
+                    _ => by_text(),
                 },
-                (None, None) => text(),
+                (None, None) => by_text(),
             };
             row["role"] = json!(role);
+        }
+        // No declarations parse: the text rule cannot tell a declaration's
+        // name (`func f(`) from a call; the server's outline can. A failed
+        // outline leaves the text rule's roles.
+        if declared.is_none()
+            && !text_decided.is_empty()
+            && let Some(server) = server
+            && let Ok(outline) = server.get_document_symbols(path.clone()).await
+        {
+            mark_declarations(rows, &text_decided, &outline);
         }
     }
     Ok(())
 }
 
+/// Set `role: declaration` on each row of `indices` whose range is a
+/// declaration's own name in the server's `outline`.
+fn mark_declarations(rows: &mut [Value], indices: &[usize], outline: &Value) {
+    let mut flat = Vec::new();
+    flatten_symbols(outline, &mut flat);
+    for &index in indices {
+        let named = serde_json::from_value::<LspRange>(rows[index]["range"].clone())
+            .is_ok_and(|range| is_declaration_name(&flat, &range));
+        if named {
+            rows[index]["role"] = json!("declaration");
+        }
+    }
+}
+
 /// The role the file's digest-cached declarations parse gives each of
 /// `starts`, read off the async workers: `declaration` where it begins a
 /// declaration (its name or its start), `import` on a name an import
-/// binds, else `None`; all `None` for a file without one.
+/// binds, else `None`; `None` for a file without one.
 async fn parsed_roles(
     cancel: &dyn CancellationCheck,
     path: &str,
     source: &std::sync::Arc<super::source::Source>,
     starts: &[GraphPosition],
-) -> Result<Vec<Option<&'static str>>, LspFailure> {
+) -> Result<Option<Vec<Option<&'static str>>>, LspFailure> {
     let (path, source) = (path.to_owned(), std::sync::Arc::clone(source));
     let starts = starts
         .iter()
         .map(|start| (start.line, start.character))
         .collect::<Vec<_>>();
     let roles = super::blocking_cancellable(cancel, move |_| {
-        let document = crate::tools::declarations::file_document(&source.content, &path);
-        starts
-            .iter()
-            .map(|&(line, character)| {
-                let document = document.as_ref()?;
-                if lands(document, line, character) == Landing::Declaration {
-                    Some("declaration")
-                } else if imports_at(document, line, character) {
-                    Some("import")
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>()
+        let document = crate::tools::declarations::file_document(&source.content, &path)?;
+        Some(
+            starts
+                .iter()
+                .map(|&(line, character)| {
+                    if lands(&document, line, character) == Landing::Declaration {
+                        Some("declaration")
+                    } else if imports_at(&document, line, character) {
+                        Some("import")
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>(),
+        )
     })
     .await?;
-    Ok(roles.unwrap_or_default())
+    Ok(roles.flatten())
 }
 
 /// The text of 0-based `line` of `content`, without its line break.

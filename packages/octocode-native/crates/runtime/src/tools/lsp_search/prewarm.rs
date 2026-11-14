@@ -19,9 +19,9 @@ use super::LspExecutionConfig;
 use crate::policy::path::PathPolicy;
 use octocode_engine::lsp::client::Readiness;
 use octocode_engine::lsp::config::default_server_for_file;
+use octocode_engine::lsp::config::workspace_root_for_file;
 use octocode_engine::lsp::pool::{LspClientPool, canonical_lsp_key};
 use octocode_engine::lsp::types::LspLanguageServerConfig;
-use octocode_engine::lsp::workspace::resolve_workspace_root_for_file;
 use serde_json::Value;
 use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -121,12 +121,12 @@ struct Planned {
 fn plan(paths: &PathPolicy, execution: &LspExecutionConfig, file: &Path) -> Option<Planned> {
     let file = paths.validate_read(file).ok()?;
     let file = file.canonical.to_string_lossy().into_owned();
-    let workspace = resolve_workspace_root_for_file(file.clone())
+    let discovery = execution.discovery();
+    let workspace = workspace_root_for_file(&file, &discovery)
         .ok()
         .and_then(|root| paths.validate(&root).ok())
         .filter(|root| root.canonical.is_dir())
         .map(|root| root.canonical.to_string_lossy().into_owned())?;
-    let discovery = execution.discovery();
     let config = default_server_for_file(&file, &workspace, &discovery)?;
     let key = canonical_lsp_key(&config).ok()?;
     Some(Planned { file, key, config })

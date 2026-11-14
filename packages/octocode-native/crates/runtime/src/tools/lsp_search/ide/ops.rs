@@ -174,7 +174,7 @@ impl Question<'_, '_> {
     async fn references(&mut self) -> Result<Value, Fault> {
         let answer = self.ask("references", self.anchor()).await?;
         let mut found = snippets::from_locations(&answer, self.sources).await;
-        crate::tools::lsp_search::roles::assign_roles(&mut found, self.sources, self.cancel)
+        crate::tools::lsp_search::roles::assign_roles(&mut found, self.sources, self.cancel, None)
             .await?;
         Ok(self.page_of("references", found).await)
     }

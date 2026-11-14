@@ -99,10 +99,10 @@ impl Request<'_> {
         // The editor answers in the first half of what the request has left;
         // the server and syntax rungs get the rest.
         let ends = crate::execution::cancel::halfway(cancel);
-        let Ok((workspace, _)) = super::resolve_workspace(query, path, paths) else {
+        let discovery = execution_config.discovery().for_one_request();
+        let Ok((workspace, _)) = super::resolve_workspace(query, path, paths, &discovery) else {
             return Ok(None);
         };
-        let discovery = execution_config.discovery().for_one_request();
         let lock =
             match lock::editor_lock(&discovery, home, path, &workspace, lock::Hints::of_process) {
                 lock::Discovery::Absent => return Ok(None),
@@ -130,6 +130,7 @@ impl Request<'_> {
             lsp_search_query::workspace_root(query),
             paths,
             None,
+            &discovery,
         );
         if !super::scope_responses(query, &scope, document.as_deref(), cancel).await? {
             return Ok(Some(locations::snapshot_changed(query)));

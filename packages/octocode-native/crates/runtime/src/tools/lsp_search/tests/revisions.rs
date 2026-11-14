@@ -20,6 +20,7 @@ async fn page(
         None,
         paths,
         Some("typescript"),
+        &octocode_engine::lsp::config::LspDiscoveryOptions::default(),
     );
     let document = source::Source::new(std::fs::read_to_string(&anchor).expect("anchor"));
     let pinned = ResponseScope {
@@ -113,6 +114,7 @@ async fn sealed_after_citing(
         None,
         paths,
         Some("typescript"),
+        &octocode_engine::lsp::config::LspDiscoveryOptions::default(),
     );
     let document = source::Source::new(std::fs::read_to_string(&anchor).expect("anchor"));
     octocode_engine::stamp::settle_written_so_far();
@@ -174,6 +176,7 @@ async fn the_revision_and_the_watched_diff_share_one_walk() {
         None,
         &paths,
         Some("typescript"),
+        &octocode_engine::lsp::config::LspDiscoveryOptions::default(),
     );
     let work = std::sync::Arc::new(Work::default());
     let never = crate::execution::cancel::NeverCancel;
@@ -258,6 +261,7 @@ async fn a_file_that_settles_between_walks_is_not_a_watched_change() {
         None,
         &paths,
         Some("typescript"),
+        &octocode_engine::lsp::config::LspDiscoveryOptions::default(),
     );
     let stamp = |observed| {
         let scope = &scope;

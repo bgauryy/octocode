@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 /// resolved once; a file whose root cannot be resolved stands under its own
 /// directory.
 pub(super) fn other_projects(
+    scope: &Scope,
     files: &[String],
     server_root: &str,
 ) -> BTreeMap<PathBuf, Vec<String>> {
@@ -21,7 +22,8 @@ pub(super) fn other_projects(
     for file in files {
         let dir = Path::new(file.as_str()).parent().unwrap_or(Path::new(""));
         let own = roots.entry(dir).or_insert_with(|| {
-            octocode_engine::lsp::workspace::resolve_workspace_root_for_file(file.clone())
+            scope
+                .project_root_of(file)
                 .map_or_else(|_| dir.to_path_buf(), |own| canonical(&own))
         });
         if *own != root {
@@ -53,7 +55,7 @@ pub(super) fn dependent_projects(
     files: &[String],
     server_root: &str,
 ) -> BTreeMap<PathBuf, Vec<String>> {
-    let mut others = other_projects(files, server_root);
+    let mut others = other_projects(scope, files, server_root);
     if let Some(dependents) = scope.known_dependents() {
         others.retain(|root, _| dependents.includes(root));
     }
@@ -102,7 +104,7 @@ pub(super) fn annotate_unanswered(
     // directories, so such a file is judged by the build files above it.
     let ignored = scope.ignored_only_files(name).map(|mut found| {
         if let Some(root) = project {
-            let outside = other_projects(&found.files, root);
+            let outside = other_projects(scope, &found.files, root);
             let dependents = scope.known_dependents();
             found.files.retain(|file| {
                 outside.values().any(|own| own.contains(file))

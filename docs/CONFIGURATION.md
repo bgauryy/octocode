@@ -63,6 +63,12 @@ Use `KEY=VALUE` lines in `.env`. Environment booleans accept `true`, `false`, `1
 {"languageServers":{".ts":{"command":"tsgo","args":["--lsp","-stdio"],"languageId":"typescript"}}}
 ```
 
+Any extension can be routed this way. For a language whose project file Octocode does not know, `rootMarkers` lists the file or directory names that mark its project. The server starts at the nearest folder above the file that holds one, without leaving the repository:
+
+```json
+{"languageServers":{".swift":{"command":"sourcekit-lsp","languageId":"swift","rootMarkers":["Package.swift"]}}}
+```
+
 ### Change the classification host
 
 Jev uses `https://api.typesafe.ai` by default. To use a compatible gateway, set its API root in the process environment or home configuration. The host receives the key and the selected evidence. Use HTTPS with no path, or HTTP on loopback. [Classification egress](SECURITY.md#classification-egress)

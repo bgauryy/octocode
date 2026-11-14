@@ -24,7 +24,12 @@ fn symbol_root(
         .expect("row")
         .extend(extra.as_object().cloned().unwrap_or_default());
     let mut q = query(row);
-    let resolved = resolve_paths(&mut q, paths).expect("a directory path");
+    let resolved = resolve_paths(
+        &mut q,
+        paths,
+        &octocode_engine::lsp::config::LspDiscoveryOptions::default(),
+    )
+    .expect("a directory path");
     assert_eq!(resolved, directory.to_string_lossy(), "the query keeps it");
     lsp_search_query::workspace_root(&q)
         .expect("a root")

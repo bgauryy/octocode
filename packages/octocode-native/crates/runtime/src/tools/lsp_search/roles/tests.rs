@@ -28,7 +28,7 @@ async fn roles(root: &Fixture, file: &str, source: &str, sites: &[(&str, usize)]
         .map(|(needle, nth)| row(&uri, source, needle, *nth))
         .collect::<Vec<_>>();
     let paths = workspace_policy(&root.0);
-    assign_roles(&mut rows, &mut SourceCache::new(&paths), &NeverCancel)
+    assign_roles(&mut rows, &mut SourceCache::new(&paths), &NeverCancel, None)
         .await
         .expect("roles");
     rows.iter().map(|row| row["role"].clone()).collect()
@@ -106,7 +106,7 @@ async fn an_unreadable_source_leaves_its_rows_unclassified() {
     let mut rows = vec![json!({"uri": "file:///outside/the/workspace.ts",
         "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 3}}})];
     let paths = workspace_policy(&root.0);
-    assign_roles(&mut rows, &mut SourceCache::new(&paths), &NeverCancel)
+    assign_roles(&mut rows, &mut SourceCache::new(&paths), &NeverCancel, None)
         .await
         .expect("roles");
     assert!(rows[0].get("role").is_none(), "{}", rows[0]);
@@ -132,7 +132,7 @@ async fn a_range_over_the_arguments_is_still_a_call() {
         site((6, 18), (6, 23)),
     ];
     let paths = workspace_policy(&root.0);
-    assign_roles(&mut rows, &mut SourceCache::new(&paths), &NeverCancel)
+    assign_roles(&mut rows, &mut SourceCache::new(&paths), &NeverCancel, None)
         .await
         .expect("roles");
     let roles = rows
@@ -220,5 +220,54 @@ async fn impl_blocks_are_uses_and_import_group_lines_are_imports() {
         )
         .await,
         ["import", "reference", "declaration", "reference"]
+    );
+}
+
+/// A language with no grammar here (Swift): the text rule calls a
+/// declaration `func f(` a call; the server's outline names it a
+/// declaration, and the call beside it stays one. The outline is
+/// sourcekit-lsp's: its selection spans the signature `f(_ x: Int)`.
+#[tokio::test(flavor = "current_thread")]
+async fn without_a_parse_the_servers_outline_names_declarations() {
+    let root = Fixture::new();
+    let source = "public func f(_ x: Int) -> Int { x + 1 }\nfunc g() -> Int { f(2) }\n";
+    let path = root.write("lib.swift", source);
+    let uri = octocode_engine::lsp::uri::path_to_uri(&path.to_string_lossy()).expect("uri");
+    let site = |line: u32, character: u32| {
+        json!({"uri": uri, "range": {
+            "start": {"line": line, "character": character},
+            "end": {"line": line, "character": character + 1}
+        }})
+    };
+    let mut rows = [site(0, 12), site(1, 18)];
+    let paths = workspace_policy(&root.0);
+    let mut sources = SourceCache::new(&paths);
+    let source = sources.get(&path.to_string_lossy()).await.expect("source");
+    let parsed = parsed_roles(&NeverCancel, &path.to_string_lossy(), &source, &[])
+        .await
+        .expect("parse");
+    assert!(
+        parsed.is_none(),
+        "a file with no grammar has no declarations parse"
+    );
+    assign_roles(&mut rows, &mut sources, &NeverCancel, None)
+        .await
+        .expect("roles");
+    assert_eq!(
+        rows.each_ref().map(|row| row["role"].clone()),
+        ["call", "call"]
+    );
+    let outline = json!([
+        {"name": "f", "kind": 12,
+         "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 40}},
+         "selectionRange": {"start": {"line": 0, "character": 12}, "end": {"line": 0, "character": 23}}},
+        {"name": "g", "kind": 12,
+         "range": {"start": {"line": 1, "character": 0}, "end": {"line": 1, "character": 24}},
+         "selectionRange": {"start": {"line": 1, "character": 5}, "end": {"line": 1, "character": 6}}}
+    ]);
+    mark_declarations(&mut rows, &[0, 1], &outline);
+    assert_eq!(
+        rows.each_ref().map(|row| row["role"].clone()),
+        ["declaration", "call"]
     );
 }

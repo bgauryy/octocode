@@ -59,6 +59,7 @@ pub(super) fn set_workspace_root(query: &mut LspSearchQuery, root: String) {
 pub(super) fn resolve_paths(
     query: &mut LspSearchQuery,
     paths: &PathPolicy,
+    discovery: &octocode_engine::lsp::config::LspDiscoveryOptions,
 ) -> Result<String, LspFailure> {
     if let Some(root) = lsp_search_query::workspace_root(query)
         && let Ok(valid) = paths.validate(root)
@@ -68,7 +69,7 @@ pub(super) fn resolve_paths(
     let path = match lsp_search_query::path(query) {
         Some(uri) => {
             let decoded = decode_uri_path(uri).map_err(LspFailure::invalid_query)?;
-            if let Some(root) = directory_as_workspace_root(query, &decoded, paths) {
+            if let Some(root) = directory_as_workspace_root(query, &decoded, paths, discovery) {
                 return Ok(root);
             }
             let path = paths
@@ -109,6 +110,7 @@ pub(super) fn directory_as_workspace_root(
     query: &mut LspSearchQuery,
     decoded: &str,
     paths: &PathPolicy,
+    discovery: &octocode_engine::lsp::config::LspDiscoveryOptions,
 ) -> Option<String> {
     if lsp_search_query::op(query) != Op::WorkspaceSymbol {
         return None;
@@ -132,7 +134,7 @@ pub(super) fn directory_as_workspace_root(
             .then(|| directory_representative(&directory, &directory))
             .flatten();
         let project = match by_files {
-            Some(file) => octocode_engine::lsp::workspace::resolve_workspace_root_for_file(file)
+            Some(file) => octocode_engine::lsp::config::workspace_root_for_file(&file, discovery)
                 .ok()
                 .map(std::path::PathBuf::from),
             None => octocode_engine::lsp::workspace::project_root_of_dir(Path::new(&directory)),

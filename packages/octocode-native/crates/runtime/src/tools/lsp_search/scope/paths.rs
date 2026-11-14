@@ -270,6 +270,7 @@ impl super::Scope {
         workspace_root: Option<&str>,
         policy: &PathPolicy,
         language_id: Option<&str>,
+        discovery: &octocode_engine::lsp::config::LspDiscoveryOptions,
     ) -> Self {
         let anchor_path = Path::new(anchor);
         let wide = search_root(anchor_path, server_root, policy);
@@ -288,7 +289,17 @@ impl super::Scope {
             explicit.is_some_and(|root| root != wide && Path::new(&root).starts_with(&wide));
         scope.markup = markup_include(language_id);
         scope.server_root = std::fs::canonicalize(server_root).ok();
+        scope.discovery = discovery.clone();
         scope
+    }
+
+    /// The language server root of `file` as this request's discovery finds
+    /// it ([`octocode_engine::lsp::config::workspace_root_for_file`]).
+    pub(in super::super) fn project_root_of(
+        &self,
+        file: &str,
+    ) -> octocode_engine::error::Result<String> {
+        octocode_engine::lsp::config::workspace_root_for_file(file, &self.discovery)
     }
 
     /// Find the projects beside an unbounded scope's root, once: the walk

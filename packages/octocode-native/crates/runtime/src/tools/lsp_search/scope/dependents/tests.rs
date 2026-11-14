@@ -26,7 +26,14 @@ fn repository() -> (tempfile::TempDir, PathBuf) {
 }
 
 fn read(root: &Path) -> Option<Dependents> {
-    kept_or_read(root, &root.join("a"), &root.join("a/x.go"), "go", &|| false)
+    kept_or_read(
+        root,
+        &root.join("a"),
+        &root.join("a/x.go"),
+        "go",
+        &octocode_engine::lsp::config::LspDiscoveryOptions::default(),
+        &|| false,
+    )
 }
 
 /// Once the scope is settled, a repeat is served without a walk; a build file
@@ -144,6 +151,7 @@ fn a_cargo_snapshot_depending_on_its_own_copy_is_no_dependent() {
         &root.join("a"),
         &root.join("a/src/lib.rs"),
         "rs",
+        &octocode_engine::lsp::config::LspDiscoveryOptions::default(),
         &|| false,
     )
     .expect("read");

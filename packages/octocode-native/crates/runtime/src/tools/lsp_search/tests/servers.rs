@@ -274,7 +274,12 @@ fn workspace_symbol_accepts_directory_path() {
         "operation": "workspaceSymbol", "symbolFuzzy": "f",
         "path": root.join("src").to_string_lossy()
     }));
-    let resolved = resolve_paths(&mut q, &paths).expect("a directory path is the root");
+    let resolved = resolve_paths(
+        &mut q,
+        &paths,
+        &octocode_engine::lsp::config::LspDiscoveryOptions::default(),
+    )
+    .expect("a directory path is the root");
     let src = root.join("src").canonicalize().expect("canonical");
     assert_eq!(resolved, src.to_string_lossy());
     assert_eq!(
@@ -286,7 +291,14 @@ fn workspace_symbol_accepts_directory_path() {
         "operation": "references", "symbolName": "f", "line": 1,
         "path": root.join("src").to_string_lossy()
     }));
-    assert!(resolve_paths(&mut refs, &paths).is_err());
+    assert!(
+        resolve_paths(
+            &mut refs,
+            &paths,
+            &octocode_engine::lsp::config::LspDiscoveryOptions::default()
+        )
+        .is_err()
+    );
 }
 
 #[test]

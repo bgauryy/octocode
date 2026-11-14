@@ -258,7 +258,15 @@ fn relative_and_absolute_anchors_share_one_query_identity() {
     ));
     let canonical = root.join("src/a.ts").to_string_lossy().into_owned();
     for query in [&mut absolute, &mut relative, &mut uri] {
-        assert_eq!(resolve_paths(query, &paths).expect("valid"), canonical);
+        assert_eq!(
+            resolve_paths(
+                query,
+                &paths,
+                &octocode_engine::lsp::config::LspDiscoveryOptions::default()
+            )
+            .expect("valid"),
+            canonical
+        );
     }
     assert_eq!(
         lsp_search_query::to_row(&absolute),

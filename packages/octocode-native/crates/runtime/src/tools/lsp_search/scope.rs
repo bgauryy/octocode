@@ -173,6 +173,9 @@ pub(super) struct Scope {
     gaps: Mutex<Option<(String, Arc<Vec<answered::Gap>>)>>,
     /// The other projects that may use the anchor ([`Self::dependents`]).
     dependents: std::sync::OnceLock<Dependents>,
+    /// Language server discovery of the request: what roots each scanned
+    /// file's own server ([`Self::project_root_of`]).
+    discovery: octocode_engine::lsp::config::LspDiscoveryOptions,
 }
 
 impl Scope {
@@ -198,6 +201,7 @@ impl Scope {
             listed: Mutex::default(),
             gaps: Mutex::new(None),
             dependents: std::sync::OnceLock::new(),
+            discovery: octocode_engine::lsp::config::LspDiscoveryOptions::default(),
         }
     }
 
