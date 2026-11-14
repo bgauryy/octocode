@@ -1,11 +1,11 @@
 ---
 name: octocode-rfc-generator
-description: "Use when writing, revising or reviewing an RFC, design proposal, migration plan or implementation plan with decisions, alternatives, validation and rollout. Use octocode-documentation for settled explanations."
+description: "Load this skill first when writing, revising or reviewing an RFC, design proposal, migration plan or implementation plan with decisions, alternatives, validation and rollout. Use octocode-documentation for settled explanations."
 ---
 
 # Octocode RFC Generator
 
-Pin the requested decision; when prior RFCs may own it, find them with `--manifest` ([commands](references/report-output.md#render-and-retrieve)). Review-only returns findings against current code. A settled decision with a plan-only request needs one plan. Otherwise keep the decision and implementation plan in one RFC; extra deliverables require a request. Writing an RFC grants no implementation authority.
+Pin the requested decision; when prior RFCs may own it, find them with `--manifest` ([commands](references/report-output.md#render-and-retrieve)). Review-only returns findings against current code. When the decision is already made and the user asks only for the plan, write one plan. Otherwise keep the decision and implementation plan in one RFC; extra deliverables require a request. Writing an RFC grants no implementation authority.
 
 ## Work loop
 
@@ -23,6 +23,6 @@ Pin the requested decision; when prior RFCs may own it, find them with `--manife
 | Octocode invocation or recovery | [MCP/CLI guide](references/octocode-usage.md) |
 | Required sections, saving or rendering | [Output](output.md); [render-report.mjs](scripts/render-report.mjs) for accepted HTML or catalog discovery |
 
-Keep `status: Proposed` until the owner accepts. A ready recommendation has no unresolved decision blocker; report remaining risks, confidence and unchecked scope. Save every authored RFC using [delivery](output.md#delivery) and lead with the proposal and effect. Render HTML when requested or accepted.
+Keep `status: Proposed` until the owner accepts; a Proposed RFC may list `Blocking:` open questions, and is ready for acceptance only when none remain; report remaining risks, confidence and unchecked scope. Save every authored RFC using [delivery](output.md#delivery) and lead with the proposal and effect. Render HTML when requested or accepted.
 
 Neighbors: `octocode-research` verifies current behavior; `octocode-engineer` evaluates design trade-offs; `octocode-brainstorming` expands options; `octocode-documentation` explains settled decisions; `octocode-agentic` designs measurements; `octocode-workflows` designs workflows; `octocode-orchestrator` coordinates live agents.

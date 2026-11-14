@@ -1,6 +1,6 @@
 ---
 name: octocode-graph-view
-description: "Use when the user wants a visual, interactive map of a repository to explore, such as an architecture or dependency graph, or a saved source-backed graph brief. Use octocode-graph for direct dependency, caller or cycle queries."
+description: "Load this skill first when the user wants a visual, interactive map of a repository to explore, such as an architecture or dependency graph, or a saved source-backed graph brief. Use octocode-graph for direct dependency, caller or cycle queries."
 ---
 
 # Octocode Graph View
@@ -11,7 +11,7 @@ Run from the target workspace. When environment capabilities are unknown, use `n
 
 | Need | Command |
 |---|---|
-| A person will watch | `node <skill>/scripts/serve.mjs <section>` opens the viewer. Give the printed URL for live progress and on-demand AST outlines or LSP callers, callees and references. |
+| A person will watch | `node <skill>/scripts/serve.mjs <section>` opens the viewer; `<section>` is the folder to map, such as `.` for the whole repo or `packages/api`. Give the printed URL for live progress and on-demand AST outlines or LSP callers, callees and references. |
 | Headless build or CI | `node <skill>/scripts/build.mjs <section>` writes the same graph, events and briefs. |
 | Reopen a finished run | `node <skill>/scripts/serve.mjs --replay <result-dir>` |
 

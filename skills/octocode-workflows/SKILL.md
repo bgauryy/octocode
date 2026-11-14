@@ -1,11 +1,11 @@
 ---
 name: octocode-workflows
-description: "Use when designing, running or resuming a multi-step process with ordered stages, dependencies, retries, checkpoints or rollback, such as pipelines, migrations, releases or data jobs across tools and services. Load it before scripting the steps. Use octocode-orchestrator to coordinate live agents."
+description: "Load this skill first when designing, running or resuming a multi-step process with ordered stages, dependencies, retries, checkpoints or rollback, such as pipelines, migrations, releases or data jobs across tools and services. Load it before scripting the steps. Use octocode-orchestrator to coordinate live agents."
 ---
 
 # Octocode Workflows
 
-Choose one primary workflow from the [catalog](references/catalog.md) by the needed outcome or proof. Ordinary tasks use their domain skill directly; a workflow selection needs no ledger or extra agent.
+Choose one primary workflow from the [catalog](references/catalog.md) by the needed outcome or proof. Ordinary tasks use their domain skill directly; a workflow selection needs no ledger or extra agent; executing or resuming one keeps the [ledger](references/verification.md).
 
 For ongoing agent assignments, result integration and replanning, use `octocode-orchestrator` when installed. Keep this workflow's acceptance and existing ledger; the coordinator does not create a second one.
 

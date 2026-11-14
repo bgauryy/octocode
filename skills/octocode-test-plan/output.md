@@ -56,6 +56,7 @@ Give each case a unique ID, title and fields below. For a large plan, add a summ
 | When | Action or ordered scenario; exact command/request/input where syntax or ordering matters. Otherwise state the target state and how to check it |
 | Then | Observable comparison: value, property, pattern, status, file, count, or timing bound with unit/baseline/runs |
 | Pass if / Fail if | Unambiguous oracle; derive expected behavior from a contract, not current output alone |
+| Discriminates | For P0: the base revision, revert or seeded fault under which the case fails; the plan names it and the executor applies it, the plan edits nothing |
 | Evidence to capture | Output, exit code, file or log needed to verify the result |
 | Cleanup | Remove case-owned state and verify restoration, or say none |
 

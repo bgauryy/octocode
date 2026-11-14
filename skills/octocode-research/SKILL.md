@@ -1,6 +1,6 @@
 ---
 name: octocode-research
-description: "Use when a question about code needs cited source evidence: how something works, who calls it, what a change affects, why or when it changed, or which package version holds it, in this checkout, on GitHub or in registries. Load it before reading code yourself. Use octocode-debugging to reproduce runtime failures."
+description: "Load this skill first, before searching or reading files yourself, when a question asks how code works, where something is defined, who calls it, what a change affects, why or when it changed, or which package version holds it, in this checkout, on GitHub or in registries. It answers with cited source evidence. Use octocode-debugging to reproduce runtime failures."
 ---
 
 # Octocode Research

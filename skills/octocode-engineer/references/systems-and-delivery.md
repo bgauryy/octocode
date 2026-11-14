@@ -7,7 +7,7 @@ Load when the question is about overload, retries, rate limits, capacity, API co
 | Problem | Start with | Watch |
 |---|---|---|
 | A dependency is slow or down | Timeout + bounded retries with jittered backoff + circuit breaker | Retry only idempotent operations or ones carrying an idempotency key |
-| Traffic exceeds capacity | Admission control: rate limit, concurrency limit, load shedding | Reject early and cheaply; queues only hide overload |
+| Traffic exceeds capacity | Admission control: rate limit, concurrency limit, load shedding | Reject early and cheaply; a queue absorbs bursts the consumer can catch up on, but sustained overload needs a bound and shedding |
 | Bursty clients | Token bucket | The bucket size is the allowed burst |
 | Schema or API change in production | Expand–contract migration | Old and new versions must run side by side |
 | Risky deploy | Feature flag or canary with automatic rollback | Define the rollback signal before the rollout |

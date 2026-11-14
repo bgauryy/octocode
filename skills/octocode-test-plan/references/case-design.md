@@ -44,7 +44,7 @@ The oracle is how the executor decides pass or fail. Prefer, in order:
 
 When no expected value can be computed (the oracle problem: ranking, numeric models, generated output), use a property or metamorphic relation: a change to the input with a known effect on the output, such as reordering input leaves a sorted result unchanged.
 
-Apply the [plan loop’s oracle authority rule](../SKILL.md#plan-loop): a convenient assertion does not establish expected behavior.
+Apply the [plan loop’s oracle rule (step 4)](../SKILL.md#plan-loop): a convenient assertion does not establish expected behavior.
 
 ## Keep cases independent and stable
 

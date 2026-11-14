@@ -12,7 +12,7 @@ Load when classifying code as dead, duplicate, kludge, bloat, redundant declarat
 | Module-scope `str.replace(/old-value/, ...)` fixup | fix the value at source. |
 | `Object.assign(prototype, ...)` outside tests | patched object internal, owned. |
 | Env check always true when deployed | confirmed on every target. |
-| Repeated string literal | same meaning everywhere; extract a constant. |
+| Repeated string literal | same meaning everywhere; extracting a constant is a consolidation batch, done only when the request covers consolidation. |
 | One rule spelled out in many files that always change together (shotgun surgery) | co-change history (`graphQuery` operation `cochange`, or `git log` on the files) plus an AST or literal match of the copies; consolidate under one owner in its own batch. |
 | One concept under several names in a change (`user`, `account`, `member`) | types or data flow prove one referent; keep the project's existing name. |
 | Rust stringly identity (tool, vendor, error code as `String`/`&str` compared by literal) | producers, consumers traced; enum or newtype at the boundary. |

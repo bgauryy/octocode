@@ -1,6 +1,6 @@
 ---
 name: octocode-debugging
-description: "Use when something fails or is slow at runtime: crashes, wrong results, hangs, leaks, memory growth, slowness, flaky tests, tracebacks, dumps or profiles. Load it before guessing a fix: it finds the first divergence or the measured cost with debuggers and profilers. Use octocode-research for source-only questions."
+description: "Load this skill first, before running or editing anything, when something fails or is slow at runtime: crashes, wrong results, hangs, leaks, memory growth, slowness, flaky tests, tracebacks, dumps or profiles. It finds the first divergence or the measured cost with debuggers and profilers. Use octocode-research for source-only questions."
 ---
 
 # Octocode Debugging
@@ -10,7 +10,7 @@ Inspect surviving evidence before restarting or reproducing: a live stall can di
 ## Procedure
 
 1. **Inspect** the traceback, dump, log or saved profile. If it settles the question, answer from that evidence.
-2. **Observe** the stop or measurement that separates rival causes. A conditional breakpoint isolates an invocation; a data watchpoint finds the writer. Verify a live target's identity and the impact of pausing it; ask before pausing, attaching to or signaling a process the request did not name. Resume or detach anything you stopped. Revise the probe when it leaves the cause unresolved. For performance and memory, follow the [profiling loop](references/profiling.md#the-profiling-loop).
+2. **Observe** the stop or measurement that separates rival causes. A conditional breakpoint isolates an invocation; a data watchpoint finds the writer. Verify a live target's identity and the impact of pausing it; ask before pausing, attaching to or signaling a process the request did not identify (a named service counts once you find and verify its PID). Resume or detach anything you stopped. Revise the probe when it leaves the cause unresolved. For performance and memory, follow the [profiling loop](references/profiling.md#the-profiling-loop).
 3. **Fix** the first divergence when requested. Add a test that fails before the fix and passes after (check the pre-fix state in a separate worktree or checkout at the base revision; never revert, stash or check out in a shared tree), and search for the same pattern elsewhere. Replay the failure and nearby cases with the same input, environment and measurement; compare before and after on equivalent windows.
 4. **Clean up**: stop the processes you started, remove temporary breakpoints, `debugger;` statements, logs and unsupported experimental edits, and keep the evidence the answer cites.
 

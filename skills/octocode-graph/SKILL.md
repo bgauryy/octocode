@@ -1,15 +1,15 @@
 ---
 name: octocode-graph
-description: "Use when asking structural questions about a codebase: who imports or calls what, dependency paths, cycles, hubs, change impact, dead-code candidates or files that change together, answered with graphBuild and graphQuery. Use octocode-graph-view for an interactive map."
+description: "Load this skill first when asking structural questions about a codebase: who imports or calls what, dependency paths, cycles, hubs, change impact, dead-code candidates or files that change together, answered with graphBuild and graphQuery. Use octocode-graph-view for an interactive map."
 ---
 
 # Octocode Graph
 
 The graph is a syntax snapshot of one scope: files, symbols and packages joined by `imports`, `calls`, `uses`, `inherits`, `passes` and `contains`. Rows identify where to inspect; execution or tests establish what runs or breaks.
 
-Call the tools over MCP (`graphBuild`, `graphQuery`) or the CLI: `OCTO='node packages/octocode/out/octocode.js'` from the Octocode checkout (elsewhere the installed `octocode` or `npx -y octocode`), then `$OCTO graphBuild '{"queries":[{"path":"src"}]}'` and `$OCTO schema graphQuery` for the exact fields.
+Call the tools over MCP (`graphBuild`, `graphQuery`) or the CLI: `OCTO='node packages/octocode/out/octocode.js'` from the Octocode checkout (elsewhere the installed `octocode` or `npx -y octocode`), then `$OCTO graphBuild '{"queries":[{"path":"."}]}'` and `$OCTO schema graphQuery` for the exact fields.
 
-Use the **same `path`** for build and queries. After edits, check `stale` and run its `reingest` call when not fresh. Follow `responsePagination.next` before `next.*`, copying calls unchanged. For an empty or surprising answer, query at `medium` and inspect `unresolved` before claiming absence. [Build and read](references/build-and-read.md) covers long builds, confidence, weights and gaps.
+Build over a `path` that contains the target's possible consumers (often the repository root), and use the same `path` for every query. After edits, check `stale` and run its `reingest` call when not fresh. Follow `responsePagination.next` before `next.*`, copying calls unchanged. For an empty or surprising answer, query at `medium` and inspect `unresolved` before claiming absence. [Build and read](references/build-and-read.md) covers long builds, confidence, weights and gaps.
 
 ## Question → operation
 

@@ -14,7 +14,7 @@ Before deleting either copy, verify the availability check that caused it.
 |---|---|
 | Self-contained algorithm (distance, parser, retry, deep-clone, date math), no imports: `astSearch` the body | a dependency or internal module provides it. |
 | Same names exported to disjoint consumers: graphQuery `dependents` of the file after `graphBuild` (tools per the [MCP/CLI guide](octocode-usage.md); else `lspSearch` references) | `lspSearch` references prove which is live. |
-| New file, zero dependents, few outgoing calls: graphQuery `dependents` + `issues` with `detectors: ["unreachable-file","unused-export"]` (else `lspSearch` + `localSearch`) | unreferenced, not only new. |
+| New file, zero dependents, few outgoing calls (graph rows are leads; confirm with `lspSearch` references): graphQuery `dependents` + `issues` with `detectors: ["unreachable-file","unused-export"]` (else `lspSearch` + `localSearch`) | unreferenced, not only new. |
 | Parallel variants of one rule (validation, formatting, auth check): `localSearch` its literals | compare their meanings and consumers before choosing a canonical owner. |
 | Same capability twice (two HTTP clients, loggers or date libraries; callbacks beside promises in one module): manifests + `localSearch` imports | one is canonical for the project; migrate callers in a separate batch. |
 | Call to a method, option or flag the pinned dependency does not have: typecheck, `lspSearch` definition, or the dependency's source at the locked version (`artifactSearch` → `ghSearchCode`) | absent at that version: report it as a defect, never stub it. |
@@ -45,7 +45,7 @@ Low confidence until a parser check runs; replacement is a follow-up, never an e
 
 Removal would reveal a wrong result → [escalation protocol](#escalation-protocol). Error masking:
 
-- `catch` that logs and continues, no rethrow or user signal.
+- `catch` that logs and continues, no rethrow or user signal. Its log line is part of the masked failure, not a debug print.
 - `except: pass`, empty `catch {}`, `.catch(() => {})`.
 - Failed-call fallback (`?? 'default'`, hardcoded sample response).
 - Success returned without checking the effect landed (unchanged bytes, rows, requests): highest severity.

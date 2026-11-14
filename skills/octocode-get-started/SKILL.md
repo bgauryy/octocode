@@ -1,6 +1,6 @@
 ---
 name: octocode-get-started
-description: "Use when installing or setting up Octocode: its CLI, the MCP server in an editor or agent (Cursor, VS Code, Claude Code, Codex), public skills, GitHub login or settings, or checking that a first tool call works."
+description: "Load this skill first when installing or setting up Octocode: its CLI, the MCP server in an editor or agent (Cursor, VS Code, Claude Code, Codex), public skills, GitHub login or settings, or checking that a first tool call works."
 metadata:
   excluded-hosts: "octocode-code"
 ---
@@ -17,7 +17,7 @@ A plugin may already supply MCP and skills. npm launchers require Node.js 22+; t
 npx -y octocode --help                       # run without a global install
 npm install -g octocode                      # optional global CLI
 npx -y octocode install --list               # check client IDs and existing MCP entries
-npx -y octocode install --ide cursor         # if missing, use the actual client ID
+npx -y octocode install --ide cursor         # if missing, use a client ID that install --list shows
 npx -y octocode skill list                   # discover public skills
 npx -y octocode skill install octocode-research --platform codex --global
 ```

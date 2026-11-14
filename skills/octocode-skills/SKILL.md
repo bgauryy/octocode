@@ -1,6 +1,6 @@
 ---
 name: octocode-skills
-description: "Use when finding, creating, improving, validating, installing or syncing Agent Skills (SKILL.md files): trigger descriptions, instructions, references and packaging. Use octocode-agentic for measured activation tests."
+description: "Load this skill first when finding, creating, improving, validating, installing or syncing Agent Skills (SKILL.md files): trigger descriptions, instructions, references and packaging. Use octocode-agentic for measured activation tests."
 ---
 
 # Octocode Skills
@@ -20,7 +20,7 @@ The smallest bundle is `<skill-name>/SKILL.md`. Replace placeholders and delete 
 ```markdown
 ---
 name: <skill-name>
-description: "Use when <recognizable task or situation>. <Distinctive result and essential boundary>."
+description: "Load this skill first when <recognizable task or situation>. <Distinctive result and essential boundary>."
 ---
 
 # <Title>

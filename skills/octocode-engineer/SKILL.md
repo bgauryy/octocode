@@ -1,6 +1,6 @@
 ---
 name: octocode-engineer
-description: "Use when choosing, designing or reviewing how software should be built: architecture, data structures, storage, caching, concurrency, sync vs async, I/O, streaming, throttling, networking, memory, APIs, reliability or refactors. Load it before proposing a design. Use octocode-debugging for observed runtime failures."
+description: "Load this skill first when choosing, designing or reviewing how software should be built: architecture, data structures, storage, caching, concurrency, sync vs async, I/O, streaming, throttling, networking, memory, APIs, reliability or refactors. Load it before proposing a design. Use octocode-debugging for observed runtime failures."
 ---
 
 # Octocode Engineer

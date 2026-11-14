@@ -5,7 +5,7 @@ Load when creating or refreshing a snapshot, or before interpreting rows, weight
 ## Create
 
 ```bash
-$OCTO graphBuild '{"queries":[{"path":"src"}]}'
+$OCTO graphBuild '{"queries":[{"path":"."}]}'
 ```
 
 - Use the **same `path`** for build and every query; omit `graph` to read the newest snapshot of exactly that path, or pin the returned `id`.
