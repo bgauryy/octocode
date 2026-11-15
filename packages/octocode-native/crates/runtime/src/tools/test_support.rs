@@ -135,12 +135,8 @@ pub(crate) fn opened_input(tool: ToolId, input: &Value) -> Value {
 }
 
 /// The response stage's `related[]` rule, for the shared checks.
-fn keep_workflow_lead(tool: &str, output: &mut Value) {
-    crate::response::workflow_lead::keep_workflow_lead(
-        ToolId::from_name(tool).expect("tool"),
-        output,
-        &Value::Null,
-    );
+fn keep_workflow_lead(_tool: &str, output: &mut Value) {
+    crate::response::workflow_lead::retain_guidance(output, &Value::Null);
 }
 use crate::response::workflow_lead::carried_identities;
 

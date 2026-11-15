@@ -103,6 +103,7 @@ impl<W: Write> Writer<W> {
                 if stamps {
                     self.number(source.size)?;
                     self.time(source.modified)?;
+                    self.optional(source.lines)?;
                 }
                 self.bytes(&source.digest)?;
             }

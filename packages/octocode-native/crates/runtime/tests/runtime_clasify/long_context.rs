@@ -48,7 +48,7 @@ fn sections_row(long_context: Option<bool>) -> Value {
 }
 
 fn retry_notice(out: &Value) -> bool {
-    out["results"][0]["data"]["hints"]
+    out["results"][0]["data"]["warnings"]
         .as_array()
         .is_some_and(|hints| {
             hints

@@ -26,59 +26,149 @@ fn failure(message: impl Into<String>) -> GraphOutput {
     GraphOutput::error(ErrorCode::InvalidInput, message)
 }
 
+/// The repair of a graph call on a file, given the file and the snapshot
+/// home: the directory to scan or query in its place and the call there.
+type Repair<'a> = &'a dyn Fn(&Path, &Path) -> Option<(PathBuf, Value)>;
+
+/// A path as rows name it: from the workspace root, else absolute.
+fn shown(paths: &PathPolicy, path: &Path) -> String {
+    paths
+        .workspace_relative(path)
+        .unwrap_or_else(|| path.display().to_string())
+}
+
 /// A graph call on a file: graphs scan directories, so the refusal names the
-/// file's directory and `related` is the same call at it (`at_dir`), offered
-/// only where that directory is a scope the call accepts (`accepts`).
+/// directory `repair` chose and `related` is the call there. A configured
+/// home inside the file's directory rules that directory out, and the
+/// refusal says so. Paths are canonical, as every graph root is: a symlinked
+/// file is named by its target's directory.
 fn file_scope(
-    root: &Path,
+    file: &Path,
+    home: &Path,
+    configured: bool,
     paths: &PathPolicy,
-    accepts: impl Fn(&Path) -> bool,
-    at_dir: impl Fn(&Path) -> Option<Value>,
+    repair: Repair<'_>,
 ) -> GraphOutput {
-    let Some(dir) = root.parent().filter(|dir| accepts(dir)) else {
-        return failure("path must be a directory, not a file");
+    let message = "path must be a directory, not a file";
+    if configured
+        && let Some(dir) = file.parent()
+        && home.starts_with(dir)
+    {
+        return failure(format!(
+            "{message}: its directory {} holds local.graphHome ({}), so a graph of it would scan its own snapshots. Use a directory that does not contain it",
+            shown(paths, dir),
+            home.display()
+        ));
+    }
+    let Some((dir, lead)) = repair(file, home) else {
+        return failure(message);
     };
     let mut out = failure(format!(
-        "path must be a directory, not a file: graphs scan a directory, such as the file's {}",
-        paths
-            .workspace_relative(dir)
-            .unwrap_or_else(|| dir.display().to_string())
+        "{message}: graphs scan a directory, such as {}",
+        shown(paths, &dir)
     ));
-    if let Some(lead) = at_dir(dir) {
-        out.value["related"] = json!([lead]);
-    }
+    out.value["related"] = json!([lead]);
     out
+}
+
+/// graphBuild's repair of a file path: the same build of the file's
+/// directory.
+fn build_repair(query: &GraphBuildQuery) -> impl Fn(&Path, &Path) -> Option<(PathBuf, Value)> {
+    move |file, _| {
+        let dir = file.parent()?;
+        let query = GraphBuildQuery {
+            path: dir.to_str()?.try_into().ok()?,
+            ..query.clone()
+        };
+        Some((
+            dir.to_path_buf(),
+            Continuation::related_query(query).build(),
+        ))
+    }
+}
+
+/// graphQuery's repair of a file path: the same query of a snapshot that
+/// holds the file — the pinned `graph`'s own scope, else the nearest
+/// enclosing scope with a snapshot (the newest of it, so the pins go) — and,
+/// with no such snapshot, a build of the file's directory.
+fn query_repair(row: &Value) -> impl Fn(&Path, &Path) -> Option<(PathBuf, Value)> {
+    move |file, home| {
+        let root_of = |id: &str| {
+            read_snapshot_metadata(&home.join(id))
+                .and_then(|manifest| manifest.root)
+                .map(PathBuf::from)
+        };
+        let pinned = row["graph"]
+            .as_str()
+            .and_then(root_of)
+            .filter(|root| file.starts_with(root));
+        let scopes = list_snapshots(home)
+            .iter()
+            .filter_map(|id| root_of(id))
+            .collect::<std::collections::HashSet<_>>();
+        let enclosing = || {
+            file.ancestors()
+                .skip(1)
+                .find(|dir| scopes.contains(*dir))
+                .map(Path::to_path_buf)
+        };
+        let (dir, keep_pins) = match (pinned, enclosing()) {
+            (Some(root), _) => (root, true),
+            (None, Some(root)) => (root, false),
+            (None, None) => return build_repair(&GraphBuildQuery::default())(file, home),
+        };
+        let mut row = row.clone();
+        row["path"] = json!(dir.to_str()?);
+        if !keep_pins && let Some(fields) = row.as_object_mut() {
+            fields.remove("graph");
+            fields.remove("baseline");
+        }
+        let query = super::query::typed_row::<GraphQueryQuery>(row)?;
+        Some((dir, Continuation::related_query(query).build()))
+    }
 }
 
 /// The workspace, scanned root and snapshot home of a graph call on `path`.
 /// The default home is the workspace's, so the root must lie inside the
 /// workspace; a configured home (`local.graphHome`) admits any allowed
-/// directory that does not contain it. `at_dir` is the same call at another
-/// directory, the repair of a file path.
+/// directory that does not contain it. `repair` is the call's repair of a
+/// file path ([`file_scope`]).
 fn scope(
     path: &str,
     paths: &PathPolicy,
     configured: Option<&Path>,
-    at_dir: impl Fn(&Path) -> Option<Value>,
+    repair: Repair<'_>,
 ) -> Result<(PathBuf, PathBuf, PathBuf), GraphOutput> {
     let policy = |e: crate::policy::PolicyError| GraphOutput::error(e.shared_code(), e.message);
     let resolve = |path: &str| paths.validate(path).map(|p| p.canonical).map_err(policy);
     let workspace = resolve(".")?;
     // Outside the workspace a graph needs a readable root and a snapshot home
     // of its own: the refusal names both, so one correction makes the call
-    // succeed.
+    // succeed. A missing one leads, as on every local tool, to the tree of its
+    // nearest existing parent, where a mistyped name's siblings show.
     let root = paths.validate(path).map(|p| p.canonical).map_err(|mut e| {
         if configured.is_none() && e.code == crate::policy::PolicyErrorCode::OutsideAllowedRoots {
             e.message.push_str(OUTSIDE_WORKSPACE);
         }
-        policy(e)
+        let missing = e.code == crate::policy::PolicyErrorCode::NotFound;
+        let mut out = policy(e);
+        if missing && let Some(lead) = crate::response::result::missing_path_lead(paths, path) {
+            crate::response::result::attach_calls(&mut out.value, lead);
+        }
+        out
     })?;
     let home = graph_home(Some(&workspace), configured).map_err(failure)?;
     let home = paths.validate_output(home).map_err(policy)?.canonical;
+    if !root.is_dir() && (configured.is_some() || root.starts_with(&workspace)) {
+        return Err(file_scope(
+            &root,
+            &home,
+            configured.is_some(),
+            paths,
+            repair,
+        ));
+    }
     if configured.is_some() {
-        if !root.is_dir() {
-            return Err(file_scope(&root, paths, |dir| !home.starts_with(dir), at_dir));
-        }
         if home.starts_with(&root) {
             return Err(failure(format!(
                 "local.graphHome ({}) lies inside {}: a build would scan its own snapshots. Build a directory that does not contain it",
@@ -87,9 +177,6 @@ fn scope(
             )));
         }
         return Ok((workspace, root, home));
-    }
-    if !root.is_dir() && root.starts_with(&workspace) {
-        return Err(file_scope(&root, paths, |_| true, at_dir));
     }
     if !root.starts_with(&workspace) {
         return Err(failure(format!(
@@ -123,14 +210,9 @@ fn other_homes(home: &Path, root: &Path, paths: &PathPolicy) -> Vec<PathBuf> {
 fn missing_snapshot(message: &str, root: &Path, home: &Path, paths: &PathPolicy) -> GraphOutput {
     // Named as a row path is: from the workspace root, else absolute (a
     // configured home, or another workspace's).
-    let shown = |path: &Path| {
-        paths
-            .workspace_relative(path)
-            .unwrap_or_else(|| path.display().to_string())
-    };
     let mut out = GraphOutput::error(
         ErrorCode::NotFound,
-        format!("{message} (searched {})", shown(home)),
+        format!("{message} (searched {})", shown(paths, home)),
     );
     let others = other_homes(home, root, paths);
     let mut hints = vec![String::from(
@@ -139,7 +221,7 @@ fn missing_snapshot(message: &str, root: &Path, home: &Path, paths: &PathPolicy)
     if !others.is_empty() {
         let others = others
             .iter()
-            .map(|other| shown(other))
+            .map(|other| shown(paths, other))
             .collect::<Vec<_>>()
             .join(", ");
         hints.push(format!(
@@ -147,7 +229,10 @@ fn missing_snapshot(message: &str, root: &Path, home: &Path, paths: &PathPolicy)
         ));
     }
     crate::response::result::set_hints(&mut out.value, hints);
-    if let Some(build) = super::query::typed_row::<GraphBuildQuery>(json!({"path": root})) {
+    if let Some(build) = root
+        .to_str()
+        .and_then(|root| super::query::typed_row::<GraphBuildQuery>(json!({"path": root})))
+    {
         out.value["related"] = json!([Continuation::related_query(build).build()]);
     }
     out
@@ -232,14 +317,8 @@ fn options(
     paths: &PathPolicy,
     configured: Option<&Path>,
 ) -> Result<QueryOptions, GraphOutput> {
-    let at_dir = |dir: &Path| {
-        let mut row = row.clone();
-        row["path"] = json!(dir);
-        super::query::typed_row::<GraphQueryQuery>(row)
-            .map(|query| Continuation::related_query(query).build())
-    };
     let path = row["path"].as_str().unwrap_or(".");
-    let (workspace, root, home) = scope(path, paths, configured, at_dir)?;
+    let (workspace, root, home) = scope(path, paths, configured, &query_repair(row))?;
     let id = match row["graph"].as_str() {
         Some(id) => id.to_owned(),
         None => list_snapshots(&home)
@@ -338,15 +417,7 @@ fn build(
     cargo: Option<&str>,
     store: &Store<'_>,
 ) -> GraphOutput {
-    let at_dir = |dir: &Path| {
-        let path = dir.to_str()?.try_into().ok()?;
-        let query = GraphBuildQuery {
-            path,
-            ..query.clone()
-        };
-        Some(Continuation::related_query(query).build())
-    };
-    let (workspace, root, _) = match scope(&query.path, paths, store.home, at_dir) {
+    let (workspace, root, _) = match scope(&query.path, paths, store.home, &build_repair(query)) {
         Ok(scope) => scope,
         Err(error) => return error,
     };
@@ -466,7 +537,7 @@ pub(crate) fn execute_query(
                 context,
             );
             if let Some(hint) = unrecorded {
-                crate::response::result::add_hints(&mut out.value, [hint]);
+                crate::response::paging::push_warnings(&mut out.value, [hint]);
             }
             out
         }

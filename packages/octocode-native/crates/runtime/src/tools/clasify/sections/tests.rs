@@ -1,5 +1,6 @@
 use super::emit::{answered_cell, emit, terminal, terminal_saved};
 use super::*;
+
 use crate::cache::CacheConfig;
 use crate::execution::SelectionLimits;
 use std::time::{Duration, Instant};
@@ -38,6 +39,7 @@ pub(super) fn session() -> Session {
         }],
         github_identity: None,
         batches: Vec::new(),
+        source_disclosures: None,
         active: Vec::new(),
         request: Value::Null,
     }
@@ -731,3 +733,59 @@ fn an_interrupted_continuation_keeps_every_held_section_reachable() {
 }
 
 mod quiet_identity;
+
+#[test]
+fn classification_disclosures_replay_keeps_original_warnings_without_new_spend() {
+    let warnings = json!([
+        "One hidden path was withheld from the resource expansion.",
+        "1 evaluation refused in the default window retried in the long-context window: 40 input tokens billed."
+    ]);
+    let saved = json!({
+        "resources":{"source":{"sections":[],"coverage":{"totalSections":2,"unassessed":1}}},
+        "warnings":warnings,
+        "usage":{"calls":1,"inputTokens":40,"outputTokens":7},
+    });
+    let replay = replayed(&saved);
+    assert_eq!(replay["warnings"], warnings, "{replay}");
+    assert_eq!(replay["resources"], saved["resources"], "{replay}");
+    assert_eq!(replay["replayed"], true, "{replay}");
+    for counter in ["calls", "inputTokens", "outputTokens"] {
+        assert_eq!(replay["usage"][counter], 0, "{counter}: {replay}");
+    }
+    assert_eq!(saved["usage"]["inputTokens"], 40);
+    assert_eq!(replayed(&saved), replay);
+}
+
+#[test]
+fn classification_disclosures_captured_scope_survives_terminal_first_emission() {
+    let disclosures = json!({
+        "warnings":["A hidden matching path was withheld."],
+        "related":[{"kind":"related","tool":"structureSearch","input":{"queries":[{"path":"src","operation":"files","includeHidden":true}]}}],
+    });
+    let mut captured = session();
+    captured.source_disclosures = Some(disclosures.clone());
+    captured.active = vec![[0, 0]];
+    let saved = serde_json::to_value(&captured).expect("pre-inference plan");
+    let mut restored: Session = serde_json::from_value(saved).expect("restored plan");
+    let output = emit(
+        &mut restored,
+        &ClassificationUsage::default(),
+        Some("interrupted"),
+    );
+    assert_eq!(output["warnings"], disclosures["warnings"], "{output}");
+    assert_eq!(output["related"], disclosures["related"], "{output}");
+    let pending = restored.push_batch(&output);
+    assert!(pending.is_some());
+    assert!(
+        restored.source_disclosures.is_none(),
+        "saved once, in the batch"
+    );
+    assert_eq!(
+        replayed(&restored.batches[0])["warnings"],
+        disclosures["warnings"]
+    );
+    assert_eq!(
+        replayed(&restored.batches[0])["related"],
+        disclosures["related"]
+    );
+}

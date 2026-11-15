@@ -32,6 +32,8 @@ pub(super) const SEPARATORS: Spacing = Spacing {
 /// parse says, and what `verify` proves a view against.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Lexis {
+    /// Code points the language consumes as whitespace outside strings.
+    pub(super) whitespace: &'static [u8],
     /// Opener and closer of a block comment.
     pub(super) block_comment: (&'static str, &'static str),
     /// Opener of a comment that runs to the end of its line, if any.
@@ -47,6 +49,7 @@ pub(super) struct Lexis {
 /// CSS Syntax 3, section 4: `/* */` is its only comment (a `//` line is text
 /// of a rule), and a backslash-newline in a string is part of the string.
 pub(super) const CSS_LEXIS: Lexis = Lexis {
+    whitespace: b" \t\r\n\x0c",
     block_comment: ("/*", "*/"),
     line_comment: None,
     quotes: b"\"'",

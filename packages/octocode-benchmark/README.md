@@ -1,5 +1,7 @@
 # Octocode benchmark
 
+[Latest 17-tool scorecard](results/rounds/20.2.0-2026-11-15-deep-efficiency/SCORECARD.md) — critical cumulative 1–10 ratings, independent final-build acceptance, cache/Rust freshness repairs and scoped efficiency comparisons. The [earlier tool-rating round](results/rounds/20.2.0-2026-11-14-tool-ratings/SCORECARD.md) and [Claude handoff follow-up](results/rounds/20.2.0-2026-11-15-handoff-followup/REPORT.md) retain their original builds and measurements.
+
 Does Octocode give an AI agent correct, source-backed answers with less context and less
 waiting than the tools an expert would otherwise use, and is each version ready? This package is the one
 home of Octocode's checks and benchmarks, as behavioral docs (what to check, what to compare it against,

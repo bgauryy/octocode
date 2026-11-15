@@ -321,7 +321,7 @@ pub(super) fn judge_source(
             }
         }
         None if next.is_object() || data["pagination"]["hasMore"] == true => {
-            crate::response::result::add_hints(
+            crate::response::paging::push_warnings(
                 &mut output,
                 [format!(
                     "{name} has more rows than this page: page it with its own query fields and pass that query as source.query."

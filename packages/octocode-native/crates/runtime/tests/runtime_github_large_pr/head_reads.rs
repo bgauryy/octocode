@@ -1,4 +1,4 @@
-//! Head-text reads: match context past or clipped by a hunk, large blobs and merge-side code picks.
+//! Head-text reads: match context past a hunk, large blobs and explicit merge-source reads.
 
 use super::{SHA, mount_file_batches, mount_pr, rest_file, run, run_status};
 use crate::support;
@@ -9,10 +9,10 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// cli/cli#13541: the first patch window holds only docs, a test, and a
 /// test too large for a patch, so its code file sits in a later window.
-/// `readAtMerge` still names the most-changed code file of the whole PR
-/// file list, not only of the window shown.
+/// Its file summary and merge identity still let a caller read that code
+/// file explicitly, without an automatic code pick past the shown window.
 #[tokio::test]
-async fn read_at_merge_picks_the_code_file_of_the_whole_pr_not_the_first_window() {
+async fn a_later_listed_code_file_is_readable_at_the_returned_merge_commit() {
     let server = MockServer::builder().start().await;
     mount_pr(&server, 5).await;
     let test_patch = format!(
@@ -65,11 +65,23 @@ async fn read_at_merge_picks_the_code_file_of_the_whole_pr_not_the_first_window(
         .filter_map(|file| file["path"].as_str())
         .collect::<Vec<_>>();
     assert!(!shown.contains(&"pkg/client/client.go"), "{data}");
-    let read = support::checks::related_call(data, "ghGetFileContent", |input| {
-        input["queries"][0]["ref"] == merge && input["queries"][0]["path"] == "pkg/client/client.go"
-    });
-    assert_eq!(read["kind"], "related");
-    let source = crate::support::run(&runtime, "ghGetFileContent", read["input"].clone()).await;
+    assert_eq!(data["pullRequests"][0]["mergeCommitSha"], merge, "{data}");
+    assert!(
+        data["pullRequests"][0]["fileSummary"]
+            .to_string()
+            .contains("client.go"),
+        "{data}"
+    );
+    assert!(
+        !data["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|call| call["tool"] == "ghGetFileContent"
+                && call["input"]["queries"][0]["ref"] == merge),
+        "{data}"
+    );
+    let source = crate::support::run(&runtime, "ghGetFileContent", json!({"owner":"a","repo":"b","path":"pkg/client/client.go","ref":data["pullRequests"][0]["mergeCommitSha"]})).await;
     assert_eq!(source.status(), "success", "{}", source.data());
     assert!(source.data().to_string().contains("func Alpha() {}"));
     server.verify().await;

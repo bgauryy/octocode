@@ -145,7 +145,7 @@ pub(super) fn note_skipped(
         default_excludes: options.walk.default_excludes,
     };
     if let Some(found) = unparsed(root, walk, &options.exclude, paths, &permits, &keep, &stop) {
-        crate::response::result::add_hints(out, unparsed_hints(&found, parsed_any));
+        crate::response::paging::push_warnings(out, unparsed_hints(&found, parsed_any));
     }
     if parsed_any {
         return;
@@ -184,6 +184,6 @@ pub(super) fn note_skipped(
     };
     // The same build with exactly the skipping causes lifted.
     let lead = skipped::lead(ToolId::GraphBuild, query, &disclosure.causes);
-    crate::response::result::add_hints(out, [disclosure.text]);
+    crate::response::paging::push_warnings(out, [disclosure.text]);
     crate::response::result::attach_related(out, lead);
 }

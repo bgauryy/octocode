@@ -8,6 +8,22 @@ pub type PathTest = dyn Fn(&std::path::Path) -> bool + Send + Sync;
 /// A file's 1-based test-only line spans.
 pub type LineSpans = dyn Fn(&std::path::Path) -> std::sync::Arc<Vec<[u32; 2]>> + Send + Sync;
 
+/// Test-code facts for relevance; these never exclude evidence. The caller
+/// owns classification and request-local memoization.
+#[derive(Clone)]
+pub struct TestCodeRank {
+    /// Whole test files by location (including test-only module mounts).
+    pub test_path: std::sync::Arc<PathTest>,
+    /// Test-only spans inside a file that is not a whole test path.
+    pub spans: std::sync::Arc<LineSpans>,
+}
+
+impl std::fmt::Debug for TestCodeRank {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TestCodeRank").finish_non_exhaustive()
+    }
+}
+
 /// Which side of the test-code line a search keeps, and how it tells: a
 /// file is test code whole by where it lies or by its spans; only a file
 /// that may hold test code has its spans read, once, on its first hit (or

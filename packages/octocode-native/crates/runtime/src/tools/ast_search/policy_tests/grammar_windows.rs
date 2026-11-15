@@ -240,7 +240,7 @@ fn a_scope_whose_only_source_is_default_excluded_names_it_instead_of_asking_for_
     .expect("no languageRequired when source sits behind skipped paths");
     assert_eq!(out["status"], "empty", "{out}");
     assert!(
-        out["hints"]
+        out["warnings"]
             .to_string()
             .contains("behind skipped paths (*.min.js)"),
         "{out}"

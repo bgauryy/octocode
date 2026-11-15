@@ -82,12 +82,10 @@ async fn pr_inventory_carries_the_identity_header_and_its_own_next_steps_only() 
     assert_eq!(rows, 250, "{row}");
 }
 
-/// The review pick is every source file, most changed first (not the
-/// changeset, not the tests), labelled as a ranking guess: the row's one
-/// lead. Every patch is one documented call away (`sections:["patches"]`
-/// without `include`).
+/// An inventory supports an explicit source-file selection and a whole
+/// patch read. Both use the returned paths and the public sections schema.
 #[tokio::test]
-async fn pr_inventory_picks_the_largest_source_patch_and_keeps_all_patches() {
+async fn pr_inventory_supports_explicit_patch_selection_and_keeps_all_patches() {
     let server = MockServer::builder().start().await;
     mount_pr(&server, 5).await;
     let hunk = Some("@@ -1 +1 @@\n-a\n+b");
@@ -104,22 +102,27 @@ async fn pr_inventory_picks_the_largest_source_patch_and_keeps_all_patches() {
     )
     .await;
     let data = run(&server, json!({"sections":["files"]})).await;
-    let selected = support::checks::related_call(&data, "ghGetHistoryItem", |input| {
-        input["queries"][0]["sections"] == json!(["patches"])
-            && input["queries"][0]["include"].is_array()
-    });
-    let scope = selected["input"]["queries"][0]["include"]
-        .as_array()
-        .expect("selected paths");
-    assert_eq!(scope.len(), 2);
-    assert!(scope.contains(&json!("src/server/webStandardStreamableHttp.ts")));
-    assert!(scope.contains(&json!("src/server/sseKeepAlive.ts")));
-    assert_eq!(selected["kind"], "related");
-    let mut all = selected["input"]["queries"][0].clone();
-    if let Some(row) = all.as_object_mut() {
-        row.remove("include");
-    }
-    for (read, count) in [(selected["input"]["queries"][0].clone(), 2), (all, 5)] {
+    let selected_paths = json!([
+        "src/server/webStandardStreamableHttp.ts",
+        "src/server/sseKeepAlive.ts"
+    ]);
+    assert_eq!(
+        data["pullRequests"][0]["files"][1],
+        json!({"src/server/":["M +15 -0 sseKeepAlive.ts","M +241 -94 webStandardStreamableHttp.ts"]}),
+        "{data}"
+    );
+    assert!(
+        !data["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|call| call["tool"] == "ghGetHistoryItem"
+                && call["input"]["queries"][0]["sections"] == json!(["patches"])),
+        "{data}"
+    );
+    let selected = json!({"sections":["patches"],"include":selected_paths});
+    let all = json!({"sections":["patches"]});
+    for (read, count) in [(selected, 2), (all, 5)] {
         let patches = run(&server, read).await;
         let files = patches["pullRequests"][0]["files"]
             .as_array()
@@ -143,12 +146,10 @@ async fn pr_inventory_picks_the_largest_source_patch_and_keeps_all_patches() {
     assert_eq!(support::inventory_len(&data["pullRequests"][0]["files"]), 5);
 }
 
-/// A pull request too large for one patch read leads to the patches that
-/// fit one call (a short `include`, most changed first), never to every
-/// path of its inventory, and the row says how many of the changed files
-/// that lead reads (vitejs/vite#12165: 143 files, a 100-path lead).
+/// A completed inventory keeps every requested path and the provider's
+/// changed-file count without offering an optional patch menu or its tip.
 #[tokio::test]
-async fn a_large_pr_patch_lead_names_one_call_of_files_and_its_coverage() {
+async fn a_large_pr_inventory_states_coverage_without_an_optional_patch_menu() {
     let server = MockServer::builder().start().await;
     mount_pr(&server, 120).await;
     let hunk = Some("@@ -1 +1 @@\n-a\n+b");
@@ -162,30 +163,26 @@ async fn a_large_pr_patch_lead_names_one_call_of_files_and_its_coverage() {
     )
     .await;
     let data = run(&server, json!({"sections":["files"]})).await;
-    let lead = support::checks::related_call(&data, "ghGetHistoryItem", |input| {
-        input["queries"][0]["sections"] == json!(["patches"])
-    });
-    let include = lead["input"]["queries"][0]["include"]
-        .as_array()
-        .expect("a short include");
-    assert!(!include.is_empty() && include.len() < 20, "{lead}");
-    // Most changed first: the last files of the list changed the most.
-    assert_eq!(include[0], "src/m119.rs", "{lead}");
-    let coverage = format!(
-        "The patch lead reads {} of 120 changed files, most-changed source first; without include it reads every patch.",
-        include.len()
-    );
+    let row = &data["pullRequests"][0];
+    assert_eq!(row["changedFileCount"], 120, "{data}");
+    assert_eq!(support::inventory_len(&row["files"]), 120, "{data}");
+    for index in 0..120 {
+        assert!(
+            row["files"].to_string().contains(&format!("m{index}.rs")),
+            "{data}"
+        );
+    }
+    assert!(data.get("hints").is_none(), "{data}");
     assert!(
-        data["hints"]
+        !data["related"]
             .as_array()
-            .is_some_and(|hints| hints.contains(&json!(coverage))),
+            .into_iter()
+            .flatten()
+            .any(|call| {
+                call["tool"] == "ghGetHistoryItem"
+                    && call["input"]["queries"][0]["sections"] == json!(["patches"])
+            }),
         "{data}"
-    );
-    let read = run(&server, lead["input"]["queries"][0].clone()).await;
-    assert_eq!(
-        read["pullRequests"][0]["files"].as_array().map(Vec::len),
-        Some(include.len()),
-        "{read}"
     );
 }
 

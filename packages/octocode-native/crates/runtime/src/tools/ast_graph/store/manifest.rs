@@ -31,17 +31,20 @@ pub(super) fn foreign_analysis(manifest: &Value) -> Option<String> {
 }
 
 /// The manifest's scan record as an answer states it. The manifest keeps
-/// every scan fact for freshness checks; an answer states only those that carry
-/// information (a cut, an exclude, a parser glob): zero counts, empty lists
-/// and false flags, older snapshots' included, are left out.
+/// every scan fact for freshness checks; an answer states `filesScanned`,
+/// what the build read (its coverage, 0 when nothing in the scope is
+/// graphable), and of the rest only those that carry information (a cut, an
+/// exclude, a parser glob): zero counts, empty lists and false flags, older
+/// snapshots' included, are left out.
 pub(super) fn scan_disclosure(scan: &Value) -> Value {
     let mut scan = scan.clone();
     if let Some(facts) = scan.as_object_mut() {
-        facts.retain(|_, value| {
-            !(value == &json!(0)
-                || value == &json!(false)
-                || value.as_array().is_some_and(Vec::is_empty)
-                || value.as_object().is_some_and(serde_json::Map::is_empty))
+        facts.retain(|key, value| {
+            key == "filesScanned"
+                || !(value == &json!(0)
+                    || value == &json!(false)
+                    || value.as_array().is_some_and(Vec::is_empty)
+                    || value.as_object().is_some_and(serde_json::Map::is_empty))
         });
     }
     scan

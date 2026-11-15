@@ -1,0 +1,31 @@
+{
+  "surface": "CLI only",
+  "launcher": "/Users/bgaryy/code/octocode/packages/octocode/out/octocode.js",
+  "version": "20.2.0",
+  "launcherSha256": "f1f2b6b29a04bca3f9812cc6378dc9cb1a0e7dad2a4126155498d56fe568f8fc",
+  "nativeSha256": "c4f7ee4e8b49188d2a74d3c5d8a274e01c12cad64677a18a72b48104a18ff1c0",
+  "dateLabel": "2026-11-15",
+  "observedUtcDate": "2026-11-14",
+  "provisional": true,
+  "weights": {"C": 30, "S": 15, "O": 15, "P": 10, "W": 10, "E": 15, "F": 5},
+  "legend": {"C": "correctness", "S": "schema/input", "O": "output", "P": "pagination", "W": "workflow", "E": "efficiency", "F": "cache/freshness", "U": "unmeasured"},
+  "tools": [
+    {"name":"localSearch","score":8.0,"measuredWeight":55,"dimensions":{"C":8,"S":"U","O":8,"P":"U","W":8,"E":"U","F":"U"},"evidence":"Two expected file hits and source lines agree with rg; absent token returns empty. Suspected status anomaly did not reproduce."},
+    {"name":"structureSearch","score":8.1,"measuredWeight":80,"dimensions":{"C":8,"S":8,"O":8,"P":9,"W":8,"E":"U","F":"U"},"evidence":"Fourteen TypeScript files paged 3+3+3+3+2; fd independently lists fourteen. Negative size rejected."},
+    {"name":"localFetch","score":8.8,"measuredWeight":55,"dimensions":{"C":9,"S":"U","O":9,"P":"U","W":8,"E":"U","F":"U"},"evidence":"Numbered bounded source read agrees with source; also consumed clone README and clasify read cursor. Long-file pagination untested."},
+    {"name":"astSearch","score":9.0,"measuredWeight":55,"dimensions":{"C":9,"S":"U","O":9,"P":"U","W":9,"E":"U","F":"U"},"evidence":"double($X) matches exactly double(21) at fixture main.ts:4, agreeing with authored fixture and rg."},
+    {"name":"lspSearch","score":8.8,"measuredWeight":55,"dimensions":{"C":9,"S":"U","O":9,"P":"U","W":8,"E":"U","F":"U"},"evidence":"Definition resolves main.ts:4 to math.ts:1; references include import, call and declaration while disclosing partial ignored-importer coverage."},
+    {"name":"graphBuild","score":8.8,"measuredWeight":75,"dimensions":{"C":9,"S":8,"O":9,"P":"U","W":9,"E":"U","F":9},"evidence":"Known two-file graph has 5 nodes, 7 edges, 1 import and 1 call; repeat 0.12s vs first 0.23s; edited fixture triggers new snapshot. Numeric path coerced with explicit warning then notFound."},
+    {"name":"graphQuery","score":9.0,"measuredWeight":85,"dimensions":{"C":9,"S":9,"O":9,"P":9,"W":9,"E":"U","F":9},"evidence":"Correct dependency and caller, three complete symbol pages, typo correction, and stale->rebuild->fresh transition."},
+    {"name":"ghSearchRepo","score":7.6,"measuredWeight":70,"dimensions":{"C":8,"S":8,"O":7,"P":"U","W":7,"E":"U","F":"U"},"evidence":"Search finds Vite and VitePress; empty/invalid handled. Broad ranking requires query refinement; search cap disclosed. Only early pages sampled."},
+    {"name":"ghSearchCode","score":8.5,"measuredWeight":80,"dimensions":{"C":9,"S":8,"O":8,"P":9,"W":8,"E":"U","F":"U"},"evidence":"Vue createRenderer search paged 3+2 to completion; all five paths independently match gh search/code. Vite createServer lead read successfully."},
+    {"name":"ghStructure","score":8.0,"measuredWeight":70,"dimensions":{"C":8,"S":8,"O":8,"P":"U","W":8,"E":"U","F":"U"},"evidence":"Vite/Vue trees return pinned commits and continuations; exact main ref agrees with gh. Full tree paging not tested."},
+    {"name":"ghGetFileContent","score":8.4,"measuredWeight":70,"dimensions":{"C":9,"S":8,"O":8,"P":"U","W":8,"E":"U","F":"U"},"evidence":"Vite createServer lines 506-510 at frozen SHA exactly match decoded GitHub contents; block and range paths work."},
+    {"name":"ghSearchHistory","score":8.4,"measuredWeight":70,"dimensions":{"C":9,"S":8,"O":8,"P":"U","W":8,"E":"U","F":"U"},"evidence":"First two path-scoped Vite commits agree with gh commits oracle; selected commit leads to history item."},
+    {"name":"ghGetHistoryItem","score":8.4,"measuredWeight":70,"dimensions":{"C":9,"S":8,"O":8,"P":"U","W":8,"E":"U","F":"U"},"evidence":"Selected commit contains expected server file; include filter explicitly retains 1 of 5 files. gh confirms five-file set. PR/issue/patch paging untested."},
+    {"name":"artifactSearch","score":8.8,"measuredWeight":70,"dimensions":{"C":9,"S":9,"O":8,"P":"U","W":9,"E":"U","F":"U"},"evidence":"zod 3.22.4 and requests 2.31.0 repo/ref mapping agrees with registries and remote tags. npm search pages advance and provider cap is explicit; full broad search deliberately not exhausted."},
+    {"name":"securityCheck","score":8.8,"measuredWeight":70,"dimensions":{"C":9,"S":8,"O":9,"P":"U","W":9,"E":"U","F":"U"},"evidence":"lodash 4.17.21 has same two advisory IDs as OSV; 4.18.1 has none in both. Advisory ranges agree. Tested npm package/advisory only."},
+    {"name":"ghCloneRepo","score":8.5,"measuredWeight":75,"dimensions":{"C":9,"S":8,"O":8,"P":"U","W":9,"E":"U","F":8},"evidence":"Clean existing Hello-World checkout reused; new README-only tree created separately; commit and 13-byte content match GitHub. Dirty-checkout refusal deliberately not tested on existing user cache."},
+    {"name":"clasify","score":9.0,"measuredWeight":55,"dimensions":{"C":9,"S":"U","O":9,"P":"U","W":9,"E":"U","F":"U"},"evidence":"Exactly two approved inference calls: restart-port probabilities .98/.98, restart-label .05/.03; source read cursor works. 1008 input and 199 output tokens reported; calibration and broader sources untested."}
+  ]
+}

@@ -20,6 +20,11 @@ fn builtin_rust_route_runs_rust_analyzer_headless_by_default() {
         "cache priming keeps rust-analyzer's default (on)"
     );
     assert_eq!(options.pointer("/cargo/targetDir"), Some(&json!(true)));
+    assert_eq!(
+        options.pointer("/files/watcher"),
+        Some(&json!("client")),
+        "file changes must reach the server before a semantic request, including unopened files"
+    );
 }
 
 #[test]

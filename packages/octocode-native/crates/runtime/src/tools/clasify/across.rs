@@ -139,7 +139,7 @@ impl Across {
             }
             let low = values.iter().copied().fold(f64::INFINITY, f64::min);
             let high = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-            crate::response::result::add_hints(&mut rows[row], [unsure_hint(&key, low, high)]);
+            crate::response::paging::push_warnings(&mut rows[row], [unsure_hint(&key, low, high)]);
         }
     }
 }

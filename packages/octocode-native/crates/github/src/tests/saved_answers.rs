@@ -9,9 +9,12 @@ use wiremock::Request;
 
 mod compressed;
 mod directives;
+mod flight;
+mod header_identity;
 mod known_misses;
 mod proven_commits;
 mod repository_proof;
+mod vary;
 mod what_is_kept;
 
 /// One process's view of a store that outlives requests.

@@ -22,7 +22,7 @@ fn an_empty_listings_probe_stops_at_its_entry_cap() {
         )
         .expect("listing");
         assert_eq!(out["status"], "empty", "{out}");
-        let hint = out["hints"][0].as_str().expect("hint");
+        let hint = out["warnings"][0].as_str().expect("hint");
         let retry = &related(&out, "structureSearch")["input"]["queries"][0];
         assert_eq!(retry["defaultExcludes"], false, "{out}");
         // The hint names the lead as the response carries it: the related[]
@@ -65,7 +65,7 @@ fn an_empty_listing_diagnoses_every_skip_cause_from_one_probe_walk() {
         assert_eq!(out["status"], "empty", "{out}");
         assert_eq!(walks, 2, "the listing and one probe walk: {out}");
         assert_eq!(
-            out["hints"][0], "2 entries behind skipped paths (hidden .notes/, build/).",
+            out["warnings"][0], "2 entries behind skipped paths (hidden .notes/, build/).",
             "{operation}: {out}"
         );
         let retry = &related(&out, "structureSearch")["input"]["queries"][0];
@@ -94,7 +94,7 @@ fn skip_reasons_name_ignore_files_workspace_relative() {
         .expect("listing");
         assert_eq!(out["status"], "empty", "{out}");
         assert_eq!(
-            out["hints"][0], "1 entry behind skipped paths (.gitignore:1 '*.gen.ts').",
+            out["warnings"][0], "1 entry behind skipped paths (.gitignore:1 '*.gen.ts').",
             "{operation}: {out}"
         );
     }

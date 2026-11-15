@@ -104,12 +104,39 @@ async fn provider(expected: u64) -> MockServer {
 
 /// Provider request bodies, in arrival order.
 pub(crate) async fn sent(server: &MockServer) -> Vec<Value> {
-    server
+    let requests = server
         .received_requests()
         .await
-        .unwrap()
+        .expect("recorded provider requests");
+    let envelopes = requests
         .iter()
-        .map(|request| serde_json::from_slice(&request.body).unwrap())
+        .map(|request| {
+            json!({
+                "method": request.method.as_str(),
+                "url": request.url.as_str(),
+                "bodyBytes": request.body.len(),
+                "userAgent": request.headers.get("user-agent").and_then(|value| value.to_str().ok()),
+                "contentType": request.headers.get("content-type").and_then(|value| value.to_str().ok()),
+                "contentLength": request.headers.get("content-length").and_then(|value| value.to_str().ok()),
+                "origin": request.headers.get("origin").and_then(|value| value.to_str().ok()),
+                "referer": request.headers.get("referer").and_then(|value| value.to_str().ok()),
+            })
+        })
+        .collect::<Vec<_>>();
+    requests
+        .iter()
+        .enumerate()
+        .map(|(index, request)| {
+            assert!(
+                request.method == "POST" && request.url.path() == "/v1/systemone",
+                "unexpected provider request #{index}; recorded envelopes: {envelopes:#?}"
+            );
+            serde_json::from_slice(&request.body).unwrap_or_else(|error| {
+                panic!(
+                    "invalid provider JSON in request #{index}: {error}; recorded envelopes: {envelopes:#?}"
+                )
+            })
+        })
         .collect()
 }
 

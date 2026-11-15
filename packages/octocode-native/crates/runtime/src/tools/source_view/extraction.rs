@@ -100,8 +100,7 @@ pub(crate) fn omission_marker(start: usize, end: usize) -> String {
     )
 }
 pub fn line_count(s: &str) -> usize {
-    let newlines = memchr::memchr_iter(b'\n', s.as_bytes()).count();
-    newlines + usize::from(!s.is_empty() && !s.ends_with('\n'))
+    octocode_engine::text::LineCount::of(s.as_bytes())
 }
 pub fn extract(q: &LocalFetchQuery, content: &str) -> Result<Extraction, ExtractionError> {
     extract_indexed(q, content, &LineOffsets::new(content))

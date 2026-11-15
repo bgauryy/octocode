@@ -212,30 +212,3 @@ fn a_written_range_clears_only_a_version_it_reads_and_leaves_out() {
         "5.4.0"
     ));
 }
-
-/// A database's range text restates an entry's one range only when each of
-/// its bounds is that range's own.
-#[test]
-fn a_range_text_restates_only_the_bounds_of_the_entrys_one_range() {
-    let entry = |events: Value| json!({"ranges": [{"type": "SEMVER", "events": events}]});
-    let to_fix = entry(json!([{"introduced": "0"}, {"fixed": "2.14.2"}]));
-    let from_to = entry(json!([{"introduced": "8.3.0"}, {"fixed": "8.3.3"}]));
-    let last = entry(json!([{"introduced": "1.0.0"}, {"last_affected": "1.4.0"}]));
-    for (text, entry, restates) in [
-        ("<= 2.14.1", &to_fix, true),
-        ("< 2.14.2", &to_fix, true),
-        ("<= 2.14.2", &to_fix, false),
-        ("<= 8.3.2", &from_to, true),
-        (">= 8.3.0, < 8.3.3", &from_to, true),
-        (">= 8.2.0, < 8.3.3", &from_to, false),
-        ("<= 8.2.9", &from_to, false),
-        ("<= 1.4.0", &last, true),
-        ("<= 1.4.0rc1", &last, false),
-        ("", &to_fix, false),
-    ] {
-        assert_eq!(restates_range(text, entry), restates, "{text} on {entry}");
-    }
-    let two = entry(json!([{"introduced": "0"}, {"fixed": "1.0.0"},
-        {"introduced": "2.0.0"}, {"fixed": "2.1.0"}]));
-    assert!(!restates_range("<= 2.0.9", &two));
-}

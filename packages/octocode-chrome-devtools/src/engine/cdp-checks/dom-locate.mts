@@ -2,6 +2,7 @@
 import { readTargetSnapshot } from './snapshot-resource.mjs';
 import { collectRefs } from '../ax-snapshot.mjs';
 import { coreBodyJs } from './dom-page-scripts.mjs';
+import { observedDomFailure } from './dom-failure.mjs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import type { Payload, Session } from '../cdp-connection.mjs';
 import type {
@@ -256,10 +257,14 @@ export async function locateWhenReady(
   ctx: DomContext
 ): Promise<LocatedStep> {
   const start = Date.now();
-  let result: LocatedStep;
+  let result: LocatedStep | undefined;
   let lastProgress = -Infinity;
   do {
-    result = await locateAndCheck(cdp, step, ctx);
+    try {
+      result = await locateAndCheck(cdp, step, ctx);
+    } catch (error) {
+      throw result ? observedDomFailure(error, result) : error;
+    }
     const d = result.details;
     if (readyToReport(step, d)) return result;
     if (Date.now() - start - lastProgress >= 1000) {

@@ -12,7 +12,7 @@ For `FIXTURE/data`, list files containing `beacon`, files without it, and matchi
 
 ## LS-03
 
-Recover every selected hit and its context for whole-word `beacon` in `FIXTURE/data/hits.txt` using a small row limit and `responseChars:1200`. Reconstruct ordered source identities exactly once, including the Unicode text and final selected hit. Compare to the complete policy-matched rg answer.
+Recover every selected hit and its context for whole-word `beacon` in `FIXTURE/data/hits.txt` using a small row limit and `responseChars:1200`. Reconstruct ordered source identities exactly once, including the Unicode text and final selected hit. Compare to the complete policy-matched rg answer. Also assign a valid source fixture with several declarations and indexed `enclosing` hits, then use tiny response windows. Verify every referenced declaration arrives on the same or an earlier part, and that all declaration and hit values reconstruct exactly once; matching final totals alone does not prove reference ordering.
 
 ## LS-04
 

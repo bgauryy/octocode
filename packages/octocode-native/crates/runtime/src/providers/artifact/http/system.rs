@@ -13,7 +13,7 @@ use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderValue, USER_AGE
 use secrecy::ExposeSecret;
 use std::fmt;
 use std::net::SocketAddr;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[derive(Clone)]
 pub struct SystemArtifactHttp {
@@ -102,7 +102,7 @@ impl SystemArtifactHttp {
         post: Option<&[u8]>,
         budget: &RequestBudget,
         first: u8,
-    ) -> Result<(reqwest::Response, u8), ArtifactError> {
+    ) -> Result<(reqwest::Response, u8, Instant), ArtifactError> {
         for attempt in first..=self.retries {
             budget.check().map_err(budget_error)?;
             // After the budget check: a request with no time left builds no
@@ -131,6 +131,7 @@ impl SystemArtifactHttp {
             if let Some((name, value)) = request.validator.as_ref() {
                 builder = builder.header(name, value);
             }
+            let sent = Instant::now();
             let response = match budget
                 .wait_stalled(builder.send())
                 .await
@@ -168,7 +169,7 @@ impl SystemArtifactHttp {
                 )
                 .with_status(status.as_u16()));
             }
-            return Ok((response, attempt));
+            return Ok((response, attempt, sent));
         }
         Err(ArtifactError::new(
             ErrorCode::ProviderError,
@@ -187,17 +188,27 @@ impl SystemArtifactHttp {
     ) -> Result<ArtifactHttpResponse, ArtifactError> {
         let mut first = 0;
         loop {
-            let (response, attempt) = self.send(&request, post.as_deref(), budget, first).await?;
+            let (response, attempt, sent) =
+                self.send(&request, post.as_deref(), budget, first).await?;
             let status = response.status().as_u16();
-            let headers = FRESHNESS_HEADERS
-                .into_iter()
-                .filter_map(|name| {
-                    let value = response.headers().get(name)?.to_str().ok()?;
-                    Some((name.to_owned(), value.to_owned()))
-                })
-                .collect();
+            let mut received_headers = response.headers().clone();
             match octocode_io::retry::read_bounded(response, budget, budget.max_body_bytes).await {
                 Ok(body) => {
+                    octocode_io::http::account_response_delay(
+                        &mut received_headers,
+                        sent.elapsed(),
+                    );
+                    let headers = FRESHNESS_HEADERS
+                        .into_iter()
+                        .flat_map(|name| {
+                            received_headers
+                                .get_all(name)
+                                .iter()
+                                .filter_map(move |value| {
+                                    Some((name.to_owned(), value.to_str().ok()?.to_owned()))
+                                })
+                        })
+                        .collect();
                     return Ok(ArtifactHttpResponse {
                         status,
                         body: body.into(),
@@ -252,7 +263,7 @@ impl ArtifactHttp for SystemArtifactHttp {
         sink: BodySink<'a>,
     ) -> StatusFuture<'a> {
         Box::pin(async move {
-            let (mut response, _) = self.send(&request, None, budget, 0).await?;
+            let (mut response, _, _) = self.send(&request, None, budget, 0).await?;
             let status = response.status().as_u16();
             if !(200..300).contains(&status) {
                 drain(response, budget).await?;

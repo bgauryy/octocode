@@ -147,6 +147,12 @@ impl ToolRuntime {
         let (fresh, continued) = (saved.is_none(), saved.map(|member| member.input.clone()));
         let normalized_input = saved.map_or(&input, |member| &member.input);
         let origin = saved.map_or(RowOrigin::Request, |member| member.work.origin());
+        let page_shape = saved
+            .and_then(|member| match &member.work {
+                super::cursors::SavedWork::ResponsePage { shape, .. } => Some(shape.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
         let page = saved.and_then(|member| match &member.work {
             super::cursors::SavedWork::ResponsePage { cursor, .. } => Some(cursor),
             super::cursors::SavedWork::ToolResume { .. }
@@ -241,6 +247,7 @@ impl ToolRuntime {
             },
             replayed,
             pinned,
+            page_shape,
             replays: (self.page_replays.clone(), replay_key),
             section_sessions: self.section_sessions.clone(),
             access,

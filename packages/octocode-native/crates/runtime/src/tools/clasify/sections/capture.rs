@@ -176,6 +176,7 @@ pub(super) fn create(
         batches: Vec::new(),
         active: Vec::new(),
         request: Value::Null,
+        source_disclosures: None,
     };
     Ok((session, notices, related))
 }

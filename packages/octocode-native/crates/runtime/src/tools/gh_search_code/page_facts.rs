@@ -152,8 +152,9 @@ pub(super) fn disclose_incomplete(output: &mut ToolData, data: &SearchPage) {
         output
             .diagnostics
             .partial(crate::response::paging::PartialReason::ProviderIncompleteResults);
-        output.diagnostics.hint(
-            "GitHub reported an incomplete search index result; retry, narrow the scope, or verify locally before concluding absence.",
+        crate::response::paging::push_warnings(
+            &mut output.data,
+            ["GitHub reported an incomplete search index result; retry, narrow the scope, or verify locally before concluding absence.".to_owned()],
         );
     }
 }

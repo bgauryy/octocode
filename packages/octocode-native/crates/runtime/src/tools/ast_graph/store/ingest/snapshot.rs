@@ -160,7 +160,18 @@ pub(super) fn publish_snapshot(
         );
         crate::response::paging::push_warnings(&mut receipt, warnings);
     }
-    GraphOutput::ok(receipt)
+    answer(receipt)
+}
+
+/// The answer of a published snapshot's `receipt`: empty when its graph
+/// holds no node, so nothing in the scope was graphable (its `scan` states
+/// what the build read, its hints what it left out).
+pub(super) fn answer(receipt: Value) -> GraphOutput {
+    if receipt["counts"]["nodes"].as_u64() == Some(0) {
+        GraphOutput::empty(receipt)
+    } else {
+        GraphOutput::ok(receipt)
+    }
 }
 
 /// Why a build's prune removed what it removed, one sentence per reason

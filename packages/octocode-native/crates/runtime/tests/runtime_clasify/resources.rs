@@ -89,9 +89,9 @@ async fn a_glob_is_one_judged_resource_per_file_and_never_takes_a_callers_key() 
     runtime.close().await;
 }
 
-/// The hints of the row's data.
-fn hints(out: &Value) -> Vec<&str> {
-    out["results"][0]["data"]["hints"]
+/// Source-scope disclosures on the row's data.
+fn warnings(out: &Value) -> Vec<&str> {
+    out["results"][0]["data"]["warnings"]
         .as_array()
         .into_iter()
         .flatten()
@@ -100,7 +100,7 @@ fn hints(out: &Value) -> Vec<&str> {
 }
 
 /// A glob on `sections` keys each file `<key>/<path>` and the row validates
-/// as served; on both operations the hint names what the walk left out.
+/// as served; on both operations the warning names what the walk left out.
 #[tokio::test]
 async fn a_glob_keys_each_file_on_sections_and_both_operations_disclose_its_skips() {
     let server = provider(2).await;
@@ -122,7 +122,7 @@ async fn a_glob_keys_each_file_on_sections_and_both_operations_disclose_its_skip
     assert_eq!(resources(&evaluated).1, ["d/a.md"], "{evaluated:#}");
     for out in [&sections, &evaluated] {
         assert!(
-            hints(out)
+            warnings(out)
                 .iter()
                 .any(|hint| hint.contains("`docs/.h.md` (hidden)")),
             "{out:#}"
@@ -209,8 +209,7 @@ async fn credential_files_a_glob_sends_carry_no_secret_to_the_provider() {
 }
 
 /// A resource past the provider's windows is answered from its sections, as
-/// a `source` is; a sibling keeps its own answer, and the row offers every
-/// section's verdict once.
+/// a `source` is; a sibling keeps its own answer and captured source read.
 #[tokio::test]
 async fn a_resource_too_large_for_the_window_is_answered_from_its_sections() {
     let server = window_provider(100_000, 100_000).await;
@@ -235,10 +234,12 @@ async fn a_resource_too_large_for_the_window_is_answered_from_its_sections() {
     assert!(sections > 1, "{out:#}");
     assert_eq!(map["big"]["usage"]["calls"], json!(sections + 1), "{out:#}");
     assert_eq!(map["ok"]["answers"]["set"]["noul"], 0.9, "{out:#}");
-    let related = &out["results"][0]["data"]["related"];
-    assert_eq!(related[0]["tool"], "clasify", "{out:#}");
-    assert_eq!(
-        related[0]["input"]["queries"][0]["operation"], "sections",
+    for key in ["big", "ok"] {
+        assert_eq!(map[key]["next"]["read"]["tool"], "localFetch", "{out:#}");
+        crate::support::assert_cursor_only(&map[key]["next"]["read"]["input"]);
+    }
+    assert!(
+        out["results"][0]["data"].get("related").is_none(),
         "{out:#}"
     );
     runtime.close().await;

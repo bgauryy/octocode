@@ -122,30 +122,6 @@ pub(super) fn pagination(offset: usize, shown: usize, total: usize, has_more: bo
         .to_value()
 }
 
-/// The request `resume` continues `options` with, in contract field names:
-/// the room a page reserves for each continuation it states.
-pub(super) fn resume_row(options: &QueryOptions, id: &str, resume: &Resume) -> Map<String, Value> {
-    let (mut row, offset) = match resume {
-        Resume::Row {
-            offset,
-            list,
-            cycle,
-        } => {
-            let mut row = query_row(options, id);
-            if let Some(list) = list {
-                row.insert("list".into(), json!(list));
-            }
-            if let Some(cycle) = cycle {
-                row.insert("cycle".into(), json!(cycle));
-            }
-            (row, *offset)
-        }
-        Resume::Query(next) => (query_row(next, id), next.offset.unwrap_or(0)),
-    };
-    row.insert("offset".into(), json!(offset));
-    row
-}
-
 /// `row` as the generated query type of the tool it addresses; `None` when
 /// the row breaks that tool's contract (a lead is then not offered).
 pub(crate) fn typed_row<Q: serde::de::DeserializeOwned>(row: Value) -> Option<Q> {

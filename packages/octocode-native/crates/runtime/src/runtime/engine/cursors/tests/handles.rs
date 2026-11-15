@@ -64,6 +64,7 @@ fn reissuing_work_under_another_policy_does_not_resurrect_old_tokens() {
             indices: vec![0, 1],
         },
         SavedWork::ResponsePage {
+            shape: super::super::PageShape::default(),
             cursor: Cursor {
                 key: [2; 32],
                 digest: [3; 32],

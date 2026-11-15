@@ -160,8 +160,8 @@ async fn clasify_exits_by_worst_row_outcome() {
             String::from_utf8_lossy(&output.stdout)
         );
     }
-    // A one-shot memory runtime answers a source evaluation and offers a fresh
-    // read any later runtime can run, never a handle into itself.
+    // A one-shot memory runtime answers without an immutable source handle.
+    // Its answer lines and the known source identity form a fresh read.
     let memory_server = classification_provider(std::time::Duration::ZERO).await;
     let command = clasify_command(workspace.cli(), &memory_server);
     let input = rows(vec![read(&file)]);
@@ -172,13 +172,31 @@ async fn clasify_exits_by_worst_row_outcome() {
     let answered = json_output(&memory);
     let data = &answered["results"][0]["data"];
     assert_eq!(data["answers"]["q"]["noul"], 0.8, "{answered}");
-    assert_eq!(data["related"][0]["tool"], "localFetch", "{answered}");
     assert_eq!(
-        data["related"][0]["input"]["queries"][0]["path"], file,
+        data["usage"],
+        json!({"inputTokens":2,"outputTokens":1}),
         "{answered}"
     );
+    assert!(data.get("related").is_none(), "{answered}");
     assert!(data.get("next").is_none(), "{answered}");
     assert!(!answered.to_string().contains("cursor"), "{answered}");
+    let lines = data["answers"]["q"]["lines"].clone();
+    assert_eq!(lines, json!({"startLine":1,"endLine":1}), "{answered}");
+    let fresh = run_json(
+        workspace.cli(),
+        "localFetch",
+        &json!({"queries":[{"path":file,"ranges":[lines]}]}),
+    );
+    assert_exit(&fresh, 0);
+    let source = json_output(&fresh);
+    assert_eq!(
+        source["results"][0]["data"]["content"]
+            .as_str()
+            .expect("fresh source")
+            .lines()
+            .collect::<Vec<_>>(),
+        ["1\tfn step() -> u32 {"]
+    );
     let posts = memory_server.received_requests().await.unwrap();
     let posts = posts
         .iter()

@@ -37,7 +37,7 @@ fn ranked() -> Vec<(&'static str, Value)> {
         sorted("name", "desc"),
         sorted("sizeBytes", "desc"),
         sorted("modifiedAt", "asc"),
-        sorted("lineCount", "desc"),
+        sorted("totalLines", "desc"),
     ]
 }
 

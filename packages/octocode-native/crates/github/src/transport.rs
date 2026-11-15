@@ -269,6 +269,7 @@ pub struct GitHubTransport {
     budget: Arc<GitHubBudget>,
     state_dir: Option<PathBuf>,
     answers: Option<Arc<dyn SavedAnswers>>,
+    fills: Arc<octocode_io::flight::KeyedFlight<execute::FillKey, bool>>,
 }
 impl GitHubTransport {
     /// A transport admitting its requests through `budget`: production
@@ -285,6 +286,7 @@ impl GitHubTransport {
             budget,
             state_dir: None,
             answers: None,
+            fills: Arc::new(octocode_io::flight::KeyedFlight::transient()),
         })
     }
 

@@ -10,7 +10,9 @@ use super::Net;
 use super::ecosystem::{self, Ecosystem, osv_name};
 use super::record::{Selection, rows};
 use super::source::{Confirmed, Source, SourceResult, Target};
-use crate::providers::artifact::{ArtifactError, ArtifactHttpRequest, JSON, rejection_detail};
+use crate::providers::artifact::{
+    ArtifactError, ArtifactHttpRequest, ArtifactHttpResponse, JSON, rejection_detail,
+};
 use octocode_contract_types::ErrorCode;
 use octocode_github::ProviderErrorKind;
 use serde_json::{Value, json};
@@ -209,7 +211,7 @@ pub(super) async fn names_release(
 /// One record by id, withdrawn ones included. An id OSV does not have is not
 /// found, never clean.
 async fn check_advisory(net: &Net<'_>, id: &str) -> Result<SourceResult, ArtifactError> {
-    let Some(record) = by_id(net, id).await? else {
+    let Some(fetched) = by_id(net, id).await? else {
         return Err(ArtifactError::new(
             ErrorCode::NotFound,
             format!("OSV has no record {id}: this says nothing about whether it exists elsewhere."),
@@ -217,7 +219,7 @@ async fn check_advisory(net: &Net<'_>, id: &str) -> Result<SourceResult, Artifac
         .with_status(404));
     };
     let mut result = SourceResult::new(Source::Osv);
-    result.advisories = rows(&[record], &Selection::All, id)?;
+    result.advisories = rows(&[fetched.record], &Selection::All, id)?;
     Ok(result)
 }
 
@@ -307,7 +309,7 @@ async fn post(
     path: &str,
     body: &Value,
     target: &str,
-) -> Result<Vec<u8>, ArtifactError> {
+) -> Result<ArtifactHttpResponse, ArtifactError> {
     let response = net
         .http
         .post(
@@ -318,13 +320,21 @@ async fn post(
         .await
         .map_err(|error| transport_failure(error, target))?;
     if (200..300).contains(&response.status) {
-        return Ok(response.body);
+        return Ok(response);
     }
     Err(status_failure(response.status, &response.body, target))
 }
 
+/// A decoded record with the origin policy that accompanied that exact body.
+/// Internal callers return the record value; hydration also needs its policy.
+pub(super) struct FetchedRecord {
+    pub(super) record: Value,
+    pub(super) status: u16,
+    pub(super) headers: Vec<(String, String)>,
+}
+
 /// One record by id, withdrawn ones included; `None` when OSV has no such id.
-pub(super) async fn by_id(net: &Net<'_>, id: &str) -> Result<Option<Value>, ArtifactError> {
+pub(super) async fn by_id(net: &Net<'_>, id: &str) -> Result<Option<FetchedRecord>, ArtifactError> {
     let encoded: String = url::form_urlencoded::byte_serialize(id.as_bytes()).collect();
     let response = net
         .http
@@ -332,9 +342,15 @@ pub(super) async fn by_id(net: &Net<'_>, id: &str) -> Result<Option<Value>, Arti
         .await
         .map_err(|error| transport_failure(error, id))?;
     match response.status {
-        200..=299 => serde_json::from_slice(&response.body)
-            .map(Some)
-            .map_err(|_| malformed("a body that is not JSON", id)),
+        200..=299 => {
+            let record = serde_json::from_slice(&response.body)
+                .map_err(|_| malformed("a body that is not JSON", id))?;
+            Ok(Some(FetchedRecord {
+                record,
+                status: response.status,
+                headers: response.headers,
+            }))
+        }
         404 => Ok(None),
         status => Err(status_failure(status, &response.body, id)),
     }
@@ -346,7 +362,7 @@ mod imports;
 mod versions;
 mod walk;
 
-pub(super) use versions::{restates_range, written_ranges_clear};
+pub(super) use versions::written_ranges_clear;
 
 #[cfg(test)]
 mod tests;

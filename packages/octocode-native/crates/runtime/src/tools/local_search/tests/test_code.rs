@@ -512,3 +512,150 @@ fn the_lsp_lead_keeps_the_searchs_test_code() {
     assert_eq!(lead["operation"], "callers", "{unset}");
     assert!(lead.get("testCode").is_none(), "{unset}");
 }
+
+/// Relevance ranks test code after source by the `testCode` verdict, not by
+/// spelling alone: a module mounted only under `#[cfg(test)]` that declares
+/// the searched name follows the production declaration, and the symbol's
+/// lspSearch lead names the production one.
+#[test]
+fn relevance_ranks_a_test_only_mount_after_the_source_declaration() {
+    let body = search_fixture(
+        &[
+            (
+                "src/lib.rs",
+                "#[cfg(test)]\nmod a_support;\nmod b_source;\n",
+            ),
+            ("src/a_support.rs", "fn needle() {}\n"),
+            ("src/b_source.rs", "pub fn needle() {}\n"),
+        ],
+        ls_query(serde_json::json!({"matchString":["needle"]}), None),
+    );
+    let order = body["files"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|file| file["path"].as_str().expect("path").to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(order, ["src/b_source.rs", "src/a_support.rs"], "{body}");
+    let lsp = body["related"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|call| call["tool"] == "lspSearch")
+        .expect("an lspSearch lead");
+    assert!(
+        lsp["input"]["queries"][0]["path"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("src/b_source.rs")),
+        "{lsp}"
+    );
+}
+
+/// Inline test declarations and calls keep their source evidence, but do not
+/// outrank a production declaration simply because their file has more hits.
+#[test]
+fn relevance_inline_test_only_hits_follow_production_without_losing_matches() {
+    let files = [
+        (
+            "src/a_inline.rs",
+            "pub fn other() {}\n#[cfg(test)]\nmod checks {\n    fn needle() {}\n    fn check() {\n        needle();\n        needle();\n    }\n}\n",
+        ),
+        ("src/z_source.rs", "pub fn needle() {}\n"),
+    ];
+    for view in ["content", "matchOnly", "files"] {
+        let body = search_fixture(
+            &files,
+            ls_query(
+                serde_json::json!({"matchString": ["needle"], "view": view}),
+                None,
+            ),
+        );
+        let paths = body["files"]
+            .as_array()
+            .expect("files")
+            .iter()
+            .map(|file| file["path"].as_str().expect("path"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            paths,
+            ["src/z_source.rs", "src/a_inline.rs"],
+            "{view}: {body}"
+        );
+        if view != "files" {
+            assert_eq!(
+                hits(&body),
+                [
+                    "src/a_inline.rs:4",
+                    "src/a_inline.rs:6",
+                    "src/a_inline.rs:7",
+                    "src/z_source.rs:1"
+                ],
+                "{view}: {body}"
+            );
+            assert!(
+                body.get("testCodeExcluded").is_none(),
+                "ranking excludes nothing: {body}"
+            );
+        }
+    }
+    let body = search_fixture(
+        &files,
+        ls_query(
+            serde_json::json!({"matchString": ["needle"], "sort": {"by": "path", "order": "asc"}}),
+            None,
+        ),
+    );
+    assert_eq!(
+        body["files"][0]["path"], "src/a_inline.rs",
+        "path sort stays literal"
+    );
+}
+
+/// A first clipped match page contains production evidence even when all
+/// earlier hits lie inside an inline test module. Source order within the
+/// selected page and the test declaration's identity remain intact.
+#[test]
+fn relevance_inline_production_hit_reaches_the_first_clipped_page() {
+    let root = tempfile::tempdir().expect("fixture");
+    let test_hits = local_search_query::default_matches_per_file() + 2;
+    let mut text = "#[cfg(test)]\nmod checks {\n    fn needle() {}\n    fn check() {\n".to_owned();
+    for _ in 0..test_hits {
+        text.push_str("        needle();\n");
+    }
+    text.push_str("    }\n}\n// needle in production prose\n");
+    let production_line = text.lines().count();
+    fs::write(root.path().join("mixed.rs"), &text).expect("source");
+    let (policy, security) = policy_for(root.path());
+    let request = ls_query(
+        serde_json::json!({
+            "path": root.path().to_string_lossy(), "matchString": ["needle"], "limit": 1
+        }),
+        None,
+    );
+    let result = search_in(&request, &policy, &security, Some(1_200)).expect("clipped search");
+    let body = result.to_row().expect("row");
+    let hits = body["files"][0]["matches"].as_array().expect("matches");
+    assert!(
+        hits.iter()
+            .any(|hit| hit["line"].as_u64() == Some(production_line as u64)),
+        "production hit must reach the first page: {body}"
+    );
+    assert!(
+        hits.len() < usize::try_from(test_hits + 2).expect("count"),
+        "actually clipped: {body}"
+    );
+    let whole = search_fixture(
+        &[("mixed.rs", text.as_str())],
+        ls_query(serde_json::json!({"matchString":["needle"]}), None),
+    );
+    let declaration = whole["files"][0]["matches"]
+        .as_array()
+        .expect("whole matches")
+        .iter()
+        .find(|hit| hit["line"] == 3)
+        .expect("test declaration");
+    assert_eq!(
+        declaration["declaration"], true,
+        "a test declaration is still a declaration"
+    );
+}

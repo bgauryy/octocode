@@ -32,6 +32,8 @@ pub(crate) struct StageInput {
 pub(crate) struct Staged {
     pub result: Result<ToolOutcome, ContractValidationError>,
     pub next: Option<super::cursor::Cursor>,
+    /// Whether preparation enabled text windowing, even on a complete single page.
+    pub paging: bool,
 }
 
 /// The page-independent half of the stage: selection receipts, line
@@ -69,7 +71,7 @@ fn settle_value(
     crate::response::selection_errors::decorate(tool, structured, response_query);
     super::pages::state_out_of_range(structured);
     super::answered_leads::drop_answered_leads(tool, structured, response_query);
-    super::workflow_lead::keep_workflow_lead(tool, structured, response_query);
+    super::workflow_lead::retain_guidance(structured, response_query);
     super::notices::place(structured, "results");
     super::notices::state_shared_warnings(structured, "results");
     let call_notes = super::notices::take_timed_notices(structured, "results");
@@ -139,6 +141,7 @@ pub(crate) fn respond(
     Ok(Staged {
         result: finish(tool, structured_content, reshaped, failure, all_failed),
         next,
+        paging: reshaped,
     })
 }
 
@@ -181,6 +184,7 @@ pub(crate) fn respond_saved(
     Ok(Staged {
         result: finish(tool, structured_content, reshaped, failure, all_failed),
         next,
+        paging: reshaped,
     })
 }
 

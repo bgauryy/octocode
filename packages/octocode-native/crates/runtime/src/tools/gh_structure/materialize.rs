@@ -17,7 +17,6 @@ pub(super) async fn materialize_page(
     query: &GhStructureQueryTree,
     scope: &Scope,
     commit_sha: &str,
-    page: &ListingPage<'_>,
     selection: &[TreeEntry],
     home: &Path,
     context: &RequestContext,
@@ -53,25 +52,6 @@ pub(super) async fn materialize_page(
         value["calls"]["expandDepth"] = expand_depth(query, scope, commit_sha, first)?;
     }
     let mut location = outcome.location;
-    // The first write of a listing leads into the local tools: the best file
-    // it wrote, read from the copy.
-    if offset == 0
-        && page.current == 1
-        && let Some(local) = location["path"].as_str()
-    {
-        let skipped = location["skipped"]
-            .as_array()
-            .map_or_else(Vec::new, |paths| {
-                paths.iter().filter_map(Value::as_str).collect::<Vec<_>>()
-            });
-        let end = outcome.next_offset.unwrap_or(selection.len());
-        let written = selection[..end]
-            .iter()
-            .filter(|entry| !skipped.contains(&entry.path.as_str()));
-        if let Some(read) = local_entry_read(query, written, scope, Path::new(local)) {
-            value["calls"]["read"] = read;
-        }
-    }
     // The checkout is complete when this listing wrote everything it can name
     // as text: no offset left, no folder below the depth, and no file skipped
     // but those that are not text (`location.skipped` still names them).
@@ -87,7 +67,7 @@ pub(super) async fn materialize_page(
     }
     crate::response::paging::push_warnings(value, warnings);
     if let Some(hint) = outcome.hint {
-        crate::response::result::add_hints(value, [hint]);
+        crate::response::paging::push_warnings(value, [hint]);
     }
     Ok(resume)
 }

@@ -9,7 +9,7 @@ use super::module_files;
 use super::scanner::{imported_modules, module_of, root_items};
 
 /// The `tools.rs` node: the helpers it defines (`pruned_walk`,
-/// `display_name`, `outlines`, `OUTLINE_LEAD_MAX_FILES`) form the lowest
+/// `display_name`) form the lowest
 /// shared layer, so they import no `tools/` module.
 const ROOT: &str = "tools";
 

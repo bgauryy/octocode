@@ -64,7 +64,7 @@ pub(super) async fn read(confirmed: &Confirmed, results: &[SourceResult], net: &
     let mut warnings = Vec::new();
     for (alias, record) in read {
         match record {
-            Ok(Some(record)) if !own_entries(&record, &selection).is_empty() => {
+            Ok(Some(fetched)) if !own_entries(&fetched.record, &selection).is_empty() => {
                 disputing.insert(alias);
             }
             // OSV keeps no such record, or one about another package.

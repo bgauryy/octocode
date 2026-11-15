@@ -463,14 +463,9 @@ async fn an_oversized_source_is_answered_from_its_sections_beside_its_siblings()
     // The refused whole-source request was sent too: the row counts it. A
     // source too large to be shown to fit the long window is not sent there.
     assert_eq!(big["usage"]["calls"], json!(sections + 1), "{out}");
-    let detail = &big["related"][0];
-    assert_eq!(detail["tool"], "clasify", "{out}");
-    let query = &detail["input"]["queries"][0];
-    assert_eq!(query["operation"], "sections", "{out}");
-    assert_eq!(
-        query["resources"]["source"]["query"]["path"], "big.txt",
-        "{out}"
-    );
+    assert_eq!(big["next"]["read"]["tool"], "localFetch", "{out}");
+    crate::support::assert_cursor_only(&big["next"]["read"]["input"]);
+    assert!(big.get("related").is_none(), "{out}");
     assert_eq!(rows[1]["data"]["errorCode"], "notFound", "{out}");
     assert_eq!(
         rows[2]["data"]["answers"]["restart"]["noul"], 0.9,

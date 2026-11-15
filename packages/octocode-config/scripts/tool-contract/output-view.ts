@@ -8,6 +8,9 @@ const isJson = (value: unknown): value is Json =>
 
 const refName = (ref: string): string => ref.slice(ref.lastIndexOf('/') + 1).replaceAll('~1', '/').replaceAll('~0', '~');
 
+/** `text`'s sentences, each with its closing stop. */
+const sentences = (text: string): string[] => text.split(/(?<=[.!?]) +(?=[A-Za-z(`"'])/u).filter(Boolean);
+
 /** The nodes below `node`, each with the path it reads at. */
 function childNodes(node: Json, path: string): Array<[unknown, string]> {
   const branches = ['anyOf', 'oneOf', 'allOf'].flatMap((key): unknown[] =>
@@ -24,22 +27,37 @@ function childNodes(node: Json, path: string): Array<[unknown, string]> {
   return children;
 }
 
-/** Described output fields of `schema` by path, rows' `data` read as the root. */
+/**
+ * Described output fields of `schema` by path, rows' `data` read as the root.
+ * A field's own description stands for it: the schema it refers to, or the
+ * branches it is one of at the same path, add none. Variants that share a
+ * path (the row forms of different operations) each state their meaning, in
+ * schema order, so no operation's field reads as another's; a sentence they
+ * share is stated once.
+ */
 export function outputFields(schema: unknown, sharedDefs: unknown): Record<string, string> {
   const shared = isJson(sharedDefs) ? sharedDefs : {};
   const defs = isJson(schema) && isJson(schema.$defs) ? { ...shared, ...schema.$defs } : shared;
-  const fields: Record<string, string> = {};
-  const visit = (node: unknown, path: string, trail: readonly string[]): void => {
+  const fields: Record<string, string[]> = {};
+  const visit = (node: unknown, path: string, trail: readonly string[], described: boolean): void => {
     if (!isJson(node)) return;
-    if (path && typeof node.description === 'string') fields[path] ??= node.description;
+    const own = path !== '' && typeof node.description === 'string';
+    if (own && !described) {
+      // A sentence an earlier variant at this path states is stated once.
+      const texts = (fields[path] ??= []);
+      for (const sentence of sentences(node.description as string))
+        if (!texts.includes(sentence)) texts.push(sentence);
+    }
+    const stated = described || own;
     if (typeof node.$ref === 'string') {
       const name = refName(node.$ref);
-      if (!trail.includes(name)) visit(defs[name], path, [...trail, name]);
+      if (!trail.includes(name)) visit(defs[name], path, [...trail, name], stated);
     }
-    for (const [child, childPath] of childNodes(node, path)) visit(child, childPath, trail);
+    for (const [child, childPath] of childNodes(node, path))
+      visit(child, childPath, trail, stated && childPath === path);
   };
-  visit(schema, '', []);
+  visit(schema, '', [], false);
   return Object.fromEntries(
-    Object.entries(fields).map(([path, text]) => [path.replace(/^results\[\]\.data\./, ''), text]),
+    Object.entries(fields).map(([path, texts]) => [path.replace(/^results\[\]\.data\./, ''), texts.join(' ')]),
   );
 }

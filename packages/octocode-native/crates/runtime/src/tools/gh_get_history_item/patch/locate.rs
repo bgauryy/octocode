@@ -10,63 +10,6 @@ pub(in crate::tools::gh_get_history_item) const HUNK_WINDOW_PAD: usize = 10;
 /// Ranges one `ghGetFileContent` read takes (the contract's `maxItems`).
 pub(in crate::tools::gh_get_history_item) const HUNK_WINDOW_RANGES: usize = 10;
 
-/// Literals one `ghGetFileContent` `matchString` list takes (the contract's
-/// `maxItems`).
-pub(in crate::tools::gh_get_history_item) const MERGE_MATCH_LINES: usize = 10;
-
-/// Trimmed added lines this long locate a hunk well; when any hunk has
-/// one, shorter picks (`}`, `x = 1;`) are dropped as matching too much.
-pub(in crate::tools::gh_get_history_item) const DISTINCTIVE_LINE_MIN: usize = 12;
-
-/// Longest line a merge read searches for: a minified or generated line is
-/// not a locator.
-pub(in crate::tools::gh_get_history_item) const DISTINCTIVE_LINE_MAX: usize = 200;
-
-/// One added line per hunk that locates it in another version of the file:
-/// the hunk's longest trimmed `+` line of at most [`DISTINCTIVE_LINE_MAX`]
-/// chars with three or more letters or digits and no redaction placeholder;
-/// when any pick reaches [`DISTINCTIVE_LINE_MIN`] chars the shorter ones
-/// are dropped. Duplicates once, at most [`MERGE_MATCH_LINES`].
-pub(in crate::tools::gh_get_history_item) fn distinctive_added_lines(patch: &str) -> Vec<String> {
-    let mut picks: Vec<String> = Vec::new();
-    let mut best: Option<&str> = None;
-    let flush = |best: &mut Option<&str>, picks: &mut Vec<String>| {
-        if let Some(line) = best.take()
-            && !picks.iter().any(|pick| pick == line)
-        {
-            picks.push(line.to_owned());
-        }
-    };
-    for line in patch.lines() {
-        if line.starts_with("@@") {
-            flush(&mut best, &mut picks);
-            continue;
-        }
-        if line.starts_with("+++") {
-            continue;
-        }
-        let Some(text) = line.strip_prefix('+').map(str::trim) else {
-            continue;
-        };
-        let chars = text.chars().count();
-        let qualifies = chars <= DISTINCTIVE_LINE_MAX
-            && text.chars().filter(|c| c.is_alphanumeric()).count() >= 3
-            && !text.contains("[REDACTED");
-        if qualifies && best.is_none_or(|current| current.chars().count() < chars) {
-            best = Some(text);
-        }
-    }
-    flush(&mut best, &mut picks);
-    if picks
-        .iter()
-        .any(|pick| pick.chars().count() >= DISTINCTIVE_LINE_MIN)
-    {
-        picks.retain(|pick| pick.chars().count() >= DISTINCTIVE_LINE_MIN);
-    }
-    picks.truncate(MERGE_MATCH_LINES);
-    picks
-}
-
 /// The span of every hunk header on the `mark` side (`-a,b`: the old side,
 /// read in the parent; `+c,d`: the new side, read at the change's commit),
 /// padded by [`HUNK_WINDOW_PAD`] lines and merged where they touch; past

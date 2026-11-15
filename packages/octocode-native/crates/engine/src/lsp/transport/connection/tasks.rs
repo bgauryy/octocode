@@ -262,7 +262,7 @@ async fn handle_progress(mut params: Value, shared: &Shared, progress: &Progress
 /// Record whether the server (un)registered for
 /// `workspace/didChangeWatchedFiles`: the client then sends file events
 /// for files the server has not opened (see
-/// `NativeLspClient::watched_files_diff`).
+/// `NativeLspClient::sync_watched_files`).
 fn note_watch_registration(method: &str, params: Option<&Value>, shared: &Shared) {
     const WATCHED_FILES: &str = "workspace/didChangeWatchedFiles";
     let (key, registers) = match method {

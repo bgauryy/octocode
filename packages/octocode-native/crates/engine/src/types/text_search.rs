@@ -26,10 +26,9 @@ pub struct TextSearchMatch {
     pub value_digest: [u8; 32],
     /// Frequency for this value when `count_unique` is enabled.
     pub count: Option<u32>,
-    /// Lexical hit rank of the matched line (see `relevance::line_rank`):
-    /// 3 declared name, 2 deciding statement (assignment, branch, return,
-    /// raise), 1 other code, 0 comment or string. Set for line matches;
-    /// `None` for only-matching spans.
+    /// Internal lexical order (declaration > decision > code > prose), with
+    /// production precedence when a test-code classifier is active. Use
+    /// [`Self::is_declaration`] for identity. `None` for only-matching spans.
     pub rank: Option<u32>,
     /// The byte of its line `value` starts at, when `value` is a window of a
     /// line too long for a row ([`RowWindow`]): the text around the hits it
@@ -39,6 +38,25 @@ pub struct TextSearchMatch {
 }
 
 impl TextSearchMatch {
+    /// Compose source precedence without changing the lexical hit identity.
+    pub fn rank_source(&mut self, production: bool) {
+        self.rank = self
+            .rank
+            .map(|rank| super::hit_rank::source_rank(rank, production));
+    }
+
+    /// Whether this row carries production precedence in a classified rank.
+    pub fn has_production_priority(&self) -> bool {
+        self.rank.is_some_and(super::hit_rank::is_production_rank)
+    }
+
+    /// Declaration identity, independent of source/test ordering precedence.
+    pub fn is_declaration(&self) -> bool {
+        self.rank.is_some_and(|rank| {
+            super::hit_rank::lexical_rank(rank) == super::hit_rank::DECLARATION_RANK
+        })
+    }
+
     /// The identity digest of a match value (see `value_digest`): SHA-256 of
     /// the value trimmed of surrounding whitespace. Every producer of a row
     /// and every verifier that restates one uses this rule.
@@ -72,6 +90,9 @@ pub struct SearchedSource {
     pub modified: Option<std::time::SystemTime>,
     /// SHA-256 of every byte of the file, as the search read it.
     pub digest: [u8; 32],
+    /// The file's lines ([`crate::text::LineCount`]), counted by the same
+    /// read; `None` for a UTF-16 file, whose lines are counted once decoded.
+    pub lines: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -191,6 +212,9 @@ pub struct TextSearchOptions {
     /// Keep only production code or only test code (see [`TestCodeScope`](super::test_code::TestCodeScope));
     /// `None` searches both.
     pub test_code: Option<super::test_code::TestCodeScope>,
+    /// Under relevance, test-only hits follow production hits without changing
+    /// membership/counts. `None` judges path spellings alone.
+    pub test_code_rank: Option<super::test_code::TestCodeRank>,
     /// Keep only hit lines a [`LineScope`](super::line_scope::LineScope)
     /// names in each file; `None` keeps every line.
     pub line_scope: Option<super::line_scope::LineScope>,

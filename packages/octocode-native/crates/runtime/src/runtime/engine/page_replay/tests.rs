@@ -49,6 +49,7 @@ async fn changed_plan_expires_disk_handles_before_execution_but_current_handles_
                 indices: vec![0, 1],
             },
             SavedWork::ResponsePage {
+                shape: super::super::cursors::PageShape::default(),
                 rows: None,
                 cursor: Cursor {
                     key: [1; 32],

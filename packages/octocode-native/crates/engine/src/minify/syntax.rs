@@ -60,7 +60,8 @@ pub(super) fn lex(
         };
         let (mut regions, unread) = regions_of(&tree, source);
         if let Some(lexis) = grammar.lexis {
-            regions = super::lexis::agree(regions, &super::lexis::spans(source, lexis));
+            regions =
+                super::lexis::agree(source, regions, &super::lexis::spans(source, lexis), lexis);
         }
         let lexed = Lexed {
             regions,

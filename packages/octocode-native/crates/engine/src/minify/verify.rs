@@ -137,7 +137,7 @@ fn units<'a>(text: &'a str, lexis: &Lexis) -> Vec<(Unit, &'a str, bool, usize)> 
             };
             out.push((unit, &text[span.start..span.end], spaced, at));
             (at, next, spaced) = (span.end, next + 1, false);
-        } else if bytes[at].is_ascii_whitespace() {
+        } else if lexis.whitespace.contains(&bytes[at]) {
             (at, spaced) = (at + 1, true);
         } else {
             let mut end = at + if bytes[at] == lexis.escape { 2 } else { 1 };
@@ -166,7 +166,15 @@ fn holds_to_lexis(source: &str, view: &str, lexis: &Lexis, spacing: Spacing) -> 
     for (unit, text, spaced, at) in units(source, lexis) {
         let kept = after.get(next);
         if unit == Unit::Comment && kept.is_none_or(|(_, kept, _, _)| *kept != text) {
-            dropped = true;
+            if super::lexis::separates_tokens(source, at, at + text.len(), lexis) {
+                return Err(format!(
+                    "line {}: the view removes a comment separating adjacent tokens",
+                    line(at)
+                ));
+            }
+            // CSS comments emit no whitespace. Only actual source whitespace
+            // before or after a removed comment can separate its neighbors.
+            dropped |= spaced;
             continue;
         }
         let Some(&(kept_unit, kept_text, kept_spaced, _)) = kept else {
@@ -261,8 +269,13 @@ mod tests {
     #[test]
     fn the_lexis_lets_a_comment_or_space_go_only_where_no_token_changes() {
         let check = |source, view| holds_to_lexis(source, view, &CSS_LEXIS, SEPARATORS);
-        assert!(check("a/**/b", "a b").is_ok());
+        assert!(check("a/**/b", "a b").is_err());
         assert!(check("a/**/b", "ab").is_err());
+        assert!(check("a/**/b", "a/**/b").is_ok());
+        assert!(check(".a/**/.b", ".a .b").is_err());
+        assert!(check(".a/**/.b", ".a/**/.b").is_ok());
+        assert!(check(".a/**/ .b", ".a .b").is_ok());
+        assert!(check(".\\61 /**/.b", ".\\61  .b").is_err());
         assert!(check("a  ,  b", "a,b").is_ok());
         assert!(check(".a :hover", ".a:hover").is_err());
         assert!(check(".a:hover", ".a :hover").is_err());

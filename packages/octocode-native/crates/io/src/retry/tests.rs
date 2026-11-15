@@ -73,12 +73,45 @@ fn retry_after_accepts_an_http_date_relative_to_now() {
         Some(max)
     );
     assert_eq!(
-        parse_http_date("Thu, 01 Jan 1970 00:00:00 GMT"),
+        parse_http_date("Thu, 01 Jan 1970 00:00:00 GMT", now),
         Some(SystemTime::UNIX_EPOCH)
     );
     assert_eq!(
-        parse_http_date("Tue, 29 Feb 2028 12:00:00 GMT"),
+        parse_http_date("Tue, 29 Feb 2028 12:00:00 GMT", now),
         Some(SystemTime::UNIX_EPOCH + Duration::from_secs(1_835_438_400))
+    );
+}
+
+#[test]
+fn http_dates_accept_all_wire_forms_and_pre_epoch_dates() {
+    for value in [
+        "Sun, 06 Nov 1994 08:49:37 GMT",
+        "Sunday, 06-Nov-94 08:49:37 GMT",
+        "Sun Nov  6 08:49:37 1994",
+    ] {
+        assert_eq!(
+            parse_http_date(value, UNIX_EPOCH + Duration::from_secs(784_111_777)),
+            Some(UNIX_EPOCH + Duration::from_secs(784_111_777)),
+            "{value}"
+        );
+    }
+    assert_eq!(
+        parse_http_date("Wed, 31 Dec 1969 23:59:59 GMT", UNIX_EPOCH),
+        Some(UNIX_EPOCH - Duration::from_secs(1))
+    );
+}
+
+#[test]
+fn retry_after_uses_a_rolling_century_for_rfc850_dates() {
+    let now = UNIX_EPOCH + Duration::from_secs(1_767_225_600);
+    let future = UNIX_EPOCH
+        + Duration::from_secs(
+            u64::try_from(crate::civil::days_from_civil(2070, 1, 1) * 86_400).unwrap(),
+        );
+    let map = headers(&[("retry-after", "Wednesday, 01-Jan-70 00:00:00 GMT")]);
+    assert_eq!(
+        retry_after_delay(&map, Duration::MAX, now),
+        future.duration_since(now).ok()
     );
 }
 

@@ -22,10 +22,15 @@ pub(super) fn sort_recs(opts: &TextSearchOptions, mode: Mode, recs: &mut [FileRe
 /// reports as each file's match count (matched lines for line views, spans or
 /// submatches otherwise).
 fn rank_weight(opts: &TextSearchOptions, mode: Mode, rec: &FileRec) -> u32 {
+    let (lines, submatches) = if opts.sort == SearchSort::Relevance {
+        (rec.rank_lines, rec.rank_submatches)
+    } else {
+        (rec.matched_lines, rec.submatches)
+    };
     match mode {
-        Mode::CountLines => rec.matched_lines,
-        Mode::Normal if !only_matching(opts) => rec.matched_lines,
-        _ => rec.submatches,
+        Mode::CountLines => lines,
+        Mode::Normal if !only_matching(opts) => lines,
+        _ => submatches,
     }
 }
 

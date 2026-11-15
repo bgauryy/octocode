@@ -259,11 +259,10 @@ async fn pr_commit_rows_are_the_shared_commit_row_with_their_body() {
 }
 
 /// A pull-request page whose patch window shows a prefix of the files: the
-/// diff's side reads name only files it shows (their bounds are the page's
-/// numbered lines), while the merge-commit read names the pull request's
-/// most-changed code file even past the window, located by text.
+/// diff's side reads name only files it shows, using their numbered bounds.
+/// No optional merge-code pick reaches past the requested patch window.
 #[tokio::test]
-async fn pr_side_reads_stay_on_the_page_and_the_merge_read_spans_the_pr() {
+async fn pr_side_reads_stay_on_the_shown_page_without_a_merge_code_pick() {
     let server = MockServer::builder().start().await;
     let added = |name: &str, count: usize| {
         let lines = (1..=count)
@@ -314,7 +313,10 @@ async fn pr_side_reads_stay_on_the_page_and_the_merge_read_spans_the_pr() {
         }
     }
     assert!(side_reads > 0, "a shown file has a side read: {out}");
-    assert_eq!(merge_paths, ["src/gamma.ts"], "{out}");
+    assert!(
+        merge_paths.is_empty(),
+        "no unrequested merge code pick: {out}"
+    );
 }
 
 /// Comment sections the caller asked for are stated even when they hold

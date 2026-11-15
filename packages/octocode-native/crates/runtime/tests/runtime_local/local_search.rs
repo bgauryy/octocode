@@ -94,8 +94,8 @@ async fn excluded_source_is_disclosed_and_reachable_by_an_explicit_request() {
 
 /// A hit in a Unicode line too long for a row: on both transports the row is
 /// one whole-character window of the line around the hit, placed by its
-/// 1-based character column, on one page; the line whole is the ready
-/// `localFetch` read of that line, which runs.
+/// 1-based character column, on one page. Its path and line form a valid
+/// explicit localFetch request for the whole line.
 #[tokio::test]
 async fn long_unicode_lines_show_a_window_around_the_hit_and_lead_to_the_whole_line() {
     let workspace = Workspace::new();
@@ -152,12 +152,12 @@ async fn long_unicode_lines_show_a_window_around_the_hit_and_lead_to_the_whole_l
             value.len() < line.len() / 10,
             "MCP={mcp}: a window of the line"
         );
-        let lead = checks::related_call(data, "localFetch", |input| {
-            input["queries"][0]["ranges"] == json!([{"startLine":2,"endLine":2}])
-        });
-        let read = call(&runtime, "localFetch", lead["input"].clone())
+        assert!(data.get("related").is_none(), "MCP={mcp}: {data}");
+        let hit_line = matches[0]["line"].clone();
+        let input = json!({"queries":[{"path":data["files"][0]["path"],"ranges":[{"startLine":hit_line,"endLine":hit_line}]}]});
+        let read = call(&runtime, "localFetch", input)
             .await
-            .expect("the line read runs");
+            .expect("the identity-based line read runs");
         assert_ne!(row_status(&read), "error", "{}", read.structured_content);
         values.push(value.to_owned());
     }
@@ -185,22 +185,11 @@ fn grown_source(holds_a_token: bool) -> Vec<u8> {
     text
 }
 
-/// The read lead of `found`, when it offers one.
-fn read_leads(found: &serde_json::Value) -> Vec<serde_json::Value> {
-    found["related"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|lead| lead["tool"] == "localFetch")
-        .map(|lead| lead["input"].clone())
-        .collect()
-}
-
 /// A source that decodes past the read limit is read, whatever it names: a
-/// search offers the read, and that read shows the hit with only a Secret's
-/// value hidden.
+/// hit identity forms a read that shows the hit with only a Secret's value
+/// hidden.
 #[tokio::test]
-async fn a_read_is_offered_of_a_source_decoding_past_the_limit_and_hides_only_its_secret() {
+async fn a_decoded_source_read_preserves_the_hit_and_hides_only_its_secret() {
     let workspace = Workspace::new();
     let secret = workspace.write("a-secret.json", grown_source(true));
     let plain = workspace.write("b-plain.json", grown_source(false));
@@ -220,12 +209,16 @@ async fn a_read_is_offered_of_a_source_decoding_past_the_limit_and_hides_only_it
             found.structured_content
         );
         assert_eq!(row_data(&found)["matchCount"], 1);
-        let leads = read_leads(row_data(&found));
-        assert_eq!(leads.len(), 1, "{:?}", found.structured_content);
+        let data = row_data(&found);
+        assert!(data.get("related").is_none(), "{data}");
+        let hit = &data["files"][0];
+        let end = hit["matches"][0]["line"].as_u64().expect("hit line");
+        let input =
+            json!({"queries":[{"path":hit["path"],"ranges":[{"startLine":1,"endLine":end}]}]});
         let read = runtime
-            .run("read".into(), "localFetch".into(), leads[0].clone())
+            .run("read".into(), "localFetch".into(), input)
             .await
-            .expect("read")
+            .expect("identity-based read")
             .structured_content;
         assert_ne!(read["results"][0]["status"], "error", "{read}");
         let lines = read["results"][0]["data"].to_string();
@@ -236,10 +229,10 @@ async fn a_read_is_offered_of_a_source_decoding_past_the_limit_and_hides_only_it
 }
 
 /// UTF-16 past the whole-file read limit cannot be decoded in windows, so every
-/// read of it is refused: its hit stays, no read is offered, and beside it in a
-/// search of both the readable file is the one offered.
+/// read of it is refused. Search keeps both hits, and an explicit read of
+/// the smaller source still succeeds without generated read advice.
 #[tokio::test]
-async fn no_read_is_offered_of_utf16_past_the_read_limit() {
+async fn a_utf16_size_refusal_preserves_search_evidence_and_other_reads() {
     let workspace = Workspace::new();
     let text = format!(
         "first\nneedle here\n{}",
@@ -258,10 +251,7 @@ async fn no_read_is_offered_of_utf16_past_the_read_limit() {
         .await
         .expect("search");
     assert_eq!(row_data(&found)["matchCount"], 1);
-    assert_eq!(
-        read_leads(row_data(&found)),
-        Vec::<serde_json::Value>::new()
-    );
+    assert!(row_data(&found).get("related").is_none());
     let read = call(
         &runtime,
         "localFetch",
@@ -273,23 +263,43 @@ async fn no_read_is_offered_of_utf16_past_the_read_limit() {
     let found = call(&runtime, "localSearch", search(&under))
         .await
         .expect("search");
-    assert_eq!(read_leads(row_data(&found)).len(), 1, "a small one reads");
+    assert_eq!(row_data(&found)["matchCount"], 1);
+    assert!(row_data(&found).get("related").is_none());
+    let readable_path = row_data(&found)["files"][0]["path"].clone();
+    let readable = call(
+        &runtime,
+        "localFetch",
+        json!({"path":readable_path,"ranges":[{"startLine":1,"endLine":2}]}),
+    )
+    .await
+    .expect("small UTF-16 source reads");
+    assert_eq!(row_status(&readable), "success");
+    assert_eq!(
+        row_data(&readable)["content"]
+            .as_str()
+            .expect("source")
+            .lines()
+            .collect::<Vec<_>>(),
+        ["1\tfirst", "2\tneedle here"]
+    );
     let both = call(&runtime, "localSearch", search(&workspace.workspace))
         .await
         .expect("search");
-    let leads = read_leads(row_data(&both));
-    assert_eq!(leads.len(), 1, "{:?}", both.structured_content);
-    assert!(
-        leads[0]["queries"][0]["path"]
-            .as_str()
-            .is_some_and(|path| path.ends_with("b-under.txt")),
-        "{leads:?}"
+    assert_eq!(
+        row_data(&both)["matchCount"],
+        2,
+        "{}",
+        both.structured_content
     );
+    assert!(row_data(&both).get("related").is_none());
+    assert!(row_data(&both)["files"].to_string().contains("b-under.txt"));
+    assert!(row_data(&both)["files"].to_string().contains("a-over.txt"));
     runtime.close().await;
 }
 
-/// Owner decision 2026-11-12: every repair of an undeclared local input name
-/// runs, and the response carries one warning naming the real field to send.
+/// Owner decision 2026-11-12: every repair of an undeclared local input name,
+/// or of a value in another shape of its field, runs, and the response
+/// carries one warning naming the real field and form to send.
 #[tokio::test]
 async fn every_local_input_repair_runs_and_names_the_real_field() {
     let workspace = Workspace::new();
@@ -305,37 +315,37 @@ async fn every_local_input_repair_runs_and_names_the_real_field() {
         ),
         (
             "localSearch",
-            json!({"path":root,"matchString":"defects","mode":"literal"}),
+            json!({"path":root,"matchString":["defects"],"mode":"literal"}),
             "regexEngine",
         ),
         (
             "localSearch",
-            json!({"path":root,"matchString":"defects","mode":"discovery"}),
+            json!({"path":root,"matchString":["defects"],"mode":"discovery"}),
             "view",
         ),
         (
             "localSearch",
-            json!({"path":root,"matchString":"defects","literal":true}),
+            json!({"path":root,"matchString":["defects"],"literal":true}),
             "regexEngine",
         ),
         (
             "localSearch",
-            json!({"path":root,"matchString":"defects","filesOnly":true}),
+            json!({"path":root,"matchString":["defects"],"filesOnly":true}),
             "view",
         ),
         (
             "localSearch",
-            json!({"path":root,"matchString":"defects","countOnly":true}),
+            json!({"path":root,"matchString":["defects"],"countOnly":true}),
             "view",
         ),
         (
             "localSearch",
-            json!({"path":root,"matchString":"defects","perFileCount":true}),
+            json!({"path":root,"matchString":["defects"],"perFileCount":true}),
             "view",
         ),
         (
             "localSearch",
-            json!({"path":root,"matchString":"defects","excludeDir":"x"}),
+            json!({"path":root,"matchString":["defects"],"excludeDir":"x"}),
             "exclude",
         ),
         (
@@ -348,6 +358,13 @@ async fn every_local_input_repair_runs_and_names_the_real_field() {
             json!({"path":file,"ranges":[[1,1]]}),
             "ranges",
         ),
+        // A value in another shape of its field names the form to send.
+        (
+            "localSearch",
+            json!({"path":root,"matchString":"defects-queue"}),
+            "matchString: [\"defects-queue\"]",
+        ),
+        ("localFetch", json!({"path":file,"limit":"1"}), "limit: 1"),
     ] {
         let found = call(&runtime, tool, row.clone()).await.expect("runs");
         assert_eq!(

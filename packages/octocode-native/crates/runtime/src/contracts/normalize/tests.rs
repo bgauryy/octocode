@@ -3,6 +3,7 @@ use crate::contracts::prepare_rows;
 use serde_json::json;
 
 mod guessed_fields;
+mod request_shapes;
 
 fn accepted(tool: &str, sent: Value) -> Value {
     let input = normalized_input(tool, sent.clone()).0;
@@ -20,9 +21,15 @@ fn accepted(tool: &str, sent: Value) -> Value {
 fn a_field_at_its_default_beside_another_form_runs_without_it() {
     let sent = json!({"queries":[{"path":".","matchString":["x"],"view":"matchOnly",
         "contextLines":{"before":0,"after":0}}]});
-    let row = accepted("localSearch", sent)["queries"][0].clone();
+    let row = accepted("localSearch", sent.clone())["queries"][0].clone();
     assert!(row.get("contextLines").is_none(), "{row}");
     assert_eq!(row["view"], "matchOnly", "{row}");
+    let notes = normalized_input("localSearch", sent).1;
+    assert!(
+        matches!(notes.as_slice(), [one] if one.starts_with("queries[0]: left out `contextLines: ")
+            && one.contains("leave `contextLines` out next time")),
+        "{notes:?}"
+    );
     let wider = json!({"queries":[{"path":".","matchString":["x"],"view":"matchOnly",
         "contextLines":{"before":1,"after":0}}]});
     let (input, _) = normalized_input("localSearch", wider);
@@ -62,6 +69,137 @@ fn a_value_nested_at_any_depth_runs() {
         at = &at["inside"];
     }
     assert_eq!(at, &leaf, "{input}");
+}
+
+/// Owner decision 2026-11-12: every repair runs and says the form to send.
+/// A value read in the shape its field takes is said once per call, of the
+/// value as sent and as it runs, naming the rows (none for a request field);
+/// a value nested in JSON text is one value; a field a guess wrote is said
+/// by the guess's note alone, with the value it runs with.
+#[test]
+fn a_value_read_in_its_fields_shape_says_the_form_to_send() {
+    for (tool, sent, said) in [
+        (
+            "localSearch",
+            json!({"queries":[{"path":".","matchString":"runForwardingSignals"}]}),
+            r#"queries[0]: read `matchString: "runForwardingSignals"` as `matchString: ["runForwardingSignals"]`; send `matchString: ["runForwardingSignals"]` next time."#,
+        ),
+        (
+            "localFetch",
+            json!({"queries":[{"path":"a.ts","limit":"5"}]}),
+            r#"queries[0]: read `limit: "5"` as `limit: 5`; send `limit: 5` next time."#,
+        ),
+        (
+            "graphBuild",
+            json!({"queries":[{"path":".","exclude":"tests/**"}]}),
+            r#"queries[0]: read `exclude: "tests/**"` as `exclude: ["tests/**"]`; send `exclude: ["tests/**"]` next time."#,
+        ),
+        (
+            "localSearch",
+            json!({"queries":[{"path":".","matchString":"x"},{"path":".","matchString":"x"}]}),
+            r#"queries[0,1]: read `matchString: "x"` as `matchString: ["x"]`; send `matchString: ["x"]` next time."#,
+        ),
+        (
+            "localSearch",
+            json!({"queries":[{"path":".","matchString":["x"]}],"responseChars":"900"}),
+            r#"read `responseChars: "900"` as `responseChars: 900`; send `responseChars: 900` next time."#,
+        ),
+        (
+            "astSearch",
+            json!({"queries":[{"operation":"match","path":".","rule":
+                json!({"inside": json!({"pattern":"eval($X)"}).to_string()}).to_string()}]}),
+            r#"send `rule: {"inside":{"pattern":"eval($X)"}}` next time."#,
+        ),
+        (
+            "localSearch",
+            json!({"queries":[{"path":".","pattern":"defects-queue"}]}),
+            r#"queries[0]: read `pattern` as `matchString: ["defects-queue"]`; send `matchString: ["defects-queue"]` next time."#,
+        ),
+    ] {
+        let input = accepted(tool, sent.clone());
+        let notes = normalized_input(tool, sent.clone()).1;
+        assert!(
+            matches!(notes.as_slice(), [one] if one.ends_with(said)),
+            "{tool} {sent} ran as {input}: {notes:?}"
+        );
+    }
+}
+
+/// A note quotes a long value in its own shape, by a text's two ends and a
+/// list's first items, so it still says what to send; the notes of a batch
+/// come in row order.
+#[test]
+fn a_long_value_keeps_its_form_and_notes_follow_row_order() {
+    let long = format!("start-{}-end!", "m".repeat(60));
+    let chars: Vec<char> = long.chars().collect();
+    let ends = |kept: usize| -> String {
+        chars[..kept]
+            .iter()
+            .chain(&['…'])
+            .chain(&chars[chars.len() - kept..])
+            .collect()
+    };
+    let sent = json!({"queries":[{"path":".","matchString":long}]});
+    let notes = normalized_input("localSearch", sent).1;
+    let form = format!("`matchString: [\"{}\"]`", ends(NOTE_TEXT_CHARS / 2));
+    assert!(
+        matches!(notes.as_slice(), [one] if one.ends_with(&format!("send {form} next time."))),
+        "{notes:?}"
+    );
+    let many = json!(["a", "b", "c", "d", "e"]).to_string();
+    let notes = normalized_input(
+        "localSearch",
+        json!({"queries":[{"path":".","matchString":many}]}),
+    )
+    .1;
+    assert!(
+        notes
+            .iter()
+            .any(|note| note.contains(r#"send `matchString: ["a","b","c",…]`"#)),
+        "{notes:?}"
+    );
+    let batch = json!({"queries":[
+        {"path":".","matchString":"x"},
+        {"path":".","matchString":"x"},
+        {"path":".","pattern":["y"]}
+    ]});
+    let notes = normalized_input("localSearch", batch).1;
+    assert!(
+        matches!(notes.as_slice(), [first, second]
+            if first.starts_with("queries[0,1]: ") && second.starts_with("queries[2]: ")),
+        "{notes:?}"
+    );
+}
+
+/// A depth sent under another tool's name for it runs as this tool's own,
+/// and the call says the field to send.
+#[test]
+fn a_depth_under_another_tools_name_runs_and_names_the_field() {
+    for (tool, sent, field) in [
+        (
+            "graphQuery",
+            json!({"path":".","operation":"deps","target":"a.ts","maxDepth":2}),
+            "depth",
+        ),
+        (
+            "lspSearch",
+            json!({"path":"a.ts","operation":"callers","symbolName":"run","line":1,"maxDepth":2}),
+            "depth",
+        ),
+        (
+            "ghCloneRepo",
+            json!({"owner":"o","repo":"r","depth":2}),
+            "historyDepth",
+        ),
+    ] {
+        let input = accepted(tool, json!({"queries":[sent.clone()]}));
+        assert_eq!(input["queries"][0][field], json!(2), "{tool} {input}");
+        let notes = normalized_input(tool, json!({"queries":[sent]})).1;
+        assert!(
+            matches!(notes.as_slice(), [one] if one.ends_with(&format!("send `{field}` next time."))),
+            "{tool}: {notes:?}"
+        );
+    }
 }
 
 #[test]

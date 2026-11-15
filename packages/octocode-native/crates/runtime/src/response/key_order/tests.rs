@@ -58,8 +58,8 @@ fn rows_of_one_list_share_one_key_order() {
     }
 }
 
-/// A key only a later row states follows the keys already stated, on every
-/// row after it; rows of two result rows of one response share the order.
+/// A key only a later row states, first in its row, follows the keys already
+/// stated, on every row after it; rows of two result rows of one response share the order.
 #[test]
 fn a_key_a_later_row_adds_follows_the_stated_ones() {
     let schema = json!({"properties":{"rows":{"items":{"properties":{
@@ -174,4 +174,56 @@ fn ordering_twice_is_ordering_once() {
     };
     assert_eq!(rows(&once), ["kind,id", "kind,id,language"]);
     assert_eq!(rows(&once), rows(&twice));
+}
+
+/// A key a later element adds keeps the place that element built it in: a
+/// localSearch list whose first file has no `declarations` used to move every
+/// later file's `declarations` after its `matches`, so a split row sent the
+/// hits before the declarations they index.
+#[test]
+fn a_key_a_later_element_adds_keeps_its_built_place() {
+    let mut rows = json!({"results":[{"index":0,"data":{"matchCount":2,"files":[
+        {"path":"a.rs","matches":[{"line":1,"value":"pub fn needle() {}"}]},
+        {"path":"b.rs","declarations":[{"symbolName":"f","kind":"function","line":2,"endLine":4}],
+         "matches":[{"line":3,"value":"    needle();","enclosing":0}]},
+    ]}}]});
+    let before = rows.clone();
+    order_rows(ToolId::LocalSearch, &mut rows);
+    let files = &rows["results"][0]["data"]["files"];
+    assert_eq!(keys(&files[0]), ["path", "matches"]);
+    assert_eq!(keys(&files[1]), ["path", "declarations", "matches"]);
+    assert_eq!(rows, before, "the pass moves keys only");
+}
+
+/// Leading additions follow the established keys, while additions with a
+/// preceding anchor keep their place between the keys already known.
+#[test]
+fn leading_additions_append_and_anchored_additions_keep_their_place() {
+    let schema = json!({"properties":{"rows":{"items":{"properties":{
+        "left":{}, "right":{}, "leadOne":{}, "leadTwo":{},
+        "middleOne":{}, "middleTwo":{}
+    }}}}});
+    let mut pass = pass_over(schema);
+    let built = json!({"rows":[
+        {"left":1,"right":2},
+        {"leadOne":3,"leadTwo":4,"left":5,"middleOne":6,"middleTwo":7,"right":8},
+        {"right":9,"leadTwo":10,"middleTwo":11,"left":12,"leadOne":13,"middleOne":14},
+    ]});
+    let mut ordered = built.clone();
+    pass.order(&mut ordered, ROOT, false);
+    assert_eq!(ordered, built, "the pass moves keys only");
+    assert_eq!(keys(&ordered["rows"][0]), ["left", "right"]);
+    for row in ordered["rows"].as_array().expect("rows").iter().skip(1) {
+        assert_eq!(
+            keys(row),
+            [
+                "left",
+                "middleOne",
+                "middleTwo",
+                "right",
+                "leadOne",
+                "leadTwo"
+            ]
+        );
+    }
 }

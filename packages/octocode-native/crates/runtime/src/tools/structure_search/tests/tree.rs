@@ -39,7 +39,7 @@ fn sort_keys_order_evidence_in_both_directions() {
     for (name, count) in [("a.rs", 3), ("b.rs", 1), ("c.rs", 2)] {
         root.write(name, "x\n".repeat(count));
     }
-    for by in ["name", "path", "sizeBytes", "lineCount"] {
+    for by in ["name", "path", "sizeBytes", "totalLines"] {
         let mut outputs = Vec::new();
         for order in ["asc", "desc"] {
             let query = json!({"operation":"files","path":root.0,"entryType":"file","sort":{"by":by,"order":order}});
@@ -49,7 +49,7 @@ fn sort_keys_order_evidence_in_both_directions() {
                 &out,
             );
             let entries = listed(&out);
-            if ["sizeBytes", "lineCount"].contains(&by) {
+            if ["sizeBytes", "totalLines"].contains(&by) {
                 let key = if by == "sizeBytes" {
                     "size"
                 } else {

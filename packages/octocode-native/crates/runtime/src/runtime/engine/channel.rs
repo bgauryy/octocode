@@ -65,6 +65,7 @@ pub(super) struct ChannelRun {
     /// longer retained: the run answers it only when its sources reproduce
     /// the content that page was cut from.
     pub(super) pinned: Option<Cursor>,
+    pub(super) page_shape: super::cursors::PageShape,
     pub(super) replays: (Arc<PageReplayMemo>, [u8; 32]),
     pub(super) section_sessions: Arc<crate::tools::clasify::sections::Sessions>,
     pub(super) access: [u8; 32],
@@ -114,7 +115,9 @@ impl ChannelRun {
             if let Some(saved) = stage.options.saved.as_mut() {
                 saved.replayed = true;
             }
-            let stage::Staged { mut result, next } = stage::respond_saved(
+            let stage::Staged {
+                mut result, next, ..
+            } = stage::respond_saved(
                 stage::StageInput {
                     failure: replay.failure,
                     ..stage
@@ -134,7 +137,8 @@ impl ChannelRun {
             }
             return contract(Ok(result));
         }
-        let rejected = std::mem::take(&mut self.rejected_rows);
+        let mut rejected = std::mem::take(&mut self.rejected_rows);
+        self.prepare_page_shape(&mut rejected);
         let mcp = self.mcp;
         let available = |target: &str| {
             self.dispatcher.availability.is_available(target)
@@ -201,15 +205,16 @@ impl ChannelRun {
             mut failure,
             continues_page,
         } = self.shape_rows(rejected, context)?;
-        // A fresh request's notes are part of its response, paged with it.
-        if self.fresh && !self.repairs.is_empty() {
+        // Original repair notes belong to the response being reproduced;
+        // notes about this cursor call are added outside its page plan.
+        if !self.page_shape.repairs.is_empty() {
             structured.edit(|structured| {
                 if let Some(warnings) = structured.as_object_mut().and_then(|map| {
                     map.entry("warnings")
                         .or_insert_with(|| json!([]))
                         .as_array_mut()
                 }) {
-                    warnings.extend(self.repairs.iter().map(|note| json!(note)));
+                    warnings.extend(self.page_shape.repairs.iter().map(|note| json!(note)));
                 }
             });
         }
@@ -250,6 +255,7 @@ impl ChannelRun {
             stage::Staged {
                 result: mut finished,
                 mut next,
+                paging,
             },
             seed,
         ) = self.respond_settled(&settled, structured, context)?;
@@ -279,6 +285,7 @@ impl ChannelRun {
                         self.options
                             .response_chars
                             .unwrap_or(self.output.auto_page_chars),
+                        paging,
                     );
                 });
             }

@@ -4,13 +4,15 @@
 //!
 //! 1. [`is_demoted_path`] — test, fixture, generated, bundled, and vendored
 //!    paths rank after source paths, before the match count: a test file with
-//!    more hits still follows every source file.
+//!    more hits still follows every source file. A file the caller's
+//!    [`TestCodeRank`](crate::types::TestCodeRank) names test code (by path,
+//!    mount or all its hits lying in test-only spans) ranks with them.
 //! 2. [`line_weight`] summed over a file's matched lines, after the count — a
 //!    hit on the name a declaration introduces outranks the same token in
 //!    ordinary code, which outranks it in a comment or a string literal.
 //!
-//! Both are lexical: no parser, no index. The line weights allocate nothing;
-//! the path checks run once per file.
+//! Lexical weights allocate nothing. Optional test-code facts come from the
+//! caller, once on the first hit of a file; ranking never excludes a hit.
 
 mod declaration;
 mod demotion;
@@ -20,13 +22,13 @@ pub(crate) use demotion::{
     GENERATED_HEADER_BYTES, GitAttributes, has_generated_header, is_demoted_path, is_generated_path,
 };
 
+use crate::types::hit_rank::DECLARATION_RANK;
 use declaration::declares_at;
 
 /// Weight of a matched line whose first match starts at byte `first_match`.
 pub(crate) const DECLARATION_WEIGHT: u32 = 2;
 const CODE_WEIGHT: u32 = 1;
 const PROSE_WEIGHT: u32 = 0;
-
 /// Relevance weight of one matched line: [`DECLARATION_WEIGHT`] when the first
 /// match is the name a declaration introduces, `0` inside a comment or a
 /// string literal, `1` for any other code.
@@ -53,7 +55,7 @@ pub(crate) fn line_weight(line: &[u8], first_match: usize) -> u32 {
 pub(crate) fn line_rank(line: &[u8], first_match: usize) -> u32 {
     match line_weight(line, first_match) {
         PROSE_WEIGHT => 0,
-        DECLARATION_WEIGHT => 3,
+        DECLARATION_WEIGHT => DECLARATION_RANK,
         _ => {
             let indent = line
                 .iter()

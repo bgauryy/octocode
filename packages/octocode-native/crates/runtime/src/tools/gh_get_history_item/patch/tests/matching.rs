@@ -313,18 +313,6 @@ fn matching_long_unicode_lines_keeps_every_character() {
     assert!(!found.text.contains("[…"));
 }
 
-#[test]
-fn distinctive_added_lines_pick_one_locator_per_hunk() {
-    let patch = "@@ -1,3 +1,4 @@\n a\n+  }\n+  const total = items.length;\n+  let x = 1;\n@@ -40 +41,2 @@\n+});\n+[REDACTED secret value here]\n@@ -90 +92 @@\n+  const total = items.length;\n@@ -99 +100 @@\n+    return computeTotal(items, options);";
-    assert_eq!(
-        distinctive_added_lines(patch),
-        [
-            "const total = items.length;",
-            "return computeTotal(items, options);"
-        ]
-    );
-}
-
 /// Three hunks of a 60-line file and the file at the change's head: hits
 /// in an addition, a removal and an addition, the last two hunks close
 /// enough that widened context joins them.

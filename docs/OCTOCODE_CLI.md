@@ -36,6 +36,8 @@ The CLI lists 16 tools by default, including graph, clone and advisory tools. A 
 | Notes on stderr | Counts (one line per row), related leads, runtime notices and, on a terminal, progress. |
 | `--json` on stdout | A result envelope with one indexed row per query or a structured call error. Keep the request with the response when consuming JSON. |
 
+Readable text rounds fractional numeric values to four significant digits, or to the nearest integer when their magnitude is at least 10,000. For example, `0.20158` displays as `0.2016`. Integer counts and source text are unaffected. Use `--json` or the MCP JSON result when exact numeric values matter.
+
 When output includes a continuation command, run it unchanged. First follow `responsePagination.next`, then any remaining `next.nextPage`. Other `next` entries cover specific branches such as an exact read. For scripts, use the JSON form to reconstruct pages. [Tool data contract](TOOL_DATA_CONTRACT.md#executable-continuations)
 
 ### Exit codes

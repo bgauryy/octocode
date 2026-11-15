@@ -85,6 +85,9 @@ inputs, actual output, source oracle and both-surface result. Match CLI schema w
 a successful tool check. Verify the actual native executable behind both launchers. Capture
 CLI stdout and stderr, plus structured JSON when testing field/continuation contracts. A schema
 inspection or validation error alone cannot pass the positive execution path.
+Also compare CLI `schema <tool> --view output` with the advertised MCP output reference at
+`octocode://contract/output/<tool>` through `resources/list` and `resources/read`. Record formal
+`outputSchema` presence separately; its absence does not mean output discovery is unavailable.
 
 Do the common checks on local files without network access where appropriate. Distinguish an
 empty answer from denied scope, partial coverage, missing credentials, provider refusal and a
@@ -182,6 +185,14 @@ Behavior, judged by reading, on both surfaces. The per-tool sections below list 
 - [ ] Provider fields: for a repository, a package and an advisory, `view: details` beside the raw answer
   (`gh api`, registry JSON, OSV). A field the provider sends that the tool neither shows nor states as left
   out is a defect.
+- [ ] Provider cache controls: use owned mutable fixtures for repository, registry and OSV answers.
+  Preserve repeated headers, Vary: *, no-store and revalidation requirements through every cache layer;
+  update policy on 304 and reject old persisted entries that lack the required metadata. Compare cold,
+  warm and restarted clients. Identical concurrent requests may share a usable answer, but forbidden
+  reuse, changed request identities, body bounds and cancellation must still reach the correct outcome.
+  Count all physical requests and completed evidence before claiming a speed or cost improvement.
+- [ ] Successful output: optional hints appear only for empty/error recovery. Coverage warnings,
+  source identity, required reads and every continuation survive concise output and transformed views.
 - [ ] clasify: a repeat call makes a new billed request and reports its usage; an edited source or changed
   question is judged anew; a refused URL makes no request; `next.unfiltered` returns what classification
   left out. Answers are judgments, so judge the framing, not the number: is each question one standalone
@@ -225,7 +236,7 @@ Behavior, judged by reading, on both surfaces. The per-tool sections below list 
 - Compare: the expert command and what "better" means are in [COMPARISONS.md](COMPARISONS.md#localfetch).
 
 #### structureSearch
-- Calls: tree default (names only); `maxDepth`; `operation: files` with `sort` by `sizeBytes`, `lineCount`,
+- Calls: tree default (names only); `maxDepth`; `operation: files` with `sort` by `sizeBytes`, `totalLines`,
   `modifiedAt`; `nameRegex` of a parent and of its child; `view: details`.
 - Look for: every directory has its own row; a metric sort shows that one value per row; the parent and child
   filters give different listings.

@@ -385,6 +385,49 @@ mod tests {
         }
     }
 
+    #[test]
+    fn response_cache_controls_retire_answers_with_lost_provider_headers() {
+        use crate::cache::Directory;
+        use crate::providers::saved_answers::KeptAnswers;
+        use octocode_github::{ProviderAnswer, SavedAnswer, SavedAnswers};
+
+        let home = tempfile::tempdir().unwrap();
+        // Historical layout omitted Vary in registry answers and every OSV header.
+        let legacy = home.path().join("cache/provider-answers-v2");
+        let current = Directory::ProviderAnswers.path(home.path());
+        let saved = SavedAnswer {
+            answer: ProviderAnswer {
+                request: "OSV record example@stamp".into(),
+                status: 200,
+                headers: Vec::new(),
+                body: "{\"id\":\"example\",\"modified\":\"stamp\"}".into(),
+                next: None,
+                not_found: None,
+            },
+            observed_ms: u64::try_from(crate::civil_date::unix_millis()).unwrap(),
+            redirected: false,
+        };
+        let request = saved.answer.request.clone();
+        KeptAnswers::new(Some(legacy.clone())).save("origin", &request, saved.clone());
+        assert!(
+            KeptAnswers::new(Some(legacy.clone()))
+                .load("origin", &request)
+                .is_some()
+        );
+        let store = KeptAnswers::new(Some(current.clone()));
+        assert!(
+            store.load("origin", &request).is_none(),
+            "lost metadata cannot authorize reuse"
+        );
+        store.save("origin", &request, saved.clone());
+        assert!(run_if_due(home.path(), INTERVAL));
+        assert!(!legacy.exists(), "the historical provider store is retired");
+        assert_eq!(
+            KeptAnswers::new(Some(current)).load("origin", &request),
+            Some(saved)
+        );
+    }
+
     /// A directory a layout bump retired goes with the daily sweep; a live
     /// store directory stays.
     #[test]

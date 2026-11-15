@@ -43,7 +43,7 @@ pub(super) fn answered(
         ),
     });
     if let Some(notice) = usage.long_context_notice() {
-        crate::response::result::add_hints(&mut out, [notice]);
+        crate::response::paging::push_warnings(&mut out, [notice]);
     }
     if let Some(assets) = assets {
         out["assets"] = assets;
@@ -147,7 +147,8 @@ fn one_code(mut codes: impl Iterator<Item = Option<ErrorCode>>) -> Option<ErrorC
 
 /// An `evaluate` row with `resources`: each resource's answers, usage, read
 /// and its read lead, or its own error. The row states the answering model,
-/// the hints and the related calls once; `notices` are the expansion's.
+/// the related calls once; `notices` are the expansion's. Resource warnings
+/// and failed-resource recovery stay with the resource they describe.
 pub(super) fn resources_answered(
     row: &Row,
     resources: Vec<super::evaluate::ResourceOutcome>,
@@ -156,7 +157,6 @@ pub(super) fn resources_answered(
 ) -> Value {
     let mut out = json!({"resources":{}});
     let mut model = None;
-    let mut hints = notices;
     let mut related = Vec::new();
     for resource in resources {
         let (judged, captured, assets) = match resource.outcome {
@@ -230,13 +230,6 @@ pub(super) fn resources_answered(
             if fields.get("model").and_then(Value::as_str) == model.as_deref() {
                 fields.remove("model");
             }
-            if let Some(Value::Array(texts)) = fields.remove("hints") {
-                hints.extend(
-                    texts
-                        .into_iter()
-                        .filter_map(|text| text.as_str().map(str::to_owned)),
-                );
-            }
             if let Some(Value::Array(calls)) = fields.remove("related") {
                 related.extend(calls);
             }
@@ -258,7 +251,7 @@ pub(super) fn resources_answered(
         out["errorCode"] = json!(code);
         out["error"] = json!("No resource was judged; each resource's error says why.");
     }
-    crate::response::result::add_hints(&mut out, hints);
+    crate::response::paging::push_warnings(&mut out, notices);
     for call in related {
         crate::response::result::attach_related(&mut out, call);
     }

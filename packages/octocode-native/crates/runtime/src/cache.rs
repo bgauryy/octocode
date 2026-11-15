@@ -38,7 +38,7 @@ impl Directory {
     /// writes any more, relative to the home: the maintenance sweep and
     /// `cache clear` remove them. `tmp/response` is the result cache of
     /// release 20.1.0. A layout bump that ships moves the old directory here.
-    pub(crate) const RETIRED: [&'static str; 1] = ["tmp/response"];
+    pub(crate) const RETIRED: [&'static str; 2] = ["tmp/response", "cache/provider-answers-v2"];
 
     /// [`Self::RETIRED`] under `home`.
     pub(crate) fn retired(home: &std::path::Path) -> impl Iterator<Item = PathBuf> {
@@ -62,7 +62,7 @@ impl Directory {
             Self::GraphRows => home.join("tmp/graph-rows"),
             // Outlives its session, so not under `tmp`. The name carries the
             // layout's version: a bump moves the old name to [`Self::RETIRED`].
-            Self::ProviderAnswers => home.join("cache/provider-answers-v2"),
+            Self::ProviderAnswers => home.join("cache/provider-answers-v3"),
         }
     }
 }

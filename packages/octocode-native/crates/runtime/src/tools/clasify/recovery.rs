@@ -18,12 +18,12 @@ const GLOB_SOURCE_HINT: &str = "A source reads one file; a glob goes in resource
 /// What a fresh read larger than one response needs
 /// ([`Captured::read_pages`]): the runtime that runs it pages it, which a
 /// command that exits after one call refuses.
-const PAGED_READ_HINT: &str = "This source is larger than one response, so its read in related[] pages: run it with storage.mode persistent, or in one running MCP server.";
+const PAGED_READ_HINT: &str = "This source is larger than one response, so reading it needs paging: use storage.mode persistent, or one running MCP server.";
 
 /// Says on `row` that the read `captured` offers pages, when it does.
 pub(super) fn disclose_paged_read(row: &mut Value, captured: &Captured) {
     if captured.read_pages {
-        crate::response::result::add_hints(row, [PAGED_READ_HINT]);
+        crate::response::paging::push_warnings(row, [PAGED_READ_HINT.to_owned()]);
     }
 }
 

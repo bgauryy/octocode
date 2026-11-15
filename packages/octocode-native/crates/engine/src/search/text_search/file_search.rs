@@ -7,7 +7,7 @@ use prefix::is_leading_binary;
 pub(super) use prefix::read_prefix;
 
 use super::file_terms::{CopiedRead, FILE_TERMS_MAX_BYTES};
-use super::mode::MatchWork;
+use super::mode::{MatchWork, ranks_by_relevance};
 use super::sink::CollectSink;
 use super::state::{Charge, Held};
 use crate::search::relevance;
@@ -95,6 +95,8 @@ pub(super) fn hashed_source(
     }
     let mut hasher = Sha256::new();
     let mut len = 0u64;
+    let mut lines = crate::text::LineCount::default();
+    let mut utf16 = false;
     let mut handle = file;
     handle.seek(SeekFrom::Start(0)).ok()?;
     HASH_BUFFER.with_borrow_mut(|buf| {
@@ -102,7 +104,11 @@ pub(super) fn hashed_source(
             match handle.read(buf) {
                 Ok(0) => return Some(()),
                 Ok(read) => {
+                    if len == 0 {
+                        utf16 = crate::text::has_utf16_bom(&buf[..read]);
+                    }
                     hasher.update(&buf[..read]);
+                    lines.feed(&buf[..read]);
                     len += read as u64;
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
@@ -117,6 +123,7 @@ pub(super) fn hashed_source(
             size: len,
             modified,
             digest: hasher.finalize().into(),
+            lines: (!utf16).then(|| crate::num::saturating_u32(lines.lines())),
         }
     })
 }
@@ -172,6 +179,10 @@ pub(super) struct FileOutcome {
     pub(super) entry: FileEntry,
     pub(super) submatches: u32,
     pub(super) matched_lines: u32,
+    /// Relevance density of production hits, or all hits for a test-only file.
+    pub(super) rank_lines: u32,
+    pub(super) rank_submatches: u32,
+    pub(super) production_hit: bool,
     pub(super) om_matches: Vec<TextSearchMatch>,
     pub(super) binary: bool,
     /// The first NUL came before any text: nothing text-searchable was lost.
@@ -204,11 +215,31 @@ impl<M: Matcher> From<CollectSink<'_, M>> for FileOutcome {
             entry: sink.entry,
             submatches: sink.submatches,
             matched_lines: sink.matched_lines,
+            rank_lines: if sink.production_lines > 0 {
+                sink.production_lines
+            } else {
+                sink.matched_lines
+            },
+            rank_submatches: if sink.production_lines > 0 {
+                sink.production_submatches
+            } else {
+                sink.submatches
+            },
+            production_hit: sink.production_lines > 0,
             om_matches: sink.om_matches,
             binary: sink.binary_offset.is_some(),
             opaque: sink.binary_offset == Some(0),
-            line_weight: sink.line_weight,
-            covered: sink.covered.count_ones(),
+            line_weight: if sink.production_lines > 0 {
+                sink.production_weight
+            } else {
+                sink.line_weight
+            },
+            covered: if sink.production_lines > 0 {
+                sink.production_covered
+            } else {
+                sink.covered
+            }
+            .count_ones(),
             declares: sink.declares,
             generated_header: None,
             copied: None,
@@ -338,6 +369,12 @@ impl<M: Matcher> FileSearcher<'_, M> {
             (self.words, self.terms),
         );
         sink.test_code = self.opts.test_code.as_ref().map(|scope| (scope, path));
+        sink.rank_test_code = self
+            .opts
+            .test_code_rank
+            .as_ref()
+            .filter(|_| ranks_by_relevance(self.opts))
+            .map(|rank| (rank, path));
         sink.line_scope = self.opts.line_scope.as_ref().map(|scope| (scope, path));
         sink.source = Some(path);
         sink.inspect_deferred = self

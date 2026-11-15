@@ -11,7 +11,7 @@ fn no_hit_row(root: &std::path::Path) -> Value {
 }
 
 fn discloses(out: &Value) -> bool {
-    let hinted = out["hints"].to_string().contains(UNCHECKED);
+    let hinted = out["warnings"].to_string().contains(UNCHECKED);
     assert_eq!(hinted, skipped_call(out).is_some(), "{out}");
     hinted
 }
@@ -81,7 +81,7 @@ fn an_empty_last_window_names_what_a_finished_probe_found() {
     let last = walked.last().expect("a window");
     assert_eq!(last["status"], "empty", "{walked:?}");
     assert!(
-        last["hints"]
+        last["warnings"]
             .to_string()
             .contains("1 rust file behind skipped paths (dist/)"),
         "{last}"

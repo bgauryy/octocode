@@ -662,3 +662,35 @@ fn a_multiline_row_states_its_own_extent_and_adjacent_hits_stay_separate() {
         assert_eq!(hits, [1, 2, 3, 5, 7], "before {before}: {rows:?}");
     }
 }
+
+/// Repetition never moves production evidence behind a unique test row.
+#[test]
+fn relevance_inline_duplicate_production_rows_precede_unique_test_rows() {
+    let mut first = ranked_hit(1, Some(1), "same production");
+    first.rank_source(true);
+    let mut repeated = ranked_hit(2, Some(1), "same production");
+    repeated.rank_source(true);
+    let mut test = ranked_hit(3, Some(3), "unique test declaration");
+    test.rank_source(false);
+    assert!(test.is_declaration());
+    let mut rows = vec![test, repeated, first];
+    let before = rows
+        .iter()
+        .map(|row| (row.line, row.value.clone(), row.value_digest))
+        .collect::<std::collections::BTreeSet<_>>();
+    rank_file_rows(&mut rows);
+    assert_eq!(
+        rows.iter().map(|row| row.line).collect::<Vec<_>>(),
+        [2, 1, 3]
+    );
+    assert_eq!(
+        rows.iter()
+            .map(|row| (row.line, row.value.clone(), row.value_digest))
+            .collect::<std::collections::BTreeSet<_>>(),
+        before
+    );
+    assert!(
+        rows[2].is_declaration(),
+        "test declaration identity survives ordering"
+    );
+}

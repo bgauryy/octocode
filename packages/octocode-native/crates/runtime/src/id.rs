@@ -120,42 +120,6 @@ impl ToolId {
         }
     }
 
-    /// The tools a complete row's preferred `related[]` batches may run, most
-    /// preferred first: the documented next step of this tool's main
-    /// workflow (the server instructions' route), an identity check before a
-    /// read. All batches for the first available target stay, along with
-    /// calls carrying unstated or warning-named facts. An empty list keeps
-    /// only such answer-bearing calls. The
-    /// response stage applies it ([`crate::response::workflow_lead`]); a
-    /// row that did not answer whole keeps all its recovery calls.
-    #[must_use]
-    pub const fn workflow_leads(self) -> &'static [Self] {
-        match self {
-            Self::LocalSearch | Self::AstSearch => &[Self::LspSearch, Self::LocalFetch],
-            Self::StructureSearch | Self::LspSearch => &[Self::LocalFetch],
-            Self::GhCloneRepo => &[Self::StructureSearch],
-            Self::GhSearchRepo | Self::ArtifactSearch => &[Self::GhStructure],
-            // A search pinned to a ref the index does not cover leads to
-            // that ref's tree before any read of the index's files.
-            Self::GhSearchCode => &[Self::GhStructure, Self::GhGetFileContent],
-            Self::GhStructure => &[Self::GhGetFileContent],
-            Self::GhSearchHistory => &[Self::GhGetHistoryItem],
-            // A diff is proved at its source (both sides, one call), a
-            // summary by its sections, a commit by the pull request found.
-            Self::GhGetHistoryItem => &[
-                Self::GhGetFileContent,
-                Self::GhGetHistoryItem,
-                Self::GhSearchHistory,
-            ],
-            Self::GraphBuild | Self::GraphQuery => &[Self::GraphQuery],
-            Self::SecurityCheck => &[Self::SecurityCheck],
-            // A judgment is cited from its source read (a fresh one when the
-            // read cannot be saved), else its per-section verdicts.
-            Self::Clasify => &[Self::LocalFetch, Self::GhGetFileContent, Self::Clasify],
-            Self::LocalFetch | Self::GhGetFileContent => &[],
-        }
-    }
-
     /// Row members carried by a split row's first part only, stated once
     /// for the whole row: its notices (`warnings`) and the receipt of the
     /// scan that found it (`filesScanned`); clasify rows are keyed query

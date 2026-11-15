@@ -85,7 +85,7 @@ fn a_sorted_listing_lists_the_same_rows_in_the_same_order_whatever_the_clock_doe
     for (by, order) in [
         ("sizeBytes", "desc"),
         ("sizeBytes", "asc"),
-        ("lineCount", "desc"),
+        ("totalLines", "desc"),
         ("modifiedAt", "desc"),
         ("name", "desc"),
         ("path", "asc"),

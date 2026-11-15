@@ -77,7 +77,7 @@ fn paths_under_a_metric_sort_state_that_one_metric() {
         .expect("ranked paths")
     };
     let before = super::super::rows::line_count_reads(&root.0);
-    let out = ranked("lineCount", "desc");
+    let out = ranked("totalLines", "desc");
     // The ranking reads each file once; emitting the rows reads none.
     assert_eq!(super::super::rows::line_count_reads(&root.0) - before, 2);
     assert_eq!(

@@ -110,6 +110,23 @@ fn several_hits_print_their_file_and_each_declaration_once() {
     );
 }
 
+#[test]
+fn a_single_multiline_hit_prints_its_file_once_and_keeps_every_line() {
+    let path = "src/é/long/path/multiline.rs";
+    let result = json!({"results":[{"index":0,"data":{"files":[{
+        "path":path,
+        "matches":[{"line":2,"endLine":4,"column":3,
+            "value":"fn café() {\n    call();\r\n}"}]
+    }]}}]});
+    for tool in [ToolId::LocalSearch, ToolId::AstSearch] {
+        let lines = render(tool, &result, &json!({}), None).expect("lines");
+        assert_eq!(
+            lines.out,
+            format!("{path}\n2:fn café() {{  [column 3]\n3:    call();\r\n4:}}")
+        );
+    }
+}
+
 /// A location answer groups its rows by file; each still prints as a hit.
 #[test]
 fn grouped_location_rows_print_as_hits() {

@@ -188,13 +188,16 @@ impl NativeLspClient {
     /// LSP requests are NOT serialized and cannot head-of-line block one
     /// another. Returns an error if the client has not been started.
     pub(super) async fn connection_handle(&self) -> Result<Arc<JsonRpcConnection>> {
-        self.inner
+        let connection = self
+            .inner
             .connection
             .lock()
             .await
             .as_ref()
             .map(Arc::clone)
-            .ok_or_else(|| Error::new("LSP client not initialized"))
+            .ok_or_else(|| Error::new("LSP client not initialized"))?;
+        connection.ensure_alive()?;
+        Ok(connection)
     }
 
     /// Definition, references, type-definition, or implementation locations

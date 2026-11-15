@@ -130,16 +130,10 @@ async fn an_oversized_source_is_judged_in_sections_and_answered_once_per_questio
     );
     // The read holds the deciding lines, not the source.
     assert!(data["next"]["read"].is_object(), "{out}");
-    // Every section's own verdict is one call away.
-    let detail = data["related"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|call| call["tool"] == "clasify")
-        .expect("sections call");
-    assert_eq!(
-        detail["input"]["queries"][0]["operation"], "sections",
-        "{out}"
+    crate::support::assert_cursor_only(&data["next"]["read"]["input"]);
+    assert!(
+        data.get("related").is_none(),
+        "no optional fresh evaluation: {out}"
     );
     runtime.close().await;
 }
@@ -354,16 +348,9 @@ async fn a_deadline_mid_sections_answers_from_the_judged_ones_and_counts_the_res
         coverage["unassessed"].as_u64().unwrap_or(0) + coverage["error"].as_u64().unwrap_or(0);
     assert!(answered > 0 && rest > 0, "{out}");
     assert_eq!(answered + rest, total, "{out}");
-    // The way to the rest: the same questions as a sections call.
-    let detail = data["related"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|call| call["tool"] == "clasify")
-        .expect("sections call");
-    assert_eq!(
-        detail["input"]["queries"][0]["operation"], "sections",
-        "{out}"
-    );
+    // The deciding source remains readable; unassessed coverage above is not
+    // turned into an absence claim or hidden by optional fresh-work advice.
+    assert_eq!(data["next"]["read"]["tool"], "localFetch", "{out}");
+    crate::support::assert_cursor_only(&data["next"]["read"]["input"]);
     runtime.close().await;
 }

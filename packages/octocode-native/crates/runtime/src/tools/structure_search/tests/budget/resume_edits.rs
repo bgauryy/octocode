@@ -59,7 +59,7 @@ fn shapes() -> Vec<(&'static str, Value)> {
     for view in ["paths", "details"] {
         shapes.push(("tree", json!({"view":view})));
         shapes.push(("files", json!({"view":view})));
-        for by in ["name", "sizeBytes", "modifiedAt", "lineCount"] {
+        for by in ["name", "sizeBytes", "modifiedAt", "totalLines"] {
             shapes.push((
                 "files",
                 json!({"view":view,"sort":{"by":by,"order":"desc"}}),

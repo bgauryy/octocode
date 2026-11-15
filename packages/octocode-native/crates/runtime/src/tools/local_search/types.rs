@@ -136,6 +136,11 @@ pub struct SearchFile {
     /// The page cursor that reads this file's rows past the shown ones.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next: Option<serde_json::Value>,
+    /// The file's lines, when the search counted them as it read the file
+    /// ([`octocode_engine::types::SearchedSource::lines`]): where a lead's
+    /// read of it ends. Never serialized.
+    #[serde(skip)]
+    pub(crate) lines: Option<u32>,
 }
 
 /// The response's totals. They serialize flat into the row (`matchCount`,

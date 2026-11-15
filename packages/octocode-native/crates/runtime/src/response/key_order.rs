@@ -112,17 +112,30 @@ impl Places {
     }
 
     /// The key order at `at` once `map` is read there: the order earlier
-    /// objects stated their keys in, then the keys `map` adds. Empty where
-    /// the schemas name no property: a record, or a value they do not reach.
+    /// objects stated their keys in, with each key `map` adds placed right
+    /// after the key `map` states before it, or after every stated key when
+    /// `map` states none before it. An element that holds a key the earlier
+    /// ones lacked keeps it where it built it: a file's `declarations` after
+    /// its `path`, before its `matches`, even when the list's first file has
+    /// no declarations. The keys earlier objects stated keep their order.
+    /// Empty where the schemas name no property: a record, or a value they
+    /// do not reach.
     fn stated(&mut self, at: usize, map: &Map<String, Value>) -> &[String] {
         if self.declared(at).is_empty() {
             return &[];
         }
         let stated = &mut self.places[at].stated;
+        let mut after = None;
         for key in map.keys() {
-            if !stated.contains(key) {
-                stated.push(key.clone());
-            }
+            let place = match stated.iter().position(|known| known == key) {
+                Some(place) => place,
+                None => {
+                    let place = after.map_or(stated.len(), |before: usize| before + 1);
+                    stated.insert(place, key.clone());
+                    place
+                }
+            };
+            after = Some(place);
         }
         stated
     }

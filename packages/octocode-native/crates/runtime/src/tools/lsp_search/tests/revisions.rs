@@ -30,6 +30,16 @@ async fn page(
     let started = SystemTime::now();
     RESPONSE_SCOPE
         .scope(std::cell::RefCell::new(pinned), async {
+            if RESPONSE_SCOPE.with(|scope| scope.borrow().generation.is_empty()) {
+                // Model the watching server's observation before provider reads.
+                // Recently written sources cannot be proved by a late seal alone.
+                scope
+                    .walked(SystemTime::now(), &crate::execution::cancel::NeverCancel)
+                    .await
+                    .expect("pre-read walk")
+                    .fingerprint
+                    .expect("complete source proof");
+            }
             let current = scope_responses(
                 query,
                 &scope,
@@ -57,16 +67,14 @@ async fn page(
         .await
 }
 
-/// A first page whose scope walk proved no fingerprint (an unsettled file
-/// too large to digest) pins that shape: its continuation observes the scope
-/// as of the same instant, so an unchanged scope stays current after the
-/// file settles, and a scope that changed since (the file removed) is stale.
+/// A large source is fingerprinted at the first page's instant. Its
+/// continuation stays current after the file settles, but not after removal.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_continuation_observes_an_unfingerprinted_scope_as_its_first_page_did() {
+async fn a_continuation_preserves_a_large_source_revision_after_it_settles() {
     let (_dir, root, paths) = temp_workspace();
     std::fs::write(root.join("a.ts"), "export function f() {}\n").expect("anchor");
     let large = root.join("large.ts");
-    std::fs::write(&large, vec![b'x'; scope::FRESH_CONTENT_MAX_BYTES + 1]).expect("large");
+    std::fs::write(&large, vec![b'x'; 2 * 1024 * 1024]).expect("large");
     // Unsettled now, settled one second from now.
     let modified = SystemTime::now() - scope::FRESH_MTIME + Duration::from_secs(1);
     std::fs::File::options()
@@ -280,18 +288,21 @@ async fn a_file_that_settles_between_walks_is_not_a_watched_change() {
         unsettled, settled,
         "the stamps differ by their walk's instant"
     );
-    assert!(scope::same_file(&path, &unsettled, &settled));
-    assert!(scope::same_file(&path, &settled, &unsettled));
+    assert!(scope::same_file(&path, &unsettled, &settled, &|| false));
+    assert!(scope::same_file(&path, &settled, &unsettled, &|| false));
     let (metadata, _) = unsettled.rsplit_once('\u{0}').expect("stamp");
     let other = format!(
         "{metadata}\u{0}{}",
         octocode_engine::digest::sha256(b"other")
     );
     assert!(
-        !scope::same_file(&path, &other, &settled),
+        !scope::same_file(&path, &other, &settled, &|| false),
         "content changed"
     );
     write("export function g() {}\n");
     let edited = stamp(modified + scope::FRESH_MTIME * 2).await;
-    assert!(!scope::same_file(&path, &settled, &edited), "an edit");
+    assert!(
+        !scope::same_file(&path, &settled, &edited, &|| false),
+        "an edit"
+    );
 }

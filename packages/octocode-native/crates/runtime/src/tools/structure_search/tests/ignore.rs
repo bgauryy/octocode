@@ -114,9 +114,9 @@ fn all_ignored_listing_names_the_ignore_rules_and_offers_a_retry() {
     let tree = run(&root.0, json!({"operation":"tree","path":repos})).expect("tree");
     assert_eq!(tree["status"], "empty", "{tree}");
     // The lead is the next step; the finding is one hint, the summary has the counts.
-    assert_eq!(tree["hints"].as_array().map(Vec::len), Some(1), "{tree}");
+    assert_eq!(tree["warnings"].as_array().map(Vec::len), Some(1), "{tree}");
     assert!(
-        tree["hints"][0]
+        tree["warnings"][0]
             .as_str()
             .is_some_and(|h| h.contains("repos/*")),
         "{tree}"
@@ -145,7 +145,11 @@ fn all_ignored_listing_names_the_ignore_rules_and_offers_a_retry() {
     )
     .expect("files");
     assert_eq!(files["status"], "empty", "{files}");
-    assert_eq!(files["hints"].as_array().map(Vec::len), Some(1), "{files}");
+    assert_eq!(
+        files["warnings"].as_array().map(Vec::len),
+        Some(1),
+        "{files}"
+    );
     assert!(skipped_count(&files, "ignored") > 0, "{files}");
     let retry = &related(&files, "structureSearch");
     assert_eq!(

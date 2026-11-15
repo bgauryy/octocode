@@ -14,6 +14,15 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+/// The shaping inputs a response-page fallback must reproduce after its
+/// body is evicted. Rejected rows stay on page one, but their space and the
+/// original repair notes remain part of the admitted rows' page plan.
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub(super) struct PageShape {
+    pub beside_rows: usize,
+    pub repairs: Vec<String>,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub(super) enum SavedWork {
     ToolResume {
@@ -30,6 +39,7 @@ pub(super) enum SavedWork {
     /// ([`Cursor::key`] checks both).
     ResponsePage {
         cursor: Cursor,
+        shape: PageShape,
         index: Option<usize>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         rows: Option<Vec<usize>>,

@@ -18,7 +18,7 @@ pub use source::{
     has_utf16_bom, interior_offset, open_regular, read_regular, read_source, read_source_from,
     sniff, sniff_complete,
 };
-pub use utf8_offsets::{LineIndex, bom_len, line_at, line_containing, line_starts};
+pub use utf8_offsets::{LineCount, LineIndex, bom_len, line_at, line_containing, line_starts};
 pub use words::identifier_words;
 
 /// `count` and its noun in the right number: `1 line`, `2 lines`, `0 lines`.

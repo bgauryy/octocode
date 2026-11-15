@@ -226,21 +226,22 @@ fn a_value_read_by_its_shape_runs_and_is_named_or_refused() {
             json!({"matchString":["x","^(class |def )"],"regexEngine":"rust"}),
             rust,
         ),
+        // A text for the list names the list it runs as.
         (
             "localSearch",
             json!({"path":".","pattern":"defects-queue"}),
             json!({"matchString":["defects-queue"],"regexEngine":null}),
-            "send `matchString` next",
+            "send `matchString: [\"defects-queue\"]` next",
         ),
         (
             "localSearch",
             json!({"path":".","pattern":"call("}),
             json!({"matchString":["call("],"regexEngine":null}),
-            "send `matchString` next",
+            "send `matchString: [\"call(\"]` next",
         ),
         (
             "localSearch",
-            json!({"path":".","pattern":"a|b","regexEngine":"pcre2"}),
+            json!({"path":".","pattern":["a|b"],"regexEngine":"pcre2"}),
             json!({"regexEngine":"pcre2"}),
             "send `matchString` next",
         ),

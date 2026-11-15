@@ -252,7 +252,7 @@ impl Operation<'_, '_> {
             }
         }
         if !others.is_empty() {
-            crate::response::result::add_hints(
+            crate::response::paging::push_warnings(
                 row,
                 [format!(
                     "This directory search used the {searched} server; its {} sources were not searched (related).",

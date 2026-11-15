@@ -12,7 +12,7 @@ The home defaults to `~/.octocode` on macOS and Linux or `%USERPROFILE%\.octocod
 | Home `credentials.json` and `.key` | Encrypted Octocode GitHub login and its encryption key. Use `octocode auth logout` to remove the stored login. [Authentication](AUTHENTICATION.md) |
 | Home `skills/` | Skills installed by `octocode skill install` and linked into selected agent hosts |
 | Home `clones/` and `clone-store/` | `ghCloneRepo` checkouts and the Git stores that back them. A clean checkout at the resolved commit can be reused after an access check. If it has local changes, Octocode refuses reuse and preserves the worktree. Keep its backing store while using a checkout. |
-| Home `cache/provider-answers-v2/` | Reusable GitHub and package registry responses, separated by origin and credential |
+| Home `cache/provider-answers-v3/` | Reusable GitHub and package registry responses, separated by origin and credential |
 | Home `tmp/` | Saved response pages, continuation handles, section assessments, LSP answers, graph query rows, GitHub rate-limit state, and clone staging |
 | Home `tmp/materialize/v3/` and `tmp/capture/url/` | Commit-pinned GitHub files and captured URL or image evidence, respectively. Use the inspection path the tool returns. |
 | Workspace `.octocode/graph/` | Published graph snapshots and temporary `.facts` checkpoints. Set `local.graphHome` to use `octocode-graph/` under a different directory. |

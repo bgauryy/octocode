@@ -94,7 +94,6 @@ pub(super) fn finish_pr(
         comment_reads,
         commit_file_pages,
     } = shaped;
-    let patches = wants.has(Section::Patches);
     // A `matchString` miss in the files is an empty row only when no other
     // section of the read (body, comments, reviews) holds evidence;
     // otherwise the row says so in a warning.
@@ -141,49 +140,20 @@ pub(super) fn finish_pr(
     attach_context_reads(&mut out, query, &files.clipped);
     // A patch read's next step is the code at either side of its numbered
     // diff: those reads rank ahead of the section menu.
-    let merge_read = files.merge_read.filter(|_| patches);
     // A miss already leads to its recovery reads; the menu would offer the
     // whole-PR patches the miss was narrowing away from.
     let menu = menu.filter(|_| out["status"] != "empty");
-    let coverage = menu
-        .as_ref()
-        .and_then(|menu| selected_coverage_hint(menu, &out));
-    crate::response::result::add_hints(&mut out, coverage);
-    attach_leads(&mut out, files.side_reads, menu, merge_read);
+    attach_leads(&mut out, files.side_reads, menu);
     lead_with_comment_reads(&mut out, comment_reads);
     ToolData::from(out)
-}
-
-/// How much of the diff the selected-patch lead reads, when it names some of
-/// the changed files and no lead reads them all: a lead names how to read
-/// more, and its count says what it leaves.
-fn selected_coverage_hint(menu: &Value, out: &Value) -> Option<String> {
-    if menu.get("readPatches").is_some() {
-        return None;
-    }
-    let include = menu
-        .pointer("/readSelectedPatches/input/queries/0/include")?
-        .as_array()?
-        .len();
-    let total = out.pointer("/pullRequests/0/changedFileCount")?.as_u64()?;
-    (u64::try_from(include).ok()? < total).then(|| {
-        format!(
-            "The patch lead reads {include} of {total} changed files, most-changed source first; without include it reads every patch."
-        )
-    })
 }
 
 /// The row's next steps ride the response's leads (one capped list), never
 /// a second list nested in the row; the contract's lead priority keeps every
 /// lead under the lead cap. The side reads of the numbered diff come first,
-/// then the section menu, then the merge-commit read; a page continuation
+/// then the section menu; a page continuation
 /// already under a name keeps it.
-fn attach_leads(
-    out: &mut Value,
-    side_reads: Vec<(&'static str, Value)>,
-    menu: Option<Value>,
-    merge_read: Option<Value>,
-) {
+fn attach_leads(out: &mut Value, side_reads: Vec<(&'static str, Value)>, menu: Option<Value>) {
     let menu = match menu {
         Some(Value::Object(menu)) => menu,
         _ => Map::new(),
@@ -191,8 +161,7 @@ fn attach_leads(
     let leads = side_reads
         .into_iter()
         .map(|(name, read)| (name.to_owned(), read))
-        .chain(menu)
-        .chain(merge_read.map(|read| ("readAtMerge".to_owned(), read)));
+        .chain(menu);
     for (name, lead) in leads {
         ensure_calls(out);
         if let Some(next) = out["calls"].as_object_mut() {

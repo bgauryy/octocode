@@ -52,8 +52,8 @@ pub(crate) enum ResponseError {
     InvalidEvidence(String),
 }
 
-/// The page of `input` its options ask for: whole-row pages, else the envelope
-/// unchanged.
+/// The page of `input` its options ask for, or an unpaged envelope with any
+/// oversized indivisible value disclosed.
 pub(crate) fn prepare(
     mut input: ResponseInput,
     cancelled: &Cancellation,
@@ -61,7 +61,7 @@ pub(crate) fn prepare(
     if cancelled.is_cancelled() {
         return Err(ResponseError::Cancelled);
     }
-    let Value::Object(structured) = std::mem::take(&mut input.structured) else {
+    let Value::Object(mut structured) = std::mem::take(&mut input.structured) else {
         return Err(ResponseError::StructuredContentMustBeObject);
     };
     if input.options.paging {
@@ -70,6 +70,9 @@ pub(crate) fn prepare(
             return Err(ResponseError::Cancelled);
         }
         return cut_rows(&source, &input, cancelled);
+    }
+    if let Some(budget) = input.options.response_chars {
+        oversized::flag(&mut structured, input.tool, budget, false);
     }
     Ok(PreparedPage {
         value: Value::Object(structured),

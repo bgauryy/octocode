@@ -17,9 +17,13 @@ fn fixture() -> Fixture {
 
 /// A graphQuery row under a response window, as the runtime dispatches it.
 fn windowed(dir: &Path, row: Value) -> Value {
+    windowed_at(dir, row, WINDOW)
+}
+
+fn windowed_at(dir: &Path, row: Value, window: usize) -> Value {
     let row = crate::contracts::validate_built_query("graphQuery", row).expect("input contract");
     let context = ExecutionContext {
-        response_window: Some(WINDOW),
+        response_window: Some(window),
         ..context()
     };
     let result = execute(ToolId::GraphQuery, &row, dir, &context).expect("execute");
@@ -40,6 +44,27 @@ fn chars(value: &Value) -> usize {
     octocode_engine::json_size::utf16_units(value).expect("measurable")
 }
 
+/// `page` as the response delivers it: its row inside the response envelope,
+/// each continuation published as an issued cursor.
+fn published(page: &Value) -> Value {
+    let mut data = page.clone();
+    if let Some(next) = data.get_mut("next").and_then(Value::as_object_mut) {
+        for call in next.values_mut() {
+            call["input"] = json!({"cursor": crate::response::cursor::issued::placeholder()});
+        }
+    }
+    crate::response::rows::envelope(
+        ToolId::GraphQuery,
+        vec![crate::response::rows::result_row(0, data, None)],
+    )
+}
+
+/// The next page of `page`'s walk at `window`.
+fn following(dir: &Path, page: &Value, window: usize) -> Option<Value> {
+    page.pointer("/next/nextPage/input/queries/0")
+        .map(|next| windowed_at(dir, next.clone(), window))
+}
+
 #[test]
 fn a_page_ends_at_limit_or_the_response_budget() {
     let dir = fixture();
@@ -57,9 +82,9 @@ fn a_page_ends_at_limit_or_the_response_budget() {
         let rows = ids(&page);
         assert!(!rows.is_empty(), "a walk always moves: {page}");
         assert!(
-            rows.len() == 1 || chars(&page) <= WINDOW,
+            rows.len() == 1 || chars(&published(&page)) <= WINDOW,
             "page {pages} exceeds the response window: {}",
-            chars(&page)
+            chars(&published(&page))
         );
         walked.extend(rows);
         match page.pointer("/next/nextPage/input/queries/0") {
@@ -78,9 +103,11 @@ fn a_page_ends_at_limit_or_the_response_budget() {
     assert_eq!(walked, ids(&whole), "the walk keeps snapshot order");
 }
 
-/// A page the budget cuts holds every row that fits: one more row would
-/// have overflowed the budget. Rows count as delivered (lean by default),
-/// not as projected before the lean view drops their provenance.
+/// A page the budget cuts holds every whole row its response window fits,
+/// however small the window: one more row would have overflowed the
+/// response as delivered, and the shared pager delivers the page whole.
+/// Rows count as delivered (lean by default), not as projected before the
+/// lean view drops their provenance.
 #[test]
 fn a_budget_cut_page_holds_every_row_that_fits() {
     let dir = Fixture::new();
@@ -89,25 +116,50 @@ fn a_budget_cut_page_holds_every_row_that_fits() {
         .collect::<String>();
     dir.write("app/a.ts", source);
     call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
-    let budget = crate::response::page_windows::page_budget(Some(WINDOW));
-    for operation in ["symbols", "unresolved"] {
-        let page = windowed(
-            &dir.0,
-            json!({"operation":operation,"path":"app","limit":1000}),
-        );
-        let next = page
-            .pointer("/next/nextPage/input/queries/0")
-            .unwrap_or_else(|| panic!("{operation}: the budget cuts the page: {page}"));
-        let following = windowed(&dir.0, next.clone());
-        let size = chars(&page);
-        assert!(size <= WINDOW, "{operation}: {size} exceeds the window");
-        // The separator before the next row is one character.
-        let with_next = size + 1 + chars(&following["rows"][0]);
-        assert!(
-            with_next > budget,
-            "{operation}: {} rows in {size} chars left room for the next row ({with_next} <= {budget})",
-            ids(&page).len()
-        );
+    for window in [WINDOW / 6, WINDOW] {
+        for operation in ["symbols", "unresolved"] {
+            let page = windowed_at(
+                &dir.0,
+                json!({"operation":operation,"path":"app","limit":1000}),
+                window,
+            );
+            let next = following(&dir.0, &page, window).unwrap_or_else(|| {
+                panic!("{operation} at {window}: the budget cuts the page: {page}")
+            });
+            let delivered = published(&page);
+            let size = chars(&delivered);
+            assert!(
+                size <= window,
+                "{operation}: {size} exceeds the window {window}"
+            );
+            // The separator before the next row is one character.
+            let with_next = size + 1 + chars(&next["rows"][0]);
+            assert!(
+                with_next > window,
+                "{operation}: {} rows in {size} chars left room in {window} for the next row ({with_next})",
+                ids(&page).len()
+            );
+            let response = crate::response::pager::prepare(
+                crate::response::pager::ResponseInput {
+                    tool: ToolId::GraphQuery,
+                    structured: delivered,
+                    options: crate::response::page_model::ResponsePageOptions {
+                        response_chars: Some(window),
+                        paging: true,
+                        ..Default::default()
+                    },
+                },
+                &octocode_io::cancellation::Cancellation::new(),
+            )
+            .expect("response page");
+            let row = &response.value["results"][0];
+            assert!(
+                row.get("rowPart").is_none() && response.value.get("responsePagination").is_none(),
+                "{operation} at {window}: the pager cut the page again: {}",
+                response.value
+            );
+            assert_eq!(row["data"]["rows"], page["rows"], "{operation} at {window}");
+        }
     }
 }
 

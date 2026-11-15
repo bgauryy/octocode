@@ -1,5 +1,4 @@
 //! Cutting the returned page from the view and building its success row.
-mod budget_hint;
 mod source_lines;
 
 use super::super::pagination::{SourceLines, continuation, result_counts};
@@ -9,7 +8,6 @@ use super::classified::attach_unfiltered;
 use super::warnings::read_scope_warnings;
 use super::{View, compress_ranges, past_end};
 use crate::tools::source_view::local_fetch_query;
-use budget_hint::budget_cut_hint;
 use octocode_contract_types::{LocalFetchQuery, ReadProgressUnit, ReadView};
 use source_lines::page_lines;
 
@@ -285,7 +283,6 @@ pub(super) fn page_result(
         (pg.view_lines.1 + 1).saturating_sub(pg.view_lines.0)
     };
     let minified_away = pg.text.is_empty() && view.mode.is_some() && !out_of_range;
-    let budget_cut = budget_cut_hint(read, &pg.pagination, out_of_range);
     let mut result = LocalFetchResult {
         path: local_fetch_query::path(q).to_owned(),
         source_sha256: Some(source.sha256.clone()),
@@ -334,7 +331,6 @@ pub(super) fn page_result(
         selection: selection_outcome.map(|chosen| chosen.outcome.receipt.clone()),
         ..LocalFetchResult::blank(ReadStatus::Success)
     };
-    result.hints.extend(budget_cut);
     // The view removed every selected line (a comment-only range read
     // minified): an empty read whose lead is the same read as is.
     if minified_away && source.bytes > 0 {

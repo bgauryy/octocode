@@ -207,3 +207,71 @@ async fn a_paged_partial_batch_discloses_oversized_pages_and_returns_rejections_
     assert!(pages > 1);
     runtime.close().await;
 }
+
+/// What a response publishes beside a row's list page shares its window:
+/// a fresh request's input-repair warning and a rejected row. A list page
+/// cut to its window fits beside them, so the response is one page of whole
+/// rows, never a part of a row that would have fit.
+#[tokio::test]
+async fn a_list_page_fits_beside_repair_notes_and_rejected_rows() {
+    let workspace = Workspace::new();
+    let source = (0..120)
+        .map(|n| format!("export function f{n}() {{ return {n}; }}\n"))
+        .collect::<String>();
+    workspace.write("app/a.ts", source);
+    let runtime = workspace.runtime(&[]);
+    let root = workspace.workspace.join("app");
+    let root = root.to_str().expect("path");
+    runtime
+        .run(
+            "build".into(),
+            "graphBuild".into(),
+            json!({"queries":[{"path":root}]}),
+        )
+        .await
+        .expect("graphBuild");
+    let symbols = |extra: Value| {
+        let mut row = json!({"operation":"symbols","path":root});
+        row.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        row
+    };
+    for (window, input) in [
+        // A repaired `limit` is read as 7, and the read is a warning.
+        (
+            1_200,
+            json!({"queries":[symbols(json!({"limit":"7"}))],"responseChars":1_200}),
+        ),
+        // `offset` is private progress: the second row is rejected.
+        (
+            3_000,
+            json!({"queries":[symbols(json!({})),symbols(json!({"offset":10}))],"responseChars":3_000}),
+        ),
+    ] {
+        let outcome = runtime
+            .run("beside".into(), "graphQuery".into(), input.clone())
+            .await
+            .expect("graphQuery");
+        let output = &outcome.structured_content;
+        let text = serde_json::to_string(output).expect("json");
+        let first = &output["results"][0];
+        assert!(
+            first.get("rowPart").is_none() && output.get("responsePagination").is_none(),
+            "{input}: the row was cut again: {text}"
+        );
+        assert!(
+            first["data"]["rows"]
+                .as_array()
+                .is_some_and(|rows| rows.len() > 1),
+            "{text}"
+        );
+        assert!(first["data"]["next"]["nextPage"].is_object(), "{text}");
+        assert!(text.len() <= window, "{input}: {} chars", text.len());
+        assert!(
+            output.get("warnings").is_some() || output["results"][1]["status"] == "error",
+            "{text}"
+        );
+    }
+    runtime.close().await;
+}

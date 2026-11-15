@@ -1,0 +1,2095 @@
+{
+  "status": "Complete within documented scopes; cumulative provisional ratings and coverage limits explicit",
+  "historicalRatings": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+  "finalBinary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+  "interpretation": "Scores apply to named measured scopes. Historical competitor measurements retain their original binaries. Fresh breadth is not a fresh timing comparison.",
+  "tools": {
+    "localSearch": {
+      "score": 8.8,
+      "provisional": true,
+      "confidence": "medium for cumulative named scopes",
+      "measuredWeightPercent": 100.0,
+      "dimensions": {
+        "correctness": {
+          "score": 10,
+          "weightPercent": 30,
+          "status": "measured",
+          "evidence": "LS-01/02/03/07 counts and source identities; reconstruction-proof.json; rg source oracle.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "60 occurrences/30 exact Unicode lines; tiny9declarations+9hits same/earlier owner arrival."
+          }
+        },
+        "schemaInput": {
+          "score": 9,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Fresh query schema + MCP tools/list; LS-05 wrong field; unique boolean rejection and off/list/count correction.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "60 occurrences/30 exact Unicode lines; tiny9declarations+9hits same/earlier owner arrival."
+          }
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Useful grouped line identities; LS-05 scoped empty; natural output 1196 vs rg837 codepoints, including stderr counters/related read.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "60 occurrences/30 exact Unicode lines; tiny9declarations+9hits same/earlier owner arrival."
+          },
+          "currentRendererEvidence": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/local-efficiency/REPORT.md",
+            "result": "Complete multiline case663\u2192435bytes; all source lines/Unicode/columns retained, JSON/MCP data unchanged. No whole-dimension score increase from this one case."
+          }
+        },
+        "pagination": {
+          "score": 10,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "LS-03 all8 pages on each surface;30 unique selected lines equal frozen source.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "60 occurrences/30 exact Unicode lines; tiny9declarations+9hits same/earlier owner arrival."
+          }
+        },
+        "workflow": {
+          "score": 9,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "One request settles lexical query; ancestor recovery hints widen into mutable campaign receipts, disclosed separately.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "60 occurrences/30 exact Unicode lines; tiny9declarations+9hits same/earlier owner arrival."
+          }
+        },
+        "efficiency": {
+          "score": 6,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Final S1 same40files: median Node CLI50.32ms, native CLI12.94ms, persistent MCP4.69ms, rg5.44ms; CLI stdout+stderr443B versus rg370B. Three warm repetitions; no causal old/new speedup.",
+          "provenance": "this campaign; historical evidence retained separately",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "historicalEvidence": "Three paired LS-01 repetitions: natural Node CLI output1.43\u00d7 rg; fresh Node startup dominates, persistent MCP is faster on this small fixture.",
+          "measurementBinary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+          "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/local-efficiency/REPORT.md"
+        },
+        "cacheFreshness": {
+          "score": 9,
+          "weightPercent": 5,
+          "status": "measured",
+          "evidence": "Source edit changes occurrences60\u219259 on both surfaces; no cache-hit assertion.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json"
+        }
+      },
+      "evidenceLane": "local",
+      "finalBinary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+      "historicalScore": 8.8,
+      "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+      "freshAcceptance": {
+        "requestStatus": "PASS",
+        "sourceStatus": "PASS",
+        "scope": "60 occurrences/30 exact Unicode lines; tiny9declarations+9hits same/earlier owner arrival.",
+        "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+        "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md"
+      },
+      "historicalInitialBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0"
+    },
+    "localFetch": {
+      "score": 8.7,
+      "provisional": true,
+      "confidence": "medium for cumulative named scopes",
+      "measuredWeightPercent": 100.0,
+      "dimensions": {
+        "correctness": {
+          "score": 10,
+          "weightPercent": 30,
+          "status": "measured",
+          "evidence": "LF-01 exact inclusive range; LF-02 exact613-line declaration; LF-03 all90lines; LF-04 all27009bytes.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Primary lines4\u20139 exact; tiny9Unicode lines exact across5parts per surface. Prior long stress not rerun."
+          }
+        },
+        "schemaInput": {
+          "score": 9,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Fresh schema; LF-05 range typo points to ranges; empty file vs missing path vs absent match are distinct.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Primary lines4\u20139 exact; tiny9Unicode lines exact across5parts per surface. Prior long stress not rerun."
+          }
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Source and line numbers arrive first; headers/page metadata cost above sed; compact view declares transformation.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Primary lines4\u20139 exact; tiny9Unicode lines exact across5parts per surface. Prior long stress not rerun."
+          }
+        },
+        "pagination": {
+          "score": 10,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "10 declaration pages,13 full-file pages,6 byte/response pages reconstruct exactly on both interfaces.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Primary lines4\u20139 exact; tiny9Unicode lines exact across5parts per surface. Prior long stress not rerun."
+          }
+        },
+        "workflow": {
+          "score": 9,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "Known signature yields entire declaration without guessing length; expert derives AST range then reads source.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Primary lines4\u20139 exact; tiny9Unicode lines exact across5parts per surface. Prior long stress not rerun."
+          }
+        },
+        "efficiency": {
+          "score": 5,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "LF-01 natural266 vs sed127 chars; LF-02 full chain27986 vs projected AST+sed22019; Node chain median530ms.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json"
+        },
+        "cacheFreshness": {
+          "score": 9,
+          "weightPercent": 5,
+          "status": "measured",
+          "evidence": "Same-length selected source edit appears immediately on both interfaces; no cache-hit assertion.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json"
+        }
+      },
+      "evidenceLane": "local",
+      "finalBinary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+      "historicalScore": 8.7,
+      "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+      "freshAcceptance": {
+        "requestStatus": "PASS",
+        "sourceStatus": "PASS",
+        "scope": "Primary lines4\u20139 exact; tiny9Unicode lines exact across5parts per surface. Prior long stress not rerun.",
+        "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+        "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md"
+      },
+      "historicalInitialBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0"
+    },
+    "structureSearch": {
+      "score": 8.8,
+      "provisional": true,
+      "confidence": "medium for cumulative named scopes",
+      "measuredWeightPercent": 100.0,
+      "dimensions": {
+        "correctness": {
+          "score": 10,
+          "weightPercent": 30,
+          "status": "measured",
+          "evidence": "All11 manifest files in both views; byte/line order and empty/directory filters match source/stat/wc.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Three-file byte ordering91/18/2 matches owned source."
+          }
+        },
+        "schemaInput": {
+          "score": 9,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Fresh schema; size near miss repaired to sizeBytes with explicit warning; invalid order refused.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Three-file byte ordering91/18/2 matches owned source."
+          }
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Requested single metric present, including zero-byte row; repeated paths, summary and optional read add measurable text.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Three-file byte ordering91/18/2 matches owned source."
+          }
+        },
+        "pagination": {
+          "score": 10,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "6 pages reconstruct11 unique paths for paths/details on both interfaces.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Three-file byte ordering91/18/2 matches owned source."
+          }
+        },
+        "workflow": {
+          "score": 9,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "Tree depth and basename regex selection explicit; added file and modified-time winner both refresh.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Three-file byte ordering91/18/2 matches owned source."
+          }
+        },
+        "efficiency": {
+          "score": 6,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Three paired size-order repetitions: native natural638 vs expert399 chars; Node52ms vs shell9.85ms; MCP1.06ms.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json"
+        },
+        "cacheFreshness": {
+          "score": 9,
+          "weightPercent": 5,
+          "status": "measured",
+          "evidence": "Added file updates3\u21924membership and rank; explicit assigned mtime winner agrees on both surfaces.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json"
+        }
+      },
+      "evidenceLane": "local",
+      "finalBinary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+      "historicalScore": 8.8,
+      "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+      "freshAcceptance": {
+        "requestStatus": "PASS",
+        "sourceStatus": "PASS",
+        "scope": "Three-file byte ordering91/18/2 matches owned source.",
+        "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+        "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md"
+      },
+      "historicalInitialBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0"
+    },
+    "astSearch": {
+      "score": 8.4,
+      "provisional": true,
+      "confidence": "medium for cumulative named scopes",
+      "measuredWeightPercent": 100.0,
+      "dimensions": {
+        "correctness": {
+          "score": 9,
+          "weightPercent": 30,
+          "status": "measured",
+          "evidence": "AS-01/02 source-confirmed selected calls and eight symbols; local/metrics.json.scopeGaps retains contained-call, receiver-form, debug-tree and declaration-projection rival gaps. Coverage does not justify the strongest-rival 10.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Free calls5/9; actual emitted any-rule copied unchanged returns5/7/9."
+          }
+        },
+        "schemaInput": {
+          "score": 9,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Fresh schema; required rule rejection actionable; structural forms distinct from lexical matches.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Free calls5/9; actual emitted any-rule copied unchanged returns5/7/9."
+          }
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "AST-RELATED-01 fixed; final-local3 promised lead executes source lines5/7/9. Final AS-01 output remains larger than ast-grep; full streams retained.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Free calls5/9; actual emitted any-rule copied unchanged returns5/7/9."
+          },
+          "currentRendererEvidence": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/local-efficiency/REPORT.md",
+            "result": "Complete multiline case663\u2192435bytes; all source lines/Unicode/columns retained, JSON/MCP data unchanged. No whole-dimension score increase from this one case."
+          }
+        },
+        "pagination": {
+          "score": 10,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "All8 source-confirmed top-level declarations over4 pages on each surface without duplicates.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Free calls5/9; actual emitted any-rule copied unchanged returns5/7/9."
+          }
+        },
+        "workflow": {
+          "score": 9,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "Final CLI/MCP advertised recovery call executes unchanged; preferred source read remains available.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Free calls5/9; actual emitted any-rule copied unchanged returns5/7/9."
+          }
+        },
+        "efficiency": {
+          "score": 5,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Final A1 same40files: median Node CLI54.69ms, native CLI16.89ms, persistent MCP8.67ms, projected ast-grep12.67ms; CLI stdout+stderr301B versus35B. Three warm repetitions; no causal old/new speedup.",
+          "provenance": "this campaign; historical evidence retained separately",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "historicalEvidence": "Final verified4 AS-01 three paired repetitions: median CLI56.487ms/1114bytes including stderr; persistentMCP2.899ms/1032contentbytes; ast-grep8.112ms/189bytes. Same source facts, richer workflow output. final-local3/ast-timing/summary.json; no controlled old/new speed claim.",
+          "measurementBinary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+          "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/local-efficiency/REPORT.md"
+        },
+        "cacheFreshness": {
+          "score": 9,
+          "weightPercent": 5,
+          "status": "measured",
+          "evidence": "Appended free call changes count2\u21923 on both surfaces; no cache-hit assertion.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json"
+        }
+      },
+      "evidenceLane": "local",
+      "finalBinary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+      "historicalScore": 8.4,
+      "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+      "freshAcceptance": {
+        "requestStatus": "PASS",
+        "sourceStatus": "PASS",
+        "scope": "Free calls5/9; actual emitted any-rule copied unchanged returns5/7/9.",
+        "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+        "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md"
+      },
+      "historicalInitialBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0",
+      "historicalCommentary": {
+        "ratingReview": "Correctness10\u21929 for untested advanced competitor cases; output7\u21928 and workflow8\u21929 after promised-lead repair. Original score retained separately."
+      }
+    },
+    "clasify": {
+      "score": 8.1,
+      "provisional": true,
+      "confidence": "medium for cumulative named scopes",
+      "measuredWeightPercent": 100.0,
+      "dimensions": {
+        "correctness": {
+          "score": 9,
+          "weightPercent": 30,
+          "status": "measured",
+          "evidence": "Model jev-1.14.0 gets port/theme/choice and independent items right; neutral section probabilities near.5 require source verification.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Tiny synthetic explicit source facts, jev-1.14.0 probabilities0.98/0.04; calibration unverified."
+          }
+        },
+        "schemaInput": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Current typed-question/source/resource variants checked; boolean type rejected; isolated availability gate honest.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Tiny synthetic explicit source facts, jev-1.14.0 probabilities0.98/0.04; calibration unverified."
+          }
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Typed answers and deciding lines/reads; summary quiet:1 omits negative unit, details restores both (.94/.07).",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Tiny synthetic explicit source facts, jev-1.14.0 probabilities0.98/0.04; calibration unverified."
+          }
+        },
+        "pagination": {
+          "score": 10,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "All3 section resources recovered through3 response pages and all3 pinned reads per interface; details replay bills0.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Tiny synthetic explicit source facts, jev-1.14.0 probabilities0.98/0.04; calibration unverified."
+          }
+        },
+        "workflow": {
+          "score": 8,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "Configured normal home works without credential copying; CLI memory sections honestly refuse, persistent mode succeeds.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Tiny synthetic explicit source facts, jev-1.14.0 probabilities0.98/0.04; calibration unverified."
+          }
+        },
+        "efficiency": {
+          "score": 5,
+          "weightPercent": 15,
+          "status": "measured-limited",
+          "evidence": "classification/REPORT.md: 15 real TS files, 33 complete callback sites, independent oracle. Exact post-hoc rg filter 531 chars; classified workflow plus deciding read 2566. Batching two questions saves 47.8% provider input, not proven latency. One task family; held-out generality unverified.",
+          "provenance": "this campaign",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "measurementBinary": "4e2052ae4edcbe0b5ef527b2ceaf4906b1c35bed52a3e4715da03bd555f24f35"
+        },
+        "cacheFreshness": {
+          "score": 9,
+          "weightPercent": 5,
+          "status": "measured",
+          "evidence": "Fresh details evaluations bill again; source edit flips port probability .95/.96\u2192.09/.08; saved details replay calls0.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json"
+        }
+      },
+      "evidenceLane": "local",
+      "finalBinary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+      "historicalScore": 8.6,
+      "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+      "freshAcceptance": {
+        "requestStatus": "PASS",
+        "sourceStatus": "PASS",
+        "scope": "Tiny synthetic explicit source facts, jev-1.14.0 probabilities0.98/0.04; calibration unverified.",
+        "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+        "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md"
+      },
+      "historicalInitialBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0"
+    },
+    "lspSearch": {
+      "score": 8.1,
+      "provisional": true,
+      "confidence": "medium for cumulative named scopes",
+      "measuredWeightPercent": 100.0,
+      "dimensions": {
+        "correctness": {
+          "score": 9,
+          "weightPercent": 30,
+          "status": "measured",
+          "evidence": "Twelve JS/TS operations exercised on CLI/MCP; selected 8 reference locations, alias/shadow definitions, callers, hierarchy and Unicode hover agree with source/direct LSP. Rust project-positive remains unverified.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "JS definition lib.js2:17 only. Rust freshness is another lane, not covered by this row."
+          },
+          "currentRustEvidence": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "fixtureReport": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/rust-lsp/REPLAY-PLAN-results.md",
+            "workspaceReceipt": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/rust-lsp/real-workspace-attempt2-traffic.json",
+            "result": "All12 operations agree on both surfaces; unopened/ignored/hidden/large-source mutations, historical page continuity and emitted restart recovery pass. Actual native workspace six chains pass exact3-reference source oracle."
+          }
+        },
+        "schemaInput": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Missing/zero line, incompatible caller context/Rust context, out-of-range occurrence and cursor mutation return specific repairs; numeric-string line is accepted on both surfaces. Schema scopes operation-specific fields.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "JS definition lib.js2:17 only. Rust freshness is another lane, not covered by this row."
+          }
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Useful source/roles and honest diagnostic7006 partial state; successful alias result retains warning. Enriched responses are materially longer than raw locations.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "JS definition lib.js2:17 only. Rust freshness is another lane, not covered by this row."
+          }
+        },
+        "pagination": {
+          "score": 9,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "Eight reference pages cross CLI to MCP exactly once; minimum responseChars1 preserves whole oversized definition. Does not establish every operation/nested-shape pagination.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "JS definition lib.js2:17 only. Rust freshness is another lane, not covered by this row."
+          },
+          "currentRustEvidence": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "fixtureReport": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/rust-lsp/REPLAY-PLAN-results.md",
+            "workspaceReceipt": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/rust-lsp/real-workspace-attempt2-traffic.json",
+            "result": "All12 operations agree on both surfaces; unopened/ignored/hidden/large-source mutations, historical page continuity and emitted restart recovery pass. Actual native workspace six chains pass exact3-reference source oracle."
+          }
+        },
+        "workflow": {
+          "score": 8,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "Both surfaces and direct identity agree; callers bundles prepare+incoming calls. Rust detached file provides recovery leads but no semantic answer.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "JS definition lib.js2:17 only. Rust freshness is another lane, not covered by this row."
+          },
+          "currentRustEvidence": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "fixtureReport": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/rust-lsp/REPLAY-PLAN-results.md",
+            "workspaceReceipt": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/rust-lsp/real-workspace-attempt2-traffic.json",
+            "result": "All12 operations agree on both surfaces; unopened/ignored/hidden/large-source mutations, historical page continuity and emitted restart recovery pass. Actual native workspace six chains pass exact3-reference source oracle."
+          }
+        },
+        "efficiency": {
+          "score": 6,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Direct LSP is faster in all nine pairs and smaller for each narrow location question; MCP adds source, roles, coverage and diagnostics. Warm reference median5.84ms versus1.65ms; no global context saving claim.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentWorkspaceObservation": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "coldDefinitionSeconds": 4.917,
+            "firstReferenceRequestSeconds": 0.321,
+            "warmDefinitionSeconds": [
+              0.012,
+              0.012
+            ],
+            "warmReferenceRequestSeconds": [
+              0.104,
+              0.108
+            ],
+            "scope": "One cold and two unchanged warm cycles; request-time sums over complete reference pages, not isolated fingerprint cost or new direct-LSP comparison. Exact values in raw receipt.",
+            "limits": "Analyzer priming continued; process-cold is not OS-cache-cold. CPU snapshots slightly widen interval. These are complete request-time sums, not observer-inclusive full-chain wall time, isolated traversal cost or a new direct-LSP comparison."
+          }
+        },
+        "cacheFreshness": {
+          "score": 8,
+          "weightPercent": 5,
+          "status": "measured",
+          "evidence": "Edit moves references8\u21926\u21928 on CLI/MCP/direct; repeat session state distinguished from cache hits. Same server PID persists during measured pairs; no idle-retirement test in this round.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentRustEvidence": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "fixtureReport": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/rust-lsp/REPLAY-PLAN-results.md",
+            "workspaceReceipt": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/rust-lsp/real-workspace-attempt2-traffic.json",
+            "result": "All12 operations agree on both surfaces; unopened/ignored/hidden/large-source mutations, historical page continuity and emitted restart recovery pass. Actual native workspace six chains pass exact3-reference source oracle."
+          }
+        }
+      },
+      "evidenceLane": "semantic",
+      "finalBinary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+      "historicalScore": 8.1,
+      "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+      "freshAcceptance": {
+        "requestStatus": "PASS",
+        "sourceStatus": "PASS",
+        "scope": "JS definition lib.js2:17 only. Rust freshness is another lane, not covered by this row.",
+        "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+        "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md"
+      },
+      "historicalInitialBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0",
+      "currentRustAcceptance": {
+        "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+        "fixtureReport": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/rust-lsp/REPLAY-PLAN-results.md",
+        "workspaceReceipt": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/rust-lsp/real-workspace-attempt2-traffic.json",
+        "result": "All12 operations agree on both surfaces; unopened/ignored/hidden/large-source mutations, historical page continuity and emitted restart recovery pass. Actual native workspace six chains pass exact3-reference source oracle.",
+        "workspaceReport": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/rust-lsp/REAL-WORKSPACE-RESULTS.md"
+      }
+    },
+    "graphBuild": {
+      "score": 8.5,
+      "provisional": true,
+      "confidence": "medium for cumulative named scopes",
+      "measuredWeightPercent": 100.0,
+      "dimensions": {
+        "correctness": {
+          "score": 9,
+          "weightPercent": 30,
+          "status": "measured",
+          "evidence": "Selected JS module/call edges and 19 Python sites match independent source; skip/unsupported scope is disclosed. No large-scope resume stress.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Atomic oversized responseChars1 receipt preserves2files/2symbols/1import/1call."
+          }
+        },
+        "schemaInput": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Schema and both surfaces accept path/refresh/walk/parser controls and reject bad boolean/two-row/foreign operation. File-path rejection lacks an example.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Atomic oversized responseChars1 receipt preserves2files/2symbols/1import/1call."
+          }
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Receipt provides scope/snapshot/linkage, unsupported-file hints and runnable stats lead. Empty scan is an empty object alongside zero counts.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Atomic oversized responseChars1 receipt preserves2files/2symbols/1import/1call."
+          }
+        },
+        "pagination": {
+          "score": 9,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "responseChars1 preserves the complete indivisible receipt with oversized:true; no evidence loss in observed shape. No long-build progress continuation generated.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Atomic oversized responseChars1 receipt preserves2files/2symbols/1import/1call."
+          }
+        },
+        "workflow": {
+          "score": 8,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "Repeat identifies the same snapshot; real public scope and policy scopes work with isolated home and graph home. External scope configuration remains setup cost.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Atomic oversized responseChars1 receipt preserves2files/2symbols/1import/1call."
+          }
+        },
+        "efficiency": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Faster than Graphify in all12 first/repeat build pairs; fixture first median242.00ms versus277.92ms, repeat96.03ms versus250.91ms. Models differ; not parser throughput.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json"
+        },
+        "cacheFreshness": {
+          "score": 9,
+          "weightPercent": 5,
+          "status": "measured",
+          "evidence": "Unchanged build reuses ID; refresh forces new snapshot; edits/restore change graph correctly; ignore/hidden/exclude/parser policy affects selected scope.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json"
+        }
+      },
+      "evidenceLane": "semantic",
+      "finalBinary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+      "historicalScore": 8.5,
+      "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+      "freshAcceptance": {
+        "requestStatus": "PASS",
+        "sourceStatus": "PASS",
+        "scope": "Atomic oversized responseChars1 receipt preserves2files/2symbols/1import/1call.",
+        "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+        "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md"
+      },
+      "historicalInitialBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0"
+    },
+    "graphQuery": {
+      "score": 8.3,
+      "provisional": true,
+      "confidence": "medium for cumulative named scopes",
+      "measuredWeightPercent": 100.0,
+      "dimensions": {
+        "correctness": {
+          "score": 9,
+          "weightPercent": 30,
+          "status": "measured",
+          "evidence": "All21 operations exercised on both surfaces; source-confirmed six JS call edges/six imports,19 Python sites/16 callers,6 Git target commits and10 cochange rows agree. Typed graph models differ and are not included in shared edge score.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Fresh selected dependency and two syntax source witnesses; nested call byte range exact."
+          }
+        },
+        "schemaInput": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Operation-specific schemas reject missing path endpoint/baseline, bad limit and unsupported view. Discovery returns exact identities and marked fuzzy-word matches; those require interpretation.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Fresh selected dependency and two syntax source witnesses; nested call byte range exact."
+          }
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Witnesses preserve every selected site, partial syntax coverage and stale markers are explicit. Narrow native text is6.1\u20138.8times Graphify output on measured rows.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Fresh selected dependency and two syntax source witnesses; nested call byte range exact."
+          }
+        },
+        "pagination": {
+          "score": 9,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "46-page mixed batch reconstructs19symbols,14witnesses,7issues,2callers,1cycle. Nested cycle fragments and hoisted from fields are preserved, with required unchanged cross-surface continuations.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Fresh selected dependency and two syntax source witnesses; nested call byte range exact."
+          }
+        },
+        "workflow": {
+          "score": 8,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "Discovery\u2192node\u2192callers/path is executable; cochange has independent Git proof; unknown target differs from no path. Tiny-window rowPart and hoist reconstruction costs consumer work.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Fresh selected dependency and two syntax source witnesses; nested call byte range exact."
+          }
+        },
+        "efficiency": {
+          "score": 7,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "All9 paired CLI query measurements faster than Graphify, but Graphify text smaller on every selected answer. Example real callers62.82ms/4115chars versus136.28ms/674chars.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json"
+        },
+        "cacheFreshness": {
+          "score": 9,
+          "weightPercent": 5,
+          "status": "measured",
+          "evidence": "Stale names changed entry, rebuild makes path2hops, drift shows changed file plus2added/2removedrelations; restoring yields fresh1hop. Snapshot query reuse is not a result-cache-hit claim.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json"
+        }
+      },
+      "evidenceLane": "semantic",
+      "finalBinary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+      "historicalScore": 8.3,
+      "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+      "freshAcceptance": {
+        "requestStatus": "PASS",
+        "sourceStatus": "PASS",
+        "scope": "Fresh selected dependency and two syntax source witnesses; nested call byte range exact.",
+        "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+        "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md"
+      },
+      "historicalInitialBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0"
+    },
+    "ghSearchRepo": {
+      "score": 8.1,
+      "provisional": true,
+      "confidence": "medium for cumulative named scopes",
+      "measuredWeightPercent": 100.0,
+      "dimensions": {
+        "correctness": {
+          "score": 9,
+          "weightPercent": 30.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHR-01/02/05; repo-reconstruction.json and history-and-owner-oracles.json: selected metadata and all 32 owner repositories agree; upstream sort limitation prevents 10.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "cli/cli identity succeeds; mutable current description/defaultBranch observed, no independent current metadata oracle."
+          }
+        },
+        "schemaInput": {
+          "score": 9,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHR-01/04; raw/CLI-GHR-01-repaired.json and CLI/MCP-GHR-04-missing.json: projection warning and actionable required-field refusal.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "cli/cli identity succeeds; mutable current description/defaultBranch observed, no independent current metadata oracle."
+          }
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHR-01; raw/CLI-GHR-01-repaired.json: identity and selected facts retained; related calls outweigh a 42-character lean projection.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "cli/cli identity succeeds; mutable current description/defaultBranch observed, no independent current metadata oracle."
+          }
+        },
+        "pagination": {
+          "score": 9,
+          "weightPercent": 10.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHR-02; repo-reconstruction.json: 32 owner repositories over 16 pages plus selected topic scope; not every search ceiling tested.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "cli/cli identity succeeds; mutable current description/defaultBranch observed, no independent current metadata oracle."
+          }
+        },
+        "workflow": {
+          "score": 8,
+          "weightPercent": 10.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHR-03/05; raw/MCP-GHR-search-variants.json: empty result distinguished; sort and fork scope require interpretation.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "cli/cli identity succeeds; mutable current description/defaultBranch observed, no independent current metadata oracle."
+          }
+        },
+        "efficiency": {
+          "score": 5,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHR-01; timing-summary.json plus metrics.json: three paired observations, native median about 527 ms versus lean 385 ms; richer output larger.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json"
+        },
+        "cacheFreshness": {
+          "score": 8,
+          "weightPercent": 5.0,
+          "status": "measured-limited",
+          "evidence": "provider-cache/postbuild-runtime-attempt1.json: independently replayed persisted HTTP age/date/304 boundary through actual CLI and fresh MCP against owned mutable origin. Public index freshness and every metadata route remain outside scope.",
+          "provenance": "this campaign",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "measurementBinary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b"
+        }
+      },
+      "evidenceLane": "github",
+      "questionIds": [
+        "GHR-01",
+        "GHR-02",
+        "GHR-03",
+        "GHR-04",
+        "GHR-05"
+      ],
+      "testedScope": [
+        "Pass; unknown url projection explicitly warned, repaired fields and canonical owner/repo identity retained.",
+        "Pass;32 owner repositories over16 pages and7 topic results; all selected batch continuations finished.",
+        "Pass; genuine empty search status1, not provider error.",
+        "Pass; required/spelling/combination errors actionable.",
+        "Limited upstream ordering: forks/relevance variants complete; updatedAt dates nonmonotonic on Vite in native, exact lean gh and REST; second owner agrees after fork:true reconciliation; old alias rejected with relevance repair."
+      ],
+      "receipts": [
+        "repo-reconstruction.json",
+        "history-and-owner-oracles.json",
+        "raw/CLI-GHR-01-repaired.json",
+        "raw/MCP-GHR-01.json",
+        "raw/CLI-GHR-04-missing.json",
+        "raw/MCP-GHR-04-missing.json",
+        "raw/MCP-GHR-search-variants.json",
+        "raw/oracle-api-updated-vite-exact.json"
+      ],
+      "evidenceSource": "../../../campaigns/20.2.0-2026-11-14-tool-ratings/github/metrics.json",
+      "finalBinary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+      "historicalScore": 8.1,
+      "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+      "freshAcceptance": {
+        "requestStatus": "PASS",
+        "sourceStatus": "LIMITED",
+        "scope": "cli/cli identity succeeds; mutable current description/defaultBranch observed, no independent current metadata oracle.",
+        "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+        "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md"
+      },
+      "historicalInitialBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0",
+      "historicalCommentary": {
+        "pros": [
+          "Correct current metadata, actionable projection warnings and exact32-repository owner pagination."
+        ],
+        "cons": [
+          "Related-call overhead dominates a42-character lean metadata answer; native median527ms versus385ms lean. Upstream updated ordering is not monotonic on Vite."
+        ]
+      },
+      "currentGotchas": [
+        "Selected persisted HTTP policy measured on CLI/MCP; live global metadata/index freshness and every endpoint variant remain unverified."
+      ]
+    },
+    "ghSearchCode": {
+      "score": 8.5,
+      "provisional": true,
+      "confidence": "medium for cumulative named scopes",
+      "measuredWeightPercent": 95.0,
+      "dimensions": {
+        "correctness": {
+          "score": 9,
+          "weightPercent": 30.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHC-01/02; code-reconstruction.json and raw/CLI-GHC-01.json: source-confirmed declaration, 10 files and 58 distinct matches; index coverage remains limited.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "58line facts in10selected pinned blobs exact; global mutable index completeness unverified."
+          }
+        },
+        "schemaInput": {
+          "score": 9,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHC-04; raw/CLI-GHC-04-missing.json and raw/MCP-GHC-04-missing.json: missing owner/selector refused; scalar-list normalization intentionally accepted.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "58line facts in10selected pinned blobs exact; global mutable index completeness unverified."
+          }
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHC-01/05; raw/MCP-GHC-path-variants.json: nine-path views preserve selected identities; substring lead can need narrowing.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "58line facts in10selected pinned blobs exact; global mutable index completeness unverified."
+          }
+        },
+        "pagination": {
+          "score": 10,
+          "weightPercent": 10.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHC-02; code-reconstruction.json: all 13 calls finish response fragments then tool continuations, 10 files/58 hits exactly once.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "58line facts in10selected pinned blobs exact; global mutable index completeness unverified."
+          }
+        },
+        "workflow": {
+          "score": 9,
+          "weightPercent": 10.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHC-01/03; raw/CLI-GHC-01.json and metrics.json: search-to-read executes; empty indexed result is not source-absence proof.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "58line facts in10selected pinned blobs exact; global mutable index completeness unverified."
+          }
+        },
+        "efficiency": {
+          "score": 6,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHC-01; timing-summary.json and metrics.json: paths workflow 1494\u20131537 characters versus 867 lean; three paired comparisons retained.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json"
+        },
+        "cacheFreshness": {
+          "score": null,
+          "weightPercent": 5.0,
+          "status": "unverified",
+          "evidence": "Live search-index invalidation is unverified. Unchanged repeats do not prove freshness or cache hits.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json"
+        }
+      },
+      "evidenceLane": "github",
+      "questionIds": [
+        "GHC-01",
+        "GHC-02",
+        "GHC-03",
+        "GHC-04",
+        "GHC-05"
+      ],
+      "testedScope": [
+        "Pass; discovered declaration and complete immutable source.",
+        "Pass;13 calls reconstruct10 files/58 distinct matches, rowParts first.",
+        "Pass; empty index result with explicit index limit; no source absence claim.",
+        "Pass with observed scalar-list coercion on both surfaces; missing selector/owner rejected. Broad coerced query pages intentionally unread because only input acceptance was tested.",
+        "Pass both9-path views, no invented content; redirect observation remains unverified."
+      ],
+      "receipts": [
+        "code-reconstruction.json",
+        "raw/CLI-GHC-01.json",
+        "raw/MCP-GHC-01.json",
+        "raw/CLI-GHC-04-missing.json",
+        "raw/MCP-GHC-04-missing.json",
+        "raw/MCP-GHC-path-variants.json"
+      ],
+      "evidenceSource": "../../../campaigns/20.2.0-2026-11-14-tool-ratings/github/metrics.json",
+      "finalBinary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+      "historicalScore": 8.5,
+      "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+      "freshAcceptance": {
+        "requestStatus": "PASS",
+        "sourceStatus": "PASS",
+        "scope": "58line facts in10selected pinned blobs exact; global mutable index completeness unverified.",
+        "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+        "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md"
+      },
+      "historicalInitialBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0",
+      "historicalCommentary": {
+        "pros": [
+          "Deciding declaration verified at the frozen ref; all10 selected files/58 matches reconstructed across rowParts."
+        ],
+        "cons": [
+          "Paths-only two-call workflow emits1494\u20131537 characters versus867 lean; a substring lead can target mergeConfigRecursively."
+        ],
+        "gotchas": [
+          "Search remains a default-branch index, not exhaustive at-ref source search; cached repeats explicitly print observedAt. Renamed-repository behavior unverified."
+        ]
+      }
+    },
+    "ghStructure": {
+      "score": 8.8,
+      "provisional": true,
+      "confidence": "medium for cumulative named scopes",
+      "measuredWeightPercent": 95.0,
+      "dimensions": {
+        "correctness": {
+          "score": 10,
+          "weightPercent": 30.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHS-01/02/03/06; tree-reconstruction.json and raw/MCP-GHS-variants.json: exact tree pairs, refs/languages and two materialized files.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "17direct source files+3dirs at selected depth/ref exact."
+          }
+        },
+        "schemaInput": {
+          "score": 9,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHS-05; raw/CLI-GHS-05-combination.json and raw/MCP-GHS-05-combination.json: operation/depth/combination refusal.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "17direct source files+3dirs at selected depth/ref exact."
+          }
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHS-01/03; raw/CLI-GHS-01.json and raw/MCP-GHS-variants.json: useful typed rows and resolved commit; tag-object identity not selected.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "17direct source files+3dirs at selected depth/ref exact."
+          }
+        },
+        "pagination": {
+          "score": 10,
+          "weightPercent": 10.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHS-02; tree-reconstruction.json: all 46 ordered path/size pairs over 23 pages equal the independent nontruncated tree.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "17direct source files+3dirs at selected depth/ref exact."
+          }
+        },
+        "workflow": {
+          "score": 9,
+          "weightPercent": 10.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHS-04/06; metrics.json: unchanged parent recovery executes and selected materialization is complete; root-glob scope needs care.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "17direct source files+3dirs at selected depth/ref exact."
+          }
+        },
+        "efficiency": {
+          "score": 6,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHS-01; timing-summary.json and metrics.json: direct listing 781 characters versus lean 284; explicit gh cache median 51 ms near native 57 ms.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json"
+        },
+        "cacheFreshness": {
+          "score": null,
+          "weightPercent": 5.0,
+          "status": "unverified",
+          "evidence": "Immutable tree, known-tag and materialization evidence is verified; changing-ref invalidation and same-path/different-ref cache separation are unverified. Unchanged repeats do not prove freshness or cache hits.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json"
+        }
+      },
+      "evidenceLane": "github",
+      "questionIds": [
+        "GHS-01",
+        "GHS-02",
+        "GHS-03",
+        "GHS-04",
+        "GHS-05",
+        "GHS-06"
+      ],
+      "testedScope": [
+        "Pass20 direct entries, CLI/MCP equality.",
+        "Pass46 exact ordered pairs over23 pages.",
+        "Pass annotated tag resolution, all6 matching tags, languages operation.",
+        "Pass notFound and unchanged parent-list recovery.",
+        "Pass invalid operation/depth/combination.",
+        "Pass two selected materialized files byte-exact and coverage complete."
+      ],
+      "receipts": [
+        "tree-reconstruction.json",
+        "raw/CLI-GHS-01.json",
+        "raw/MCP-GHS-01.json",
+        "raw/CLI-GHS-05-combination.json",
+        "raw/MCP-GHS-05-combination.json",
+        "raw/MCP-GHS-variants.json"
+      ],
+      "evidenceSource": "../../../campaigns/20.2.0-2026-11-14-tool-ratings/github/metrics.json",
+      "finalBinary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+      "historicalScore": 8.8,
+      "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+      "freshAcceptance": {
+        "requestStatus": "PASS",
+        "sourceStatus": "PASS",
+        "scope": "17direct source files+3dirs at selected depth/ref exact.",
+        "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+        "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md"
+      },
+      "historicalInitialBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0",
+      "historicalCommentary": {
+        "pros": [
+          "Complete46-file ranked subtree exactly equals a nontruncated independent tree; refs/languages/materialization work."
+        ],
+        "cons": [
+          "Direct listing emits781 characters versus284 lean; explicit gh TTL tier median51ms is near native57ms."
+        ],
+        "gotchas": [
+          "Root globs apply even with path. Annotated tags resolve to commits; tag-object identity is only in the independent oracle."
+        ]
+      }
+    },
+    "ghGetFileContent": {
+      "score": 9.1,
+      "provisional": true,
+      "confidence": "medium for cumulative named scopes",
+      "measuredWeightPercent": 100.0,
+      "dimensions": {
+        "correctness": {
+          "score": 10,
+          "weightPercent": 30.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHF-01/02/03/06; file-reconstruction.json and minified-reconstruction.json: exact source slices, declaration, whole file and 87444-byte long line.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Pinned README lines1\u201325 exact."
+          }
+        },
+        "schemaInput": {
+          "score": 9,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHF-05; raw/CLI-GHF-05-range.json and raw/MCP-GHF-05-range.json: reversed ranges and missing/sibling fields give repairs.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Pinned README lines1\u201325 exact."
+          }
+        },
+        "output": {
+          "score": 9,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHF-01/02; raw/CLI-GHF-01.json and metrics.json: selected source and ranges precise; compact fallback is disclosed.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Pinned README lines1\u201325 exact."
+          }
+        },
+        "pagination": {
+          "score": 10,
+          "weightPercent": 10.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHF-03/06; file-reconstruction.json, minified-reconstruction.json and mixed-Unicode receipts: 722 lines and all long-line bytes exactly once; restart after expired cursor retained.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Pinned README lines1\u201325 exact."
+          }
+        },
+        "workflow": {
+          "score": 9,
+          "weightPercent": 10.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHF-02/04; metrics.json: signature avoids guessed length; absent match differs from missing path; deferred ranges must finish.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Pinned README lines1\u201325 exact."
+          }
+        },
+        "efficiency": {
+          "score": 7,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHF-01; timing-summary.json and metrics.json: 25-line answer 1122 characters versus lean 963; three paired latency/cache tiers retained.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json"
+        },
+        "cacheFreshness": {
+          "score": 9,
+          "weightPercent": 5.0,
+          "status": "measured",
+          "evidence": "Distinct immutable SHAs return distinct source in raw/MCP-cache-distinct-refs.json. Score covers ref-key separation only; moving-ref invalidation is unverified.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json"
+        }
+      },
+      "evidenceLane": "github",
+      "questionIds": [
+        "GHF-01",
+        "GHF-02",
+        "GHF-03",
+        "GHF-04",
+        "GHF-05",
+        "GHF-06"
+      ],
+      "testedScope": [
+        "Pass exact25 source lines.",
+        "Pass complete14-line declaration across surfaces,200-symbol outline and honest compact fallback.",
+        "Pass722-line exact whole-file reconstruction; mixed Unicode supplemental response page crosses MCP\u2192CLI.",
+        "Pass empty match distinct from missing file.",
+        "Pass reversed range/missing path/sibling field repairs.",
+        "Pass24-page restarted minified chain,87444 selected bytes exactly once; tag read and directory rejection. Interrupted cursor correctly expired, old partial chain excluded."
+      ],
+      "receipts": [
+        "file-reconstruction.json",
+        "minified-reconstruction.json",
+        "raw/CLI-GHF-01.json",
+        "raw/MCP-GHF-01.json",
+        "raw/CLI-GHF-05-range.json",
+        "raw/MCP-GHF-05-range.json",
+        "raw/MCP-GHF-Unicode-mixed-p1.json",
+        "raw/CLI-GHF-Unicode-mixed-p2.json"
+      ],
+      "evidenceSource": "../../../campaigns/20.2.0-2026-11-14-tool-ratings/github/metrics.json",
+      "finalBinary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+      "historicalScore": 9.1,
+      "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+      "freshAcceptance": {
+        "requestStatus": "PASS",
+        "sourceStatus": "PASS",
+        "scope": "Pinned README lines1\u201325 exact.",
+        "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+        "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md"
+      },
+      "historicalInitialBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0",
+      "historicalCommentary": {
+        "pros": [
+          "Whole722-line file, complete declarations, mixed Unicode and87444 minified bytes reconstruct exactly, including independent response and byte pages."
+        ],
+        "cons": [
+          "Plain25-line source costs1122 output characters versus963 lean; caller must finish deferred source ranges."
+        ],
+        "gotchas": [
+          "Minified first match window is prioritized, then remaining selected line bytes backfill. compact on Markdown honestly falls back to content. Cursor expiry after interruption requires restart."
+        ]
+      }
+    },
+    "ghSearchHistory": {
+      "score": 8.2,
+      "provisional": true,
+      "confidence": "medium for cumulative named scopes",
+      "measuredWeightPercent": 95.0,
+      "dimensions": {
+        "correctness": {
+          "score": 9,
+          "weightPercent": 30.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHH-01/02; history-and-owner-oracles.json and metrics.json: selected three path commits, three PRs and one issue match source; larger histories excluded.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "All72pinned ref/path commits, dates and titles exact,36pages per surface."
+          }
+        },
+        "schemaInput": {
+          "score": 9,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHH-04; raw/CLI-GHH-04-combination.json and raw/MCP-GHH-04-combination.json: invalid state/glob/operation combinations refused.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "All72pinned ref/path commits, dates and titles exact,36pages per surface."
+          }
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHH-01/03; raw/CLI-GHH-01.json and metrics.json: scoped history and honest emptiness; 716 versus 272 lean characters.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "All72pinned ref/path commits, dates and titles exact,36pages per surface."
+          }
+        },
+        "pagination": {
+          "score": 9,
+          "weightPercent": 10.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHH-01/02; raw/MCP-GHH-01-page2.json and metrics.json: selected continuation complete; not all 223/616-result histories read.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "All72pinned ref/path commits, dates and titles exact,36pages per surface."
+          }
+        },
+        "workflow": {
+          "score": 9,
+          "weightPercent": 10.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHH-01/04; raw/CLI-GHH-01.json and combination receipts: path history leads to concrete items; operation boundaries explicit.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "All72pinned ref/path commits, dates and titles exact,36pages per surface."
+          }
+        },
+        "efficiency": {
+          "score": 5,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHH-01; timing-summary.json and metrics.json: median native 379 ms, lean 393 ms, explicit gh cache 57 ms; lean output smaller.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json"
+        },
+        "cacheFreshness": {
+          "score": null,
+          "weightPercent": 5.0,
+          "status": "unverified",
+          "evidence": "Live issue/PR search invalidation is unverified; immutable selected commit history and repeated observations do not establish it. Unchanged repeats do not prove freshness or cache hits.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json"
+        }
+      },
+      "evidenceLane": "github",
+      "questionIds": [
+        "GHH-01",
+        "GHH-02",
+        "GHH-03",
+        "GHH-04"
+      ],
+      "testedScope": [
+        "Pass selected three path commits reachable at frozen ref, with two-row continuation proof; older history explicitly unread.",
+        "Pass selected first3 merged PRs and1 closed issue; all selected identities match lean gh; older223/616-result scopes intentionally unread.",
+        "Pass honest empty query scope.",
+        "Pass impossible state/glob/operation errors."
+      ],
+      "receipts": [
+        "raw/CLI-GHH-01.json",
+        "raw/MCP-GHH-01-page2.json",
+        "raw/CLI-GHH-04-combination.json",
+        "raw/MCP-GHH-04-combination.json",
+        "raw/MCP-GHH-search-variants.json"
+      ],
+      "evidenceSource": "../../../campaigns/20.2.0-2026-11-14-tool-ratings/github/metrics.json",
+      "finalBinary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+      "historicalScore": 8.2,
+      "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+      "freshAcceptance": {
+        "requestStatus": "PASS",
+        "sourceStatus": "PASS",
+        "scope": "All72pinned ref/path commits, dates and titles exact,36pages per surface.",
+        "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+        "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md"
+      },
+      "historicalInitialBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0",
+      "historicalCommentary": {
+        "pros": [
+          "Pinned path history matches independent source; input errors distinguish commits, contradictory states and glob paths."
+        ],
+        "cons": [
+          "Three commit rows cost716 output characters versus272 lean; median379ms versus393ms lean and57ms explicit cached gh."
+        ],
+        "gotchas": [
+          "PR/comment ordering follows upstream search; observed counts can be nonmonotonic. Selected top3/top1 queries do not establish complete223/616-result histories."
+        ]
+      }
+    },
+    "ghGetHistoryItem": {
+      "score": 8.7,
+      "provisional": true,
+      "confidence": "medium for cumulative named scopes",
+      "measuredWeightPercent": 95.0,
+      "dimensions": {
+        "correctness": {
+          "score": 10,
+          "weightPercent": 30.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHI-01/02/03/04; pr-reconstruction.json, issue-reconstruction.json and history-and-owner-oracles.json: scoped patches, 13 files, 45 reviews and 65 complete comments match sources.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Logical selected patch lines exact after gutters; served finalLF absent, oracle finalLF present; no byte-equality claim."
+          }
+        },
+        "schemaInput": {
+          "score": 9,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHI-05; raw/CLI-GHI-05-number.json and raw/MCP-GHI-05-number.json: missing number/head and invalid section/filter combinations refused.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Logical selected patch lines exact after gutters; served finalLF absent, oracle finalLF present; no byte-equality claim."
+          }
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHI-01/06; raw/CLI-GHI-01.json and raw/MCP-GHI-06-individual-sections.json: complete requested patches and state; summary preview is declared.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Logical selected patch lines exact after gutters; served finalLF absent, oracle finalLF present; no byte-equality claim."
+          }
+        },
+        "pagination": {
+          "score": 10,
+          "weightPercent": 10.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHI-02/03; pr-reconstruction.json and issue-reconstruction.json: all body/comment/review/file branches completed, including four independent long-body branches.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Logical selected patch lines exact after gutters; served finalLF absent, oracle finalLF present; no byte-equality claim."
+          }
+        },
+        "workflow": {
+          "score": 8,
+          "weightPercent": 10.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHI-03/06; metrics.json: independent section continuations are executable but require careful orchestration.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Logical selected patch lines exact after gutters; served finalLF absent, oracle finalLF present; no byte-equality claim."
+          }
+        },
+        "efficiency": {
+          "score": 6,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHI-01; timing-summary.json and metrics.json: scoped patch 1826 versus 957 lean characters; three paired tiers retained.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json"
+        },
+        "cacheFreshness": {
+          "score": null,
+          "weightPercent": 5.0,
+          "status": "unverified",
+          "evidence": "Live comment/review/issue/PR invalidation is unverified; immutable selected commit evidence remains verified. Unchanged repeats do not prove freshness or cache hits.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json"
+        }
+      },
+      "evidenceLane": "github",
+      "questionIds": [
+        "GHI-01",
+        "GHI-02",
+        "GHI-03",
+        "GHI-04",
+        "GHI-05",
+        "GHI-06"
+      ],
+      "testedScope": [
+        "Pass complete scoped patch and parent identity agree with provider.",
+        "Pass complete body,13 files and45 reviews exactly match independent provider.",
+        "Pass all65 ordered IDs and complete bodies exactly match provider, including all4 independent long-body branches.",
+        "Pass honest unchanged selected path against parent, plus scoped two-tag GIT-VERSION-GEN patch.",
+        "Pass missing number/head and section-filter combination errors.",
+        "Pass separate files/reviews/path-patch requests retain state and commit identities."
+      ],
+      "receipts": [
+        "pr-reconstruction.json",
+        "issue-reconstruction.json",
+        "history-and-owner-oracles.json",
+        "raw/CLI-GHI-01.json",
+        "raw/MCP-GHI-01.json",
+        "raw/CLI-GHI-05-number.json",
+        "raw/MCP-GHI-05-number.json",
+        "raw/MCP-GHI-06-individual-sections.json",
+        "raw/MCP-GHI-tag-compare.json"
+      ],
+      "evidenceSource": "../../../campaigns/20.2.0-2026-11-14-tool-ratings/github/metrics.json",
+      "finalBinary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+      "historicalScore": 8.7,
+      "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+      "freshAcceptance": {
+        "requestStatus": "PASS",
+        "sourceStatus": "PASS",
+        "scope": "Logical selected patch lines exact after gutters; served finalLF absent, oracle finalLF present; no byte-equality claim.",
+        "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+        "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md"
+      },
+      "historicalInitialBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0",
+      "historicalCommentary": {
+        "pros": [
+          "All65 ordered issue comments and their full bodies, PR13 files/45 reviews/body, scoped patches and tag comparison verified."
+        ],
+        "cons": [
+          "Scoped patch emits1826 characters versus957 lean; independent comments/body branches require careful handling."
+        ],
+        "gotchas": [
+          "Response pages precede section pages. commentBody and comments are independent; finishing one never establishes the other. Summary bodyPreview is intentionally a preview."
+        ]
+      }
+    },
+    "ghCloneRepo": {
+      "score": 9.0,
+      "provisional": true,
+      "confidence": "medium for cumulative named scopes",
+      "measuredWeightPercent": 100.0,
+      "dimensions": {
+        "correctness": {
+          "score": 10,
+          "weightPercent": 30.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GCL-01/02/03; clone-paired-source-proof.json, clone-dirty-proof.json and clone-workflow-source-proof.json: exact HEAD/17 files, dirty bytes preserved, complete local reads.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "PinnedHEAD and17served sparse-cone files184573bytes exact Git blob identities, clean owned checkout."
+          }
+        },
+        "schemaInput": {
+          "score": 9,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GCL-04; raw/CLI-GCL-04-depth.json and raw/MCP-GCL-04-depth.json: invalid depth/traversal/missing repo refused.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "PinnedHEAD and17served sparse-cone files184573bytes exact Git blob identities, clean owned checkout."
+          }
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GCL-01; raw/CLI-GCL-01.json: useful receipt/source scope; sparse cone includes root files and discloses skipped paths.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "PinnedHEAD and17served sparse-cone files184573bytes exact Git blob identities, clean owned checkout."
+          }
+        },
+        "pagination": {
+          "score": 10,
+          "weightPercent": 10.0,
+          "status": "measured",
+          "evidence": "Final CLI/MCP responseChars1 retains complete atomic clone receipt with oversized marker and no replay continuation; genuine invalid depth refused. Exact17files184573bytes and HEAD independently verified. github/final-pin-verified3/clone-evidence.json.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "PinnedHEAD and17served sparse-cone files184573bytes exact Git blob identities, clean owned checkout."
+          }
+        },
+        "workflow": {
+          "score": 9,
+          "weightPercent": 10.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GCL-03; clone-workflow-source-proof.json: materialization enables three exact local searches/reads; wholeWord narrows a prefix overfetch.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "PinnedHEAD and17served sparse-cone files184573bytes exact Git blob identities, clean owned checkout."
+          }
+        },
+        "efficiency": {
+          "score": 7,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GCL-01; clone-paired-source-proof.json and timing-summary.json: three fresh clones median 1.632 s versus quiet Git 2.045 s; one versus two setup calls, 764 versus zero output characters.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json"
+        },
+        "cacheFreshness": {
+          "score": 10,
+          "weightPercent": 5.0,
+          "status": "measured",
+          "evidence": "Exact reuse, path/depth key separation and dirty-refresh preservation observed. Score covers these local clone invariants, not remote branch-update freshness.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json"
+        }
+      },
+      "evidenceLane": "github",
+      "questionIds": [
+        "GCL-01",
+        "GCL-02",
+        "GCL-03",
+        "GCL-04"
+      ],
+      "testedScope": [
+        "Pass clean exact HEAD/source and reused:true same location.",
+        "Pass distinct paths/depth locations, depth1/2 actual history, dirty refusal preserves bytes and restoration exact.",
+        "Pass three local searches and complete14/873/5-line declarations agree exactly with remote and local source. Initial prefix overfetch retained; wholeWord:true repairs createServer selection.",
+        "Pass invalid depth/traversal/missing repo; minimum responseChars1 intact complete receipt on CLI and fresh MCP."
+      ],
+      "receipts": [
+        "clone-paired-source-proof.json",
+        "clone-dirty-proof.json",
+        "clone-workflow-source-proof.json",
+        "raw/CLI-GCL-01.json",
+        "raw/MCP-GCL-01.json",
+        "raw/CLI-GCL-04-depth.json",
+        "raw/MCP-GCL-04-depth.json",
+        "raw/CLI-GCL-minimum-response.json",
+        "raw/MCP-GCL-minimum-standalone.json"
+      ],
+      "evidenceSource": "../../../campaigns/20.2.0-2026-11-14-tool-ratings/github/metrics.json",
+      "finalBinary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+      "historicalScore": 9.0,
+      "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+      "freshAcceptance": {
+        "requestStatus": "PASS",
+        "sourceStatus": "PASS",
+        "scope": "PinnedHEAD and17served sparse-cone files184573bytes exact Git blob identities, clean owned checkout.",
+        "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+        "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md"
+      },
+      "historicalInitialBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0",
+      "historicalCommentary": {
+        "pros": [
+          "Exact HEAD and all17 sparse working-tree files match ordinary/lean git every pass; reuse, distinct paths/depth and dirty preservation pass."
+        ],
+        "cons": [
+          "One setup call median1.632s beats two-call quiet gh2.045s, while native emits764 characters and quiet gh emits0."
+        ],
+        "gotchas": [
+          "Sparse cone checkouts include standard root files (7 selected-subtree plus10root files here). Minimum-window receipts are indivisible and explicitly oversized; they do not offer a replay. Mutable upstream branch freshness remains unverified."
+        ]
+      }
+    },
+    "artifactSearch": {
+      "score": 8.2,
+      "provisional": true,
+      "confidence": "medium for cumulative named scopes",
+      "measuredWeightPercent": 100.0,
+      "dimensions": {
+        "correctness": {
+          "score": 9,
+          "weightPercent": 30,
+          "status": "measured",
+          "evidence": "Eight exact registry versions, direct provider records and source refs; canonical Maven/GitHub release commits agree.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "lodash4.17.21 registry identity/gitHead exact; release-tag mismatch warning preserved."
+          }
+        },
+        "schemaInput": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Both operations, all resolution ecosystems, actionable invalid types/operation combinations; scalar repair is intentional.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "lodash4.17.21 registry identity/gitHead exact; release-tag mismatch warning preserved."
+          }
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Useful identity/ref provenance and mismatch warning, but788 natural characters versus127 projected registry characters for selected mapping.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "lodash4.17.21 registry identity/gitHead exact; release-tag mismatch warning preserved."
+          }
+        },
+        "pagination": {
+          "score": 9,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "Three details pages reconstruct exact selected evidence; first3search candidates complete; crosssurface and modifiedcursor behavior verified. Other registry search paging unverified.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "lodash4.17.21 registry identity/gitHead exact; release-tag mismatch warning preserved."
+          }
+        },
+        "workflow": {
+          "score": 9,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "One call resolves version to repo/ref with next-step leads, correct mixed-row isolation and explicit provider result-cap disclosure.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "lodash4.17.21 registry identity/gitHead exact; release-tag mismatch warning preserved."
+          }
+        },
+        "efficiency": {
+          "score": 6,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Threepaired samples: Node615.78ms/MCP296.48ms versus leanregistry66.49ms; native adds independent tag-mismatch information. Explicit snapshot cache4.09ms.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json"
+        },
+        "cacheFreshness": {
+          "score": 8,
+          "weightPercent": 5,
+          "status": "measured-limited",
+          "evidence": "provider-cache/postbuild-runtime-attempt1.json: independent persisted HTTP age/date/304 and repeated no-store header matrix on selected npm route via actual CLI and fresh MCP. Other registry routes rely on shared implementation, not individually replayed here.",
+          "provenance": "this campaign",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "measurementBinary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b"
+        }
+      },
+      "evidenceLane": "providers",
+      "finalBinary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+      "historicalScore": 8.2,
+      "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+      "freshAcceptance": {
+        "requestStatus": "PASS",
+        "sourceStatus": "PASS",
+        "scope": "lodash4.17.21 registry identity/gitHead exact; release-tag mismatch warning preserved.",
+        "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+        "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md"
+      },
+      "historicalInitialBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0"
+    },
+    "securityCheck": {
+      "score": 8.5,
+      "provisional": true,
+      "confidence": "medium for cumulative named scopes",
+      "measuredWeightPercent": 100.0,
+      "dimensions": {
+        "correctness": {
+          "score": 9,
+          "weightPercent": 30,
+          "status": "measured",
+          "evidence": "Final108/108 independent source comparisons across two advisories and bothCLI/MCP: all selected per-provider identities/purls/ranges/75enumeratedversions, metadata, references and own-record fixes. Other original package/repo scope remains separately pinned.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Two source rows retained; full affected/source identity and each provider reference array exact; freshness generality not inferred."
+          }
+        },
+        "schemaInput": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Final CLI/MCP effective schema/description/output reference equality; missingid invalid and mixed valid/invalid rows actionable; modern/legacy selected parity. New descriptions state independent records and selected empty normalization.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Two source rows retained; full affected/source identity and each provider reference array exact; freshness generality not inferred."
+          }
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "JSON/MCP preserve independent provider records, references and all selected metadata. Natural CLI retains selected structure but intentionally rounds fractional values (EPSS0.20158\u21920.2016); use--json for exact numbers. final-independent3/natural-cli-selected-proof.json and docs/OCTOCODE_CLI.md#output.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Two source rows retained; full affected/source identity and each provider reference array exact; freshness generality not inferred."
+          }
+        },
+        "pagination": {
+          "score": 9,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "Final900char chains17/23pages per interface reconstruct full selected data exactly; both full controls independently source-proven. Not every operation/long-value shape repeated on this pin.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Two source rows retained; full affected/source identity and each provider reference array exact; freshness generality not inferred."
+          }
+        },
+        "workflow": {
+          "score": 9,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "Package/id/repo workflows observed originally; final complete advisory details, source links, own-record fixes and mixed error boundaries remain usable on both protocol eras.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "currentAcceptance": {
+            "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+            "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md",
+            "scope": "Two source rows retained; full affected/source identity and each provider reference array exact; freshness generality not inferred."
+          }
+        },
+        "efficiency": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Final GHSA-35jh-r3h4-6jhm, three repetitions\u00d7six arms:15exact-source eligible observations;3readableCLI observations descriptive because of numeric rounding. MCP214.13ms/7592chars versus leanparallel453.97/6456, leanserial737.87/6456, ordinary767.46/11185; snapshot4.96/6431 plus2392.03msfill. Readable Node261.13ms/7236chars not used as exact-scalar win. Origin-cache state unknown. providers/final3/timing/metrics.json.",
+          "provenance": "historical",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json"
+        },
+        "cacheFreshness": {
+          "score": 8,
+          "weightPercent": 5,
+          "status": "measured-limited",
+          "evidence": "rust-full3.log and provider-cache source manifest: deterministic changed advisory-list plus same-ID modified-content tests pass at the owning clock/window seam. This is final-source test evidence, not CLI/MCP mutable-advisory replay. Public advisory publication latency remains unverified; no wall-time cache-hit inference.",
+          "provenance": "this campaign",
+          "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+          "measurementSourceGuard": "rust-full3-source-fingerprints.json",
+          "validationType": "Deterministic tests of final source; not CLI/MCP mutable-advisory replay."
+        }
+      },
+      "evidenceLane": "providers",
+      "scoreKind": "weighted measured dimensions",
+      "finalBinary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+      "originalScoreKind": "defect cap, not weighted score",
+      "resolvedCap": {
+        "maximum": 4,
+        "reason": "Confirmed identity loss and cross-provider reference/metadata pruning before repaired-build independent source verification.",
+        "resolutionEvidence": "final-independent3/security-source-proof.json:108/108 comparisons; final CLI/MCP17/23page reconstructions; 15exact-source eligible timing observations;3readable observations excluded"
+      },
+      "historicalScore": 8.5,
+      "historicalRatingSource": "packages/octocode-benchmark/results/rounds/20.2.0-2026-11-14-tool-ratings/ratings.json",
+      "freshAcceptance": {
+        "requestStatus": "PASS",
+        "sourceStatus": "PASS",
+        "scope": "Two source rows retained; full affected/source identity and each provider reference array exact; freshness generality not inferred.",
+        "binary": "bfe156c11c87901b89ab6387efd778b1b864d0178e114fe36790a22d22be502b",
+        "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/REPORT.md"
+      },
+      "historicalInitialBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0",
+      "historicalCommentary": {
+        "pros": [
+          "Complete independent provider attribution and source-proven pagination.",
+          "Persistent MCP is faster than the measured source-fetch workflows for this warmed-client advisory; lean output is smaller."
+        ],
+        "cons": [
+          "Lean projected output is smaller; explicit local snapshot is much faster once filled.",
+          "Two-advisory source validation and one-advisory timing scope does not establish all ecosystems, upstream recall or mutable cache invalidation."
+        ],
+        "gotchas": [
+          "Finish response pages before other continuations.",
+          "Selected normalization omits empty collections; absence never inherits another provider record.",
+          "Original security timing is ineligible and retained only as failed baseline evidence.",
+          "Readable CLI rounds fractional numeric values; exact values require--json or MCP."
+        ]
+      }
+    }
+  },
+  "independentProposalReview": {
+    "reviewer": "Astra final review",
+    "arithmetic": "17/17 correct, decimal half-up",
+    "corrections": "Freshness label, new dimension binary provenance and deterministic security scope corrected; final runtime/timing review pending."
+  },
+  "recordedAt": "2026-11-15T01:38:34.208329+00:00",
+  "confidence": "Medium for cumulative named scopes. All scores provisional; comparative evidence spans explicitly identified binaries.",
+  "measuredWeightMeaning": "Weight of scored dimensions, not percentage of possible behaviors covered.",
+  "finalGates": {
+    "rustTestsPassed": 8696,
+    "rustTestsSkipped": 16,
+    "fullRust": "rust-full3.json",
+    "lint": "rust-lint4.json",
+    "sourceGuard": "rust-full3-source-fingerprints.json",
+    "sourceInputs": 3311,
+    "build": "build-provenance.json",
+    "allTools": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/all-tools/SUMMARY.json",
+    "cacheIndependentScenariosPassed": 70,
+    "finalSynthesisReview": "ACCEPT",
+    "documentation": "final-docs-check.json",
+    "prune": "prune-rust.json",
+    "finalSourceAndBinary": "final-source-binary-check.json"
+  },
+  "completedAt": "2026-11-15T01:42:39.016399+00:00",
+  "independentFinalReview": {
+    "verdict": "ACCEPT for documented scope",
+    "report": "packages/octocode-benchmark/campaigns/20.2.0-2026-11-15-deep-efficiency/final-review.md"
+  }
+}

@@ -13,6 +13,9 @@ pub(super) struct Walk<'f> {
     /// Inward from a file, also step to the files that use its exports
     /// through a re-exporting module.
     pub(super) reexports: bool,
+    /// The node the answer states as its `target`: a row reached from it
+    /// leaves `from` out, which would restate the target's id.
+    pub(super) target: Option<u32>,
     pub(super) lists: WalkRows,
     pub(super) window: std::ops::Range<usize>,
 }
@@ -44,6 +47,7 @@ pub(super) fn walk(
         kind,
         include_seeds,
         reexports,
+        target,
         lists,
         ref window,
     } = *how;
@@ -103,7 +107,9 @@ pub(super) fn walk(
             }
             let mut row = g.node_json(next, cancel)?;
             row.insert("depth".into(), json!(level + 1));
-            row.insert("from".into(), json!(g.key(id)));
+            if target != Some(id) {
+                row.insert("from".into(), json!(g.key(id)));
+            }
             g.edge_fields(&mut row, edge);
             // The source occurrences behind the walked edge.
             row.insert(

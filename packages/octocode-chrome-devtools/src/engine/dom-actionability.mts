@@ -21,7 +21,8 @@ const isNavigationRace = (error: unknown) =>
     error.message
   );
 
-// Wait past the initial about:blank document; SPA rendering may continue afterward.
+// Readiness belongs to the current document, including authored about:blank/srcdoc pages.
+// Navigation commit is the runner's responsibility; SPA rendering may continue afterward.
 export async function waitForPageReady(
   cdp: Session,
   timeoutMs = 8000,
@@ -37,7 +38,7 @@ export async function waitForPageReady(
           const selector = ${JSON.stringify(selector)};
           const el = selector ? document.querySelector(selector) : null;
           const text = ${JSON.stringify(text)};
-          return { ready: document.readyState, blank: document.URL === 'about:blank',
+          return { ready: document.readyState,
             content: (!selector || Boolean(el)) && (!text || document.body?.innerText?.includes(text)) };
         })()`,
         returnByValue: true,
@@ -53,7 +54,6 @@ export async function waitForPageReady(
     const current = evaluated?.result?.value;
     if (
       current &&
-      !current.blank &&
       current.content &&
       (state === 'complete'
         ? current.ready === 'complete'

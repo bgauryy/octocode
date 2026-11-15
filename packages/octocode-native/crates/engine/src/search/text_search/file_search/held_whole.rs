@@ -2,8 +2,8 @@
 //! whole once, so that line is searched like any other.
 use super::{
     BinaryDetection, CollectSink, CopiedRead, FILE_TERMS_MAX_BYTES, FileOutcome, FileSearcher,
-    HEAD_BYTES, MAX_BINARY_PREFIX_BYTES, MatchWork, build_searcher, is_leading_binary, read_prefix,
-    relevance,
+    HEAD_BYTES, MAX_BINARY_PREFIX_BYTES, MatchWork, build_searcher, is_leading_binary,
+    ranks_by_relevance, read_prefix, relevance,
 };
 use grep_matcher::Matcher;
 use std::path::Path;
@@ -42,6 +42,12 @@ impl<M: Matcher> FileSearcher<'_, M> {
             (self.words, self.terms),
         );
         sink.test_code = self.opts.test_code.as_ref().map(|scope| (scope, path));
+        sink.rank_test_code = self
+            .opts
+            .test_code_rank
+            .as_ref()
+            .filter(|_| ranks_by_relevance(self.opts))
+            .map(|rank| (rank, path));
         sink.line_scope = self.opts.line_scope.as_ref().map(|scope| (scope, path));
         sink.source = Some(path);
         sink.inspect_deferred = self

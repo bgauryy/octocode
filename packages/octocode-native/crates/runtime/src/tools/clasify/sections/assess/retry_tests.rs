@@ -1,12 +1,12 @@
 //! A sections batch whose evaluation the default window refused and the
-//! long-context window answered says so in its row hints.
+//! long-context window answered says so in its row warnings.
 use super::*;
 use crate::tools::judgment::LongContext;
 use crate::tools::selection::long_window_fake::{self, BILLED, LongWindow};
 use std::time::{Duration, Instant};
 
 #[test]
-fn a_long_context_retry_is_disclosed_on_the_sections_row() {
+fn classification_disclosures_keep_long_context_retry_on_the_sections_row() {
     let window = LongWindow::start();
     let evaluator = long_window_fake::evaluator(&window.server);
     let gate = evaluator.gate();
@@ -40,9 +40,9 @@ fn a_long_context_retry_is_disclosed_on_the_sections_row() {
     );
     assert_eq!(settled, 1);
     let output = emit(&mut session, &usage, None);
-    let hints = output["hints"].as_array().expect("row hints");
-    assert_eq!(hints.len(), 1, "{output}");
-    let notice = hints[0].as_str().expect("text");
+    let warnings = output["warnings"].as_array().expect("row warnings");
+    assert_eq!(warnings.len(), 1, "{output}");
+    let notice = warnings[0].as_str().expect("text");
     assert!(notice.starts_with("1 evaluation refused"), "{notice}");
     assert!(
         notice.contains(&format!("{BILLED} input tokens billed")),

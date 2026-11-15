@@ -69,10 +69,17 @@ pub(super) fn hits(
     file_note: Option<&str>,
     out: &mut Vec<String>,
 ) -> Option<()> {
-    // With context, several hits or fields of its own, as `rg --heading`:
+    // With context, several displayed lines or fields of its own, as `rg --heading`:
     // the path once, then `N:text` hits and `N-text` context, a blank line
-    // between files. One hit stays one `path:N:text` line.
-    let heading = numbered || matches.len() != 1 || file_note.is_some();
+    // between files. One displayed line stays one `path:N:text` line.
+    let heading = numbered
+        || matches.len() != 1
+        || file_note.is_some()
+        || matches
+            .first()
+            .and_then(|item| item.get("value"))
+            .and_then(Value::as_str)
+            .is_some_and(|value| value.contains('\n'));
     if heading {
         self::heading(path, file_note, out);
     }

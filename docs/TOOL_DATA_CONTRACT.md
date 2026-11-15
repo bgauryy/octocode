@@ -28,7 +28,7 @@ For a two-line README starting with `# Example project`, the response is
 | `status: "outOfRange"` | The requested page is beyond the available collection. A file range that starts beyond the end instead reports invalid input. |
 | `status: "error"` | Read `data.errorCode`, `data.error`, hints and any recovery calls. Valid siblings in a mixed batch can still succeed. |
 
-Use `octocode schema <tool> --view variants` for examples, `--select operation=<value>` to narrow a schema, and `--view output` for result fields. Native validation accepts some unambiguous input repairs. If it maps a common field to a declared field, the warning identifies what actually ran. Correct ambiguous input using the reported field error. An invalid envelope can fail before producing rows. [CLI exit codes](OCTOCODE_CLI.md#exit-codes)
+Use `octocode schema <tool> --view variants` for examples, `--select operation=<value>` to narrow a schema, and `--view output` for result fields. Native validation accepts some unambiguous input repairs. Each repaired call runs, and one warning per repair states the field and form that ran, such as a common field mapped to a declared one or `"matchString":"x"` read as `["x"]`. Correct ambiguous input using the reported field error. An invalid envelope can fail before producing rows. [CLI exit codes](OCTOCODE_CLI.md#exit-codes)
 
 ### Numbered source content
 
@@ -62,8 +62,9 @@ flowchart TD
 | `responsePagination.next` | Finish the response pages first. A single continuation can carry several rows or sections forward. |
 | `next.nextPage` | Read the next tool page if the response has no continuation of its own. |
 | Other `next` entries | Continue the indicated branch when your claim depends on it, such as a patch, unfiltered results or an exact source read. |
-| `related[]` | Start optional fresh work with the supplied queries. The scope may differ. An empty, failed or partial row lists its recovery calls; a complete row keeps every batch for its tool's usual next step, plus every call that carries a fact the row does not state or that a warning names. |
-| `hints[]` | Read the explanation for help interpreting or correcting the request. |
+| `related[]` | Start optional fresh work with the supplied queries. The scope may differ. Empty and failed rows retain recovery calls. A nonempty success retains a call only when it carries an otherwise unstated identity or a warning names it; routine next-step advice is omitted. Required pagination uses `next`, never `related`. |
+| `hints[]` | Guidance for an empty result or an error. |
+| `warnings[]` | Evidence and coverage disclosures, including on successful rows. Resource-specific warnings remain with that resource. |
 
 A continuation has this shape. Pass **only its complete `input`** to its `tool`. Use the cursor the tool issued.
 
@@ -75,7 +76,7 @@ Cursors are bound to the tool, configuration, access context and saved state. Re
 
 ## Paging
 
-`responseChars` is an optional per-call page-size target. Large responses split at row boundaries where possible, then inside long strings (`rowPart`). A long line is read in byte windows of at least 4,096 bytes whatever the target, each served whole on its own page, so a narrow target never takes thousands of calls per line. A page can exceed the target by its fixed parts: the envelope, the `responsePagination` block and the context each row part repeats. Provider metadata and rejected input rows can also add to the first page. A page states `oversized: true` only when it holds one value longer than the target that no page can split: an identity such as a path, a bounded value or a ready call. Other free text longer than a page is split into parts instead.
+`responseChars` is an optional per-call page-size target. Large responses split at row boundaries where possible, then inside long strings (`rowPart`). A long line is read in byte windows of at least 4,096 escaped JSON characters (the unit of `responseChars`) whatever the target, each served whole on its own page, so a narrow target never takes thousands of calls per line. A page can exceed the target by its fixed parts: the envelope, the `responsePagination` block and the context each row part repeats. Provider metadata and rejected input rows can also add to the first page. A page states `oversized: true` only when it holds one value longer than the target that no page can split: an identity such as a path, a bounded value or a ready call. Other free text longer than a page is split into parts instead. An unpaged operation serves strings whole, so a string longer than the explicit target is also disclosed as oversized; this adds no replay or continuation.
 
 | Field | How to consume it |
 |---|---|

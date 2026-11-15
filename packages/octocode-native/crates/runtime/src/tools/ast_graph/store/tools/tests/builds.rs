@@ -182,7 +182,7 @@ fn a_paused_build_resumes_through_expand_scan_without_refresh() {
     let dir = Fixture::new();
     dir.write("app/a.ts", "export const a = () => 1;\n");
     let paths = workspace_policy(&dir.0);
-    let (workspace, root, _) = scope("app", &paths, None, |_| None).expect("scope");
+    let (workspace, root, _) = scope("app", &paths, None, &|_, _| None).expect("scope");
     let query: GraphBuildQuery =
         serde_json::from_value(json!({"path": "app", "refresh": true})).expect("query");
     let options = IngestOptions {
@@ -229,7 +229,7 @@ fn a_build_of_only_skipped_files_says_why_it_is_empty() {
     ] {
         let built = call(&dir.0, ToolId::GraphBuild, json!({"path": path}));
         assert_eq!(built["counts"]["nodes"], 0, "{built}");
-        let hints = built["hints"].to_string();
+        let hints = built["warnings"].to_string();
         assert!(hints.contains("behind skipped paths"), "{path}: {built}");
         assert!(
             !hints.contains("has no includeIgnored"),
@@ -273,9 +273,25 @@ fn a_build_names_the_files_no_graph_grammar_parses() {
     dir.write("app/page.vue", "<script>export default {}</script>\n");
     dir.write("src/c.ts", "export const c = 1;\n");
 
+    // A build that holds no file is empty and states what it read: a fresh
+    // build and an unchanged scope's reuse alike.
+    let request = crate::contracts::validate_built_query(
+        ToolId::GraphBuild.as_str(),
+        json!({"path": "docs"}),
+    )
+    .expect("input contract");
+    for build in ["fresh", "reused"] {
+        let result = execute(ToolId::GraphBuild, &request, &dir.0, &context()).expect("execute");
+        assert_eq!(result.status, Some("empty"), "{build}: {}", result.data);
+        assert_eq!(
+            result.data["scan"]["filesScanned"], 0,
+            "{build}: {}",
+            result.data
+        );
+    }
     let empty = call(&dir.0, ToolId::GraphBuild, json!({"path": "docs"}));
     assert_eq!(empty["counts"]["nodes"], 0, "{empty}");
-    let hints = empty["hints"].to_string();
+    let hints = empty["warnings"].to_string();
     assert!(
         hints.contains("2 files skipped: no graph grammar for their names (docs/a.md, docs/b.md)"),
         "{empty}"
@@ -292,7 +308,7 @@ fn a_build_names_the_files_no_graph_grammar_parses() {
         partly["counts"]["nodes"].as_u64().unwrap_or(0) > 0,
         "{partly}"
     );
-    let hints = partly["hints"].to_string();
+    let hints = partly["warnings"].to_string();
     assert!(
         hints.contains("1 file skipped: no graph grammar for its name (app/tool.unknowntype)"),
         "{partly}"
@@ -308,13 +324,13 @@ fn a_build_names_the_files_no_graph_grammar_parses() {
         json!({"path": "app", "parserGlobs": {"rust": ["*.unknowntype"]}}),
     );
     assert!(
-        !mapped["hints"].to_string().contains("tool.unknowntype"),
+        !mapped["warnings"].to_string().contains("tool.unknowntype"),
         "{mapped}"
     );
 
     // A scope every file of which is parsed says nothing.
     let plain = call(&dir.0, ToolId::GraphBuild, json!({"path": "src"}));
-    assert!(plain.get("hints").is_none(), "{plain}");
+    assert!(plain.get("warnings").is_none(), "{plain}");
 
     // The graph store the builds above wrote is Octocode's own, never the
     // scope's: a walk that takes dot entries names none of its files.
@@ -324,7 +340,7 @@ fn a_build_names_the_files_no_graph_grammar_parses() {
         ToolId::GraphBuild,
         json!({"path": ".", "includeHidden": true}),
     );
-    let hints = whole["hints"].to_string();
+    let hints = whole["warnings"].to_string();
     assert!(hints.contains("tool.unknowntype"), "{whole}");
     assert!(!hints.contains(".octocode"), "{whole}");
     assert!(

@@ -11,7 +11,7 @@
 //! is not, since the origin stands behind it.
 use reqwest::header::{HeaderName, IF_MODIFIED_SINCE, IF_NONE_MATCH};
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
+use std::time::{Duration, UNIX_EPOCH};
 
 use super::ProviderAnswer;
 
@@ -61,17 +61,18 @@ impl SavedAnswer {
     pub fn reuse(&self, pinned: bool, window: Option<Duration>, now_ms: u64) -> Reuse {
         let headers = &self.answer.headers;
         let age = Duration::from_millis(now_ms.saturating_sub(self.observed_ms));
-        if has_directive(headers, "no-store") {
+        if forbids_reuse(headers) {
             return Reuse::Spent;
         }
+        let lifetime = stated_lifetime(headers, self.observed_ms);
         let must_validate = has_directive(headers, "no-cache")
             || (has_directive(headers, "must-revalidate")
-                && stated_lifetime(headers).is_none_or(|lifetime| age >= lifetime));
+                && lifetime.is_none_or(|lifetime| age >= lifetime));
         if !self.redirected && !must_validate {
             if pinned {
                 return Reuse::Pinned;
             }
-            if stated_lifetime(headers).is_some_and(|lifetime| age < lifetime) {
+            if lifetime.is_some_and(|lifetime| age < lifetime) {
                 return Reuse::Fresh;
             }
         }
@@ -91,14 +92,18 @@ impl SavedAnswer {
     /// The conditional header that asks the origin to confirm this answer,
     /// whatever lifetime it stated: what proves it still stands now.
     pub(super) fn revalidation(&self) -> Option<(HeaderName, String)> {
+        if forbids_reuse(&self.answer.headers) {
+            return None;
+        }
         validator(&self.answer.headers)
     }
 
     /// A refused validation cannot override an origin's revalidation requirement.
     pub fn allows_stale(&self) -> bool {
-        !["no-store", "no-cache", "must-revalidate"]
-            .iter()
-            .any(|name| has_directive(&self.answer.headers, name))
+        !forbids_reuse(&self.answer.headers)
+            && !["no-cache", "must-revalidate"]
+                .iter()
+                .any(|name| has_directive(&self.answer.headers, name))
     }
 
     /// The origin confirmed this answer at `now_ms` with `headers` (a 304):
@@ -106,7 +111,14 @@ impl SavedAnswer {
     /// the answer stays whole.
     pub fn confirm(&mut self, headers: &[(String, String)], now_ms: u64) {
         self.observed_ms = now_ms;
-        for name in ["cache-control", "age", "etag", "last-modified"] {
+        for name in [
+            "cache-control",
+            "date",
+            "age",
+            "etag",
+            "last-modified",
+            "vary",
+        ] {
             if !headers
                 .iter()
                 .any(|(key, _)| key.eq_ignore_ascii_case(name))
@@ -129,12 +141,23 @@ impl SavedAnswer {
 /// Whether a success with these `headers` is worth keeping: something can
 /// later vouch for it, and the origin did not forbid keeping it.
 pub fn worth_keeping(headers: &[(String, String)], pinned: bool, window: Option<Duration>) -> bool {
-    !has_directive(headers, "no-store")
+    !forbids_reuse(headers)
         && (!has_directive(headers, "no-cache") || validator(headers).is_some())
         && (pinned
             || window.is_some()
             || validator(headers).is_some()
-            || stated_lifetime(headers).is_some())
+            || stated_lifetime(headers, crate::budget::now_ms()).is_some())
+}
+
+/// A wildcard Vary never matches another request (RFC 9111 section 4.1).
+/// Decline retention as well as reuse, including validators and stale fallback.
+pub(super) fn forbids_reuse(headers: &[(String, String)]) -> bool {
+    has_directive(headers, "no-store")
+        || headers
+            .iter()
+            .filter(|(name, _)| name.eq_ignore_ascii_case("vary"))
+            .flat_map(|(_, value)| super::headers::list(value, ','))
+            .any(|member| member == "*")
 }
 
 fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
@@ -163,14 +186,14 @@ pub(super) fn has_directive(headers: &[(String, String)], name: &str) -> bool {
 
 /// The `max-age` an answer states, in seconds, when it allows reuse at all.
 pub(super) fn stated_max_age(headers: &[(String, String)]) -> Option<u64> {
-    if has_directive(headers, "no-cache") || has_directive(headers, "no-store") {
+    if has_directive(headers, "no-cache") || forbids_reuse(headers) {
         return None;
     }
     let mut lifetimes = directives(headers).filter_map(|directive| {
         let (name, value) = directive.split_once('=')?;
-        name.trim()
-            .eq_ignore_ascii_case("max-age")
-            .then(|| value.trim().trim_matches('"').parse::<u64>().unwrap_or(0))
+        name.trim().eq_ignore_ascii_case("max-age").then(|| {
+            octocode_io::http::parse_delta_seconds(value.trim().trim_matches('"')).unwrap_or(0)
+        })
     });
     let lifetime = lifetimes.next()?;
     // Conflicting freshness values are stale (RFC 9111 section 4.2.1).
@@ -181,15 +204,35 @@ pub(super) fn stated_max_age(headers: &[(String, String)]) -> Option<u64> {
     })
 }
 
-/// How long the origin says the answer stands from when it was observed:
-/// `max-age` less the `Age` a shared cache reported.
-fn stated_lifetime(headers: &[(String, String)]) -> Option<Duration> {
-    let max_age = stated_max_age(headers)?;
+/// Freshness remaining at receipt: max-age minus the larger of apparent age
+/// and upstream Age (which the transport already increased by response delay).
+fn stated_lifetime(headers: &[(String, String)], observed_ms: u64) -> Option<Duration> {
+    let max_age = Duration::from_secs(stated_max_age(headers)?);
+    #[cfg_attr(
+        octocode_clippy_ratchet,
+        expect(
+            clippy::disallowed_methods,
+            reason = "Converts the origin's HTTP Age seconds, not a work limit"
+        )
+    )]
     let age = header(headers, "age")
-        .and_then(|value| value.trim().parse::<u64>().ok())
-        .unwrap_or(0);
-    let lifetime = max_age.saturating_sub(age);
-    (lifetime > 0).then(|| Duration::from_secs(lifetime))
+        .and_then(octocode_io::http::parse_age)
+        .map(Duration::from_secs)
+        .unwrap_or_default();
+    #[cfg_attr(
+        octocode_clippy_ratchet,
+        expect(
+            clippy::disallowed_methods,
+            reason = "Converts the recorded receipt timestamp in Unix milliseconds, not a work limit"
+        )
+    )]
+    let observed = UNIX_EPOCH.checked_add(Duration::from_millis(observed_ms))?;
+    let apparent_age = header(headers, "date")
+        .and_then(|value| octocode_io::http::parse_http_date(value, observed))
+        .and_then(|date| observed.duration_since(date).ok())
+        .unwrap_or_default();
+    let lifetime = max_age.saturating_sub(age.max(apparent_age));
+    (!lifetime.is_zero()).then_some(lifetime)
 }
 
 fn validator(headers: &[(String, String)]) -> Option<(HeaderName, String)> {

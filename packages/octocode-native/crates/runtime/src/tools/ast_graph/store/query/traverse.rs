@@ -140,6 +140,10 @@ impl Query<'_> {
             kind: self.flags.kind,
             include_seeds: matches!(op, "callers" | "callees"),
             reexports,
+            target: match &target {
+                TraversalTarget::Node(root) => Some(*root),
+                TraversalTarget::Directory { .. } => None,
+            },
             lists: match view {
                 Some("files") => WalkRows::Files,
                 Some("modules") => WalkRows::Modules,

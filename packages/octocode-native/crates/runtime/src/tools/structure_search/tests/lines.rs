@@ -60,7 +60,7 @@ fn line_sort_counts_above_two_thousand_entries() {
         std::fs::write(root.0.join(format!("file-{i:04}.rs")), "line\n").expect("file");
     }
     std::fs::write(root.0.join("largest.rs"), "line\n".repeat(7)).expect("largest");
-    let out = run(&root.0, json!({"operation":"files","path":root.0,"entryType": "file","sort":{"by":"lineCount","order":"desc"}})).expect("files");
+    let out = run(&root.0, json!({"operation":"files","path":root.0,"entryType": "file","sort":{"by":"totalLines","order":"desc"}})).expect("files");
     assert_eq!(out["pagination"]["total"], 2002);
     assert!(
         listed(&out)[0]["path"]
@@ -82,7 +82,7 @@ fn a_line_sort_exposes_each_sort_key() {
     std::fs::create_dir(root.0.join("dir")).expect("dir");
     let out = run(
         &root.0,
-        json!({"operation":"files","view":"details","path":root.0,"sort":{"by":"lineCount","order":"desc"}}),
+        json!({"operation":"files","view":"details","path":root.0,"sort":{"by":"totalLines","order":"desc"}}),
     )
     .expect("files");
     let rows = listed(&out);
@@ -124,7 +124,7 @@ fn a_line_sort_names_binary_and_unreadable_files_instead_of_counting_them() {
     }
     let out = run(
         &root.0,
-        json!({"operation":"files","path":root.0,"entryType": "file","sort":{"by":"lineCount","order":"desc"}}),
+        json!({"operation":"files","path":root.0,"entryType": "file","sort":{"by":"totalLines","order":"desc"}}),
     )
     .expect("files");
     let lines = listed(&out)
@@ -161,7 +161,7 @@ fn descendant_policy_precedes_discovery_totals_and_line_reads() {
     let root = sensitive_fixture();
     let files = run(
         &root.0,
-        json!({"operation":"files","path":root.0,"sort":{"by":"lineCount","order":"desc"},"entryType": "file"}),
+        json!({"operation":"files","path":root.0,"sort":{"by":"totalLines","order":"desc"},"entryType": "file"}),
     )
     .expect("files");
     assert_eq!(files["pagination"]["total"], 1);
@@ -272,7 +272,7 @@ fn a_link_to_a_directory_has_no_line_count_not_unreadable() {
     std::os::unix::fs::symlink("src/a.rs", root.0.join("to_file")).expect("file link");
     for query in [
         json!({"operation":"tree","view":"details","path":root.0}),
-        json!({"operation":"files","view":"details","path":root.0,"maxDepth":1,"sort":{"by":"lineCount","order":"desc"}}),
+        json!({"operation":"files","view":"details","path":root.0,"maxDepth":1,"sort":{"by":"totalLines","order":"desc"}}),
     ] {
         let out = run(&root.0, query).expect("listing");
         let rows = listed(&out);

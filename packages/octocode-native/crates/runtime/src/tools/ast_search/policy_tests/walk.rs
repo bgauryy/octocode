@@ -207,7 +207,7 @@ fn an_empty_match_over_ignored_and_hidden_files_leads_to_them() {
         let retry = &lead["input"]["queries"][0];
         assert_eq!(retry[flag], true, "{dir}: {empty}");
         assert!(
-            empty["hints"]
+            empty["warnings"]
                 .to_string()
                 .contains(if flag == "includeIgnored" {
                     ".gitignore"
@@ -260,7 +260,7 @@ fn an_empty_match_beside_parsed_files_names_the_ignored_ones() {
     let empty = run(&root.0, request).expect("empty match");
     assert_eq!(empty["status"], "empty", "{empty}");
     assert_eq!(empty["filesScanned"], json!(1), "{empty}");
-    let hints = empty["hints"].to_string();
+    let hints = empty["warnings"].to_string();
     assert!(hints.contains(".gitignore:1 'gen/'"), "{hints}");
     let retry = &super::super::test_rows::skipped_call(&empty)
         .unwrap_or_else(|| panic!("missing skipped-scope lead: {empty}"))["input"]["queries"][0];

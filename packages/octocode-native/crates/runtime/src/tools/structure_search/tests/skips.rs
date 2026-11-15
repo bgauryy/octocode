@@ -84,7 +84,7 @@ fn default_pruned_directories_are_named_and_an_empty_listing_walks_them() {
     assert_eq!(files["status"], "empty", "{files}");
     assert!(skipped_count(&files, "default-excluded") > 0, "{files}");
     assert!(
-        files["hints"][0]
+        files["warnings"][0]
             .as_str()
             .is_some_and(|h| h.contains("build/")),
         "{files}"
@@ -159,12 +159,12 @@ fn include_ignored_lead_lifts_gitignore_and_prune_in_one_hop() {
     assert_eq!(retry["defaultExcludes"], false, "{out}");
     assert_eq!(retry["includeIgnored"], true, "{out}");
     assert!(
-        out["hints"][0]
+        out["warnings"][0]
             .as_str()
             .is_some_and(|h| h.contains("target/")),
         "{out}"
     );
-    crate::tools::test_support::checks::assert_absent(&out["warnings"], "target/");
+    crate::tools::test_support::checks::assert_absent(&out["hints"], "target/");
     let found = run(&root.0, retry).expect("retry");
     assert!(
         found["files"]

@@ -544,9 +544,10 @@ async fn an_ecosystem_osv_cannot_order_is_asked_by_name_and_compared_here() {
 mod batch_walk {
     use super::*;
     use crate::providers::saved_answers::KeptAnswers;
+    use std::collections::BTreeMap;
 
     fn net_of<'a>(
-        http: &'a RouteHttp,
+        http: &'a dyn crate::providers::artifact::ArtifactHttp,
         budget: &'a octocode_io::budget::RequestBudget,
         reused: &'a ReusedSince,
         config: &'a crate::config::ResolvedConfig,
@@ -585,6 +586,200 @@ mod batch_walk {
     fn gets(http: &RouteHttp, id: &str) -> usize {
         let target = format!("/v1/vulns/{id}");
         http.targets().iter().filter(|got| **got == target).count()
+    }
+
+    /// Origin headers supplied independently of the existing route double.
+    struct CacheControlled {
+        inner: RouteHttp,
+        get_headers: Vec<(String, String)>,
+        post_headers: Vec<(String, String)>,
+    }
+
+    impl crate::providers::artifact::ArtifactHttp for CacheControlled {
+        fn get<'a>(
+            &'a self,
+            request: crate::providers::artifact::ArtifactHttpRequest,
+            budget: &'a octocode_io::budget::RequestBudget,
+        ) -> crate::providers::artifact::ArtifactHttpFuture<'a> {
+            Box::pin(async move {
+                let mut response =
+                    crate::providers::artifact::ArtifactHttp::get(&self.inner, request, budget)
+                        .await?;
+                response.headers.extend(self.get_headers.clone());
+                Ok(response)
+            })
+        }
+
+        fn post<'a>(
+            &'a self,
+            request: crate::providers::artifact::ArtifactHttpRequest,
+            body: Vec<u8>,
+            budget: &'a octocode_io::budget::RequestBudget,
+        ) -> crate::providers::artifact::ArtifactHttpFuture<'a> {
+            Box::pin(async move {
+                let mut response = crate::providers::artifact::ArtifactHttp::post(
+                    &self.inner,
+                    request,
+                    body,
+                    budget,
+                )
+                .await?;
+                response.headers.extend(self.post_headers.clone());
+                Ok(response)
+            })
+        }
+    }
+
+    fn refused_cache_policies() -> Vec<Vec<(String, String)>> {
+        [
+            vec![("cache-control", "no-store")],
+            vec![("vary", "*"), ("cache-control", "max-age=300")],
+            vec![("vary", "Accept"), ("vary", "*")],
+            vec![("cache-control", "no-cache"), ("etag", "\"e\"")],
+            vec![("cache-control", "must-revalidate, max-age=0")],
+        ]
+        .into_iter()
+        .map(|headers| {
+            headers
+                .into_iter()
+                .map(|(name, value)| (name.to_owned(), value.to_owned()))
+                .collect()
+        })
+        .collect()
+    }
+
+    #[tokio::test]
+    async fn response_cache_controls_query_lists_honor_origin_refusals() {
+        for headers in refused_cache_policies() {
+            let http = CacheControlled {
+                inner: RouteHttp::new().post_sequence(vec![
+                    (200, batch(vec![json!({"vulns":[listed("FIRST", "m")],"next_page_token":"first-page"})])),
+                    (200, batch(vec![json!({"vulns":[listed("SECOND", "m")],"next_page_token":"second-page"})])),
+                ]),
+                get_headers: Vec::new(), post_headers: headers.clone(),
+            };
+            let store = KeptAnswers::new(None);
+            let (budget, reused, config) = (
+                test_budget(),
+                ReusedSince::default(),
+                crate::tools::security_check::tests::default_config(),
+            );
+            let net = net_of(&http, &budget, &reused, &config, Some(&store));
+            let ask = package(ArtifactType::Npm, "lodash", Some("1.0.0"));
+            for (id, token) in [("FIRST", "first-page"), ("SECOND", "second-page")] {
+                let page = batch::pages(
+                    &net,
+                    &[batch::PageQuery {
+                        ask: &ask,
+                        token: None,
+                    }],
+                )
+                .await
+                .pop()
+                .expect("one query")
+                .expect("origin page");
+                assert_eq!(page.refs[0].id, id, "{headers:?}");
+                assert_eq!(page.next.as_deref(), Some(token), "{headers:?}");
+            }
+            assert_eq!(http.inner.post_bodies().len(), 2, "{headers:?}");
+            assert_eq!(
+                reused.get(),
+                None,
+                "forbidden/stale responses never answer a repeat: {headers:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn response_cache_controls_keep_origin_fresh_lists_and_disclose_only_window_reuse() {
+        for (headers, disclosed) in [
+            (Vec::new(), true),
+            (
+                vec![("cache-control".to_owned(), "max-age=300".to_owned())],
+                false,
+            ),
+        ] {
+            let http = CacheControlled {
+                inner: RouteHttp::new().post_sequence(vec![(
+                    200,
+                    batch(vec![json!({"vulns":[listed("A", "m")]})]),
+                )]),
+                get_headers: Vec::new(),
+                post_headers: headers,
+            };
+            let store = KeptAnswers::new(None);
+            let (budget, reused, config) = (
+                test_budget(),
+                ReusedSince::default(),
+                crate::tools::security_check::tests::default_config(),
+            );
+            let net = net_of(&http, &budget, &reused, &config, Some(&store));
+            let ask = package(ArtifactType::Npm, "lodash", Some("1.0.0"));
+            for _ in 0..2 {
+                let page = batch::pages(
+                    &net,
+                    &[batch::PageQuery {
+                        ask: &ask,
+                        token: None,
+                    }],
+                )
+                .await
+                .pop()
+                .expect("one query")
+                .expect("page");
+                assert_eq!(page.refs[0].id, "A");
+            }
+            assert_eq!(
+                http.inner.post_bodies().len(),
+                1,
+                "origin-permitted reuse remains useful"
+            );
+            assert_eq!(
+                reused.get().is_some(),
+                disclosed,
+                "only caller-window reuse needs disclosure"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn response_cache_controls_hydrated_records_honor_origin_refusals() {
+        let reference = batch::Ref {
+            id: "A".to_owned(),
+            modified: Some("m".to_owned()),
+        };
+        for headers in refused_cache_policies() {
+            let store = KeptAnswers::new(None);
+            let (budget, reused, config) = (
+                test_budget(),
+                ReusedSince::default(),
+                crate::tools::security_check::tests::default_config(),
+            );
+            for marker in ["first", "second"] {
+                let mut body = record("A");
+                body["modified"] = json!("m");
+                body["summary"] = json!(marker);
+                let http = CacheControlled {
+                    inner: RouteHttp::new().json("/v1/vulns/A", body),
+                    get_headers: headers.clone(),
+                    post_headers: Vec::new(),
+                };
+                let net = net_of(&http, &budget, &reused, &config, Some(&store));
+                let mut known = BTreeMap::new();
+                let failed = hydrate::fetch(&net, vec![&reference], &mut known).await;
+                assert!(failed.is_empty(), "{failed:?}");
+                assert_eq!(
+                    known.values().next().expect("record")["summary"],
+                    marker,
+                    "{headers:?}"
+                );
+                assert_eq!(
+                    gets(&http.inner, "A"),
+                    1,
+                    "same id/stamp must still honor origin policy: {headers:?}"
+                );
+            }
+        }
     }
 
     /// More queries than one request holds go in several, each answered
@@ -1010,6 +1205,92 @@ mod batch_walk {
             "an expired list is asked again"
         );
         assert_eq!(reused.get(), None, "{:?}", reused.get());
+    }
+
+    #[tokio::test]
+    async fn the_same_query_observes_a_changed_advisory_list_and_record_after_its_window() {
+        let store = KeptAnswers::new(None);
+        let (budget, config) = (
+            test_budget(),
+            crate::tools::security_check::tests::default_config(),
+        );
+        let asking = |id: &str, modified: &str| {
+            let mut body = record(id);
+            body["modified"] = json!(modified);
+            RouteHttp::new()
+                .json(&format!("/v1/vulns/{id}"), body)
+                .post_sequence(vec![(
+                    200,
+                    batch(vec![json!({"vulns": [listed(id, modified)]})]),
+                )])
+        };
+        let query = lodash("1.0.0");
+        let first = asking("A", "2026-01-01T00:00:00Z");
+        let reused = ReusedSince::default();
+        let net = net_of(&first, &budget, &reused, &config, Some(&store));
+        let walked = walk::walk_one(&net, &query, None)
+            .await
+            .expect("first observation");
+        assert_eq!(
+            walked
+                .read
+                .iter()
+                .map(|record| record["id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["A"]
+        );
+        assert_eq!(first.post_bodies().len(), 1);
+        assert_eq!(gets(&first, "A"), 1);
+        assert_eq!(reused.get(), None);
+
+        // The provider now lists B instead of A. Within the declared window,
+        // the existing list answers with its observation time disclosed.
+        let changed = asking("B", "2026-01-02T00:00:00Z");
+        let reused = ReusedSince::default();
+        let net = net_of(&changed, &budget, &reused, &config, Some(&store));
+        let walked = walk::walk_one(&net, &query, None)
+            .await
+            .expect("disclosed reuse");
+        assert_eq!(
+            walked
+                .read
+                .iter()
+                .map(|record| record["id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["A"]
+        );
+        assert!(changed.post_bodies().is_empty());
+        assert_eq!(gets(&changed, "B"), 0);
+        assert!(reused.get().is_some());
+
+        // Advance only this cached list by its owning window, without sleeping.
+        let asked = first.post_bodies().remove(0);
+        let (scope, identity) = super::batch::list_key(&net, &asked).expect("list key");
+        let mut saved =
+            octocode_github::SavedAnswers::load(&store, &scope, &identity).expect("list");
+        saved.observed_ms = saved.observed_ms.saturating_sub(
+            u64::try_from(octocode_github::SEARCH_REUSE_WINDOW.as_millis()).unwrap_or(u64::MAX),
+        );
+        octocode_github::SavedAnswers::save(&store, &scope, &identity, saved);
+        let fresh = asking("B", "2026-01-02T00:00:00Z");
+        let reused = ReusedSince::default();
+        let net = net_of(&fresh, &budget, &reused, &config, Some(&store));
+        let walked = walk::walk_one(&net, &query, None)
+            .await
+            .expect("changed provider observation");
+        assert_eq!(
+            walked
+                .read
+                .iter()
+                .map(|record| record["id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["B"]
+        );
+        assert_eq!(walked.read[0]["modified"], "2026-01-02T00:00:00Z");
+        assert_eq!(fresh.post_bodies().len(), 1);
+        assert_eq!(gets(&fresh, "A"), 0);
+        assert_eq!(gets(&fresh, "B"), 1);
+        assert_eq!(reused.get(), None);
     }
 
     /// Listed records are read together, not one after another: five records

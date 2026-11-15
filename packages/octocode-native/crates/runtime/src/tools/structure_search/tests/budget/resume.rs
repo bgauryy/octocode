@@ -97,7 +97,7 @@ fn the_ignored_retry_of_a_resumed_window_lists_from_the_start() {
 /// the order).
 #[test]
 fn a_sorted_listing_cut_by_time_resumes_exactly() {
-    for sort in ["name", "sizeBytes", "modifiedAt", "lineCount"] {
+    for sort in ["name", "sizeBytes", "modifiedAt", "totalLines"] {
         let root = Fixture::new();
         let start = flat_listing("files", &root, json!({"sort": {"by":sort,"order":"desc"}}));
         let whole = {

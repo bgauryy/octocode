@@ -157,6 +157,7 @@ impl<'a> Reader<'a> {
             1 => Some(SearchedSource {
                 size: self.number()?,
                 modified: self.time()?,
+                lines: self.optional()?,
                 digest: self.bytes(32)?.try_into().ok()?,
             }),
             _ => return None,

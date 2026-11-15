@@ -6,7 +6,43 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
+mod date;
 mod trust;
+pub use date::parse_http_date;
+
+/// The first Age list member, in seconds. Overflow remains old rather than
+/// becoming a cache miss that resets the age (RFC 9111 sections 1.2.2 and 5.1).
+pub fn parse_age(value: &str) -> Option<u64> {
+    let value = value.split(',').next()?.trim();
+    parse_delta_seconds(value)
+}
+
+/// Parse HTTP delta-seconds without wrapping a syntactically valid overflow.
+pub fn parse_delta_seconds(value: &str) -> Option<u64> {
+    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    Some(value.bytes().fold(0_u64, |seconds, byte| {
+        seconds
+            .saturating_mul(10)
+            .saturating_add(u64::from(byte - b'0'))
+    }))
+}
+
+/// Add the successful request's elapsed time to its upstream Age. HTTP Age
+/// uses whole seconds; round up so a subsecond delay never extends freshness.
+pub fn account_response_delay(headers: &mut reqwest::header::HeaderMap, delay: Duration) {
+    use reqwest::header::{AGE, HeaderValue};
+    let origin_age = headers
+        .get(AGE)
+        .and_then(|value| parse_age(value.to_str().ok()?))
+        .unwrap_or(0);
+    let seconds = delay
+        .as_secs()
+        .saturating_add(u64::from(delay.subsec_nanos() != 0));
+    let age = origin_age.saturating_add(seconds);
+    headers.insert(AGE, HeaderValue::from(age));
+}
 
 /// A configured trust store or HTTP client could not be initialized.
 #[derive(Debug)]
@@ -189,6 +225,68 @@ pub(crate) fn loopback_client(policy: ClientPolicy) -> reqwest::Client {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn response_delay_increases_origin_age_conservatively() {
+        use reqwest::header::{AGE, HeaderMap, HeaderValue};
+        for (origin, delay, expected) in [
+            (None, Duration::ZERO, 0),
+            (None, Duration::from_nanos(1), 1),
+            (Some("45"), Duration::from_millis(1_250), 47),
+            (Some("invalid"), Duration::from_secs(2), 2),
+            (
+                Some("18446744073709551615"),
+                Duration::from_secs(2),
+                u64::MAX,
+            ),
+        ] {
+            let mut headers = HeaderMap::new();
+            if let Some(origin) = origin {
+                headers.insert(AGE, HeaderValue::from_static(origin));
+            }
+            account_response_delay(&mut headers, delay);
+            assert_eq!(headers[AGE], expected.to_string());
+        }
+    }
+
+    #[test]
+    fn response_delay_never_restarts_an_overflow_or_list_age_at_zero() {
+        use reqwest::header::{AGE, HeaderMap, HeaderValue};
+        for (value, expected) in [
+            ("18446744073709551616", u64::MAX),
+            ("999999999999999999999999999999", u64::MAX),
+            ("120, 0", 120),
+        ] {
+            let mut headers = HeaderMap::new();
+            headers.insert(AGE, HeaderValue::from_static(value));
+            account_response_delay(&mut headers, Duration::ZERO);
+            assert_eq!(headers[AGE], expected.to_string(), "{value}");
+        }
+    }
+
+    #[test]
+    fn age_uses_the_first_member_and_rejects_non_decimal_syntax() {
+        for (value, expected) in [
+            ("0", Some(0)),
+            (" 120 , 0", Some(120)),
+            ("00042", Some(42)),
+            ("", None),
+            (", 120", None),
+            ("-1", None),
+            ("+1", None),
+            ("1.0", None),
+            ("1e3", None),
+            ("12x", None),
+            ("18446744073709551616", Some(u64::MAX)),
+        ] {
+            assert_eq!(parse_age(value), expected, "{value}");
+        }
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.append("age", reqwest::header::HeaderValue::from_static("120"));
+        headers.append("age", reqwest::header::HeaderValue::from_static("0"));
+        account_response_delay(&mut headers, Duration::ZERO);
+        assert_eq!(headers["age"], "120");
+    }
     use std::io::{Read, Write};
     use std::net::{SocketAddr, TcpListener};
     use std::time::{Duration, Instant};

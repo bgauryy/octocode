@@ -5,8 +5,9 @@
 //! continuation owns and answers a recorded request from it, sending
 //! nothing, so the evidence it hands on is what its own cursors own.
 use bytes::Bytes;
-use reqwest::header::{ACCEPT, HeaderMap, HeaderName, HeaderValue, SET_COOKIE};
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue, SET_COOKIE};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex, PoisonError};
 use url::Url;
@@ -139,20 +140,30 @@ impl ProviderEvidence {
     }
 }
 
-/// The identity of a request: method, URL, whether it reads the first page only,
-/// the media type it asked for, its body
-/// (a GraphQL query and its variables), and the file it reads when its URL names
-/// none. Only the last can hold a line break: a body is one line of JSON.
+/// The identity of a request: method, URL, a digest of every request header,
+/// its body (a GraphQL query and its variables), and the file it reads when its
+/// URL names none. Header values stay private. Only the file can hold a line
+/// break: the digest and JSON body each occupy one line.
 pub(super) fn request_key(spec: &RequestSpec) -> String {
     let method = match spec.method {
         HttpMethod::Get => "GET",
         HttpMethod::Post => "POST",
     };
-    let accept = spec
-        .headers
-        .get(ACCEPT)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default();
+    let mut headers = spec.headers.iter().collect::<Vec<_>>();
+    // Header names are canonical already. Stable sorting preserves repeated
+    // values' order while making different names' insertion order irrelevant.
+    headers.sort_by(|left, right| left.0.as_str().cmp(right.0.as_str()));
+    let mut digest = Sha256::new();
+    digest.update(b"octocode-request-headers-v1");
+    for (name, value) in headers {
+        let name = name.as_str().as_bytes();
+        let value = value.as_bytes();
+        digest.update((name.len() as u64).to_le_bytes());
+        digest.update(name);
+        digest.update((value.len() as u64).to_le_bytes());
+        digest.update(value);
+    }
+    let headers = hex::encode(digest.finalize());
     let body = spec
         .body
         .as_ref()
@@ -163,7 +174,10 @@ pub(super) fn request_key(spec: &RequestSpec) -> String {
         .as_deref()
         .map(|file| format!("\n{file}"))
         .unwrap_or_default();
-    format!("{method} {}\n{accept}\n{body}{file}", spec.url)
+    format!(
+        "{method} {}\nheaders-sha256:{headers}\n{body}{file}",
+        spec.url
+    )
 }
 
 /// The file a request reads when its URL names none, from its [`request_key`].
@@ -391,6 +405,75 @@ impl Journal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use reqwest::header::ACCEPT;
+
+    #[test]
+    fn request_headers_have_one_order_independent_secret_free_identity() {
+        let mut left = RequestSpec::get(Url::parse("https://api.github.com/repos/a/b").unwrap());
+        left.headers
+            .insert("x-first", HeaderValue::from_static("private-first-value"));
+        left.headers
+            .insert("x-second", HeaderValue::from_static("private-second-value"));
+        let mut right = RequestSpec::get(left.url.clone());
+        right
+            .headers
+            .insert("x-second", HeaderValue::from_static("private-second-value"));
+        right
+            .headers
+            .insert("x-first", HeaderValue::from_static("private-first-value"));
+        let key = request_key(&left);
+        assert_eq!(key, request_key(&right));
+        assert!(!key.contains("private-first-value") && !key.contains("private-second-value"));
+        right
+            .headers
+            .insert("x-second", HeaderValue::from_static("different-value"));
+        assert_ne!(key, request_key(&right));
+    }
+
+    #[test]
+    fn request_header_identity_keeps_repeated_values_and_non_text_bytes() {
+        let mut left = RequestSpec::get(Url::parse("https://api.github.com/repos/a/b").unwrap());
+        left.headers
+            .append(ACCEPT, HeaderValue::from_static("application/json"));
+        left.headers
+            .append(ACCEPT, HeaderValue::from_static("text/plain"));
+        let mut right = left.clone();
+        right.headers.remove(ACCEPT);
+        right
+            .headers
+            .append(ACCEPT, HeaderValue::from_static("application/json"));
+        right
+            .headers
+            .append(ACCEPT, HeaderValue::from_static("application/xml"));
+        assert_ne!(request_key(&left), request_key(&right));
+        right.headers.remove(ACCEPT);
+        right
+            .headers
+            .append(ACCEPT, HeaderValue::from_static("text/plain"));
+        right
+            .headers
+            .append(ACCEPT, HeaderValue::from_static("application/json"));
+        assert_ne!(request_key(&left), request_key(&right));
+
+        let mut right = left.clone();
+        left.headers
+            .insert("x-opaque", HeaderValue::from_bytes(&[0x80]).unwrap());
+        right
+            .headers
+            .insert("x-opaque", HeaderValue::from_bytes(&[0x81]).unwrap());
+        assert_ne!(request_key(&left), request_key(&right));
+    }
+
+    #[test]
+    fn request_header_identity_keeps_method_url_and_file_projection() {
+        let spec =
+            RequestSpec::get(Url::parse("https://api.github.com/repos/a/b/git/blobs/sha").unwrap())
+                .reading_file("nested/a\nb.rs");
+        let key = request_key(&spec);
+        assert_eq!(key.split_whitespace().next(), Some("GET"));
+        assert_eq!(key.split_whitespace().nth(1), Some(spec.url.as_str()));
+        assert_eq!(requested_file(&key), Some("nested/a\nb.rs"));
+    }
 
     #[test]
     fn forgetting_a_replayed_answer_requires_a_fresh_read() {

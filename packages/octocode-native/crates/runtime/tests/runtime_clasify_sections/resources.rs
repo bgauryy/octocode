@@ -448,3 +448,66 @@ async fn a_local_resource_states_no_digest_or_byte_of_a_hidden_value() {
     let edited = run("edited", json!({"queries":[row("details")]})).await;
     assert_ne!(shown(&edited).0, digest, "{edited:#}");
 }
+
+#[tokio::test]
+async fn classification_disclosures_glob_scope_and_listing_survive_details_replay() {
+    let provider = provider().await;
+    let workspace = Workspace::new();
+    workspace.write("src/public.rs", "pub fn restart() {}\n");
+    workspace.write("src/.hidden.rs", "pub fn hidden() {}\n");
+    let runtime = clasify_runtime(&workspace, &provider, &[]);
+    let first = runtime
+        .run(
+            "scope-first".into(),
+            "clasify".into(),
+            json!({"queries":[{"operation":"sections","view":"summary",
+                "resources":{"r":{"tool":"localFetch","query":{"path":"src/*.rs"}}},
+                "questions":{"q":{"type":"noul","instructions":"Does this section say to restart?"}}}]}),
+        )
+        .await
+        .expect("summary with a saved details continuation")
+        .structured_content
+        .into_value();
+    let first = &first["results"][0]["data"];
+    assert!(
+        first["warnings"]
+            .as_array()
+            .expect("source scope warning")
+            .iter()
+            .any(|warning| {
+                warning
+                    .as_str()
+                    .is_some_and(|text| text.contains(".hidden.rs"))
+            }),
+        "{first}"
+    );
+    let calls = provider_calls(&provider).await;
+    assert_eq!(first["next"]["details"]["tool"], "clasify", "{first}");
+    let replay = runtime
+        .run(
+            "scope-replay".into(),
+            "clasify".into(),
+            first["next"]["details"]["input"].clone(),
+        )
+        .await
+        .expect("saved details")
+        .structured_content
+        .into_value();
+    let replay = &replay["results"][0]["data"];
+    assert_eq!(replay["warnings"], first["warnings"], "{replay}");
+    assert_eq!(replay["related"], first["related"], "{replay}");
+    assert!(
+        replay["related"]
+            .as_array()
+            .is_some_and(|calls| calls.iter().any(|call| call["tool"] == "structureSearch")),
+        "{replay}"
+    );
+    assert_eq!(replay["usage"]["calls"], 0, "{replay}");
+    assert_eq!(replay["replayed"], true, "{replay}");
+    assert_eq!(
+        provider_calls(&provider).await,
+        calls,
+        "replay submits nothing"
+    );
+    runtime.close().await;
+}

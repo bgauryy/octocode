@@ -56,6 +56,40 @@ pub fn line_starts(text: &str) -> Vec<usize> {
         .collect()
 }
 
+/// The lines of a text read in pieces, as a reader numbers them: each `\n`
+/// ends one, and a last line without one counts too (`""` holds none,
+/// `"a\n"` one, `"a\nb"` two). One rule for a whole text ([`Self::of`]) and
+/// for a stream fed as it is read.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct LineCount {
+    newlines: usize,
+    last: Option<u8>,
+}
+
+impl LineCount {
+    /// The count of `bytes` whole.
+    #[must_use]
+    pub fn of(bytes: &[u8]) -> usize {
+        let mut count = Self::default();
+        count.feed(bytes);
+        count.lines()
+    }
+
+    /// Count the next `bytes` of the text.
+    pub fn feed(&mut self, bytes: &[u8]) {
+        self.newlines += memchr::memchr_iter(b'\n', bytes).count();
+        if let Some(&last) = bytes.last() {
+            self.last = Some(last);
+        }
+    }
+
+    /// The lines of the text fed so far.
+    #[must_use]
+    pub fn lines(&self) -> usize {
+        self.newlines + usize::from(self.last.is_some_and(|last| last != b'\n'))
+    }
+}
+
 /// The 1-based line of byte `offset` under [`line_starts`].
 pub fn line_at(starts: &[usize], offset: usize) -> usize {
     starts.partition_point(|start| *start <= offset).max(1)

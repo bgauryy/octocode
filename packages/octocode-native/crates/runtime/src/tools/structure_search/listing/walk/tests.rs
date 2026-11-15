@@ -90,7 +90,7 @@ fn an_empty_listing_whose_probe_timed_out_still_leads_to_skipped_paths() {
     // The shared disclosure of a cut check: a hint. The requested walk was
     // whole, so the listing is not partial.
     assert_eq!(
-        out["hints"],
+        out["warnings"],
         json!([format!(
             "Skipped paths (build/) were not checked within the probe budget, so absence there is unproven. {}",
             crate::tools::leads::skipped::walks_all_skipped(&[
@@ -145,7 +145,7 @@ fn an_unproven_lead_over_ignored_paths_lifts_the_default_prune() {
         )
     })
     .expect("probe");
-    let hint = out["hints"][0].as_str().unwrap_or_default();
+    let hint = out["warnings"][0].as_str().unwrap_or_default();
     assert!(
         hint.starts_with("Skipped paths (ignored; default-excluded)"),
         "{out}"

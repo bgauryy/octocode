@@ -147,13 +147,10 @@ async fn a_commit_patch_read_keeps_its_pull_request_reachable() {
         .await
         .expect("commit patches");
         let data = row_data(&out).clone();
-        let read = crate::support::checks::related_call(&data, "ghGetFileContent", |_| true);
-        let refs = read["input"]["queries"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|row| row["ref"].clone())
-            .collect::<Vec<_>>();
+        let refs = [
+            data["commitSha"].clone(),
+            data["parentCommitShas"][0].clone(),
+        ];
         assert_eq!(
             refs,
             [
@@ -176,7 +173,7 @@ async fn a_commit_patch_read_keeps_its_pull_request_reachable() {
             })
         };
         assert!(
-            stated(&data["messageHeadline"]) || stated(&row_data(&full)["message"]),
+            stated(&data["message"]) && stated(&row_data(&full)["message"]),
             "{data}"
         );
     }
@@ -216,7 +213,7 @@ async fn a_capped_compare_states_the_file_cap() {
 /// A directory at GitHub's 1000-entry Contents limit is complete only
 /// in a checkout; the listing leads to the clone of that directory.
 #[tokio::test]
-async fn a_directory_at_the_contents_limit_leads_to_a_clone() {
+async fn a_directory_at_the_contents_limit_keeps_the_identity_for_a_clone() {
     let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     Mock::given(method("GET"))
@@ -251,12 +248,12 @@ async fn a_directory_at_the_contents_limit_leads_to_a_clone() {
         data["providerLimit"]["maxEntriesPerDirectory"], 1000,
         "{data}"
     );
-    let clone = &crate::support::checks::find_related_call(&data, "ghCloneRepo", |_| true)
-        .unwrap_or(&serde_json::Value::Null);
-    assert_eq!(clone["tool"], "ghCloneRepo", "{data}");
-    let query = &clone["input"]["queries"][0];
-    assert_eq!(query["owner"], "a", "{data}");
-    assert_eq!(query["ref"], sha, "{data}");
+    assert_eq!(data["commitSha"], sha, "{data}");
+    assert_eq!(data["isPartial"], true, "{data}");
+    assert_eq!(data["terminalLimit"], true, "{data}");
+    let query = json!({"owner":"a","repo":"b","ref":data["commitSha"]});
+    octocode_native::contracts::validate("ghCloneRepo", json!({"queries":[query]}))
+        .expect("capped listing identity forms a clone request");
     runtime.close().await;
 }
 

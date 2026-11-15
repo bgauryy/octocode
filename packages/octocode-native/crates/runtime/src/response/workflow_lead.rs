@@ -1,47 +1,35 @@
-//! The rules for a row's `related[]`. A complete row answered its
-//! question: it keeps every batch for the first available tool its own
-//! tool's main workflow leads to ([`ToolId::workflow_leads`]), and drops the
-//! other optional calls, each one schema-documented request away. No fact
-//! lives only in a dropped call: a call that carries an identity the row
-//! does not state (a merge base, a later batch of reads), or one a note of
-//! the row names (the read a warning points to), is part of the answer and
-//! stays ([`carried_identities`]). A row that did not answer whole (failed,
-//! empty, out of range, partial, or with items its selection left unshown)
-//! keeps every related call: there they are its recovery. `next` is never
-//! touched: it is the continuation contract.
+//! Output guidance follows the normalized row outcome, before response paging.
+//! Nonempty success keeps evidence, warnings and required `next` calls, but
+//! drops advisory hints and related requests whose facts are already stated.
+//! Empty and failed rows keep actionable recovery. A related request carrying
+//! otherwise unstated identity, or explicitly required by a warning, remains
+//! part of the answer until its owning data states that fact directly.
 use crate::id::ToolId;
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 
-/// Applies the rule to each row of `structured`'s `results`. `request`
-/// holds the queries the rows answer: what they name (an owner, a repo, a
-/// path) the call states, so a lead repeating it carries no new fact.
-pub fn keep_workflow_lead(tool: ToolId, structured: &mut Value, request: &Value) {
+/// Applies the guidance policy to each normalized result row. The shared
+/// dispatch boundary states empty/error outcomes in `status`; successful
+/// partial rows still carry their coverage in typed fields and warnings.
+/// No tool-specific result shape or response-size target decides this rule.
+pub fn retain_guidance(structured: &mut Value, request: &Value) {
     let Some(rows) = structured.get_mut("results").and_then(Value::as_array_mut) else {
         return;
     };
     for row in rows {
-        if !answered_whole(row) {
+        if row.get("status").is_some() || row["data"].get("errorCode").is_some() {
             continue;
         }
         let Some(data) = row.get_mut("data").and_then(Value::as_object_mut) else {
             continue;
         };
+        data.remove("hints");
         let Some(Value::Array(related)) = data.remove("related") else {
             continue;
         };
-        // Select the preferred available tool, then keep every ordered
-        // batch for it: repeated identities do not mean repeated work.
-        let lead = tool
-            .workflow_leads()
-            .iter()
-            .find(|target| related.iter().any(|call| call["tool"] == target.as_str()));
         let kept = related
             .into_iter()
-            .filter(|call| {
-                lead.is_some_and(|target| call["tool"] == target.as_str())
-                    || answers(data, request, call)
-            })
+            .filter(|call| answers(data, request, call))
             .collect::<Vec<_>>();
         if !kept.is_empty() {
             data.insert("related".to_owned(), Value::Array(kept));
@@ -118,7 +106,7 @@ fn holds(value: &Value, matches: &impl Fn(&str) -> bool) -> bool {
 }
 
 /// The row members that say something about the row rather than answer it.
-const NOTES: [&str; 3] = ["warnings", "hints", "notices"];
+const NOTES: [&str; 2] = ["warnings", "notices"];
 
 /// Whether some text under `data` (outside its calls) satisfies `matches`,
 /// searching only members `within` accepts at the top level.
@@ -236,24 +224,6 @@ fn enumerated(tool: ToolId) -> &'static Enumerated {
         }
         out
     })
-}
-
-/// Whether `row` answered its question whole: no failure or empty status,
-/// no `errorCode`, not partial, and no item its selection judged without
-/// showing it (`unknownItems`, `relatedItems`) or left partial.
-fn answered_whole(row: &Value) -> bool {
-    if row.get("status").is_some() {
-        return false;
-    }
-    let data = &row["data"];
-    let selection = &data["selection"];
-    let unshown = |field: &str| selection[field].as_u64().is_some_and(|count| count > 0);
-    data.get("errorCode").is_none()
-        && data["isPartial"] != Value::Bool(true)
-        && (selection.is_null()
-            || (selection["status"] == "complete"
-                && !unshown("unknownItems")
-                && !unshown("relatedItems")))
 }
 
 #[cfg(test)]

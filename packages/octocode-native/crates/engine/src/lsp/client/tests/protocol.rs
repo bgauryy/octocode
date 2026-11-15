@@ -252,11 +252,240 @@ async fn a_server_that_registers_for_file_events_receives_them() {
     let reply = read_client_frame(&mut reader).await;
     assert_eq!(reply["id"], "w");
     assert!(client.watches_files().await, "the registration is noted");
+    let root = std::env::temp_dir();
+    let unchanged = |_: &str, before: &str, after: &str| before == after;
     client
-        .notify_watched_files(vec![("file:///w/new.ts".to_owned(), 1)])
+        .sync_watched_files(|previous| {
+            std::future::ready(WatchedFileUpdate::new(
+                &root,
+                previous.as_ref(),
+                std::collections::BTreeMap::new(),
+                unchanged,
+            ))
+        })
+        .await
+        .expect("initial snapshot");
+    client
+        .sync_watched_files(|previous| {
+            std::future::ready(WatchedFileUpdate::new(
+                &root,
+                previous.as_ref(),
+                std::collections::BTreeMap::from([("new.ts".to_owned(), "new".to_owned())]),
+                unchanged,
+            ))
+        })
         .await
         .expect("notify");
     let event = read_client_frame(&mut reader).await;
     assert_eq!(event["method"], "workspace/didChangeWatchedFiles");
-    assert_eq!(event["params"]["changes"][0]["uri"], "file:///w/new.ts");
+    assert_eq!(
+        event["params"]["changes"][0]["uri"],
+        crate::lsp::uri::path_to_uri(&root.join("new.ts").to_string_lossy()).expect("uri")
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn watched_snapshots_are_captured_in_commit_order() {
+    use super::document_sync::{client_with_fake_server_using, read_client_frame};
+    use std::collections::BTreeMap;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let (client, mut reader, _writer) =
+        client_with_fake_server_using(NativeLspClient::new(ts_config()), 64 * 1024).await;
+    let root = std::env::temp_dir();
+    let stage = AtomicUsize::new(0);
+    let (release, released) = tokio::sync::oneshot::channel();
+    let (first_root, first_stage) = (&root, &stage);
+    let mut first = Box::pin(client.sync_watched_files(|previous| async move {
+        assert!(previous.is_none());
+        first_stage.store(1, Ordering::SeqCst);
+        released.await.expect("release first capture");
+        first_stage.store(2, Ordering::SeqCst);
+        WatchedFileUpdate::new(
+            first_root,
+            previous.as_ref(),
+            BTreeMap::from([("a.rs".to_owned(), "one".to_owned())]),
+            |_, before, after| before == after,
+        )
+    }));
+    tokio::select! {
+        biased;
+        result = &mut first => panic!("first capture must wait: {result:?}"),
+        () = std::future::ready(()) => {}
+    }
+    assert_eq!(stage.load(Ordering::SeqCst), 1);
+    let mut second = Box::pin(client.sync_watched_files(|previous| {
+        assert_eq!(
+            stage.load(Ordering::SeqCst),
+            2,
+            "capture is inside the lock"
+        );
+        assert_eq!(
+            previous.as_ref().and_then(|files| files.get("a.rs")),
+            Some(&"one".to_owned()),
+            "the second capture compares with the committed first snapshot"
+        );
+        stage.store(3, Ordering::SeqCst);
+        std::future::ready(WatchedFileUpdate::new(
+            &root,
+            previous.as_ref(),
+            BTreeMap::from([
+                ("a.rs".to_owned(), "one".to_owned()),
+                ("b.rs".to_owned(), "two".to_owned()),
+            ]),
+            |_, before, after| before == after,
+        ))
+    }));
+    tokio::select! {
+        biased;
+        result = &mut second => panic!("second capture must wait: {result:?}"),
+        () = std::future::ready(()) => {}
+    }
+    assert_eq!(stage.load(Ordering::SeqCst), 1);
+    release.send(()).expect("release");
+    first.await.expect("first sync");
+    second.await.expect("second sync");
+    let event = read_client_frame(&mut reader).await;
+    assert_eq!(
+        event["params"]["changes"].as_array().expect("events").len(),
+        1
+    );
+    assert_eq!(event["params"]["changes"][0]["type"], 1);
+    assert!(
+        event["params"]["changes"][0]["uri"]
+            .as_str()
+            .expect("uri")
+            .ends_with("/b.rs")
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_failed_watched_event_write_preserves_the_committed_snapshot() {
+    use super::document_sync::client_with_fake_server_using;
+    use std::collections::BTreeMap;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let (client, reader, _writer) =
+        client_with_fake_server_using(NativeLspClient::new(ts_config()), 64 * 1024).await;
+    let root = std::env::temp_dir();
+    let first = BTreeMap::from([("a.rs".to_owned(), "before".to_owned())]);
+    client
+        .sync_watched_files(|previous| {
+            std::future::ready(WatchedFileUpdate::new(
+                &root,
+                previous.as_ref(),
+                first.clone(),
+                |_, before, after| before == after,
+            ))
+        })
+        .await
+        .expect("baseline");
+    drop(reader);
+    let prepared = AtomicBool::new(false);
+    let result = client
+        .sync_watched_files(|previous| {
+            prepared.store(true, Ordering::SeqCst);
+            std::future::ready(WatchedFileUpdate::new(
+                &root,
+                previous.as_ref(),
+                BTreeMap::from([("a.rs".to_owned(), "after".to_owned())]),
+                |_, before, after| before == after,
+            ))
+        })
+        .await;
+    assert!(
+        prepared.load(Ordering::SeqCst),
+        "the write, not capture, failed"
+    );
+    assert!(result.is_err());
+    assert_eq!(
+        client
+            .inner
+            .watched_files
+            .lock()
+            .expect("snapshot")
+            .as_ref(),
+        Some(&first)
+    );
+}
+
+#[tokio::test]
+async fn a_failed_first_watched_capture_requires_a_fresh_session() {
+    use super::document_sync::client_with_fake_server_using;
+    use std::collections::BTreeMap;
+
+    let (client, _reader, _writer) =
+        client_with_fake_server_using(NativeLspClient::new(ts_config()), 64 * 1024).await;
+    assert!(client.is_alive().await);
+    let failed = client
+        .sync_watched_files(|previous| async move {
+            assert!(previous.is_none());
+            Err::<WatchedFileUpdate, _>(Error::new("capture failed"))
+        })
+        .await
+        .expect_err("initial capture fails");
+    assert_eq!(failed.reason, "capture failed");
+
+    // The server's original file disappeared before capture became readable.
+    // No successful snapshot exists from which to derive its Deleted event.
+    let root = std::env::temp_dir();
+    let retry = client
+        .sync_watched_files(|previous| {
+            std::future::ready(WatchedFileUpdate::new(
+                &root,
+                previous.as_ref(),
+                BTreeMap::new(),
+                |_, before, after| before == after,
+            ))
+        })
+        .await;
+    assert!(
+        retry.is_err(),
+        "a retry cannot silently accept an event-free baseline"
+    );
+    assert!(
+        !client.is_alive().await,
+        "the pool must replace the stale session"
+    );
+    assert!(!client.has_watched_snapshot());
+
+    let (fresh, _fresh_reader, _fresh_writer) =
+        client_with_fake_server_using(NativeLspClient::new(ts_config()), 64 * 1024).await;
+    fresh
+        .sync_watched_files(|previous| {
+            assert!(previous.is_none());
+            std::future::ready(WatchedFileUpdate::new(
+                &root,
+                previous.as_ref(),
+                BTreeMap::new(),
+                |_, before, after| before == after,
+            ))
+        })
+        .await
+        .expect("a freshly indexed session establishes the current baseline");
+    assert!(fresh.is_alive().await);
+    assert!(fresh.has_watched_snapshot());
+}
+
+#[tokio::test]
+async fn a_cancelled_first_watched_capture_requires_a_fresh_session() {
+    use super::document_sync::client_with_fake_server_using;
+    let (client, _reader, _writer) =
+        client_with_fake_server_using(NativeLspClient::new(ts_config()), 64 * 1024).await;
+    let mut capture =
+        Box::pin(client.sync_watched_files(|_| {
+            std::future::pending::<crate::error::Result<WatchedFileUpdate>>()
+        }));
+    tokio::select! {
+        biased;
+        result = &mut capture => panic!("capture must wait: {result:?}"),
+        () = std::future::ready(()) => {}
+    }
+    assert!(client.is_alive().await);
+    drop(capture);
+    assert!(
+        !client.is_alive().await,
+        "dropped bootstrap capture cannot be reused"
+    );
+    assert!(!client.has_watched_snapshot());
 }

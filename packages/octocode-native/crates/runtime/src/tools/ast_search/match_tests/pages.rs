@@ -311,7 +311,7 @@ fn only_the_first_page_of_a_scan_names_the_skipped_walks() {
     root.write("b.ts", "hit(3);\n");
     root.write("dist/c.ts", "hit(4);\n");
     let names_them = |out: &Value| {
-        let hinted = out["hints"].to_string().contains("skipped paths");
+        let hinted = out["warnings"].to_string().contains("skipped paths");
         assert_eq!(hinted, skipped_call(out).is_some(), "{out}");
         hinted
     };

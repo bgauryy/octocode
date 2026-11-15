@@ -81,11 +81,13 @@ fn a_packed_scan_unpacks_to_the_same_scan() {
                     size: u64::from(n) << 40,
                     modified: Some(SystemTime::UNIX_EPOCH + Duration::new(1_700_000_000, n)),
                     digest: [n as u8; 32],
+                    lines: Some(n),
                 }),
                 _ => Some(SearchedSource {
                     size: 0,
                     modified: SystemTime::UNIX_EPOCH.checked_sub(Duration::new(5, 7)),
                     digest: [7; 32],
+                    lines: None,
                 }),
             },
         })

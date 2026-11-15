@@ -25,6 +25,7 @@ fn scan() -> (Vec<TextSearchFile>, TextSearchStats) {
                 size: 120,
                 modified: Some(std::time::SystemTime::UNIX_EPOCH),
                 digest: [1; 32],
+                lines: None,
             }),
         },
         TextSearchFile {
@@ -86,6 +87,7 @@ fn the_snapshot_binds_every_row_field_and_no_stamp() {
                 size: 0,
                 modified: None,
                 digest: [0; 32],
+                lines: None,
             });
         }),
         ("rows", |f, _| {

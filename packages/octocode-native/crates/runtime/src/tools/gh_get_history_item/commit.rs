@@ -137,25 +137,25 @@ impl<'a> CommitFacts<'a> {
 /// line counts. A section read answers with its files or patches: the row
 /// names the commit by its SHA and whole message (issue and pull request
 /// references live past the first line) and dates it (the author's login,
-/// else name, and date); the committer, parents and line counts are the
-/// summary read's.
+/// else name, and date). Every read keeps the upstream parent SHAs: they
+/// identify the old source of a patch, including every parent of a merge.
+/// The committer and line counts are the summary read's.
 fn commit_header(commit: &CommitFacts<'_>, reference: &str, summary: bool, listed: usize) -> Value {
     let raw = commit.raw;
     let author = identity(raw, "author");
     let committer = committer(raw, &author);
-    let parents = raw
-        .get("parents")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|v| str_at(v, "/sha").map(str::to_owned))
-        .collect::<Vec<_>>();
+    let parents = raw.get("parents").and_then(Value::as_array).map(|parents| {
+        parents
+            .iter()
+            .filter_map(|parent| str_at(parent, "/sha").map(str::to_owned))
+            .collect::<Vec<_>>()
+    });
     let mut out = json!({
         "ref":reference,"commitSha":commit.sha,
         "message":commit.message,
         "author":if summary { person(&author, AUTHORED_AT) } else { dated(&author) },
         "committer":committer.filter(|_| summary).map(|committer| person(&committer, COMMITTED_AT)),
-        "parentCommitShas":summary.then_some(parents),
+        "parentCommitShas":parents,
         // Top-level counts always describe the whole commit; a path scope's
         // own count is `sectionPagination.files.total`, and the file
         // page's `countScope` says when this count is a floor. The counts
@@ -322,8 +322,46 @@ mod tests {
         );
         assert_eq!(
             keys(commit_header(&facts, "main", false, 2)),
-            ["ref", "commitSha", "message", "author", "changedFileCount"]
+            [
+                "ref",
+                "commitSha",
+                "message",
+                "author",
+                "parentCommitShas",
+                "changedFileCount"
+            ]
         );
+    }
+
+    /// Patch-only reads need every upstream parent identity to form exact
+    /// source reads. Missing upstream parents stay unknown, not an invented
+    /// first parent; a root commit's explicit empty array is known empty.
+    #[test]
+    fn every_read_preserves_upstream_parent_provenance() {
+        for summary in [false, true] {
+            for parents in [
+                json!([]),
+                json!([{"sha":"first"}, {"sha":"second"}, {"sha":"third"}]),
+            ] {
+                let raw = json!({"sha":"head", "parents":parents});
+                let facts = CommitFacts::of(&raw);
+                let out = commit_header(&facts, "head", summary, 0);
+                let expected = parents
+                    .as_array()
+                    .expect("parents")
+                    .iter()
+                    .map(|parent| parent["sha"].clone())
+                    .collect::<Vec<_>>();
+                assert_eq!(out["parentCommitShas"], json!(expected));
+                assert_eq!(facts.parent.as_deref(), parents[0]["sha"].as_str());
+            }
+            let raw = json!({"sha":"head"});
+            let facts = CommitFacts::of(&raw);
+            let mut out = commit_header(&facts, "head", summary, 0);
+            remove_nulls(&mut out);
+            assert!(out.get("parentCommitShas").is_none());
+            assert!(facts.parent.is_none());
+        }
     }
 
     /// A committer that repeats the author whole is not restated; one that

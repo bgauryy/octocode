@@ -41,7 +41,7 @@ use crate_targets::CrateTargets;
 use mount_targets::{Mount, Parent, Placement};
 use once_each::OnceEach;
 use rust_source::{may_be_test_whole, whole_or};
-pub(crate) use scoped::{Scoped, text_scope};
+pub(crate) use scoped::{Scoped, text_rank, text_scope};
 
 /// Which side of the test-code line a scope keeps; `None` keeps both.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

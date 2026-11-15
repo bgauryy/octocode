@@ -24,7 +24,7 @@
 //! encoding ([`write`]: LEB128 numbers, length-prefixed values):
 //!
 //! 1. the file as [`write::Writer::file`] writes it (path, counts, source
-//!    stamps and digest), holding only the entry's rows, in rank order;
+//!    stamps, line count and digest), holding only the entry's rows, in rank order;
 //!    deferred values' duplicate classes are numbered per file across all
 //!    of its frames;
 //! 2. the entry's facts ([`super::page_view::EntryFacts`]): the file's row

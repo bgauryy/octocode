@@ -1,4 +1,6 @@
 //! Rows by operation, against recorded doubles.
+#[path = "record_projection_tests.rs"]
+mod record_projection;
 #[path = "view_tests.rs"]
 mod views;
 
@@ -214,11 +216,10 @@ async fn an_advisory_row_answers_with_its_ranges_and_fixes() {
     assert_eq!(data["advisories"][0]["id"], id, "the record stays whole");
 }
 
-/// The details of an advisory state each range once: the events, never
-/// GitHub's range text that restates them nor a `fixedIn` the events and
-/// `answer` give; a range text that says more than the events stays.
+/// Selected affected metadata stays as the source states it, including a
+/// range text also described by events. Only same-record fix duplication is omitted.
 #[tokio::test]
-async fn advisory_details_state_each_range_once() {
+async fn advisory_details_keep_source_range_metadata() {
     let id = "GHSA-aaaa-bbbb-cccc";
     let http = RouteHttp::new().json(
         &format!("/v1/vulns/{id}"),
@@ -238,9 +239,10 @@ async fn advisory_details_state_each_range_once() {
         .expect("row");
     let record = &data["advisories"][0];
     assert!(record.get("fixedIn").is_none(), "{data}");
-    assert!(
-        record["affected"][0].get("databaseSpecific").is_none(),
-        "the text restates the events: {data}"
+    assert_eq!(
+        record["affected"][0]["databaseSpecific"],
+        json!({"last_known_affected_version_range":"<= 2.14.1"}),
+        "equivalent range text is still source evidence: {data}"
     );
     assert_eq!(
         record["affected"][1]["databaseSpecific"]["last_known_affected_version_range"], "<= 9.0.0",

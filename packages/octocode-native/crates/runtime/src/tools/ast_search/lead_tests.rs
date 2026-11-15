@@ -177,7 +177,7 @@ fn skipped_hint_respects_the_query_include() {
         &root.0,
         json!({"operation":"match","path":root.0,"include":[".github/**"],"parser":"python","rule":{"pattern":"class $N(Exception): $$$B"}}),
     );
-    let hint = out["hints"].to_string();
+    let hint = out["warnings"].to_string();
     assert!(hint.contains("hidden .github/"), "{hint}");
     assert!(!hint.contains(".spin"), "{hint}");
     assert!(out["next"].get("repair").is_none(), "{out}");
@@ -300,7 +300,7 @@ fn a_match_with_hits_names_the_skipped_walks_and_leads_to_them() {
     let request = json!({"operation":"match","path":root.0,"parser":"typescript","rule":{"pattern":"hit($A)"}});
     let out = run(&root.0, request);
     assert_eq!(out["matchCount"], json!(1), "{out}");
-    let hints = out["hints"].to_string();
+    let hints = out["warnings"].to_string();
     assert!(
         hints.contains("1 typescript file behind skipped paths (dist/)"),
         "{hints}"
@@ -415,7 +415,7 @@ fn a_cut_probe_discloses_that_its_lead_walks_everything_the_causes_hide() {
         crate::tools::empty_walk::with_probe_limits(crate::tools::empty_walk::CUT_AT_ONCE, || {
             run(&root.0, request)
         });
-    let warnings = out["hints"].to_string();
+    let warnings = out["warnings"].to_string();
     assert!(
         warnings.contains("not checked within the probe budget"),
         "{out}"

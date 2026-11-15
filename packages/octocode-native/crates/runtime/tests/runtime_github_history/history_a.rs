@@ -113,8 +113,8 @@ async fn history_a_every_pr_view_carries_source_target_and_merge_commits() {
 }
 
 /// A patch read whose page holds a file GitHub sent without a patch
-/// reads that file at both sides (its change is in no response), even on a
-/// merged PR whose merge read stands for the patched file's new side.
+/// reads that file at both sides because its change is in no response.
+/// A separate merge-source read uses the returned merge identity and path.
 #[tokio::test]
 async fn history_a_unpatched_file_gets_head_and_parent_reads() {
     let server = MockServer::builder().start().await;
@@ -167,10 +167,9 @@ async fn history_a_unpatched_file_gets_head_and_parent_reads() {
             if name == "readAtCommit" {
                 data["next"][name]["input"].clone()
             } else {
-                checks::related_call(data, "ghGetFileContent", |input| {
-                    input["queries"][0]["ref"] == pinned
-                })["input"]
-                    .clone()
+                assert_eq!(data["pullRequests"][0]["mergeCommitSha"], pinned, "{data}");
+                assert!(data["pullRequests"][0]["files"].as_array().expect("files").iter().any(|file| file["path"] == path_name), "{data}");
+                json!({"queries":[{"owner":"a","repo":"b","path":path_name,"ref":data["pullRequests"][0]["mergeCommitSha"]}]})
             },
         )
         .await

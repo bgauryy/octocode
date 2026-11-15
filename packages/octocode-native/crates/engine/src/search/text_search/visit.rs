@@ -164,8 +164,16 @@ impl WalkScope<'_> {
             state.file_terms_dropped.fetch_add(1, Ordering::Relaxed);
             return;
         }
-        let demoted =
-            generated || (ranks_by_relevance(opts) && relevance::is_demoted_path(&relative));
+        let demoted = generated
+            || (ranks_by_relevance(opts)
+                && (relevance::is_demoted_path(&relative)
+                    || opts.test_code_rank.as_ref().is_some_and(|rank| {
+                        if has_match {
+                            !outcome.production_hit
+                        } else {
+                            (rank.test_path)(path)
+                        }
+                    })));
         // A stopped walk keeps what it found without reading further.
         let source = (opts.values.hashed() && !files.stop.load(Ordering::Relaxed))
             .then(|| hashed_source(&file, &meta))
@@ -182,6 +190,8 @@ impl WalkScope<'_> {
             path,
             entry: outcome.entry,
             matched_lines: outcome.matched_lines,
+            rank_lines: outcome.rank_lines,
+            rank_submatches: outcome.rank_submatches,
             submatches: outcome.submatches,
             om_matches: outcome.om_matches,
             sort_time: capture_sort_time(opts, dent),

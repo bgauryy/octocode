@@ -31,7 +31,7 @@ Save long command output under the active skill's workspace scratch directory. S
 
 For a pipe-only input, use `set -o pipefail; <cmd> 2>&1 | <cli> clasify --content - '<request-json>'`; save reusable requests and pass `--input <file>`. Classification may incur provider cost; discovery does not.
 
-Use observed paths, lines, refs and identifiers. Shared fields have one form: `matchString` string arrays, `contextLines:{before,after}`, `ranges:[{startLine,endLine}]`, numeric `{min,max}`, dates `{from,to}`, `sort:{by,order}`. Live schemas own exact fields and limits. Send declared fields: an unknown or misspelled field is refused, with a suggested name when recognizable. Correct the field and retry; bare queries are refused.
+Use observed paths, lines, refs and identifiers. Shared fields have one form: `matchString` string arrays, `contextLines:{before,after}`, `ranges:[{startLine,endLine}]`, numeric `{min,max}`, dates `{from,to}`, `sort:{by,order}`. Live schemas own exact fields and limits. Send declared fields in the canonical `queries` envelope. Supported unambiguous repairs are disclosed in warnings that name the canonical input; unsupported shapes and fields are refused with guidance.
 
 ## Availability
 
@@ -50,12 +50,13 @@ Inspect every `results[]` row's index (its position in the request's `queries`),
 | `pagination{hasMore}` or `sectionPagination.<collection>` | Continue the same loop; each file, patch, source, diagnostic or history collection can remain incomplete independently. |
 | Other `next.<name>` | Branch, not page. Run it before claiming what it covers. |
 | Claim complete | No `hasMore:true` or `next` covering that claim, with or without a paging object. |
-| `isPartial`, `warnings`, `countScope` other than `complete` | Incomplete: name the gap or narrow scope. `pagination.total` is then a floor; `capped` is the reachable count. |
+| `isPartial`, `countScope` other than `complete` | Incomplete: name the gap or narrow scope. `pagination.total` is then a floor; `capped` is the reachable count. |
+| `warnings` | Read the factual disclosures; use the coverage fields to decide what remains unread. A warning alone does not mean incompleteness. |
 | `staleSnapshot` | Discard old snapshot pages; run `next.restart`. |
 
 Use literal emitted keys. Finish every continuation needed for the claim or name unread scope.
 
-`related[]` contains `{kind:"related",tool,input:{queries:[...]}}` for optional fresh work; its calls may widen scope (hidden or ignored paths). `hints[]` is prose only. Input errors name fields to correct; no repair call silently changes scope. Terminal limits require a narrower or different query, never an invented cursor.
+`related[]` contains `{kind:"related",tool,input:{queries:[...]}}` for optional fresh work; its calls may widen scope (hidden or ignored paths). Successful answers omit routine advice while preserving calls with otherwise unstated identity or required by a warning. `hints[]` is prose recovery for empty results or errors. Input errors name fields to correct; no repair call silently changes scope. Terminal limits require a narrower or different query, never an invented cursor.
 
 Absence needs unfiltered pages: `includeHidden:true`, `includeIgnored:true`, `defaultExcludes:false` and no `classification`. `status:"empty"` with skipped paths or `unknownItems>0` is not absence.
 

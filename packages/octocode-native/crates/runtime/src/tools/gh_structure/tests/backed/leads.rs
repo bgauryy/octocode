@@ -1,4 +1,4 @@
-//! Materialized pages and the reads a listing leads to.
+//! Materialized pages and identities for caller-selected reads.
 use super::*;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use octocode_github::mock_http::mount_json;
@@ -68,9 +68,9 @@ async fn materialize_skips_binary_files_with_a_warning() {
         out.data
     );
     assert!(out.data.get("isPartial").is_none(), "{}", out.data);
-    assert!(out.data.get("warnings").is_none(), "{}", out.data);
+    assert!(out.data.get("hints").is_none(), "{}", out.data);
     assert!(
-        out.data["hints"][0]
+        out.data["warnings"][0]
             .as_str()
             .is_some_and(|hint| hint.contains("1 binary file")),
         "{}",
@@ -295,10 +295,10 @@ async fn a_first_read_past_the_stop_is_written_so_the_walk_progresses() {
     );
 }
 
-/// A listing leads to the read a caller makes next: the package's
-/// entry file (outlined) in a wide directory, at the listed commit.
+/// A listing keeps every selected file and its commit identity, allowing
+/// the caller to choose an outline read without generated read advice.
 #[tokio::test]
-async fn a_listing_leads_to_an_outline_read_of_its_entry_file() {
+async fn a_listing_exposes_the_identity_for_an_explicit_outline_read() {
     let server = MockServer::builder().start().await;
     let files = (0..12)
             .map(|n| json!({"name":format!("m{n}.py"),"path":format!("pkg/m{n}.py"),"type":"file","size":4}))
@@ -311,18 +311,18 @@ async fn a_listing_leads_to_an_outline_read_of_its_entry_file() {
     )
     .await
     .expect("listing");
-    let read =
-        crate::tools::test_support::checks::related_call(&out.data, "ghGetFileContent", |_| true);
-    assert_eq!(read["tool"], "ghGetFileContent", "{}", out.data);
-    let row = &read["input"]["queries"][0];
-    assert_eq!(row["path"], "pkg/__init__.py", "{}", out.data);
-    assert_eq!(row["ref"], SHA, "{}", out.data);
-    assert_eq!(row["view"], "symbols", "{}", out.data);
+    assert_eq!(out.data["files"][0]["dir"], "pkg", "{}", out.data);
+    assert!(out.data["files"].to_string().contains("__init__.py (4)"));
+    assert_eq!(out.data["commitSha"], SHA);
+    assert!(out.data.get("related").is_none(), "{}", out.data);
+    let read = json!({"owner":out.data["owner"],"repo":out.data["repo"],"path":"pkg/__init__.py","ref":out.data["commitSha"],"view":"symbols"});
+    crate::contracts::validate_query("ghGetFileContent", read)
+        .expect("listed identity forms a valid read");
 }
 
-/// A materialized listing points at the listed directory on disk.
+/// A materialized listing identifies the directory and exact source on disk.
 #[tokio::test]
-async fn materialize_leads_into_the_local_copy_of_the_listed_directory() {
+async fn materialize_exposes_the_local_copy_of_the_listed_directory() {
     let server = MockServer::builder().start().await;
     mount_listing(
         &server,
@@ -345,32 +345,25 @@ async fn materialize_leads_into_the_local_copy_of_the_listed_directory() {
         .to_owned();
     assert!(local.ends_with("/src"), "{}", out.data);
     assert!(std::path::Path::new(&local).join("lib.rs").exists());
-    // No lead re-lists the tree this response just returned; the lead reads
-    // the best-ranked written file from the local copy.
     assert!(
         out.data.pointer("/next/exploreClone").is_none(),
         "{}",
         out.data
     );
-    let read = crate::tools::test_support::checks::related_call(&out.data, "localFetch", |_| true);
-    let row = &read["input"]["queries"][0];
+    assert!(out.data.get("related").is_none(), "{}", out.data);
+    let path = std::path::Path::new(&local).join("lib.rs");
     assert_eq!(
-        row["path"],
-        std::path::Path::new(&local)
-            .join("lib.rs")
-            .to_string_lossy()
-            .as_ref(),
-        "{}",
-        out.data
+        std::fs::read_to_string(&path).expect("materialized source"),
+        "fn x(){}"
     );
-    assert_eq!(row["view"], "symbols", "{}", out.data);
+    crate::contracts::validate_query("localFetch", json!({"path":path,"view":"symbols"}))
+        .expect("local identity forms a valid read");
 }
 
-/// The materialize lead names only a file this page wrote: a skipped
-/// (oversized) file is never the lead, and a page that wrote no readable
-/// file has none.
+/// Materialization distinguishes the files it wrote from oversized files
+/// it skipped, preserving partial coverage without optional read advice.
 #[tokio::test]
-async fn materialize_lead_skips_files_it_did_not_write() {
+async fn materialize_reports_files_it_did_not_write() {
     let server = MockServer::builder().start().await;
     // Past what the call may read, by its listed size.
     let big_size = 1u64 << 40;
@@ -398,12 +391,16 @@ async fn materialize_lead_skips_files_it_did_not_write() {
         "{}",
         out.data
     );
-    let read = crate::tools::test_support::checks::related_call(&out.data, "localFetch", |_| true);
-    assert!(
-        read["input"]["queries"][0]["path"]
-            .as_str()
-            .is_some_and(|path| path.ends_with("/src/util.rs")),
+    let local = std::path::Path::new(out.data["location"]["path"].as_str().expect("local path"));
+    assert!(!local.join("lib.rs").exists(), "{}", out.data);
+    assert_eq!(
+        std::fs::read_to_string(local.join("util.rs")).expect("written file"),
+        "fn u(){}"
+    );
+    assert_eq!(
+        out.data["location"]["coverage"]["state"], "partial",
         "{}",
         out.data
     );
+    assert!(out.data.get("related").is_none(), "{}", out.data);
 }

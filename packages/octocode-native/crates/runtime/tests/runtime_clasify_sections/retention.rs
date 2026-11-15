@@ -1,5 +1,5 @@
 //! A host that exits cannot promise a later pinned read from memory storage:
-//! it refuses a section plan, and a source evaluation offers a fresh read.
+//! it refuses a section plan; the next call can read the known source afresh.
 use super::{provider, provider_calls, separate_functions};
 use crate::support::{Workspace, clasify_runtime};
 use octocode_native::runtime::{Channel, ToolRuntime};
@@ -101,10 +101,10 @@ async fn exiting_memory_clasify_refuses_section_plans_before_capture_or_billing(
 const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 
 /// A one-shot memory runtime keeps nothing for a later call, so an answered
-/// source evaluation offers no handle into this runtime: its read is a fresh
-/// call in `related[]` that the next CLI process (a new runtime) runs.
+/// source evaluation offers no handle into this runtime. The next CLI process
+/// reads the requested source at its known path and immutable GitHub ref.
 #[tokio::test]
-async fn a_one_shot_memory_evaluation_offers_a_fresh_read_the_next_runtime_runs() {
+async fn a_one_shot_memory_evaluation_can_be_verified_in_the_next_runtime() {
     use base64::Engine as _;
     let server = provider().await;
     wiremock::Mock::given(wiremock::matchers::method("GET"))
@@ -145,13 +145,11 @@ async fn a_one_shot_memory_evaluation_offers_a_fresh_read_the_next_runtime_runs(
             "no dead handle: {data:#}"
         );
         assert!(!output.to_string().contains("\"cursor\""), "{output:#}");
-        let read = data["related"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|call| call["tool"] == source["tool"])
-            .unwrap_or_else(|| panic!("a fresh read in related[]: {data:#}"));
-        assert_eq!(read["kind"], "related", "{read:#}");
+        assert!(
+            data.get("related").is_none(),
+            "no optional advice: {data:#}"
+        );
+        let read = json!({"tool":source["tool"],"input":{"queries":[source["query"]]}});
         let reread = &read["input"]["queries"][0];
         if source["tool"] == "ghGetFileContent" {
             assert_eq!(reread["ref"], SHA, "the captured commit: {read:#}");
@@ -183,11 +181,10 @@ async fn a_one_shot_memory_evaluation_offers_a_fresh_read_the_next_runtime_runs(
     }
 }
 
-/// RV-CLS open item (#28): a one-shot memory runtime offers a fresh read of
-/// the captured source; a source larger than one response pages, which the
-/// next one-shot memory call refuses. The row then says so, beside the read:
+/// A source larger than one response pages, which the next one-shot memory
+/// read refuses. The evaluation discloses that requirement:
 /// it needs `storage.mode persistent` or one MCP server. A source that fits
-/// one response carries no such hint, and its read completes.
+/// one response carries no such warning, and its read completes.
 #[tokio::test]
 async fn a_one_shot_fresh_read_larger_than_one_response_says_it_needs_saved_continuations() {
     let server = provider().await;
@@ -205,14 +202,8 @@ async fn a_one_shot_fresh_read_larger_than_one_response_says_it_needs_saved_cont
         first.close().await;
         let data = &output["results"][0]["data"];
         assert_eq!(data["answers"]["q"]["noul"], 0.9, "{output:#}");
-        let read = data["related"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|call| call["tool"] == "localFetch")
-            .unwrap_or_else(|| panic!("{path}: a fresh read in related[]: {data:#}"))
-            .clone();
-        let hinted = data["hints"]
+        let read = json!({"input":{"queries":[source(path)["query"]]}});
+        let hinted = data["warnings"]
             .as_array()
             .into_iter()
             .flatten()

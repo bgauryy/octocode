@@ -145,6 +145,20 @@ impl JsonRpcConnection {
         self.shared.is_alive()
     }
 
+    pub(crate) fn ensure_alive(&self) -> Result<()> {
+        if self.is_alive() {
+            Ok(())
+        } else {
+            Err(self.shared.closed())
+        }
+    }
+
+    /// Retire a session whose state can no longer be used safely. The pool
+    /// observes this before reuse and owns stopping and replacing the process.
+    pub(crate) fn retire(&self, reason: &str) {
+        self.shared.fail(reason);
+    }
+
     /// Retire the connection because the server was killed for exceeding its
     /// memory cap: every pending and later request fails with `reason` as
     /// [`crate::error::ErrorKind::ResourceExhausted`]. Idempotent; the first
@@ -346,9 +360,7 @@ impl JsonRpcConnection {
     /// Sends a notification and waits until it is flushed. Refused once the
     /// connection has failed.
     pub(crate) async fn notify(&self, method: &str, params: Value) -> Result<()> {
-        if !self.is_alive() {
-            return Err(self.shared.closed());
-        }
+        self.ensure_alive()?;
         self.notify_best_effort(method, params).await
     }
 

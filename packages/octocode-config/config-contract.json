@@ -380,7 +380,7 @@
             "all",
             "off"
           ],
-          "description": "Language-server prewarm: targeted starts the server an offered lspSearch call names when a result offers it; all warms it from the start, also warms the file a read or search names and, at MCP initialize, the workspace's top three languages; off disables it. Each start indexes a whole project, so an lspSearch no result offered can take seconds under targeted, in exchange for no server in a session that is never offered one.",
+          "description": "Language-server prewarm: targeted warms concrete LSP lookup candidates found by tools; all also warms files named by reads or searches and, at MCP initialize, the workspace's top three languages; off disables prewarm. Starts index a whole project: targeted avoids unrelated server starts, but a lookup without an earlier candidate can take seconds.",
           "env": {
             "name": "OCTOCODE_LSP_PREWARM",
             "normalize": "lower"

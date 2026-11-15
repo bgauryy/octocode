@@ -1,6 +1,6 @@
 //! Listing rows, the one row shape `tree` and `files` share: how a walked
 //! entry becomes a row, how rows sort, group and cost on a page, their line
-//! counts, and the read a listing's first page leads to.
+//! counts and independently readable entry identities.
 use super::cut::RowCost;
 use crate::response::result::ToolError;
 use serde_json::{Value, json};
@@ -12,13 +12,11 @@ use octocode_contract_types::{StructureSearchSort, StructureSearchView};
 use octocode_engine::types::{FileKind, FileSystemEntry};
 
 mod line_counts;
-mod read_lead;
 mod window;
 
 #[cfg(test)]
 pub(super) use line_counts::line_count_reads;
 pub(super) use line_counts::{Lines, count_lines};
-pub(super) use read_lead::read_lead;
 pub(super) use window::{Ranking, digest_entry, rows_of};
 
 /// What a listed entry is: anything that is neither a directory nor a
@@ -132,7 +130,7 @@ impl Row {
             name,
             kind,
             size.filter(|_| key == Some(Key::SizeBytes)),
-            lines.filter(|_| key == Some(Key::LineCount)),
+            lines.filter(|_| key == Some(Key::TotalLines)),
             modified_ms
                 .filter(|_| key == Some(Key::ModifiedAt))
                 .map(|modified| crate::num::i64_of_f64(modified.round())),

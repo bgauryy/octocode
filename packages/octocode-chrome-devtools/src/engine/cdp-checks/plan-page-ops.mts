@@ -1,6 +1,7 @@
 // Page-level plan steps: navigation, DOM actions and waits, and element extraction.
 // Each op takes the plan run state and the current step { step, index, timeout, row, target }.
 import { createDomOperations } from './dom-operations-check.mjs';
+import { actionabilityReason } from './dom-failure.mjs';
 import { exceptionMessage, waitCondition } from './plan-condition.mjs';
 import type { Handler } from '../cdp-connection.mjs';
 import type {
@@ -69,7 +70,7 @@ async function domStep(state: PlanState, current: StepContext) {
   const { step, index, timeout, row, target } = current;
   const { plan } = state;
   const act = step.op === 'act';
-  const result = await createDomOperations({
+  const operation = createDomOperations({
     steps: [{ ...step, action: act ? step.action : 'wait' }],
     waitMs: timeout,
     settleMs: plan.settleMs ?? 0,
@@ -78,10 +79,27 @@ async function domStep(state: PlanState, current: StepContext) {
     literalWaitText: true,
     diff: false,
     artifactName: `dom-step-${index + 1}.json`,
-  }).run(target);
+  });
+  const result = await operation.run(target).catch((error: unknown) => {
+    if (error instanceof Error && 'domObservation' in error)
+      row.artifact = state.cdp.saveArtifact(
+        `dom-step-${index + 1}.json`,
+        error.domObservation
+      ).file;
+    throw error;
+  });
   row.artifact = result.artifactPath;
-  if (!result.ok)
-    throw new Error('DOM action or wait failed; action will not be repeated');
+  if (!result.ok) {
+    const details = result.results.at(-1)?.details;
+    const message =
+      details?.error ||
+      (details?.operation === 'blocked-by-actionability'
+        ? `${actionabilityReason(details)}. Inspect the blocker and refresh the target before retrying.`
+        : 'DOM action or wait failed; action will not be repeated');
+    throw Object.assign(new Error(message), {
+      outcomeUncertain: details?.outcomeUncertain === true,
+    });
+  }
   if (step.after)
     row.condition = await domCondition(state, current, step.after);
 }

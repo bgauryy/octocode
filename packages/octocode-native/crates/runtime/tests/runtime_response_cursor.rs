@@ -197,19 +197,20 @@ async fn an_identical_continuation_is_one_cursor() {
 }
 
 /// The pages after the first of a persistent walk from `start`, each as its
-/// captured lines and its warnings. Every continuation is the issued cursor
-/// with `beside` merged in, read by a restarted runtime; `evicted` drops the
-/// saved responses first, so each page re-executes instead of replaying.
+/// complete result rows (including row parts and indices) and its warnings. Every continuation is the issued cursor
+/// with `beside` merged in, read by a restarted runtime. `evict_after` keeps
+/// that many later pages before evicting the body on every following read.
 async fn later_pages(
     workspace: &Workspace,
+    tool: &str,
     start: &Value,
     beside: &Value,
-    evicted: bool,
-) -> Vec<(Vec<String>, Value)> {
+    evict_after: Option<usize>,
+) -> Vec<(Value, Value)> {
     let env = [("OCTOCODE_STORAGE_MODE", "persistent".into())];
     let mut runtime = workspace.runtime(&env);
     let first = runtime
-        .run("first".into(), "localSearch".into(), start.clone())
+        .run("first".into(), tool.into(), start.clone())
         .await
         .expect("first page")
         .structured_content
@@ -223,7 +224,7 @@ async fn later_pages(
             input[field] = value.clone();
         }
         runtime.close().await;
-        if evicted {
+        if evict_after.is_some_and(|count| pages.len() >= count) {
             let store = workspace.home.join("tmp/response-pages");
             for entry in std::fs::read_dir(store).expect("store").flatten() {
                 std::fs::remove_file(entry.path()).expect("evict entry");
@@ -231,14 +232,12 @@ async fn later_pages(
         }
         runtime = workspace.runtime(&env);
         let page = runtime
-            .run("later".into(), "localSearch".into(), input)
+            .run("later".into(), tool.into(), input)
             .await
             .unwrap_or_else(|error| panic!("page {}: {error:?}", pages.len() + 2))
             .structured_content
             .into_value();
-        let mut lines = Vec::new();
-        captured(&page["results"], &mut lines);
-        pages.push((lines, page["warnings"].clone()));
+        pages.push((page["results"].clone(), page["warnings"].clone()));
         next = page.pointer("/responsePagination/next/input").cloned();
     }
     runtime.close().await;
@@ -255,19 +254,32 @@ async fn a_page_size_beside_a_cursor_reads_the_same_pages_and_says_so() {
     let file = workspace.write("captured.txt", source());
     let start = json!({"queries":[{"path":file,"matchString":["needle"]}],"responseChars":1200});
     for evicted in [false, true] {
-        let alone = later_pages(&workspace, &start, &json!({}), evicted).await;
+        let alone = later_pages(
+            &workspace,
+            "localSearch",
+            &start,
+            &json!({}),
+            evicted.then_some(0),
+        )
+        .await;
         assert!(alone.len() > 1, "the fixture spans several pages");
         assert!(
             alone.iter().all(|(_, warnings)| warnings.is_null()),
             "{alone:?}"
         );
         for size in [60_000, 1200, 300] {
-            let sized =
-                later_pages(&workspace, &start, &json!({"responseChars": size}), evicted).await;
-            let rows = |pages: &[(Vec<String>, Value)]| {
+            let sized = later_pages(
+                &workspace,
+                "localSearch",
+                &start,
+                &json!({"responseChars": size}),
+                evicted.then_some(0),
+            )
+            .await;
+            let rows = |pages: &[(Value, Value)]| {
                 pages
                     .iter()
-                    .map(|(lines, _)| lines.clone())
+                    .map(|(rows, _)| rows.clone())
                     .collect::<Vec<_>>()
             };
             assert_eq!(
@@ -286,6 +298,137 @@ async fn a_page_size_beside_a_cursor_reads_the_same_pages_and_says_so() {
             }
         }
     }
+}
+
+/// Re-executing an evicted response must recover its original page cuts,
+/// including the original repair notes and space reserved for rejected rows.
+async fn repaired_pages_after_eviction(repair: bool, rejected: bool) {
+    let workspace = Workspace::new();
+    let file = workspace.write("captured.txt", source());
+    let mut row = json!({"path":file,"matchString":["needle"]});
+    if repair {
+        row["limit"] = json!(LINES.to_string());
+    }
+    let mut queries = vec![row];
+    if rejected {
+        queries.insert(0, json!({"path":file,"matchString":["needle"],"offset":1}));
+    }
+    let start = json!({"queries":queries,"responseChars":1200});
+    let retained = later_pages(&workspace, "localSearch", &start, &json!({}), None).await;
+    assert!(retained.len() > 1, "the fixture spans response pages");
+    for after in [0, 1] {
+        let rerun = later_pages(&workspace, "localSearch", &start, &json!({}), Some(after)).await;
+        assert_eq!(
+            rerun, retained,
+            "eviction preserves complete result rows and warnings on the same page"
+        );
+    }
+    if repair {
+        let sized = later_pages(
+            &workspace,
+            "localSearch",
+            &start,
+            &json!({"responseChars": 60_000}),
+            Some(1),
+        )
+        .await;
+        assert_eq!(sized.len(), retained.len());
+        for ((rows, original), (sized_rows, warnings)) in retained.iter().zip(&sized) {
+            assert_eq!(
+                sized_rows, rows,
+                "a cursor-call note does not move page edges"
+            );
+            let warnings = warnings.as_array().expect("cursor-call warning");
+            let (call, saved) = warnings.split_last().expect("one call note");
+            assert_eq!(saved, original.as_array().map_or(&[][..], Vec::as_slice));
+            assert!(
+                call.as_str()
+                    .is_some_and(|note| note.contains("responseChars"))
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn repaired_response_pages_survive_eviction() {
+    repaired_pages_after_eviction(true, false).await;
+}
+
+#[tokio::test]
+async fn rejected_response_pages_survive_eviction() {
+    repaired_pages_after_eviction(false, true).await;
+}
+
+#[tokio::test]
+async fn repaired_mixed_response_pages_survive_eviction() {
+    repaired_pages_after_eviction(true, true).await;
+}
+
+/// An indivisible long line forces response pagination beside another read.
+/// The rejected row changes that read's share even though it is not replayed.
+#[tokio::test]
+async fn mixed_read_response_pages_survive_eviction() {
+    let workspace = Workspace::new();
+    let large = workspace.write(
+        "oversized.txt",
+        format!("needle captured {}\n", "x".repeat(7000)),
+    );
+    let lines = workspace.write("captured.txt", source());
+    for window in [900, 1200, 3000] {
+        let start = json!({"queries":[
+            {"path":large}, {"path":lines,"offset":1}, {"path":lines}
+        ],"responseChars":window});
+        let retained = later_pages(&workspace, "localFetch", &start, &json!({}), None).await;
+        assert!(!retained.is_empty(), "the mixed read pages");
+        for after in [0, 1] {
+            let rerun =
+                later_pages(&workspace, "localFetch", &start, &json!({}), Some(after)).await;
+            assert_eq!(
+                rerun, retained,
+                "mixed read at {window} after {after} retained pages"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_repaired_response_still_refuses_changed_source_after_eviction() {
+    let workspace = Workspace::new();
+    let file = workspace.write("captured.txt", source());
+    let env = [("OCTOCODE_STORAGE_MODE", "persistent".into())];
+    let runtime = workspace.runtime(&env);
+    let first = runtime
+        .run(
+            "first".into(),
+            "localSearch".into(),
+            json!({
+                "queries":[{"path":file,"matchString":["needle"],"limit":LINES.to_string()}],
+                "responseChars":1200
+            }),
+        )
+        .await
+        .expect("first page")
+        .structured_content;
+    let next = first["responsePagination"]["next"]["input"].clone();
+    support::assert_cursor_only(&next);
+    runtime.close().await;
+    for entry in std::fs::read_dir(workspace.home.join("tmp/response-pages"))
+        .unwrap()
+        .flatten()
+    {
+        std::fs::remove_file(entry.path()).unwrap();
+    }
+    std::fs::write(file, source().replace("captured 007", "changed 007")).unwrap();
+    let runtime = workspace.runtime(&env);
+    let error = runtime
+        .run("changed".into(), "localSearch".into(), next)
+        .await
+        .expect_err("changed evidence is not replayed");
+    assert_eq!(
+        error.code,
+        octocode_contract_types::ErrorCode::StaleSnapshot
+    );
+    runtime.close().await;
 }
 
 /// A cursor call is the cursor alone: any field beside it but the page size

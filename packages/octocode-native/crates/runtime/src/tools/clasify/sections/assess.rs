@@ -141,7 +141,7 @@ pub(super) fn assess_and_save(
             Continuation::continued_query(next),
         );
     }
-    session.batches.push(output.clone());
+    let source_disclosures = session.push_batch(&output);
     if runtime.can_resume
         && !runtime.sessions.save(
             runtime.sessions.key(&runtime.access, &session.id),
@@ -150,6 +150,7 @@ pub(super) fn assess_and_save(
         )
     {
         session.batches.pop();
+        session.source_disclosures = source_disclosures;
         // Include this batch again in the full terminal result because its
         // provisional output has not yet reached the caller: its quiet
         // sections too, which no kept plan can list.

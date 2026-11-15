@@ -102,7 +102,7 @@ pub(super) fn search_pcre2(
     // finishing an uninterruptible match after their driver returned.
     if !try_acquire_worker_slot(&ACTIVE_PCRE2_WORKERS, MAX_ACTIVE_PCRE2_WORKERS) {
         return Err(Error::new(
-            "Too many concurrent PCRE2 (-P) searches are in flight (some paused windows are still finishing a match); retry shortly, or use regex:\"literal\"/the default engine.",
+            "Too many concurrent PCRE2 (-P) searches are in flight (some paused windows are still finishing a match); retry shortly, or use regexEngine:\"literal\"/the default engine.",
         ));
     }
     let SearchWindow {

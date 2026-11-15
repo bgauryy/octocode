@@ -58,6 +58,10 @@ async fn emitted_local_calls_are_strict_and_replay_without_input_rewriting() {
         ),
         ("structureSearch", json!({"operation":"files","path":"src"})),
         (
+            "structureSearch",
+            json!({"operation":"tree","path":"src/lib.rs"}),
+        ),
+        (
             "astSearch",
             json!({"operation":"syntaxTree","path":"src/lib.rs"}),
         ),
@@ -100,7 +104,7 @@ async fn emitted_local_calls_are_strict_and_replay_without_input_rewriting() {
         kinds.contains("continue"),
         "required evidence continuation exercised"
     );
-    assert!(kinds.contains("related"), "new exploration exercised");
+    assert!(kinds.contains("related"), "empty/error recovery exercised");
     let mut seen = BTreeSet::new();
     for call in all {
         if !seen.insert(call.to_string()) {

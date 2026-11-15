@@ -64,7 +64,14 @@ pub struct ArtifactHttpResponse {
 }
 
 /// The response headers a kept registry answer needs.
-pub(crate) const FRESHNESS_HEADERS: [&str; 4] = ["cache-control", "age", "etag", "last-modified"];
+pub(crate) const FRESHNESS_HEADERS: [&str; 6] = [
+    "cache-control",
+    "date",
+    "age",
+    "etag",
+    "last-modified",
+    "vary",
+];
 
 /// Takes one body chunk; `Break` ends the read before the body does.
 pub type BodySink<'a> = &'a mut (dyn FnMut(&[u8]) -> ControlFlow<()> + Send);

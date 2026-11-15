@@ -35,6 +35,7 @@ use open_documents::{MAX_OPEN_DOCUMENTS, OpenDocuments};
 pub use requests::LocationRequest;
 pub use snippets::{SNIPPET_CONTENT_WITHHELD, SnippetPathAuthorizer, SnippetReadPolicy};
 pub use waits::ServerWaits;
+pub use watched::WatchedFileUpdate;
 
 pub(super) const REQUEST_TIMEOUT_MS: u32 = 30_000;
 /// After the first `didOpen` of a document, how long

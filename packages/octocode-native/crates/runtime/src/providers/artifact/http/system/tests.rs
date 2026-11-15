@@ -329,8 +329,108 @@ async fn a_304_is_an_answer_only_to_a_conditional_request() {
         .await
         .expect("a confirmation");
     assert_eq!(confirmed.status, 304);
-    assert_eq!(confirmed.headers, [("etag".to_owned(), "\"e\"".to_owned())]);
+    assert!(
+        confirmed
+            .headers
+            .contains(&("etag".to_owned(), "\"e\"".to_owned()))
+    );
+    assert!(confirmed.headers.iter().any(|(name, _)| name == "age"));
     let received = server.received_requests().await.expect("recorded");
     assert_eq!(received[0].headers["if-none-match"], "\"e\"");
     assert!(http.get(request(None), &budget).await.is_err());
+}
+
+#[tokio::test]
+async fn registry_freshness_keeps_dates_repeated_policy_and_response_delay() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("date", "Thu, 01 Jan 1970 00:15:00 GMT")
+                .append_header("cache-control", "max-age=60")
+                .append_header("cache-control", "no-store")
+                .insert_header("age", "45")
+                .set_body_string("{}"),
+        )
+        .mount(&server)
+        .await;
+    let request = ArtifactHttpRequest {
+        url: Url::parse(&format!("{}/pkg", server.uri())).expect("test URL"),
+        accept: "application/json",
+        authorization: None,
+        dns_pin: None,
+        validator: None,
+    };
+    let budget = RequestBudget::with_timeout(Duration::from_secs(30), 1024);
+    let response = SystemArtifactHttp::shared()
+        .get(request, &budget)
+        .await
+        .expect("registry answer");
+    assert!(
+        response
+            .headers
+            .contains(&("date".into(), "Thu, 01 Jan 1970 00:15:00 GMT".into()))
+    );
+    assert!(
+        response
+            .headers
+            .contains(&("cache-control".into(), "max-age=60".into()))
+    );
+    assert!(
+        response
+            .headers
+            .contains(&("cache-control".into(), "no-store".into()))
+    );
+    let age = response
+        .headers
+        .iter()
+        .find(|(name, _)| name == "age")
+        .expect("corrected age")
+        .1
+        .parse::<u64>()
+        .expect("seconds");
+    assert!(age > 45, "even a subsecond response contributes to Age");
+}
+
+/// Cache policy must cross the actual HTTP adapter without losing repeated
+/// Vary fields; the shared saved-answer policy can only enforce what it sees.
+#[tokio::test]
+async fn response_cache_controls_preserve_registry_origin_headers() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .append_header("vary", "Accept")
+                .append_header("vary", "*")
+                .insert_header("cache-control", "no-store")
+                .set_body_string("{}"),
+        )
+        .mount(&server)
+        .await;
+    let request = ArtifactHttpRequest {
+        url: Url::parse(&format!("{}/pkg", server.uri())).expect("URL"),
+        accept: "application/json",
+        authorization: None,
+        dns_pin: None,
+        validator: None,
+    };
+    let budget = RequestBudget::with_timeout(Duration::from_secs(30), 1024);
+    let response = SystemArtifactHttp::shared()
+        .get(request, &budget)
+        .await
+        .expect("origin answer");
+    assert_eq!(response.body, b"{}");
+    for (name, value) in [
+        ("vary", "Accept"),
+        ("vary", "*"),
+        ("cache-control", "no-store"),
+    ] {
+        assert!(
+            response
+                .headers
+                .contains(&(name.to_owned(), value.to_owned())),
+            "missing {name}: {value}: {:?}",
+            response.headers
+        );
+    }
 }

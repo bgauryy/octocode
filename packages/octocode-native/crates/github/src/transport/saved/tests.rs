@@ -205,3 +205,139 @@ fn a_confirmation_restarts_the_answer_and_keeps_its_body() {
     assert_eq!(value("x-kept").as_deref(), Some("1"));
     assert_eq!(value("x-ratelimit-remaining"), None);
 }
+
+#[test]
+fn freshness_counts_apparent_age_and_residence_without_adding_up_origin_age_twice() {
+    let mut answer = saved(&[
+        ("cache-control", "max-age=60"),
+        ("date", "Thu, 01 Jan 1970 00:16:10 GMT"),
+        ("etag", "\"v1\""),
+    ]);
+    let ask = Reuse::Ask(IF_NONE_MATCH, "\"v1\"".into());
+    assert_eq!(
+        answer.reuse(false, None, answer.observed_ms + 29_000),
+        Reuse::Fresh
+    );
+    assert_eq!(answer.reuse(false, None, answer.observed_ms + 30_000), ask);
+    answer.answer.headers.push(("age".into(), "45".into()));
+    assert_eq!(
+        answer.reuse(false, None, answer.observed_ms + 14_000),
+        Reuse::Fresh,
+        "Age and apparent age describe the same time, so take their maximum"
+    );
+    assert_eq!(answer.reuse(false, None, answer.observed_ms + 15_000), ask);
+}
+
+#[test]
+fn an_already_expired_date_requires_validation_at_receipt() {
+    let answer = saved(&[
+        ("cache-control", "max-age=60"),
+        ("date", "Thu, 01 Jan 1970 00:15:00 GMT"),
+        ("etag", "\"v1\""),
+    ]);
+    assert_eq!(
+        answer.reuse(false, None, answer.observed_ms),
+        Reuse::Ask(IF_NONE_MATCH, "\"v1\"".into())
+    );
+}
+
+#[test]
+fn confirmation_uses_the_new_date_and_age() {
+    let mut answer = saved(&[
+        ("cache-control", "max-age=60"),
+        ("date", "Thu, 01 Jan 1970 00:15:00 GMT"),
+        ("age", "59"),
+        ("etag", "\"v1\""),
+    ]);
+    answer.confirm(
+        &[
+            ("date".into(), "Thu, 01 Jan 1970 00:20:00 GMT".into()),
+            ("age".into(), "0".into()),
+        ],
+        1_200_000,
+    );
+    assert_eq!(answer.reuse(false, None, 1_259_000), Reuse::Fresh);
+    assert_eq!(
+        answer.reuse(false, None, 1_260_000),
+        Reuse::Ask(IF_NONE_MATCH, "\"v1\"".into())
+    );
+}
+
+#[test]
+fn missing_invalid_or_future_dates_never_subtract_from_upstream_age() {
+    for date in [None, Some("invalid"), Some("Thu, 01 Jan 1970 00:20:00 GMT")] {
+        let mut answer = saved(&[("cache-control", "max-age=60"), ("age", "20")]);
+        if let Some(date) = date {
+            answer.answer.headers.push(("date".into(), date.into()));
+        }
+        assert_eq!(
+            answer.reuse(false, None, answer.observed_ms + 39_000),
+            Reuse::Fresh
+        );
+        assert_eq!(
+            answer.reuse(false, None, answer.observed_ms + 40_000),
+            Reuse::Spent
+        );
+    }
+}
+
+#[test]
+fn expired_answers_without_validators_are_not_newly_kept_for_fallback() {
+    let answer = saved(&[
+        ("cache-control", "max-age=60"),
+        ("date", "Thu, 01 Jan 1970 00:15:00 GMT"),
+    ]);
+    assert!(!worth_keeping(&answer.answer.headers, false, None));
+    let answer = saved(&[("cache-control", "max-age=60"), ("age", "60")]);
+    assert!(!worth_keeping(&answer.answer.headers, false, None));
+    let answer = saved(&[
+        ("cache-control", "max-age=60"),
+        ("date", "Thu, 01 Jan 1970 00:15:00 GMT"),
+        ("etag", "\"v1\""),
+    ]);
+    assert!(worth_keeping(&answer.answer.headers, false, None));
+}
+
+#[test]
+fn overflow_and_list_ages_never_make_expired_answers_fresh() {
+    for age in [
+        "18446744073709551616",
+        "999999999999999999999999999999",
+        "120, 0",
+    ] {
+        let answer = saved(&[("cache-control", "max-age=60"), ("age", age)]);
+        assert_eq!(
+            answer.reuse(false, None, answer.observed_ms),
+            Reuse::Spent,
+            "{age}"
+        );
+    }
+}
+
+#[test]
+fn every_http_date_form_can_expire_an_answer_including_pre_epoch_dates() {
+    for date in [
+        "Sun, 06 Nov 1994 08:49:37 GMT",
+        "Sunday, 06-Nov-94 08:49:37 GMT",
+        "Sun Nov  6 08:49:37 1994",
+        "Wed, 31 Dec 1969 23:59:59 GMT",
+    ] {
+        let mut answer = saved(&[
+            ("cache-control", "max-age=60"),
+            ("date", date),
+            ("etag", "\"v1\""),
+        ]);
+        answer.observed_ms = 1_767_225_600_000;
+        assert_eq!(
+            answer.reuse(false, None, answer.observed_ms),
+            Reuse::Ask(IF_NONE_MATCH, "\"v1\"".into()),
+            "{date}"
+        );
+    }
+}
+
+#[test]
+fn overflowing_max_age_stays_a_lifetime_instead_of_an_accidental_zero() {
+    let answer = saved(&[("cache-control", "max-age=18446744073709551616")]);
+    assert_eq!(answer.reuse(false, None, answer.observed_ms), Reuse::Fresh);
+}

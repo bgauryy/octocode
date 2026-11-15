@@ -59,7 +59,7 @@ impl Plan<'_> {
         let paths = self.sparse.as_ref().map(Sparse::paths);
         CloneResult {
             bytes,
-            calls: Some(explore_next(clone_dir, paths)),
+            calls: None,
             warnings: Vec::new(),
             location: CloneLocation {
                 kind: if paths.is_some() { "tree" } else { "repo" },
@@ -178,55 +178,4 @@ pub(super) struct Checkout {
     pub(super) symlinks: Vec<String>,
     /// Credential-named files in scope, left out of the checkout.
     pub(super) withheld: Vec<String>,
-}
-
-/// `next.exploreClone`: list the checkout (the sparse subtree when one was
-/// requested) with structureSearch, the local entry into localSearch and
-/// astSearch on it. A single checked-out file is read with localFetch instead:
-/// structureSearch lists directories only.
-fn explore_next(clone_dir: &Path, sparse_paths: Option<&[String]>) -> serde_json::Value {
-    use crate::response::result::Continuation;
-    use crate::tools::source_view::local_fetch_query::read_lead;
-    use octocode_contract_types::{
-        StructureSearchQueryTree, StructureSearchQueryTreeOperation, StructureSearchView,
-    };
-    // One sparse path explores that path; several explore the checkout root.
-    let root = match sparse_paths {
-        Some([path]) => clone_dir.join(path),
-        _ => clone_dir.to_path_buf(),
-    };
-    let root = root.to_string_lossy();
-    let lead = if Path::new(root.as_ref()).is_file() {
-        read_lead(&root).map(|read| Continuation::related_query(read).build())
-    } else {
-        root.as_ref().try_into().ok().map(|path| {
-            Continuation::related_query(StructureSearchQueryTree {
-                classification: None,
-                default_excludes: None,
-                selection: None,
-                entry_type: None,
-                exclude: Vec::new(),
-                extensions: Vec::new(),
-                include: Vec::new(),
-                include_hidden: None,
-                include_ignored: None,
-                limit: None,
-                main_goal: None,
-                max_depth: std::num::NonZeroU64::MIN,
-                operation: StructureSearchQueryTreeOperation::Tree,
-                page: std::num::NonZeroU64::MIN,
-                path,
-                reasoning: None,
-                scan_offset: None,
-                snapshot: None,
-                view: StructureSearchView::Details,
-                walk_offset: None,
-            })
-            .build()
-        })
-    };
-    match lead {
-        Some(lead) => serde_json::json!({ "exploreClone": lead }),
-        None => serde_json::json!({}),
-    }
 }

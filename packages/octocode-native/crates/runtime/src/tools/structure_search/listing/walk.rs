@@ -290,7 +290,7 @@ fn line_counts(
     (paths, cancel): (&PathPolicy, &dyn CancellationCheck),
     (probe, budget): (bool, Option<std::time::Duration>),
 ) -> Result<Vec<Option<rows::Lines>>, ToolError> {
-    if probe || sort_key(sort) != Some(SortKey::LineCount) {
+    if probe || sort_key(sort) != Some(SortKey::TotalLines) {
         return Ok(vec![None; native.entries.len()]);
     }
     let (lines, cut) = rows::count_lines(

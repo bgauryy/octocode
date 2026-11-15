@@ -371,8 +371,11 @@ impl Query<'_> {
             // node under it shares; a file path suggests only files.
             let (name, file_path) = self.reference_name(&text);
             let kind = kind.or(file_path.then_some(NodeKind::File));
+            // Only near names stand in for the reference: a node sharing
+            // one word of a longer name is the find lead's to list.
             let suggestions = ranked(self.g, &name, kind, self.cancel)?
                 .into_iter()
+                .filter(|hit| is_near(self.g, &name, hit))
                 .map(|hit| self.g.key(hit.id).to_owned())
                 .filter(|key| prefix.as_ref().is_none_or(|prefix| key.starts_with(prefix)))
                 .take(MAX_SUGGESTIONS)

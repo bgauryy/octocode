@@ -3,7 +3,7 @@
 //! delay, jittered [`Backoff`], [`classify_status`], and the bounded body
 //! reader [`read_bounded`]. Each client keeps its own constants and policy.
 use crate::budget::{BudgetStop, RequestBudget};
-use crate::civil::days_from_civil;
+use crate::http::parse_http_date;
 use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
 use reqwest::header::{HeaderMap, RETRY_AFTER};
@@ -184,46 +184,8 @@ pub fn retry_after_delay(headers: &HeaderMap, max: Duration, now: SystemTime) ->
                 .min(max),
         );
     }
-    let date = parse_http_date(headers.get(RETRY_AFTER)?.to_str().ok()?)?;
+    let date = parse_http_date(headers.get(RETRY_AFTER)?.to_str().ok()?, now)?;
     Some(date.duration_since(now).unwrap_or(Duration::ZERO).min(max))
-}
-
-/// Parse an RFC 9110 IMF-fixdate (`Sun, 06 Nov 1994 08:49:37 GMT`).
-fn parse_http_date(value: &str) -> Option<SystemTime> {
-    let (_, rest) = value.trim().split_once(", ")?;
-    let mut parts = rest.split_ascii_whitespace();
-    let day = parts.next()?.parse::<i64>().ok()?;
-    let month_name = parts.next()?;
-    let month_index = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ]
-    .iter()
-    .position(|name| *name == month_name)?;
-    let month = 1 + i64::try_from(month_index).ok()?;
-    // IMF-fixdate's year is exactly 4DIGIT. Validate that protocol bound
-    // before calendar arithmetic sees a server-controlled integer.
-    let year = parts.next()?;
-    if year.len() != 4 || !year.bytes().all(|byte| byte.is_ascii_digit()) {
-        return None;
-    }
-    let year = year.parse::<i64>().ok()?;
-    let mut clock = parts.next()?.split(':').map(str::parse::<i64>);
-    let (hour, minute, second) = (
-        clock.next()?.ok()?,
-        clock.next()?.ok()?,
-        clock.next()?.ok()?,
-    );
-    if parts.next()? != "GMT"
-        || parts.next().is_some()
-        || !(1..=31).contains(&day)
-        || !(0..24).contains(&hour)
-        || !(0..60).contains(&minute)
-        || !(0..=60).contains(&second)
-    {
-        return None;
-    }
-    let seconds = days_from_civil(year, month, day) * 86_400 + hour * 3600 + minute * 60 + second;
-    SystemTime::UNIX_EPOCH.checked_add(Duration::from_secs(u64::try_from(seconds).ok()?))
 }
 
 /// Full-jitter exponential backoff: uniform in `[0, base * 2^attempt]`,

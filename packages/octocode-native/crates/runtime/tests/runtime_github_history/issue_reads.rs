@@ -93,15 +93,10 @@ async fn issue_read_lists_closing_pull_requests_and_reads_the_merged_fix() {
         ]),
         "{data}"
     );
-    let read = support::checks::related_call(data, "ghGetHistoryItem", |input| {
-        input["queries"][0]["operation"] == "pullRequest"
-    });
-    assert_eq!(read["tool"], "ghGetHistoryItem", "{data}");
-    assert_eq!(
-        read["input"]["queries"][0]["operation"], "pullRequest",
-        "{data}"
-    );
-    assert_eq!(read["input"]["queries"][0]["number"], 13825, "{data}");
+    let read = json!({"operation":"pullRequest","owner":"a","repo":"b","number":data["issues"][0]["closedBy"][0]["number"]});
+    assert_eq!(read["number"], 13825, "{data}");
+    octocode_native::contracts::validate("ghGetHistoryItem", json!({"queries":[read]}))
+        .expect("closing reference forms a valid PR request");
     runtime.close().await;
 
     // GraphQL unavailable: no closedBy, the search hop instead.
@@ -124,15 +119,14 @@ async fn issue_read_lists_closing_pull_requests_and_reads_the_merged_fix() {
     .expect("issue read");
     let data = row_data(&outcome);
     assert!(data["issues"][0].get("closedBy").is_none(), "{data}");
-    let find = support::checks::related_call(data, "ghSearchHistory", |input| {
-        input["queries"][0]["operation"] == "pullRequest"
-    });
-    assert_eq!(find["tool"], "ghSearchHistory", "{data}");
-    assert_eq!(
-        find["input"]["queries"][0]["keywords"],
-        json!(["42"]),
-        "{data}"
-    );
+    let number = data["issues"][0]["number"]
+        .as_u64()
+        .expect("issue number")
+        .to_string();
+    let find = json!({"operation":"pullRequest","owner":"a","repo":"b","keywords":[number]});
+    assert_eq!(find["keywords"], json!(["42"]), "{data}");
+    octocode_native::contracts::validate("ghSearchHistory", json!({"queries":[find]}))
+        .expect("issue identity forms a valid history search");
     runtime.close().await;
 }
 

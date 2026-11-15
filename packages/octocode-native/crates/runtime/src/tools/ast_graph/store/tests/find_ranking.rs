@@ -151,6 +151,52 @@ fn unknown_reference_suggests_ranked_find_matches() {
     );
 }
 
+/// A near name stands in for a reference no node has: one typo of the whole
+/// name (`runCLl`), or names whose words spell most of the reference, each
+/// word as written, a prefix or one typo away (`wrteJsonFle`). A node that
+/// spells less of it (one short word of `zzqxNoSuchFn`) shares a word, not
+/// the name: nothing stands in, and the find lead searches for it.
+#[test]
+fn an_unknown_reference_suggests_only_near_names() {
+    let dir = words_fixture();
+    write_under(
+        &dir,
+        "app/src",
+        &[(
+            "cli.ts",
+            "export function runCLI() { return 1; }\nexport function writeJson() { return runCLI(); }\nexport function node() { return 2; }\nexport function now() { return 3; }\n",
+        )],
+    );
+    assert_eq!(
+        ingest_fixture(dir.0.as_path(), None).class,
+        ExitClass::Success
+    );
+    let root = dir.0.as_path();
+    for (reference, near) in [
+        ("runCLl", "src/cli.ts#runCLI"),
+        ("wrteJsonFle", "src/cli.ts#writeJson"),
+        ("zzqxSnapshotReader", "src/snapshot.ts#SnapshotReader"),
+    ] {
+        let out = ask(root, "callers", Some(reference), |_| {});
+        assert_eq!(out.value["errorCode"], "notFound", "{}", out.value);
+        assert_eq!(
+            out.value["suggestions"][0], near,
+            "{reference}: {}",
+            out.value
+        );
+    }
+    for reference in ["zzqxNoSuchFn", "zzqxSnapshotSuchFn"] {
+        let out = ask(root, "callers", Some(reference), |_| {});
+        assert_eq!(out.value["errorCode"], "notFound", "{}", out.value);
+        assert!(
+            out.value.get("suggestions").is_none(),
+            "{reference}: {}",
+            out.value
+        );
+        assert_eq!(out.value["find"], reference, "{}", out.value);
+    }
+}
+
 #[test]
 fn every_listed_detector_runs_when_selected_alone() {
     let dir = issues_fixture();

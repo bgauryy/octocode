@@ -123,7 +123,8 @@ operations! {
 #[derive(Default)]
 struct Graph {
     compact_provenance: bool,
-    /// Characters a page's rows may take ([`budget::page_budget`]).
+    /// Characters a page of the answer may take as the response delivers
+    /// it: the row's response window ([`Graph::fit_page`]).
     page_budget: Option<usize>,
     explicit_path: Option<PathBuf>,
     id: String,
@@ -198,7 +199,7 @@ fn run_with(
     let flags = Flags::parse(options)?;
     let mut graph = load_with(options, paths, cancel, decode).map_err(|failure| *failure)?;
     graph.compact_provenance = !options.include_provenance;
-    graph.page_budget = budget::page_budget(options.response_window);
+    graph.page_budget = options.response_window;
     let mut pinned = options.clone();
     if let Some(path) = &graph.explicit_path {
         pinned.graph = Some(path.to_string_lossy().into_owned());

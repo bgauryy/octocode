@@ -165,6 +165,7 @@ async function actPending(
   } catch (error) {
     details.operation = 'input-failed';
     details.error = errorMessage(error);
+    details.outcomeUncertain = true;
     log(`[FINDING] DOM_INPUT_FAILED ${details.error}`);
   }
 }

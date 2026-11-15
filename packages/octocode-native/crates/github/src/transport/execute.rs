@@ -50,6 +50,14 @@ struct Saved {
     reuse: Reuse,
 }
 
+/// The exact request and credential whose concurrent cache fill may be awaited.
+/// The request identity is shared with saved answers and continuation journals.
+#[derive(Clone, Eq, Ord, PartialEq, PartialOrd)]
+pub(super) struct FillKey {
+    scope: String,
+    request: String,
+}
+
 /// Whether GitHub said this answer lacks results: `incomplete_results` on a
 /// search, or organizations SAML enforcement withheld. A non-search body is
 /// source data: its own JSON fields have no provider-envelope meaning.
@@ -87,6 +95,42 @@ impl GitHubTransport {
     /// One logical request: its attempts count one failure toward the
     /// circuit breaker, however many retries it took.
     pub async fn execute(
+        &self,
+        spec: RequestSpec,
+        context: &RequestContext,
+    ) -> Result<ResponsePage, ProviderError> {
+        if let Some(key) = self.fill_key(&spec, context) {
+            let ticket = self.fills.join(key);
+            let mut started = context.budget.wait(ticket.turn()).await?;
+            if !*started {
+                *started = true;
+                // Hold the first turn through the cache write. On cancellation,
+                // dropping the future releases it just as completion does.
+                let result = self.execute_uncoordinated(spec, context).await;
+                drop(started);
+                return result;
+            }
+            // Wait only once for this wave's fill. When it failed or could not
+            // be cached, followers send independently, never in a network convoy.
+        }
+        self.execute_uncoordinated(spec, context).await
+    }
+
+    fn fill_key(&self, spec: &RequestSpec, context: &RequestContext) -> Option<FillKey> {
+        if self.answers.is_none()
+            || !matches!(spec.method, HttpMethod::Get)
+            || spec.kept_by_caller
+            || context.journal_answers(spec)
+        {
+            return None;
+        }
+        Some(FillKey {
+            scope: self.answer_scope(context)?,
+            request: request_key(spec),
+        })
+    }
+
+    async fn execute_uncoordinated(
         &self,
         spec: RequestSpec,
         context: &RequestContext,
@@ -543,12 +587,13 @@ impl GitHubTransport {
         let request = request_key(spec);
         let cache_headers = page
             .headers
-            .get_all("cache-control")
             .iter()
-            .filter_map(|value| value.to_str().ok())
-            .map(|value| ("cache-control".to_owned(), value.to_owned()))
+            .filter(|(name, _)| matches!(name.as_str(), "cache-control" | "vary"))
+            .filter_map(|(name, value)| {
+                Some((name.as_str().to_owned(), value.to_str().ok()?.to_owned()))
+            })
             .collect::<Vec<_>>();
-        if super::saved::has_directive(&cache_headers, "no-store") {
+        if super::saved::forbids_reuse(&cache_headers) {
             store.forget(&scope, &request);
             return;
         }

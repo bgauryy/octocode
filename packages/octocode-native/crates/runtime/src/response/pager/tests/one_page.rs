@@ -86,3 +86,109 @@ fn a_saved_read_still_states_where_its_walk_ends() {
         "a page of a walk discloses its size at the top level"
     );
 }
+
+fn assert_unpaged(input: &Value, budget: Option<usize>, oversized: bool) {
+    let prepared = prepare(
+        ResponseInput {
+            tool: crate::id::ToolId::GhCloneRepo,
+            structured: input.clone(),
+            options: ResponsePageOptions {
+                response_chars: budget,
+                ..Default::default()
+            },
+        },
+        &Cancellation::new(),
+    )
+    .expect("unpaged receipt");
+    let mut expected = input.clone();
+    if oversized {
+        expected["oversized"] = json!(true);
+    }
+    assert_eq!(prepared.value, expected, "only the size disclosure changes");
+    assert!(prepared.next.is_none(), "no replay is introduced");
+    assert!(prepared.value.get("responsePagination").is_none());
+}
+
+#[test]
+fn unpaged_receipts_disclose_indivisible_values_without_replay() {
+    let path = format!("/{}\"\\界😀", "nested/".repeat(40));
+    let path_units = serde_json::to_string(&path)
+        .expect("serialized path")
+        .encode_utf16()
+        .count()
+        - 2;
+    let receipt = json!({"results":[{"index":0,"data":{
+        "location":{"kind":"tree","path":path}
+    }}]});
+    let call = json!({"kind":"related","tool":"structureSearch","input":{
+        "queries":[{"operation":"tree","path":"p"}]
+    }});
+    let call_units = call.to_string().encode_utf16().count();
+    let with_call = json!({"results":[{"index":0,"data":{
+        "location":{"kind":"tree","path":"p"},"related":[call]
+    }}]});
+    for (input, budget) in [(receipt, path_units - 1), (with_call, call_units - 1)] {
+        assert_unpaged(&input, Some(budget), true);
+        assert_unpaged(&input, Some(1), true);
+    }
+}
+
+#[test]
+fn unpaged_fitting_or_unbounded_receipts_stay_unchanged() {
+    let path = "a complete location";
+    let input = json!({"results":[{"index":0,"data":{
+        "location":{"kind":"tree","path":path}
+    }}]});
+    for budget in [None, Some(path.len()), Some(input.to_string().len())] {
+        assert_unpaged(&input, budget, false);
+    }
+}
+
+#[test]
+fn unpaged_text_disclosure_survives_rejudge_and_clears_when_it_fits() {
+    let budget = 20;
+    let input = json!({"results":[{"index":0,"data":{
+        "location":{"kind":"tree","path":"p".repeat(budget + 1)}
+    }}]});
+    let mut output = prepare(
+        ResponseInput {
+            tool: crate::id::ToolId::GhCloneRepo,
+            structured: input,
+            options: ResponsePageOptions {
+                response_chars: Some(budget),
+                ..Default::default()
+            },
+        },
+        &Cancellation::new(),
+    )
+    .expect("unpaged receipt")
+    .value;
+    unflag_fitting(&mut output, crate::id::ToolId::GhCloneRepo, budget, false);
+    assert_eq!(output["oversized"], true);
+
+    output["results"][0]["data"]["location"]["path"] = json!("p");
+    unflag_fitting(&mut output, crate::id::ToolId::GhCloneRepo, budget, false);
+    assert!(output.get("oversized").is_none());
+}
+
+#[test]
+fn unpaged_exempts_only_volatile_row_data() {
+    let budget = "tree".len();
+    for (field, facts) in [
+        ("rateLimit", json!({"resource":"search","remaining":0})),
+        ("clientWaits", json!([{"kind":"quotaPacing","ms":1}])),
+        ("observedAt", json!("1970-01-01T00:00:00Z")),
+    ] {
+        let mut input = json!({"results":[{"index":0,"data":{
+            "location":{"kind":"tree","path":"p"}
+        }}]});
+        input["results"][0]["data"][field] = facts.clone();
+        assert_unpaged(&input, Some(budget), false);
+
+        let mut nested = json!({"results":[{"index":0,"data":{
+            "location":{"kind":"tree","path":"p"},"details":{}
+        }}]});
+        nested["results"][0]["data"]["details"][field] = facts;
+        assert_unpaged(&nested, Some(budget), true);
+    }
+}

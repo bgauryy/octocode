@@ -71,9 +71,16 @@ pub(super) fn spans(source: &str, lexis: &Lexis) -> Vec<Span> {
 
 /// `regions` (from a grammar's parse) where they agree with `spans` (from
 /// the language's spec): a comment region goes only where the spec has the
-/// same comment, else it stays as it is; a spec string, and any region it
-/// overlaps, stays byte for byte.
-pub(super) fn agree(regions: Vec<Region>, spans: &[Span]) -> Vec<Region> {
+/// same comment and following source whitespace separates its neighbors. A
+/// comment between adjacent tokens is retained: inserting whitespace can
+/// change a selector, while deleting it can merge tokens. A spec string,
+/// and any region it overlaps, stays byte for byte.
+pub(super) fn agree(
+    source: &str,
+    regions: Vec<Region>,
+    spans: &[Span],
+    lexis: &Lexis,
+) -> Vec<Region> {
     let is_spec_comment = |region: &Region| {
         spans
             .binary_search_by_key(&region.start, |span| span.start)
@@ -92,7 +99,10 @@ pub(super) fn agree(regions: Vec<Region>, spans: &[Span]) -> Vec<Region> {
     let mut all: Vec<Region> = regions
         .into_iter()
         .map(|region| Region {
-            kind: if region.kind == RegionKind::Comment && !is_spec_comment(&region) {
+            kind: if region.kind == RegionKind::Comment
+                && (!is_spec_comment(&region)
+                    || separates_tokens(source, region.start, region.end, lexis))
+            {
                 RegionKind::Literal
             } else {
                 region.kind
@@ -113,6 +123,15 @@ pub(super) fn agree(regions: Vec<Region>, spans: &[Span]) -> Vec<Region> {
         }
     }
     merged
+}
+
+/// A following whitespace code point is outside this comment and the token
+/// before it. Whitespace before the comment is not enough: it may belong to an
+/// escape (`\61 ` is one CSS escape). Otherwise retain the lexical boundary,
+/// even in malformed token sequences, rather than insert a space or join tokens.
+pub(super) fn separates_tokens(source: &str, start: usize, end: usize, lexis: &Lexis) -> bool {
+    let bytes = source.as_bytes();
+    start > 0 && end < bytes.len() && !lexis.whitespace.contains(&bytes[end])
 }
 
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -150,7 +169,7 @@ fn raw_argument(bytes: &[u8], at: usize, lexis: &Lexis) -> Option<usize> {
     let argument = at + call.len();
     let first = bytes[argument..]
         .iter()
-        .position(|byte| !byte.is_ascii_whitespace())
+        .position(|byte| !lexis.whitespace.contains(byte))
         .map_or(bytes.len(), |found| argument + found);
     (!bytes
         .get(first)
@@ -226,7 +245,7 @@ mod tests {
             region(17, 24, RegionKind::Comment),
         ];
         assert_eq!(
-            agree(regions, &spans),
+            agree(source, regions, &spans, &SCSS_LEXIS),
             [
                 region(1, 5, RegionKind::Literal),
                 region(6, 14, RegionKind::Literal),

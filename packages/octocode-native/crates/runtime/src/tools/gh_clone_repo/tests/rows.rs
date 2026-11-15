@@ -58,13 +58,8 @@ fn clone_rows_continue_into_local_tools_and_name_the_checkout_time() {
         data
     };
     let fresh = row(&clone_pinned(&fixture, &query(), &context).expect("fresh clone"));
-    let explore =
-        crate::tools::test_support::checks::related_call(&fresh, "structureSearch", |_| true);
-    assert_eq!(explore["tool"], "structureSearch", "{fresh}");
-    assert_eq!(
-        explore["input"]["queries"][0]["path"],
-        fresh["location"]["path"]
-    );
+    assert!(fresh.get("related").is_none(), "{fresh}");
+    assert!(Path::new(fresh["location"]["path"].as_str().expect("path")).is_dir());
     assert!(fresh["location"]["clonedAt"].is_string(), "{fresh}");
     for absent in ["owner", "repo"] {
         assert!(fresh.get(absent).is_none(), "{fresh}");
@@ -92,16 +87,17 @@ fn clone_rows_continue_into_local_tools_and_name_the_checkout_time() {
     )
     .expect("sparse clone"));
     let local = sparse["location"]["path"].as_str().expect("path");
-    let path = crate::tools::test_support::checks::related_call(&sparse, "structureSearch", |_| {
-        true
-    })["input"]["queries"][0]["path"]
-        .as_str()
-        .expect("path");
-    assert_eq!(Path::new(path), Path::new(local).join("src"), "{sparse}");
     assert_eq!(
-        crate::tools::test_support::checks::related_call(&sparse, "structureSearch", |_| true)["tool"],
-        "structureSearch"
+        sparse["location"]["requestedPaths"],
+        serde_json::json!(["src"])
     );
+    let selected = Path::new(local).join(
+        sparse["location"]["requestedPaths"][0]
+            .as_str()
+            .expect("selected path"),
+    );
+    assert!(selected.is_dir(), "{sparse}");
+    assert!(sparse.get("related").is_none(), "{sparse}");
 
     // A single checked-out file is read, not listed as a directory.
     let file = row(&clone_pinned(
@@ -114,17 +110,17 @@ fn clone_rows_continue_into_local_tools_and_name_the_checkout_time() {
     )
     .expect("sparse file clone"));
     let local = file["location"]["path"].as_str().expect("path");
-    let explore = crate::tools::test_support::checks::related_call(&file, "localFetch", |_| true);
-    assert_eq!(explore["tool"], "localFetch", "{file}");
-    let path = explore["input"]["queries"][0]["path"]
-        .as_str()
-        .expect("path");
     assert_eq!(
-        Path::new(path),
-        Path::new(local).join("src/lib.rs"),
-        "{file}"
+        file["location"]["requestedPaths"],
+        serde_json::json!(["src/lib.rs"])
     );
-    assert!(Path::new(path).is_file(), "{file}");
+    let selected = Path::new(local).join(
+        file["location"]["requestedPaths"][0]
+            .as_str()
+            .expect("selected path"),
+    );
+    assert!(selected.is_file(), "{file}");
+    assert!(file.get("related").is_none(), "{file}");
 }
 
 /// Reusing a checkout probes Git, fetches nothing and reports its size.

@@ -63,15 +63,19 @@ const eventCoverage = (streams: Map<string, EventStream>) =>
   }));
 
 /** The run failure a step error records; a timeout leaves the step's outcome unknown. */
-function stepFailure(message: string, step: PlanStep, index: number): Failure {
+function stepFailure(error: unknown, step: PlanStep, index: number): Failure {
+  const message = errorMessage(error);
+  const uncertain =
+    error instanceof Error &&
+    'outcomeUncertain' in error &&
+    error.outcomeUncertain === true;
   return {
     step: index + 1,
     error: message,
-    ...(/CDP timeout|step deadline/.test(message)
+    ...(uncertain || /CDP timeout|step deadline/.test(message)
       ? {
-          outcomeUncertain: ['act', 'cdp', 'goto', 'readStream'].includes(
-            step.op
-          ),
+          outcomeUncertain:
+            uncertain || ['act', 'cdp', 'goto', 'readStream'].includes(step.op),
           instruction:
             'Inspect state before any retry; an acknowledged outcome is unavailable.',
         }
@@ -229,7 +233,7 @@ export async function run(connection: CheckSession, input?: unknown) {
           ).file;
         row.status = 'failed';
         row.error = errorMessage(error);
-        failure = stepFailure(row.error, step, index);
+        failure = stepFailure(error, step, index);
         break;
       } finally {
         stepDeadline = null;

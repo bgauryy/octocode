@@ -177,6 +177,7 @@ impl ChannelRun {
                 self.response_query.clone(),
                 SavedWork::ResponsePage {
                     cursor,
+                    shape: self.page_shape.clone(),
                     index,
                     rows,
                 },

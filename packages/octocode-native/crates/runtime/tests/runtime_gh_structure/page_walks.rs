@@ -183,9 +183,8 @@ async fn a_size_rank_opens_every_level_and_leads_to_its_top_row() {
         ]),
         "{data}"
     );
-    let read = &crate::support::checks::related_call(data, "ghGetFileContent", |_| true)["input"]["queries"]
-        [0];
-    assert_eq!(read["path"], "node/plugins/css.ts", "{data}");
+    assert_eq!(data["commitSha"], SHA, "{data}");
+    assert!(data.get("related").is_none(), "{data}");
     // An explicit depth bounds the rank to the levels it names.
     let outcome = call(&runtime, "ghStructure", ranked(Some(1)))
         .await

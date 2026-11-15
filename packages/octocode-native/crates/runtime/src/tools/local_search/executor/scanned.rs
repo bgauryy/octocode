@@ -18,7 +18,7 @@ use crate::policy::prune::DefaultsFlag;
 use crate::response::result::ToolError;
 use octocode_contract_types::{ErrorCode, LocalSearchQuery};
 use octocode_engine::search::text_search::{Pause, SearchWindow, Windowed, search_window};
-use octocode_engine::types::TextSearchOptions;
+use octocode_engine::types::{SearchSort, TextSearchOptions};
 use std::sync::Arc;
 
 /// A scan with what every later stage needs from it.
@@ -85,15 +85,25 @@ pub(crate) fn scan_resumed(
     }
     let validated = search_root(query, paths)?;
     let keep = crate::tools::test_code::Keep::of(local_search_query::test_code(query));
-    let verdicts = keep.map(|_| Arc::new(crate::tools::test_code::TestCodeIndex::new(paths)));
+    let base = search_options(query, &validated.canonical);
+    // A relevance sort ranks test code after source by the same verdict a
+    // `testCode` scope keeps by: a module mounted only under test is test
+    // code, whatever its file is named.
+    let ranks = base.sort == SearchSort::Relevance;
+    let verdicts = (keep.is_some() || ranks)
+        .then(|| Arc::new(crate::tools::test_code::TestCodeIndex::new(paths)));
     let options = TextSearchOptions {
         terms,
         test_code: keep
             .zip(verdicts.clone())
             .map(|(keep, index)| crate::tools::test_code::text_scope(keep, index)),
+        test_code_rank: verdicts
+            .clone()
+            .filter(|_| ranks)
+            .map(crate::tools::test_code::text_rank),
         // Each file is judged at the sizes a read of it is.
         judge: Some(judge(limits)),
-        ..search_options(query, &validated.canonical)
+        ..base
     };
     check_pattern(query)?;
     let search_options = options.clone();
@@ -116,8 +126,11 @@ pub(crate) fn scan_resumed(
     } = scan_in(query, paths, options, &policy_key, cancel, window)?;
     // What a `testCode` scope's verdicts read, a parent module outside this
     // root too, proves a stored scan as the walk's ignore inputs do, past what
-    // the walk already stamps.
-    if let (Some(walked), Some(verdicts)) = (&mut walked, &verdicts) {
+    // the walk already stamps. A relevance rank alone decides no row's
+    // membership: the stored scan keeps the order its pages were cut in.
+    if let (Some(walked), Some(verdicts)) =
+        (&mut walked, verdicts.as_ref().filter(|_| keep.is_some()))
+    {
         let stamped = walked
             .entries
             .iter()
@@ -131,7 +144,7 @@ pub(crate) fn scan_resumed(
     }
     // A verdict that needed a file it could not read is unproven: the row
     // says so as for any other path it could not read.
-    if let Some(verdicts) = &verdicts {
+    if let Some(verdicts) = verdicts.as_ref().filter(|_| keep.is_some()) {
         disclose_unread(&mut parsed.stats, &verdicts.unread());
     }
     // A stored scan was stored under the snapshot derived from its query

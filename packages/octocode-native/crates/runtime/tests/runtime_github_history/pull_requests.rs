@@ -44,25 +44,22 @@ async fn squash_merge_commit_reads_its_pull_request_directly() {
     .await
     .expect("commit read");
     let data = row_data(&outcome);
-    let read = &crate::support::checks::find_related_call(data, "ghGetHistoryItem", |input| {
-        input["queries"][0]["operation"] == "pullRequest"
-    })
-    .unwrap_or(&serde_json::Value::Null);
-    assert_eq!(read["tool"], "ghGetHistoryItem", "{data}");
-    assert_eq!(read["input"]["queries"][0]["number"], 8506, "{data}");
+    let number = 8506;
     assert!(
-        crate::support::checks::find_related_call(
-            data,
-            "ghSearchHistory",
-            |input| input["queries"][0]["operation"] == "pullRequest"
-        )
-        .unwrap_or(&serde_json::Value::Null)
-        .is_null(),
+        data["message"]
+            .as_str()
+            .expect("commit message")
+            .contains(&format!("#{number}")),
         "{data}"
     );
-    let linked = call(&runtime, "ghGetHistoryItem", read["input"].clone())
-        .await
-        .expect("linked PR executes");
+    assert!(data.get("related").is_none(), "{data}");
+    let linked = call(
+        &runtime,
+        "ghGetHistoryItem",
+        json!({"operation":"pullRequest","owner":"a","repo":"b","number":number}),
+    )
+    .await
+    .expect("message-named PR executes");
     assert_eq!(row_data(&linked)["pullRequests"][0]["number"], 8506);
     assert_eq!(
         row_data(&linked)["pullRequests"][0]["headCommitSha"],
@@ -74,8 +71,8 @@ async fn squash_merge_commit_reads_its_pull_request_directly() {
 
 #[tokio::test]
 async fn gh_get_history_item_pull_request_without_content_passes_output_contract() {
-    // A summary previews text; its issued continuation returns the full
-    // multibyte body unchanged.
+    // A summary previews text; an explicit body request using its identity
+    // returns the full multibyte source unchanged.
     let server = MockServer::builder().start().await;
     let body = "修复并发缓冲区的内存泄漏问题。".repeat(60);
     Mock::given(method("GET"))
@@ -125,12 +122,8 @@ async fn gh_get_history_item_pull_request_without_content_passes_output_contract
         .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
         .mount(&server)
         .await;
-    let read = checks::related_call(row_data(&outcome), "ghGetHistoryItem", |input| {
-        input["queries"][0]["sections"]
-            .as_array()
-            .is_some_and(|sections| sections.contains(&json!("body")))
-    });
-    let full = call(&runtime, "ghGetHistoryItem", read["input"].clone())
+    let read = json!({"operation":"pullRequest","owner":"a","repo":"b","number":row_data(&outcome)["pullRequests"][0]["number"],"sections":["body"]});
+    let full = call(&runtime, "ghGetHistoryItem", read)
         .await
         .expect("body replay");
     assert_eq!(row_data(&full)["pullRequests"][0]["body"], body);
@@ -226,17 +219,13 @@ async fn pr_summary_previews_the_body() {
         preview.ends_with('…') && preview.chars().count() <= 301,
         "{preview}"
     );
-    let read = checks::related_call(data, "ghGetHistoryItem", |input| {
-        input["queries"][0]["sections"]
-            .as_array()
-            .is_some_and(|sections| sections.contains(&json!("body")))
-    });
+    let read = json!({"operation":"pullRequest","owner":"a","repo":"b","number":row_data(&outcome)["pullRequests"][0]["number"],"sections":["body"]});
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/pulls/7/files"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
         .mount(&server)
         .await;
-    let full = call(&runtime, "ghGetHistoryItem", read["input"].clone())
+    let full = call(&runtime, "ghGetHistoryItem", read)
         .await
         .expect("whole body");
     assert_eq!(row_data(&full)["pullRequests"][0]["body"], body);

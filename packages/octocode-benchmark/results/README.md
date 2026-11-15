@@ -14,6 +14,9 @@ previous version and the stored baselines.
 
 | Version | Date | Build | Round (scorecard or stored folder) | Headline |
 |---|---|---|---|---|
+| 20.2.0 | 2026-11-15 | host release `bfe156c1…502b` | [Deep efficiency and freshness](rounds/20.2.0-2026-11-15-deep-efficiency/SCORECARD.md) | 8,696 Rust tests; fresh 17-tool CLI/MCP acceptance/131 pages; 70 independent cache scenarios; 12 Rust operations and real-workspace replay; smaller multiline output, comparable scoped speed, cumulative provisional ratings |
+| 20.2.0 | 2026-11-15 | host release `4e2052ae…4f35` | [Claude handoff follow-up](rounds/20.2.0-2026-11-15-handoff-followup/REPORT.md) | Replay after eviction, inline Rust test relevance and input-repair disclosures; 8,663 Rust tests passed, fresh CLI/MCP acceptance and qualified timing observations; prior comparative scores remain attached to their build |
+| 20.2.0 | 2026-11-14 | repaired host release `c4f7ee4e…1c0` | [17-tool ratings](rounds/20.2.0-2026-11-14-tool-ratings/SCORECARD.md) | 120 owned questions (inventory, not 120 claimed passes), per-tool 1–10 dimensions, rg/ast-grep/gh-lean/Graphify/LSP comparisons; three evidence-contract repairs and completed final-build checks |
 | 20.2.0 | 2026-11-14 | host release, SHA-256 `0dd29415…0d2d`, commit `73cddf5b32` plus shared dirty tree | [advanced capability scorecard](rounds/20.2.0-2026-11-14-advanced/SCORECARD.md) | Fresh rg/ast-grep/gh-lean/Graphify/direct-LSP comparisons: selected local/semantic evidence agrees; expert outputs smaller; graph queries faster in sample; explicit gh cache reverses the tested hybrid speed advantage; annotated-tag object gap |
 | 20.2.0 | 2026-10-29 | native CLI, binary SHA-256 `30c301e0…a073`, commit `cb94ad744` plus uncommitted tree | `github30-v20-2026-10-29` | GitHub 30: correctness 9.57; 15,590 characters per question; 1.43× leaner than v18; gh-lean 0.47× v20's characters at 8.83 correctness; warm 1.5–2.3× faster than v18, cold 1.3–2.0× slower |
 | 20.2.0 pre-release (`local-mcp-v9`, native 20.2.0) | 2026-10-10 | local MCP build | `local-30q-2026-10-10` | local core 30: correctness 10.0 vs lean shell 9.60; shell used 0.81× the characters; 19.1.0 used 2.32× |
@@ -40,6 +43,12 @@ report, `per_question_summary.json`, the visual `index.html`) are also tracked o
 ## Rounds (tracked)
 
 `rounds/<version>-<date>/SCORECARD.md`, one per round, from the [scorecard template](../briefs/SCORECARD.md).
+- [20.2.0 — deep efficiency and freshness, 2026-11-15](rounds/20.2.0-2026-11-15-deep-efficiency/SCORECARD.md):
+  independent rebuilt acceptance, HTTP/LSP correctness repairs, representative classification cost and scoped timing.
+- [20.2.0 — Claude handoff follow-up, 2026-11-15](rounds/20.2.0-2026-11-15-handoff-followup/REPORT.md):
+  subsequent fixes and rebuilt acceptance, with previous comparative ratings identified separately.
+- [20.2.0 — all 17 tool ratings, 2026-11-14](rounds/20.2.0-2026-11-14-tool-ratings/SCORECARD.md):
+  critical per-tool dimensions, pagination, output, workflows and expert comparisons.
 - [20.2.0 — advanced comparisons, 2026-11-14](rounds/20.2.0-2026-11-14-advanced/SCORECARD.md):
   capability and workflow checks against fresh expert tools, with complete pages, cache arms,
   source witnesses and shared-host timing limitations.

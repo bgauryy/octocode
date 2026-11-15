@@ -6,6 +6,11 @@ use serde_json::{Map, Value};
 /// observed (`observedAt`).
 const VOLATILE_DATA_FIELDS: &[&str] = &["rateLimit", "clientWaits", "observedAt"];
 
+/// Whether a row's `data` field rides outside the evidence measure.
+pub(super) fn is_volatile_data_field(field: &str) -> bool {
+    VOLATILE_DATA_FIELDS.contains(&field)
+}
+
 fn rows_mut(structured: &mut Map<String, Value>) -> impl Iterator<Item = &mut Map<String, Value>> {
     structured
         .get_mut("results")

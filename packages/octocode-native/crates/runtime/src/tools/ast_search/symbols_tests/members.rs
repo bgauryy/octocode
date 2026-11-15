@@ -48,11 +48,11 @@ fn a_limit_states_that_it_counts_top_level_declarations() {
     let nested = members(&out, "Hidden").len() + members(&out, "Shown").len();
     assert!(nested > 0, "{out}");
     assert_eq!(top_level, 1, "{out}");
-    let hints = out["hints"].to_string();
+    let hints = out["warnings"].to_string();
     assert!(
         hints.contains("limit counts top-level declarations"),
         "{out}"
     );
     let unlimited = outline(json!({}));
-    assert!(!unlimited["hints"].to_string().contains("limit counts"));
+    assert!(!unlimited["warnings"].to_string().contains("limit counts"));
 }

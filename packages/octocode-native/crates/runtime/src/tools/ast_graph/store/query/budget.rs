@@ -1,25 +1,52 @@
 //! The one paging rule of a list answer: a page ends at `limit` rows or at
 //! the response budget, whichever comes first, on every surface. The budget
-//! is the row's share of the response page less the room its envelope takes
-//! ([`page_budget`](crate::response::page_windows::page_budget)), so the
-//! cut rows stay reachable through `next`, and `pagination.total` still
-//! counts the whole set. The shared response pager delivers declared sibling
+//! is the row's share of the response page: the answer is measured as the
+//! response delivers it (inside its result row, each continuation as the
+//! issued cursor call), so a page holds every whole row that fits, the cut
+//! rows stay reachable through `next`, and `pagination.total` still counts
+//! the whole set. The shared response pager delivers declared sibling
 //! evidence arrays that keep the first row above its response budget.
 use super::*;
 use crate::execution::cancel::CancellationCheck;
+use crate::id::ToolId;
 
 fn chars(value: &Value) -> usize {
     octocode_engine::json_size::utf16_units_or(value, usize::MAX)
 }
 
-/// An answer's size with the room each of its continuations takes.
-fn size(output: &GraphOutput, options: &QueryOptions, id: &str) -> usize {
-    output
+/// Response chars around one row's `data`: the envelope and the row's own
+/// wrapper (`{"index":…,"data":…}`), measured with empty data.
+fn frame_chars() -> usize {
+    let frame = crate::response::rows::envelope(
+        ToolId::GraphQuery,
+        vec![crate::response::rows::result_row(0, json!({}), None)],
+    );
+    // The empty `data` is `{}`, which the answer replaces.
+    chars(&frame).saturating_sub(2)
+}
+
+/// An answer's size as the response delivers it: inside its result row, with
+/// each continuation it states as the call publication puts in its place
+/// (`next.<channel>`, an issued cursor of the published width).
+fn size(output: &GraphOutput) -> usize {
+    let size = chars(&output.value).saturating_add(frame_chars());
+    if output.next.is_empty() {
+        return size;
+    }
+    let next = output
         .next
         .iter()
-        .fold(chars(&output.value), |size, (_, resume)| {
-            size.saturating_add(chars(&Value::Object(resume_row(options, id, resume))))
+        .map(|(channel, _)| {
+            let call = crate::response::result::Continuation::cursor(
+                ToolId::GraphQuery.as_str(),
+                crate::response::cursor::issued::placeholder(),
+            );
+            (channel.name(), call)
         })
+        .collect::<Map<_, _>>();
+    // `,"next":{…}` after the answer's last field.
+    let next = chars(&json!({ "next": next })).saturating_sub(2) + 1;
+    size.saturating_add(next)
 }
 
 impl Graph {
@@ -38,7 +65,7 @@ impl Graph {
         let Some(total) = output.value["pagination"]["total"].as_u64() else {
             return Ok(());
         };
-        if size(output, options, &self.id) <= budget {
+        if size(output) <= budget {
             return Ok(());
         }
         let rows = match output.value.get_mut("rows") {
@@ -53,7 +80,7 @@ impl Graph {
                 object.remove("sourceEvidence");
             }
             self.close_sources(output, cancel)?;
-            Ok(size(output, options, &self.id))
+            Ok(size(output))
         };
         // The answer grows with every kept row: bisect for the last fit.
         let (mut fits, mut over) = (1, rows.len());
@@ -68,13 +95,6 @@ impl Graph {
         page(fits)?;
         Ok(())
     }
-}
-
-/// Characters a page's rows may take before projection stops: rows past the
-/// budget would be cut by [`Graph::fit_page`], so a window counts them
-/// without projecting them.
-pub(super) fn page_budget(window: Option<usize>) -> Option<usize> {
-    window.map(|window| crate::response::page_windows::page_budget(Some(window)))
 }
 
 /// A window's budget: the characters its rows may take, each row counted as

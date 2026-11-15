@@ -79,46 +79,55 @@ fn ranges_pages_hold_at_most_limit_lines() {
     );
 }
 
-/// A page the response budget cut short of `limit` says so; a page that
-/// reaches `limit`, or ends the source, does not.
+/// A response-sized page can end before limit without prose explaining the
+/// cut: pagination and executable next calls reconstruct every source line.
 #[test]
-fn a_page_cut_short_of_limit_by_the_response_budget_says_why() {
+fn budget_sized_pages_reconstruct_source_once_without_advice() {
     let t = Fixture::new();
     let paths = Paths(t.0.clone());
-    let path = t.write("lines.txt", numbered(4000));
-    let limited = |limit: usize, window: Option<usize>| {
-        let query = qj(&path, serde_json::json!({"limit": limit}));
-        execute_local_fetch(&query, &paths, &Safe, &NeverCancel, window, None)
-    };
-    let budgeted = limited(2000, Some(2_000));
-    let held = budgeted
-        .content
-        .as_deref()
-        .unwrap_or_default()
-        .lines()
-        .count();
-    assert!(held < 2000 && budgeted.pagination.is_some(), "{budgeted:?}");
-    assert!(
-        budgeted
-            .hints
-            .iter()
-            .any(|hint| hint.contains(&format!("holds {held} lines"))
-                && hint.contains("response budget")),
-        "{:?}",
-        budgeted.hints
-    );
-    let reached = limited(10, Some(2_000));
-    assert!(reached.hints.is_empty(), "{:?}", reached.hints);
-    let short = t.write("short.txt", numbered(100));
-    let last = execute_local_fetch(
-        &qj(&short, serde_json::json!({"limit": 5000})),
-        &paths,
-        &Safe,
-        &NeverCancel,
-        None,
-        None,
-    );
-    assert!(last.hints.is_empty(), "{:?}", last.hints);
+    let source = (1..=4000)
+        .map(|line| format!("l{line} café 🦀\n"))
+        .collect::<String>();
+    let path = t.write("lines.txt", source.clone());
+    let limit = 2000;
+    let mut query = qj(&path, serde_json::json!({"limit": limit}));
+    let mut seen = std::collections::HashSet::new();
+    let mut joined = String::new();
+    let mut offset = 0;
+    loop {
+        assert!(
+            seen.insert(serde_json::to_string(&query).expect("query")),
+            "repeated next call"
+        );
+        let page = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, Some(2_000), None);
+        assert_eq!(page.error_code, None, "{page:?}");
+        let content = page.content.as_deref().expect("selected source");
+        let lines = content.lines().count();
+        let pagination = page.pagination.as_ref().expect("pagination");
+        assert_eq!(pagination.offset, offset, "{page:?}");
+        assert_eq!(pagination.length, lines, "{page:?}");
+        assert!(
+            lines < limit && lines > 0,
+            "response window sizes the page: {page:?}"
+        );
+        assert!(
+            page.hints.is_empty() && page.warnings.is_empty(),
+            "{page:?}"
+        );
+        joined.push_str(content);
+        offset += lines;
+        match page.next.and_then(|next| next.continue_window) {
+            Some(next) => {
+                assert!(pagination.has_more, "a continued page has more");
+                query = next.query;
+            }
+            None => {
+                assert!(!pagination.has_more, "the final page ends the selection");
+                break;
+            }
+        }
+    }
+    assert_eq!(joined, source, "every Unicode source line exactly once");
 }
 
 /// Paging is not partial coverage (core: "more pages show as

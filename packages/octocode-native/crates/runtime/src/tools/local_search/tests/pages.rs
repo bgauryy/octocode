@@ -554,11 +554,135 @@ fn the_read_handoff_windows_hits_without_reading_the_file() {
         term_counts: None,
         pagination: None,
         next: None,
+        lines: None,
     };
     let read = read_handoff(&query, root.path(), &file).expect("a read lead");
     let range = &read["input"]["queries"][0]["ranges"][0];
     assert_eq!(range["startLine"], hit - READ_HANDOFF_CONTEXT, "{read}");
     assert_eq!(range["endLine"], hit + READ_HANDOFF_CONTEXT, "{read}");
+}
+
+/// A search page reads each shown file, so the read it hands off ends at the
+/// file's last line, whatever its language: a window past the end made
+/// localFetch warn that it adjusted the range.
+#[test]
+fn the_read_handoff_ends_at_the_last_line_of_a_file_the_page_read() {
+    for name in ["notes.txt", "bundle.js"] {
+        let body = search_fixture(
+            &[(name, "one\nneedle\nthree\n")],
+            ls_query(serde_json::json!({"matchString":["needle"]}), None),
+        );
+        let read = body["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|call| call["tool"] == "localFetch")
+            .unwrap_or_else(|| panic!("{name}: a read lead: {body}"));
+        let range = &read["input"]["queries"][0]["ranges"][0];
+        assert_eq!(range["startLine"], 1, "{name}: {read}");
+        assert_eq!(range["endLine"], 3, "{name}: {read}");
+    }
+}
+
+/// The read handed off for a file longer than a page reads whole ends at its
+/// last line too: the search counts lines in the read it already makes of
+/// every kept file, whatever its size.
+#[test]
+fn the_read_handoff_ends_at_the_last_line_of_a_file_past_the_whole_read_limit() {
+    let line = "2026-11-14T00:00:00Z info a log line that holds no hit\n";
+    let lines = crate::security::SourceLimits::REAL.whole_source / line.len() + 2;
+    let source = format!("{}needle\n", line.repeat(lines - 1));
+    assert!(source.len() > crate::security::SourceLimits::REAL.whole_source);
+    let body = search_fixture(
+        &[("big.log", source.as_str())],
+        ls_query(serde_json::json!({"matchString":["needle"]}), None),
+    );
+    let read = body["related"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|call| call["tool"] == "localFetch")
+        .unwrap_or_else(|| panic!("a read lead: {body}"));
+    let range = &read["input"]["queries"][0]["ranges"][0];
+    assert_eq!(range["endLine"], lines, "{read}");
+}
+
+/// A searched file's `declarations` arrive before the hits naming them on
+/// every response page cut, at any `responseChars`: a hit's `enclosing`
+/// indexes a declaration delivered on its part or an earlier one, and every
+/// declaration and hit arrives once. Splitting the declarations once sent
+/// every hit first and the declarations after them.
+#[test]
+fn response_pages_deliver_a_files_declarations_before_its_hits() {
+    let source = (0..9)
+        .map(|n| format!("fn a_test_whose_name_says_what_it_checks_{n}() {{\n    needle();\n}}\n"))
+        .collect::<String>();
+    // The declaring file ranks first and names no declaration of its own
+    // hit: the list's first file lists no `declarations` key.
+    let body = search_fixture(
+        &[
+            ("src/checks.rs", source.as_str()),
+            ("src/needle.rs", "pub fn needle() {}\n"),
+        ],
+        ls_query(
+            serde_json::json!({"matchString":["needle"],"wholeWord":true}),
+            None,
+        ),
+    );
+    assert_eq!(body["files"][0]["path"], "src/needle.rs", "{body}");
+    assert!(body["files"][0].get("declarations").is_none(), "{body}");
+    let file = &body["files"][1];
+    assert_eq!(
+        file["declarations"].as_array().map(Vec::len),
+        Some(9),
+        "{body}"
+    );
+    // The response stage states every file's keys in one list order first.
+    let mut structured = serde_json::json!({"results":[{"index":0,"data":body}]});
+    crate::response::key_order::order_rows(crate::id::ToolId::LocalSearch, &mut structured);
+    for budget in [400, 600, 800, 1_200] {
+        let mut options = crate::response::page_model::ResponsePageOptions {
+            response_chars: Some(budget),
+            paging: true,
+            ..Default::default()
+        };
+        let (mut declarations, mut hits) = (0, 0);
+        loop {
+            let page = crate::response::pager::prepare(
+                crate::response::pager::ResponseInput {
+                    tool: crate::id::ToolId::LocalSearch,
+                    structured: structured.clone(),
+                    options: options.clone(),
+                },
+                &octocode_io::cancellation::Cancellation::new(),
+            )
+            .expect("a page");
+            for part in page.value["results"].as_array().into_iter().flatten() {
+                let Some(file) = part["data"]["files"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .find(|file| file["path"] == "src/checks.rs")
+                else {
+                    continue;
+                };
+                declarations += file["declarations"].as_array().map_or(0, Vec::len);
+                for hit in file["matches"].as_array().into_iter().flatten() {
+                    hits += 1;
+                    let owner = hit["enclosing"].as_u64().expect("enclosing");
+                    assert!(
+                        owner < declarations as u64,
+                        "budget {budget}: hit names declaration {owner} before it arrives: {part}"
+                    );
+                }
+            }
+            match page.next {
+                Some(next) => options.open(&next),
+                None => break,
+            }
+        }
+        assert_eq!((declarations, hits), (9, 9), "budget {budget}");
+    }
 }
 
 /// The read a search hands off reaches every shown hit of its file, however
@@ -604,6 +728,7 @@ fn the_read_handoff_reaches_every_shown_hit_at_any_count() {
             term_counts: None,
             pagination: None,
             next: None,
+            lines: None,
         };
         let read = read_handoff(&query, root.path(), &file)
             .unwrap_or_else(|| panic!("{count} hits: a read lead"));

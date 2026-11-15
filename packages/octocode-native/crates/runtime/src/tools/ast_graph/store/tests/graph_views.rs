@@ -267,6 +267,31 @@ fn an_edge_row_places_its_edge_inside_the_calling_symbol() {
     assert_eq!(main["from"], "config/load.ts#load", "{main}");
 }
 
+/// A row reached from the answer's target states no `from`: it would only
+/// restate `target.id`, once per row or once on the page. A deeper row
+/// names the node it was reached from.
+#[test]
+fn a_row_reached_from_the_target_leaves_from_out() {
+    let dir = built();
+    let root = dir.0.as_path();
+    let walk = ask(root, "callers", Some("config/schema.ts#schema"), |o| {
+        o.depth = Some(2);
+    });
+    let rows = walk.value["rows"].as_array().unwrap();
+    let (direct, deeper): (Vec<_>, Vec<_>) = rows.iter().partition(|row| row["depth"] == 1);
+    assert!(!direct.is_empty() && !deeper.is_empty(), "{}", walk.value);
+    for row in direct {
+        assert!(row.get("from").is_none(), "from restates the target: {row}");
+    }
+    for row in deeper {
+        assert!(row["from"].is_string(), "{row}");
+    }
+    let callers = ask(root, "callers", Some("util/fmt.ts#fmt"), |_| {});
+    for row in callers.value["rows"].as_array().unwrap() {
+        assert!(row.get("from").is_none(), "from restates the target: {row}");
+    }
+}
+
 /// Two sub-modules importing one shared file, a `config.ts` beside a
 /// `config/` and a `configx/`, 120 importers of one file, and a directory
 /// whose name holds `#`.

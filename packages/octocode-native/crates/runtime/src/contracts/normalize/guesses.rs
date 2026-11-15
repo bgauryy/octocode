@@ -66,6 +66,8 @@ const WALKS: &[ToolId] = &[
     ToolId::AstSearch,
     ToolId::GhStructure,
 ];
+/// The tools whose hop limit is `depth` and no `maxDepth`.
+const HOPS: &[ToolId] = &[ToolId::GraphQuery, ToolId::LspSearch];
 const READERS: &[ToolId] = &[ToolId::LocalFetch, ToolId::GhGetFileContent];
 
 /// A guess at a row field.
@@ -149,6 +151,9 @@ pub(super) const GUESSES: &[Guess] = &[
     row(SEARCH, "filesOnly", "view", Read::Switch("files")),
     row(SEARCH, "matchOnly", "view", Read::Switch("matchOnly")),
     row(WALKS, "depth", "maxDepth", Read::Same),
+    row(HOPS, "maxDepth", "depth", Read::Same),
+    // `git clone --depth`: commits of history.
+    row(&[ToolId::GhCloneRepo], "depth", "historyDepth", Read::Same),
     row(SEARCH, "countOnly", "view", Read::Switch("countMatches")),
     row(SEARCH, "perFileCount", "view", Read::Switch("countMatches")),
     row(SEARCH, "excludeDir", "exclude", Read::Listed),
@@ -366,10 +371,61 @@ pub(crate) fn meant_field(
         .map(|guess| (guess.field, guess.takes))
 }
 
+/// A repair the guesses made on a row, said once the call's values are final.
+pub(super) enum Note {
+    /// Said as made.
+    Said(String),
+    /// `sent` read as `fields`, each with the value the guess gave it: said
+    /// with the value each field runs with where that is not the value sent,
+    /// so a value validation then reads in its field's shape (`pattern:"x"`
+    /// runs as `matchString:["x"]`) is said once, with the field.
+    Read {
+        sent: &'static str,
+        value: Value,
+        fields: Vec<(&'static str, Value)>,
+    },
+}
+
+impl Note {
+    /// Whether the note names `field` of its row, as it runs.
+    pub(super) fn writes(&self, field: &str) -> bool {
+        match self {
+            Self::Said(_) => false,
+            Self::Read { fields, .. } => fields.iter().any(|(written, _)| *written == field),
+        }
+    }
+
+    /// The note's text, given the row as the call runs it.
+    pub(super) fn said(self, ran: &Value) -> String {
+        let (sent, value, fields) = match self {
+            Self::Said(note) => return note,
+            Self::Read {
+                sent,
+                value,
+                fields,
+            } => (sent, value, fields),
+        };
+        // The repair names each value the call runs with other than the
+        // one sent (`filesOnly: true` is `view: "files"`).
+        let repair = fields
+            .iter()
+            .map(|(field, merged)| {
+                let runs = ran.get(*field).unwrap_or(merged);
+                if *runs == value {
+                    format!("`{field}`")
+                } else {
+                    format!("`{field}: {}`", super::sketch(runs))
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" with ");
+        format!("read `{sent}` as {repair}; send {repair} next time.")
+    }
+}
+
 /// Read each row's guesses that have one reading as their declared fields;
-/// what was read, one note per repair for the whole call, naming every row
-/// it was made on (`queries[0,2]: …`).
-pub(super) fn read(id: ToolId, input: &mut Value) -> Vec<String> {
+/// what was read, one note per repair and row it was made on.
+pub(super) fn read(id: ToolId, input: &mut Value) -> Vec<(usize, Note)> {
     let Some(rows) = input.get_mut("queries").and_then(Value::as_array_mut) else {
         return Vec::new();
     };
@@ -378,7 +434,7 @@ pub(super) fn read(id: ToolId, input: &mut Value) -> Vec<String> {
         let Some(row) = row.as_object_mut() else {
             continue;
         };
-        let mut said = |note: String| notes.push((index, note));
+        let mut said = |note: String| notes.push((index, Note::Said(note)));
         if READERS.contains(&id) {
             read_range(row).into_iter().for_each(&mut said);
             read_range_items(row).into_iter().for_each(&mut said);
@@ -404,37 +460,25 @@ pub(super) fn read(id: ToolId, input: &mut Value) -> Vec<String> {
             else {
                 continue;
             };
-            // The repair names each value the call runs with other than the
-            // one sent (`filesOnly: true` is `view: "files"`).
-            let repair = read
-                .iter()
-                .map(|(field, merged)| {
-                    if merged == value {
-                        format!("`{field}`")
-                    } else {
-                        format!("`{field}: {merged}`")
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join(" with ");
-            row.remove(guess.sent);
-            for (field, merged) in read {
-                row.insert(field.to_owned(), merged);
+            let value = row.remove(guess.sent).unwrap_or_default();
+            for (field, merged) in &read {
+                row.insert((*field).to_owned(), merged.clone());
             }
             notes.push((
                 index,
-                format!(
-                    "read `{}` as {repair}; send {repair} next time.",
-                    guess.sent
-                ),
+                Note::Read {
+                    sent: guess.sent,
+                    value,
+                    fields: read,
+                },
             ));
         }
-        let mut said = |note: String| notes.push((index, note));
+        let mut said = |note: String| notes.push((index, Note::Said(note)));
         read_owned(id, row).into_iter().for_each(&mut said);
         read_within(id, row).into_iter().for_each(&mut said);
         read_spellings(id, row).into_iter().for_each(&mut said);
     }
-    per_call(notes)
+    notes
 }
 
 /// Each row field no form of the row declares that exactly one row field's
@@ -576,19 +620,28 @@ fn read_spellings(id: ToolId, row: &mut Map<String, Value>) -> Vec<String> {
 
 /// Each distinct repair note once, in the order first made, prefixed with
 /// the rows it was made on: a batch that sent one guess on every row reads
-/// one line, not one per row.
-pub(super) fn per_call(notes: Vec<(usize, String)>) -> Vec<String> {
-    let mut grouped: Vec<(Vec<usize>, String)> = Vec::new();
+/// one line, not one per row. A note of no row (`None`: a request field)
+/// reads as made.
+pub(super) fn per_call(notes: Vec<(Option<usize>, String)>) -> Vec<String> {
+    let mut grouped: Vec<(Option<Vec<usize>>, String)> = Vec::new();
     for (index, note) in notes {
-        match grouped.iter_mut().find(|(_, said)| *said == note) {
-            Some((rows, _)) if !rows.contains(&index) => rows.push(index),
-            Some(_) => {}
-            None => grouped.push((vec![index], note)),
+        let same = |(rows, said): &&mut (Option<Vec<usize>>, String)| {
+            *said == note && rows.is_some() == index.is_some()
+        };
+        match (grouped.iter_mut().find(same), index) {
+            (Some((Some(rows), _)), Some(index)) if !rows.contains(&index) => rows.push(index),
+            (Some(_), _) => {}
+            (None, index) => grouped.push((index.map(|index| vec![index]), note)),
         }
     }
+    // In row order, a request field's notes last; a row's in the order made.
+    grouped.sort_by_key(|(rows, _)| rows.as_ref().map_or(usize::MAX, |rows| rows[0]));
     grouped
         .into_iter()
         .map(|(rows, note)| {
+            let Some(rows) = rows else {
+                return note;
+            };
             let rows = rows
                 .iter()
                 .map(usize::to_string)

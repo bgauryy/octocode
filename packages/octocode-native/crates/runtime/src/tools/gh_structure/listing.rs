@@ -1,7 +1,7 @@
 //! One listing page: the pinned ref, the page window, the entries and
 //! their continuations.
 use super::*;
-use crate::tools::root_read::{RANK_ANY, entry_text, read_rank};
+use crate::tools::root_read::entry_text;
 
 /// Pin the listing to one commit: an explicit ref that does not resolve is
 /// an error (like ghGetFileContent), never a silent default-branch listing,
@@ -108,12 +108,7 @@ pub(super) fn summary(entries: &[TreeEntry]) -> Value {
 /// Provider limits and skipped entries of the walk, stated on the page. A
 /// limit's `terminalLimitReached` code is the shared coverage code
 /// ([`crate::response::paging::terminal_limit`]), never restated here.
-pub(super) fn disclose_limits(
-    traversal: &Traversal,
-    page: &ListingPage<'_>,
-    value: &mut Value,
-    output: &mut ToolData,
-) {
+pub(super) fn disclose_limits(traversal: &Traversal, page: &ListingPage<'_>, value: &mut Value) {
     use crate::response::paging::{mark_partial, terminal_limit};
     if traversal.contents_limit {
         terminal_limit(
@@ -138,8 +133,9 @@ pub(super) fn disclose_limits(
             crate::response::paging::PartialReason::PartialTreeFailures,
             &[],
         );
-        output.diagnostics.hint(
-            "One or more repository subdirectories could not be read; retry the same page or narrow the path/depth.",
+        crate::response::paging::push_warnings(
+            value,
+            ["One or more repository subdirectories could not be read; retry the same page or narrow the path/depth.".to_owned()],
         );
     }
 }
@@ -157,110 +153,10 @@ pub(super) fn clone_lead(query: &GhStructureQueryTree, scope: &Scope, commit_sha
     .build()
 }
 
-/// The read a listing leads to on its first page: the best-ranked listed
-/// file ([`read_rank`](crate::tools::root_read::read_rank), the ranking
-/// structureSearch shares): a source file a bare-word `include` names, else
-/// the shallowest code entry file, a manifest, a README, a guide, then other
-/// source. A small listing falls back to its first file. Source and docs are outlined
-/// (`view:"symbols"`).
-pub(super) fn entry_read(
-    query: &GhStructureQueryTree,
-    entries: &[TreeEntry],
-    commit_sha: &str,
-) -> Option<Value> {
-    Some(file_read(
-        query,
-        entry_path(query, entries.iter())?,
-        commit_sha,
-    ))
-}
-
-/// The read a size-ranked page leads to: its largest file of a known text
-/// type (source, configuration, lock or docs). The largest files are often
-/// images, archives or binaries, which a file read refuses: the page itself
-/// ranks them, and a lead names only a read that answers.
-pub(super) fn top_read(
-    query: &GhStructureQueryTree,
-    ranked: &[TreeEntry],
-    commit_sha: &str,
-) -> Option<Value> {
-    let top = ranked.iter().find(|entry| {
-        entry.kind == EntryKind::File
-            && crate::content::classify_file_type(&entry.path).is_some()
-    })?;
-    Some(file_read(query, top.path.clone(), commit_sha))
-}
-
-/// Whether the listing ranks its files by size.
+/// Whether the listing ranks its files by size. Ranking still determines
+/// traversal depth even when the result offers no optional read advice.
 pub(super) fn ranks_by_size(query: &GhStructureQueryTree) -> bool {
     query.sort.by == octocode_contract_types::GhStructureTreeSortBy::SizeBytes
-}
-
-/// `path` read at `commit_sha`; source and docs outlined.
-fn file_read(query: &GhStructureQueryTree, path: String, commit_sha: &str) -> Value {
-    let mut read = json!({
-        "owner": query.owner.as_str(),
-        "repo": query.repo.as_str(),
-        "path": path,
-        "ref": commit_sha,
-    });
-    if crate::tools::outlines(&path) {
-        read["view"] = json!("symbols");
-    }
-    crate::response::result::Continuation::related(ToolId::GhGetFileContent, read).build()
-}
-
-/// The read a materialized listing leads to: [`entry_path`] over the entries
-/// the page wrote, read with localFetch from the local copy at `local`
-/// (`location.path`, the listed directory), outlined like the remote read.
-pub(super) fn local_entry_read<'a>(
-    query: &GhStructureQueryTree,
-    written: impl Iterator<Item = &'a TreeEntry>,
-    scope: &Scope,
-    local: &std::path::Path,
-) -> Option<Value> {
-    let path = entry_path(query, written)?;
-    let file = local.join(relative(&path, &scope.path));
-    let mut read = json!({"path": file.to_string_lossy()});
-    if crate::tools::outlines(&path) {
-        read["view"] = json!("symbols");
-    }
-    Some(crate::response::result::Continuation::related(ToolId::LocalFetch, read).build())
-}
-
-/// The best-ranked file of `entries` to read first (see [`entry_read`]).
-fn entry_path<'a>(
-    query: &GhStructureQueryTree,
-    entries: impl Iterator<Item = &'a TreeEntry>,
-) -> Option<String> {
-    let files = entries
-        .filter(|entry| entry.kind == EntryKind::File)
-        .collect::<Vec<_>>();
-    let words = bare_words(query.include.iter().map(|word| word.as_str()));
-    let base_depth = query.path.as_deref().map_or(0, |path| {
-        path.split('/').filter(|part| !part.is_empty()).count()
-    });
-    let small = files.len() <= crate::tools::OUTLINE_LEAD_MAX_FILES;
-    files
-        .iter()
-        .filter_map(|entry| {
-            let depth = entry.path.matches('/').count().saturating_sub(base_depth);
-            let rank = read_rank(&entry.path, depth, &words).or(small.then_some(RANK_ANY))?;
-            Some(((rank, depth, entry.path.as_str()), entry))
-        })
-        .min_by(|left, right| left.0.cmp(&right.0))
-        .map(|(_, entry)| entry.path.clone())
-}
-
-/// `include` entries that are bare words (no glob metacharacter or `/`),
-/// lowercased: a file whose stem equals one is the file the caller named.
-fn bare_words<'a>(include: impl IntoIterator<Item = &'a str>) -> Vec<String> {
-    include
-        .into_iter()
-        .map(str::trim)
-        .filter(|word| !word.is_empty() && octocode_engine::search::glob::is_bare_word(word))
-        .map(str::to_lowercase)
-        .collect()
 }
 
 /// Listing rows grouped by directory, built in one pass. `dir` is
@@ -436,6 +332,3 @@ pub(super) fn structure_is_empty(value: &Value) -> bool {
         .and_then(Value::as_array)
         .is_none_or(Vec::is_empty)
 }
-
-#[cfg(test)]
-mod read_lead_tests;

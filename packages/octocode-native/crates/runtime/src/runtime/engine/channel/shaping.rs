@@ -6,12 +6,28 @@ use crate::security::{JudgedLeaves, Sanitized};
 use serde_json::{Value, json};
 
 impl ChannelRun {
+    pub(super) fn prepare_page_shape(&mut self, rejected: &mut [(usize, Value)]) {
+        for (_, row) in rejected.iter_mut() {
+            rows::note_error_hint(self.id.output(), &mut row["data"], &Value::Null);
+        }
+        if self.pinned.is_none() {
+            self.page_shape = super::super::cursors::PageShape {
+                beside_rows: self.published_beside_rows(rejected),
+                repairs: if self.fresh {
+                    self.repairs.clone()
+                } else {
+                    Vec::new()
+                },
+            };
+        }
+    }
+
     /// Executes the admitted rows, merges the `rejected` ones back in input
     /// order, and builds the sanitized, ranked envelope with its finalized
     /// continuations.
     pub(super) fn shape_rows(
         &self,
-        mut rejected: Vec<(usize, Value)>,
+        rejected: Vec<(usize, Value)>,
         context: &ExecutionContext,
     ) -> Result<ShapedRows, ExecutionError> {
         let EvaluatedRows {
@@ -19,7 +35,7 @@ impl ChannelRun {
             judged,
             failure,
             continues_page,
-        } = self.evaluate_rows(context)?;
+        } = self.evaluate_rows(self.page_shape.beside_rows, context)?;
         let mut judged: std::collections::HashMap<usize, JudgedLeaves> =
             self.row_indices.iter().copied().zip(judged).collect();
         let rejected_at: Vec<usize> = rejected.iter().map(|(index, _)| *index).collect();
@@ -29,9 +45,6 @@ impl ChannelRun {
                 rows::note_error_hint(self.id.output(), &mut row["data"], query);
             }
             row["index"] = json!(index);
-        }
-        for (_, row) in &mut rejected {
-            rows::note_error_hint(self.id.output(), &mut row["data"], &Value::Null);
         }
         rows.extend(rejected.into_iter().map(|(_, row)| row));
         rows.sort_by_key(|row| row["index"].as_u64());
@@ -99,9 +112,33 @@ impl ChannelRun {
         Ok((structured, response_query))
     }
 
-    /// Runs every row (sharing the response window) and shapes it: result
-    /// row, evidence, diagnostics and remaining-work notes.
-    fn evaluate_rows(&self, context: &ExecutionContext) -> Result<EvaluatedRows, ExecutionError> {
+    /// Response chars the envelope spends beside the admitted rows, as
+    /// [`ChannelRun::run_rows`] publishes it: each `rejected` row (and the
+    /// comma before it) and a fresh request's input-repair notes under
+    /// `warnings`. The admitted rows share what the page leaves.
+    fn published_beside_rows(&self, rejected: &[(usize, Value)]) -> usize {
+        let size = |value: &Value| octocode_engine::json_size::utf16_units(value).unwrap_or(0);
+        let rows = rejected
+            .iter()
+            .map(|(_, row)| size(row).saturating_add(1))
+            .sum::<usize>();
+        let notes = if self.fresh && !self.repairs.is_empty() {
+            // `"warnings":[…],` beside the envelope's `results`.
+            size(&json!({ "warnings": self.repairs })).saturating_sub(1)
+        } else {
+            0
+        };
+        rows.saturating_add(notes)
+    }
+
+    /// Runs every row (sharing the response window less what the envelope
+    /// publishes `beside` them) and shapes it: result row, evidence,
+    /// diagnostics and remaining-work notes.
+    fn evaluate_rows(
+        &self,
+        beside: usize,
+        context: &ExecutionContext,
+    ) -> Result<EvaluatedRows, ExecutionError> {
         let (id, queries, dispatcher) = (self.id, &self.queries, &self.dispatcher);
         if self.clasify {
             let receipts = crate::tools::clasify::call(
@@ -126,6 +163,12 @@ impl ChannelRun {
             .options
             .response_chars
             .unwrap_or(self.output.auto_page_chars);
+        // Rows sized to their share of the response page (source reads, list
+        // pages) fit beside what the envelope publishes besides them.
+        let response_page = match response_page {
+            0 => 0,
+            page => page.saturating_sub(beside).max(1),
+        };
         // Source reads fit their share of the response page, the caller's or
         // the automatic.
         let evaluated =

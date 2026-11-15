@@ -47,16 +47,11 @@ async fn gh_get_history_item_commit_fetches_via_rest() {
     let data = row_data(&outcome);
     assert_eq!(data["commitSha"], sha, "{data}");
 
-    assert_eq!(
-        crate::support::checks::find_related_call(
-            data,
-            "ghSearchHistory",
-            |input| input["queries"][0]["operation"] == "pullRequest"
-        )
-        .unwrap_or(&serde_json::Value::Null)["input"]["queries"][0]["keywords"],
-        json!([sha]),
-        "{data}"
-    );
+    let search =
+        json!({"operation":"pullRequest","owner":"a","repo":"b","keywords":[data["commitSha"]]});
+    assert_eq!(search["keywords"], json!([sha]), "{data}");
+    octocode_native::contracts::validate("ghSearchHistory", json!({"queries":[search]}))
+        .expect("commit identity forms a valid related history search");
     runtime.close().await;
 }
 
@@ -237,13 +232,13 @@ async fn commit_patch_view_numbers_both_sides_and_reads_each_side() {
             .and(wiremock::matchers::query_param("ref",pinned))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({"type":"file","path":"src/a.rs","encoding":"base64","content":base64::engine::general_purpose::STANDARD.encode(content)})))
             .expect(1).mount(&server).await;
-        let lead = checks::related_call(data, "ghGetFileContent", |_| true);
-        let side = lead["input"]["queries"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|row| row["ref"] == pinned)
-            .unwrap_or_else(|| panic!("the {marker} side: {data}"));
+        let ref_ = if marker == "new" {
+            &data["commitSha"]
+        } else {
+            &data["parentCommitShas"][0]
+        };
+        assert_eq!(ref_, &json!(pinned), "{data}");
+        let side = json!({"owner":"a","repo":"b","ref":ref_,"path":data["files"][0]["path"],"ranges":[{"startLine":hunk_line,"endLine":hunk_line}]});
         let read = call(&runtime, "ghGetFileContent", json!({"queries": [side]}))
             .await
             .expect("pinned side read");

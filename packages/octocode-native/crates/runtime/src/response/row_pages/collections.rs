@@ -9,10 +9,35 @@ fn collections<'a>(
     routes: &CollectionRoutes,
     single: bool,
 ) -> Vec<(String, &'a Value)> {
+    let mut found = found_collections(row, routes, single)
+        .into_iter()
+        .map(|(pointer, (value, _))| (pointer, value))
+        .collect::<Vec<_>>();
+    found.sort_by(|(left, _), (right, _)| {
+        left.matches('/')
+            .count()
+            .cmp(&right.matches('/').count())
+            .then_with(|| left.cmp(right))
+    });
+    found
+}
+
+/// The depth (`/` count) of a row pointer.
+fn depth(pointer: &str) -> usize {
+    pointer.matches('/').count()
+}
+
+/// Every declared collection `row` holds, by pointer. Selection also carries
+/// concrete member/index positions; references preserve those witnesses.
+fn found_collections<'a>(
+    row: &'a Value,
+    routes: &CollectionRoutes,
+    single: bool,
+) -> BTreeMap<String, (&'a Value, Vec<usize>)> {
     let mut found = BTreeMap::new();
     let mut visited = BTreeSet::new();
-    let mut pending = VecDeque::from([(row, String::new(), 0)]);
-    while let Some((value, pointer, state)) = pending.pop_front() {
+    let mut pending = VecDeque::from([(row, String::new(), 0, Vec::new())]);
+    while let Some((value, pointer, state, position)) = pending.pop_front() {
         let Some(route) = routes.nodes.get(state) else {
             continue;
         };
@@ -22,46 +47,63 @@ fn collections<'a>(
             continue;
         }
         if route.collection && (value.is_array() || value.is_object()) {
-            found.insert(pointer.clone(), value);
+            found
+                .entry(pointer.clone())
+                .or_insert_with(|| (value, position.clone()));
         }
         for reference in &route.references {
-            pending.push_back((value, pointer.clone(), *reference));
+            pending.push_back((value, pointer.clone(), *reference, position.clone()));
         }
-        for (key, child_state) in &route.children {
-            if key == "*" {
-                match value {
-                    Value::Object(map) => {
-                        for (key, child) in map {
-                            pending.push_back((
-                                child,
-                                format!("{pointer}/{}", crate::json_pointer::escape(key)),
-                                *child_state,
-                            ));
-                        }
-                    }
-                    Value::Array(items) if !single || items.len() == 1 => {
-                        for (index, child) in items.iter().enumerate() {
-                            pending.push_back((child, format!("{pointer}/{index}"), *child_state));
-                        }
-                    }
-                    _ => {}
-                }
-            } else if let Some(child) = value.as_object().and_then(|map| map.get(key)) {
-                pending.push_back((
-                    child,
-                    format!("{pointer}/{}", crate::json_pointer::escape(key)),
-                    *child_state,
-                ));
+        let mut push = |key: &str, child: &'a Value, state: usize, ordinal: usize| {
+            let mut child_position = position.clone();
+            if single {
+                child_position.push(ordinal);
             }
+            pending.push_back((
+                child,
+                format!("{pointer}/{}", crate::json_pointer::escape(key)),
+                state,
+                child_position,
+            ));
+        };
+        match value {
+            Value::Object(map) if single && !route.children.is_empty() => {
+                // Concrete members prove their order in one pass, without
+                // resolving pointers or rescanning a wide object for each key.
+                for (ordinal, (key, child)) in map.iter().enumerate() {
+                    let named = route.children.get(key);
+                    let wildcard = route
+                        .children
+                        .get("*")
+                        .filter(|state| Some(*state) != named);
+                    for state in named.into_iter().chain(wildcard) {
+                        push(key, child, *state, ordinal);
+                    }
+                }
+            }
+            Value::Object(map) if !single => {
+                // Other consumers need no positions: keep direct named
+                // lookups and inspect other members only for a wildcard.
+                for (key, state) in &route.children {
+                    if key == "*" {
+                        for (key, child) in map {
+                            push(key, child, *state, 0);
+                        }
+                    } else if let Some(child) = map.get(key) {
+                        push(key, child, *state, 0);
+                    }
+                }
+            }
+            Value::Array(items) if !single || items.len() == 1 => {
+                if let Some(state) = route.children.get("*") {
+                    for (index, child) in items.iter().enumerate() {
+                        push(&index.to_string(), child, *state, index);
+                    }
+                }
+            }
+            _ => {}
         }
     }
-    let mut found = found.into_iter().collect::<Vec<_>>();
-    found.sort_by(|(left, _), (right, _)| {
-        left.matches('/')
-            .count()
-            .cmp(&right.matches('/').count())
-            .then_with(|| left.cmp(right))
-    });
     found
 }
 
@@ -73,18 +115,30 @@ pub(super) fn collection_paths(row: &Value, routes: &CollectionRoutes) -> Vec<St
         .collect()
 }
 
-/// Outer collections are split before entering one of their array elements.
+/// The collection a row too large for its page splits: an outer collection
+/// before any inside one of its array elements and, among siblings, the last
+/// the row lists. A large sibling listed before it then goes first in parts
+/// of its own ([`lean_declared_skeleton`]) and a small one rides the split's
+/// first part, so the parts deliver the collections in the row's own order:
+/// a file's declarations before the hits that index them.
 pub(super) fn collection_pointer(row: &Value, routes: &CollectionRoutes) -> Option<String> {
-    collections(row, routes, true)
+    let splittable = found_collections(row, routes, true)
         .into_iter()
-        .find_map(|(pointer, value)| {
+        .filter(|(_, (value, _))| {
             let count = match value {
                 Value::Array(items) => items.len(),
                 Value::Object(items) => items.len(),
                 _ => 0,
             };
-            (count > 1).then_some(pointer)
+            count > 1
         })
+        .collect::<Vec<_>>();
+    let outer = splittable.iter().map(|(pointer, _)| depth(pointer)).min()?;
+    splittable
+        .into_iter()
+        .filter(|(pointer, _)| depth(pointer) == outer)
+        .max_by(|(_, (_, left)), (_, (_, right))| left.cmp(right))
+        .map(|(pointer, _)| pointer)
 }
 
 fn disjoint(left: &str, right: &str) -> bool {

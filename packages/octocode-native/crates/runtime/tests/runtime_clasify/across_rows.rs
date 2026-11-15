@@ -1,9 +1,7 @@
-//! Facts across the rows of one call (C3eF R1, R6): the sections lead is
-//! offered once, only for a noul yes, over every source that said yes; and a
-//! question every answer of which is unsure says so once.
+//! Source reads and uncertainty survive a batch without optional success advice.
 
 use super::{clasify, noul, sent};
-use crate::support::{Workspace, clasify_runtime};
+use crate::support::{Run as _, Workspace, clasify_runtime};
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
@@ -106,11 +104,9 @@ async fn choice_rows_offer_no_sections_lead() {
     runtime.close().await;
 }
 
-/// R1: rows whose yes answers share questions, context and model offer one
-/// sections call naming every yes source, on the first of them, with only
-/// the questions that said yes.
+/// Every judged source retains its exact read, including a negative answer.
 #[tokio::test]
-async fn yes_rows_with_one_question_share_one_sections_call() {
+async fn source_rows_keep_independent_reads_without_optional_sections_advice() {
     let server = stated_provider().await;
     let workspace = Workspace::new();
     workspace.write("one.rs", "fn one() {} // restart\n");
@@ -127,27 +123,46 @@ async fn yes_rows_with_one_question_share_one_sections_call() {
     )
     .await;
     assert_eq!(sent(&server).await.len(), 3, "one request per row");
-    let leads = sections_leads(&out);
-    assert_eq!(leads.len(), 1, "one sections call in the response: {out:#}");
-    let (at, call) = &leads[0];
-    assert_eq!(*at, 0, "on the first yes row: {out:#}");
-    assert_eq!(call["operation"], "sections");
+    assert!(sections_leads(&out).is_empty(), "{out:#}");
+    for (index, (expected, text)) in [
+        (0.9, "fn one() {} // restart"),
+        (0.9, "fn two() {} // restart"),
+        (0.1, "fn three() {} // NOUL=0.10"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let data = &out["results"][index]["data"];
+        assert_eq!(data["answers"]["restart"]["noul"], expected, "{data}");
+        assert_eq!(data["usage"]["calls"], 1, "{data}");
+        let read = &data["next"]["read"];
+        let fetched = runtime
+            .run(
+                format!("source-{index}"),
+                read["tool"].as_str().expect("source reader").into(),
+                read["input"].clone(),
+            )
+            .await
+            .expect("captured source read")
+            .structured_content
+            .into_value();
+        assert!(
+            fetched["results"][0]["data"]["content"]
+                .as_str()
+                .unwrap()
+                .contains(text),
+            "{fetched}"
+        );
+    }
     assert_eq!(
-        call["questions"],
-        json!({"restart":noul("Does it restart?")}),
-        "only the yes questions: {call:#}"
+        sent(&server).await.len(),
+        3,
+        "source reads spend no judgments"
     );
-    let named = call["resources"]
-        .as_object()
-        .expect("resources")
-        .values()
-        .cloned()
-        .collect::<Vec<_>>();
-    assert_eq!(named, vec![source("one.rs"), source("two.rs")], "{call:#}");
     runtime.close().await;
 }
 
-/// R6: three judgments of one question, every one unsure, carry one hint
+/// R6: three judgments of one question, every one unsure, carry one warning
 /// that names the question and the range; one sure answer clears it.
 #[tokio::test]
 async fn a_question_every_answer_of_which_is_unsure_says_so_once() {
@@ -169,7 +184,7 @@ async fn a_question_every_answer_of_which_is_unsure_says_so_once() {
         .expect("results")
         .iter()
         .map(|row| {
-            row["data"]["hints"]
+            row["data"]["warnings"]
                 .as_array()
                 .into_iter()
                 .flatten()

@@ -298,24 +298,241 @@ pub fn echoes(report: &mut Report, request: &Value, data: &Value) {
     }
 }
 
-/// B5, Rule H: a field identical on every element of a collection is a
-/// candidate to state once on the row.
+/// B5, Rule H: uniform published presentation fields are hoisting
+/// candidates. Opaque source records are evidence, not shared context.
 pub fn uniform(report: &mut Report, data: &Value) {
-    let mut path = Vec::new();
-    each_node(data, &mut path, &mut |path, node| {
-        let Some(items) = node.as_array().filter(|items| items.len() >= UNIFORM_ROWS) else {
-            return;
-        };
-        let Some(first) = items.first().and_then(Value::as_object) else {
-            return;
-        };
-        for (key, value) in first {
-            let shared = items.iter().all(|item| item.get(key) == Some(value));
-            if shared && !value.is_null() {
-                report.add("B5 stated once", format!("{}[].{key}", place(path)));
+    let contract = octocode_native::contracts::parsed_contract().expect("embedded contract");
+    let schema = &super::tool_facts(report.tool)["outputSchema"];
+    uniform_with_schema(report, data, schema, contract);
+}
+
+/// Published schemas own named presentation fields; dynamic records and
+/// unknown subtrees retain their source-local occurrence and provenance.
+struct Ownership<'a> {
+    schema: &'a Value,
+    contract: &'a Value,
+}
+
+impl<'a> Ownership<'a> {
+    fn expand(
+        &self,
+        report: &mut Report,
+        roots: Vec<&'a Value>,
+        path: &[String],
+    ) -> Vec<&'a Value> {
+        let mut pending = roots;
+        let mut seen = BTreeSet::new();
+        let mut schemas = Vec::new();
+        while let Some(schema) = pending.pop() {
+            if !seen.insert(std::ptr::from_ref(schema))
+                || schema == &Value::Bool(false)
+                || schema.get("not").is_some_and(|not| {
+                    not == &Value::Bool(true) || not.as_object().is_some_and(Map::is_empty)
+                })
+            {
+                continue;
             }
+            if let Some(reference) = schema.get("$ref").and_then(Value::as_str) {
+                let target = reference.strip_prefix('#').and_then(|pointer| {
+                    self.schema
+                        .pointer(pointer)
+                        .or_else(|| self.contract.pointer(pointer))
+                });
+                match target {
+                    Some(target) => pending.push(target),
+                    None => report.add(
+                        "B5 contract route",
+                        format!("unresolved reference {reference} at {}", place(path)),
+                    ),
+                }
+            }
+            for key in ["allOf", "anyOf", "oneOf"] {
+                pending.extend(schema[key].as_array().into_iter().flatten());
+            }
+            schemas.push(schema);
         }
-    });
+        schemas
+    }
+
+    fn property(schemas: &[&'a Value], key: &str) -> Vec<&'a Value> {
+        schemas
+            .iter()
+            .filter_map(|schema| schema["properties"].get(key))
+            .collect()
+    }
+
+    fn item(schemas: &[&'a Value], index: usize) -> Vec<&'a Value> {
+        schemas
+            .iter()
+            .filter_map(|schema| {
+                schema["prefixItems"]
+                    .get(index)
+                    .or_else(|| schema.get("items"))
+            })
+            .collect()
+    }
+
+    fn boundary(schemas: &[&Value]) -> bool {
+        let named = |schema: &&Value| {
+            schema["properties"]
+                .as_object()
+                .is_some_and(|fields| !fields.is_empty())
+        };
+        let has_named = schemas.iter().any(named);
+        let has_shape = schemas.iter().any(|schema| {
+            [
+                "type",
+                "properties",
+                "items",
+                "prefixItems",
+                "const",
+                "enum",
+            ]
+            .iter()
+            .any(|key| schema.get(*key).is_some())
+        });
+        !has_shape
+            || schemas.iter().any(|schema| {
+                let delegates = ["$ref", "allOf", "anyOf", "oneOf"]
+                    .iter()
+                    .any(|key| schema.get(*key).is_some());
+                let fixed = schema.get("const").is_some() || schema.get("enum").is_some();
+                let record = !named(schema)
+                    && schema
+                        .get("additionalProperties")
+                        .is_some_and(|value| value != &Value::Bool(false));
+                let open_object = !has_named
+                    && schema["type"] == "object"
+                    && schema.get("additionalProperties") != Some(&Value::Bool(false));
+                let unknown = schema == &&Value::Bool(true)
+                    || (!delegates
+                        && ![
+                            "type",
+                            "properties",
+                            "items",
+                            "prefixItems",
+                            "const",
+                            "enum",
+                        ]
+                        .iter()
+                        .any(|key| schema.get(*key).is_some()));
+                !fixed && (record || open_object || unknown)
+            })
+    }
+
+    fn owned(
+        &self,
+        report: &mut Report,
+        value: &Value,
+        roots: Vec<&'a Value>,
+        path: &mut Vec<String>,
+    ) -> bool {
+        let schemas = self.expand(report, roots, path);
+        if Self::boundary(&schemas) {
+            return false;
+        }
+        if schemas.iter().any(|schema| {
+            schema.get("const") == Some(value)
+                || schema["enum"]
+                    .as_array()
+                    .is_some_and(|values| values.contains(value))
+        }) {
+            return true;
+        }
+        match value {
+            Value::Object(fields) => fields.iter().all(|(key, value)| {
+                path.push(key.clone());
+                let owned = self.owned(report, value, Self::property(&schemas, key), path);
+                path.pop();
+                owned
+            }),
+            Value::Array(items) => {
+                let item = self.expand(report, Self::item(&schemas, 0), path);
+                !Self::boundary(&item)
+                    && items.iter().enumerate().all(|(index, value)| {
+                        path.push("[]".into());
+                        let owned = self.owned(report, value, Self::item(&schemas, index), path);
+                        path.pop();
+                        owned
+                    })
+            }
+            _ => true,
+        }
+    }
+
+    fn walk(
+        &self,
+        report: &mut Report,
+        value: &Value,
+        roots: Vec<&'a Value>,
+        path: &mut Vec<String>,
+    ) {
+        let schemas = self.expand(report, roots, path);
+        if Self::boundary(&schemas) || is_call(value) {
+            return;
+        }
+        match value {
+            Value::Array(items) => {
+                if items.len() >= UNIFORM_ROWS
+                    && let Some(first) = items.first().and_then(Value::as_object)
+                {
+                    for (key, value) in first {
+                        if value.is_null() || !items.iter().all(|item| item.get(key) == Some(value))
+                        {
+                            continue;
+                        }
+                        let published = items.iter().enumerate().all(|(index, item)| {
+                            path.push("[]".into());
+                            let item_schemas =
+                                self.expand(report, Self::item(&schemas, index), path);
+                            path.push(key.clone());
+                            let owned = !Self::boundary(&item_schemas)
+                                && self.owned(
+                                    report,
+                                    &item[key],
+                                    Self::property(&item_schemas, key),
+                                    path,
+                                );
+                            path.pop();
+                            path.pop();
+                            owned
+                        });
+                        if published {
+                            report.add("B5 stated once", format!("{}[].{key}", place(path)));
+                        }
+                    }
+                }
+                path.push("[]".into());
+                for (index, item) in items.iter().enumerate() {
+                    self.walk(report, item, Self::item(&schemas, index), path);
+                }
+                path.pop();
+            }
+            Value::Object(fields) => {
+                for (key, value) in fields {
+                    path.push(key.clone());
+                    self.walk(report, value, Self::property(&schemas, key), path);
+                    path.pop();
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn uniform_with_schema(report: &mut Report, data: &Value, schema: &Value, contract: &Value) {
+    let ownership = Ownership { schema, contract };
+    let mut roots = ownership.expand(report, vec![schema], &[]);
+    roots = Ownership::property(&roots, "results");
+    roots = ownership.expand(report, roots, &[]);
+    roots = Ownership::item(&roots, 0);
+    roots = ownership.expand(report, roots, &[]);
+    roots = Ownership::property(&roots, "data");
+    if roots.is_empty() {
+        report.add("B5 contract route", "missing published result data schema");
+        return;
+    }
+    ownership.walk(report, data, roots, &mut Vec::new());
 }
 
 fn timestamp_fault(text: &str) -> Option<&'static str> {
@@ -455,3 +672,7 @@ pub fn key_order(report: &mut Report, output: &Value) {
         }
     });
 }
+
+#[cfg(test)]
+#[path = "checks_tests.rs"]
+mod tests;

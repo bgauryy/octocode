@@ -24,6 +24,8 @@ fn sorting_an_unordered_record_set_is_deterministic() {
             path: path.to_owned(),
             entry: FileEntry::new(),
             matched_lines: 1,
+            rank_lines: 1,
+            rank_submatches: 1,
             submatches: 1,
             om_matches: Vec::new(),
             sort_time: None,

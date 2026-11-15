@@ -10,11 +10,40 @@ use super::NativeLspClient;
 use crate::error::Result;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+use std::path::Path;
 
 /// LSP `FileChangeType`.
 const CREATED: u8 = 1;
 const CHANGED: u8 = 2;
 const DELETED: u8 = 3;
+
+/// A source snapshot and the events that bring the server to that snapshot.
+/// Build this from freshly captured files inside `sync_watched_files`' callback;
+/// callers may perform capture and content comparison on their blocking worker.
+pub struct WatchedFileUpdate {
+    current: BTreeMap<String, String>,
+    changes: Vec<Value>,
+}
+
+impl WatchedFileUpdate {
+    pub fn new(
+        root: &Path,
+        previous: Option<&BTreeMap<String, String>>,
+        current: BTreeMap<String, String>,
+        unchanged: impl Fn(&str, &str, &str) -> bool,
+    ) -> Result<Self> {
+        let changes = previous
+            .map(|previous| changed_files(previous, &current, unchanged))
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(relative, kind)| {
+                crate::lsp::uri::path_to_uri(&root.join(relative).to_string_lossy())
+                    .map(|uri| json!({ "uri": uri, "type": kind }))
+            })
+            .collect::<Result<Vec<Value>>>()?;
+        Ok(Self { current, changes })
+    }
+}
 
 impl NativeLspClient {
     /// Whether the server registered for `workspace/didChangeWatchedFiles`.
@@ -35,62 +64,83 @@ impl NativeLspClient {
             .is_some()
     }
 
-    /// Replace the remembered scope snapshot (relative path → stamp) with
-    /// `current` and return what changed: `(relative path, change type)`
-    /// for every created, changed or deleted file. `unchanged(path, before,
-    /// after)` decides whether two stamps of one file describe the same
-    /// file: stamps are the caller's, which knows what a stamp observed.
-    /// `None` when there was no snapshot to compare with (the first request
-    /// of this process).
-    #[must_use]
-    pub fn watched_files_diff(
-        &self,
-        current: &BTreeMap<String, String>,
-        unchanged: impl Fn(&str, &str, &str) -> bool,
-    ) -> Option<Vec<(String, u8)>> {
-        let mut slot = self
+    /// Capture current files, compare, notify and commit under one lock. The
+    /// callback must capture its snapshot after being called, rather than pass
+    /// a snapshot prepared while another request could still advance the server.
+    /// Failed capture or notification leaves the previous proof intact. The
+    /// first snapshot records the disk the fresh server indexed and owes no events.
+    /// Failure or cancellation before that baseline retires the unproved session.
+    pub async fn sync_watched_files<E, F, Fut>(&self, prepare: F) -> std::result::Result<(), E>
+    where
+        E: From<crate::error::Error>,
+        F: FnOnce(Option<BTreeMap<String, String>>) -> Fut,
+        Fut: std::future::Future<Output = std::result::Result<WatchedFileUpdate, E>>,
+    {
+        let _ordered = self.inner.sync_lock.lock().await;
+        let connection = self.connection_handle().await.map_err(E::from)?;
+        let previous = self
             .inner
             .watched_files
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let previous = slot.replace(current.clone())?;
-        let mut changes = Vec::new();
-        for (path, stamp) in current {
-            match previous.get(path) {
-                None => changes.push((path.clone(), CREATED)),
-                Some(before) if before != stamp && !unchanged(path, before, stamp) => {
-                    changes.push((path.clone(), CHANGED));
-                }
-                Some(_) => {}
-            }
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        // Without an initial proof, a failed or dropped capture leaves no way
+        // to discover files deleted before retry. A fresh server must reindex.
+        let mut initial = InitialSnapshot(previous.is_none().then_some(connection.as_ref()));
+        let update = prepare(previous).await?;
+        if !update.changes.is_empty() {
+            connection.supersede_all_push_diagnostics();
+            connection
+                .notify(
+                    "workspace/didChangeWatchedFiles",
+                    json!({ "changes": update.changes }),
+                )
+                .await
+                .map_err(E::from)?;
         }
-        for path in previous.keys() {
-            if !current.contains_key(path) {
-                changes.push((path.clone(), DELETED));
-            }
-        }
-        Some(changes)
+        *self
+            .inner
+            .watched_files
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(update.current);
+        initial.0 = None;
+        Ok(())
     }
+}
 
-    /// Send `workspace/didChangeWatchedFiles` for `changes` (`(uri, change
-    /// type)`) before this request asks the server for its current answer.
-    pub async fn notify_watched_files(&self, changes: Vec<(String, u8)>) -> Result<()> {
-        if changes.is_empty() {
-            return Ok(());
+struct InitialSnapshot<'a>(Option<&'a crate::lsp::transport::JsonRpcConnection>);
+
+impl Drop for InitialSnapshot<'_> {
+    fn drop(&mut self) {
+        if let Some(connection) = self.0 {
+            connection.retire(
+                "Initial watched-file snapshot did not complete; retry with a fresh LSP session",
+            );
         }
-        let connection = self.connection_handle().await?;
-        connection.supersede_all_push_diagnostics();
-        let changes = changes
-            .into_iter()
-            .map(|(uri, kind)| json!({ "uri": uri, "type": kind }))
-            .collect::<Vec<Value>>();
-        connection
-            .notify(
-                "workspace/didChangeWatchedFiles",
-                json!({ "changes": changes }),
-            )
-            .await
     }
+}
+
+fn changed_files(
+    previous: &BTreeMap<String, String>,
+    current: &BTreeMap<String, String>,
+    unchanged: impl Fn(&str, &str, &str) -> bool,
+) -> Vec<(String, u8)> {
+    let mut changes = Vec::new();
+    for (path, stamp) in current {
+        match previous.get(path) {
+            None => changes.push((path.clone(), CREATED)),
+            Some(before) if before != stamp && !unchanged(path, before, stamp) => {
+                changes.push((path.clone(), CHANGED));
+            }
+            Some(_) => {}
+        }
+    }
+    for path in previous.keys() {
+        if !current.contains_key(path) {
+            changes.push((path.clone(), DELETED));
+        }
+    }
+    changes
 }
 
 #[cfg(test)]
@@ -113,21 +163,17 @@ mod tests {
     }
 
     #[test]
-    fn the_first_snapshot_owes_no_events_and_later_ones_name_each_change() {
-        let client = client();
+    fn snapshots_name_each_change() {
         let first = BTreeMap::from([
             ("a.go".to_owned(), "1".to_owned()),
             ("b.go".to_owned(), "1".to_owned()),
         ]);
         let exact = |_: &str, before: &str, after: &str| before == after;
-        assert!(client.watched_files_diff(&first, exact).is_none());
         let second = BTreeMap::from([
             ("a.go".to_owned(), "2".to_owned()),
             ("c.go".to_owned(), "1".to_owned()),
         ]);
-        let mut changes = client
-            .watched_files_diff(&second, exact)
-            .expect("a snapshot to compare with");
+        let mut changes = changed_files(&first, &second, exact);
         changes.sort();
         assert_eq!(
             changes,
@@ -137,7 +183,7 @@ mod tests {
                 ("c.go".to_owned(), CREATED),
             ]
         );
-        assert_eq!(client.watched_files_diff(&second, exact), Some(Vec::new()));
+        assert_eq!(changed_files(&second, &second, exact), Vec::new());
         // Stamps the caller proves the same file owe no event.
         let restamped = BTreeMap::from([
             ("a.go".to_owned(), "2'".to_owned()),
@@ -146,9 +192,34 @@ mod tests {
         let same_a = |path: &str, before: &str, after: &str| {
             before == after || (path == "a.go" && after == "2'")
         };
+        assert_eq!(changed_files(&second, &restamped, same_a), Vec::new());
+    }
+
+    #[tokio::test]
+    async fn failed_notifications_keep_the_previous_snapshot() {
+        let client = client();
+        let root = std::env::temp_dir();
+        let first = BTreeMap::from([("a.rs".to_owned(), "before".to_owned())]);
+        let unchanged = |_: &str, before: &str, after: &str| before == after;
+        *client.inner.watched_files.lock().expect("snapshot") = Some(first.clone());
+        let next = BTreeMap::from([("a.rs".to_owned(), "after".to_owned())]);
+        assert!(
+            client
+                .sync_watched_files(|previous| async move {
+                    WatchedFileUpdate::new(&root, previous.as_ref(), next, unchanged)
+                })
+                .await
+                .is_err()
+        );
         assert_eq!(
-            client.watched_files_diff(&restamped, same_a),
-            Some(Vec::new())
+            client
+                .inner
+                .watched_files
+                .lock()
+                .expect("snapshot")
+                .as_ref(),
+            Some(&first),
+            "a missing connection must not acknowledge the unsent change"
         );
     }
 }

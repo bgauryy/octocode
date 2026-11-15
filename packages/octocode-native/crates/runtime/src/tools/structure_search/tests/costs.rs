@@ -114,31 +114,23 @@ fn only_a_view_that_read_sizes_states_bytes() {
     assert_eq!(summary("paths")["fileCount"], 1);
 }
 
-/// A paths listing's read lead still never points at a file too large to
-/// read: it looks at the size of the file it would lead to.
+/// Large selected files stay in a paths listing without triggering an
+/// advisory read or a size-based omission.
 #[test]
-fn a_paths_read_lead_checks_the_size_of_what_it_leads_to() {
-    let lead = |files: &[(&str, u64)]| {
-        let root = Fixture::new();
-        for (name, size) in files {
-            let file = std::fs::File::create(root.0.join(name)).expect("file");
-            file.set_len(*size).expect("size");
-        }
-        let out = run(
-            &root.0,
-            json!({"operation":"files","path":root.0,"view":"paths"}),
-        )
-        .expect("listing");
-        related(&out, "localFetch")["input"]["queries"][0]["path"]
-            .as_str()
-            .map(|path| path.rsplit('/').next().unwrap_or(path).to_owned())
-    };
-    let huge = 2 * 1024 * 1024;
-    assert_eq!(
-        lead(&[("a.rs", huge), ("b.rs", 10)]).as_deref(),
-        Some("b.rs")
-    );
-    assert_eq!(lead(&[("a.rs", huge)]), None);
+fn a_paths_listing_keeps_large_files_without_read_advice() {
+    let root = Fixture::new();
+    for (name, size) in [("a.rs", 2 * 1024 * 1024), ("b.rs", 10)] {
+        let file = std::fs::File::create(root.0.join(name)).expect("file");
+        file.set_len(size).expect("size");
+    }
+    let out = run(
+        &root.0,
+        json!({"operation":"files","path":root.0,"view":"paths"}),
+    )
+    .expect("listing");
+    let shown = out["files"].to_string();
+    assert!(shown.contains("a.rs") && shown.contains("b.rs"), "{out}");
+    assert!(related(&out, "localFetch").is_null(), "{out}");
 }
 
 /// Every listed directory is a `name/` row of its parent's group, once, also
@@ -219,7 +211,7 @@ fn entries_without_the_sort_key_rank_last_in_both_directions() {
             last(&sized, "zlink").expect("link listed") >= 3,
             "{order}: {sized:?}"
         );
-        let lined = ranked(&root, "lineCount", order);
+        let lined = ranked(&root, "totalLines", order);
         assert!(
             last(&lined, "zdir").expect("dir") >= 2,
             "{order}: {lined:?}"
@@ -231,8 +223,8 @@ fn entries_without_the_sort_key_rank_last_in_both_directions() {
     }
     assert!(ranked(&root, "sizeBytes", "asc")[0].starts_with("small.rs"));
     assert!(ranked(&root, "sizeBytes", "desc")[0].starts_with("big.rs"));
-    assert!(ranked(&root, "lineCount", "asc")[0].starts_with("small.rs"));
-    assert!(ranked(&root, "lineCount", "desc")[0].starts_with("big.rs"));
+    assert!(ranked(&root, "totalLines", "asc")[0].starts_with("small.rs"));
+    assert!(ranked(&root, "totalLines", "desc")[0].starts_with("big.rs"));
 }
 
 /// Whole-file test code decides a listing: a file whose text cannot hold a

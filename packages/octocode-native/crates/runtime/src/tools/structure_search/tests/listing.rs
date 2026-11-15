@@ -156,7 +156,7 @@ fn sorted_pages_walk_one_global_order_exactly_once() {
             .expect("time");
     }
     for (by, field) in [
-        ("lineCount", "totalLines"),
+        ("totalLines", "totalLines"),
         ("sizeBytes", "size"),
         ("modifiedAt", "modifiedMs"),
     ] {

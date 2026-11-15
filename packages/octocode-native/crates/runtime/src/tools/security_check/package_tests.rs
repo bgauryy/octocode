@@ -1146,14 +1146,9 @@ async fn a_withdrawn_global_advisory_is_stated_as_withdrawn_never_as_a_match() {
         "still one call away: {data}"
     );
     let mut output = json!({"results": [{"index": 0, "data": data}]});
-    crate::response::workflow_lead::keep_workflow_lead(
-        ToolId::SecurityCheck,
-        &mut output,
-        &Value::Null,
-    );
+    crate::response::workflow_lead::retain_guidance(&mut output, &Value::Null);
     assert!(
-        read_whole_ids(&output["results"][0]["data"])
-            .contains(&"GHSA-8p5q-j9m2-g8wr".to_owned()),
+        read_whole_ids(&output["results"][0]["data"]).contains(&"GHSA-8p5q-j9m2-g8wr".to_owned()),
         "withdrawal warning's read survives final shaping: {output}"
     );
 }

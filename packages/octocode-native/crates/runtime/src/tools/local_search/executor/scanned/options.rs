@@ -54,6 +54,7 @@ pub(crate) fn search_options(
         pattern: local_search_query::pattern(query).to_owned(),
         terms: None,
         test_code: None,
+        test_code_rank: None,
         line_scope: local_search_query::key_path(query)
             .map(crate::tools::local_search::key_scope::line_scope),
         syntax: match local_search_query::regex_mode(query) {

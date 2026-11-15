@@ -63,7 +63,7 @@ fn affected_package_identity_is_not_invented_or_normalized() {
 }
 
 #[test]
-fn affected_package_identity_controls_twin_range_dedupe() {
+fn affected_package_identity_is_preserved_across_source_notations() {
     let package = json!({"name": "shared", "ecosystem": "npm", "purl": "pkg:npm/shared"});
     let mut other_ecosystem = package.clone();
     other_ecosystem["ecosystem"] = json!("PyPI");
@@ -77,27 +77,30 @@ fn affected_package_identity_controls_twin_range_dedupe() {
         .remove("ecosystem");
     let mut no_purl = package.clone();
     no_purl.as_object_mut().expect("package").remove("purl");
-    for (other, keep) in [
-        (package.clone(), false),
-        (other_ecosystem, true),
-        (other_purl, true),
-        (no_ecosystem, true),
-        (no_purl, true),
-        (json!({"name": "shared"}), true),
+    for other in [
+        package.clone(),
+        other_ecosystem,
+        other_purl,
+        no_ecosystem,
+        no_purl,
+        json!({"name": "shared"}),
     ] {
         let osv = json!({"id": "GHSA-same", "affected": [{"package": package,
             "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "2.0.0"}]}]}]});
         let github = json!({"id": "GHSA-same", "affected": [{"package": other,
             "ecosystem_specific": {"vulnerable_version_range": "< 2.0.0", "first_patched_version": "2.0.0"}}]});
-        let adapted = [&osv, &github].map(|record| {
-            serde_json::to_value(advisory(record, &Selection::All).expect("record")).expect("row")
-        });
-        for mut rows in [adapted.to_vec(), adapted.into_iter().rev().collect()] {
-            state_twin_differences(&mut rows);
+        for source in [&osv, &github] {
+            let selected = advisory(source, &Selection::All).expect("record");
+            assert_eq!(selected.affected.len(), 1);
+            let entry = &selected.affected[0];
+            let raw = &source["affected"][0];
+            for (from, to) in PACKAGE_IDENTITY {
+                assert_eq!(entry.get(to), raw["package"].get(from), "{from}: {source}");
+            }
+            assert_eq!(entry.get("ranges"), raw.get("ranges"));
             assert_eq!(
-                rows[1].get("affected").is_some(),
-                keep,
-                "different or partially missing identity must stay; identical identity may fold: {other}; {rows:?}"
+                entry.get("ecosystemSpecific"),
+                raw.get("ecosystem_specific")
             );
         }
     }
@@ -140,7 +143,8 @@ fn a_github_record_keeps_its_source_severity_and_ranges() {
         item.cvss,
         [json!({"type": "CVSS_V3", "vector": "CVSS:3.1/AV:N"})]
     );
-    // GitHub's `<= 4.17.20` restates the events: stated once, by them.
+    // Per-entry source metadata stays intact even when its range text
+    // describes the same versions as the events.
     assert_eq!(
         item.affected,
         [json!({
@@ -148,6 +152,7 @@ fn a_github_record_keeps_its_source_severity_and_ranges() {
             "ecosystem": "npm",
             "purl": "pkg:npm/lodash",
             "ranges": [{"type": "SEMVER", "events": [{"introduced": "4.0.0"}, {"fixed": "4.17.21"}]}],
+            "databaseSpecific": {"source": source, "last_known_affected_version_range": "<= 4.17.20"},
         })]
     );
     let printed = serde_json::to_string(&item).expect("row");
@@ -534,72 +539,61 @@ fn brief_rows_list_the_most_severe_first() {
     assert_eq!(ids, ["d", "f", "c", "e", "a", "b"].map(Some));
 }
 
-/// The details rows of one id: the later record keeps its id and only the
-/// fields its source states otherwise; a record of another id is untouched.
 #[test]
-fn a_twin_record_states_only_its_differences() {
-    let mut rows = vec![
-        json!({"id": "GHSA-a", "summary": "s", "details": "long text", "link": "https://osv.dev/a",
-            "cwes": ["CWE-77"], "modifiedAt": "2026-10-20T20:00:04Z"}),
-        json!({"id": "GHSA-a", "summary": "s", "details": "long text", "link": "https://github.com/advisories/a",
-            "cwes": ["CWE-77"], "modifiedAt": "2026-10-20T19:48:26Z", "epss": {"percentage": 0.01}}),
-        json!({"id": "GHSA-b", "summary": "s", "details": "long text"}),
-    ];
-    let twins = state_twin_differences(&mut rows);
-    assert_eq!(twins, ["GHSA-a"]);
-    assert_eq!(
-        rows[1],
-        json!({"id": "GHSA-a", "link": "https://github.com/advisories/a",
-            "modifiedAt": "2026-10-20T19:48:26Z", "epss": {"percentage": 0.01}})
-    );
-    assert_eq!(rows[0]["details"], "long text");
-    assert_eq!(rows[2]["details"], "long text");
+fn selected_affected_entries_keep_their_opaque_metadata_and_attribution() {
+    let entries = json!([
+        {"package":{"name":"shared","ecosystem":"npm","purl":"pkg:npm/shared"},
+         "ranges":[{"type":"SEMVER","events":[{"introduced":"0"},{"fixed":"2.0.0"}]}],
+         "database_specific":{"source":"https://records.example/a","last_known_affected_version_range":"< 2.0.0","extra":{"source":"nested-a"}},
+         "ecosystem_specific":{"source":"ecosystem-a","other":[1,2]}},
+        {"package":{"name":"shared","ecosystem":"npm","purl":"pkg:npm/shared?variant=b"},
+         "database_specific":{"source":"https://records.example/b","last_known_affected_version_range":"opaque range"},
+         "ecosystem_specific":{"source":"ecosystem-b","other":{"flag":true}}}
+    ]);
+    let source = json!({"id":"GHSA-metadata","affected":entries});
+    let names = ["shared".to_owned()];
+    for selection in [
+        Selection::All,
+        Selection::Named(Ecosystem::Npm, &names, None),
+    ] {
+        let selected = advisory(&source, &selection).expect("selected record");
+        assert_eq!(
+            selected.source.as_deref(),
+            Some("https://records.example/a")
+        );
+        assert_eq!(selected.affected.len(), 2);
+        for (actual, original) in selected
+            .affected
+            .iter()
+            .zip(entries.as_array().expect("entries"))
+        {
+            assert_eq!(actual["databaseSpecific"], original["database_specific"]);
+            assert_eq!(actual["ecosystemSpecific"], original["ecosystem_specific"]);
+            for (raw, shown) in [
+                ("name", "packageName"),
+                ("ecosystem", "ecosystem"),
+                ("purl", "purl"),
+            ] {
+                assert_eq!(actual[shown], original["package"][raw]);
+            }
+        }
+    }
 }
 
-/// A difference of notation is none: GitHub's text range with the same lower
-/// bound and fix as OSV's events, and a reference to a URL already stated,
-/// are left out; a range that differs, and a new URL, stay.
 #[test]
-fn a_twin_restates_no_range_or_reference_in_another_notation() {
-    let osv_range = |name: &str, introduced: &str, fixed: &str| {
-        json!({"packageName": name, "ranges": [{"type": "SEMVER", "events": [
-            {"introduced": introduced}, {"fixed": fixed}]}],
-            "databaseSpecific": {"last_known_affected_version_range": "<= x"}})
-    };
-    let github_range = |name: &str, range: &str, first: &str| {
-        json!({"packageName": name, "ecosystemSpecific": {"vulnerable_version_range": range,
-            "patched_versions": null, "first_patched_version": first}})
-    };
+fn fix_redundancy_uses_only_the_same_records_events() {
     let mut rows = vec![
-        json!({"id": "GHSA-a", "link": "https://osv.dev/a",
-            "affected": [osv_range("vite", "8.3.0", "8.3.3"), osv_range("vite", "0", "6.4.4")],
-            "references": [{"type": "WEB", "url": "https://example.test/fix"},
-                {"type": "ADVISORY", "url": "https://nvd.test/CVE-1"}]}),
-        json!({"id": "GHSA-a", "link": "https://github.com/advisories/a",
-            "affected": [github_range("vite", ">= 8.3.0, <= 8.3.2", "8.3.3"),
-                github_range("vite", "<= 6.4.3", "6.4.4"),
-                // An exclusive lower bound and another fix are differences.
-                github_range("vite", "> 8.2.0, <= 8.2.3", "8.2.4"),
-                github_range("vite", ">=7.0.0, <7.3.7", "7.3.8")],
-            "references": [{"type": "WEB", "url": "https://nvd.test/CVE-1"},
-                {"type": "WEB", "url": "https://github.com/advisories/a"},
-                {"type": "WEB", "url": "https://example.test/new"}]}),
+        json!({"id":"same","fixedIn":["2.0.0"],"affected":[{"ranges":[{"events":[{"fixed":"2.0.0"}]}]}]}),
+        json!({"id":"same","fixedIn":["2.0.0"],"affected":[{"ecosystemSpecific":{"first_patched_version":"2.0.0"}}]}),
     ];
-    state_twin_differences(&mut rows);
-    assert_eq!(
-        rows[1],
-        json!({"id": "GHSA-a", "link": "https://github.com/advisories/a",
-            "affected": [github_range("vite", "> 8.2.0, <= 8.2.3", "8.2.4"),
-                github_range("vite", ">=7.0.0, <7.3.7", "7.3.8")],
-            "references": [{"type": "WEB", "url": "https://example.test/new"}]})
+    drop_restated_fixes(&mut rows);
+    assert!(
+        rows[0].get("fixedIn").is_none(),
+        "same-record duplication is omitted"
     );
-    // Every range and reference the same: neither key is stated again.
-    let mut rows = vec![
-        json!({"id": "GHSA-a", "affected": [osv_range("vite", "0", "6.4.4")],
-            "references": [{"type": "WEB", "url": "https://example.test/fix"}]}),
-        json!({"id": "GHSA-a", "affected": [github_range("vite", "< 6.4.4", "6.4.4")],
-            "references": [{"type": "ADVISORY", "url": "https://example.test/fix"}]}),
-    ];
-    state_twin_differences(&mut rows);
-    assert_eq!(rows[1], json!({"id": "GHSA-a"}));
+    assert_eq!(
+        rows[1]["fixedIn"],
+        json!(["2.0.0"]),
+        "another record cannot erase this statement"
+    );
 }

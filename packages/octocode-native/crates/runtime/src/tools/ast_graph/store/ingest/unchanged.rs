@@ -210,7 +210,7 @@ fn unchanged_receipt(
     // the snapshot; the answer still holds.
     let _ = renew_lease(&dir);
     progress::emit(|| format!("reused {id}: its sources are unchanged"));
-    Some(GraphOutput::ok(snapshot::receipt(
+    Some(snapshot::answer(snapshot::receipt(
         id, &dir, manifest, started,
     )))
 }

@@ -136,14 +136,10 @@ fn multiple_sparse_paths_check_out_every_path() {
     );
     let row = serde_json::to_value(&both).expect("serialize");
     assert_eq!(
-        Path::new(
-            crate::tools::test_support::checks::related_call(&row, "structureSearch", |_|true)["input"]["queries"][0]["path"]
-                .as_str()
-                .expect("path")
-        ),
-        local,
-        "several paths explore the checkout root"
+        Path::new(row["location"]["path"].as_str().expect("path")),
+        local
     );
+    assert!(row.get("related").is_none(), "{row}");
 
     let reordered = clone_pinned(
         &bench.fixture,

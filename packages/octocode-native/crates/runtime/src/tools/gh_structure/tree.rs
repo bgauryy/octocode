@@ -62,7 +62,6 @@ pub(super) async fn execute_tree(
             query,
             &scope,
             &commit_sha,
-            &page,
             &traversal.entries,
             home,
             context,
@@ -72,7 +71,7 @@ pub(super) async fn execute_tree(
     } else {
         None
     };
-    disclose_limits(&traversal, &page, &mut value, &mut output);
+    disclose_limits(&traversal, &page, &mut value);
     // A rank over a walk that missed entries is a rank of what it listed.
     if ranked && (traversal.contents_limit || traversal.failed_subtrees > 0) {
         crate::response::paging::push_warnings(
@@ -144,19 +143,6 @@ pub(super) async fn execute_tree(
                 );
             }
         }
-    } else if value.pointer("/location/path").is_some() {
-        // A materialized listing continues with the local tools at
-        // `location.path`; re-listing the tree it just returned adds
-        // nothing.
-    } else if page.current == 1
-        && let Some(read) = if ranks_by_size(query) {
-            // A size rank answers with its top row: that is the file to read.
-            top_read(&pinned, page.entries, &commit_sha)
-        } else {
-            entry_read(&pinned, &traversal.entries, &commit_sha)
-        }
-    {
-        value["calls"]["read"] = read;
     }
     crate::response::result::finish_calls(&mut value);
     output.data = value;

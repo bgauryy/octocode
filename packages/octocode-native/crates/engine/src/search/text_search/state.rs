@@ -20,6 +20,9 @@ pub(super) struct FileRec {
     pub(super) entry: FileEntry,
     /// Number of matching (or, with `-v`, non-matching) lines reported.
     pub(super) matched_lines: u32,
+    /// Relevance density, kept apart from full evidence counts.
+    pub(super) rank_lines: u32,
+    pub(super) rank_submatches: u32,
     /// Number of individual matches (submatches) across all matched lines.
     pub(super) submatches: u32,
     /// only-matching spans (empty unless the output is spans).

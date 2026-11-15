@@ -1,8 +1,8 @@
 //! The record behind each id `/v1/querybatch` lists: `GET /v1/vulns/{id}`, once
-//! for each distinct id of a call, and once ever for an id whose `modified`
-//! stamp is unchanged. A record's `modified` changes whenever it does, so an
-//! answer kept under `(id, modified)` is exact and needs no lifetime or
-//! validator; a record read newer than the stamp listed is kept under its own.
+//! for each distinct id of a call. An unchanged `modified` stamp identifies
+//! the exact record version; the origin's cache policy still decides whether
+//! it may be kept and reused. A record newer than the listed stamp is kept
+//! under its own stamp.
 //!
 //! OSV lists a stamp to the microsecond (`…56.951750Z`) and the record states
 //! the same instant to the nanosecond (`…56.951750105Z`, measured 2026-11-11),
@@ -11,7 +11,7 @@
 //! the key the next call asks by.
 use super::super::Net;
 use super::batch::Ref;
-use super::{CONCURRENT_READS, by_id, malformed};
+use super::{CONCURRENT_READS, FetchedRecord, by_id, malformed};
 use crate::providers::artifact::ArtifactError;
 use futures_util::{StreamExt as _, stream};
 use octocode_github::{Partition, ProviderAnswer, Reuse, SavedAnswer};
@@ -69,14 +69,14 @@ async fn record(net: &Net<'_>, (id, modified): &Key) -> Result<Value, ArtifactEr
     if let Some(kept) = kept(net, id, modified.as_deref()) {
         return Ok(kept);
     }
-    let Some(record) = by_id(net, id).await? else {
+    let Some(fetched) = by_id(net, id).await? else {
         return Err(malformed(
             &format!("a listed record, {id}, that it has no record of"),
             id,
         ));
     };
-    keep(net, &record, modified.as_deref());
-    Ok(record)
+    keep(net, &fetched, modified.as_deref());
+    Ok(fetched.record)
 }
 
 /// Whether a record's `own` stamp is the `listed` one: the same text, or the
@@ -127,7 +127,8 @@ fn kept(net: &Net<'_>, id: &str, modified: Option<&str>) -> Option<Value> {
 /// Keeps a record that states its own id and stamp: under the stamp it was
 /// `listed` with when the record's is that one ([`same_stamp`]), so the next
 /// call that lists it finds it; under its own when OSV changed it since.
-fn keep(net: &Net<'_>, record: &Value, listed: Option<&str>) {
+fn keep(net: &Net<'_>, fetched: &FetchedRecord, listed: Option<&str>) {
+    let record = &fetched.record;
     let (Some(store), Some(scope)) = (net.answers, scope(net)) else {
         return;
     };
@@ -141,14 +142,18 @@ fn keep(net: &Net<'_>, record: &Value, listed: Option<&str>) {
         .filter(|listed| same_stamp(listed, own))
         .unwrap_or(own);
     let identity = identity(id, modified);
+    if !octocode_github::worth_keeping(&fetched.headers, true, None) {
+        store.forget(&scope, &identity);
+        return;
+    }
     store.save(
         &scope,
         &identity,
         SavedAnswer {
             answer: ProviderAnswer {
                 request: identity.clone(),
-                status: 200,
-                headers: Vec::new(),
+                status: fetched.status,
+                headers: fetched.headers.clone(),
                 body: record.to_string().into(),
                 next: None,
                 not_found: None,

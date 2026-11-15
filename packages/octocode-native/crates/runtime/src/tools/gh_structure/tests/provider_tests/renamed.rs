@@ -169,7 +169,7 @@ async fn a_rename_every_row_shares_is_stated_once_for_the_call() {
 /// under the canonical name and names the repository as it is now, on the
 /// row and in every lead (the file reads), so each runs unchanged.
 #[tokio::test]
-async fn a_listing_of_a_renamed_repository_leads_canonically() {
+async fn a_listing_of_a_renamed_repository_keeps_canonical_identity() {
     let server = MockServer::builder().start().await;
     crate::tools::gh_shared::test_support::mount_renamed(&server).await;
     Mock::given(method("GET"))
@@ -205,5 +205,9 @@ async fn a_listing_of_a_renamed_repository_leads_canonically() {
         )]),
         "{data}"
     );
-    crate::tools::gh_shared::test_support::assert_leads_canonical(data);
+    assert!(data.get("related").is_none(), "{data}");
+    let read =
+        json!({"owner":data["owner"],"repo":data["repo"],"path":"lib.rs","ref":data["commitSha"]});
+    crate::contracts::validate_query("ghGetFileContent", read)
+        .expect("canonical identity is sufficient for a read");
 }

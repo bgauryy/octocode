@@ -390,12 +390,12 @@ pub(crate) fn lead(tool: ToolId, query: &impl serde::Serialize, causes: &[Cause]
 }
 
 /// Place `disclosure` on an internal result: the explicit related call in
-/// its call bundle and the sentence as a hint. The requested scope was walked
+/// its call bundle and the sentence as a warning. The requested scope was walked
 /// whole, so what a check of the skipped paths left unchecked leaves it
 /// complete.
 pub(crate) fn attach(out: &mut Value, disclosure: &Disclosure, lead: Value) {
     out["calls"]["includeSkipped"] = lead;
-    crate::response::result::add_hints(out, [disclosure.text.clone()]);
+    crate::response::paging::push_warnings(out, [disclosure.text.clone()]);
 }
 
 #[cfg(test)]

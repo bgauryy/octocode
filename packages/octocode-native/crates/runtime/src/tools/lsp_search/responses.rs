@@ -294,41 +294,69 @@ pub(super) fn annotate(
 /// which scope files changed since this process's last request to it:
 /// without a watcher of its own, a file no request opened (a new
 /// importer, a deleted module, regenerated output) would never reach its
-/// index. The first request of a server process that watches records the snapshot
-/// only (the process indexed the disk itself). The walk is the request's
-/// one scope walk ([`scope::Scope::walked`]): a server that watches no
-/// files makes none.
+/// index. The first request records the disk the server initially indexed.
+/// Capture and comparison run on blocking workers after taking the client's
+/// synchronization lock; a continuation's older observation is not reused.
+/// The returned observation proves a page only if captured before its reads;
+/// the caller owns that phase. A late registration still synchronizes the server,
+/// but its post-read observation cannot bypass the seal's change checks.
+/// A server that registers for no file events makes no synchronization walk.
 pub(super) async fn sync_watched_files(
     scope: &scope::Scope,
     client: &octocode_engine::lsp::client::NativeLspClient,
     cancel: &dyn CancellationCheck,
-) -> Result<(), LspFailure> {
+) -> Result<Option<scope::Walked>, LspFailure> {
     if !client.watches_files().await {
-        return Ok(());
+        return Ok(None);
     }
-    let Some((_, entries)) = scope.walked(SystemTime::now(), cancel).await?.fingerprint else {
-        // The request stopped the walk or a file could not be stamped (the
-        // trace counts it): no snapshot, no events.
-        return Ok(());
-    };
-    let root = std::path::Path::new(&scope.root);
-    let Some(changes) = client.watched_files_diff(&entries, |relative, before, after| {
-        scope::same_file(&root.join(relative), before, after)
-    }) else {
-        return Ok(());
-    };
-    let changes = changes
-        .into_iter()
-        .filter_map(|(relative, kind)| {
-            octocode_engine::lsp::uri::path_to_uri(&root.join(relative).to_string_lossy())
-                .ok()
-                .map(|uri| (uri, kind))
-        })
-        .collect::<Vec<_>>();
-    // A failed notification is the connection's to report on the next
-    // request; this answer is unaffected.
-    let _ = client.notify_watched_files(changes).await;
-    Ok(())
+    let mut captured = None;
+    cancellable(
+        cancel,
+        client.sync_watched_files(|previous| {
+            let captured = &mut captured;
+            async move {
+                // Always capture after acquiring the client's sync lock, never
+                // reuse a continuation's cached historical observation.
+                let observed = SystemTime::now();
+                let Some(fingerprint) = scope.walk_fingerprint(observed, cancel).await? else {
+                    cancel.check().map_err(LspFailure::cancelled)?;
+                    return Err(watched_snapshot_failed());
+                };
+                let entries = std::sync::Arc::clone(&fingerprint.1);
+                let root = std::path::PathBuf::from(&scope.root);
+                let update = blocking_cancellable(cancel, move |stopped| {
+                    octocode_engine::lsp::client::WatchedFileUpdate::new(
+                        &root,
+                        previous.as_ref(),
+                        std::sync::Arc::unwrap_or_clone(entries),
+                        |relative, before, after| {
+                            scope::same_file(&root.join(relative), before, after, stopped)
+                        },
+                    )
+                })
+                .await?
+                .ok_or_else(watched_snapshot_failed)??;
+                cancel.check().map_err(LspFailure::cancelled)?;
+                *captured = Some(scope::Walked {
+                    observed,
+                    fingerprint: Some(fingerprint),
+                });
+                Ok::<_, LspFailure>(update)
+            }
+        }),
+    )
+    .await??;
+    cancel.check().map_err(LspFailure::cancelled)?;
+    Ok(captured)
+}
+
+fn watched_snapshot_failed() -> LspFailure {
+    LspFailure {
+        code: ErrorCode::DocumentSyncFailed,
+        message: "Could not establish a complete source snapshot for language-server file events. A source or directory could not be read consistently. Retry when the source files are stable and readable.".to_owned(),
+        retryable: true,
+        lexical_fallback: false,
+    }
 }
 
 #[cfg(test)]

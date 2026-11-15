@@ -86,11 +86,11 @@ async fn a_listing_row_carries_dir_entries_commit_and_resolved_ref() {
     for echo in ["path", "operation"] {
         assert!(data.get(echo).is_none(), "{echo} echoed: {data}");
     }
-    let read = &crate::tools::test_support::checks::related_call(data, "ghGetFileContent", |_| {
-        true
-    })["input"]["queries"][0];
-    assert_eq!(read["path"], "lib.rs", "{data}");
-    assert_eq!(read["ref"], SHA, "{data}");
+    assert!(data.get("related").is_none(), "{data}");
+    let read =
+        json!({"owner":data["owner"],"repo":data["repo"],"path":"lib.rs","ref":data["commitSha"]});
+    crate::contracts::validate_query("ghGetFileContent", read)
+        .expect("listed source identity is sufficient");
 }
 
 /// A recursive tree past GitHub's limit is read subtree by subtree:

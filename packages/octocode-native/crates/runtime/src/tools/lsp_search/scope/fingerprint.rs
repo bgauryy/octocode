@@ -7,9 +7,9 @@ pub(super) type Fingerprint = (String, Arc<BTreeMap<String, String>>);
 
 /// What a fingerprint covers: the family and project files of the lexical
 /// scope `root` that its ignore rules admit (what the text scans read),
-/// and every one under the language server's `server_root`, ignored files
-/// included (a generated source a `.gitignore` hides is still one the
-/// server compiles).
+/// and every one under the language server's `server_root`, including hidden
+/// and ignored build sources the server may compile. Credential directories
+/// remain excluded.
 #[derive(Clone, Copy)]
 pub(super) struct FingerprintScope<'a> {
     pub(super) root: &'a Path,
@@ -25,8 +25,8 @@ pub(super) struct FingerprintScope<'a> {
 /// same `observed` gives unchanged files the same digest. The walks cover
 /// the whole scope, however long they take: only `stopped` (the request's
 /// cancellation or deadline) ends them early. Then, or when a file cannot
-/// be stamped or an unsettled one is too large to digest, there is no
-/// fingerprint, and the revision covers the anchor text alone.
+/// be read or stamped consistently, there is no fingerprint. Watched-file
+/// synchronization must report that failure rather than accept a stale index.
 ///
 /// A fingerprint none of whose files was fresh is kept across requests with
 /// a proof of what the walks read: each directory they entered (an entry
@@ -34,7 +34,8 @@ pub(super) struct FingerprintScope<'a> {
 /// outside them, the repository markers, and every file they stamped. While
 /// it holds, every file is as it was and none is fresh at a later instant,
 /// so a fresh walk would give the same lines: the kept fingerprint is
-/// served without walking. A scope written within the settle window before
+/// served without walking only at or after its captured observation. A pinned
+/// earlier instant may still need content hashes. A scope written within the settle window before
 /// the walk began is not kept ([`Watch::capture`]).
 pub(super) fn fingerprint(
     scope: &FingerprintScope<'_>,
@@ -50,8 +51,10 @@ pub(super) fn fingerprint(
         &scope.include.join("\u{0}"),
     ]
     .join("\u{1}");
-    if let Some(kept) = FINGERPRINTS.current(&key, ANY_POLICY) {
-        return Some((kept.0.clone(), Arc::clone(&kept.1)));
+    if let Some(kept) = FINGERPRINTS.current(&key, ANY_POLICY)
+        && observed >= kept.observed
+    {
+        return Some((kept.fingerprint.0.clone(), Arc::clone(&kept.fingerprint.1)));
     }
     #[cfg(test)]
     fingerprints::note(scope.root);
@@ -65,7 +68,8 @@ pub(super) fn fingerprint(
         .values()
         .any(|stamp| !split_stamp(stamp).1.is_empty());
     if !any_fresh && let Some(proof) = read.proof(scope.root, started) {
-        let bytes = found.0.len()
+        let bytes = std::mem::size_of::<SystemTime>()
+            + found.0.len()
             + found
                 .1
                 .iter()
@@ -77,19 +81,30 @@ pub(super) fn fingerprint(
             ANY_POLICY.to_owned(),
             bytes,
             proof,
-            Arc::new(found.clone()),
+            Arc::new(SettledFingerprint {
+                observed,
+                fingerprint: found.clone(),
+            }),
         );
     }
     Some(found)
 }
 
+/// A metadata-only fingerprint remains the same at later observations while
+/// its filesystem proof holds. An earlier observation may require content
+/// hashes, so it must walk again without discarding this useful settled value.
+struct SettledFingerprint {
+    observed: SystemTime,
+    fingerprint: Fingerprint,
+}
+
 /// Kept fingerprints, by scope root, server root and family globs, against
-/// the one process budget.
+/// the one process budget. Observation bounds belong to the value, not the key.
 static FINGERPRINTS: crate::tools::page_memo::PageMemo<
-    crate::tools::page_memo::Proven<Fingerprint>,
+    crate::tools::page_memo::Proven<SettledFingerprint>,
 > = crate::tools::page_memo::PageMemo::new();
 
-/// The key already says what a fingerprint depends on.
+/// Scope policy is already in the key; the value checks observation validity.
 const ANY_POLICY: &str = "";
 
 /// What the fingerprint walks read.
@@ -163,10 +178,7 @@ fn walked_fingerprint(
 ) -> Option<Fingerprint> {
     let lines = Mutex::new(Vec::new());
     let honored = octocode_engine::types::IgnorePolicy::default();
-    let lifted = octocode_engine::types::IgnorePolicy {
-        include_ignored: true,
-        ..Default::default()
-    };
+    let lifted = octocode_engine::types::IgnorePolicy::ALL;
     let walks = match scope.server_root {
         // The server's root is the scope: one walk, ignored files included.
         Some(server) if server == scope.root => vec![(scope.root, lifted)],
@@ -215,17 +227,62 @@ fn walked_fingerprint(
 /// file that settled between the walks lost its hash without changing: the
 /// metadata decides, and a hash it had is checked against its content now
 /// (a same-tick edit on a coarse-mtime filesystem keeps the metadata).
-pub(in super::super) fn same_file(path: &Path, before: &str, after: &str) -> bool {
+pub(in super::super) fn same_file(
+    path: &Path,
+    before: &str,
+    after: &str,
+    stopped: &(dyn Fn() -> bool + Sync),
+) -> bool {
     let ((metadata, hashed), (current, hash)) = (split_stamp(before), split_stamp(after));
     if metadata != current {
         return false;
     }
     match (hashed.is_empty(), hash.is_empty()) {
         (false, false) => hashed == hash,
-        (false, true) => crate::tools::source::read_bounded(path, FRESH_CONTENT_MAX_BYTES)
-            .is_ok_and(|bytes| octocode_engine::digest::sha256(&bytes) == hashed),
+        (false, true) => source_digest(path, None, stopped).is_some_and(|hash| hash == hashed),
         (true, _) => true,
     }
+}
+
+/// Hash a regular source without a size cutoff or a whole-file allocation.
+/// The opened file must retain its identity and metadata throughout the read.
+fn source_digest(
+    path: &Path,
+    expected: Option<octocode_engine::stamp::SourceStamp>,
+    stopped: &(dyn Fn() -> bool + Sync),
+) -> Option<String> {
+    use std::io::Read;
+
+    if stopped() {
+        return None;
+    }
+    let (mut file, metadata) = octocode_engine::text::open_regular(path).ok()?;
+    let before = octocode_engine::stamp::cache_stamp(&metadata)?;
+    if expected.is_some_and(|expected| expected != before) {
+        return None;
+    }
+    let mut hash = octocode_engine::digest::HashWriter::default();
+    let mut buffer = vec![0; 64 * 1024].into_boxed_slice();
+    loop {
+        if stopped() {
+            return None;
+        }
+        let length = match file.read(&mut buffer) {
+            Ok(length) => length,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return None,
+        };
+        if length == 0 {
+            break;
+        }
+        hash.update(&buffer[..length]);
+    }
+    let after = octocode_engine::stamp::cache_stamp(&file.metadata().ok()?)?;
+    let current = std::fs::symlink_metadata(path).ok()?;
+    (before == after
+        && current.is_file()
+        && octocode_engine::stamp::cache_stamp(&current) == Some(before))
+    .then(|| hex::encode(hash.finalize()))
 }
 
 /// Whether any file of a walk was last written after `started`: a page
@@ -307,7 +364,10 @@ fn walk_lines(
         if !family && !name.is_some_and(|name| PROJECT_FILES.contains(&name.as_ref())) {
             return None;
         }
-        let meta = entry.metadata().ok()?;
+        let Ok(meta) = entry.metadata() else {
+            abandoned.store(true, Ordering::Relaxed);
+            return None;
+        };
         let Some(stamp) = octocode_engine::stamp::cache_stamp(&meta) else {
             abandoned.store(true, Ordering::Relaxed);
             return None;
@@ -319,9 +379,9 @@ fn walk_lines(
                 .is_ok_and(|age| age >= FRESH_MTIME)
         });
         let content = if fresh {
-            match crate::tools::source::read_bounded(path, FRESH_CONTENT_MAX_BYTES) {
-                Ok(bytes) => octocode_engine::digest::sha256(&bytes),
-                Err(_) => {
+            match source_digest(path, Some(stamp), stopped) {
+                Some(hash) => hash,
+                None => {
                     abandoned.store(true, Ordering::Relaxed);
                     return None;
                 }
@@ -343,8 +403,11 @@ fn walk_lines(
             stamp.inode,
         ))
     };
-    // A parallel walk: the digest is order-free (lines are sorted).
-    crate::tools::pruned_walk_with(dir, [], policy)
+    // Search exclusions do not bound what a language server compiles. The
+    // server's source inventory includes build directories; lexical scope
+    // keeps its usual pruning. Both walks retain credential exclusions.
+    let defaults = scope.server_root != Some(dir);
+    crate::tools::pruned_walk_under(dir, defaults, [], policy)
         .build_parallel()
         .run(|| {
             Box::new(|entry| {
@@ -355,7 +418,11 @@ fn walk_lines(
                     abandoned.store(true, Ordering::Relaxed);
                     return ignore::WalkState::Quit;
                 }
-                let Some(line) = entry.ok().and_then(line) else {
+                let Ok(entry) = entry else {
+                    abandoned.store(true, Ordering::Relaxed);
+                    return ignore::WalkState::Quit;
+                };
+                let Some(line) = line(entry) else {
                     return ignore::WalkState::Continue;
                 };
                 let Ok(mut entries) = lines.lock() else {

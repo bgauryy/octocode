@@ -21,7 +21,7 @@ pub(super) fn cut_rows(
         envelope.insert("responsePagination".into(), block);
     }
     if let Some(budget) = input.options.response_chars {
-        super::oversized::flag(&mut envelope, input.tool, budget);
+        super::oversized::flag(&mut envelope, input.tool, budget, true);
     }
     Ok(PreparedPage {
         value: Value::Object(envelope),

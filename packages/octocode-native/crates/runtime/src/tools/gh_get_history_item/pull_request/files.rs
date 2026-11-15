@@ -1,5 +1,5 @@
 //! The changed-file section of a pull-request read: its page, totals, and
-//! the cross-tool reads (merge commit, both diff sides) it offers.
+//! source recovery and the optional reads at each side of its diff.
 use super::PrPlan;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::inventory::shape_pr_files;
@@ -26,9 +26,7 @@ pub(in crate::tools::gh_get_history_item) struct FileOutcome {
     /// kept (every listed file without one), when the scope or literal
     /// matched nothing.
     pub(in crate::tools::gh_get_history_item) in_scope: usize,
-    pub(in crate::tools::gh_get_history_item) merge_read: Option<Value>,
-    /// `readAtCommit`/`readParent`: the top file at the head (when no merge
-    /// read covers it) and at the base.
+    /// `readAtCommit`/`readParent`: the top shown file at the head and base.
     pub(in crate::tools::gh_get_history_item) side_reads: Vec<(&'static str, Value)>,
     /// Files whose `matchString` context the hunks cut short.
     pub(in crate::tools::gh_get_history_item) clipped: Vec<(String, Vec<(usize, usize)>)>,
@@ -83,28 +81,8 @@ pub(super) fn shape_files_section(
                     .any(|path| Some(path.as_str()) == str_at(file, "/filename"))
             })
     };
-    // A cross-tool read: one check at the merge commit, on the first page (a
-    // later patch window does not repeat it), over every selected file GitHub
-    // listed: the PR's top code change may lie past the shown window, which
-    // may hold no code file at all. It locates lines by text, so it needs no
-    // numbered hunk on this page.
-    let merge_read = lead_files.as_deref().and_then(|files| {
-        pr_menu::read_at_merge(query, raw, files, |file| file_filter.matches(file))
-    });
-    // The merge read stands for the head side only of a file this page shows.
-    let merge_covers_shown = merge_read.as_ref().is_some_and(|read| {
-        let path = read["input"]["queries"][0]["path"].as_str();
-        lead_files.as_deref().is_some_and(|files| {
-            files
-                .iter()
-                .any(|file| shown(file) && str_at(file, "/filename") == path)
-        })
-    });
-    // Both sides of the numbered diff for its top file: the head (a merged
-    // PR's merge read stands for its new side) and the base, whose old-side
-    // numbers match while the base has not moved past the diff's merge base.
-    // A file GitHub sent without a patch comes first: no merge read covers
-    // it, so its head read stays.
+    // Source reads use the shown diff's head and base identities. An
+    // optional code pick at the merge commit is no requested evidence.
     let side_reads = match lead_files
         .as_deref()
         .filter(|_| wants.has(Section::Patches))
@@ -115,9 +93,7 @@ pub(super) fn shape_files_section(
             gh_get_history_item_query::repo(query),
             files,
             &pr_menu::ChangeSides {
-                new_ref: str_at(raw, "/head/sha").filter(|_| {
-                    !merge_covers_shown || pr_menu::first_unpatched(files, shown).is_some()
-                }),
+                new_ref: str_at(raw, "/head/sha").filter(|sha| !sha.is_empty()),
                 old_ref: str_at(raw, "/base/sha").filter(|sha| !sha.is_empty()),
             },
             shown,
@@ -147,7 +123,6 @@ pub(super) fn shape_files_section(
         match_dropped: shaped.match_dropped,
         scope_unmatched,
         in_scope,
-        merge_read,
         side_reads,
         clipped: shaped.clipped,
     }

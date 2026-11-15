@@ -384,3 +384,49 @@ fn evaluate_answers_name_their_type_by_key_only() {
     let out = reply::answered(&row, judged, None, None);
     assert_eq!(out["answers"]["q"], json!({"noul":0.9}), "{out}");
 }
+
+#[test]
+fn classification_disclosures_keep_resource_coverage_and_failed_resource_recovery() {
+    let row = resources_row(json!({"ok":local("ok.rs"),"bad":local("bad.rs")}));
+    let error = ClassificationError::new(
+        ErrorCode::ClassificationProviderError,
+        "The provider refused.",
+        "Check the provider response.",
+    );
+    let notice = "One hidden path was withheld from the resource expansion.";
+    let mut ok = answered_by("jev-1.14.0", 0.9);
+    if let RowOutcome::Judgment {
+        judged: Ok(judged), ..
+    } = &mut ok
+    {
+        judged.long_context_retry = Some(crate::tools::judgment::LongContextRetry {
+            refused_calls: 1,
+            unreported_calls: 0,
+        });
+    }
+    let output = reply::resources_answered(
+        &row,
+        vec![
+            resource("ok", local("ok.rs"), ok),
+            resource("bad", local("bad.rs"), failed_with(error)),
+        ],
+        vec![notice.into()],
+        true,
+    );
+    assert_eq!(output["warnings"], json!([notice]), "{output}");
+    assert!(output.get("hints").is_none(), "{output}");
+    assert!(
+        output["resources"]["ok"]["warnings"][0]
+            .as_str()
+            .is_some_and(|warning| warning.contains("40 input tokens billed")),
+        "{output}"
+    );
+    assert!(
+        output["resources"]["bad"]["hints"]
+            .as_array()
+            .expect("failed resource recovery")
+            .iter()
+            .any(|hint| hint == "Check the provider response."),
+        "{output}"
+    );
+}

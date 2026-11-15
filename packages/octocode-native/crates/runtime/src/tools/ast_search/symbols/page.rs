@@ -123,7 +123,7 @@ pub(crate) fn render_page(
     // `limit` bounds top-level declarations, each shown with its members, so
     // the rows returned can exceed it: say so where a limit meets members.
     if q.limit.is_some() && rows.len() > cut.top_level {
-        crate::response::result::add_hints(
+        crate::response::paging::push_warnings(
             &mut out,
             [format!(
                 "limit counts top-level declarations: {} shown with {} members.",

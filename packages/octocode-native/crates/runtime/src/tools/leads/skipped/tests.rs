@@ -88,7 +88,12 @@ fn every_tool_discloses_skipped_paths_in_one_shape() {
         out.get("partialReasons").is_none(),
         "the requested walk was whole"
     );
-    assert!(out["hints"][0].as_str().expect("hint").contains("unproven"));
+    assert!(
+        out["warnings"][0]
+            .as_str()
+            .expect("warning")
+            .contains("unproven")
+    );
     assert_eq!(out["calls"]["includeSkipped"]["kind"], "related");
     let row = &out["calls"]["includeSkipped"]["input"]["queries"][0];
     assert_eq!(row["includeIgnored"], true, "{row}");

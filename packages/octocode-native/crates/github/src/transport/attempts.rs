@@ -88,6 +88,7 @@ impl<'a> Attempts<'a> {
     pub(super) async fn run(mut self) -> Result<ResponsePage, ProviderError> {
         loop {
             let admission = self.admit().await?;
+            let sent = Instant::now();
             let Some(response) = self.send().await? else {
                 // Release permits before backing off.
                 drop(admission);
@@ -95,10 +96,11 @@ impl<'a> Attempts<'a> {
                 continue;
             };
             let status = response.status();
-            let headers = response.headers().clone();
+            let mut headers = response.headers().clone();
             *self.failed = None;
             self.state.observe(&headers, self.resource.bucket());
             if status == StatusCode::NOT_MODIFIED && self.spec.is_conditional() {
+                octocode_io::http::account_response_delay(&mut headers, sent.elapsed());
                 drop(admission);
                 self.state.record_success();
                 return Ok(self.page(status, headers, bytes::Bytes::new(), None));
@@ -111,6 +113,7 @@ impl<'a> Attempts<'a> {
             if status.is_success() {
                 let next = parse_next(&headers)?;
                 let body = read_bounded(response, self.context).await?;
+                octocode_io::http::account_response_delay(&mut headers, sent.elapsed());
                 drop(admission);
                 self.state.record_success();
                 return Ok(self.page(status, headers, body, next));

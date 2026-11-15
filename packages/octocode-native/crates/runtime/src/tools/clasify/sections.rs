@@ -94,6 +94,18 @@ struct Session {
     /// restart a cursor of the plan offers once its source changed.
     #[serde(default)]
     request: Value,
+    /// Source expansion facts retained before inference, then moved into the
+    /// first saved batch so an interrupted first assessment cannot lose them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_disclosures: Option<Value>,
+}
+
+impl Session {
+    fn push_batch(&mut self, output: &Value) -> Option<Value> {
+        let disclosures = self.source_disclosures.take();
+        self.batches.push(output.clone());
+        disclosures
+    }
 }
 
 pub(super) struct Outcome {
@@ -227,16 +239,9 @@ pub(super) fn run(
             });
         };
         if let Some(saved) = session.batches.get(ordinal) {
-            let mut output = saved.clone();
-            output["usage"] = serde_json::to_value(ClassificationUsage::default().output())
-                .unwrap_or(Value::Null);
-            // A replay bills nothing: the batch's retry notice went with
-            // its usage.
-            if let Some(output) = output.as_object_mut() {
-                output.remove("hints");
-            }
-            output["replayed"] = json!(true);
-            return Ok(Outcome { output });
+            return Ok(Outcome {
+                output: replayed(saved),
+            });
         }
         if ordinal != session.batches.len() {
             return Err(bad_token(
@@ -262,19 +267,37 @@ pub(super) fn run(
             capture::Grain::Plan,
         )?
     };
+    let mut disclosures = json!({});
+    crate::response::paging::push_warnings(&mut disclosures, notices);
+    for call in related {
+        crate::response::result::attach_related(&mut disclosures, call);
+    }
+    if disclosures
+        .as_object()
+        .is_some_and(|fields| !fields.is_empty())
+    {
+        session.source_disclosures = Some(disclosures);
+    }
     session.github_identity = dispatcher.retained_github_identity(context)?;
     session.request = crate::response::result::fresh_query_row(crate::id::ToolId::Clasify, input);
     // The batch saves the whole frozen plan before any provider request
     // (and after it), so a fresh plan needs no save of its own.
     let key = runtime.sessions.key(&runtime.access, &session.id);
     let _process_lock = runtime.sessions.transaction_lock(&key, context)?;
-    let mut outcome = assess_and_save(&mut session, 0, dispatcher, context, runtime, shared)?;
-    // What a glob's walk withheld, said on the first batch.
-    crate::response::result::add_hints(&mut outcome.output, notices);
-    for call in related {
-        crate::response::result::attach_related(&mut outcome.output, call);
+    assess_and_save(&mut session, 0, dispatcher, context, runtime, shared)
+}
+
+/// Replaying a saved evaluation spends nothing and keeps its evidence,
+/// including warnings about the original evaluation and source coverage.
+fn replayed(saved: &Value) -> Value {
+    let mut output = saved.clone();
+    output["usage"] =
+        serde_json::to_value(ClassificationUsage::default().output()).unwrap_or(Value::Null);
+    if let Some(output) = output.as_object_mut() {
+        output.remove("hints");
     }
-    Ok(outcome)
+    output["replayed"] = json!(true);
+    output
 }
 
 /// The batch a continuation ends with when the previous process stopped

@@ -17,8 +17,6 @@ const WAVE_2: &[&str] = &[
     "B4 echo | graphQuery | graph.root <- request path",
     "B4 echo | graphQuery | rows[].kind <- request kind",
     "B4 echo | securityCheck | advisories[].id <- request id",
-    "B5 stated once | graphQuery | rows[].kind",
-    "B5 stated once | graphQuery | rows[].language",
 ];
 
 /// Wave 4 (listing, paging, continuation, status): one pagination type, every
@@ -46,9 +44,6 @@ const UNRANKED: &[&str] = &[
     "B5 stated once | astSearch | files[].symbols[].exported",
     "B5 stated once | astSearch | files[].symbols[].kind",
     "B5 stated once | ghSearchHistory | pullRequests[].state",
-    "B5 stated once | graphQuery | rows[].exported",
-    "B5 stated once | graphQuery | rows[].fanIn",
-    "B5 stated once | graphQuery | rows[].match",
     "B5 stated once | graphQuery | rows[].sites",
 ];
 

@@ -6,7 +6,7 @@
 //! [`super::hydrate`].
 use super::super::Net;
 use super::{Ask, malformed, post};
-use crate::providers::artifact::ArtifactError;
+use crate::providers::artifact::{ArtifactError, ArtifactHttpResponse};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -78,9 +78,9 @@ async fn request(net: &Net<'_>, chunk: &[PageQuery<'_>]) -> Vec<Result<Page, Art
     let body = match kept_list(net, &asked) {
         Some(body) => body,
         None => match post(net, "querybatch", &asked, &target).await {
-            Ok(body) => {
-                keep_list(net, &asked, &body);
-                body
+            Ok(response) => {
+                keep_list(net, &asked, &response);
+                response.body
             }
             Err(error) => return failed(error),
         },
@@ -121,19 +121,29 @@ fn kept_list(net: &Net<'_>, asked: &Value) -> Option<Vec<u8>> {
         Some(octocode_github::SEARCH_REUSE_WINDOW),
         now_millis(),
     );
-    if reuse != octocode_github::Reuse::Window {
-        return None;
+    match reuse {
+        octocode_github::Reuse::Fresh => {}
+        octocode_github::Reuse::Window => net.reused.record(saved.observed_ms),
+        _ => return None,
     }
-    net.reused.record(saved.observed_ms);
     Some(saved.answer.body.as_bytes().to_vec())
 }
 
 /// Keeps a list answer for a repeat of the same request ([`kept_list`]).
-fn keep_list(net: &Net<'_>, asked: &Value, body: &[u8]) {
+fn keep_list(net: &Net<'_>, asked: &Value, response: &ArtifactHttpResponse) {
     let (Some(store), Some((scope, identity))) = (net.answers, list_key(net, asked)) else {
         return;
     };
-    let Ok(text) = std::str::from_utf8(body) else {
+    if !octocode_github::worth_keeping(
+        &response.headers,
+        false,
+        Some(octocode_github::SEARCH_REUSE_WINDOW),
+    ) {
+        store.forget(&scope, &identity);
+        return;
+    }
+    let Ok(text) = std::str::from_utf8(&response.body) else {
+        store.forget(&scope, &identity);
         return;
     };
     store.save(
@@ -142,8 +152,8 @@ fn keep_list(net: &Net<'_>, asked: &Value, body: &[u8]) {
         octocode_github::SavedAnswer {
             answer: octocode_github::ProviderAnswer {
                 request: identity.clone(),
-                status: 200,
-                headers: Vec::new(),
+                status: response.status,
+                headers: response.headers.clone(),
                 body: text.to_owned().into(),
                 next: None,
                 not_found: None,

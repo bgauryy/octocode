@@ -26,12 +26,20 @@ The one retry rule for failed steps, timeouts and cancellations:
 | Symptom | Fix |
 |---|---|
 | `STALE_SNAPSHOT_REF`; `DOM_BLOCKED not visible` after a hover/menu | Auto-recovered by role+name; else layout shifted: re-snapshot or use the `[NEW]` refs the last action printed |
+| Click blocked by an overlay, visibility or pointer events | Inspect the reported blocker, styles and box in the step's DOM artifact. A deadline can retain the last completed observation; it is not current-state proof. Resolve the blocker and refresh the target before another action. Input is not replayed. |
 | `ERR_ACCESS_DENIED` | Sandbox limits (`script-patterns.md`); `--verbose` lists allowed paths |
 | `[CDP_RETRY_NEEDED]` (exit 2) / `CDP timeout for <method>` | Enable the required domain or fix the method/parameters before retrying |
 | `VERIFY_MISMATCH` / framework ignores value | Try `DOM_ACTION=type` (keystrokes), then `DOM_INPUT=js` (native setter) |
 | Bot/CDN challenge or CAPTCHA | Inspect the challenge; use visible `user-auth` if it persists |
 | Consent wall | Locate the control; after an authorized click, re-navigate |
 | Headless text shows ligature gaps (`Sy tem One`) | Use `octocode-scraping` for clean text |
+
+Readiness checks use the current document's state and requested content. An authored
+`about:blank` or `about:srcdoc` document can be ready. Navigation commit remains the
+navigation owner's responsibility; use visible content or URL postconditions for
+application readiness. If an input acknowledgement is missing, the plan retains
+`outcomeUncertain`; inspect the actual counter, field value or URL before deciding
+whether another action is needed.
 
 ## Protocol
 

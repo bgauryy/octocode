@@ -97,11 +97,9 @@ async fn a_text_answer_is_its_values_and_tokens_by_default() {
     runtime.close().await;
 }
 
-/// A source row keeps what the next call needs: how much was judged and the
-/// read of it. On a source shorter than a `sections` lead, that lead goes.
-/// The source is one line, so its yes names no lines and the lead is offered.
+/// Both views retain the captured source read without optional sections advice.
 #[tokio::test]
-async fn a_source_summary_keeps_its_read_and_drops_a_lead_longer_than_the_source() {
+async fn source_views_keep_required_reads_without_optional_sections_advice() {
     let server = provider().await;
     let workspace = Workspace::new();
     workspace.write("tiny.rs", "fn a() {} fn b() { planted() } fn c() {}\n");
@@ -121,12 +119,8 @@ async fn a_source_summary_keeps_its_read_and_drops_a_lead_longer_than_the_source
     assert_eq!(short["readChars"], whole["readChars"], "{summary}");
     assert!(short["next"]["read"].is_object(), "{summary}");
     assert!(short.get("related").is_none(), "{summary}");
-    let lead = whole["related"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|call| call["tool"] == "clasify");
-    assert!(lead.is_some(), "details keeps the sections lead: {details}");
+    assert!(whole["next"]["read"].is_object(), "{details}");
+    assert!(whole.get("related").is_none(), "{details}");
     runtime.close().await;
 }
 

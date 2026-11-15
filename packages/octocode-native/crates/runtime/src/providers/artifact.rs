@@ -23,7 +23,7 @@ use crate::providers::artifact::query::artifact_type;
 #[cfg(test)]
 pub(crate) use http::ArtifactHttpFuture;
 pub use http::{ArtifactHttp, SystemArtifactHttp};
-pub(crate) use http::{ArtifactHttpRequest, JSON, rejection_detail};
+pub(crate) use http::{ArtifactHttpRequest, ArtifactHttpResponse, JSON, rejection_detail};
 pub(crate) use npm::registry::invalid_registry_url;
 pub(crate) use npmrc::npm_authorization;
 use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};

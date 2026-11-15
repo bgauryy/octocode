@@ -5,6 +5,7 @@ import { collectRefs } from '../ax-snapshot.mjs';
 import { readDomConfig, readSteps } from './dom-config.mjs';
 import { locateWhenReady } from './dom-locate.mjs';
 import { runStep, waitForText } from './dom-act.mjs';
+import { actionabilityReason } from './dom-failure.mjs';
 import { recordNewRefs } from './dom-ref-diff.mjs';
 import type { Session } from '../cdp-connection.mjs';
 import type { RunnerSession } from '../cdp-runner-session.mjs';
@@ -35,8 +36,7 @@ type StepRow = {
 
 const REASONS: Record<string, (details: StepDetails, step: DomStep) => string> =
   {
-    'blocked-by-actionability': d =>
-      `DOM_BLOCKED ${[!d.visible && 'not visible (hidden, zero-size or off-screen; re-snapshot: refs may have shifted)', d.disabled && 'disabled', d.covered && `covered by ${d.coveredBy}`, d.stable === false && 'still moving (animation)'].filter(Boolean).join('; ') || 'actionability check failed'}`,
+    'blocked-by-actionability': d => `DOM_BLOCKED ${actionabilityReason(d)}`,
     'not-fillable': d =>
       `DOM_NOT_FILLABLE ${d.role} is not an editable field; pick a textbox/searchbox/contenteditable ref`,
     'not-checkable': d =>

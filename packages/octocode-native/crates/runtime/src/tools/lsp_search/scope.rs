@@ -96,9 +96,6 @@ const PROJECT_FILES: [&str; 20] = [
 /// keeps its length and mtime. The fingerprint proves a continuation's
 /// scope revision and the watched-file diff, so both need it.
 pub(super) const FRESH_MTIME: Duration = Duration::from_secs(2);
-/// A larger unsettled source leaves the walk without a fingerprint rather
-/// than reading it whole: the revision then covers the anchor text alone.
-pub(super) const FRESH_CONTENT_MAX_BYTES: usize = 1024 * 1024;
 
 /// The reach of the anchor's declaration of one symbol, once read (`None`:
 /// no bound is known).
@@ -239,10 +236,10 @@ impl Scope {
 
     /// The request's one scope walk: the first caller walks (as of
     /// `observed`, see [`Self::walk_fingerprint`]) and every later caller
-    /// reuses it, whatever instant it would have observed. Its two
-    /// consumers are the continuation revision (its digest) and the
-    /// watched-file diff (its entries), and a request that needs neither
-    /// never walks. A stopped walk is not kept.
+    /// reuses it, whatever instant it would have observed. Continuations use
+    /// this pinned observation; watched-file synchronization always captures a
+    /// current fingerprint under its lock and may supply the first observation. A stopped
+    /// walk is not kept.
     pub(super) async fn walked(
         &self,
         observed: SystemTime,
@@ -260,18 +257,24 @@ impl Scope {
             observed,
             fingerprint: self.walk_fingerprint(observed, cancel).await?,
         };
-        *self
-            .walked
+        Ok(self.remember_walk(walked))
+    }
+
+    /// Keep the first observation for continuation proof. A successful watcher
+    /// capture can supply it, but must never replace a continuation's pinned one.
+    pub(super) fn remember_walk(&self, walked: Walked) -> Walked {
+        self.walked
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(walked.clone());
-        Ok(walked)
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get_or_insert(walked)
+            .clone()
     }
 
     /// This request's scope fingerprint as of `observed`
     /// ([`WalkInputs::fingerprint`]) on a blocking worker that follows
     /// `cancel`. After a walk with no fingerprint (the request stopped it, or
-    /// a file could not be stamped or digested) the request's revision covers
-    /// the anchor text alone and it sends no watched-file events.
+    /// a file could not be stamped or digested), watched-file synchronization
+    /// must refuse to accept the server's index as current.
     pub(super) async fn walk_fingerprint(
         &self,
         observed: SystemTime,

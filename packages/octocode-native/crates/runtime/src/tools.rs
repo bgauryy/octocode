@@ -47,21 +47,6 @@ pub(crate) mod test_support;
 pub(crate) mod variant_field;
 pub(crate) mod workers;
 
-/// Listings this small lead to an outline read of their top file
-/// (`read`, `minify:"symbols"`): a few files, so one more read costs
-/// little.
-pub(crate) const OUTLINE_LEAD_MAX_FILES: usize = 5;
-
-/// Whether a `minify:"symbols"` read outlines `path`: source declarations or
-/// document headings.
-pub(crate) fn outlines(path: &str) -> bool {
-    use crate::content::{FileType, classify_file_type};
-    matches!(
-        classify_file_type(path),
-        Some(FileType::Code | FileType::Doc)
-    )
-}
-
 /// The final component of `path` (lossy UTF-8), or "" when it has none.
 pub(crate) fn display_name(path: &std::path::Path) -> String {
     path.file_name()

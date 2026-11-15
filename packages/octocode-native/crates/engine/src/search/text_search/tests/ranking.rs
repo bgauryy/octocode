@@ -256,3 +256,147 @@ fn relevance_ranks_alternation_coverage_before_hit_count() {
     );
     assert_eq!(rank("retry"), ["flood.rs", "two.rs", "all.rs"]);
 }
+
+/// A file the caller's [`crate::types::TestCodeRank`] names test code (a module
+/// mounted only under test, which no spelling shows) ranks after the source
+/// file declaring the same name, as a test file by its path does.
+#[test]
+fn relevance_ranks_a_caller_named_test_file_after_the_source_declaration() {
+    let t = TmpDir::new();
+    t.write("a_support.rs", "fn needle() {}\n");
+    t.write("b_source.rs", "pub fn needle() {}\n");
+    let mut o = opts(t.path(), "needle");
+    o.sort = SearchSort::Relevance;
+    let names = |o: &TextSearchOptions| {
+        search(o.clone())
+            .expect("ok")
+            .files
+            .iter()
+            .map(|f| f.path.rsplit('/').next().unwrap_or_default().to_owned())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        names(&o),
+        ["a_support.rs", "b_source.rs"],
+        "path order alone"
+    );
+    o.test_code_rank = Some(crate::types::TestCodeRank {
+        test_path: Arc::new(|path: &Path| path.ends_with("a_support.rs")),
+        spans: Arc::new(|_| Arc::new(Vec::new())),
+    });
+    assert_eq!(names(&o), ["b_source.rs", "a_support.rs"]);
+}
+
+/// The callback's span verdict is shared by every matched row of a file.
+/// Test density/declaring hits never inflate a mixed file's source rank.
+#[test]
+fn relevance_inline_spans_preserve_counts_and_source_priority() {
+    let t = TmpDir::new();
+    t.write("a_mixed.rs", "fn run() { needle(); }\n#[cfg(test)]\nmod checks {\n    fn needle() {}\n    fn check() {\n        needle();\n        needle();\n    }\n}\n");
+    t.write(
+        "b_two.rs",
+        "fn first() { needle(); }\nfn second() { needle(); }\n",
+    );
+    t.write("c_source.rs", "pub fn needle() {}\n");
+    t.write("d_inline.rs", "pub fn other() {}\n#[cfg(test)]\nmod checks {\n    fn needle() {}\n    fn check() {\n        needle();\n        needle();\n    }\n}\n");
+    t.write("e_unmatched.rs", "pub fn other() {}\n");
+    for (values, context) in [
+        (SourceValues::Owned, crate::types::SearchContext::default()),
+        (
+            SourceValues::Deferred,
+            crate::types::SearchContext::default(),
+        ),
+        (
+            SourceValues::Owned,
+            crate::types::SearchContext::symmetric(1),
+        ),
+    ] {
+        let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = Arc::clone(&reads);
+        let mut options = opts(t.path(), "needle");
+        options.sort = SearchSort::Relevance;
+        options.values = values;
+        options.context = context;
+        options.test_code_rank = Some(crate::types::TestCodeRank {
+            test_path: Arc::new(|_| false),
+            spans: Arc::new(move |path| {
+                counted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                Arc::new(
+                    if path.ends_with("a_mixed.rs") || path.ends_with("d_inline.rs") {
+                        vec![[2, 9]]
+                    } else {
+                        Vec::new()
+                    },
+                )
+            }),
+        });
+        let result = search(options.clone()).expect("search");
+        let names = |result: &TextSearchResult| {
+            result
+                .files
+                .iter()
+                .map(|file| {
+                    Path::new(&file.path)
+                        .file_name()
+                        .expect("name")
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            names(&result),
+            ["c_source.rs", "b_two.rs", "a_mixed.rs", "d_inline.rs"]
+        );
+        assert_eq!(
+            result
+                .files
+                .iter()
+                .map(|file| file.match_count)
+                .collect::<Vec<_>>(),
+            [1, 2, 4, 3],
+            "full counts unchanged"
+        );
+        assert_eq!(
+            reads.load(std::sync::atomic::Ordering::Relaxed),
+            result.files.len(),
+            "one span read per matched file; none for the unmatched file"
+        );
+        let mixed = &result.files[2];
+        let production = mixed
+            .matches
+            .iter()
+            .find(|hit| hit.line == 1)
+            .expect("source hit");
+        let declaration = mixed
+            .matches
+            .iter()
+            .find(|hit| hit.line == 4)
+            .expect("test declaration");
+        assert!(
+            production.rank > declaration.rank,
+            "source code precedes a test declaration"
+        );
+        assert!(
+            declaration.is_declaration(),
+            "ranking preserves declaration identity"
+        );
+        options.sort_reverse = Some(true);
+        let reverse = search(options.clone()).expect("reverse");
+        let mut expected = names(&result);
+        expected.reverse();
+        assert_eq!(names(&reverse), expected);
+        let before_path = reads.load(std::sync::atomic::Ordering::Relaxed);
+        options.sort = SearchSort::Path;
+        options.sort_reverse = None;
+        assert_eq!(
+            names(&search(options).expect("path")),
+            ["a_mixed.rs", "b_two.rs", "c_source.rs", "d_inline.rs"]
+        );
+        assert_eq!(
+            reads.load(std::sync::atomic::Ordering::Relaxed),
+            before_path,
+            "path sort does not read inline spans"
+        );
+    }
+}

@@ -256,6 +256,48 @@ fn css_and_scss_compact_by_their_grammars() {
     );
 }
 
+/// CSS consumes comments without producing whitespace. Replacing one with a
+/// space changes a compound selector into a descendant; deleting one can join
+/// two identifier tokens. A preceding space may itself belong to an escape.
+#[test]
+fn css_comments_keep_token_boundaries_without_creating_descendants() {
+    for path in ["m.css", "m.scss"] {
+        let source = concat!(
+            "/* removable header */\n",
+            ".a/**/.b { color: red; }\n",
+            "div/**/span { color: blue; }\n",
+            ".α/* multi\nline */.β { color: green; }\n",
+            ".a /* kept boundary */.b { color: red; }\n",
+            ".a/* removable right */ .b { color: blue; }\n",
+            ".a/**//**/.b { color: green; }\n",
+            ".\\61 /**/.b { color: red; }\n",
+            ".a\\ /**/.b { color: blue; }\n",
+            ".s { content: '/* literal */'; background: url(//cdn/x); }\n",
+        );
+        let view = compact(source, path);
+        for boundary in [
+            ".a/**/.b",
+            "div/**/span",
+            ".α/* multi\nline */.β",
+            ".a/**//**/.b",
+            ".\\61 /**/.b",
+            ".a\\ /**/.b",
+        ] {
+            assert!(
+                view.contains(boundary),
+                "{path}: lost {boundary:?}: {view:?}"
+            );
+        }
+        assert!(!view.contains("removable"), "{path}: {view:?}");
+        assert!(
+            view.contains(".a .b"),
+            "{path}: descendant space lost: {view:?}"
+        );
+        assert!(view.contains("'/* literal */'"), "{path}: {view:?}");
+        assert!(view.contains("url(//cdn/x)"), "{path}: {view:?}");
+    }
+}
+
 #[test]
 fn a_token_with_whitespace_inside_stays_whole() {
     let view = compact("#  define A 1\n#\tif A\n#  endif\n", "m.c");

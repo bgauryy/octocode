@@ -62,3 +62,48 @@ fn a_fingerprint_with_a_fresh_file_is_not_kept() {
     of(&root, now);
     assert_eq!(fingerprints::of(&root), 2);
 }
+
+/// A later settled observation must not change the shape of an earlier pinned
+/// revision: unchanged bytes still carry their hash at that earlier instant.
+#[test]
+fn a_settled_cache_preserves_an_earlier_fresh_observation() {
+    let (_dir, root) = fixture();
+    std::fs::create_dir_all(root.join(".git")).expect("git");
+    let source = root.join("a.go");
+    write(&source, "package a\n");
+    let modified = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_600_000_000);
+    std::fs::File::options()
+        .write(true)
+        .open(&source)
+        .expect("source")
+        .set_times(std::fs::FileTimes::new().set_modified(modified))
+        .expect("mtime");
+    settle_written_so_far();
+    let fresh_at = modified + FRESH_MTIME / 2;
+    let settled_at = modified + FRESH_MTIME * 2;
+    let fresh = of(&root, fresh_at);
+    assert!(fresh.1["a.go"].ends_with(&octocode_engine::digest::sha256(b"package a\n")));
+    let settled = of(&root, settled_at);
+    assert_ne!(fresh.0, settled.0, "the two observation shapes must differ");
+    assert!(settled.1["a.go"].ends_with('\0'));
+    let walks = fingerprints::of(&root);
+    assert_eq!(of(&root, settled_at), settled);
+    assert_eq!(
+        fingerprints::of(&root),
+        walks,
+        "the intervening settled capture is cached"
+    );
+
+    let historical = of(&root, fresh_at);
+    assert_eq!(
+        historical, fresh,
+        "cache history cannot change a pinned revision of unchanged files"
+    );
+    let walks = fingerprints::of(&root);
+    assert_eq!(of(&root, settled_at), settled);
+    assert_eq!(
+        fingerprints::of(&root),
+        walks,
+        "the earlier lookup preserves the useful settled cache"
+    );
+}

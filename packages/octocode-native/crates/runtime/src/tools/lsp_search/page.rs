@@ -233,8 +233,10 @@ pub(super) async fn run_target(
     }
     // An outline reads only the anchor, which its open synchronized: no other
     // file's change bears on it, so it walks no scope.
-    if lsp_search_query::op(query) != Op::DocumentSymbols {
-        sync_watched_files(&scope, &session.client, cancel).await?;
+    if lsp_search_query::op(query) != Op::DocumentSymbols
+        && let Some(walked) = sync_watched_files(&scope, &session.client, cancel).await?
+    {
+        scope.remember_walk(walked);
     }
     // One request reads each snippet file once, however many responses
     // name it.
@@ -309,7 +311,9 @@ pub(super) async fn run_target(
     // is recorded now, so the next request names what changed since.
     if lsp_search_query::op(query) != Op::DocumentSymbols && !session.client.has_watched_snapshot()
     {
-        sync_watched_files(&scope, &session.client, cancel).await?;
+        // This observation follows provider reads. Keep it for future file
+        // events, but let sealing prove whether these already-read rows changed.
+        let _ = sync_watched_files(&scope, &session.client, cancel).await?;
     }
     let answers_sites = matches!(lsp_search_query::op(query), Op::References | Op::Callers);
     // A same-spelled site the answer does not list is a missing use only

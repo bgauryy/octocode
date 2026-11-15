@@ -228,6 +228,77 @@ pub(super) fn ranked(
     Ok(hits)
 }
 
+/// Whether `hit`, a ranked match of `text`, is a near name of it, one that may
+/// stand in for a reference no node has: it matches the whole text (as
+/// written, or with one typo), or the query words its name spells, each as
+/// written, as a prefix or with one typo, hold more of the text's characters
+/// than the words it leaves out. A node that spells less shares a word, not
+/// the name: the `find` lead lists it.
+pub(super) fn is_near(g: &Graph, text: &str, hit: &Hit) -> bool {
+    if hit.tier != Tier::Words {
+        return true;
+    }
+    let terms = Terms::new(g, hit.id);
+    let compact = |text: &str| {
+        text.chars()
+            .filter(|c| c.is_alphanumeric())
+            .flat_map(char::to_lowercase)
+            .collect::<String>()
+    };
+    let name = g.t.str(g.t.nodes[hit.id as usize].name);
+    if one_typo(&compact(text), &compact(name)) {
+        return true;
+    }
+    let (mut spelled, mut left) = (0, 0);
+    for word in identifier_words(text) {
+        let size = word.chars().count();
+        if terms
+            .name_parts
+            .iter()
+            .any(|part| part.starts_with(word.as_str()) || one_typo(&word, part))
+        {
+            spelled += size;
+        } else {
+            left += size;
+        }
+    }
+    spelled > left
+}
+
+/// Whether one edit (a character inserted, removed or replaced, or two
+/// neighbors swapped) turns `a` into `b`, leaving more of the shorter in
+/// place than it changes: two letters one edit apart are different words.
+fn one_typo(a: &str, b: &str) -> bool {
+    let (a, b) = (a.chars().collect::<Vec<_>>(), b.chars().collect::<Vec<_>>());
+    let (short, long) = if a.len() <= b.len() {
+        (&a, &b)
+    } else {
+        (&b, &a)
+    };
+    let prefix = short
+        .iter()
+        .zip(long.iter())
+        .take_while(|(x, y)| x == y)
+        .count();
+    if long.len() == short.len() + 1 {
+        // Insertion: the rest matches one character on.
+        return short[prefix..] == long[prefix + 1..] && short.len() > 1;
+    }
+    if long.len() != short.len() || prefix == short.len() {
+        return false;
+    }
+    if short[prefix + 1..] == long[prefix + 1..] {
+        // Replacement.
+        return short.len() - 1 > 1;
+    }
+    // Swap of two neighbors.
+    prefix + 1 < short.len()
+        && short[prefix] == long[prefix + 1]
+        && short[prefix + 1] == long[prefix]
+        && short[prefix + 2..] == long[prefix + 2..]
+        && short.len() - 2 > 2
+}
+
 impl Graph {
     /// Ranking counts incoming edges: tables decoded without an edge index
     /// take the counts from the snapshot's lookup section instead.

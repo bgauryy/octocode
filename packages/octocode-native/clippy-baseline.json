@@ -20,7 +20,6 @@
       "crates/runtime/src/response/symbol_outline.rs": 1,
       "crates/runtime/src/tools/empty_walk/tagged.rs": 1,
       "crates/runtime/src/tools/gh_get_history_item/inventory/review.rs": 1,
-      "crates/runtime/src/tools/gh_get_history_item/patch/locate.rs": 1,
       "crates/runtime/src/tools/gh_search_code/code_output/index_ref.rs": 1,
       "crates/runtime/src/tools/large_source/held.rs": 3,
       "crates/runtime/src/tools/structure_search/listing/walk.rs": 1,
@@ -108,8 +107,8 @@
     },
     "io": {
       "crates/io/src/budget.rs": 2,
-      "crates/io/src/memo/budget.rs": 1,
-      "crates/io/src/retry.rs": 1
+      "crates/io/src/http/date.rs": 1,
+      "crates/io/src/memo/budget.rs": 1
     },
     "runtime": {
       "crates/runtime/src/cache/disk.rs": 2,

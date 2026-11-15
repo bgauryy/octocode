@@ -106,17 +106,19 @@ pub(super) fn source_of(root: &std::path::Path, file: &SearchFile) -> std::path:
 pub(super) const READ_HANDOFF_CONTEXT: u32 = 6;
 
 /// `(start, end)` windows of `context` lines around each line, merged where
-/// they overlap or touch, in line order. A window that runs past the file's
-/// end is clipped by the read it feeds, so the file is never read for its
-/// length.
+/// they overlap or touch, in line order, ending at the file's `last` line
+/// when the search counted it. The file is never read again for its length:
+/// a window of a file whose lines are unknown is clipped by the read it feeds.
 pub(super) fn hit_windows(
     lines: impl IntoIterator<Item = u32>,
     context: SearchContext,
+    last: Option<u32>,
 ) -> Vec<(u32, u32)> {
     crate::tools::line_spans::merge_spans(lines.into_iter().map(|line| {
+        let end = line.saturating_add(context.after);
         (
             line.saturating_sub(context.before).max(1),
-            line.saturating_add(context.after),
+            last.map_or(end, |last| end.min(last).max(line)),
         )
     }))
 }
@@ -151,6 +153,7 @@ pub(super) fn read_handoff(
     let windows = hit_windows(
         hits.iter().flat_map(row_lines),
         SearchContext::symmetric(context),
+        top.lines,
     );
     let fits = windows.len() <= RANGES_MAX_ITEMS;
     // localFetch matches line by line: a multiline search's hits are not

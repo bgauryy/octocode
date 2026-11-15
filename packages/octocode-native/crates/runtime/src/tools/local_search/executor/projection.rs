@@ -214,6 +214,7 @@ fn project_files(
                 next: None,
                 path: f.path,
                 match_keys: Vec::new(),
+                lines: f.source.and_then(|source| source.lines),
             }
         })
         .collect::<Vec<_>>();

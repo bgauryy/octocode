@@ -18,7 +18,7 @@ fn the_hidden_lead_keeps_the_exclude_anchored_to_the_scan_root() {
     );
     assert_eq!(out["status"], "empty", "{out}");
     assert!(
-        out["hints"]
+        out["warnings"]
             .as_array()
             .is_some_and(|hints| hints.iter().any(|hint| hint
                 .as_str()
@@ -135,9 +135,9 @@ fn an_ignored_symbol_leads_to_its_own_scope_with_the_ignore_flags_lifted() {
     let out = empty_outline(&root.0, json!({"symbolFilter":{"terms":["ignoredSym"]}}));
     assert_eq!(out["status"], "empty", "{out}");
     assert!(out["next"].get("narrowScope").is_none(), "{out}");
-    let hints = out["hints"].to_string();
+    let hints = out["warnings"].to_string();
     assert!(hints.contains("1 outlinable file"), "{hints}");
-    checks::assert_absent(&out["hints"], ".hidden");
+    checks::assert_absent(&out["warnings"], ".hidden");
     let lead = skipped_lead(&out);
     assert_eq!(lead["path"], json!(root.0.to_string_lossy()), "{out}");
     assert_eq!(lead["includeIgnored"], json!(true), "{out}");
@@ -192,7 +192,7 @@ fn a_symbol_behind_hidden_and_ignored_paths_gets_one_lead_lifting_both() {
         1,
         "{out}"
     );
-    let hints = out["hints"].to_string();
+    let hints = out["warnings"].to_string();
     assert!(hints.contains("hidden .hidden/"), "{hints}");
     assert!(hints.contains(".gitignore:1 'build/'"), "{hints}");
     let lead = skipped_lead(&out);
@@ -244,7 +244,7 @@ fn an_outline_leaves_out_gitignored_files_and_leads_to_them() {
     assert_eq!(kept["filesScanned"], 1, "{kept}");
     let out = empty_outline(&root.0, json!({"symbolFilter":{"terms":["zzGenerated"]}}));
     assert_eq!(out["status"], "empty", "{out}");
-    let hints = out["hints"].to_string();
+    let hints = out["warnings"].to_string();
     assert!(hints.contains(".gitignore:1 'gen/'"), "{hints}");
     let lead = super::super::test_rows::skipped_call(&out)
         .unwrap_or_else(|| panic!("missing skipped-scope lead: {out}"))["input"]["queries"][0]

@@ -280,7 +280,7 @@ pub(super) fn execute_listing<Q: Listing>(
     let prefix = listing_prefix(paths, root);
     let deferred_detail = q.view() == StructureSearchView::Details
         && super::files::sort_key(&q.sort())
-            != Some(octocode_contract_types::StructureSearchSortAnyOrderBy::LineCount);
+            != Some(octocode_contract_types::StructureSearchSortAnyOrderBy::TotalLines);
     let pages = walk.pages(PageCut {
         prefix: prefix.clone(),
         view: q.view(),
@@ -385,7 +385,7 @@ fn listing_page<Q: Listing>(
     }
     let mut warnings = Vec::new();
     cut.finish(&mut out, q, &mut warnings);
-    // The walk's summary, what it skipped, its retries and its read
+    // The walk's summary, what it skipped and its retries
     // describe the whole listing: page 1 states them once, and a sorted walk
     // states them when it ends (its paused windows carry them there).
     if page == 1 && walk.meta.time_window != super::cut::TimeWindow::Paused {
@@ -401,9 +401,6 @@ fn listing_page<Q: Listing>(
             fields.remove("summary");
         }
         lead_to_skipped(&mut out, q, &walk.meta.uncovered, q.walk(), q.filtered());
-        if let Some(read) = rows::read_lead(&walk.rows[shown], root) {
-            out["calls"]["read"] = read;
-        }
     }
     let (include, exclude) = q.globs();
     let query_notes = crate::policy::include::parent_glob_warning(include, exclude)

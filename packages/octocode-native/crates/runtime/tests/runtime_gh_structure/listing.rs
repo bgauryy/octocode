@@ -194,13 +194,13 @@ async fn a_renamed_repository_is_listed_and_continued_under_its_canonical_name()
         1,
         "{data}"
     );
-    let read = &crate::support::checks::related_call(data, "ghGetFileContent", |_| true)["input"]["queries"]
-        [0];
     assert_eq!(
-        (read["owner"].as_str(), read["repo"].as_str()),
+        (data["owner"].as_str(), data["repo"].as_str()),
         (Some("c"), Some("d")),
         "{data}"
     );
+    assert!(data.get("related").is_none(), "{data}");
+    octocode_native::contracts::validate("ghGetFileContent", json!({"queries":[{"owner":data["owner"],"repo":data["repo"],"path":"lib.rs","ref":data["commitSha"]}]})).expect("canonical identity forms a valid source request");
     assert!(graphql_requests(&server).await.is_empty());
     runtime.close().await;
 }
@@ -247,11 +247,11 @@ async fn a_renamed_repository_without_a_ref_costs_no_extra_metadata_read() {
         "{data}"
     );
     assert_eq!(
-        crate::support::checks::related_call(data, "ghGetFileContent", |_| true)["input"]["queries"]
-            [0]["owner"],
-        "c",
+        (data["owner"].as_str(), data["repo"].as_str()),
+        (Some("c"), Some("d")),
         "{data}"
     );
+    assert!(data.get("related").is_none(), "{data}");
     runtime.close().await;
 }
 
@@ -262,8 +262,24 @@ async fn a_renamed_repository_without_a_ref_costs_no_extra_metadata_read() {
 async fn a_busy_answer_cache_is_said_in_the_responses_warnings() {
     let server = tree_server(0).await;
     let workspace = Workspace::new();
-    let store = workspace.home.join("cache/provider-answers-v2");
-    std::fs::create_dir_all(&store).expect("store");
+    let warmup = github(&workspace, &server);
+    call(
+        &warmup,
+        "ghStructure",
+        json!({"queries":[{"operation":"tree","owner":"a","repo":"b"}]}),
+    )
+    .await
+    .expect("create the configured provider store");
+    let cleared = warmup.clear_caches().await.expect("clear warmup answers");
+    let cache = workspace.home.join("cache");
+    let stores = cleared
+        .removed
+        .into_iter()
+        .filter(|path| path.parent() == Some(cache.as_path()))
+        .collect::<Vec<_>>();
+    assert_eq!(stores.len(), 1, "one provider store created: {stores:?}");
+    let store = &stores[0];
+    std::fs::create_dir_all(store).expect("store");
     let lock = octocode_io::lock::open_lock_file(&store.join(".capacity.lock")).expect("lock");
     let _held = octocode_io::lock::lock_within(
         lock,
@@ -289,9 +305,10 @@ async fn a_busy_answer_cache_is_said_in_the_responses_warnings() {
         .collect::<Vec<_>>();
     assert_eq!(
         busy,
-        [
-            "The cache store provider-answers-v2 was busy or could not be locked, so something this call found was not saved; a later call reads it again."
-        ],
+        [format!(
+            "The cache store {} was busy or could not be locked, so something this call found was not saved; a later call reads it again.",
+            store.file_name().expect("store name").to_string_lossy()
+        )],
         "{envelope}"
     );
     assert!(

@@ -160,48 +160,138 @@ fn a_path_outside_the_allowed_roots_names_every_setting_a_build_needs() {
     );
 }
 
-/// Graphs scan directories: a file path is refused with its directory named
-/// and, as `related`, the same call at that directory, which then succeeds,
-/// under the workspace's home and under a configured one.
+/// A missing path leads, as on every local tool, to the tree of its nearest
+/// existing parent, on both graph tools.
 #[test]
-fn a_file_path_offers_the_same_call_at_its_directory() {
+fn a_missing_path_leads_to_its_nearest_existing_parent() {
     let dir = Fixture::new();
     dir.write("app/a.ts", "export const a = 1;\n");
-    let root = dir.0.canonicalize().expect("root");
-    let configured = root.join("graphs");
-    let paths = policy(&root, &root);
-    for home in [None, Some(configured.as_path())] {
+    for (tool, row) in [
+        (ToolId::GraphBuild, json!({"path":"app/nope"})),
+        (
+            ToolId::GraphQuery,
+            json!({"operation":"stats","path":"app/nope"}),
+        ),
+    ] {
+        let mut missing = call(&dir.0, tool, row);
+        crate::response::paths::workspace_relative(&mut missing, &workspace_policy(&dir.0));
+        assert_eq!(missing["errorCode"], "notFound", "{missing}");
+        let lead = &missing["related"][0];
+        assert_eq!(lead["tool"], "structureSearch", "{missing}");
+        let tree = &lead["input"]["queries"][0];
+        assert_eq!(tree["operation"], "tree", "{missing}");
+        assert_eq!(tree["path"], "app", "{missing}");
+        assert!(dir.0.join("app").is_dir(), "{missing}");
+    }
+}
+
+/// Runs one validated `tool` row as the runtime does, with `home` as the
+/// configured snapshot home, naming paths as responses do.
+fn run_at(dir: &Path, home: Option<&Path>, tool: ToolId, row: Value) -> Value {
+    let paths = policy(dir, dir);
+    let row = crate::contracts::validate_built_query(tool.as_str(), row).expect("input contract");
+    let result = if tool == ToolId::GraphBuild {
+        let query: GraphBuildQuery = serde_json::from_value(row).expect("typed query");
         let store = Store {
             home,
             ..Store::default()
         };
-        let run = |tool: ToolId, row: Value| {
-            let row =
-                crate::contracts::validate_built_query(tool.as_str(), row).expect("input contract");
-            let result = if tool == ToolId::GraphBuild {
-                let query: GraphBuildQuery = serde_json::from_value(row).expect("typed query");
-                execute_build(&query, &paths, &ContentSecurity::new(), &context(), None, &store)
-            } else {
-                execute_query(&row, &paths, &context(), None, home)
-            };
-            let mut data = result.expect("execute").data;
-            crate::response::paths::workspace_relative(&mut data, &paths);
-            data
+        execute_build(
+            &query,
+            &paths,
+            &ContentSecurity::new(),
+            &context(),
+            None,
+            &store,
+        )
+    } else {
+        execute_query(&row, &paths, &context(), None, home)
+    };
+    let mut data = result.expect("execute").data;
+    crate::response::paths::workspace_relative(&mut data, &paths);
+    data
+}
+
+/// The repair a file-path refusal offers, after checking the refusal names
+/// `dir`, the directory it chose.
+fn repair_of(refused: &Value, dir: &str) -> Value {
+    assert_eq!(refused["errorCode"], "invalidInput", "{refused}");
+    let error = refused["error"].as_str().expect("error");
+    assert!(
+        error.contains("not a file") && error.ends_with(&format!(" {dir}")),
+        "{refused}"
+    );
+    refused["related"][0].clone()
+}
+
+/// Graphs scan directories: a file path is refused with a directory named
+/// and, as `related`, a call there that runs as written and answers: a
+/// build of the file's directory; a query of the pinned graph's own scope,
+/// else of the nearest enclosing scope with a snapshot, else a build of the
+/// file's directory. Each holds under the workspace's home and a configured
+/// one, and each repair runs alone.
+#[test]
+fn a_file_path_offers_a_call_that_answers() {
+    for configured in [false, true] {
+        let dir = Fixture::new();
+        dir.write("ws/app/a.ts", "export const a = 1;\n");
+        let root = dir.0.canonicalize().expect("root");
+        let home = configured.then(|| root.join("graphs"));
+        let run = |tool, row| run_at(&root, home.as_deref(), tool, row);
+        let answers = |lead: &Value| {
+            let answer = run(
+                ToolId::from_name(lead["tool"].as_str().expect("tool")).expect("tool id"),
+                lead["input"]["queries"][0].clone(),
+            );
+            assert!(answer.get("error").is_none(), "{lead} -> {answer}");
         };
-        for (tool, row) in [
-            (ToolId::GraphBuild, json!({"path":"app/a.ts"})),
-            (ToolId::GraphQuery, json!({"operation":"stats","path":"app/a.ts"})),
-        ] {
-            let refused = run(tool, row);
-            assert_eq!(refused["errorCode"], "invalidInput", "{refused}");
-            let error = refused["error"].as_str().expect("error");
-            assert!(error.contains("not a file") && error.ends_with(" app"), "{refused}");
-            let related = &refused["related"][0];
-            assert_eq!(related["tool"], tool.as_str(), "{refused}");
-            let repaired = related["input"]["queries"][0].clone();
-            assert_eq!(repaired["path"], "app", "{refused}");
-            let answer = run(tool, repaired);
-            assert!(answer.get("error").is_none(), "{answer}");
-        }
+        let file = || json!({"operation":"stats","path":"ws/app/a.ts"});
+
+        // No snapshot: both tools lead to a build of the file's directory.
+        let lead = repair_of(
+            &run(ToolId::GraphBuild, json!({"path":"ws/app/a.ts"})),
+            "ws/app",
+        );
+        assert_eq!(lead["tool"], "graphBuild", "{lead}");
+        assert_eq!(lead["input"]["queries"][0]["path"], "ws/app", "{lead}");
+        let lead = repair_of(&run(ToolId::GraphQuery, file()), "ws/app");
+        assert_eq!(lead["tool"], "graphBuild", "{lead}");
+        answers(&lead);
+
+        // A snapshot of the enclosing `ws/app`: the query moves there, unpinned.
+        let lead = repair_of(&run(ToolId::GraphQuery, file()), "ws/app");
+        assert_eq!(lead["tool"], "graphQuery", "{lead}");
+        answers(&lead);
+
+        // A pinned graph of `ws` holds the file: its scope wins over the
+        // nearer `ws/app`, and the pin stays.
+        let whole = run(ToolId::GraphBuild, json!({"path":"ws"}));
+        let pinned = json!({"operation":"stats","path":"ws/app/a.ts","graph":whole["id"]});
+        let lead = repair_of(&run(ToolId::GraphQuery, pinned), "ws");
+        assert_eq!(lead["input"]["queries"][0]["graph"], whole["id"], "{lead}");
+        answers(&lead);
     }
+}
+
+/// A configured home inside the file's directory rules that directory out:
+/// the refusal names both, so the agent picks another directory.
+#[test]
+fn a_file_beside_the_configured_home_names_it() {
+    let dir = Fixture::new();
+    dir.write("app/a.ts", "export const a = 1;\n");
+    let root = dir.0.canonicalize().expect("root");
+    let home = root.join("app").join("graphs");
+    let refused = run_at(
+        &root,
+        Some(&home),
+        ToolId::GraphBuild,
+        json!({"path":"app/a.ts"}),
+    );
+    assert_eq!(refused["errorCode"], "invalidInput", "{refused}");
+    let error = refused["error"].as_str().expect("error");
+    assert!(
+        error.contains("app holds local.graphHome") && error.contains("graphs"),
+        "{refused}"
+    );
+    assert!(refused.get("related").is_none(), "{refused}");
 }

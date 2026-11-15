@@ -23,7 +23,7 @@ pub(super) fn terminal_saved(
     let mut outcome = terminal(session, reason, usage);
     if runtime.can_resume {
         attach_continuations(&mut outcome.output, session, true);
-        session.batches.push(outcome.output.clone());
+        let _ = session.push_batch(&outcome.output);
         let key = runtime.sessions.key(&runtime.access, &session.id);
         if !runtime.sessions.save(key.clone(), session.clone(), context) {
             runtime.sessions.remove(&key, context);
@@ -329,13 +329,18 @@ pub(super) fn emit(
     // every batch carries them, so a page read through a cursor is
     // self-contained. The response layer drops them from the first page of a
     // fresh request, whose caller stated them.
-    let mut output =
-        json!({"questions":session.questions,"resources":resources,"usage":usage.output()});
+    let mut output = session
+        .source_disclosures
+        .clone()
+        .unwrap_or_else(|| json!({}));
+    output["questions"] = session.questions.clone();
+    output["resources"] = json!(resources);
+    output["usage"] = json!(usage.output());
     if let Some(model) = &session.resolved_model {
         output["model"] = json!(model);
     }
     if let Some(notice) = usage.long_context_notice() {
-        crate::response::result::add_hints(&mut output, [notice]);
+        crate::response::paging::push_warnings(&mut output, [notice]);
     }
     output
 }

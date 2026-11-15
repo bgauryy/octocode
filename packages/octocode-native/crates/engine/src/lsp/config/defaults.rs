@@ -12,8 +12,8 @@ use std::path::{Path, PathBuf};
 /// of building that index lazily, on one request, when the call arrives
 /// (measured on the octocode-native workspace: a 5-query references batch
 /// after a 30 s idle took 22.5 s with priming off, 4.4 s with it on).
-/// `cargo.targetDir: true` keeps any cargo work
-/// rust-analyzer still does out of the repository's own `target/`. Keys use
+/// `cargo.targetDir: true` uses a rust-analyzer subdirectory of the existing
+/// target directory, separating its artifacts from normal builds. Keys use
 /// the same shapes as the runtime's `rustContext` overlay, which sets
 /// `cargo.buildScripts`, `procMacro`, `checkOnSave`, and `cargo.targetDir` on
 /// top of these when a caller opts in.
@@ -29,10 +29,10 @@ pub fn rust_analyzer_headless_options() -> Value {
         },
         "procMacro": { "enable": false },
         "checkOnSave": false,
-        // rust-analyzer watches the workspace itself and so registers for no
-        // client file events: an edit to a file no request opened still
-        // reaches its index without a scope walk per request.
-        "files": { "watcher": "server" }
+        // The client snapshots source changes before semantic requests. A
+        // server-side filesystem watcher can otherwise answer from its old
+        // index while the tool reads snippets from the newly written files.
+        "files": { "watcher": "client" }
     })
 }
 

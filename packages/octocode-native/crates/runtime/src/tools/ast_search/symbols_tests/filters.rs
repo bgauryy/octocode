@@ -90,7 +90,7 @@ fn an_empty_name_search_does_not_blame_files_it_scanned() {
     );
     assert_eq!(out["status"], "empty", "{out}");
     assert_eq!(out["filesScanned"], 5, "{out}");
-    checks::assert_absent(&out["hints"], "skipped paths");
+    checks::assert_absent(&out["warnings"], "skipped paths");
     assert!(out["next"].get("includeSkipped").is_none(), "{out}");
 }
 
@@ -104,7 +104,7 @@ fn an_empty_name_search_counts_only_the_hidden_files() {
     root.write(".cfg/hidden.ts", "export const zzNeedle = 1;\n");
     let out = empty_outline(&root.0, json!({"symbolFilter":{"terms":["zzNeedle"]}}));
     assert_eq!(out["status"], "empty", "{out}");
-    let hints = out["hints"].to_string();
+    let hints = out["warnings"].to_string();
     assert!(hints.contains("1 outlinable file"), "{hints}");
     assert!(hints.contains("hidden .cfg/"), "{hints}");
 }

@@ -129,10 +129,19 @@ async fn pr_views_are_verbatim_by_default() {
     );
     assert!(data["next"]["readUntrimmed"].is_null(), "{data}");
     assert!(data["next"]["readRawBody"].is_null(), "{data}");
-    let merge_read = support::checks::related_call(&data, "ghGetFileContent", |input| {
-        input["queries"][0]["ref"] == "fedcba9876543210fedcba9876543210fedcba98"
-    });
-    assert_eq!(merge_read["kind"], "related");
+    assert_eq!(
+        data["pullRequests"][0]["mergeCommitSha"], "fedcba9876543210fedcba9876543210fedcba98",
+        "{data}"
+    );
+    assert!(
+        !data["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|call| call["tool"] == "ghGetFileContent"
+                && call["input"]["queries"][0]["ref"] == data["pullRequests"][0]["mergeCommitSha"]),
+        "{data}"
+    );
 }
 
 /// A merged PR's merge state rides every PR row, whatever the content

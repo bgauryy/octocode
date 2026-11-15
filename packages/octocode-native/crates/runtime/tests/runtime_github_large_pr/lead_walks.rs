@@ -147,6 +147,10 @@ async fn overflowing_patch_hop_pages_by_rows_and_loses_nothing() {
         );
         rest_file(&format!("src/big{i}.rs"), Some(&patch), 150, 0)
     }));
+    let expected_inventory = (0..96)
+        .map(|i| (long(i), "M !omitted".to_owned()))
+        .chain((0..4).map(|i| (format!("src/big{i}.rs"), "M +150 -0 1 hunk".to_owned())))
+        .collect::<std::collections::BTreeMap<_, _>>();
     let first = numbered(0, 100);
     let expected = first
         .iter()
@@ -166,6 +170,7 @@ async fn overflowing_patch_hop_pages_by_rows_and_loses_nothing() {
     let mut read = std::collections::BTreeMap::<String, String>::new();
     let mut listed = std::collections::BTreeMap::<String, usize>::new();
     let mut same = std::collections::BTreeMap::<String, String>::new();
+    let mut inventory = std::collections::BTreeMap::<String, String>::new();
     let (mut calls, mut split_parts) = (0, 0);
     loop {
         calls += 1;
@@ -185,12 +190,50 @@ async fn overflowing_patch_hop_pages_by_rows_and_loses_nothing() {
             split_parts += 1;
         }
         let data = &row["data"];
-        // A later part of a split row omits a list the split emptied there
-        // (it pages another list); a whole row always shows its files.
+        // This fixture has no spaced names or renames: an inventory entry
+        // ends with its name, whether grouped or written as a full path.
+        let mut summary_rows = 0;
+        let mut record_summary = |directory: &str, entry: &Value| {
+            let entry = entry.as_str().expect("inventory row");
+            let (facts, name) = entry.rsplit_once(' ').expect("facts and file name");
+            let path = format!("{directory}{name}");
+            assert!(
+                inventory.insert(path, facts.to_owned()).is_none(),
+                "call {calls}: inventory entry repeated: {entry}"
+            );
+            summary_rows += 1;
+        };
+        for group in data["pullRequests"][0]["fileSummary"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            match group {
+                Value::String(_) => record_summary("", group),
+                Value::Object(directories) => {
+                    for (directory, entries) in directories {
+                        for entry in entries.as_array().expect("directory entries") {
+                            record_summary(directory, entry);
+                        }
+                    }
+                }
+                _ => panic!("call {calls}: invalid inventory group: {group}"),
+            }
+        }
+        // A part of a split row omits a list another part delivers: parts
+        // follow the row's order, so the `fileSummary` listed before `files`
+        // takes the first parts. A whole row always shows its files; the
+        // checks after the walk prove every file arrived. A first part
+        // without files must deliver actual inventory evidence.
         let empty = Vec::new();
         let files = match data["pullRequests"][0]["files"].as_array() {
             Some(files) => files,
-            None if row.get("rowPart").is_some_and(|part| part["part"] != 1) => &empty,
+            None if row
+                .get("rowPart")
+                .is_some_and(|part| part["part"] != 1 || summary_rows > 0) =>
+            {
+                &empty
+            }
             None => panic!("call {calls}: rows hidden from the response: {content}"),
         };
         for file in files {
@@ -243,5 +286,9 @@ async fn overflowing_patch_hop_pages_by_rows_and_loses_nothing() {
     }
     assert_eq!(listed.len(), 96, "{listed:?}");
     assert!(listed.values().all(|count| *count == 1), "{listed:?}");
+    assert_eq!(
+        inventory, expected_inventory,
+        "selected inventory arrives once"
+    );
     runtime.close().await;
 }

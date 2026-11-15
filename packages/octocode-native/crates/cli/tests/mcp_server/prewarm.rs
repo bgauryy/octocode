@@ -5,10 +5,10 @@ use crate::support::Workspace;
 use serde_json::json;
 use std::time::Duration;
 
-/// Under `targeted`, a search whose result offers an lspSearch lead starts the
-/// server that lead names, so the first lspSearch finds it warm.
+/// Targeted prewarm uses internal search candidates before public advice is
+/// removed, so a following lookup still finds its language server warm.
 #[test]
-fn targeted_prewarm_starts_the_server_an_offered_lead_names() {
+fn targeted_prewarm_starts_the_matched_source_server_before_a_following_lookup() {
     use std::os::unix::fs::PermissionsExt;
     let workspace = Workspace::new();
     let root = &workspace.workspace;
@@ -47,10 +47,25 @@ fn targeted_prewarm_starts_the_server_an_offered_lead_names() {
             "path": root.to_string_lossy(), "matchString": ["target"]
         }]}}),
     );
-    let offered = found["result"].to_string();
+    let evidence: serde_json::Value = serde_json::from_str(
+        found["result"]["content"][0]["text"]
+            .as_str()
+            .expect("tool text"),
+    )
+    .expect("tool JSON");
+    let data = &evidence["results"][0]["data"];
+    assert_eq!(data["files"][0]["path"], "a.ts", "{evidence}");
+    assert_eq!(
+        data["files"][0]["matches"][0]["value"], "export function target() {}",
+        "{evidence}"
+    );
     assert!(
-        offered.contains("lspSearch"),
-        "the search offers a lead: {offered}"
+        !data["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|call| call["tool"] == "lspSearch"),
+        "{evidence}"
     );
     let deadline = std::time::Instant::now() + Duration::from_secs(3);
     while !marker.exists() && std::time::Instant::now() < deadline {
@@ -58,7 +73,7 @@ fn targeted_prewarm_starts_the_server_an_offered_lead_names() {
     }
     assert!(
         marker.exists(),
-        "the offered lead names a.ts, so its server starts before any lspSearch"
+        "the matched a.ts server starts before any lspSearch"
     );
     assert!(server.finish().success());
 }

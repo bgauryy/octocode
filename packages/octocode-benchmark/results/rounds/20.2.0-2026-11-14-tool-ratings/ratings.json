@@ -1,0 +1,1320 @@
+{
+  "status": "complete within the named measured scope; provisional gaps explicit",
+  "tools": {
+    "localSearch": {
+      "originalScore": 8.8,
+      "score": 8.8,
+      "provisional": false,
+      "confidence": "high within selected synthetic scope",
+      "measuredWeightPercent": 100.0,
+      "dimensions": {
+        "correctness": {
+          "score": 10,
+          "weightPercent": 30,
+          "status": "measured",
+          "evidence": "LS-01/02/03/07 counts and source identities; reconstruction-proof.json; rg source oracle."
+        },
+        "schemaInput": {
+          "score": 9,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Fresh query schema + MCP tools/list; LS-05 wrong field; unique boolean rejection and off/list/count correction."
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Useful grouped line identities; LS-05 scoped empty; natural output 1196 vs rg837 codepoints, including stderr counters/related read."
+        },
+        "pagination": {
+          "score": 10,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "LS-03 all8 pages on each surface;30 unique selected lines equal frozen source."
+        },
+        "workflow": {
+          "score": 9,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "One request settles lexical query; ancestor recovery hints widen into mutable campaign receipts, disclosed separately."
+        },
+        "efficiency": {
+          "score": 6,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Three paired LS-01 repetitions: natural Node CLI output1.43\u00d7 rg; fresh Node startup dominates, persistent MCP is faster on this small fixture."
+        },
+        "cacheFreshness": {
+          "score": 9,
+          "weightPercent": 5,
+          "status": "measured",
+          "evidence": "Source edit changes occurrences60\u219259 on both surfaces; no cache-hit assertion."
+        }
+      },
+      "evidenceLane": "local",
+      "originalBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0",
+      "status": "final correctness verified; efficiency provenance remains per-dimension",
+      "finalBinary": "c4f7ee4e8b49188d2a74d3c5d8a274e01c12cad64677a18a72b48104a18ff1c0",
+      "finalVerification": {
+        "status": "pass within named final inputs and selected evidence",
+        "report": "final-local3/REPORT.md",
+        "schemaAndOutputReferenceParity": true,
+        "validAndInvalidCliMcp": true
+      }
+    },
+    "localFetch": {
+      "originalScore": 8.7,
+      "score": 8.7,
+      "provisional": false,
+      "confidence": "high within selected synthetic scope",
+      "measuredWeightPercent": 100.0,
+      "dimensions": {
+        "correctness": {
+          "score": 10,
+          "weightPercent": 30,
+          "status": "measured",
+          "evidence": "LF-01 exact inclusive range; LF-02 exact613-line declaration; LF-03 all90lines; LF-04 all27009bytes."
+        },
+        "schemaInput": {
+          "score": 9,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Fresh schema; LF-05 range typo points to ranges; empty file vs missing path vs absent match are distinct."
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Source and line numbers arrive first; headers/page metadata cost above sed; compact view declares transformation."
+        },
+        "pagination": {
+          "score": 10,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "10 declaration pages,13 full-file pages,6 byte/response pages reconstruct exactly on both interfaces."
+        },
+        "workflow": {
+          "score": 9,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "Known signature yields entire declaration without guessing length; expert derives AST range then reads source."
+        },
+        "efficiency": {
+          "score": 5,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "LF-01 natural266 vs sed127 chars; LF-02 full chain27986 vs projected AST+sed22019; Node chain median530ms."
+        },
+        "cacheFreshness": {
+          "score": 9,
+          "weightPercent": 5,
+          "status": "measured",
+          "evidence": "Same-length selected source edit appears immediately on both interfaces; no cache-hit assertion."
+        }
+      },
+      "evidenceLane": "local",
+      "originalBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0",
+      "status": "final correctness verified; efficiency provenance remains per-dimension",
+      "finalBinary": "c4f7ee4e8b49188d2a74d3c5d8a274e01c12cad64677a18a72b48104a18ff1c0",
+      "finalVerification": {
+        "status": "pass within named final inputs and selected evidence",
+        "report": "final-local3/REPORT.md",
+        "schemaAndOutputReferenceParity": true,
+        "validAndInvalidCliMcp": true
+      }
+    },
+    "structureSearch": {
+      "originalScore": 8.8,
+      "score": 8.8,
+      "provisional": false,
+      "confidence": "high within selected synthetic scope",
+      "measuredWeightPercent": 100.0,
+      "dimensions": {
+        "correctness": {
+          "score": 10,
+          "weightPercent": 30,
+          "status": "measured",
+          "evidence": "All11 manifest files in both views; byte/line order and empty/directory filters match source/stat/wc."
+        },
+        "schemaInput": {
+          "score": 9,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Fresh schema; size near miss repaired to sizeBytes with explicit warning; invalid order refused."
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Requested single metric present, including zero-byte row; repeated paths, summary and optional read add measurable text."
+        },
+        "pagination": {
+          "score": 10,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "6 pages reconstruct11 unique paths for paths/details on both interfaces."
+        },
+        "workflow": {
+          "score": 9,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "Tree depth and basename regex selection explicit; added file and modified-time winner both refresh."
+        },
+        "efficiency": {
+          "score": 6,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Three paired size-order repetitions: native natural638 vs expert399 chars; Node52ms vs shell9.85ms; MCP1.06ms."
+        },
+        "cacheFreshness": {
+          "score": 9,
+          "weightPercent": 5,
+          "status": "measured",
+          "evidence": "Added file updates3\u21924membership and rank; explicit assigned mtime winner agrees on both surfaces."
+        }
+      },
+      "evidenceLane": "local",
+      "originalBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0",
+      "status": "final correctness verified; efficiency provenance remains per-dimension",
+      "finalBinary": "c4f7ee4e8b49188d2a74d3c5d8a274e01c12cad64677a18a72b48104a18ff1c0",
+      "finalVerification": {
+        "status": "pass within named final inputs and selected evidence",
+        "report": "final-local3/REPORT.md",
+        "schemaAndOutputReferenceParity": true,
+        "validAndInvalidCliMcp": true
+      }
+    },
+    "astSearch": {
+      "originalScore": 8.4,
+      "score": 8.4,
+      "provisional": false,
+      "confidence": "high within selected synthetic scope",
+      "measuredWeightPercent": 100.0,
+      "dimensions": {
+        "correctness": {
+          "score": 9,
+          "weightPercent": 30,
+          "status": "measured",
+          "evidence": "AS-01/02 source-confirmed selected calls and eight symbols; local/metrics.json.scopeGaps retains contained-call, receiver-form, debug-tree and declaration-projection rival gaps. Coverage does not justify the strongest-rival 10."
+        },
+        "schemaInput": {
+          "score": 9,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Fresh schema; required rule rejection actionable; structural forms distinct from lexical matches."
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "AST-RELATED-01 fixed; final-local3 promised lead executes source lines5/7/9. Final AS-01 output remains larger than ast-grep; full streams retained."
+        },
+        "pagination": {
+          "score": 10,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "All8 source-confirmed top-level declarations over4 pages on each surface without duplicates."
+        },
+        "workflow": {
+          "score": 9,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "Final CLI/MCP advertised recovery call executes unchanged; preferred source read remains available."
+        },
+        "efficiency": {
+          "score": 5,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Final verified4 AS-01 three paired repetitions: median CLI56.487ms/1114bytes including stderr; persistentMCP2.899ms/1032contentbytes; ast-grep8.112ms/189bytes. Same source facts, richer workflow output. final-local3/ast-timing/summary.json; no controlled old/new speed claim."
+        },
+        "cacheFreshness": {
+          "score": 9,
+          "weightPercent": 5,
+          "status": "measured",
+          "evidence": "Appended free call changes count2\u21923 on both surfaces; no cache-hit assertion."
+        }
+      },
+      "evidenceLane": "local",
+      "originalBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0",
+      "status": "final correctness verified; efficiency provenance remains per-dimension",
+      "ratingReview": "Correctness10\u21929 for untested advanced competitor cases; output7\u21928 and workflow8\u21929 after promised-lead repair. Original score retained separately.",
+      "finalBinary": "c4f7ee4e8b49188d2a74d3c5d8a274e01c12cad64677a18a72b48104a18ff1c0",
+      "finalVerification": {
+        "status": "pass within named final inputs and selected evidence",
+        "report": "final-local3/REPORT.md",
+        "schemaAndOutputReferenceParity": true,
+        "validAndInvalidCliMcp": true
+      }
+    },
+    "clasify": {
+      "originalScore": 8.6,
+      "score": 8.6,
+      "provisional": true,
+      "confidence": "medium",
+      "measuredWeightPercent": 85.0,
+      "dimensions": {
+        "correctness": {
+          "score": 9,
+          "weightPercent": 30,
+          "status": "measured",
+          "evidence": "Model jev-1.14.0 gets port/theme/choice and independent items right; neutral section probabilities near.5 require source verification."
+        },
+        "schemaInput": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Current typed-question/source/resource variants checked; boolean type rejected; isolated availability gate honest."
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Typed answers and deciding lines/reads; summary quiet:1 omits negative unit, details restores both (.94/.07)."
+        },
+        "pagination": {
+          "score": 10,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "All3 section resources recovered through3 response pages and all3 pinned reads per interface; details replay bills0."
+        },
+        "workflow": {
+          "score": 8,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "Configured normal home works without credential copying; CLI memory sections honestly refuse, persistent mode succeeds."
+        },
+        "efficiency": {
+          "score": null,
+          "weightPercent": 15,
+          "status": "unverified",
+          "evidence": "Unverified for representative large unread corpus; tiny positive fixtures are capability preflights, not context-saving evidence."
+        },
+        "cacheFreshness": {
+          "score": 9,
+          "weightPercent": 5,
+          "status": "measured",
+          "evidence": "Fresh details evaluations bill again; source edit flips port probability .95/.96\u2192.09/.08; saved details replay calls0."
+        }
+      },
+      "evidenceLane": "local",
+      "originalBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0",
+      "status": "final correctness verified; efficiency provenance remains per-dimension",
+      "finalBinary": "c4f7ee4e8b49188d2a74d3c5d8a274e01c12cad64677a18a72b48104a18ff1c0",
+      "finalVerification": {
+        "status": "pass within named final inputs and selected evidence",
+        "report": "final-local3/REPORT.md",
+        "schemaAndOutputReferenceParity": true,
+        "validAndInvalidCliMcp": true
+      }
+    },
+    "lspSearch": {
+      "originalScore": 8.1,
+      "score": 8.1,
+      "provisional": true,
+      "confidence": "medium",
+      "measuredWeightPercent": 100.0,
+      "dimensions": {
+        "correctness": {
+          "score": 9,
+          "weightPercent": 30,
+          "status": "measured",
+          "evidence": "Twelve JS/TS operations exercised on CLI/MCP; selected 8 reference locations, alias/shadow definitions, callers, hierarchy and Unicode hover agree with source/direct LSP. Rust project-positive remains unverified."
+        },
+        "schemaInput": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Missing/zero line, incompatible caller context/Rust context, out-of-range occurrence and cursor mutation return specific repairs; numeric-string line is accepted on both surfaces. Schema scopes operation-specific fields."
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Useful source/roles and honest diagnostic7006 partial state; successful alias result retains warning. Enriched responses are materially longer than raw locations."
+        },
+        "pagination": {
+          "score": 9,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "Eight reference pages cross CLI to MCP exactly once; minimum responseChars1 preserves whole oversized definition. Does not establish every operation/nested-shape pagination."
+        },
+        "workflow": {
+          "score": 8,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "Both surfaces and direct identity agree; callers bundles prepare+incoming calls. Rust detached file provides recovery leads but no semantic answer."
+        },
+        "efficiency": {
+          "score": 6,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Direct LSP is faster in all nine pairs and smaller for each narrow location question; MCP adds source, roles, coverage and diagnostics. Warm reference median5.84ms versus1.65ms; no global context saving claim."
+        },
+        "cacheFreshness": {
+          "score": 8,
+          "weightPercent": 5,
+          "status": "measured",
+          "evidence": "Edit moves references8\u21926\u21928 on CLI/MCP/direct; repeat session state distinguished from cache hits. Same server PID persists during measured pairs; no idle-retirement test in this round."
+        }
+      },
+      "evidenceLane": "semantic",
+      "originalBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0",
+      "status": "final correctness verified; efficiency provenance remains per-dimension",
+      "finalBinary": "c4f7ee4e8b49188d2a74d3c5d8a274e01c12cad64677a18a72b48104a18ff1c0",
+      "finalVerification": {
+        "status": "pass within named final inputs and selected evidence",
+        "report": "final-local3/REPORT.md",
+        "schemaAndOutputReferenceParity": true,
+        "validAndInvalidCliMcp": true
+      }
+    },
+    "graphBuild": {
+      "originalScore": 8.5,
+      "score": 8.5,
+      "provisional": false,
+      "confidence": "high within the tested small scopes",
+      "measuredWeightPercent": 100.0,
+      "dimensions": {
+        "correctness": {
+          "score": 9,
+          "weightPercent": 30,
+          "status": "measured",
+          "evidence": "Selected JS module/call edges and 19 Python sites match independent source; skip/unsupported scope is disclosed. No large-scope resume stress."
+        },
+        "schemaInput": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Schema and both surfaces accept path/refresh/walk/parser controls and reject bad boolean/two-row/foreign operation. File-path rejection lacks an example."
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Receipt provides scope/snapshot/linkage, unsupported-file hints and runnable stats lead. Empty scan is an empty object alongside zero counts."
+        },
+        "pagination": {
+          "score": 9,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "responseChars1 preserves the complete indivisible receipt with oversized:true; no evidence loss in observed shape. No long-build progress continuation generated."
+        },
+        "workflow": {
+          "score": 8,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "Repeat identifies the same snapshot; real public scope and policy scopes work with isolated home and graph home. External scope configuration remains setup cost."
+        },
+        "efficiency": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Faster than Graphify in all12 first/repeat build pairs; fixture first median242.00ms versus277.92ms, repeat96.03ms versus250.91ms. Models differ; not parser throughput."
+        },
+        "cacheFreshness": {
+          "score": 9,
+          "weightPercent": 5,
+          "status": "measured",
+          "evidence": "Unchanged build reuses ID; refresh forces new snapshot; edits/restore change graph correctly; ignore/hidden/exclude/parser policy affects selected scope."
+        }
+      },
+      "evidenceLane": "semantic",
+      "originalBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0",
+      "status": "final correctness verified; efficiency provenance remains per-dimension",
+      "finalBinary": "c4f7ee4e8b49188d2a74d3c5d8a274e01c12cad64677a18a72b48104a18ff1c0",
+      "finalVerification": {
+        "status": "pass within named final inputs and selected evidence",
+        "report": "final-local3/REPORT.md",
+        "schemaAndOutputReferenceParity": true,
+        "validAndInvalidCliMcp": true
+      }
+    },
+    "graphQuery": {
+      "originalScore": 8.3,
+      "score": 8.3,
+      "provisional": false,
+      "confidence": "high within the tested small scopes",
+      "measuredWeightPercent": 100.0,
+      "dimensions": {
+        "correctness": {
+          "score": 9,
+          "weightPercent": 30,
+          "status": "measured",
+          "evidence": "All21 operations exercised on both surfaces; source-confirmed six JS call edges/six imports,19 Python sites/16 callers,6 Git target commits and10 cochange rows agree. Typed graph models differ and are not included in shared edge score."
+        },
+        "schemaInput": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Operation-specific schemas reject missing path endpoint/baseline, bad limit and unsupported view. Discovery returns exact identities and marked fuzzy-word matches; those require interpretation."
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Witnesses preserve every selected site, partial syntax coverage and stale markers are explicit. Narrow native text is6.1\u20138.8times Graphify output on measured rows."
+        },
+        "pagination": {
+          "score": 9,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "46-page mixed batch reconstructs19symbols,14witnesses,7issues,2callers,1cycle. Nested cycle fragments and hoisted from fields are preserved, with required unchanged cross-surface continuations."
+        },
+        "workflow": {
+          "score": 8,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "Discovery\u2192node\u2192callers/path is executable; cochange has independent Git proof; unknown target differs from no path. Tiny-window rowPart and hoist reconstruction costs consumer work."
+        },
+        "efficiency": {
+          "score": 7,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "All9 paired CLI query measurements faster than Graphify, but Graphify text smaller on every selected answer. Example real callers62.82ms/4115chars versus136.28ms/674chars."
+        },
+        "cacheFreshness": {
+          "score": 9,
+          "weightPercent": 5,
+          "status": "measured",
+          "evidence": "Stale names changed entry, rebuild makes path2hops, drift shows changed file plus2added/2removedrelations; restoring yields fresh1hop. Snapshot query reuse is not a result-cache-hit claim."
+        }
+      },
+      "evidenceLane": "semantic",
+      "originalBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0",
+      "status": "final correctness verified; efficiency provenance remains per-dimension",
+      "finalBinary": "c4f7ee4e8b49188d2a74d3c5d8a274e01c12cad64677a18a72b48104a18ff1c0",
+      "finalVerification": {
+        "status": "pass within named final inputs and selected evidence",
+        "report": "final-local3/REPORT.md",
+        "schemaAndOutputReferenceParity": true,
+        "validAndInvalidCliMcp": true
+      }
+    },
+    "ghSearchRepo": {
+      "originalScore": 8.1,
+      "score": 8.1,
+      "provisional": true,
+      "confidence": "medium",
+      "measuredWeightPercent": 95.0,
+      "dimensions": {
+        "correctness": {
+          "score": 9,
+          "weightPercent": 30.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHR-01/02/05; repo-reconstruction.json and history-and-owner-oracles.json: selected metadata and all 32 owner repositories agree; upstream sort limitation prevents 10."
+        },
+        "schemaInput": {
+          "score": 9,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHR-01/04; raw/CLI-GHR-01-repaired.json and CLI/MCP-GHR-04-missing.json: projection warning and actionable required-field refusal."
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHR-01; raw/CLI-GHR-01-repaired.json: identity and selected facts retained; related calls outweigh a 42-character lean projection."
+        },
+        "pagination": {
+          "score": 9,
+          "weightPercent": 10.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHR-02; repo-reconstruction.json: 32 owner repositories over 16 pages plus selected topic scope; not every search ceiling tested."
+        },
+        "workflow": {
+          "score": 8,
+          "weightPercent": 10.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHR-03/05; raw/MCP-GHR-search-variants.json: empty result distinguished; sort and fork scope require interpretation."
+        },
+        "efficiency": {
+          "score": 5,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHR-01; timing-summary.json plus metrics.json: three paired observations, native median about 527 ms versus lean 385 ms; richer output larger."
+        },
+        "cacheFreshness": {
+          "score": null,
+          "weightPercent": 5.0,
+          "status": "unverified",
+          "evidence": "Readonly mutable public metadata stayed unchanged; invalidation/maximum age was not established."
+        }
+      },
+      "evidenceLane": "github",
+      "originalBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0",
+      "status": "final correctness verified; efficiency provenance remains per-dimension",
+      "questionIds": [
+        "GHR-01",
+        "GHR-02",
+        "GHR-03",
+        "GHR-04",
+        "GHR-05"
+      ],
+      "testedScope": [
+        "Pass; unknown url projection explicitly warned, repaired fields and canonical owner/repo identity retained.",
+        "Pass;32 owner repositories over16 pages and7 topic results; all selected batch continuations finished.",
+        "Pass; genuine empty search status1, not provider error.",
+        "Pass; required/spelling/combination errors actionable.",
+        "Limited upstream ordering: forks/relevance variants complete; updatedAt dates nonmonotonic on Vite in native, exact lean gh and REST; second owner agrees after fork:true reconciliation; old alias rejected with relevance repair."
+      ],
+      "pros": [
+        "Correct current metadata, actionable projection warnings and exact32-repository owner pagination."
+      ],
+      "cons": [
+        "Related-call overhead dominates a42-character lean metadata answer; native median527ms versus385ms lean. Upstream updated ordering is not monotonic on Vite."
+      ],
+      "gotchas": [
+        "Metadata cache invalidation/age cannot be established from unchanged mutable public records; cache/freshness5% unverified."
+      ],
+      "receipts": [
+        "repo-reconstruction.json",
+        "history-and-owner-oracles.json",
+        "raw/CLI-GHR-01-repaired.json",
+        "raw/MCP-GHR-01.json",
+        "raw/CLI-GHR-04-missing.json",
+        "raw/MCP-GHR-04-missing.json",
+        "raw/MCP-GHR-search-variants.json",
+        "raw/oracle-api-updated-vite-exact.json"
+      ],
+      "evidenceSource": "../../../campaigns/20.2.0-2026-11-14-tool-ratings/github/metrics.json",
+      "finalBinary": "c4f7ee4e8b49188d2a74d3c5d8a274e01c12cad64677a18a72b48104a18ff1c0",
+      "finalVerification": {
+        "status": "pass within named final inputs and selected evidence",
+        "report": "github/final-pin-verified3/REPORT.md",
+        "schemaAndOutputReferenceParity": true,
+        "validAndInvalidCliMcp": true
+      }
+    },
+    "ghSearchCode": {
+      "originalScore": 8.5,
+      "score": 8.5,
+      "provisional": true,
+      "confidence": "medium; mutable freshness unverified",
+      "measuredWeightPercent": 95.0,
+      "dimensions": {
+        "correctness": {
+          "score": 9,
+          "weightPercent": 30.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHC-01/02; code-reconstruction.json and raw/CLI-GHC-01.json: source-confirmed declaration, 10 files and 58 distinct matches; index coverage remains limited."
+        },
+        "schemaInput": {
+          "score": 9,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHC-04; raw/CLI-GHC-04-missing.json and raw/MCP-GHC-04-missing.json: missing owner/selector refused; scalar-list normalization intentionally accepted."
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHC-01/05; raw/MCP-GHC-path-variants.json: nine-path views preserve selected identities; substring lead can need narrowing."
+        },
+        "pagination": {
+          "score": 10,
+          "weightPercent": 10.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHC-02; code-reconstruction.json: all 13 calls finish response fragments then tool continuations, 10 files/58 hits exactly once."
+        },
+        "workflow": {
+          "score": 9,
+          "weightPercent": 10.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHC-01/03; raw/CLI-GHC-01.json and metrics.json: search-to-read executes; empty indexed result is not source-absence proof."
+        },
+        "efficiency": {
+          "score": 6,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHC-01; timing-summary.json and metrics.json: paths workflow 1494\u20131537 characters versus 867 lean; three paired comparisons retained."
+        },
+        "cacheFreshness": {
+          "score": null,
+          "weightPercent": 5.0,
+          "status": "unverified",
+          "evidence": "Live search-index invalidation is unverified. Unchanged repeats do not prove freshness or cache hits."
+        }
+      },
+      "evidenceLane": "github",
+      "originalBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0",
+      "status": "final correctness verified; efficiency provenance remains per-dimension",
+      "questionIds": [
+        "GHC-01",
+        "GHC-02",
+        "GHC-03",
+        "GHC-04",
+        "GHC-05"
+      ],
+      "testedScope": [
+        "Pass; discovered declaration and complete immutable source.",
+        "Pass;13 calls reconstruct10 files/58 distinct matches, rowParts first.",
+        "Pass; empty index result with explicit index limit; no source absence claim.",
+        "Pass with observed scalar-list coercion on both surfaces; missing selector/owner rejected. Broad coerced query pages intentionally unread because only input acceptance was tested.",
+        "Pass both9-path views, no invented content; redirect observation remains unverified."
+      ],
+      "pros": [
+        "Deciding declaration verified at the frozen ref; all10 selected files/58 matches reconstructed across rowParts."
+      ],
+      "cons": [
+        "Paths-only two-call workflow emits1494\u20131537 characters versus867 lean; a substring lead can target mergeConfigRecursively."
+      ],
+      "gotchas": [
+        "Search remains a default-branch index, not exhaustive at-ref source search; cached repeats explicitly print observedAt. Renamed-repository behavior unverified."
+      ],
+      "receipts": [
+        "code-reconstruction.json",
+        "raw/CLI-GHC-01.json",
+        "raw/MCP-GHC-01.json",
+        "raw/CLI-GHC-04-missing.json",
+        "raw/MCP-GHC-04-missing.json",
+        "raw/MCP-GHC-path-variants.json"
+      ],
+      "evidenceSource": "../../../campaigns/20.2.0-2026-11-14-tool-ratings/github/metrics.json",
+      "finalBinary": "c4f7ee4e8b49188d2a74d3c5d8a274e01c12cad64677a18a72b48104a18ff1c0",
+      "finalVerification": {
+        "status": "pass within named final inputs and selected evidence",
+        "report": "github/final-pin-verified3/REPORT.md",
+        "schemaAndOutputReferenceParity": true,
+        "validAndInvalidCliMcp": true
+      }
+    },
+    "ghStructure": {
+      "originalScore": 8.8,
+      "score": 8.8,
+      "provisional": true,
+      "confidence": "medium; mutable freshness unverified",
+      "measuredWeightPercent": 95.0,
+      "dimensions": {
+        "correctness": {
+          "score": 10,
+          "weightPercent": 30.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHS-01/02/03/06; tree-reconstruction.json and raw/MCP-GHS-variants.json: exact tree pairs, refs/languages and two materialized files."
+        },
+        "schemaInput": {
+          "score": 9,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHS-05; raw/CLI-GHS-05-combination.json and raw/MCP-GHS-05-combination.json: operation/depth/combination refusal."
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHS-01/03; raw/CLI-GHS-01.json and raw/MCP-GHS-variants.json: useful typed rows and resolved commit; tag-object identity not selected."
+        },
+        "pagination": {
+          "score": 10,
+          "weightPercent": 10.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHS-02; tree-reconstruction.json: all 46 ordered path/size pairs over 23 pages equal the independent nontruncated tree."
+        },
+        "workflow": {
+          "score": 9,
+          "weightPercent": 10.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHS-04/06; metrics.json: unchanged parent recovery executes and selected materialization is complete; root-glob scope needs care."
+        },
+        "efficiency": {
+          "score": 6,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHS-01; timing-summary.json and metrics.json: direct listing 781 characters versus lean 284; explicit gh cache median 51 ms near native 57 ms."
+        },
+        "cacheFreshness": {
+          "score": null,
+          "weightPercent": 5.0,
+          "status": "unverified",
+          "evidence": "Immutable tree, known-tag and materialization evidence is verified; changing-ref invalidation and same-path/different-ref cache separation are unverified. Unchanged repeats do not prove freshness or cache hits."
+        }
+      },
+      "evidenceLane": "github",
+      "originalBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0",
+      "status": "final correctness verified; efficiency provenance remains per-dimension",
+      "questionIds": [
+        "GHS-01",
+        "GHS-02",
+        "GHS-03",
+        "GHS-04",
+        "GHS-05",
+        "GHS-06"
+      ],
+      "testedScope": [
+        "Pass20 direct entries, CLI/MCP equality.",
+        "Pass46 exact ordered pairs over23 pages.",
+        "Pass annotated tag resolution, all6 matching tags, languages operation.",
+        "Pass notFound and unchanged parent-list recovery.",
+        "Pass invalid operation/depth/combination.",
+        "Pass two selected materialized files byte-exact and coverage complete."
+      ],
+      "pros": [
+        "Complete46-file ranked subtree exactly equals a nontruncated independent tree; refs/languages/materialization work."
+      ],
+      "cons": [
+        "Direct listing emits781 characters versus284 lean; explicit gh TTL tier median51ms is near native57ms."
+      ],
+      "gotchas": [
+        "Root globs apply even with path. Annotated tags resolve to commits; tag-object identity is only in the independent oracle."
+      ],
+      "receipts": [
+        "tree-reconstruction.json",
+        "raw/CLI-GHS-01.json",
+        "raw/MCP-GHS-01.json",
+        "raw/CLI-GHS-05-combination.json",
+        "raw/MCP-GHS-05-combination.json",
+        "raw/MCP-GHS-variants.json"
+      ],
+      "evidenceSource": "../../../campaigns/20.2.0-2026-11-14-tool-ratings/github/metrics.json",
+      "finalBinary": "c4f7ee4e8b49188d2a74d3c5d8a274e01c12cad64677a18a72b48104a18ff1c0",
+      "finalVerification": {
+        "status": "pass within named final inputs and selected evidence",
+        "report": "github/final-pin-verified3/REPORT.md",
+        "schemaAndOutputReferenceParity": true,
+        "validAndInvalidCliMcp": true
+      }
+    },
+    "ghGetFileContent": {
+      "originalScore": 9.1,
+      "score": 9.1,
+      "provisional": false,
+      "confidence": "high within tested scope",
+      "measuredWeightPercent": 100.0,
+      "dimensions": {
+        "correctness": {
+          "score": 10,
+          "weightPercent": 30.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHF-01/02/03/06; file-reconstruction.json and minified-reconstruction.json: exact source slices, declaration, whole file and 87444-byte long line."
+        },
+        "schemaInput": {
+          "score": 9,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHF-05; raw/CLI-GHF-05-range.json and raw/MCP-GHF-05-range.json: reversed ranges and missing/sibling fields give repairs."
+        },
+        "output": {
+          "score": 9,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHF-01/02; raw/CLI-GHF-01.json and metrics.json: selected source and ranges precise; compact fallback is disclosed."
+        },
+        "pagination": {
+          "score": 10,
+          "weightPercent": 10.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHF-03/06; file-reconstruction.json, minified-reconstruction.json and mixed-Unicode receipts: 722 lines and all long-line bytes exactly once; restart after expired cursor retained."
+        },
+        "workflow": {
+          "score": 9,
+          "weightPercent": 10.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHF-02/04; metrics.json: signature avoids guessed length; absent match differs from missing path; deferred ranges must finish."
+        },
+        "efficiency": {
+          "score": 7,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHF-01; timing-summary.json and metrics.json: 25-line answer 1122 characters versus lean 963; three paired latency/cache tiers retained."
+        },
+        "cacheFreshness": {
+          "score": 9,
+          "weightPercent": 5.0,
+          "status": "measured",
+          "evidence": "Distinct immutable SHAs return distinct source in raw/MCP-cache-distinct-refs.json. Score covers ref-key separation only; moving-ref invalidation is unverified."
+        }
+      },
+      "evidenceLane": "github",
+      "originalBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0",
+      "status": "final correctness verified; efficiency provenance remains per-dimension",
+      "questionIds": [
+        "GHF-01",
+        "GHF-02",
+        "GHF-03",
+        "GHF-04",
+        "GHF-05",
+        "GHF-06"
+      ],
+      "testedScope": [
+        "Pass exact25 source lines.",
+        "Pass complete14-line declaration across surfaces,200-symbol outline and honest compact fallback.",
+        "Pass722-line exact whole-file reconstruction; mixed Unicode supplemental response page crosses MCP\u2192CLI.",
+        "Pass empty match distinct from missing file.",
+        "Pass reversed range/missing path/sibling field repairs.",
+        "Pass24-page restarted minified chain,87444 selected bytes exactly once; tag read and directory rejection. Interrupted cursor correctly expired, old partial chain excluded."
+      ],
+      "pros": [
+        "Whole722-line file, complete declarations, mixed Unicode and87444 minified bytes reconstruct exactly, including independent response and byte pages."
+      ],
+      "cons": [
+        "Plain25-line source costs1122 output characters versus963 lean; caller must finish deferred source ranges."
+      ],
+      "gotchas": [
+        "Minified first match window is prioritized, then remaining selected line bytes backfill. compact on Markdown honestly falls back to content. Cursor expiry after interruption requires restart."
+      ],
+      "receipts": [
+        "file-reconstruction.json",
+        "minified-reconstruction.json",
+        "raw/CLI-GHF-01.json",
+        "raw/MCP-GHF-01.json",
+        "raw/CLI-GHF-05-range.json",
+        "raw/MCP-GHF-05-range.json",
+        "raw/MCP-GHF-Unicode-mixed-p1.json",
+        "raw/CLI-GHF-Unicode-mixed-p2.json"
+      ],
+      "evidenceSource": "../../../campaigns/20.2.0-2026-11-14-tool-ratings/github/metrics.json",
+      "finalBinary": "c4f7ee4e8b49188d2a74d3c5d8a274e01c12cad64677a18a72b48104a18ff1c0",
+      "finalVerification": {
+        "status": "pass within named final inputs and selected evidence",
+        "report": "github/final-pin-verified3/REPORT.md",
+        "schemaAndOutputReferenceParity": true,
+        "validAndInvalidCliMcp": true
+      }
+    },
+    "ghSearchHistory": {
+      "originalScore": 8.2,
+      "score": 8.2,
+      "provisional": true,
+      "confidence": "medium; mutable freshness unverified",
+      "measuredWeightPercent": 95.0,
+      "dimensions": {
+        "correctness": {
+          "score": 9,
+          "weightPercent": 30.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHH-01/02; history-and-owner-oracles.json and metrics.json: selected three path commits, three PRs and one issue match source; larger histories excluded."
+        },
+        "schemaInput": {
+          "score": 9,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHH-04; raw/CLI-GHH-04-combination.json and raw/MCP-GHH-04-combination.json: invalid state/glob/operation combinations refused."
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHH-01/03; raw/CLI-GHH-01.json and metrics.json: scoped history and honest emptiness; 716 versus 272 lean characters."
+        },
+        "pagination": {
+          "score": 9,
+          "weightPercent": 10.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHH-01/02; raw/MCP-GHH-01-page2.json and metrics.json: selected continuation complete; not all 223/616-result histories read."
+        },
+        "workflow": {
+          "score": 9,
+          "weightPercent": 10.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHH-01/04; raw/CLI-GHH-01.json and combination receipts: path history leads to concrete items; operation boundaries explicit."
+        },
+        "efficiency": {
+          "score": 5,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHH-01; timing-summary.json and metrics.json: median native 379 ms, lean 393 ms, explicit gh cache 57 ms; lean output smaller."
+        },
+        "cacheFreshness": {
+          "score": null,
+          "weightPercent": 5.0,
+          "status": "unverified",
+          "evidence": "Live issue/PR search invalidation is unverified; immutable selected commit history and repeated observations do not establish it. Unchanged repeats do not prove freshness or cache hits."
+        }
+      },
+      "evidenceLane": "github",
+      "originalBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0",
+      "status": "final correctness verified; efficiency provenance remains per-dimension",
+      "questionIds": [
+        "GHH-01",
+        "GHH-02",
+        "GHH-03",
+        "GHH-04"
+      ],
+      "testedScope": [
+        "Pass selected three path commits reachable at frozen ref, with two-row continuation proof; older history explicitly unread.",
+        "Pass selected first3 merged PRs and1 closed issue; all selected identities match lean gh; older223/616-result scopes intentionally unread.",
+        "Pass honest empty query scope.",
+        "Pass impossible state/glob/operation errors."
+      ],
+      "pros": [
+        "Pinned path history matches independent source; input errors distinguish commits, contradictory states and glob paths."
+      ],
+      "cons": [
+        "Three commit rows cost716 output characters versus272 lean; median379ms versus393ms lean and57ms explicit cached gh."
+      ],
+      "gotchas": [
+        "PR/comment ordering follows upstream search; observed counts can be nonmonotonic. Selected top3/top1 queries do not establish complete223/616-result histories."
+      ],
+      "receipts": [
+        "raw/CLI-GHH-01.json",
+        "raw/MCP-GHH-01-page2.json",
+        "raw/CLI-GHH-04-combination.json",
+        "raw/MCP-GHH-04-combination.json",
+        "raw/MCP-GHH-search-variants.json"
+      ],
+      "evidenceSource": "../../../campaigns/20.2.0-2026-11-14-tool-ratings/github/metrics.json",
+      "finalBinary": "c4f7ee4e8b49188d2a74d3c5d8a274e01c12cad64677a18a72b48104a18ff1c0",
+      "finalVerification": {
+        "status": "pass within named final inputs and selected evidence",
+        "report": "github/final-pin-verified3/REPORT.md",
+        "schemaAndOutputReferenceParity": true,
+        "validAndInvalidCliMcp": true
+      }
+    },
+    "ghGetHistoryItem": {
+      "originalScore": 8.7,
+      "score": 8.7,
+      "provisional": true,
+      "confidence": "medium; mutable freshness unverified",
+      "measuredWeightPercent": 95.0,
+      "dimensions": {
+        "correctness": {
+          "score": 10,
+          "weightPercent": 30.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHI-01/02/03/04; pr-reconstruction.json, issue-reconstruction.json and history-and-owner-oracles.json: scoped patches, 13 files, 45 reviews and 65 complete comments match sources."
+        },
+        "schemaInput": {
+          "score": 9,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHI-05; raw/CLI-GHI-05-number.json and raw/MCP-GHI-05-number.json: missing number/head and invalid section/filter combinations refused."
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHI-01/06; raw/CLI-GHI-01.json and raw/MCP-GHI-06-individual-sections.json: complete requested patches and state; summary preview is declared."
+        },
+        "pagination": {
+          "score": 10,
+          "weightPercent": 10.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHI-02/03; pr-reconstruction.json and issue-reconstruction.json: all body/comment/review/file branches completed, including four independent long-body branches."
+        },
+        "workflow": {
+          "score": 8,
+          "weightPercent": 10.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHI-03/06; metrics.json: independent section continuations are executable but require careful orchestration."
+        },
+        "efficiency": {
+          "score": 6,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GHI-01; timing-summary.json and metrics.json: scoped patch 1826 versus 957 lean characters; three paired tiers retained."
+        },
+        "cacheFreshness": {
+          "score": null,
+          "weightPercent": 5.0,
+          "status": "unverified",
+          "evidence": "Live comment/review/issue/PR invalidation is unverified; immutable selected commit evidence remains verified. Unchanged repeats do not prove freshness or cache hits."
+        }
+      },
+      "evidenceLane": "github",
+      "originalBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0",
+      "status": "final correctness verified; efficiency provenance remains per-dimension",
+      "questionIds": [
+        "GHI-01",
+        "GHI-02",
+        "GHI-03",
+        "GHI-04",
+        "GHI-05",
+        "GHI-06"
+      ],
+      "testedScope": [
+        "Pass complete scoped patch and parent identity agree with provider.",
+        "Pass complete body,13 files and45 reviews exactly match independent provider.",
+        "Pass all65 ordered IDs and complete bodies exactly match provider, including all4 independent long-body branches.",
+        "Pass honest unchanged selected path against parent, plus scoped two-tag GIT-VERSION-GEN patch.",
+        "Pass missing number/head and section-filter combination errors.",
+        "Pass separate files/reviews/path-patch requests retain state and commit identities."
+      ],
+      "pros": [
+        "All65 ordered issue comments and their full bodies, PR13 files/45 reviews/body, scoped patches and tag comparison verified."
+      ],
+      "cons": [
+        "Scoped patch emits1826 characters versus957 lean; independent comments/body branches require careful handling."
+      ],
+      "gotchas": [
+        "Response pages precede section pages. commentBody and comments are independent; finishing one never establishes the other. Summary bodyPreview is intentionally a preview."
+      ],
+      "receipts": [
+        "pr-reconstruction.json",
+        "issue-reconstruction.json",
+        "history-and-owner-oracles.json",
+        "raw/CLI-GHI-01.json",
+        "raw/MCP-GHI-01.json",
+        "raw/CLI-GHI-05-number.json",
+        "raw/MCP-GHI-05-number.json",
+        "raw/MCP-GHI-06-individual-sections.json",
+        "raw/MCP-GHI-tag-compare.json"
+      ],
+      "evidenceSource": "../../../campaigns/20.2.0-2026-11-14-tool-ratings/github/metrics.json",
+      "finalBinary": "c4f7ee4e8b49188d2a74d3c5d8a274e01c12cad64677a18a72b48104a18ff1c0",
+      "finalVerification": {
+        "status": "pass within named final inputs and selected evidence",
+        "report": "github/final-pin-verified3/REPORT.md",
+        "schemaAndOutputReferenceParity": true,
+        "validAndInvalidCliMcp": true
+      }
+    },
+    "ghCloneRepo": {
+      "originalScore": 8.9,
+      "score": 9.0,
+      "provisional": false,
+      "confidence": "high within tested scope",
+      "measuredWeightPercent": 100.0,
+      "dimensions": {
+        "correctness": {
+          "score": 10,
+          "weightPercent": 30.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GCL-01/02/03; clone-paired-source-proof.json, clone-dirty-proof.json and clone-workflow-source-proof.json: exact HEAD/17 files, dirty bytes preserved, complete local reads."
+        },
+        "schemaInput": {
+          "score": 9,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GCL-04; raw/CLI-GCL-04-depth.json and raw/MCP-GCL-04-depth.json: invalid depth/traversal/missing repo refused."
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GCL-01; raw/CLI-GCL-01.json: useful receipt/source scope; sparse cone includes root files and discloses skipped paths."
+        },
+        "pagination": {
+          "score": 10,
+          "weightPercent": 10.0,
+          "status": "measured",
+          "evidence": "Final CLI/MCP responseChars1 retains complete atomic clone receipt with oversized marker and no replay continuation; genuine invalid depth refused. Exact17files184573bytes and HEAD independently verified. github/final-pin-verified3/clone-evidence.json."
+        },
+        "workflow": {
+          "score": 9,
+          "weightPercent": 10.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GCL-03; clone-workflow-source-proof.json: materialization enables three exact local searches/reads; wholeWord narrows a prefix overfetch."
+        },
+        "efficiency": {
+          "score": 7,
+          "weightPercent": 15.0,
+          "status": "measured",
+          "evidence": "Original GitHub campaign; GCL-01; clone-paired-source-proof.json and timing-summary.json: three fresh clones median 1.632 s versus quiet Git 2.045 s; one versus two setup calls, 764 versus zero output characters."
+        },
+        "cacheFreshness": {
+          "score": 10,
+          "weightPercent": 5.0,
+          "status": "measured",
+          "evidence": "Exact reuse, path/depth key separation and dirty-refresh preservation observed. Score covers these local clone invariants, not remote branch-update freshness."
+        }
+      },
+      "evidenceLane": "github",
+      "originalBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0",
+      "status": "final correctness verified; efficiency provenance remains per-dimension",
+      "questionIds": [
+        "GCL-01",
+        "GCL-02",
+        "GCL-03",
+        "GCL-04"
+      ],
+      "testedScope": [
+        "Pass clean exact HEAD/source and reused:true same location.",
+        "Pass distinct paths/depth locations, depth1/2 actual history, dirty refusal preserves bytes and restoration exact.",
+        "Pass three local searches and complete14/873/5-line declarations agree exactly with remote and local source. Initial prefix overfetch retained; wholeWord:true repairs createServer selection.",
+        "Pass invalid depth/traversal/missing repo; minimum responseChars1 intact complete receipt on CLI and fresh MCP."
+      ],
+      "pros": [
+        "Exact HEAD and all17 sparse working-tree files match ordinary/lean git every pass; reuse, distinct paths/depth and dirty preservation pass."
+      ],
+      "cons": [
+        "One setup call median1.632s beats two-call quiet gh2.045s, while native emits764 characters and quiet gh emits0."
+      ],
+      "gotchas": [
+        "Sparse cone checkouts include standard root files (7 selected-subtree plus10root files here). Minimum-window receipts are indivisible and explicitly oversized; they do not offer a replay. Mutable upstream branch freshness remains unverified."
+      ],
+      "receipts": [
+        "clone-paired-source-proof.json",
+        "clone-dirty-proof.json",
+        "clone-workflow-source-proof.json",
+        "raw/CLI-GCL-01.json",
+        "raw/MCP-GCL-01.json",
+        "raw/CLI-GCL-04-depth.json",
+        "raw/MCP-GCL-04-depth.json",
+        "raw/CLI-GCL-minimum-response.json",
+        "raw/MCP-GCL-minimum-standalone.json"
+      ],
+      "evidenceSource": "../../../campaigns/20.2.0-2026-11-14-tool-ratings/github/metrics.json",
+      "finalBinary": "c4f7ee4e8b49188d2a74d3c5d8a274e01c12cad64677a18a72b48104a18ff1c0",
+      "finalVerification": {
+        "status": "pass within named final inputs and selected evidence",
+        "report": "github/final-pin-verified3/REPORT.md",
+        "schemaAndOutputReferenceParity": true,
+        "validAndInvalidCliMcp": true
+      }
+    },
+    "artifactSearch": {
+      "originalScore": 8.2,
+      "score": 8.2,
+      "provisional": false,
+      "confidence": "high within exact resolution cases; npm-only search",
+      "measuredWeightPercent": 100.0,
+      "dimensions": {
+        "correctness": {
+          "score": 9,
+          "weightPercent": 30,
+          "status": "measured",
+          "evidence": "Eight exact registry versions, direct provider records and source refs; canonical Maven/GitHub release commits agree."
+        },
+        "schemaInput": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Both operations, all resolution ecosystems, actionable invalid types/operation combinations; scalar repair is intentional."
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Useful identity/ref provenance and mismatch warning, but788 natural characters versus127 projected registry characters for selected mapping."
+        },
+        "pagination": {
+          "score": 9,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "Three details pages reconstruct exact selected evidence; first3search candidates complete; crosssurface and modifiedcursor behavior verified. Other registry search paging unverified."
+        },
+        "workflow": {
+          "score": 9,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "One call resolves version to repo/ref with next-step leads, correct mixed-row isolation and explicit provider result-cap disclosure."
+        },
+        "efficiency": {
+          "score": 6,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Threepaired samples: Node615.78ms/MCP296.48ms versus leanregistry66.49ms; native adds independent tag-mismatch information. Explicit snapshot cache4.09ms."
+        },
+        "cacheFreshness": {
+          "score": 7,
+          "weightPercent": 5,
+          "status": "measured",
+          "evidence": "Repeated immutable version facts and changed version/view remain distinct; cursor storage resumes correctly. Providercache hit/origin state and live registryinvalidations unverified."
+        }
+      },
+      "evidenceLane": "providers",
+      "originalBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0",
+      "status": "final correctness verified; efficiency provenance remains per-dimension",
+      "finalBinary": "c4f7ee4e8b49188d2a74d3c5d8a274e01c12cad64677a18a72b48104a18ff1c0",
+      "finalVerification": {
+        "status": "pass within named final inputs and selected evidence",
+        "report": "providers/final3/boundary-summary.json",
+        "schemaAndOutputReferenceParity": true,
+        "validAndInvalidCliMcp": true
+      }
+    },
+    "securityCheck": {
+      "originalScore": 4,
+      "score": 8.5,
+      "provisional": true,
+      "confidence": "medium; two advisory source oracles, mutable freshness unverified",
+      "measuredWeightPercent": 95.0,
+      "dimensions": {
+        "correctness": {
+          "score": 9,
+          "weightPercent": 30,
+          "status": "measured",
+          "evidence": "Final108/108 independent source comparisons across two advisories and bothCLI/MCP: all selected per-provider identities/purls/ranges/75enumeratedversions, metadata, references and own-record fixes. Other original package/repo scope remains separately pinned."
+        },
+        "schemaInput": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Final CLI/MCP effective schema/description/output reference equality; missingid invalid and mixed valid/invalid rows actionable; modern/legacy selected parity. New descriptions state independent records and selected empty normalization."
+        },
+        "output": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "JSON/MCP preserve independent provider records, references and all selected metadata. Natural CLI retains selected structure but intentionally rounds fractional values (EPSS0.20158\u21920.2016); use--json for exact numbers. final-independent3/natural-cli-selected-proof.json and docs/OCTOCODE_CLI.md#output."
+        },
+        "pagination": {
+          "score": 9,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "Final900char chains17/23pages per interface reconstruct full selected data exactly; both full controls independently source-proven. Not every operation/long-value shape repeated on this pin."
+        },
+        "workflow": {
+          "score": 9,
+          "weightPercent": 10,
+          "status": "measured",
+          "evidence": "Package/id/repo workflows observed originally; final complete advisory details, source links, own-record fixes and mixed error boundaries remain usable on both protocol eras."
+        },
+        "efficiency": {
+          "score": 8,
+          "weightPercent": 15,
+          "status": "measured",
+          "evidence": "Final GHSA-35jh-r3h4-6jhm, three repetitions\u00d7six arms:15exact-source eligible observations;3readableCLI observations descriptive because of numeric rounding. MCP214.13ms/7592chars versus leanparallel453.97/6456, leanserial737.87/6456, ordinary767.46/11185; snapshot4.96/6431 plus2392.03msfill. Readable Node261.13ms/7236chars not used as exact-scalar win. Origin-cache state unknown. providers/final3/timing/metrics.json."
+        },
+        "cacheFreshness": {
+          "score": null,
+          "weightPercent": 5,
+          "status": "unverified",
+          "evidence": "Native clients explicitly prewarmed; no hit/miss or mutable-advisory invalidation proof. Stable IDs are not immutable content. Explicit competitor snapshot age/TTL300 recorded separately."
+        }
+      },
+      "evidenceLane": "providers",
+      "originalBinary": "5950e9eb69eb31c890fa29c4c8d794595b4a0eab46f27aa44b9cf91cc74b52a0",
+      "status": "final correctness verified; efficiency provenance remains per-dimension",
+      "scoreKind": "weighted measured dimensions",
+      "finalBinary": "c4f7ee4e8b49188d2a74d3c5d8a274e01c12cad64677a18a72b48104a18ff1c0",
+      "finalVerification": {
+        "status": "pass within named final inputs and selected evidence",
+        "report": "providers/final3/boundary-summary.json",
+        "schemaAndOutputReferenceParity": true,
+        "validAndInvalidCliMcp": true
+      },
+      "originalScoreKind": "defect cap, not weighted score",
+      "resolvedCap": {
+        "maximum": 4,
+        "reason": "Confirmed identity loss and cross-provider reference/metadata pruning before repaired-build independent source verification.",
+        "resolutionEvidence": "final-independent3/security-source-proof.json:108/108 comparisons; final CLI/MCP17/23page reconstructions; 15exact-source eligible timing observations;3readable observations excluded"
+      },
+      "pros": [
+        "Complete independent provider attribution and source-proven pagination.",
+        "Persistent MCP is faster than the measured source-fetch workflows for this warmed-client advisory; lean output is smaller."
+      ],
+      "cons": [
+        "Lean projected output is smaller; explicit local snapshot is much faster once filled.",
+        "Two-advisory source validation and one-advisory timing scope does not establish all ecosystems, upstream recall or mutable cache invalidation."
+      ],
+      "gotchas": [
+        "Finish response pages before other continuations.",
+        "Selected normalization omits empty collections; absence never inherits another provider record.",
+        "Original security timing is ineligible and retained only as failed baseline evidence.",
+        "Readable CLI rounds fractional numeric values; exact values require--json or MCP."
+      ]
+    }
+  },
+  "finalBinary": "c4f7ee4e8b49188d2a74d3c5d8a274e01c12cad64677a18a72b48104a18ff1c0",
+  "finalGates": {
+    "rustPassed": 8649,
+    "skipped": 16,
+    "sourceDrift": [],
+    "lintExit": 0,
+    "releaseExit": 0,
+    "checkOutputsExit": 0,
+    "skillsExit": 0,
+    "skillsSelfTests": 78,
+    "skillsNodeTests": 48,
+    "pruneRustExit": 0,
+    "postRuntimeSourceDrift": [],
+    "officialBinaryMatches": true,
+    "docsExit": 0,
+    "diffCheckExit": 0
+  },
+  "at": "2026-11-14T21:34:25.315700+00:00",
+  "completedAt": "2026-11-14T21:46:27.967751+00:00",
+  "independentReview": "../../../campaigns/20.2.0-2026-11-14-tool-ratings/final-report-review.md",
+  "cleanup": "../../../campaigns/20.2.0-2026-11-14-tool-ratings/final-cleanup.json"
+}

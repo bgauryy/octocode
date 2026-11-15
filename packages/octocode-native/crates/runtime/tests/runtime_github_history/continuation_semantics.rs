@@ -1,4 +1,4 @@
-use crate::support::{Workspace, call, checks, row_data, row_status, walk};
+use crate::support::{Workspace, call, row_data, row_status, walk};
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -57,12 +57,8 @@ async fn summary_and_patch_walks_terminate_without_requiring_each_other() {
         "{}",
         summary.structured_content
     );
-    let read = checks::find_related_call(row_data(&summary), "ghGetHistoryItem", |input| {
-        input["queries"][0]["sections"] == json!(["patches"])
-    })
-    .expect("optional patches");
-    let mut input = read["input"].clone();
-    input["responseChars"] = json!(4000);
+    assert!(row_data(&summary).get("related").is_none());
+    let input = json!({"queries":[{"operation":"commit","owner":"a","repo":"b","ref":row_data(&summary)["commitSha"],"sections":["patches"]}],"responseChars":4000});
     let walked = walk(&runtime, "ghGetHistoryItem", input, patch_tokens).await;
     assert!(walked.queries.len() > 1, "patch must exercise continuation");
     assert_eq!(walked.rows, expected);

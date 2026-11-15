@@ -92,6 +92,7 @@ fn a_searched_digest_is_stored_without_reading_the_file() {
         size: meta.len(),
         modified: meta.modified().ok(),
         digest: [7; 32],
+        lines: None,
     });
     put(snapshot.into(), "policy".into(), fresh(value));
     let stored = get(snapshot, "policy").expect("stored from the search digest");
@@ -122,6 +123,7 @@ fn storing_a_scan_decodes_no_hit_of_a_file_the_search_hashed() {
         size: 1,
         modified: None,
         digest: [9; 32],
+        lines: None,
     });
     let fresh = fresh(value);
     let before = super::super::packed::decoded_hits_on_this_thread();

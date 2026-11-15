@@ -3,6 +3,7 @@
 use super::*;
 mod clasify_contract;
 mod collections;
+mod declaration_order;
 mod declared_families;
 mod declared_graph;
 mod nested_continuation;

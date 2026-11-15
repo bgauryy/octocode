@@ -1,13 +1,12 @@
 //! The pull-request read menu: the public query a continuation starts from,
-//! the section menu, and the merge-commit read.
-use super::patch::locate::{distinctive_added_lines, hunk_windows};
+//! and its optional section menu.
+use super::patch::locate::hunk_windows;
 use super::patch_hop::includable;
 use super::util::merge;
 use super::{DEFAULT_PAGE_SIZE, HistoryItemRequest, ItemOperation, Sections};
 use crate::id::ToolId;
 use crate::response::result::wire_query;
 use crate::response::result::{Continuation, remove_nulls, restart_query};
-use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::sections::Section;
 use octocode_contract_types::{GhGetFileContentQuery, GhGetHistoryItemQuery};
 use octocode_engine::text::test_paths::is_test_path;
@@ -211,58 +210,6 @@ pub(super) fn pr_next_menu(query: &HistoryItemRequest, review: &[String], raw: &
         next.insert("readDiscussion".into(), call(discussion));
     }
     Value::Object(next.into_iter().take(MENU_CAP).collect())
-}
-
-/// A merged pull request whose patches were read offers a related read of
-/// its most-changed code file (not a test) at the merge commit, searched for
-/// one distinctive added line per hunk (at most
-/// [`super::patch::locate::MERGE_MATCH_LINES`]), so
-/// the fix is checked in the code that shipped. The diff's line numbers
-/// belong to `headCommitSha`; the target branch may have moved the lines by the
-/// merge, so the read locates them by text, never by number. `files` is
-/// every loaded provider file (`filename`, `additions`, `deletions`,
-/// `patch`), not only the patch window shown. `None` for unmerged pull
-/// requests, for a `matchString` read (a targeted answer already), and when
-/// no such file adds a line with something to find. Only files the read selected
-/// (`include`, `fileStatus`, `minChanges`) are candidates: `selected`.
-pub(super) fn read_at_merge(
-    query: &HistoryItemRequest,
-    raw: &Value,
-    files: &[Value],
-    selected: impl Fn(&Value) -> bool,
-) -> Option<Value> {
-    use crate::content::{FileType, classify_file_type};
-    if gh_get_history_item_query::match_strings(query).is_some() {
-        return None;
-    }
-    raw.get("merged_at").filter(|merged| !merged.is_null())?;
-    let sha = raw
-        .get("merge_commit_sha")
-        .and_then(Value::as_str)
-        .filter(|sha| !sha.is_empty())?;
-    let (path, lines) = files
-        .iter()
-        .filter(|file| selected(file))
-        .filter_map(|file| {
-            let path = file.get("filename")?.as_str()?;
-            let patch = file.get("patch")?.as_str()?;
-            (classify_file_type(path) == Some(FileType::Code) && !is_test_path(path))
-                .then_some(())?;
-            let lines = distinctive_added_lines(patch);
-            (!lines.is_empty()).then(|| (churn(file), path, lines))
-        })
-        // The most-changed file; the first of equals.
-        .rev()
-        .max_by_key(|(churn, _, _)| *churn)
-        .map(|(_, path, lines)| (path, lines))?;
-    let read = wire_query::<GhGetFileContentQuery>(json!({
-        "owner": gh_get_history_item_query::owner(query),
-        "repo": gh_get_history_item_query::repo(query),
-        "ref": sha,
-        "path": path,
-        "matchString": lines,
-    }))?;
-    Some(Continuation::related_query(read).build())
 }
 
 /// Added plus removed lines of a provider file.

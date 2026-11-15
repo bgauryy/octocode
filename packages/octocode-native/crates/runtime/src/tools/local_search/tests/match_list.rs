@@ -88,11 +88,13 @@ fn the_case_hint_comes_with_the_insensitive_request_as_related() {
     assert!(text.contains("\"caseMode\":\"insensitive\""), "{out}");
 }
 
-/// The read lead around a hit near the end of a file windows the hit by the
-/// handoff context alone; localFetch clips the part past the last line, so the
-/// file is not read for its length.
+/// The read lead around a hit near the end of a file ends at its last line,
+/// counted by the read the search already made of it (the file is not read
+/// again for its length): hit + context would run past the end. A file whose
+/// lines the search did not count keeps hit + context
+/// (`the_read_handoff_windows_hits_without_reading_the_file`).
 #[test]
-fn a_read_lead_windows_a_hit_without_the_files_length() {
+fn a_read_lead_ends_at_the_files_last_line() {
     let body = (1..=10)
         .map(|line| {
             if line == 9 {
@@ -108,12 +110,9 @@ fn a_read_lead_windows_a_hit_without_the_files_length() {
     );
     let mut found = Vec::new();
     end_lines(&out, &mut found);
-    let hit = 9;
-    let end = hit + crate::tools::local_search::handoff::READ_HANDOFF_CONTEXT as u64;
-    assert!(
-        found.contains(&end),
-        "the lead ends at hit + context: {out}"
-    );
+    let (hit, last) = (9, 10);
+    assert!(hit + u64::from(crate::tools::local_search::handoff::READ_HANDOFF_CONTEXT) > last);
+    assert!(found.contains(&last), "the lead ends at the last line: {out}");
 }
 
 #[test]

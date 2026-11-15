@@ -60,6 +60,10 @@ Octocode sends the selected text, questions, optional task `context`, and any ex
 | `score` | Supply 2–10 ordered levels in `criteria`, starting at level 0. | Expected level, which can be fractional |
 | `box` | Name the visible target in one image. Use a vision-capable provider model. | Coordinates on the image. Inspect the original to verify the location. |
 
+Batch independent questions about the same source. For code, name the mechanism that would decide the answer and distinguish its implementation from declarations, validation or reporting. Include an `unknown` choice label for missing evidence; high confidence does not establish correctness.
+
+Read `next.read` before citing a candidate. If that read covers much more than the question needs, use `localFetch` or `ghGetFileContent` with `view: "symbols"`, then `matchString` and `block: true` for the deciding declaration. Check that local source has not changed and keep GitHub reads at the returned commit. Use `sections` when the claim requires every occurrence or event order; it can add calls and verification work. [Measured scouting and exact-search comparison](../packages/octocode-benchmark/results/rounds/20.2.0-2026-11-15-workflow-efficiency/CLASSIFICATION.md)
+
 ### Filter search hits
 
 From a project containing `README.md`, this search asks the provider to judge each match in its surrounding lines. A direct file read is cheaper for a small result. Add the filter when the same search across a larger scope produces too many hits to read.
@@ -134,7 +138,7 @@ The JSON needs exactly one query row, and that row names no `content`, `source` 
 
 Fresh judgments consume provider tokens even when Octocode already has the file. A fresh `evaluate` or `sections` request starts again. Saved pages replay their answers. Repeating an inline candidate-page cursor can replay it with `calls: 0` while the same runtime retains it. Eviction or a new process can require new inference.
 
-Section plans and their saved response pages expire after 30 minutes of inactivity. With `storage.mode: "memory"` every CLI call runs in its own process, which keeps nothing for a later call: use one running MCP server for a section plan, and for a `related[]` read larger than one response (that read pages, and the row's hint says so). A one-shot CLI call can still `evaluate` local or GitHub text and supply a read that fits one response. URL and image capture require persistent storage. [Storage modes](STORAGE_AND_LIMITS.md#cache-storage-and-lifecycle)
+Section plans and their saved response pages expire after 30 minutes of inactivity. With `storage.mode: "memory"` every CLI call runs in its own process, which keeps nothing for a later call: use one running MCP server for a section plan or a source read larger than one response. A warning discloses when the read needs paging. A one-shot CLI call can still `evaluate` local or GitHub text and supply a read that fits one response. URL and image capture require persistent storage. [Storage modes](STORAGE_AND_LIMITS.md#cache-storage-and-lifecycle)
 
 ## Recovery
 

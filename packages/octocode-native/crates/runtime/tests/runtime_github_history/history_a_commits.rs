@@ -5,7 +5,7 @@
 use super::history_a::{history_a_file, history_a_mount_pr};
 use crate::support::{self};
 use serde_json::json;
-use support::{Workspace, call, checks, inventory_len, row_data, row_status};
+use support::{Workspace, call, inventory_len, row_data, row_status};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -196,10 +196,7 @@ async fn history_a_compare_commits_are_headlines_with_login_authors() {
     let full = call(
         &runtime,
         "ghGetHistoryItem",
-        checks::related_call(data, "ghGetHistoryItem", |input| {
-            input["queries"][0]["ref"] == "c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2"
-        })["input"]
-            .clone(),
+        json!({"operation":"commit","owner":"a","repo":"b","ref":commits[1]["commitSha"]}),
     )
     .await
     .expect("complete message");
