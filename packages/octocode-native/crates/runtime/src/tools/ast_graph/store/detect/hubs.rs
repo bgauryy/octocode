@@ -10,6 +10,7 @@ const CRITICAL_DEPENDENTS: usize = 5;
 /// dependent count; the score's impact term is the file's PageRank
 /// percentile.
 pub(super) fn detect_critical(c: &mut Ctx) {
+    c.judges_file_level(&["critical-file"]);
     let v = &c.v;
     let candidates = v
         .files
@@ -44,6 +45,7 @@ pub(super) fn detect_critical(c: &mut Ctx) {
 }
 
 pub(super) fn detect_spof(c: &mut Ctx) {
+    c.judges_file_level(&["single-point-of-failure"]);
     let points = articulation_points(&c.v);
     for (file, smaller) in points {
         if smaller < 5 || !c.v.file_level(file) {

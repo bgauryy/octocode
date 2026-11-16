@@ -99,6 +99,23 @@ pub(crate) fn scan_offset(q: &LocalSearchQuery) -> Option<u32> {
         scan_offset.map(|offset| saturating_u32(offset.get()))
     )
 }
+/// Candidates, in walk order, before the first file a streamed page has not
+/// shown whole (see [`super::streamed`]).
+pub(crate) fn walk_offset(q: &LocalSearchQuery) -> Option<u32> {
+    common!(
+        q,
+        walk_offset,
+        walk_offset.map(|offset| saturating_u32(offset.get()))
+    )
+}
+/// Rows of that file the earlier pages showed.
+pub(crate) fn row_offset(q: &LocalSearchQuery) -> Option<u32> {
+    common!(
+        q,
+        row_offset,
+        row_offset.map(|offset| saturating_u32(offset.get()))
+    )
+}
 pub(crate) fn snapshot(q: &LocalSearchQuery) -> Option<&str> {
     common!(q, snapshot, snapshot.as_deref().map(String::as_str))
 }
@@ -199,7 +216,6 @@ pub(crate) fn sort(q: &LocalSearchQuery) -> SearchSort {
     match sort_of(q) {
         LocalSearchSort::AscOnly(_) => SearchSort::Traversal,
         LocalSearchSort::AnyOrder(any) => match any.by {
-            LocalSearchSortAnyOrderBy::Relevance => SearchSort::Relevance,
             LocalSearchSortAnyOrderBy::MatchCount => SearchSort::MatchCount,
             LocalSearchSortAnyOrderBy::Path => SearchSort::Path,
             LocalSearchSortAnyOrderBy::ModifiedAt => SearchSort::Modified,
@@ -213,7 +229,7 @@ pub(crate) fn reverse(q: &LocalSearchQuery) -> Option<bool> {
         LocalSearchSort::AnyOrder(any) => any.order == octocode_contract_types::SortOrder::Desc,
         LocalSearchSort::AscOnly(_) => false,
     };
-    Some(descending != matches!(sort(q), SearchSort::Relevance | SearchSort::MatchCount))
+    Some(descending != (sort(q) == SearchSort::MatchCount))
 }
 pub(crate) fn pattern(q: &LocalSearchQuery) -> &str {
     patterns(q).0.first().map_or("", |value| value.as_str())

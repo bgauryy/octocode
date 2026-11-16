@@ -1,10 +1,9 @@
 //! Domain dispatch. Interfaces never select security or execution policy.
-use super::FailureKind;
 use crate::execution::{ExecutionContext, ExecutionError};
 use crate::id::ToolId;
 use crate::policy::path::PathPolicy;
 use crate::response::outcome::{DomainResult, Upstream};
-use crate::response::result::failure_kind;
+
 use crate::security::ContentSecurity;
 use crate::tools::ast_search::execute_ast;
 use crate::tools::local_search::{SearchStatus, execute_local_search};
@@ -91,15 +90,11 @@ pub(super) fn execute_local(
                 selection,
             );
             let status = result.status.row_status();
-            let missing = result.resource_missing;
             let source_digest = result.source_sha256.clone();
             let data = serde_json::to_value(&result).map_err(|_| ExecutionError::WorkerFailed)?;
             let mut row = DomainResult::payload(data, status);
             row.source_digest = source_digest;
             row.judged = result.judged_leaves();
-            if missing && row.failure.is_some() {
-                row.failure = Some(FailureKind::NotFound);
-            }
             Ok(row)
         }
         ToolId::LocalSearch => {
@@ -196,14 +191,7 @@ pub(crate) fn value_result(data: Value) -> DomainResult {
         Some("empty") => Some("empty"),
         _ => None,
     };
-    let kind = crate::id::error_code_of(&data).map(failure_kind);
-    let mut result = DomainResult::payload(data, status);
-    if result.failure.is_some()
-        && let Some(kind) = kind
-    {
-        result.failure = Some(kind);
-    }
-    result
+    DomainResult::payload(data, status)
 }
 
 /// A failure a retry can fix (throttling, an outage, a timeout, a dropped

@@ -188,10 +188,22 @@ impl Query<'_> {
                 || format!("minTier {min_tier}"),
                 |score| format!("minTier {min_tier} and minScore {score}"),
             );
+            // The tier that lists every finding only `minTier` hides.
+            let reveal = report
+                .findings
+                .iter()
+                .filter(|f| options.min_score.is_none_or(|min| f.score >= min))
+                .map(tier)
+                .filter(|found| *found < min_tier)
+                .min();
+            let how = reveal.map_or_else(
+                || "Lower them to list the rest.".to_owned(),
+                |lowest| format!("minTier {lowest} lists them."),
+            );
             notes.push(json!({
                 "filter": "minTier",
                 "explanation": format!(
-                    "{filters} hid hiddenBelowTier findings: byDetector counts them, so its sum is pagination.total plus hiddenBelowTier. Lower them to list the rest."
+                    "{filters} hid {hidden} findings (hiddenBelowTier): byDetector counts them, so its sum is pagination.total plus hiddenBelowTier. {how}"
                 ),
             }));
         }
@@ -200,6 +212,10 @@ impl Query<'_> {
             .map(super::super::detect::Finding::to_json)
             .collect::<Vec<_>>();
         let constants = state_detector_constants(&mut rows);
+        let (cycle_lead, cycle_warning) = self.cap_cycle_members(&mut rows);
+        if let Some(warning) = cycle_warning {
+            extra.insert("warnings".into(), json!([warning]));
+        }
         if let Some(notes) = summary["notes"].as_array_mut() {
             notes.extend(
                 constants
@@ -211,6 +227,7 @@ impl Query<'_> {
             .map(|above| above.build)
             .into_iter()
             .collect::<Vec<_>>();
+        leads.extend(cycle_lead);
         leads.extend(reexport_leads(&mut summary, options, &g.id));
         if !leads.is_empty() {
             extra.insert("related".into(), Value::Array(leads));
@@ -236,6 +253,48 @@ impl Query<'_> {
             }
         }
         Ok((extra, rows))
+    }
+
+    /// Cuts each cycle finding's `members` to the preview the `cycles`
+    /// operation shows, so a large cycle states its `size` and the first
+    /// members; the `cycles` read (the returned lead) lists the same cycles
+    /// and pages every member of each past its preview.
+    fn cap_cycle_members(&self, rows: &mut [Value]) -> (Option<Value>, Option<String>) {
+        let mut cut = 0_usize;
+        for row in rows.iter_mut().filter(|row| row["detector"] == "cycle") {
+            let Some(members) = row["evidence"]["members"].as_array() else {
+                continue;
+            };
+            if members.len() > super::MAX_CYCLE_MEMBERS {
+                let preview = members
+                    .iter()
+                    .take(super::MAX_CYCLE_MEMBERS)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                row["evidence"]["members"] = Value::Array(preview);
+                row["evidence"]["membersTruncated"] = json!(true);
+                cut += 1;
+            }
+        }
+        let warning = (cut > 0).then(|| {
+            // The `cycles` read counts every file of a loop; a finding keeps
+            // production files only, so its size can be smaller: say so.
+            format!(
+                "{cut} cycle(s) list only the first {} members (membersTruncated); related lists every member of each, and counts non-production files (tests, config) that a finding leaves out.",
+                super::MAX_CYCLE_MEMBERS
+            )
+        });
+        let lead = (cut > 0).then(|| {
+            let mut call = Map::new();
+            super::paging::pin(&mut call, self.options, &self.g.id);
+            call.insert("operation".into(), json!("cycles"));
+            crate::response::result::Continuation::related(
+                crate::id::ToolId::GraphQuery,
+                Value::Object(call),
+            )
+            .build()
+        });
+        (lead, warning)
     }
 
     /// The directory holding this graph's snapshots, canonical: the snapshot

@@ -143,7 +143,7 @@ fn a_qualified_call_binds_the_companion_object() {
     let object_member = ask(root, "find", Some("tailRecM"));
     let id = result_ids(&object_member)
         .into_iter()
-        .find(|id| id.starts_with("cats/data/ContT.scala#ContT") && id.contains("@3"))
+        .find(|id| id.starts_with("cats/data/ContT.scala#ContT") && id.contains("@2"))
         .unwrap_or_else(|| panic!("{object_member}"))
         .to_owned();
     assert_eq!(

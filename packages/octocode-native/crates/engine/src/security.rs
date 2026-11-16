@@ -28,6 +28,21 @@ pub fn pattern_placeholders() -> &'static [String] {
     &detector::REPLACEMENTS
 }
 
+/// A digest of the known-format list (every pattern's name and regex, in
+/// order): what a scrub of a text depends on besides the text. Two builds
+/// with equal digests hide the same spans of the same source, so a result
+/// derived from scrubbed text is reusable exactly while it is equal.
+pub fn patterns_identity() -> &'static str {
+    static IDENTITY: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+        let list: Vec<(&str, &str)> = patterns::PATTERNS
+            .iter()
+            .map(|pattern| (pattern.name, pattern.regex))
+            .collect();
+        crate::digest::sha256(format!("{list:?}").as_bytes())
+    });
+    &IDENTITY
+}
+
 /// Prefix of placeholders replacing a whole content view.
 pub const CONTENT_REDACTION_PREFIX: &str = "[CONTENT-REDACTED";
 

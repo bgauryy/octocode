@@ -71,7 +71,7 @@ pub fn execute_match(
         cancel,
         response_window,
     )
-    .map(super::output::finish)
+    .map(crate::response::result::finished)
 }
 
 /// A window past the first whose candidates before it are not the ones the
@@ -195,7 +195,7 @@ fn run_match_under(
                 SCANS.evict(&stale);
             }
             return run_match_under(build, q, paths, cancel, response_window)
-                .map(super::output::finish);
+                .map(crate::response::result::finished);
         }
         if let Some(error) = interrupted_rescan(q, &scan) {
             return Err(error);
@@ -233,7 +233,7 @@ fn run_match_under(
                     SCANS.evict(&stale);
                 }
                 return run_match_under(build, q, paths, cancel, response_window)
-                    .map(super::output::finish);
+                    .map(crate::response::result::finished);
             }
             return Ok(crate::response::result::stale_snapshot(
                 crate::response::result::restart_query(ToolId::AstSearch, &q.to_value()),

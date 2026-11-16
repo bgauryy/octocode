@@ -94,7 +94,7 @@ fn is_count_view(query: &LocalSearchQuery) -> bool {
 }
 
 /// The runtime's own orders (path, matchCount), then `reverse`. Engine-side
-/// time and relevance sorts already honour `reverse`; every order the
+/// time sorts already honour `reverse`; every order the
 /// runtime (re)establishes — path, matchCount, traversal — is reversed here,
 /// as the schema promises ("after sort, before pagination").
 pub(crate) fn order_files(
@@ -109,26 +109,12 @@ pub(crate) fn order_files(
                 .cmp(&a.match_count)
                 .then_with(|| a.path.cmp(&b.path))
         }),
-        // A count view under relevance ranks the most hits first; the stable
-        // sort keeps the engine's relevance order (declaration before code,
-        // comment, string) among equal counts. Under `reverse` the engine
-        // already reversed that order, so the fewest hits come first with
-        // ties left in the engine's reversed order: the exact reverse of the
-        // forward listing.
-        SearchSort::Relevance if is_count_view(query) => {
-            if local_search_query::reverse(query).unwrap_or(false) {
-                files.sort_by_key(|file| file.match_count);
-            } else {
-                files.sort_by_key(|file| std::cmp::Reverse(file.match_count));
-            }
-        }
         _ => {}
     }
-    // Relevance (count views included, above) and the time sorts arrive in
-    // order with `reverse` applied.
+    // The time sorts arrive in order with `reverse` applied.
     let engine_sorted = matches!(
         sort,
-        SearchSort::Modified | SearchSort::Accessed | SearchSort::Created | SearchSort::Relevance
+        SearchSort::Modified | SearchSort::Accessed | SearchSort::Created
     );
     if local_search_query::reverse(query).unwrap_or(false) && !engine_sorted {
         files.reverse();

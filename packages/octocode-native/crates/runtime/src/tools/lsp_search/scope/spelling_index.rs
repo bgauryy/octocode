@@ -92,7 +92,7 @@ impl<'a> WordSearch<'a> {
 
     fn search_text(&self, path: &Path) -> Option<bool> {
         #[cfg(test)]
-        reads::note(path);
+        READS.note(path);
         file_spells(path, self.word, self.limit)
     }
 
@@ -110,7 +110,7 @@ impl<'a> WordSearch<'a> {
             return self.search_text(path);
         };
         #[cfg(test)]
-        reads::note(path);
+        READS.note(path);
         let capacity = usize::try_from(meta.len()).unwrap_or(0).saturating_add(1);
         let mut bytes = Vec::with_capacity(capacity);
         let window = (&mut file)
@@ -185,30 +185,7 @@ fn word_hash(word: &[u8]) -> u64 {
 
 /// Test-only count of the times each file was opened to search its text.
 #[cfg(test)]
-pub(super) mod reads {
-    use std::collections::HashMap;
-    use std::path::{Path, PathBuf};
-    use std::sync::{LazyLock, Mutex, PoisonError};
-
-    static READS: LazyLock<Mutex<HashMap<PathBuf, usize>>> = LazyLock::new(Mutex::default);
-
-    pub(in super::super) fn note(path: &Path) {
-        *READS
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .entry(path.to_path_buf())
-            .or_default() += 1;
-    }
-
-    pub(in super::super) fn of(path: &Path) -> usize {
-        READS
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(path)
-            .copied()
-            .unwrap_or(0)
-    }
-}
+pub(super) static READS: super::path_counter::PathCounter = super::path_counter::PathCounter::new();
 
 #[cfg(test)]
 mod tests;

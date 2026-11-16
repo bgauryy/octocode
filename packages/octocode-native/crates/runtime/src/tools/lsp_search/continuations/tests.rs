@@ -22,14 +22,15 @@ fn selected(value: &str) -> ResponseScope {
     }
 }
 fn row() -> Value {
-    let call = crate::response::paging::next_page_call(
+    let call = crate::response::collection::continued_page(
         crate::id::ToolId::LspSearch,
         lsp_search_query::to_row(&query()),
         "page",
         2,
         &[("snapshot", json!("lsp-v1:selected"))],
     )
-    .expect("call");
+    .expect("call")
+    .build();
     json!({"status":"success","operation":"references","pagination":{"hasMore":true},"next":{"nextPage":call}})
 }
 fn next(row: &Value) -> LspSearchQuery {

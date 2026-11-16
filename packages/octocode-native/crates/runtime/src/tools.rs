@@ -10,6 +10,7 @@ pub(crate) mod declarations;
 pub(crate) mod editor_lock;
 pub(crate) mod empty_walk;
 pub(crate) mod gh_clone_repo;
+pub(crate) mod gh_git;
 pub(crate) mod gh_get_file_content;
 pub(crate) mod gh_get_history_item;
 pub(crate) mod gh_search_code;

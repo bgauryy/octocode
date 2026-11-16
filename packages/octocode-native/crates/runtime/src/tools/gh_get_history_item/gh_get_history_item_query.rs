@@ -7,8 +7,8 @@ use octocode_engine::num::saturating_usize;
 macro_rules! any_operation {
     ($query:expr, $q:ident => $value:expr) => {
         variant_field!($query, each [
-            Q::PullRequest0, Q::PullRequestMatchString, Q::Issue, Q::Commit3,
-            Q::CommitMatchString, Q::Compare5, Q::CompareMatchString,
+            Q::PullRequest0, Q::PullRequestMatchString, Q::Issue2, Q::IssueMatchString,
+            Q::Commit4, Q::CommitMatchString, Q::Compare6, Q::CompareMatchString,
         ] $q => $value)
     };
 }
@@ -18,8 +18,8 @@ macro_rules! any_operation {
 macro_rules! file_operation {
     ($query:expr, $q:ident => $value:expr, else => $other:expr) => {
         variant_field!($query, each [
-            Q::PullRequest0, Q::PullRequestMatchString, Q::Commit3,
-            Q::CommitMatchString, Q::Compare5, Q::CompareMatchString,
+            Q::PullRequest0, Q::PullRequestMatchString, Q::Commit4,
+            Q::CommitMatchString, Q::Compare6, Q::CompareMatchString,
         ] $q => $value, else => $other)
     };
 }
@@ -28,7 +28,8 @@ macro_rules! file_operation {
 macro_rules! match_operation {
     ($query:expr, $q:ident => $value:expr) => {
         variant_field!($query, each [
-            Q::PullRequestMatchString, Q::CommitMatchString, Q::CompareMatchString,
+            Q::PullRequestMatchString, Q::IssueMatchString, Q::CommitMatchString,
+            Q::CompareMatchString,
         ] $q => Some($value), else => None)
     };
 }
@@ -39,9 +40,9 @@ pub(crate) fn has_sections(query: &Q) -> bool {
 pub(super) fn operation(query: &Q) -> ItemOperation {
     match query {
         Q::PullRequest0(..) | Q::PullRequestMatchString(..) => ItemOperation::PullRequest,
-        Q::Issue(..) => ItemOperation::Issue,
-        Q::Commit3(..) | Q::CommitMatchString(..) => ItemOperation::Commit,
-        Q::Compare5(..) | Q::CompareMatchString(..) => ItemOperation::Compare,
+        Q::Issue2(..) | Q::IssueMatchString(..) => ItemOperation::Issue,
+        Q::Commit4(..) | Q::CommitMatchString(..) => ItemOperation::Commit,
+        Q::Compare6(..) | Q::CompareMatchString(..) => ItemOperation::Compare,
     }
 }
 /// What a read names, taken from its variant's own fields: the item a
@@ -56,10 +57,11 @@ pub(super) fn subject(query: &Q) -> Subject<'_> {
     match query {
         Q::PullRequest0(q) => Subject::PullRequest(q.number.get()),
         Q::PullRequestMatchString(q) => Subject::PullRequest(q.number.get()),
-        Q::Issue(q) => Subject::Issue(q.number.get()),
-        Q::Commit3(q) => Subject::Commit(q.ref_.as_str()),
+        Q::Issue2(q) => Subject::Issue(q.number.get()),
+        Q::IssueMatchString(q) => Subject::Issue(q.number.get()),
+        Q::Commit4(q) => Subject::Commit(q.ref_.as_str()),
         Q::CommitMatchString(q) => Subject::Commit(q.ref_.as_str()),
-        Q::Compare5(q) => Subject::Compare {
+        Q::Compare6(q) => Subject::Compare {
             base: q.base_ref.as_str(),
             head: q.head_ref.as_str(),
         },
@@ -76,19 +78,19 @@ pub(crate) fn repo(query: &Q) -> &str {
     any_operation!(query, q => q.repo.as_str())
 }
 pub(crate) fn number(query: &Q) -> Option<u64> {
-    variant_field!(query, each [Q::PullRequest0, Q::PullRequestMatchString, Q::Issue]
+    variant_field!(query, each [Q::PullRequest0, Q::PullRequestMatchString, Q::Issue2, Q::IssueMatchString]
         q => Some(q.number.get()), else => None)
 }
 pub(crate) fn reference(query: &Q) -> Option<&str> {
-    variant_field!(query, each [Q::Commit3, Q::CommitMatchString]
+    variant_field!(query, each [Q::Commit4, Q::CommitMatchString]
         q => Some(q.ref_.as_str()), else => None)
 }
 pub(crate) fn base(query: &Q) -> Option<&str> {
-    variant_field!(query, each [Q::Compare5, Q::CompareMatchString]
+    variant_field!(query, each [Q::Compare6, Q::CompareMatchString]
         q => Some(q.base_ref.as_str()), else => None)
 }
 pub(crate) fn head(query: &Q) -> Option<&str> {
-    variant_field!(query, each [Q::Compare5, Q::CompareMatchString]
+    variant_field!(query, each [Q::Compare6, Q::CompareMatchString]
         q => Some(q.head_ref.as_str()), else => None)
 }
 pub(crate) fn include_patterns(query: &Q) -> Vec<&str> {
@@ -120,14 +122,22 @@ pub(crate) fn min_changes(query: &Q) -> Option<usize> {
 pub(crate) fn match_strings(query: &Q) -> Option<&TextMatchTerms> {
     match_operation!(query, q => &q.match_string)
 }
+/// The lines kept around each `matchString` hit: the query's `contextLines`,
+/// else the contract's default (`limits.defaultReadContextLines`).
 pub(crate) fn match_context(query: &Q) -> (usize, usize) {
-    match_operation!(query, q => q.context_lines.as_ref().map_or((0, 0), |c| {
+    const DEFAULT: (usize, usize) = (
+        crate::id::DEFAULT_READ_CONTEXT_LINES,
+        crate::id::DEFAULT_READ_CONTEXT_LINES,
+    );
+    // An issue's `matchString` reads comment bodies: no hunks, no context.
+    variant_field!(query, each [
+        Q::PullRequestMatchString, Q::CommitMatchString, Q::CompareMatchString,
+    ] q => q.context_lines.as_ref().map_or(DEFAULT, |c| {
         (
             crate::num::usize_of_signed(c.before),
             crate::num::usize_of_signed(c.after),
         )
-    }))
-    .unwrap_or((0, 0))
+    }), else => DEFAULT)
 }
 pub(crate) fn match_options(query: &Q) -> Option<(CaseMode, RegexEngine, bool)> {
     match_operation!(query, q => (q.case_mode, q.regex_engine, q.whole_word))

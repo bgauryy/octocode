@@ -2,6 +2,7 @@
 //! binds, the names a `const` or `var` spec declares, the type a method is
 //! declared on, and the types a struct or interface embeds.
 
+use crate::signatures::node_kinds::kind_of;
 use tree_sitter::Node;
 
 use crate::signatures::nodes::node_text;
@@ -21,7 +22,7 @@ pub(super) fn package_header(root: Node<'_>, content: &str) -> PackageHeader {
     let mut header = PackageHeader::default();
     let mut cursor = root.walk();
     for child in root.named_children(&mut cursor) {
-        match child.kind() {
+        match kind_of(child) {
             "comment" => {
                 header.build_excluded |=
                     node_text(child, content).is_some_and(constraint_excludes_every_build);
@@ -30,7 +31,7 @@ pub(super) fn package_header(root: Node<'_>, content: &str) -> PackageHeader {
                 let mut clause = child.walk();
                 header.package = child
                     .named_children(&mut clause)
-                    .find(|part| part.kind() == "package_identifier")
+                    .find(|part| kind_of(part) == "package_identifier")
                     .and_then(|name| node_text(name, content))
                     .map(str::to_owned);
                 break;
@@ -66,14 +67,14 @@ pub(super) fn spec_names<'t>(
     node: Node<'t>,
     ancestors: &[Node<'t>],
 ) -> Vec<(&'static str, Node<'t>)> {
-    let kind = match node.kind() {
+    let kind = match kind_of(node) {
         "const_spec" => "constant",
         "var_spec"
             if ancestors
                 .iter()
                 .rev()
-                .find(|parent| !matches!(parent.kind(), "var_declaration" | "var_spec_list"))
-                .is_some_and(|parent| parent.kind() == "source_file") =>
+                .find(|parent| !matches!(kind_of(*parent), "var_declaration" | "var_spec_list"))
+                .is_some_and(|parent| kind_of(parent) == "source_file") =>
         {
             "variable"
         }
@@ -103,17 +104,17 @@ pub(super) fn import_binding(node: Node<'_>, content: &str) -> (Option<String>, 
 /// The base type name a `method_declaration` is declared on: `T` for
 /// `func (r T) M()`, `func (r *T) M()` and `func (r *T[U]) M()`.
 pub(super) fn method_owner(node: Node<'_>, content: &str) -> Option<String> {
-    if node.kind() != "method_declaration" {
+    if kind_of(node) != "method_declaration" {
         return None;
     }
     let receivers = node.child_by_field_name("receiver")?;
     let mut cursor = receivers.walk();
     let receiver = receivers
         .named_children(&mut cursor)
-        .find(|child| child.kind() == "parameter_declaration")?;
+        .find(|child| kind_of(child) == "parameter_declaration")?;
     let mut ty = receiver.child_by_field_name("type")?;
     loop {
-        ty = match ty.kind() {
+        ty = match kind_of(ty) {
             "pointer_type" | "parenthesized_type" => ty.named_child(0)?,
             "generic_type" => ty.child_by_field_name("type")?,
             "type_identifier" => return node_text(ty, content).map(str::to_owned),
@@ -132,17 +133,17 @@ pub(super) fn embedded_types(node: Node<'_>) -> Vec<Node<'_>> {
         return out;
     };
     let mut cursor = body.walk();
-    match body.kind() {
+    match kind_of(body) {
         "struct_type" => {
             let Some(fields) = body
                 .named_children(&mut cursor)
-                .find(|child| child.kind() == "field_declaration_list")
+                .find(|child| kind_of(child) == "field_declaration_list")
             else {
                 return out;
             };
             let mut cursor = fields.walk();
             for field in fields.named_children(&mut cursor) {
-                if field.kind() == "field_declaration"
+                if kind_of(field) == "field_declaration"
                     && field.child_by_field_name("name").is_none()
                     && let Some(ty) = field.child_by_field_name("type")
                 {
@@ -152,7 +153,7 @@ pub(super) fn embedded_types(node: Node<'_>) -> Vec<Node<'_>> {
         }
         "interface_type" => {
             for element in body.named_children(&mut cursor) {
-                if element.kind() == "type_elem" && element.named_child_count() == 1 {
+                if kind_of(element) == "type_elem" && element.named_child_count() == 1 {
                     out.extend(element.named_child(0).and_then(type_name));
                 }
             }
@@ -163,7 +164,7 @@ pub(super) fn embedded_types(node: Node<'_>) -> Vec<Node<'_>> {
 }
 
 fn type_name(ty: Node<'_>) -> Option<Node<'_>> {
-    match ty.kind() {
+    match kind_of(ty) {
         "type_identifier" | "qualified_type" => Some(ty),
         "pointer_type" => ty.named_child(0).and_then(type_name),
         "generic_type" => ty.child_by_field_name("type"),

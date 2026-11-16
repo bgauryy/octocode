@@ -151,13 +151,9 @@ pub(super) fn chunks(
     (candidates, chunks)
 }
 
-/// A selected view's plan and the source lines of its unknown chunks.
+/// A selected view's plan and the provider's failure, when it had one.
 pub(crate) struct Chosen {
     pub(crate) outcome: crate::tools::selection::Outcome,
-    /// Inclusive source ranges covering every unknown chunk.
-    unknown_ranges: Vec<serde_json::Value>,
-    /// The ranges read fewer source lines than the whole view holds.
-    narrower: bool,
     /// The provider's error when it could not answer for this page: the
     /// view is shown unfiltered under an `unavailable` receipt.
     provider: Option<crate::tools::selection::ProviderError>,
@@ -167,35 +163,8 @@ impl Chosen {
     pub(super) fn new(
         outcome: crate::tools::selection::Outcome,
         provider: Option<crate::tools::selection::ProviderError>,
-        chunks: &[Chunk],
     ) -> Self {
-        let mut view_lines = std::collections::BTreeSet::new();
-        let mut unknown = std::collections::BTreeSet::new();
-        for (ordinal, chunk) in chunks.iter().enumerate() {
-            let lines = chunk
-                .lines
-                .iter()
-                .copied()
-                .filter(|&line| line != super::extraction::OMISSION_LINE);
-            if !outcome.is_undecided(ordinal) {
-                view_lines.extend(lines);
-            } else {
-                for line in lines {
-                    view_lines.insert(line);
-                    unknown.insert(line);
-                }
-            }
-        }
-        let unknown_lines = unknown.len();
-        Self {
-            outcome,
-            unknown_ranges: crate::tools::line_spans::runs(unknown)
-                .into_iter()
-                .map(|(start, end)| json!({"startLine":start,"endLine":end}))
-                .collect(),
-            narrower: unknown_lines < view_lines.len(),
-            provider,
-        }
+        Self { outcome, provider }
     }
 
     /// The token of `next.nextCandidatePage`, when the budget or a provider
@@ -204,69 +173,42 @@ impl Chosen {
         self.outcome.next_candidates()
     }
 
-    /// The provider's error when the view is returned unfiltered; else,
+    /// The `selection` token replaying this page as exactly the units its
+    /// walk left undecided (`next.unfilteredUnknown`), unbilled.
+    pub(super) fn undecided_view(&self) -> Option<String> {
+        self.outcome.undecided_view()
+    }
+
+    /// The provider's error when the view is returned unfiltered; an
+    /// undecided view's own note
+    /// ([`crate::tools::selection::undecided_note`]); else,
     /// when classification left units out, what it kept
-    /// ([`crate::tools::selection::kept_note`]).
-    pub(super) fn disclosure(&self) -> Vec<String> {
+    /// ([`crate::tools::selection::kept_note_with`]).
+    ///
+    /// `display_continues`: the read has more display pages, which own its
+    /// progress, so `next.nextCandidatePage` is not on this row yet
+    /// ([`super::view::classified::attach_unfiltered`]); the note then says
+    /// the candidates are judged from the last page.
+    pub(super) fn disclosure(&self, display_continues: bool) -> Vec<String> {
         if let Some(error) = &self.provider {
             return vec![crate::tools::selection::unclassified_notice(
                 error,
                 crate::tools::selection::Unclassified::Read,
             )];
         }
-        crate::tools::selection::kept_note(&self.outcome, self.outcome.selected.len())
-            .into_iter()
-            .chain(self.outcome.long_context_notice.clone())
-            .collect()
-    }
-
-    /// Exactly the unknown chunks as plain `ranges` reads of `query`'s file,
-    /// each row as many ranges as a row takes, when some chunks were judged
-    /// and the ranges read less than the whole view. Empty otherwise.
-    pub(super) fn unknown_reads(&self, query: &serde_json::Value) -> Vec<serde_json::Value> {
-        let receipt = &self.outcome.receipt;
-        let cap = crate::contracts::query_schema_number(
-            crate::id::ToolId::LocalFetch,
-            None,
-            "ranges",
-            "maxItems",
+        if self.outcome.lists_undecided() {
+            return vec![crate::tools::selection::undecided_note(
+                self.outcome.selected.len(),
+            )];
+        }
+        crate::tools::selection::kept_note_with(
+            &self.outcome,
+            self.outcome.selected.len(),
+            !display_continues,
         )
-        .and_then(|n| usize::try_from(n).ok())
-        .filter(|cap| *cap > 0);
-        let Some(cap) = cap else {
-            return Vec::new();
-        };
-        if self.unknown_ranges.is_empty()
-            || !self.narrower
-            || receipt.unknown_items >= receipt.total_items
-        {
-            return Vec::new();
-        }
-        let mut row = crate::tools::selection::unfiltered_row(query, &[]);
-        let Some(fields) = row.as_object_mut() else {
-            return Vec::new();
-        };
-        // The unknown chunks are source lines: read them as lines, not as
-        // the selection (hits, context, declarations, whole file) they came from.
-        for field in [
-            "matchString",
-            "contextLines",
-            "regexEngine",
-            "wholeWord",
-            "readProgress",
-            "caseMode",
-            "block",
-        ] {
-            fields.remove(field);
-        }
-        self.unknown_ranges
-            .chunks(cap)
-            .map(|ranges| {
-                let mut read = row.clone();
-                read["ranges"] = json!(ranges);
-                read
-            })
-            .collect()
+        .into_iter()
+        .chain(self.outcome.long_context_notice.clone())
+        .collect()
     }
 
     /// Chars a classified page carries beside its text: the plan token its
@@ -274,38 +216,40 @@ impl Chosen {
     /// leads (each a copy of `query`). The page's text leaves room for
     /// them, so the row stays within the response window it was cut for.
     pub(super) fn row_chars(&self, query: &serde_json::Value) -> usize {
-        let receipt = serde_json::to_value(&self.outcome.receipt)
-            .as_ref()
-            .map_or(0, |value| {
-                octocode_engine::json_size::utf16_units(value).unwrap_or(0)
-            });
+        let size =
+            |value: &serde_json::Value| octocode_engine::json_size::utf16_units(value).unwrap_or(0);
         // `"selection":` and the like around the values.
         const KEYS: usize = 100;
-        if !self.outcome.leaves_out() {
-            // No unfiltered or candidate-page lead: the view leaves nothing out.
-            return octocode_engine::json_size::utf16_units(&json!(self.outcome.token))
-                .unwrap_or(0)
-                + receipt
-                + KEYS;
+        let token = size(&json!(self.outcome.token));
+        if !self.leads() {
+            // No unfiltered or candidate-page lead: the view leaves nothing
+            // out, or is itself the undecided list, which carries no receipt.
+            let receipt = if self.outcome.lists_undecided() {
+                0
+            } else {
+                serde_json::to_value(&self.outcome.receipt)
+                    .as_ref()
+                    .map_or(0, size)
+            };
+            return token + receipt + KEYS;
         }
+        let receipt = serde_json::to_value(&self.outcome.receipt)
+            .as_ref()
+            .map_or(0, size);
+        // Each replayed lead is a copy of the query holding its token.
+        let replay = |token: &str| size(query) + size(&json!(token));
+        let undecided = self.undecided_view().map_or(0, |token| replay(&token));
+        let candidates = self.next_candidates().map_or(0, replay);
         let whole = crate::tools::selection::unfiltered_row(query, &[]);
-        let unknown = self
-            .unknown_reads(query)
-            .iter()
-            .map(|value| octocode_engine::json_size::utf16_units(value).unwrap_or(0))
-            .sum::<usize>();
-        let candidates = self.next_candidates().map_or(0, |token| {
-            octocode_engine::json_size::utf16_units(query).unwrap_or(0)
-                + octocode_engine::json_size::utf16_units(&json!(token)).unwrap_or(0)
-        });
-        // Typed unfiltered and source-read calls, including their saved inputs.
-        let calls = 2 + usize::from(candidates > 0) + self.unknown_reads(query).len();
-        octocode_engine::json_size::utf16_units(&json!(self.outcome.token)).unwrap_or(0)
-            + receipt
-            + unknown
-            + candidates
-            + octocode_engine::json_size::utf16_units(&whole).unwrap_or(0)
-            + KEYS * calls
+        // Typed unfiltered and replayed calls, including their saved inputs.
+        let calls = 2 + usize::from(undecided > 0) + usize::from(candidates > 0);
+        token + receipt + undecided + candidates + size(&whole) + KEYS * calls
+    }
+
+    /// Whether the page leads to what it left out (`next.unfiltered` and its
+    /// replays): an undecided view is that list, so it leads nowhere.
+    pub(super) fn leads(&self) -> bool {
+        self.outcome.leaves_out() && !self.outcome.lists_undecided()
     }
 }
 

@@ -4,21 +4,31 @@
 //! limits, the fallbacks) is the package README's "Warm tool server"
 //! section. This module keeps those promises:
 //!
-//! - A socket name hashes `exe_identity`, `workspace_of` and
-//!   `call_identity`, so any change of them reaches a fresh server and no
-//!   secret appears in a name. The engine's [`PROCESS_ENV`] lists what it
-//!   reads from the server's own process, which a call cannot bring.
-//! - A request carries the client's working directory, environment
-//!   (`served_env`) and call identity. `Daemon::runtime_for` keeps a
-//!   runtime per directory and `env_digest` (`MAX_RUNTIMES`, least
-//!   recently used out), built off the socket thread, one build per key,
-//!   all on one language-server pool. A runtime whose identity differs is
-//!   rebuilt; a call that still cannot match gets a `fallback` reply.
-//!   `octocode auth login`/`logout` stop every server (`stop_all`).
-//! - Only [`runs_on_server`] tools are sent. The reply is the call as
+//! - A socket name hashes `KEY_VERSION`, `exe_identity` (the executable's
+//!   device and inode, version, size and modification time: no path),
+//!   `workspace_of` and `process_identity` (what the engine reads from the
+//!   server's own process, [`PROCESS_ENV`], and [`NETWORK_ENV`], which a call
+//!   cannot bring), so any change of them reaches a fresh server and no
+//!   secret appears in a name. The configuration (`call_identity`, which
+//!   covers every declared `OCTOCODE_*` name) keys a runtime, not the socket.
+//!   A request carries the client's process identity; a server under another
+//!   answers `fallback`.
+//! - A request carries the client's surface (`Surface`: the CLI, or an MCP
+//!   server), working directory, environment (`served_env`) and call
+//!   identity. `Daemon::runtime_for` keeps a runtime per directory, surface
+//!   and `env_digest` (`MAX_RUNTIMES`, least recently used out), built off the
+//!   socket thread, one build per key, all on one language-server pool. A
+//!   runtime whose identity differs is rebuilt; a call that still cannot
+//!   match gets a `fallback` reply. `octocode auth login`/`logout` stop every
+//!   server (`stop_all`).
+//! - Only [`runs_on_server`] tools are sent. The CLI's reply is the call as
 //!   printed in process ([`Printed`]) plus the notices raised in the call's
 //!   own [`octocode_io::notice::Scope`], which its row work carries to
-//!   other threads; the client prints its own configuration warnings.
+//!   other threads; the client prints its own configuration warnings. An MCP
+//!   server (`Remote`, `mcp_server/warm.rs`) is answered as an MCP result
+//!   from `mcp_result`, so its text is the in-process server's bytes; its
+//!   notices stay on the server, and its prewarm is a request the server
+//!   answers once the runtime exists.
 //!   The call's progress lines (quota waits, language-server start) are
 //!   not in the reply: the server writes each as a frame line while the
 //!   call runs and the client prints it at once (`unix/frames.rs`). One
@@ -53,15 +63,19 @@
 //!   talking: it sends a frame at least each `HEARTBEAT` while a call runs,
 //!   and one silent for `READ_STALL` (stopped, hung) is a failed exchange.
 //!   No reply within a budget answers `timeout`, never a second run.
-//!   Ctrl-C half-closes the client's side, which cancels the call on the
-//!   server; the client drains, and a second Ctrl-C stops waiting.
+//!   Ctrl-C (or an MCP cancel) half-closes the client's side, which cancels
+//!   the call on the server; the client drains, and a second Ctrl-C stops
+//!   waiting. A server that dies mid-call is a failed exchange: the call
+//!   runs in process once, and is not asked again of a fresh server.
 //!
 //! The Unix machinery lives in `unix`: `client` (the call side),
 //! `frames` (progress lines on the socket), `identity` (what keys a
 //! server), `sockets` (the socket directory), `startup` (starting one) and
-//! `daemon` (the server). Elsewhere every call runs in process.
+//! `daemon` (the server), `surface` (CLI or MCP). Elsewhere every call runs
+//! in process, MCP's included.
 //!
 //! [`PROCESS_ENV`]: octocode_engine::process_env::PROCESS_ENV
+//! [`NETWORK_ENV`]: octocode_io::http::NETWORK_ENV
 //! [`Printed`]: super::Printed
 
 #[cfg(unix)]
@@ -69,7 +83,7 @@ mod unix;
 
 use octocode_native::id::ToolId;
 #[cfg(unix)]
-pub(super) use unix::{call, run, stop_all, stop_all_and_wait};
+pub(super) use unix::{Remote, Surface, Warm, call, run, stop_all, stop_all_and_wait};
 
 /// Whether `tool` runs on the warm server: every read-only tool, so a
 /// graphQuery reuses the snapshot an earlier call decoded. A tool that

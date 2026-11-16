@@ -122,14 +122,52 @@ fn the_search_walks_exactly_what_the_ignore_walker_walks() {
                 options.include.clone_from(include);
                 options.lang_type.clone_from(lang);
                 options.output = SearchOutput::FilesWithMatch;
-                let found =
-                    search_cancellable(options, reported.clone(), &|| false).expect("search");
+                let found = search_cancellable(options.clone(), reported.clone(), &|| false)
+                    .expect("search");
                 let searched = files_of(
                     root,
                     found.files.into_iter().map(|file| file.path).collect(),
                 );
                 let case = format!("{root:?} {policy:?} {include:?} {lang:?}");
                 assert_eq!(searched, walked, "{case}");
+                // The lazy sorted walk a stream reads admits the same files
+                // and reports the same left out entries.
+                let streamed_reported = Arc::new(Reported(Mutex::default()));
+                let Streaming::Streamed(streamed) = search_stream(
+                    options.clone(),
+                    streamed_reported.clone(),
+                    &|| false,
+                    Stream {
+                        bind: String::new(),
+                        from: 0,
+                        pin: None,
+                        enough: Box::new(|_| false),
+                    },
+                )
+                .expect("stream") else {
+                    panic!("{case}: stale")
+                };
+                assert!(streamed.ended, "{case}");
+                let streamed_files = streamed
+                    .result
+                    .files
+                    .iter()
+                    .map(|file| file.path.clone())
+                    .collect::<Vec<_>>();
+                assert!(
+                    streamed_files
+                        .windows(2)
+                        .all(|pair| Path::new(&pair[0]) <= Path::new(&pair[1])),
+                    "{case}: not in walk order: {streamed_files:?}"
+                );
+                assert_eq!(files_of(root, streamed_files), searched, "{case}");
+                let left_out =
+                    |reported: &Reported| files_of(root, reported.0.lock().expect("lock").clone());
+                assert_eq!(
+                    left_out(&streamed_reported),
+                    left_out(&reported),
+                    "{case}: left out entries"
+                );
                 let reported = files_of(root, reported.0.lock().expect("lock").clone());
                 assert!(
                     !policy.include_ignored || reported.is_empty(),

@@ -78,15 +78,9 @@ pub(super) fn add_redacted_lines(redacted: &mut Vec<(usize, usize)>, lines: &[(u
     });
 }
 
-/// The `[REDACTED…]` placeholders `text` shows.
-pub(super) fn placeholders(text: &str) -> usize {
-    text.matches(octocode_engine::security::REDACTION_PREFIX)
-        .count()
-}
-
 /// Placeholders `redacted` holds beyond the literal ones of `raw`.
 pub(super) fn placeholders_added(raw: &str, redacted: &str) -> usize {
-    placeholders(redacted).saturating_sub(placeholders(raw))
+    crate::security::placeholders(redacted).saturating_sub(crate::security::placeholders(raw))
 }
 
 /// The lines a line-preserving redaction of `raw` into `redacted` changed,

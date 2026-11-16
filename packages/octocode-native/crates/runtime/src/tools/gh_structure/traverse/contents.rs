@@ -2,7 +2,7 @@
 use super::*;
 
 /// The Contents API walk, one directory read per folder the listing
-/// reaches, level by level with up to [`READ_CONCURRENCY`] reads in flight;
+/// reaches, level by level with up to [`read_concurrency`] reads in flight;
 /// no read count ends it: GitHub sets no such rule, and its rate limits and the request
 /// deadline are typed failures, never a silent cut. After a truncated recursive tree (`split`), a folder with more
 /// than one level left to list is read whole from its own recursive subtree,
@@ -27,7 +27,7 @@ pub(in crate::tools::gh_structure) async fn walk_contents(
         let listings = futures_util::stream::iter(level.iter().map(|(path, _)| {
             provider.repository_contents(at.owner, at.repo, path, at.branch, context)
         }))
-        .buffered(READ_CONCURRENCY)
+        .buffered(read_concurrency(provider))
         .collect::<Vec<_>>()
         .await;
         let mut below = Vec::new();
@@ -65,6 +65,7 @@ pub(in crate::tools::gh_structure) async fn walk_contents(
                     continue;
                 };
                 traversal.entries.push(TreeEntry {
+                    oid: file_oid(kind, entry.sha.as_deref()),
                     path: entry.path.clone(),
                     kind,
                     size: entry.size,
@@ -88,7 +89,7 @@ pub(in crate::tools::gh_structure) async fn walk_contents(
                 .iter()
                 .map(|(path, sha)| subtree(provider, &at, path, sha, context)),
         )
-        .buffered(READ_CONCURRENCY)
+        .buffered(read_concurrency(provider))
         .collect::<Vec<_>>()
         .await;
         for ((path, sha), tree) in subtrees.into_iter().zip(trees) {

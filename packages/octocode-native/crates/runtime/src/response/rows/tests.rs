@@ -61,10 +61,41 @@ fn every_error_row_leads_with_its_code_then_its_message() {
             .keys()
             .map(String::as_str)
             .collect::<Vec<_>>();
-        assert_eq!(keys[..2], ERROR_LEAD);
+        assert_eq!(keys[..3], ERROR_LEAD);
         for (name, value) in rest.as_object().expect("rest") {
             assert_eq!(row["data"][name], *value);
         }
-        assert_eq!(keys.len(), 4);
+        assert_eq!(keys.len(), 5);
     }
+}
+
+/// Every declared code gets its class on the row; `retryable` is a boolean
+/// exactly when the class is transient (false only for a cancelled call).
+#[test]
+fn the_row_finaliser_states_the_class_and_retryable_only_when_transient() {
+    use crate::id::error_codes::{self, ErrorClass};
+    for &code in error_codes::ALL {
+        for stale in [None, Some(json!(true)), Some(json!(false))] {
+            let mut data = json!({"errorCode": code, "error": "x"});
+            if let Some(stale) = stale {
+                data["retryable"] = stale;
+            }
+            let row = result_row(0, data, Some("error"));
+            let class = error_codes::class(code);
+            assert_eq!(row["data"]["errorClass"], json!(class), "{code}");
+            if class == ErrorClass::Transient {
+                assert!(row["data"]["retryable"].is_boolean(), "{code}");
+            } else {
+                assert!(row["data"].get("retryable").is_none(), "{code}");
+            }
+        }
+    }
+    let cancelled = result_row(
+        0,
+        json!({"errorCode": "cancelled", "error": "x"}),
+        Some("error"),
+    );
+    assert_eq!(cancelled["data"]["retryable"], json!(false));
+    let timeout = result_row(0, json!({"errorCode": "timeout", "error": "x"}), Some("error"));
+    assert_eq!(timeout["data"]["retryable"], json!(true));
 }

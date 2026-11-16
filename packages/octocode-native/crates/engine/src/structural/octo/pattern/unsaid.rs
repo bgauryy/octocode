@@ -284,13 +284,14 @@ impl Unsaid {
     #[inline(never)]
     pub(super) fn of(
         pattern: Node<'_>,
+        pattern_declares: bool,
         candidate: Node<'_>,
         source: &str,
         expando: Expando,
     ) -> Self {
         // A pattern that spells no part that makes it a declaration (`impl X
         // for $T`, no body) leaves the rest of a declaration unsaid too.
-        if !declares(pattern) && !declares(candidate) {
+        if !pattern_declares && !declares(candidate) {
             if lists_members(pattern, source, expando) && is_held_member_list(pattern) {
                 return Self::Members;
             }

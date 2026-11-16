@@ -11,10 +11,10 @@ import {
   liveSessions,
   noChromeMessage,
   probeFailure,
+  selectedTargetId,
   stateDirFor,
 } from './session-registry.mjs';
 import { octocodeOutputBase } from './engine-io.mjs';
-import { applyMandatoryStealth, stealthEnabled } from './mandatory-stealth.mjs';
 import { restrictNetworkToLocalhost } from './cdp-runner-guard.mjs';
 import {
   attachSaveArtifact,
@@ -32,9 +32,9 @@ import {
   chromeEndpoint,
   confirmTabLoaded,
   listTargets,
-  navigateTab,
   selectTarget,
   selectionVia,
+  stealthThenNavigate,
 } from './cdp-runner-targets.mjs';
 
 propagateOctocodeEnv({ cwd: process.cwd(), trusted: true });
@@ -82,6 +82,7 @@ const SELECTION = {
   targetUrl: TARGET_URL,
   targetType: TARGET_TYPE,
   strict: hasFlag('--strict-target'),
+  preferredId: selectedTargetId(stateDirFor(process.cwd()), PORT),
 };
 const VERBOSE = process.env.CDP_VERBOSE === '1';
 if (hasFlag('--stealth')) process.env.CDP_STEALTH = '1';
@@ -313,15 +314,11 @@ async function main() {
   }
 
   try {
-    if (stealthEnabled())
-      await applyMandatoryStealth(cdp, {
-        navigateUrl: pendingNavigate ?? undefined,
-      });
-    if (pendingNavigate) {
-      console.error(`[CDP_RUNNER] Navigating to ${pendingNavigate}`);
-      const currentUrl = await navigateTab(cdp, pendingNavigate, line =>
-        console.log(line)
-      );
+    const currentUrl = await stealthThenNavigate(cdp, pendingNavigate, {
+      log: line => console.log(line),
+      note: line => console.error(line),
+    });
+    if (currentUrl) {
       cdp.targetInfo = { ...cdp.targetInfo, url: currentUrl };
       cdp.writeSessionMetadata({
         currentTarget: { ...baseMeta.currentTarget, url: currentUrl },

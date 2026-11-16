@@ -78,7 +78,13 @@ impl CompiledPattern {
             return Ok(node_text(pattern, texts.pattern) == node_text(candidate, texts.candidate));
         }
         let lists = Lists {
-            unsaid: Unsaid::of(pattern, candidate, texts.pattern, self.expando),
+            unsaid: Unsaid::of(
+                pattern,
+                self.pattern_declares(pattern),
+                candidate,
+                texts.pattern,
+                self.expando,
+            ),
             by_fields: spells_fields_only(pattern),
             pattern: pattern_kin,
             candidate: candidate_kin,
@@ -92,6 +98,77 @@ impl CompiledPattern {
             depth,
             budget,
         )
+    }
+
+    /// The fields of the pattern's `declared` node in which `candidate`
+    /// differs ([`CompiledPattern::differing_fields`]): each spelled part,
+    /// read as a match reads it, against the candidate's part in its field.
+    /// Each part binds in a fresh environment, so one part's captures do not
+    /// decide another's.
+    pub(super) fn fields_that_differ(
+        &self,
+        declared: Node<'_>,
+        candidate: Node<'_>,
+        content: &str,
+    ) -> Vec<String> {
+        let Unsaid::Declaration(declaration) = Unsaid::of(
+            declared,
+            self.pattern_declares(declared),
+            candidate,
+            &self.source,
+            self.expando,
+        ) else {
+            return Vec::new();
+        };
+        let texts = Texts {
+            pattern: &self.source,
+            candidate: content,
+        };
+        let mut differ: Vec<String> = Vec::new();
+        let mut cursor = declared.walk();
+        let spelled: Vec<_> = declared
+            .children(&mut cursor)
+            .enumerate()
+            .filter(|(_, part)| part.is_named() && !part.is_extra())
+            .filter_map(|(index, part)| {
+                let field = declared.field_name_for_child(u32::try_from(index).ok()?)?;
+                Some((field, part))
+            })
+            .collect();
+        for (field, part) in spelled {
+            if differ.iter().any(|known| known == field) {
+                continue;
+            }
+            let found = candidate.child_by_field_name(field);
+            // `($$$)` takes any parameters, or none where the grammar omits
+            // the list: no spelling of the slot differs.
+            if !matches!(
+                declaration.parameter_slot(part, found, &self.source, self.expando),
+                ParameterSlot::Usual
+            ) {
+                continue;
+            }
+            let mut budget = MatchBudget {
+                attempts: super::MAX_MULTI_CAPTURE_ATTEMPTS,
+                deadline: crate::structural::octo::matching::Deadline::UNBOUNDED,
+            };
+            let matched = found.is_some_and(|found| {
+                self.match_declaration_part(
+                    &declaration,
+                    part,
+                    found,
+                    texts,
+                    &mut CaptureEnv::default(),
+                    1,
+                    &mut budget,
+                )
+                .unwrap_or(true)
+            });
+            if !matched {
+                differ.push(field.to_owned());
+            }
+        }
+        differ
     }
 
     /// One pattern child against one candidate child of a declaration: a type's
@@ -759,15 +836,45 @@ fn bind_meta(
 /// Whether a single capture's `pattern` node is a one-item list that only
 /// wraps it (Go's `expression_list` in `$A := $C`) while `candidate`, a list
 /// of the same kind, holds several items: the capture binds one item, not
-/// `a, b`.
+/// `a, b`. An item is a named child in the capture's field; in no field, one
+/// of the first item's kind or after a token that separates it (`s.x, b`). A
+/// part in another field, or an unseparated one of another kind, is no item:
+/// `<$T>` binds the whole parameter `T extends B` (its `constraint`, Java's
+/// `type_bound`), as ast-grep does.
 fn holds_more_items(pattern: Node<'_>, candidate: Node<'_>) -> bool {
-    let items = |node: Node<'_>| {
+    if pattern.kind_id() != candidate.kind_id() {
+        return false;
+    }
+    let parts = |node: Node<'_>| {
         let mut cursor = node.walk();
-        node.named_children(&mut cursor)
-            .filter(|part| !part.is_extra())
-            .count()
+        let mut parts = Vec::new();
+        let mut separated = false;
+        if cursor.goto_first_child() {
+            loop {
+                let part = cursor.node();
+                if part.is_named() && !part.is_extra() {
+                    parts.push((cursor.field_id(), part.kind_id(), separated));
+                    separated = false;
+                } else if !part.is_extra() && !parts.is_empty() {
+                    separated = true;
+                }
+                if !cursor.goto_next_sibling() {
+                    break;
+                }
+            }
+        }
+        parts
     };
-    pattern.kind_id() == candidate.kind_id() && items(pattern) == 1 && items(candidate) > 1
+    let [(field, _, _)] = *parts(pattern).as_slice() else {
+        return false;
+    };
+    let mut items = parts(candidate)
+        .into_iter()
+        .filter(|(part_field, _, _)| *part_field == field);
+    let Some((_, first_kind, _)) = items.next() else {
+        return false;
+    };
+    items.any(|(_, kind, separated)| field.is_some() || kind == first_kind || separated)
 }
 
 /// Whether `candidate` is another item of the list the part before `part`

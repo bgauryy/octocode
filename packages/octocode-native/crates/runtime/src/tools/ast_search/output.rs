@@ -42,9 +42,3 @@ pub(super) fn unsupported_read(path: &str) -> Option<Value> {
     }?;
     Some(crate::response::result::Continuation::related_query(read).build())
 }
-
-/// Publish explicitly typed producer calls in their canonical channels.
-pub(super) fn finish(mut data: Value) -> Value {
-    crate::response::result::finish_calls(&mut data);
-    data
-}

@@ -337,7 +337,7 @@ fn continue_matches(
     local_fetch_query::set_snapshot(&mut rest, result.source_sha256.as_deref())
         .map_err(|error| error.to_string())?;
     let next = result.next.get_or_insert_with(NextCalls::default);
-    next.continue_window = Some(FetchCall::continued(rest));
+    next.continue_window = Some(FetchCall::page(rest));
     result.is_partial = Some(true);
     Ok(())
 }

@@ -1,6 +1,7 @@
 //! Rust-specific graph-fact collectors: `use`-tree expansion, module
 //! attributes/scopes, and unsupported-context detection.
 
+use crate::signatures::node_kinds::kind_of;
 use tree_sitter::Node;
 
 use crate::signatures::nodes::node_text;
@@ -146,7 +147,7 @@ pub(super) fn owned_test_start(kind: &str, children: &[Node<'_>], content: &str)
     let mut cfg_test = false;
     let mut line_start = None;
     for child in children {
-        match child.kind() {
+        match kind_of(child) {
             "attribute_item" => {
                 if line_start.is_none() && begins_line(content, child.start_byte()) {
                     line_start = Some(child.start_byte());
@@ -193,7 +194,7 @@ pub(super) fn rust_child_contexts(
             test: inherited.test,
             attributes,
         });
-        match child.kind() {
+        match kind_of(child) {
             "attribute_item" => {
                 let folded = run.get_or_insert_with(RustAttributes::default);
                 if folded.line_start.is_none() && begins_line(content, child.start_byte()) {
@@ -230,7 +231,7 @@ pub(super) fn rust_inner_unsupported(node: Node<'_>, content: &str) -> bool {
 /// [`rust_inner_unsupported`] over a node's already-read named children.
 pub(super) fn rust_inner_unsupported_among(children: &[Node<'_>], content: &str) -> bool {
     children.iter().any(|&child| {
-        if child.kind() != "inner_attribute_item" {
+        if kind_of(child) != "inner_attribute_item" {
             return false;
         }
         let text = node_text(child, content).unwrap_or_default();
@@ -273,7 +274,7 @@ pub(super) fn collect_rust_imports(
             return;
         }
         let text = node_text(node, content).unwrap_or_default();
-        match node.kind() {
+        match kind_of(node) {
             "use_list" => {
                 let mut cursor = node.walk();
                 let children_start = pending.len();
@@ -297,7 +298,7 @@ pub(super) fn collect_rust_imports(
                 }
             }
             _ => {
-                let (path_node, alias_node) = if node.kind() == "use_as_clause" {
+                let (path_node, alias_node) = if kind_of(node) == "use_as_clause" {
                     (
                         node.child_by_field_name("path").unwrap_or(node),
                         node.child_by_field_name("alias"),
@@ -309,7 +310,7 @@ pub(super) fn collect_rust_imports(
                 let alias = alias_node.and_then(|alias| node_text(alias, content));
                 let imported_node = path_node.child_by_field_name("name").unwrap_or(path_node);
                 let imported_node =
-                    matches!(imported_node.kind(), "identifier" | "type_identifier")
+                    matches!(kind_of(imported_node), "identifier" | "type_identifier")
                         .then_some(imported_node);
                 let specifier = if path == "self" && !prefix.is_empty() {
                     prefix.to_owned()
@@ -369,12 +370,12 @@ pub(super) fn collect_rust_paths(
             });
         }
     };
-    match node.kind() {
+    match kind_of(node) {
         "scoped_identifier" | "scoped_type_identifier" => {
             let parent = ancestors.last();
             let prefix_or_callee = parent.is_some_and(|parent| {
                 matches!(
-                    parent.kind(),
+                    kind_of(parent),
                     "scoped_identifier" | "scoped_type_identifier"
                 ) || ["function", "macro"]
                     .iter()
@@ -383,7 +384,7 @@ pub(super) fn collect_rust_paths(
             if prefix_or_callee
                 || ancestors
                     .iter()
-                    .any(|ancestor| ancestor.kind() == "use_declaration")
+                    .any(|ancestor| kind_of(ancestor) == "use_declaration")
             {
                 return;
             }
@@ -399,7 +400,7 @@ pub(super) fn collect_rust_paths(
             let mut run: Option<(String, u32, bool)> = None;
             let mut cursor = node.walk();
             for token in node.children(&mut cursor) {
-                let kind = token.kind();
+                let kind = kind_of(token);
                 let name = matches!(kind, "identifier" | "crate" | "self" | "super");
                 match (&mut run, kind, name) {
                     (Some((_, _, separated @ false)), "::", _) => *separated = true,

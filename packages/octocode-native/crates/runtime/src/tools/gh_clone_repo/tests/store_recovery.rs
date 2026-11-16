@@ -32,6 +32,15 @@ impl GitRunner for SlowRunner {
     ) -> Result<GitOutput, CloneError> {
         self.inner.run_nul_records(request, control, record)
     }
+
+    fn run_stream(
+        &self,
+        request: &GitRunRequest<'_>,
+        control: &GitRunControl<'_>,
+        sink: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
+    ) -> Result<GitOutput, CloneError> {
+        self.inner.run_stream(request, control, sink)
+    }
 }
 
 /// A row queued behind a slow fetch of the same repository waits for the
@@ -310,6 +319,15 @@ impl GitRunner for FailPublish {
         record: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
     ) -> Result<GitOutput, CloneError> {
         self.inner.run_nul_records(request, control, record)
+    }
+
+    fn run_stream(
+        &self,
+        request: &GitRunRequest<'_>,
+        control: &GitRunControl<'_>,
+        sink: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
+    ) -> Result<GitOutput, CloneError> {
+        self.inner.run_stream(request, control, sink)
     }
 }
 

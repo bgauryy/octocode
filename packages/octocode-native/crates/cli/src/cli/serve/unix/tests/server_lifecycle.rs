@@ -298,3 +298,120 @@ async fn drain_acknowledgement_is_sent_only_after_shutdown() {
     client.read_to_string(&mut reply).await.unwrap();
     assert_eq!(reply, "{\"stopped\":true}\n");
 }
+
+/// A server answers a call only under its own process environment (the
+/// variables the engine reads from it, which no call can bring): a request
+/// made under another is refused with a reason, and the same request under
+/// the server's own is served.
+#[tokio::test]
+async fn a_request_made_under_another_process_environment_falls_back() {
+    let fixture = Fixture::new();
+    let socket = fixture.home.path().join("p.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).expect("bind");
+    let daemon = std::rc::Rc::new(Daemon::new(socket.clone()));
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let server_daemon = std::rc::Rc::clone(&daemon);
+            let server = tokio::task::spawn_local(async move {
+                serve_on(listener, &server_daemon, Duration::from_millis(300), || {}).await;
+            });
+            let input = json!({"queries": [{"matchString": ["alpha"], "path": "."}]});
+            let cwd = fixture.dir("a");
+            let env = served_env(fixture.env.clone());
+            let identity = fixture.identity(&cwd);
+            let own = own_process_identity();
+            for (process, served) in [("another", false), (own.as_str(), true)] {
+                let mut stream = connect(&socket).await.expect("connect");
+                let request = Request {
+                    tool: "localSearch",
+                    input: &input,
+                    json_out: true,
+                    cwd: &cwd,
+                    env: &env,
+                    identity: &identity,
+                    process,
+                    surface: Surface::Cli,
+                };
+                let reply = exchange_reply(&mut stream, &request, reply_deadline()).await;
+                if served {
+                    reply.expect("served under its own process environment");
+                } else {
+                    assert!(
+                        matches!(&reply, Err(Failed::Fallback(reason)) if reason.contains("another process environment")),
+                        "{reply:?}"
+                    );
+                }
+            }
+            server.await.expect("server");
+        })
+        .await;
+    shut_down(&daemon).await;
+}
+
+/// An MCP request gets a runtime of its own beside the CLI's for one
+/// directory, answers as an MCP result carrying the bytes an in-process MCP
+/// server sends, and keeps MCP's policy (`DISABLE_TOOLS` removes a tool the
+/// CLI still runs).
+#[tokio::test]
+async fn an_mcp_request_is_its_own_runtime_with_mcp_policy_and_bytes() {
+    let mut fixture = Fixture::new();
+    let socket = fixture.home.path().join("m.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).expect("bind");
+    let daemon = std::rc::Rc::new(Daemon::new(socket.clone()));
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let input = json!({"queries": [{"matchString": ["alpha"], "path": "."}]});
+            let cwd = fixture.dir("a");
+            // The in-process answers come first: a server idle for its
+            // 300 ms while one runs would stop before the next call.
+            let (expected, _) = fixture
+                .in_process_mcp(&cwd, "localSearch", input.clone())
+                .await;
+            fixture
+                .env
+                .insert("DISABLE_TOOLS".into(), "localSearch".into());
+            let (refused, refused_error) = fixture
+                .in_process_mcp(&cwd, "localSearch", input.clone())
+                .await;
+            assert!(
+                refused_error && refused.contains("DISABLE_TOOLS"),
+                "{refused}"
+            );
+            fixture.env.remove("DISABLE_TOOLS");
+            let server_daemon = std::rc::Rc::clone(&daemon);
+            let server = tokio::task::spawn_local(async move {
+                serve_on(listener, &server_daemon, Duration::from_millis(300), || {}).await;
+            });
+            let served = fixture
+                .ask_mcp(&socket, &cwd, "localSearch", &input)
+                .await
+                .expect("served");
+            assert_eq!(served["mcp"]["text"], json!(expected), "the bytes");
+            assert_eq!(served["mcp"]["isError"], false);
+            // The CLI of that directory is another runtime on the server.
+            fixture
+                .ask(&socket, &cwd, "localSearch", &input, true)
+                .await
+                .expect("the CLI");
+            assert_eq!(daemon.runtimes.borrow().entries.len(), 2, "one per surface");
+            // MCP's policy holds on the server; the CLI ignores it.
+            fixture
+                .env
+                .insert("DISABLE_TOOLS".into(), "localSearch".into());
+            let served = fixture
+                .ask_mcp(&socket, &cwd, "localSearch", &input)
+                .await
+                .expect("served");
+            assert_eq!(served["mcp"]["isError"], true, "{served}");
+            assert_eq!(served["mcp"]["text"], json!(refused), "the same refusal");
+            let cli = fixture
+                .ask(&socket, &cwd, "localSearch", &input, true)
+                .await
+                .expect("the CLI")
+                .printed;
+            assert_eq!(cli.exit, 0, "{}", cli.body);
+            server.await.expect("server");
+        })
+        .await;
+    shut_down(&daemon).await;
+}

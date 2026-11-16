@@ -4,6 +4,14 @@
 //! spend, and the ready calls. Everything a summary leaves out is in
 //! `details`, so nothing is lost; a summary only removes.
 //!
+//! A row states the `lines` that decide an answer and a `coverage` where its
+//! source can: a text judged whole names lines through its companion choice
+//! (`locate`), a sectioned read or a units row states a `coverage`. The
+//! exceptions are a URL capture, a text of one line, a `box` question, a
+//! request the provider's window split into single questions, and a read
+//! whose text holds fewer lines than its `ranges` name: those answers state
+//! none.
+//!
 //! What a summary removes, by rule:
 //!
 //! - the distribution behind a value (`probabilities`, `confidence`) and the
@@ -13,7 +21,8 @@
 //! - image provenance, except the pixel sizes a `box` maps to;
 //! - a section's `id`, `kind`, `name`, `context` and byte range, and the
 //!   `status` wrapper of an answered cell;
-//! - quiet units, which stay counted in `coverage.quiet`;
+//! - quiet units, which stay counted in `coverage.quiet` and named in a
+//!   warning, so each can be asked about by its key;
 //! - a `sections` lead that is longer than the source it would split.
 use crate::id::ToolId;
 use octocode_contract_types::ClasifyChannel;
@@ -238,8 +247,15 @@ const PLAN_USAGE: [&str; 6] = [
 
 /// A units row: quiet units leave (they stay counted), cells unwrap.
 fn units(fields: &mut Map<String, Value>) {
+    let mut left_out = Vec::new();
     if let Some(Value::Object(units)) = fields.get_mut("units") {
-        units.retain(|_, cells| !super::units::is_quiet(cells));
+        units.retain(|key, cells| {
+            let quiet = super::units::is_quiet(cells);
+            if quiet {
+                left_out.push(key.clone());
+            }
+            !quiet
+        });
         for value in units
             .values_mut()
             .filter_map(Value::as_object_mut)
@@ -247,6 +263,17 @@ fn units(fields: &mut Map<String, Value>) {
         {
             cell(value);
         }
+    }
+    if !left_out.is_empty() {
+        crate::response::paging::push_warnings(
+            fields,
+            [format!(
+                "{} quiet {} left out of this summary (every answer below the quiet threshold): {}; view:\"details\" repeats the call and lists them.",
+                left_out.len(),
+                if left_out.len() == 1 { "unit" } else { "units" },
+                left_out.join(", "),
+            )],
+        );
     }
     usage(fields);
 }
@@ -279,7 +306,13 @@ mod tests {
     fn summary_of(details: &Value) -> Value {
         let mut summary = details.clone();
         summarize(&mut summary);
-        assert!(within(&summary, details), "{summary}\n{details}");
+        // The one thing a summary adds is the warning that names what it
+        // left out; everything else it states is a leaf of the details.
+        let mut stated = summary.clone();
+        if let Some(fields) = stated.as_object_mut() {
+            fields.shift_remove("warnings");
+        }
+        assert!(within(&stated, details), "{summary}\n{details}");
         summary
     }
 
@@ -398,6 +431,28 @@ mod tests {
             summary["resources"]["mid"]["coverage"],
             details["resources"]["mid"]["coverage"]
         );
+    }
+
+    #[test]
+    fn a_summary_names_the_quiet_units_it_leaves_out() {
+        let details = json!({
+            "units":{
+                "a.rs:3":{"auth":{"status":"answered","answer":{"noul":0.91}}},
+                "a.rs:9":{"auth":{"status":"answered","answer":{"noul":0.02}}},
+                "b.rs:1":{"auth":{"status":"answered","answer":{"noul":0.1}}},
+            },
+            "coverage":{"totalUnits":3,"answered":3,"quiet":2},
+        });
+        let summary = summary_of(&details);
+        let warning = summary["warnings"][0].as_str().expect("a warning");
+        assert!(
+            warning.contains("a.rs:9") && warning.contains("b.rs:1"),
+            "{warning}"
+        );
+        assert!(!warning.contains("a.rs:3"), "{warning}");
+        // A row with no quiet unit says nothing.
+        let loud = json!({"units":{"a":{"auth":{"status":"answered","answer":{"noul":0.9}}}}});
+        assert!(summary_of(&loud).get("warnings").is_none());
     }
 
     /// Usage that says more than its spend (unreported requests, an estimate

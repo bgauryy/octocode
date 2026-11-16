@@ -189,7 +189,8 @@ impl<'a> Projector<'a> {
     }
 
     /// Symbols, per file in source order; keys are `path#Qualified.name`
-    /// with an `@line` suffix only when the qualified name repeats.
+    /// with an `@n` suffix, its place among the same-named declarations,
+    /// only when the qualified name repeats.
     pub(super) fn symbols(&mut self) -> Symbols<'a> {
         let mut symbols = Symbols::default();
         let built = self.built;
@@ -292,9 +293,7 @@ impl<'a> Projector<'a> {
                 .digest(source_origin)
                 .unwrap_or(&facts.source_digest);
             self.declarations.push(DeclarationRec {
-                test_identity: self
-                    .strings
-                    .id(&serde_json::json!(decl.test_identity).to_string()),
+                test_identity: self.strings.json(&decl.test_identity),
                 node: id,
                 occurrence: self.strings.id(&decl.id),
                 source_digest: self.strings.id(source_digest),
@@ -304,9 +303,7 @@ impl<'a> Projector<'a> {
                 selection_start: decl.selection_byte_range.map_or(NONE, |r| r.start_byte),
                 selection_end: decl.selection_byte_range.map_or(NONE, |r| r.end_byte),
                 selection_origin: self.sources.origin(file, decl.selection_byte_range),
-                assessment: self
-                    .strings
-                    .id(&serde_json::json!(decl.parse_assessment).to_string()),
+                assessment: self.strings.json(&decl.parse_assessment),
             });
             // A method declared outside its type's body (a Go receiver) is
             // no name of its module: only its type's method set reaches it.

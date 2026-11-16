@@ -72,9 +72,10 @@ version assertions. Check the exact executables and versions each round.
 
 - **Question:** where a term is used, which files hold or lack it, where it is used most, and a
   term inside a minified one-line file.
-- **Expert form:** `rg --no-config -n -w -F TERM DIR -g '*.rs'`; matching-line counts
+- **Expert form:** `rg --no-config -n -w -F TERM DIR -g '*.rs'` (name order: add `--sort path`); matching-line counts
   `rg --no-config -c -F TERM DIR`; files `rg -l` and `rg --files-without-match`;
   a window in a long line `rg -o -b '.{0,60}TERM.{0,60}' FILE`.
+- **First page:** the default walk order stops when the page fills, so compare page 1 against `rg --sort path TERM DIR | head`, not against a whole-scope count; a content page's total is a floor (`countScope: loaded`) and exact totals come from a count view.
 - **Better means:** the same match set first. Then characters, a window with its column for a hit
   in a long line, a continuation that reaches every remaining hit, and the next call ready from
   the row. rg is expected to win raw process latency; say so when it does.

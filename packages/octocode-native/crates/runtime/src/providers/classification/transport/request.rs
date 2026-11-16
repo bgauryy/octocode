@@ -1,22 +1,27 @@
 use super::{
     BACKOFF, ClassificationError, MAX_ERROR_BODY_BYTES, MAX_RETRY_AFTER, budget_error,
     check_budget, denied, is_overloaded, overloaded_error, rate_limited, send_error, shared_client,
-    status_error, transport_error, wait,
+    stall_of, stalled, status_error, transport_error, wait,
 };
 use crate::providers::classification::gate::{GateDenied, GateLease, GatePermit};
 use octocode_contract_types::ErrorCode;
-use octocode_io::budget::RequestBudget;
+use octocode_io::budget::{BudgetStop, RequestBudget};
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use std::time::{Duration, Instant, SystemTime};
 use url::Url;
 
-/// Read a bounded error body and keep it only when it parses as JSON.
-async fn error_body(response: reqwest::Response, budget: &RequestBudget) -> Option<Value> {
-    let body = octocode_io::retry::read_bounded(response, budget, MAX_ERROR_BODY_BYTES)
-        .await
-        .ok()?;
-    serde_json::from_slice(&body).ok()
+/// Read a bounded error body and keep it only when it parses as JSON; the
+/// budget's stop when it stopped the read.
+async fn error_body(
+    response: reqwest::Response,
+    budget: &RequestBudget,
+) -> Result<Option<Value>, BudgetStop> {
+    match octocode_io::retry::read_bounded(response, budget, MAX_ERROR_BODY_BYTES).await {
+        Ok(body) => Ok(serde_json::from_slice(&body).ok()),
+        Err(octocode_io::retry::BodyError::Stopped(stop)) => Err(stop),
+        Err(_) => Ok(None),
+    }
 }
 
 enum Attempt {
@@ -60,17 +65,17 @@ async fn attempt(
             .body(body.clone()),
         None => client.get(endpoint.clone()),
     };
-    let sent = wait(
-        budget,
-        builder
-            .bearer_auth(key.expose_secret())
-            .header(reqwest::header::ACCEPT, "application/json")
-            .headers(request.headers.clone())
-            .send(),
-    )
-    .await;
+    let sent = budget
+        .wait_stalled(
+            builder
+                .bearer_auth(key.expose_secret())
+                .header(reqwest::header::ACCEPT, "application/json")
+                .headers(request.headers.clone())
+                .send(),
+        )
+        .await;
     let response = match sent {
-        Err(error) => return Attempt::Done(Err(error)),
+        Err(stop) => return stopped(budget, stop, permit),
         Ok(Err(error)) => {
             permit.failed();
             return if octocode_io::retry::is_retryable_send(&error) {
@@ -92,6 +97,24 @@ async fn attempt(
     }
 }
 
+/// A request its budget stopped, never retried. A stall (the provider took
+/// the request, then sent nothing for the budget's stall bound) is the
+/// provider's failure and counts toward its circuit, so concurrent and later
+/// requests pause instead of each waiting out the same silence; a cancelled
+/// or expired call releases its permit neutrally.
+fn stopped(budget: &RequestBudget, stop: BudgetStop, permit: GatePermit) -> Attempt {
+    match stall_of(budget, stop) {
+        Some(stall) => {
+            permit.failed();
+            Attempt::Done(Err(stalled(stall)))
+        }
+        None => {
+            drop(permit);
+            Attempt::Done(Err(budget_error(stop)))
+        }
+    }
+}
+
 /// A non-success response: a refusal, a throttle or transient
 /// failure to retry, or a final error (402 also stops later calls).
 async fn failed_status(
@@ -107,7 +130,10 @@ async fn failed_status(
         MAX_RETRY_AFTER,
         SystemTime::now(),
     );
-    let body = error_body(response, budget).await;
+    let body = match error_body(response, budget).await {
+        Ok(body) => body,
+        Err(stop) => return stopped(budget, stop, permit),
+    };
     let class = octocode_io::retry::classify_status(code);
     let overloaded =
         class == octocode_io::retry::StatusClass::Overloaded || is_overloaded(body.as_ref());
@@ -148,10 +174,10 @@ async fn failed_status(
     // Not a provider-health signal (4xx/3xx, e.g. 400
     // `max_tokens_exceeded`): release neutrally, never retry, and keep the
     // parsed body only to pick the vendor error code.
-    if status == reqwest::StatusCode::PAYMENT_REQUIRED {
-        permit.quota_exhausted();
-    } else {
-        drop(permit);
+    match status {
+        reqwest::StatusCode::PAYMENT_REQUIRED => permit.quota_exhausted(),
+        reqwest::StatusCode::UNAUTHORIZED => permit.credential_rejected(),
+        _ => drop(permit),
     }
     Attempt::Done(Err(status_error(status, body.as_ref())))
 }
@@ -167,7 +193,7 @@ async fn read_body(
     {
         Ok(body) => body,
         Err(octocode_io::retry::BodyError::Stopped(stop)) => {
-            return Attempt::Done(Err(budget_error(stop)));
+            return stopped(budget, stop, permit);
         }
         Err(octocode_io::retry::BodyError::Transport) => {
             permit.failed();

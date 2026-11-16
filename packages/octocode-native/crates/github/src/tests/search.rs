@@ -2,6 +2,7 @@
 use super::*;
 
 mod first_page;
+mod past_the_cap;
 mod sso;
 
 fn code_search_request() -> CodeSearchRequest {

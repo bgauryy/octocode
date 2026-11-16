@@ -2,11 +2,7 @@
 
 use super::file_search::{FileSearcher, build_searcher};
 use super::file_terms::FileTerms;
-use super::mode::{
-    MatchWork, Mode, alternation_words, identifier_search, lists_match_density, match_work,
-    only_matching, ranks_by_relevance,
-};
-use super::result::preserves_traversal_order;
+use super::mode::{MatchWork, Mode, match_work, only_matching};
 use super::state::{CollectState, FileRec, Held};
 use super::visit::WalkScope;
 use super::walk_rule::build_walk_builder;
@@ -14,7 +10,6 @@ use super::{
     DEFAULT_MAX_LINE_SEARCH_FILE_BYTES, DEFAULT_MAX_SEARCH_FILE_BYTES, TextSearchPathFilter,
 };
 use crate::error::Result;
-use crate::search::relevance;
 use crate::types::{PatternSyntax, SearchContext, SourceValues, TextSearchOptions};
 use grep_matcher::Matcher;
 use grep_searcher::BinaryDetection;
@@ -118,33 +113,24 @@ pub(super) fn walk_scope<'a>(
     state: &'a CollectState,
     control: WalkControl<'a>,
 ) -> Result<(ignore::WalkBuilder, WalkScope<'a>)> {
-    // Traversal ordering is only stable if a single worker drains the walk in a
-    // fixed order; the default parallel walk merges worker buffers arbitrarily.
-    let (mut walk_builder, rule) = build_walk_builder(opts)?;
-    // Otherwise the walk takes this call's share of the process CPU budget
-    // (`walk_builder`, `cpu`).
-    if preserves_traversal_order(opts) {
-        walk_builder.threads(1);
-    }
+    // The walk takes this call's share of the process CPU budget
+    // (`walk_builder`, `cpu`); the result is put in its order afterwards.
+    let (walk_builder, rule, selection) = build_walk_builder(opts)?;
     let scope = WalkScope {
         opts,
-        rule,
+        rule: rule.map(Arc::new),
+        selection,
         state,
         control,
         max_file_bytes: byte_ceiling(opts),
         keep_unmatched: mode == Mode::FilesWithoutMatch,
-        identifier: identifier_search(opts),
         file_terms: FileTerms::new(opts),
-        attributes: ranks_by_relevance(opts)
-            .then(|| relevance::GitAttributes::new(Path::new(&opts.path)))
-            .flatten(),
-        words: ranks_by_relevance(opts)
-            .then(|| alternation_words(opts))
-            .flatten(),
         judge_gate: super::judge_gate::JudgeGate::of(
             opts,
             &super::rust_spelling(opts, &opts.pattern),
         ),
+        drains: false,
+        open_gate: None,
     };
     Ok((walk_builder, scope))
 }
@@ -178,17 +164,12 @@ pub(super) fn file_searcher<'a, M: Matcher>(
                 && context.is_empty()
                 && !only_matching
                 && !opts.multiline.unwrap_or(false),
-            weigh_lines: ranks_by_relevance(opts)
-                && lists_match_density(mode)
-                && !opts.invert_match.unwrap_or(false),
             row_window: opts.row_window,
             ..match_work(mode, only_matching)
         },
         stop,
         held,
-        keep_head: ranks_by_relevance(opts),
         copy: scope.file_terms.is_some(),
-        words: scope.words.as_ref(),
         terms,
         gate: &scope.judge_gate,
     }

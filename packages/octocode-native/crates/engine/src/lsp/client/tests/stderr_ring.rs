@@ -354,10 +354,13 @@ process.exit(1);
     config.command = script.to_string_lossy().into_owned();
     config.args = None;
     config.env = Some(
-        [(
-            "FAKE_HOLDER_PID_FILE".to_owned(),
-            holder_file.to_string_lossy().into_owned(),
-        )]
+        [
+            (
+                "FAKE_HOLDER_PID_FILE".to_owned(),
+                holder_file.to_string_lossy().into_owned(),
+            ),
+            ("PATH".to_owned(), std::env::var("PATH").unwrap_or_default()),
+        ]
         .into_iter()
         .collect(),
     );

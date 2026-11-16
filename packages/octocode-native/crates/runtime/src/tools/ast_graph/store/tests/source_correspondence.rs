@@ -80,16 +80,13 @@ fn saved_raw_identity_is_immutable_after_rewrites_and_encoding_changes() {
         octocode_engine::digest::sha256(source.as_bytes())
     );
 
-    // A new graph extracts the unchanged original source again. Its captured
-    // identity and provenance must remain exact across independent extractions.
+    // A new graph reuses the unchanged original source's cached facts. Its
+    // captured identity and provenance must remain exact across builds.
     dir.write("app/other.ts", "export function other() {}\n");
     let rebuilt = ingest_root(&dir.0, &dir.0.join("app"), Some(10), false);
     assert_eq!(rebuilt.class, ExitClass::Success, "{}", rebuilt.value);
-    assert_eq!(rebuilt.value["extraction"]["reusedFiles"], 0);
-    assert_eq!(
-        rebuilt.value["extraction"]["parsedFiles"],
-        rebuilt.value["scan"]["filesScanned"]
-    );
+    assert_eq!(rebuilt.value["extraction"]["reusedFiles"], 1);
+    assert_eq!(rebuilt.value["extraction"]["parsedFiles"], 1);
     let rebuilt_node = ask(&dir.0, "node", Some("encoded.ts#run"), |_| {});
     assert_eq!(
         rebuilt_node.value["node"]["sourceOrigin"],

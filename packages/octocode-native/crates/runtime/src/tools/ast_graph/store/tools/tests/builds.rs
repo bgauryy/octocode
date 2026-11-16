@@ -297,6 +297,21 @@ fn a_build_names_the_files_no_graph_grammar_parses() {
         "{empty}"
     );
     assert!(hints.contains("parserGlobs"), "{empty}");
+    // Every file the warning counts is its own `unparsed` entry, by type.
+    // Recorded absolute, spelled from the workspace as the runtime responds.
+    let skipped = |row: &Value| {
+        let mut skipped = row["skippedPaths"].clone();
+        crate::response::paths::workspace_relative(&mut skipped, &workspace_policy(&dir.0));
+        skipped
+    };
+    assert_eq!(
+        skipped(&empty),
+        json!({"entries":[
+            {"path":"docs/a.md","cause":"unparsed","reason":"markdown"},
+            {"path":"docs/b.md","cause":"unparsed","reason":"markdown"}
+        ],"sampled":false}),
+        "{empty}"
+    );
     assert!(!hints.contains("behind skipped paths"), "{empty}");
     assert!(
         !hints.contains("searched"),
@@ -314,6 +329,13 @@ fn a_build_names_the_files_no_graph_grammar_parses() {
         "{partly}"
     );
     assert!(hints.contains("markdown 1"), "{partly}");
+    // Beside parsed files the warning counts the file of no known type: it
+    // is the one entry; the markdown file stays a count.
+    assert_eq!(
+        skipped(&partly),
+        json!({"entries":[{"path":"app/tool.unknowntype","cause":"unparsed"}],"sampled":false}),
+        "{partly}"
+    );
     assert!(!hints.contains("page.vue"), "{partly}");
     assert!(!hints.contains("a.ts"), "{partly}");
 
@@ -331,6 +353,7 @@ fn a_build_names_the_files_no_graph_grammar_parses() {
     // A scope every file of which is parsed says nothing.
     let plain = call(&dir.0, ToolId::GraphBuild, json!({"path": "src"}));
     assert!(plain.get("warnings").is_none(), "{plain}");
+    assert!(plain.get("skippedPaths").is_none(), "{plain}");
 
     // The graph store the builds above wrote is Octocode's own, never the
     // scope's: a walk that takes dot entries names none of its files.

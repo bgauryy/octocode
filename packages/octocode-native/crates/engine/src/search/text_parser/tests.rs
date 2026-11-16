@@ -17,7 +17,7 @@ fn raw(text: &str, line_number: u32, column: u32) -> RawMatch {
         line_number,
         column,
         byte_offset: saturating_u32(byte),
-        rank: super::super::relevance::line_rank(text.as_bytes(), byte),
+        rank: super::super::declaration::line_rank(text.as_bytes(), byte),
         window_start: None,
     }
 }
@@ -78,17 +78,26 @@ fn assembles_single_match() {
 }
 
 #[test]
-fn each_match_carries_its_lexical_hit_rank() {
+fn each_match_carries_its_declaration_class() {
     let f = assemble(
         &[
             (1, "   * see maximumSize", Some(9)),
             (2, "    check(maximumSize);", Some(10)),
             (3, "    this.maximumSize = maximumSize;", Some(9)),
+            (4, "    public long maximumSize = 0;", Some(16)),
         ],
         0,
     );
     let ranks = f.matches.iter().map(|m| m.rank).collect::<Vec<_>>();
-    assert_eq!(ranks, vec![Some(0), Some(1), Some(2)]);
+    assert_eq!(
+        ranks,
+        vec![
+            Some(0),
+            Some(0),
+            Some(0),
+            Some(crate::types::DECLARATION_RANK)
+        ]
+    );
 }
 
 #[test]

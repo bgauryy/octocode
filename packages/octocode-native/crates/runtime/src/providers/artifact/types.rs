@@ -94,6 +94,10 @@ pub struct ArtifactItem {
     /// `source_ref` is an upstream release tag checked to exist.
     #[serde(skip)]
     pub source_tag: bool,
+    /// The upstream release tag whose check made `verification` `tag`:
+    /// `ref` may be the commit that tag names, so the tag is stated apart.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub release_tag: Option<String>,
     /// `source_ref` is the release tag the package's metadata declares (a
     /// Maven `<scm><tag>`), which exists upstream but names no tag of this
     /// version: pinned as the registry's claim, and the response says so.
@@ -196,6 +200,7 @@ impl ArtifactItem {
                 self.repository_status = Some(RepositoryStatus::Missing);
                 self.source_ref = None;
                 self.source_tag = false;
+                self.release_tag = None;
             }
             CommitCheck::FoundAfterRedirect { to } => {
                 self.repository_status = Some(RepositoryStatus::Moved);
@@ -265,6 +270,7 @@ impl ArtifactItem {
             verification: None,
             source_attested: false,
             source_tag: false,
+            release_tag: None,
             declared_ref: false,
             tag_differs: None,
             missing_ref: None,

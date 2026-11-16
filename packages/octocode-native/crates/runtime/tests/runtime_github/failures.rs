@@ -193,7 +193,7 @@ async fn github_errors_without_continuations_preserve_reason_and_recovery() {
         ),
         (
             json!({"owner":"a","repo":"b","path":"img.png","ref":sha}),
-            "invalidInput",
+            "binaryFileUnsupported",
             "Binary content",
         ),
     ] {

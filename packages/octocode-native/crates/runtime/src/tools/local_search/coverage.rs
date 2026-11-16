@@ -255,6 +255,8 @@ impl Coverage {
     ) -> Option<String> {
         use octocode_engine::text::counted;
         let withheld = self.withheld + checked.map_or(0, |checked| checked.withheld);
+        let binary_skipped =
+            binary_skipped.saturating_add(checked.map_or(0, |checked| checked.binary_skipped));
         if checked.is_none() && beyond.is_none() && binary_skipped == 0 && withheld == 0 {
             return None;
         }

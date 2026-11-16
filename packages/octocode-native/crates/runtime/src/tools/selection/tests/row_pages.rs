@@ -4,6 +4,7 @@
 use super::*;
 
 mod discussion;
+mod judged_text;
 mod kept;
 mod leads;
 

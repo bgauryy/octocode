@@ -20,6 +20,7 @@ mod parse_waits;
 mod project_loads;
 mod requests;
 mod server_process;
+pub use server_process::LSP_SERVER_ENV_ALLOWLIST;
 mod snippets;
 mod status;
 mod stderr;

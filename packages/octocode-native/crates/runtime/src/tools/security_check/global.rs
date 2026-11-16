@@ -32,6 +32,37 @@ pub(super) struct Global {
     malware: Vec<String>,
 }
 
+/// How a withdrawal warning begins: the summary view counts these
+/// ([`collapse_withdrawn`]) instead of listing each.
+const WITHDREW: &str = "GitHub withdrew ";
+
+/// The summary's one count for the withdrawal warnings in `warnings`: each
+/// withdrawn record is no match and never counted, so the summary states how
+/// many, at the place of the first, and `related` reads them (the `details`
+/// view lists each with its date).
+pub(super) fn collapse_withdrawn(warnings: &mut Vec<Value>) {
+    let withdrew = |warning: &Value| {
+        warning
+            .as_str()
+            .is_some_and(|text| text.starts_with(WITHDREW))
+    };
+    let count = warnings.iter().filter(|warning| withdrew(warning)).count();
+    let Some(first) = warnings.iter().position(withdrew) else {
+        return;
+    };
+    let mut seen = 0;
+    warnings.retain(|warning| {
+        let drop = withdrew(warning);
+        seen += usize::from(drop);
+        !drop || seen == 1
+    });
+    warnings[first] = json!(format!(
+        "{WITHDREW}{count} advisor{}: not {}, not counted; related reads each.",
+        if count == 1 { "y" } else { "ies" },
+        if count == 1 { "a match" } else { "matches" }
+    ));
+}
+
 /// GitHub's advisories at the confirmed version, every page; `None` when no
 /// GitHub transport exists, no version was confirmed, the row names a
 /// distribution release, or GitHub keeps no database for the ecosystem.
@@ -213,7 +244,7 @@ impl Global {
                 ""
             };
             format!(
-                "GitHub withdrew {} at {}{both}: not a match; related reads it whole.",
+                "{WITHDREW}{} at {}{both}: not a match; related reads it whole.",
                 super::answer::stated_id(id),
                 super::answer::typed(at)
             )

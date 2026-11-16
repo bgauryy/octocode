@@ -33,12 +33,11 @@ pub(super) fn render_error_codes(contract: &Value) -> Result<String, Box<dyn Err
             .as_str()
             .ok_or_else(|| invalid(format!("errorCodes.{code} must name a class")))?;
         let class = match class {
-            "invalidInput" => "InvalidInput",
-            "notFound" => "NotFound",
-            "authentication" => "Authentication",
-            "permission" => "Permission",
-            "rateLimited" => "RateLimited",
-            "execution" => "Execution",
+            "correctInput" => "CorrectInput",
+            "refused" => "Refused",
+            "unservable" => "Unservable",
+            "transient" => "Transient",
+            "restart" => "Restart",
             other => return Err(invalid(format!("errorCodes.{code}: unknown class {other}"))),
         };
         all.push_str(&format!("        ErrorCode::{variant},\n"));
@@ -51,16 +50,7 @@ pub(super) fn render_error_codes(contract: &Value) -> Result<String, Box<dyn Err
         "/// Contract `errorCodes`: every declared `errorCode` and how it ends a call.\n\
          pub mod error_codes {{\n\
          \x20   use octocode_contract_types::ErrorCode;\n\n\
-         \x20   /// The exit class of an `errorCode`.\n\
-         \x20   #[derive(Clone, Copy, Debug, PartialEq, Eq)]\n\
-         \x20   pub enum ErrorClass {{\n\
-         \x20       InvalidInput,\n\
-         \x20       NotFound,\n\
-         \x20       Authentication,\n\
-         \x20       Permission,\n\
-         \x20       RateLimited,\n\
-         \x20       Execution,\n\
-         \x20   }}\n\n\
+         \x20   pub use octocode_contract_types::ErrorClass;\n\n\
          \x20   /// Every declared code, in contract order.\n\
          \x20   pub const ALL: &[ErrorCode] = &[\n{all}    ];\n\n\
          \x20   /// The exit class of `code`.\n\

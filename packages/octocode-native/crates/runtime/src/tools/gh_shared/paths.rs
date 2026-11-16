@@ -65,7 +65,16 @@ pub(crate) struct PathRecovery {
     pub(crate) directory: String,
     /// The requested file itself when only its case differed.
     pub(crate) file: Option<String>,
+    /// The listing the wanted name was missing from is as long as the
+    /// Contents API lists ([`CONTENTS_LIMIT`]): the name may sit past the cut.
+    pub(crate) truncated: bool,
 }
+
+/// The most entries the Contents API lists of one directory.
+pub(crate) const CONTENTS_LIMIT: usize = 1000;
+
+/// The recovery's parent listing is as long as the Contents API lists.
+pub(crate) const LISTING_MAY_BE_CUT_HINT: &str = "The parent directory lists 1,000 entries, the most the Contents API returns: the path may exist past them.";
 
 /// A place in a repository: its coordinates, a path (`""` for the root)
 /// and a ref (the default branch when `None`). Recoveries list under it,
@@ -118,104 +127,24 @@ impl<'a> RepoPath<'a> {
 }
 
 /// Walk up to the nearest directory that exists, then back down matching each
-/// remaining segment case-insensitively. One read answers it: the commit's
-/// recursive tree, walked in memory ([`walk_tree`]). A tree GitHub truncates
-/// (or does not answer) is walked by directory listings instead
-/// ([`walk_listings`]), one per level, bounded by the path's own depth.
+/// remaining segment case-insensitively ([`walk_listings`]): the missing
+/// path's parent is listed first, and a level above it only while that
+/// parent is missing, so a recovery reads what the path's own depth names,
+/// never the commit's recursive tree (whose size follows the repository's).
 pub(crate) async fn locate_path(
     provider: &GitHubProvider,
     at: &RepoPath<'_>,
     context: &RequestContext,
 ) -> Option<PathRecovery> {
-    let (owner, repo) = (at.owner, at.repo);
     let segments: Vec<&str> = at.path.split('/').filter(|part| !part.is_empty()).collect();
     let reference = provider
-        .resolve_reference(owner, repo, at.reference, context)
+        .resolve_reference(at.owner, at.repo, at.reference, context)
         .await
         .ok()?;
-    let tree = provider
-        .transport
-        .get_tree(
-            &octocode_github::TreeRequest {
-                owner: owner.into(),
-                repo: repo.into(),
-                reference: reference.clone(),
-                recursive: true,
-            },
-            context,
-        )
-        .await;
-    match tree {
-        Ok(tree) if !tree.truncated => Some(walk_tree(&segments, &tree.tree)),
-        _ => walk_listings(provider, at, &segments, &reference, context).await,
-    }
+    walk_listings(provider, at, &segments, &reference, context).await
 }
 
-/// An entry's kind as the Contents API names it: `dir`, `file`, `symlink`
-/// (a blob of mode `120000`) or `submodule`.
-fn content_kind(entry: &octocode_github::TreeEntry) -> &str {
-    match entry.kind.as_str() {
-        "tree" => "dir",
-        "commit" => "submodule",
-        "blob" if entry.mode.as_deref() == Some("120000") => "symlink",
-        "blob" => "file",
-        other => other,
-    }
-}
-
-/// [`locate_path`] over a whole recursive tree.
-fn walk_tree(segments: &[&str], entries: &[octocode_github::TreeEntry]) -> PathRecovery {
-    let mut children: std::collections::HashMap<&str, Vec<(&str, &str, &str)>> =
-        std::collections::HashMap::new();
-    for entry in entries {
-        let (parent, name) = entry.path.rsplit_once('/').unwrap_or(("", &entry.path));
-        children
-            .entry(parent)
-            .or_default()
-            .push((name, content_kind(entry), &entry.path));
-    }
-    let mut depth = segments.len().saturating_sub(1);
-    while depth > 0 && !children.contains_key(segments[..depth].join("/").as_str()) {
-        depth -= 1;
-    }
-    let mut directory = segments[..depth].join("/");
-    for (index, wanted) in segments.iter().enumerate().skip(depth) {
-        let listed = children
-            .get(directory.as_str())
-            .map_or(&[][..], Vec::as_slice);
-        let matches: Vec<_> = listed
-            .iter()
-            .filter(|(name, _, _)| name.eq_ignore_ascii_case(wanted))
-            .collect();
-        let (_, kind, path) = match matches.as_slice() {
-            [entry] => **entry,
-            many => match many.iter().find(|(name, _, _)| name == wanted) {
-                Some(entry) => **entry,
-                None => break,
-            },
-        };
-        let last = index + 1 == segments.len();
-        if last && kind == "file" {
-            return PathRecovery {
-                directory,
-                file: Some(path.to_owned()),
-            };
-        }
-        if kind != "dir" {
-            break;
-        }
-        directory = path.to_owned();
-        if last {
-            break;
-        }
-    }
-    PathRecovery {
-        directory,
-        file: None,
-    }
-}
-
-/// [`locate_path`] by directory listings, for a tree GitHub truncated.
+/// [`locate_path`] by directory listings, one per level walked.
 async fn walk_listings(
     provider: &GitHubProvider,
     at: &RepoPath<'_>,
@@ -231,6 +160,8 @@ async fn walk_listings(
             .repository_contents(owner, repo, &directory, reference, context)
             .await
         {
+            // A file path answers one entry of itself: no directory to list.
+            Ok(listing) if depth > 0 && names_a_file(&listing, &directory) => depth -= 1,
             Ok(listing) => break listing,
             Err(error) if error.kind == ProviderErrorKind::NotFound && depth > 0 => {
                 depth -= 1;
@@ -239,6 +170,7 @@ async fn walk_listings(
         }
     };
     let mut directory = segments[..depth].join("/");
+    let mut truncated = false;
     for (index, wanted) in segments.iter().enumerate().skip(depth) {
         let matches: Vec<_> = listing
             .entries
@@ -249,7 +181,10 @@ async fn walk_listings(
             [entry] => *entry,
             many => match many.iter().find(|entry| entry.name == *wanted) {
                 Some(entry) => *entry,
-                None => break,
+                None => {
+                    truncated = listing.raw_entry_count >= CONTENTS_LIMIT;
+                    break;
+                }
             },
         };
         let (kind, path) = (entry.kind.clone(), entry.path.clone());
@@ -258,6 +193,7 @@ async fn walk_listings(
             return Some(PathRecovery {
                 directory,
                 file: Some(path),
+                truncated: false,
             });
         }
         if kind != "dir" {
@@ -281,7 +217,14 @@ async fn walk_listings(
     Some(PathRecovery {
         directory,
         file: None,
+        truncated,
     })
+}
+
+/// Whether `listing` is the Contents API's answer for a file at `directory`:
+/// one object that is that path and no directory.
+fn names_a_file(listing: &octocode_github::ContentsListing, directory: &str) -> bool {
+    matches!(listing.entries.as_slice(), [entry] if entry.path == directory && entry.kind != "dir")
 }
 
 /// The parent directory of a repository path, `.` at the root.
@@ -350,3 +293,6 @@ pub(crate) fn tree_recovery(at: &RepoPath<'_>, max_depth: Option<i64>) -> Value 
     let listing = Continuation::related(ToolId::GhStructure, tree_query);
     listing.build()
 }
+
+#[cfg(test)]
+mod tests;

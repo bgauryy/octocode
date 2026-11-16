@@ -505,3 +505,101 @@ fn a_page_of_match_windows_states_the_bytes_and_lines_it_shows() {
     assert_eq!(read.returned_lines, Some(1), "{read:?}");
     assert!(page.has_more, "the rest of the line follows: {page:?}");
 }
+
+/// A line longer than a line page is walked in byte pages as large as the
+/// response window the read is served in, as a page of many lines is: a fixed
+/// page size under a wide window multiplies the calls a walk takes. The walk
+/// still reaches every byte once, and a secret on either side of any page
+/// edge stays redacted.
+#[test]
+fn a_long_line_pages_as_wide_as_the_response_window() {
+    const TOKEN: &str = "ghp_abcdefghijklmnopqrstuvwxyz0123456789";
+    let window = 500_000;
+    let budget = crate::tools::source_view::pagination::line_page_bytes(Some(window));
+    let filler = positional(4 * budget);
+    let secret = format!("var token=\"{TOKEN}\";");
+    let mut line = secret.clone();
+    let mut from = 0;
+    // Secrets at the line's start, middle and end, and where pages of about
+    // the budget, or of half of it, end.
+    for at in (1..8).map(|half| half * budget / 2 - 30) {
+        line.push_str(&filler[from..at]);
+        line.push_str(&secret);
+        from = at;
+    }
+    line.push_str(&filler[from..]);
+    line.push_str(&secret);
+    let source = format!("{line}\n");
+    let fixture = Fixture::new();
+    let path = fixture.write("bundle.min.js", &source);
+    let paths = Paths(fixture.0.clone());
+    let security = crate::security::ContentSecurity::new();
+    let view = security
+        .redact_source_lines(&source, &path)
+        .expect("scan")
+        .0
+        .into_owned();
+    assert!(
+        !view.contains(TOKEN),
+        "the scan redacts the fixture's secrets"
+    );
+    let markers = view
+        .matches(octocode_engine::security::REDACTION_PREFIX)
+        .count();
+    assert_eq!(
+        markers,
+        source.matches(TOKEN).count(),
+        "each secret is one placeholder"
+    );
+    let pages = walk_exactly_once_with(&q(&path), &paths, &security, Some(window), &view);
+    let (last, full) = pages.split_last().expect("a page");
+    for (at, text) in full {
+        assert!(
+            2 * text.len() >= budget,
+            "the page at {at} holds {} bytes of a {budget}-character budget",
+            text.len()
+        );
+    }
+    assert!(!last.1.is_empty());
+    // No fragment of a secret shows on any page, at its edges included.
+    let fragment = &TOKEN[..8];
+    assert!(
+        pages.iter().all(|(_, text)| !text.contains(fragment)),
+        "no page shows a secret"
+    );
+    let shown = pages
+        .iter()
+        .map(|(_, text)| {
+            text.matches(octocode_engine::security::REDACTION_PREFIX)
+                .count()
+        })
+        .sum::<usize>();
+    assert_eq!(shown, markers, "every placeholder shows whole on one page");
+}
+
+/// A streamed source's long line pages as wide as the response window too:
+/// each byte page's window holds the page its room takes, so a page under a
+/// wide window is not cut to a fixed window size. Every byte once.
+#[test]
+fn a_streamed_long_line_pages_as_wide_as_the_response_window() {
+    let window = 2_000_000;
+    let room = crate::tools::source_view::pagination::byte_page_room(Some(window));
+    // Streamed sources are those over the in-memory ceiling.
+    let line = positional(super::super::acquire::MAX_SOURCE_BYTES as usize + 1_000);
+    let fixture = Fixture::new();
+    let path = fixture.write("bundle.min.js", format!("{line}\n"));
+    let paths = Paths(fixture.0.clone());
+    let query = qj(
+        &path,
+        serde_json::json!({"ranges":[{"startLine":1,"endLine":1}]}),
+    );
+    let pages = walk_exactly_once(&query, &paths, Some(window), &format!("{line}\n"));
+    let (_, full) = pages.split_last().expect("a page");
+    for (at, text) in full {
+        assert!(
+            2 * text.len() >= room,
+            "the page at {at} holds {} bytes of a {room}-character room",
+            text.len()
+        );
+    }
+}

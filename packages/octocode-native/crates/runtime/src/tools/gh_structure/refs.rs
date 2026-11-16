@@ -173,7 +173,7 @@ pub(super) async fn refs(
     if let Some(warning) = renamed_warning {
         push_warning_front(&mut value, warning);
     }
-    let mut continued = query_row(query, &["page"]);
+    let continued = query_row(query, &["page"]);
     let listed_branches = branches.as_ref().map_or(0, |branches| branches.refs.len());
     let past_end = page > 1 && tags.refs.is_empty() && listed_branches == 0;
     let more = tags.has_more || branches.as_ref().is_some_and(|branches| branches.has_more);
@@ -199,8 +199,15 @@ pub(super) async fn refs(
     } else if more {
         value["pagination"] = pages.to_value();
         // The central continuation store seals this private page position.
-        continued["page"] = json!(page + 1);
-        value["calls"]["nextPage"] = continuation(continued);
+        if let Some(call) = crate::response::collection::continued_page(
+            ToolId::GhStructure,
+            continued,
+            "page",
+            page + 1,
+            &[],
+        ) {
+            crate::response::collection::insert_row_walk(&mut value, ToolId::GhStructure, call);
+        }
     } else if page > 1 {
         // The last page of a paged listing says it is the last.
         value["pagination"] = pages.to_value();

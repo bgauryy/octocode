@@ -231,8 +231,10 @@ impl Operation<'_, '_> {
 
     /// What a directory-path search searched: the language its files (or
     /// markers) route it by, and each other language the directory holds,
-    /// which this search did not reach, with a ready call for each. An empty
-    /// row also names the language and the file whose project was searched.
+    /// which this search did not reach, with a ready call for each. The row is
+    /// partial (`workspaceSymbolOneProject`), its warning naming the file whose
+    /// project was searched; an empty row also names the language, and its
+    /// hint that file.
     fn state_directory_route(&self, row: &mut Value, name: &str) {
         let languages = directory_languages(self.path, &self.scope.root);
         let searched = languages
@@ -260,16 +262,34 @@ impl Operation<'_, '_> {
                 )],
             );
         }
+        // The server answers for the one project it loads for the directory
+        // (or workspace root): symbols of other projects are not in the
+        // list, so an empty one is no absence.
+        let project = directory_representative(self.path, &self.scope.root).map(|file| {
+            std::path::Path::new(&file)
+                .strip_prefix(&self.scope.root)
+                .map_or(file.clone(), |relative| {
+                    relative.to_string_lossy().into_owned()
+                })
+        });
+        let note = match &project {
+            Some(file) => format!("The {searched} server searched only the project of {file}."),
+            None => format!(
+                "The {searched} server found no {searched} source file here to load a project; it searched only what it had loaded."
+            ),
+        };
+        crate::response::paging::mark_partial(
+            row,
+            crate::response::paging::PartialReason::WorkspaceSymbolOneProject,
+            &[note],
+        );
         if row.pointer("/status").and_then(Value::as_str) != Some("empty") {
             return;
         }
         row["lsp"]["language"] = json!(searched);
-        let hint = match directory_representative(self.path, &self.scope.root) {
+        let hint = match project {
             Some(file) => format!(
-                "Directory search: the {searched} server searched the project of {}; for another project, pass path there.",
-                std::path::Path::new(&file)
-                    .strip_prefix(&self.scope.root)
-                    .map_or(file.as_str().into(), std::path::Path::to_string_lossy)
+                "Directory search: the {searched} server searched the project of {file}; for another project, pass path there."
             ),
             None => format!(
                 "Directory search found no {searched} source file to load a project; pass path for a file in the symbol's project."

@@ -2050,8 +2050,8 @@
           "path": "src",
           "multiline": "off",
           "sort": {
-            "by": "relevance",
-            "order": "desc"
+            "by": "traversal",
+            "order": "asc"
           },
           "matchPage": 1,
           "page": 1,
@@ -2092,8 +2092,8 @@
           "path": "src",
           "multiline": "off",
           "sort": {
-            "by": "relevance",
-            "order": "desc"
+            "by": "traversal",
+            "order": "asc"
           },
           "matchPage": 1,
           "page": 1,
@@ -2380,8 +2380,8 @@
           "path": "src",
           "multiline": "off",
           "sort": {
-            "by": "relevance",
-            "order": "desc"
+            "by": "traversal",
+            "order": "asc"
           },
           "matchPage": 1,
           "page": 1,

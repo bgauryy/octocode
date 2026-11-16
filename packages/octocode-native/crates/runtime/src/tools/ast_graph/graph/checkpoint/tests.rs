@@ -2,11 +2,13 @@ use super::*;
 use crate::execution::cancel::NeverCancel;
 use crate::tools::test_support::{Fixture, workspace_policy};
 
+mod compact;
 mod completion;
 mod durability;
 mod locking;
 mod pruning;
 mod scan_and_reuse;
+mod settled;
 
 fn fixture() -> (Fixture, GraphScan) {
     let dir = Fixture::new();
@@ -23,6 +25,18 @@ fn fixture() -> (Fixture, GraphScan) {
         ..Default::default()
     };
     (dir, scan)
+}
+
+/// What a job file holds in the clear: an artifact's inflated JSON, so a
+/// secret it kept shows, not the deflate stream that hides it.
+fn stored_text(path: &Path) -> String {
+    let bytes = std::fs::read(path).unwrap();
+    let bytes = if path.extension().is_some_and(|ext| ext == "fact") {
+        artifact::json_of(&bytes)
+    } else {
+        bytes
+    };
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 fn build(scan: &GraphScan, cancel: &dyn CancellationCheck) -> Result<BuiltGraph, ToolError> {
@@ -159,7 +173,7 @@ fn safe_to_secret_removes_obsolete_checkpoint_and_never_persists_secret() {
             .exists()
     );
     for entry in std::fs::read_dir(&job_dir).unwrap().map(Result::unwrap) {
-        assert!(!String::from_utf8_lossy(&std::fs::read(entry.path()).unwrap()).contains(&token));
+        assert!(!stored_text(&entry.path()).contains(&token));
     }
     let retry = build(&scan, &NeverCancel).unwrap();
     assert_eq!(retry.construction.memory_only_files, 1);
@@ -168,7 +182,7 @@ fn safe_to_secret_removes_obsolete_checkpoint_and_never_persists_secret() {
 }
 
 #[test]
-fn checkpoint_open_refuses_corruption_that_would_exceed_disk_quota() {
+fn checkpoint_open_evicts_an_artifact_past_the_disk_quota() {
     let (_dir, scan) = fixture();
     build(&scan, &NeverCancel).unwrap();
     let job_dir = job_path(scan.checkpoint.as_ref().unwrap(), &scan.root);
@@ -182,10 +196,11 @@ fn checkpoint_open_refuses_corruption_that_would_exceed_disk_quota() {
         .unwrap()
         .set_len(LIMITS.spill_bytes + 1)
         .unwrap();
-    assert_eq!(
-        build(&scan, &NeverCancel).unwrap_err().code,
-        ErrorCode::ScopeTooBroad
-    );
+    // A cache never refuses a build: the oversized artifact is evicted and
+    // its file extracted again.
+    let next = build(&scan, &NeverCancel).unwrap();
+    assert_eq!(next.parsed_files, 1);
+    assert_eq!(next.reused_files, 11);
 }
 
 #[test]
@@ -207,7 +222,7 @@ fn checkpoint_write_errors_are_terminal_and_keep_prior_commits() {
     std::fs::remove_file(job_dir.join("job.json")).unwrap();
     std::fs::create_dir(job_dir.join("job.json")).unwrap();
     assert_eq!(
-        complete(&job_dir, &generation).unwrap_err().code,
+        settle(&job_dir, &generation).unwrap_err().code,
         ErrorCode::FileAccessFailed
     );
     assert_eq!(
@@ -272,13 +287,11 @@ fn checksummed_but_invalid_facts_never_count_as_resumed() {
                 continue;
             }
             let bytes = std::fs::read(&path).unwrap();
-            let mut artifact: serde_json::Value = serde_json::from_slice(&bytes[65..]).unwrap();
-            artifact["extraction"]["facts"][field] = value.clone();
+            let mut artifact: serde_json::Value =
+                serde_json::from_slice(&artifact::json_of(&bytes)).unwrap();
+            artifact["facts"][field] = value.clone();
             let body = serde_json::to_vec(&artifact).unwrap();
-            let mut rewritten = octocode_engine::digest::sha256(&body).into_bytes();
-            rewritten.push(b'\n');
-            rewritten.extend(body);
-            std::fs::write(path, rewritten).unwrap();
+            std::fs::write(path, artifact::artifact_of(&body)).unwrap();
         }
         let recovered = build();
         assert_eq!(recovered.construction.resumed_files, 0, "{field}");
@@ -353,24 +366,24 @@ fn quotas_and_io_failures_do_not_commit_incomplete_artifacts() {
 }
 
 #[test]
-fn opening_a_job_preserves_other_completed_and_unfinished_jobs() {
+fn opening_a_job_preserves_other_settled_and_unfinished_jobs() {
     let (_dir, scan) = fixture();
     build(&scan, &NeverCancel).unwrap();
     let job_dir = job_path(scan.checkpoint.as_ref().unwrap(), &scan.root);
     let jobs = job_dir.parent().unwrap().to_path_buf();
     // Other roots retain their completed artifacts and interrupted progress.
-    let (completed, unfinished) = (jobs.join("a".repeat(64)), jobs.join("b".repeat(64)));
-    for target in [&completed, &unfinished] {
+    let (settled, unfinished) = (jobs.join("a".repeat(64)), jobs.join("b".repeat(64)));
+    for target in [&settled, &unfinished] {
         std::fs::create_dir_all(target).unwrap();
         std::fs::copy(job_dir.join("job.json"), target.join("job.json")).unwrap();
         std::fs::write(target.join("retained.fact"), b"other root's artifact").unwrap();
     }
-    let manifest = state::Manifest::read(&completed).unwrap();
-    manifest.write(&completed, state::Stage::Complete).unwrap();
+    let manifest = state::Manifest::read(&settled).unwrap();
+    manifest.write(&settled, state::Stage::Settled).unwrap();
     build(&scan, &NeverCancel).unwrap();
-    assert!(Manifest::read(&completed).is_some_and(|manifest| manifest.stage == Stage::Complete));
+    assert!(Manifest::read(&settled).is_some_and(|manifest| manifest.stage == Stage::Settled));
     assert!(Manifest::read(&unfinished).is_some_and(|manifest| manifest.stage == Stage::Linking));
-    for target in [&completed, &unfinished] {
+    for target in [&settled, &unfinished] {
         assert_eq!(
             std::fs::read(target.join("retained.fact")).unwrap(),
             b"other root's artifact"

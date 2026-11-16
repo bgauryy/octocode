@@ -9,12 +9,17 @@ pub(super) type Fingerprint = (String, Arc<BTreeMap<String, String>>);
 /// scope `root` that its ignore rules admit (what the text scans read),
 /// and every one under the language server's `server_root`, including hidden
 /// and ignored build sources the server may compile. Credential directories
-/// remain excluded.
+/// remain excluded. A server that loads no file of a Cargo cache directory
+/// ([`octocode_engine::lsp::workspace::UnloadedCargoCaches`]: rust-analyzer
+/// with build scripts off) has none of them covered.
 #[derive(Clone, Copy)]
 pub(super) struct FingerprintScope<'a> {
     pub(super) root: &'a Path,
     pub(super) server_root: Option<&'a Path>,
     pub(super) include: &'a [String],
+    /// The server is rust-analyzer with build scripts off: the Cargo cache
+    /// directories it leaves out are not walked.
+    pub(super) cargo_caches_unloaded: bool,
 }
 
 /// The digest of every file `scope` covers ([`FingerprintScope`]), with
@@ -49,6 +54,11 @@ pub(super) fn fingerprint(
             .map(|root| root.to_string_lossy().into_owned())
             .unwrap_or_default(),
         &scope.include.join("\u{0}"),
+        if scope.cargo_caches_unloaded {
+            "cargo caches unloaded"
+        } else {
+            ""
+        },
     ]
     .join("\u{1}");
     if let Some(kept) = FINGERPRINTS.current(&key, ANY_POLICY)
@@ -57,7 +67,7 @@ pub(super) fn fingerprint(
         return Some((kept.fingerprint.0.clone(), Arc::clone(&kept.fingerprint.1)));
     }
     #[cfg(test)]
-    fingerprints::note(scope.root);
+    WALKS.note(scope.root);
     // Before the walks' first read, on the request's own clock.
     let started = octocode_engine::stamp::settle_clock();
     let read = Mutex::new(Read::default());
@@ -144,30 +154,7 @@ impl Read {
 
 /// Test-only count of the fingerprint walks of each scope root.
 #[cfg(test)]
-pub(super) mod fingerprints {
-    use std::collections::HashMap;
-    use std::path::{Path, PathBuf};
-    use std::sync::{LazyLock, Mutex, PoisonError};
-
-    static WALKS: LazyLock<Mutex<HashMap<PathBuf, usize>>> = LazyLock::new(Mutex::default);
-
-    pub(super) fn note(root: &Path) {
-        *WALKS
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .entry(root.to_path_buf())
-            .or_default() += 1;
-    }
-
-    pub(in super::super) fn of(root: &Path) -> usize {
-        WALKS
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(root)
-            .copied()
-            .unwrap_or(0)
-    }
-}
+pub(super) static WALKS: super::path_counter::PathCounter = super::path_counter::PathCounter::new();
 
 /// [`fingerprint`] by walking, recording what the walks read in `read`.
 fn walked_fingerprint(
@@ -324,8 +311,12 @@ fn split_stamp(stamp: &str) -> (&str, &str) {
 
 /// Add one digest line per family or project file under `dir` (walked
 /// under `policy`) to `lines`: path relative to the scope root, length,
-/// mtime, and the content hash of a file modified near `observed`. False
-/// when the walk was stopped or a file could not be stamped.
+/// mtime, and the content hash of a file modified near `observed`. The
+/// server's walk does not enter a Cargo cache directory the server loads
+/// nothing of ([`FingerprintScope::cargo_caches_unloaded`]; with no Cargo
+/// manifest to say what it loads, it enters every one), and watches its tag
+/// instead: removing the tag makes it a directory to walk. False when the
+/// walk was stopped or a file could not be stamped.
 fn walk_lines(
     scope: &FingerprintScope<'_>,
     dir: &Path,
@@ -343,9 +334,12 @@ fn walk_lines(
         .filter_map(|glob| glob.strip_prefix("*."))
         .collect::<Vec<_>>();
     let abandoned = AtomicBool::new(false);
+    let unloaded = (scope.cargo_caches_unloaded && scope.server_root == Some(dir))
+        .then(|| octocode_engine::lsp::workspace::UnloadedCargoCaches::of(dir))
+        .flatten();
     // One digest line per family or project file: relative path, length,
     // mtime, and the content hash of a file modified near `observed`.
-    let line = |entry: ignore::DirEntry| -> Option<String> {
+    let line = |entry: &ignore::DirEntry| -> Option<String> {
         if entry.file_type().is_some_and(|kind| kind.is_dir()) {
             match read.lock() {
                 Ok(mut read) => read.enter(entry.path(), dir),
@@ -422,7 +416,27 @@ fn walk_lines(
                     abandoned.store(true, Ordering::Relaxed);
                     return ignore::WalkState::Quit;
                 };
-                let Some(line) = line(entry) else {
+                if entry.depth() > 0
+                    && entry.file_type().is_some_and(|kind| kind.is_dir())
+                    && unloaded
+                        .as_ref()
+                        .is_some_and(|unloaded| unloaded.contains(entry.path()))
+                {
+                    let tag = entry
+                        .path()
+                        .join(octocode_engine::lsp::workspace::CACHEDIR_TAG);
+                    return match read.lock() {
+                        Ok(mut read) => {
+                            read.watched.push(tag);
+                            ignore::WalkState::Skip
+                        }
+                        Err(_) => {
+                            abandoned.store(true, Ordering::Relaxed);
+                            ignore::WalkState::Quit
+                        }
+                    };
+                }
+                let Some(line) = line(&entry) else {
                     return ignore::WalkState::Continue;
                 };
                 let Ok(mut entries) = lines.lock() else {
@@ -436,5 +450,7 @@ fn walk_lines(
     !abandoned.load(Ordering::Relaxed)
 }
 
+#[cfg(test)]
+mod cargo_caches;
 #[cfg(test)]
 mod walks;

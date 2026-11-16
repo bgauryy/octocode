@@ -237,6 +237,7 @@ pub(crate) async fn pin_release_tag(
     settle_pin(artifact, &repository, found, client).await;
     if declared_ref {
         artifact.source_tag = false;
+        artifact.release_tag = None;
         artifact.declared_ref = true;
     }
 }
@@ -291,6 +292,7 @@ async fn settle_pin(
 ) {
     artifact.source_ref = found.map(|release| release.tag);
     artifact.source_tag = artifact.source_ref.is_some();
+    artifact.release_tag = artifact.source_ref.clone();
     // No tag to pin: the source reads the default branch of the repository
     // the registry names, so first learn whether that repository is there.
     if artifact.source_ref.is_none() {
@@ -354,6 +356,7 @@ pub(crate) fn settle_commit_against_tag(
         TagSearch::Found(release) | TagSearch::Named { release, .. } => {
             if release.commit.eq_ignore_ascii_case(commit) {
                 artifact.source_tag = true;
+                artifact.release_tag = Some(release.tag.clone());
             } else {
                 artifact.tag_differs = Some(release.clone());
             }
@@ -367,6 +370,10 @@ pub(crate) fn settle_commit_against_tag(
                 .any(|release| release.commit.eq_ignore_ascii_case(commit)) =>
         {
             artifact.source_tag = true;
+            artifact.release_tag = differing
+                .iter()
+                .find(|release| release.commit.eq_ignore_ascii_case(commit))
+                .map(|release| release.tag.clone());
         }
         TagSearch::Unnamed { .. } => search.note_on(artifact, version),
         // The registry's commit stays its claim (`registryRef`), which says

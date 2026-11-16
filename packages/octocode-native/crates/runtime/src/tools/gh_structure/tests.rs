@@ -33,6 +33,7 @@ async fn materialize_never_writes_a_provider_path_outside_its_root() {
             path,
             kind: EntryKind::File,
             size: Some(5),
+            oid: None,
         };
         assert!(writer.write(&entry, read()).await.expect("write"));
     }
@@ -192,6 +193,7 @@ fn include_globs_match_repository_relative_paths() {
         path: path.into(),
         kind: EntryKind::File,
         size: Some(1),
+        oid: None,
     };
     let mut traversal = Traversal {
         entries: vec![
@@ -282,16 +284,19 @@ fn structure_dirs_are_repo_relative() {
             path: "src/lib.rs".into(),
             kind: EntryKind::File,
             size: Some(1),
+            oid: None,
         },
         TreeEntry {
             path: "src/nested".into(),
             kind: EntryKind::Dir,
             size: None,
+            oid: None,
         },
         TreeEntry {
             path: "src/nested/a.rs".into(),
             kind: EntryKind::File,
             size: Some(1),
+            oid: None,
         },
     ]);
     assert_eq!(
@@ -305,6 +310,7 @@ fn structure_dirs_are_repo_relative() {
         path: "README.md".into(),
         kind: EntryKind::File,
         size: Some(1),
+        oid: None,
     }]);
     assert_eq!(root, vec![json!({"dir":".","files":["README.md (1)"]})]);
 }

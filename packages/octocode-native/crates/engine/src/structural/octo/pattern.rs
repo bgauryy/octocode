@@ -4,8 +4,8 @@ use tree_sitter::{Language, Node, Tree};
 
 use super::line_index_support::to_structural_match_with_context;
 use super::matching::{
-    CandidatePlan, CaptureEnv, Deadline, ExecutionError, Found, named_children, node_text,
-    parse_tree_with_deadline, raw_range, visit_named,
+    CandidatePlan, CaptureEnv, Deadline, ExecutionError, Found, children, named_children,
+    node_text, parse_tree_with_deadline, raw_range, visit_named,
 };
 use super::metavars::meta_from_node;
 use super::recovery::Recovery;
@@ -13,6 +13,8 @@ use super::source_context::SourceContext;
 use crate::structural::language::Expando;
 use crate::text::LineIndex;
 
+#[cfg(test)]
+mod cache_tests;
 mod compile;
 mod node_match;
 mod qualified;
@@ -75,6 +77,21 @@ pub(super) struct CompiledPattern {
     special: Option<SpecialPattern>,
     candidate_plan: CandidatePlan,
     selected_node: Option<(usize, usize, u16)>,
+    /// Where the effective root sits, found once at compile time (the walk
+    /// that unwraps wrappers allocates, and a match asks for the root once
+    /// per candidate). `None` when the span does not name the root alone;
+    /// the walk then runs each time.
+    root_at: Option<NodeKey>,
+    /// An identifier the pattern spells whole: a candidate that does not
+    /// contain it cannot match (every pattern leaf is compared by its text),
+    /// so one memmem over the candidate's bytes rejects it before the
+    /// structural match walks it.
+    required: Option<memchr::memmem::Finder<'static>>,
+    #[cfg(test)]
+    probe: Probe,
+    /// Whether each non-leaf pattern node declares (`unsaid::declares`),
+    /// by node id: a match asks the same pattern nodes once per candidate.
+    declaring: std::collections::HashMap<usize, bool>,
     /// Where in `source` the terminator compilation appended to give the
     /// pattern its context starts (`impl X for $T` parses only as
     /// `impl X for $T;`): the caller did not write it, so no candidate
@@ -92,6 +109,83 @@ pub(super) struct CompiledPattern {
 
 /// A pattern node by where it is in the compiled source and its kind.
 type NodeKey = (usize, usize, u16);
+
+/// The node of `tree` at `key`: the smallest named node over its span, or the
+/// ancestor of it that has the key's kind and span.
+fn node_at(tree: &Tree, (start, end, kind): NodeKey) -> Option<Node<'_>> {
+    let mut node = tree
+        .root_node()
+        .named_descendant_for_byte_range(start, end)?;
+    while node.kind_id() != kind || node.start_byte() != start || node.end_byte() != end {
+        node = node.parent()?;
+    }
+    Some(node)
+}
+
+/// The `declares` answer of every non-leaf node of `tree`, by node id.
+fn declaring_nodes(tree: &Tree) -> std::collections::HashMap<usize, bool> {
+    let mut answers = std::collections::HashMap::new();
+    let mut cursor = tree.walk();
+    loop {
+        let node = cursor.node();
+        if node.child_count() > 0 {
+            answers.insert(node.id(), declares(node));
+        }
+        if cursor.goto_first_child() || cursor.goto_next_sibling() {
+            continue;
+        }
+        loop {
+            if !cursor.goto_parent() {
+                return answers;
+            }
+            if cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+}
+
+/// The longest identifier of 3 or more word bytes that `root`'s subtree spells
+/// outside any metavariable, as a searcher over the candidate text.
+fn required_literal(
+    root: Node<'_>,
+    source: &str,
+    expando: Expando,
+) -> Option<memchr::memmem::Finder<'static>> {
+    let mut best: Option<&str> = None;
+    let mut pending = vec![root];
+    while let Some(node) = pending.pop() {
+        if node.child_count() > 0 {
+            pending.extend(children(node));
+            continue;
+        }
+        if node.is_extra() || node.is_missing() || !node.kind().contains("identifier") {
+            continue;
+        }
+        let text = node_text(node, source);
+        let spelled = text.len() >= 3
+            && text
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+            && meta_from_node(node, source, expando).is_none();
+        if spelled && best.is_none_or(|held| text.len() > held.len()) {
+            best = Some(text);
+        }
+    }
+    best.map(|text| memchr::memmem::Finder::new(text.as_bytes()).into_owned())
+}
+
+/// What a pattern counts of its own matching, in tests only.
+#[cfg(test)]
+#[derive(Default)]
+struct Probe {
+    /// Candidates that reached the structural comparison.
+    compared: std::sync::atomic::AtomicUsize,
+}
+
+/// Switches the pre-reject off, for the differential test.
+#[cfg(test)]
+static SKIP_PREREJECT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 fn node_key(node: Node<'_>) -> NodeKey {
     (node.start_byte(), node.end_byte(), node.kind_id())
@@ -142,16 +236,19 @@ enum SpecialPattern {
 impl CompiledPattern {
     fn root(&self) -> Option<Node<'_>> {
         let tree = self.tree.as_ref()?;
-        let Some((start, end, kind)) = self.selected_node else {
-            return Some(effective_pattern_root(tree.root_node(), &self.source));
-        };
-        let mut node = tree
-            .root_node()
-            .named_descendant_for_byte_range(start, end)?;
-        while node.kind_id() != kind || node.start_byte() != start || node.end_byte() != end {
-            node = node.parent()?;
+        if let Some(key) = self.selected_node.or(self.root_at) {
+            return node_at(tree, key);
         }
-        Some(node)
+        Some(effective_pattern_root(tree.root_node(), &self.source))
+    }
+
+    /// Whether the pattern node `node` declares, answered from the table
+    /// built at compile time.
+    pub(super) fn pattern_declares(&self, node: Node<'_>) -> bool {
+        self.declaring
+            .get(&node.id())
+            .copied()
+            .unwrap_or_else(|| declares(node))
     }
 
     /// The kind of node the pattern parsed as; `None` for a special pattern.
@@ -170,19 +267,8 @@ impl CompiledPattern {
     /// declaration. `None` for any other pattern, including the calls and paths
     /// a grammar also names by `name`.
     pub(super) fn declaration(&self) -> Option<PatternDeclaration> {
-        let root = self.root()?;
-        let is_declaration = |node: Node<'_>| {
-            declares(node)
-                || (node.child_by_field_name("name").is_some()
-                    && !REFERENCE_KINDS.contains(&node.kind()))
-        };
-        let wrapped = root
-            .child_by_field_name("declaration")
-            .filter(|_| !is_declaration(root));
-        let declared = wrapped.unwrap_or(root);
-        if !is_declaration(declared) {
-            return None;
-        }
+        let (root, declared) = self.declared()?;
+        let wrapped = (declared.id() != root.id()).then_some(declared);
         let named = declared
             .child_by_field_name("name")
             .filter(|name| meta_from_node(*name, &self.source, self.expando).is_none())
@@ -207,6 +293,37 @@ impl CompiledPattern {
             },
             alternate_kinds: self.alternate_kinds(declared),
         })
+    }
+
+    /// The pattern's root and the declaration it spells: the root, or the
+    /// `declaration` a root that is none itself wraps ([`Self::declaration`]).
+    fn declared(&self) -> Option<(Node<'_>, Node<'_>)> {
+        let root = self.root()?;
+        let is_declaration = |node: Node<'_>| {
+            declares(node)
+                || (node.child_by_field_name("name").is_some()
+                    && !REFERENCE_KINDS.contains(&node.kind()))
+        };
+        let declared = root
+            .child_by_field_name("declaration")
+            .filter(|_| !is_declaration(root))
+            .unwrap_or(root);
+        is_declaration(declared).then_some((root, declared))
+    }
+
+    /// The fields of the declaration this pattern spells in which
+    /// `candidate`, a node of its kind in `content`, differs: the part there
+    /// is absent or does not match what the pattern spells. Empty when the
+    /// pattern spells no declaration, `candidate` is of another kind, or no
+    /// field-held part differs (a modifier outside any field).
+    pub(super) fn differing_fields(&self, candidate: Node<'_>, content: &str) -> Vec<String> {
+        let Some((_, declared)) = self.declared() else {
+            return Vec::new();
+        };
+        if declared.kind_id() != candidate.kind_id() {
+            return Vec::new();
+        }
+        self.fields_that_differ(declared, candidate, content)
     }
 
     /// The named, concrete kinds of this grammar that spell `kind` with
@@ -355,6 +472,22 @@ impl CompiledPattern {
         let Some(root) = self.root() else {
             return Ok(false);
         };
+        #[cfg(test)]
+        let skip = SKIP_PREREJECT.load(std::sync::atomic::Ordering::Relaxed);
+        #[cfg(not(test))]
+        let skip = false;
+        if let Some(required) = self.required.as_ref().filter(|_| !skip)
+            && content
+                .as_bytes()
+                .get(candidate.byte_range())
+                .is_some_and(|bytes| required.find(bytes).is_none())
+        {
+            return Ok(false);
+        }
+        #[cfg(test)]
+        self.probe
+            .compared
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let mut budget = MatchBudget {
             attempts: MAX_MULTI_CAPTURE_ATTEMPTS,
             deadline,

@@ -189,9 +189,11 @@ fn a_walk_of_many_hits_judges_each_file_once() {
     let asked = crate::tools::local_search::verify::judged_on_this_thread;
     let scanned = crate::security::scanned_on_this_thread;
     let (before, scanned_before) = (asked(), scanned());
+    // A whole-scope order stores its scan: each file is judged once a walk
+    // (a stream searches a split file again on the page that continues it).
     let (walk, pages) = walk_search(
         root.path(),
-        serde_json::json!({"path":root.path(),"matchString":["needle"]}),
+        serde_json::json!({"path":root.path(),"matchString":["needle"],"sort":{"by":"path","order":"asc"}}),
         None,
     );
     assert_eq!(walk.rows.len(), files * hits, "each hit once");
@@ -248,7 +250,7 @@ fn a_continuation_prices_its_page_not_the_scan() {
         settle();
         let (policy, security) = policy_for(root.path());
         let q = ls_query(
-            serde_json::json!({"path":root.path(),"matchString":["a"],"view":"matchOnly"}),
+            serde_json::json!({"path":root.path(),"matchString":["a"],"view":"matchOnly","sort":{"by":"path","order":"asc"}}),
             None,
         );
         let first = search_in(&q, &policy, &security, None).expect("page 1");
@@ -617,8 +619,8 @@ fn response_pages_deliver_a_files_declarations_before_its_hits() {
     let source = (0..9)
         .map(|n| format!("fn a_test_whose_name_says_what_it_checks_{n}() {{\n    needle();\n}}\n"))
         .collect::<String>();
-    // The declaring file ranks first and names no declaration of its own
-    // hit: the list's first file lists no `declarations` key.
+    // Files come in walk order: the file with the declarations first, then
+    // the one that names none of its own: it lists no `declarations` key.
     let body = search_fixture(
         &[
             ("src/checks.rs", source.as_str()),
@@ -629,9 +631,9 @@ fn response_pages_deliver_a_files_declarations_before_its_hits() {
             None,
         ),
     );
-    assert_eq!(body["files"][0]["path"], "src/needle.rs", "{body}");
-    assert!(body["files"][0].get("declarations").is_none(), "{body}");
-    let file = &body["files"][1];
+    assert_eq!(body["files"][0]["path"], "src/checks.rs", "{body}");
+    assert!(body["files"][1].get("declarations").is_none(), "{body}");
+    let file = &body["files"][0];
     assert_eq!(
         file["declarations"].as_array().map(Vec::len),
         Some(9),

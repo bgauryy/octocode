@@ -112,7 +112,10 @@ fn a_read_lead_ends_at_the_files_last_line() {
     end_lines(&out, &mut found);
     let (hit, last) = (9, 10);
     assert!(hit + u64::from(crate::tools::local_search::handoff::READ_HANDOFF_CONTEXT) > last);
-    assert!(found.contains(&last), "the lead ends at the last line: {out}");
+    assert!(
+        found.contains(&last),
+        "the lead ends at the last line: {out}"
+    );
 }
 
 #[test]

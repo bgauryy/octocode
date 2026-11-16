@@ -7,7 +7,6 @@ use std::path::Path;
 mod compiled;
 mod filters;
 mod name_filter;
-mod read_ahead;
 mod walker;
 
 use super::walk::Stop;

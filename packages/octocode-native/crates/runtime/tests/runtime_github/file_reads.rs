@@ -117,8 +117,9 @@ async fn gh_get_file_content_on_directory_returns_tree_recovery() {
     runtime.close().await;
 }
 
-/// A binary file is a request the text read cannot serve: it names the
-/// size and blob SHA under an invalid-input code, not a decode failure.
+/// A binary file is content the text read cannot serve: it names the size
+/// and blob SHA under the code localFetch refuses binary bytes with,
+/// neither a malformed request nor a decode failure.
 #[tokio::test]
 async fn gh_file_read_of_binary_content_reports_size_and_blob() {
     let server = MockServer::builder().start().await;
@@ -146,14 +147,18 @@ async fn gh_file_read_of_binary_content_reports_size_and_blob() {
     .await
     .expect("error row");
     let data = row_data(&outcome);
-    assert_eq!(data["errorCode"], "invalidInput", "{data}");
+    assert_eq!(data["errorCode"], "binaryFileUnsupported", "{data}");
     let message = data["error"].as_str().unwrap_or_default();
     assert!(message.contains("12 bytes"), "{data}");
     assert!(message.contains(&blob), "{data}");
-    assert!(
-        octocode_native::response::rows::is_invalid_input_code("invalidInput"),
-        "binary reads must exit as caller errors"
-    );
+    // The refusal is the same class and row status as localFetch's own.
+    let local = workspace.write("blob.ts", b"\x00\x01\x02binary\x00".as_slice());
+    let refused = call(&runtime, "localFetch", json!({"path": local}))
+        .await
+        .expect("typed binary row");
+    assert_eq!(row_data(&refused)["errorCode"], data["errorCode"]);
+    assert_eq!(refused.exit_class(), outcome.exit_class());
+    assert_eq!(row_status(&refused), row_status(&outcome));
     runtime.close().await;
 }
 

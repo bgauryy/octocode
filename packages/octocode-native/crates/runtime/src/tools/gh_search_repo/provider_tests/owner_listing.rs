@@ -127,6 +127,53 @@ async fn an_owner_listing_page_never_exceeds_its_page_size() {
     assert_eq!(json!(listed), json!(["a", "b", "c", "d"]));
 }
 
+/// `archive: "only"` reads provider pages inside one call until it has
+/// `limit` archived rows or the listing ends: many non-archived pages before
+/// the first archived one never end a call with no rows.
+#[tokio::test]
+async fn an_archive_only_listing_reads_on_until_it_has_rows() {
+    const LIVE_PAGES: usize = 12;
+    let server = MockServer::builder().start().await;
+    let link = |page: usize| {
+        format!(
+            "<{}/api/v3/orgs/o/repos?page={page}&per_page=2>; rel=\"next\"",
+            server.uri()
+        )
+    };
+    for page in 1..=LIVE_PAGES + 1 {
+        let rows = if page <= LIVE_PAGES {
+            json!([
+                repo_item(&format!("a{page}"), false),
+                repo_item(&format!("b{page}"), false)
+            ])
+        } else {
+            json!([repo_item("old", true), repo_item("older", true)])
+        };
+        let mut response = ResponseTemplate::new(200).set_body_json(rows);
+        if page <= LIVE_PAGES {
+            response = response.insert_header("link", link(page + 1).as_str());
+        }
+        Mock::given(method("GET"))
+            .and(path("/api/v3/orgs/o/repos"))
+            .and(query_param("page", page.to_string()))
+            .respond_with(response)
+            .mount(&server)
+            .await;
+    }
+    let out = run(
+        &server,
+        json!({"owner":"o","operation":"list","limit":2,"filters":{"archive":"only"}}),
+    )
+    .await;
+    let repos = out.data["repositories"]
+        .as_array()
+        .expect("rows")
+        .iter()
+        .map(|row| row["repo"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(json!(repos), json!(["old", "older"]), "{}", out.data);
+}
+
 /// The token's own login lists every repository it owns, private ones
 /// included; another user's listing is public. Each page independently
 /// resolves the route from its credential.

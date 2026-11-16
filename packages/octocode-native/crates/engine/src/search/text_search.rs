@@ -24,11 +24,14 @@ mod file_terms;
 mod judge_gate;
 mod listed;
 mod mode;
+mod open_gate;
 mod ordered;
 mod pcre2;
 mod result;
 mod sink;
 mod state;
+mod stream;
+mod stream_judge;
 mod visit;
 mod walk_rule;
 mod window;
@@ -38,6 +41,7 @@ pub(crate) use pcre2::{
     ACTIVE_PCRE2_WORKERS, MAX_ACTIVE_PCRE2_WORKERS, Pcre2WorkerSlot, pcre2_builder,
     release_worker_slot, try_acquire_worker_slot,
 };
+pub use stream::{Landmark, Pin, Stream, Streamed, Streaming};
 pub use window::{Clock, Earlier, Pause, Resume, SearchWindow, Searched, Windowed};
 
 pub trait TextSearchPathFilter: Send + Sync {
@@ -154,6 +158,37 @@ pub fn search_window(
         return Err(held.refusal());
     }
     Ok(Windowed::Whole(build_result(&opts, mode, state.snapshot())))
+}
+
+/// A traversal search that stops once `stream` says its page is full and
+/// resumes at `stream.from` ([`stream`]). The linear engine only: a PCRE2
+/// match cannot be interrupted, so its search runs in windows
+/// ([`search_window`]).
+pub fn search_stream(
+    opts: TextSearchOptions,
+    path_filter: Arc<dyn TextSearchPathFilter>,
+    cancelled: &(dyn Fn() -> bool + Sync),
+    stream: Stream,
+) -> Result<Streaming> {
+    if opts.syntax == PatternSyntax::Pcre2 {
+        return Err(Error::new("a PCRE2 search runs in windows, not as a stream"));
+    }
+    let mode = resolve_mode(&opts);
+    let b = rust_matcher_builder(&opts);
+    let matcher = b
+        .build(&rust_spelling(&opts, &opts.pattern))
+        .map_err(to_engine_err)?;
+    let terms = mode::term_matchers(&opts, mode, |term| {
+        b.build(&rust_spelling(&opts, term)).map_err(to_engine_err)
+    })?;
+    stream::run(
+        &opts,
+        mode,
+        (&matcher, &terms),
+        path_filter,
+        cancelled,
+        stream,
+    )
 }
 
 /// The builder of every Rust-regex matcher a search of `opts` runs.

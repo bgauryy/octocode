@@ -1,6 +1,7 @@
 //! Fields of the enclosing type: declared or constructed member types, and
 //! the file's uniquely named type declarations.
 
+use crate::signatures::node_kinds::kind_of;
 use std::collections::HashMap;
 
 use tree_sitter::Node;
@@ -85,14 +86,14 @@ impl<'t> ReceiverTypes<'t> {
             let mut pending = vec![root];
             let mut cursor = root.walk();
             while let Some(node) = pending.pop() {
-                let declaration = match (lang, node.kind()) {
+                let declaration = match (lang, kind_of(node)) {
                     (Lang::Rust, "struct_item")
                     | (Lang::Cpp, "class_specifier" | "struct_specifier") => {
                         node.child_by_field_name("body").map(|_| node)
                     }
                     (Lang::Go, "type_spec") => node
                         .child_by_field_name("type")
-                        .filter(|ty| ty.kind() == "struct_type")
+                        .filter(|ty| kind_of(ty) == "struct_type")
                         .map(|_| node),
                     _ => None,
                 };
@@ -136,14 +137,14 @@ impl<'t> ReceiverTypes<'t> {
             Lang::Go => owner
                 .child_by_field_name("type")
                 .and_then(|ty| ty.named_child(0))
-                .filter(|list| list.kind() == "field_declaration_list"),
+                .filter(|list| kind_of(list) == "field_declaration_list"),
             _ => owner.child_by_field_name("body"),
         };
         let Some(body) = body else { return fields };
         let mut members = named_children(body);
         if let Some(extra) = members
             .iter()
-            .find(|member| member.kind() == "enum_body_declarations")
+            .find(|member| kind_of(*member) == "enum_body_declarations")
         {
             members.extend(named_children(*extra));
         }
@@ -151,12 +152,16 @@ impl<'t> ReceiverTypes<'t> {
         if let Some(parameters) = owner.child_by_field_name("parameters").or_else(|| {
             (lang == Lang::CSharp)
                 .then(|| named_children(owner))
-                .and_then(|children| children.into_iter().find(|c| c.kind() == "parameter_list"))
+                .and_then(|children| {
+                    children
+                        .into_iter()
+                        .find(|c| kind_of(c) == "parameter_list")
+                })
         }) {
             members.extend(named_children(parameters));
         }
         for member in members {
-            match (lang, member.kind()) {
+            match (lang, kind_of(member)) {
                 (Lang::Rust, "field_declaration") => {
                     if let (Some(name), Some(ty)) = (
                         member.child_by_field_name("name"),
@@ -200,7 +205,7 @@ impl<'t> ReceiverTypes<'t> {
                 (Lang::CSharp, "field_declaration") => {
                     let Some(declaration) = named_children(member)
                         .into_iter()
-                        .find(|child| child.kind() == "variable_declaration")
+                        .find(|child| kind_of(child) == "variable_declaration")
                     else {
                         continue;
                     };
@@ -208,7 +213,7 @@ impl<'t> ReceiverTypes<'t> {
                         .child_by_field_name("type")
                         .and_then(|ty| clean_type_text(node_text(ty, content)?, Lang::CSharp));
                     for declarator in named_children(declaration) {
-                        if declarator.kind() == "variable_declarator"
+                        if kind_of(declarator) == "variable_declarator"
                             && let Some(name) = declarator.child_by_field_name("name")
                         {
                             add(name, ty.clone());
@@ -221,7 +226,7 @@ impl<'t> ReceiverTypes<'t> {
                         .and_then(|ty| clean_type_text(node_text(ty, content)?, Lang::Cpp));
                     let mut cursor = member.walk();
                     for declarator in member.children_by_field_name("declarator", &mut cursor) {
-                        if declarator.kind() != "function_declarator"
+                        if kind_of(declarator) != "function_declarator"
                             && let Some(name) = cpp_declarator_name(declarator)
                         {
                             add(name, ty.clone());
@@ -232,7 +237,7 @@ impl<'t> ReceiverTypes<'t> {
             }
         }
         // A Rust tuple struct's positional fields: `self.0`.
-        if lang == Lang::Rust && body.kind() == "ordered_field_declaration_list" {
+        if lang == Lang::Rust && kind_of(body) == "ordered_field_declaration_list" {
             let mut cursor = body.walk();
             for (index, ty) in body.children_by_field_name("type", &mut cursor).enumerate() {
                 merge(&mut fields, &index.to_string(), self.rust_type(ty, content));

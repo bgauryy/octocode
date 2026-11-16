@@ -1,6 +1,6 @@
 use crate::response::output::{SANDBOX_HINT, ToolOutput};
 use octocode_contract_types::ErrorCode;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 pub(crate) fn attach_diagnostics(
     row: &mut Value,
@@ -28,6 +28,29 @@ pub(crate) const CANCELLED_HINT: &str = "Retry only if the result is still neede
 pub(crate) const LARGE_SOURCE_HINT: &str = "Locate a bounded region with localSearch, then read exact ranges with localFetch. Full-file structural analysis may remain unavailable.";
 
 const TRANSIENT_HINT: &str = "Retry once only if retryable is true; if it persists, check provider availability and report the coverage gap.";
+
+/// The one finaliser of an error row's class: states `errorClass` from the
+/// row's `errorCode`, and on a transient row a boolean `retryable` (the
+/// emitter's verdict when it gave one, else true; a cancelled call cannot be
+/// retried). Any other class carries no `retryable`. Idempotent.
+pub(crate) fn finish_error_row(data: &mut Value) {
+    use crate::id::error_codes::{self, ErrorClass};
+    let Some(code) = crate::id::error_code_of(data) else {
+        return;
+    };
+    let Some(fields) = data.as_object_mut() else {
+        return;
+    };
+    let class = error_codes::class(code);
+    fields.insert("errorClass".into(), json!(class));
+    if class == ErrorClass::Transient {
+        if !fields.get("retryable").is_some_and(Value::is_boolean) {
+            fields.insert("retryable".into(), Value::from(code != ErrorCode::Cancelled));
+        }
+    } else {
+        fields.remove("retryable");
+    }
+}
 
 /// Fill missing guidance without replacing producer-specific recovery or
 /// repeating it, in the row's `hints` now: for a row the stage places no
@@ -245,9 +268,6 @@ fn provider_hint(code: ErrorCode) -> Option<&'static str> {
         }
         ErrorCode::Policy => {
             "The refusal follows the user's configuration: use an authorized source, and leave any opt-in it names to the user."
-        }
-        ErrorCode::NoMatches => {
-            "Inspect the requested scope, filters and coverage; no matches in this scope do not establish repository-wide absence."
         }
         ErrorCode::InvalidGraphQuery => {
             "Inspect the graphQuery schema and correct the rejected operation or fields; do not retry the same query unchanged."

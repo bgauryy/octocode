@@ -47,13 +47,15 @@ pub(super) struct WindowSpan {
 }
 
 impl WindowSpan {
-    pub(super) fn want(&self, window: usize) -> Want {
+    /// The window this span reads: `window` bytes of lines, or, for a byte
+    /// page, room for a page under the response `share`.
+    pub(super) fn want(&self, window: usize, share: Option<usize>) -> Want {
         Want {
             first: self.first,
             last: self.last,
             from: self.from,
             room: if self.byte_page {
-                super::BYTE_WINDOW_BYTES
+                super::byte_window_bytes(share)
             } else {
                 window
             },
@@ -158,7 +160,7 @@ pub(super) fn stream_window(
     let span = window_span(q);
     // One span streams exactly one window.
     let streamed = source
-        .windows(&[span.want(source.limits.window)], cancel)
+        .windows(&[span.want(source.limits.window, share)], cancel)
         .and_then(|mut windows| windows.pop().ok_or_else(|| "no window streamed".into()));
     match streamed {
         Ok(streamed) => serve_window(q, streamed, span, source, share, security, cancel),

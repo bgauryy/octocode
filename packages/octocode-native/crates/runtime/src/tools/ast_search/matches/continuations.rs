@@ -61,16 +61,11 @@ fn line_count(file: &std::path::Path) -> Option<u64> {
     use std::io::Read;
     let (mut reader, _) = octocode_engine::text::open_regular(file).ok()?;
     let mut buffer = [0_u8; 16 * 1024];
-    let (mut lines, mut last) = (0_u64, None);
+    let mut count = octocode_engine::text::LineCount::default();
     loop {
         match reader.read(&mut buffer) {
-            Ok(0) => return Some(lines + u64::from(last.is_some_and(|byte| byte != b'\n'))),
-            Ok(read) => {
-                let read = &buffer[..read];
-                let newlines = read.iter().filter(|byte| **byte == b'\n').count();
-                lines = lines.saturating_add(octocode_engine::num::saturating_u64(newlines));
-                last = read.last().copied();
-            }
+            Ok(0) => return Some(octocode_engine::num::saturating_u64(count.lines())),
+            Ok(read) => count.feed(&buffer[..read]),
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
             Err(_) => return None,
         }
@@ -109,10 +104,9 @@ pub(super) fn attach_match_continuations(
         })
     };
     if more {
-        out["calls"] = json!({});
-        insert_next(
-            &mut out["calls"],
-            AstSearchChannel::NextPage,
+        out["calls"] = crate::response::collection::walk_calls(
+            ToolId::AstSearch,
+            None,
             with(Move::Page(page + 1))?,
         );
     }

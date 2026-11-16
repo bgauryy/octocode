@@ -2,6 +2,7 @@
 //! `PATH`, and the node that runs it.
 
 use crate::lsp::commands::{is_executable_path, which_on_path};
+use crate::process_env::EnvMap;
 use crate::lsp::types::{LspLanguageServerConfig, ServerSource};
 use std::path::{Path, PathBuf};
 
@@ -136,7 +137,7 @@ fn server_cli(config: &LspLanguageServerConfig) -> Option<PathBuf> {
     let cli = if is_node_executable(command) {
         PathBuf::from(config.args.as_ref()?.first()?)
     } else if is_typescript_server_command(&config.command) {
-        which_on_path(command).ok()?
+        which_on_path(command, &config.env.clone().unwrap_or_default()).ok()?
     } else {
         return None;
     };
@@ -179,11 +180,11 @@ fn find_node_module_file_from(start: &Path, package_relative_path: &str) -> Opti
     None
 }
 
-pub(in crate::lsp) fn current_node_command() -> Option<String> {
+pub(in crate::lsp) fn current_node_command(env: &impl EnvMap) -> Option<String> {
     std::env::current_exe()
         .ok()
         .filter(|path| is_executable_path(path) && is_node_executable(path))
-        .or_else(|| which_on_path("node").ok())
+        .or_else(|| which_on_path("node", env).ok())
         .filter(|path| is_executable_path(path))
         .map(|path| std::fs::canonicalize(&path).unwrap_or(path))
         .map(|path| path.to_string_lossy().into_owned())

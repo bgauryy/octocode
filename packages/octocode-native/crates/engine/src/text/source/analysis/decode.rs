@@ -4,12 +4,16 @@ use super::{
     ByteRange, Encoding, MapBudget, OriginBranch, OriginalRange, SourceError, SourceSnapshot,
     UnmappedReason,
 };
+use crate::text::Charset;
 
 pub struct AdmittedSource<'a> {
     text: Cow<'a, str>,
     pub snapshot: Option<SourceSnapshot>,
     // Only UTF-16 needs non-affine scalar correspondence; UTF-8 is one interval.
     boundaries: Vec<(u32, u32)>,
+    /// Why the text is not the file's UTF-8 ([`crate::text::LATIN1_WARNING`],
+    /// [`crate::text::LOSSY_WARNING`]): a tool states it with its rows.
+    warning: Option<&'static str>,
     /// SHA-256 of `text`, computed at most once ([`Self::text_digest`]).
     text_digest: std::sync::OnceLock<String>,
 }
@@ -32,17 +36,26 @@ impl<'a> AdmittedSource<'a> {
             0
         };
         budget.allocate(reserved_decode)?;
-        let admitted = super::super::admit(bytes, super::super::Decoding::Unicode)
+        let admitted = super::super::admit(bytes, super::super::Decoding::Lenient)
             .map_err(SourceError::Refused)?;
         let (encoding, bom_bytes) = if bytes.starts_with(&[0xff, 0xfe]) {
             (Encoding::Utf16Le, 2)
         } else if bytes.starts_with(&[0xfe, 0xff]) {
             (Encoding::Utf16Be, 2)
         } else {
+            let encoding = match admitted.charset {
+                Charset::Latin1 => Encoding::Latin1,
+                Charset::Lossy => Encoding::Lossy,
+                Charset::Utf8 | Charset::Utf16 => Encoding::Utf8,
+            };
             (
-                Encoding::Utf8,
+                encoding,
                 crate::num::saturating_u32(crate::text::bom_len(bytes)),
             )
+        };
+        let warning = match encoding {
+            Encoding::Latin1 | Encoding::Lossy => admitted.warning,
+            _ => None,
         };
         let byte_length =
             u32::try_from(bytes.len()).map_err(|_| SourceError::LimitExceeded("source bytes"))?;
@@ -52,7 +65,28 @@ impl<'a> AdmittedSource<'a> {
             budget.allocate(text.capacity().saturating_sub(reserved_decode))?;
         }
         let mut boundaries = Vec::new();
-        if encoding != Encoding::Utf8 {
+        if encoding == Encoding::Lossy {
+            // Valid runs are one interval each; a replacement char stands for
+            // a run of stray bytes, so it and the text after it start one.
+            let mut raw = bom_bytes;
+            let mut decoded = 0_u32;
+            for chunk in bytes[bom_bytes as usize..].utf8_chunks() {
+                budget.check()?;
+                reserve_boundary(&mut boundaries, budget)?;
+                boundaries.push((decoded, raw));
+                let valid = crate::num::saturating_u32(chunk.valid().len());
+                decoded += valid;
+                raw += valid;
+                if !chunk.invalid().is_empty() {
+                    reserve_boundary(&mut boundaries, budget)?;
+                    boundaries.push((decoded, raw));
+                    decoded += crate::num::saturating_u32('\u{fffd}'.len_utf8());
+                    raw += crate::num::saturating_u32(chunk.invalid().len());
+                }
+            }
+            reserve_boundary(&mut boundaries, budget)?;
+            boundaries.push((decoded_length, raw));
+        } else if encoding != Encoding::Utf8 {
             let mut raw = bom_bytes;
             for (index, (decoded, ch)) in admitted.text.char_indices().enumerate() {
                 if index % 256 == 0 {
@@ -61,7 +95,7 @@ impl<'a> AdmittedSource<'a> {
                     // `decoded` < `decoded_length`, which fits a `u32`.
                     boundaries.push((crate::num::saturating_u32(decoded), raw));
                 }
-                raw += utf16_bytes(ch);
+                raw += raw_bytes(encoding, ch);
             }
             reserve_boundary(&mut boundaries, budget)?;
             boundaries.push((decoded_length, raw));
@@ -86,6 +120,7 @@ impl<'a> AdmittedSource<'a> {
         Ok(Self {
             text: admitted.text,
             boundaries,
+            warning,
             text_digest,
             snapshot: Some(SourceSnapshot {
                 id,
@@ -102,8 +137,14 @@ impl<'a> AdmittedSource<'a> {
             text: Cow::Borrowed(text),
             snapshot: None,
             boundaries: Vec::new(),
+            warning: None,
             text_digest: std::sync::OnceLock::new(),
         }
+    }
+    /// The warning to state with rows read from this source, when its text
+    /// is a legacy 8-bit decoding of the file ([`crate::text::decode`]).
+    pub fn warning(&self) -> Option<&'static str> {
+        self.warning
     }
     pub fn owned_bytes(&self) -> usize {
         self.boundaries.capacity() * std::mem::size_of::<(u32, u32)>()
@@ -184,6 +225,7 @@ impl<'a> AdmittedSource<'a> {
             text: Cow::Owned(masked),
             snapshot,
             boundaries: Vec::new(),
+            warning: self.warning,
             text_digest: std::sync::OnceLock::new(),
         };
         (source, shown)
@@ -220,7 +262,11 @@ impl<'a> AdmittedSource<'a> {
                     .text
                     .get(decoded as usize..at as usize)
                     .ok_or(SourceError::InvalidMap("scalar boundary"))?;
-                Ok(raw + suffix.chars().map(utf16_bytes).sum::<u32>())
+                Ok(raw
+                    + suffix
+                        .chars()
+                        .map(|ch| raw_bytes(snapshot.encoding, ch))
+                        .sum::<u32>())
             }
         };
         let origin = OriginalRange {
@@ -262,7 +308,19 @@ fn reserve_boundary(
     Ok(())
 }
 
-/// Raw UTF-16 bytes that encode `ch`: a surrogate pair past the BMP.
-fn utf16_bytes(ch: char) -> u32 {
-    if u32::from(ch) > 0xFFFF { 4 } else { 2 }
+/// Raw bytes that encode `ch` in a source of `encoding`: a surrogate pair
+/// past the BMP in UTF-16, one in Latin-1, its own UTF-8 in the valid runs of
+/// lossy text (a replacement char never lies inside a measured run).
+fn raw_bytes(encoding: Encoding, ch: char) -> u32 {
+    match encoding {
+        Encoding::Latin1 => 1,
+        Encoding::Utf8 | Encoding::Lossy => crate::num::saturating_u32(ch.len_utf8()),
+        Encoding::Utf16Le | Encoding::Utf16Be => {
+            if u32::from(ch) > 0xFFFF {
+                4
+            } else {
+                2
+            }
+        }
+    }
 }

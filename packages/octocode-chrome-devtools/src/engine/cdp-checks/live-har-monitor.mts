@@ -6,6 +6,8 @@ import { errorMessage } from '../error-message.mjs';
 import { observeFrameEvents } from '../frame-events.mjs';
 import type { MonitorEvent, NetworkRecord } from './live-har-format.mjs';
 import { printFindings, waitWindow } from './live-har-wait.mjs';
+import { mainDocument } from './navigation-outcome.mjs';
+import type { NavigationOutcome } from './navigation-outcome.mjs';
 import {
   LONG_TASK_OBSERVER_JS,
   collectPerformanceSnapshot,
@@ -257,7 +259,13 @@ export async function run(
   cdp.on('Page.loadEventFired', () => {
     loaded = true;
   });
-  if (url) await cdp.send('Page.navigate', { url: url });
+  let navigatedFrame: string | undefined;
+  let navigationError: string | null = null;
+  if (url) {
+    const navigated = await cdp.send('Page.navigate', { url: url });
+    navigatedFrame = navigated?.frameId;
+    navigationError = navigated?.errorText ?? null;
+  }
   console.log(
     `[METRIC] live-monitor target="${url || cdp.targetInfo.url}" durationMs=${monitorMs}`
   );
@@ -347,9 +355,16 @@ export async function run(
   console.log(`[ARTIFACT] EVENTS ${eventsPath}`);
   console.log(`[ARTIFACT] SUMMARY ${summaryPath}`);
   console.log(`[ARTIFACT] RESOURCE_TIMING ${resourcesPath}`);
+  const navigation: NavigationOutcome | null = url
+    ? {
+        error: navigationError,
+        document: mainDocument(records.values(), navigatedFrame),
+      }
+    : null;
   return {
     summary,
     events,
+    navigation,
     loaded,
     settled,
     pending: pending(),

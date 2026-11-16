@@ -20,9 +20,16 @@ fn node_shebang_launch_uses_node_instead_of_native_host() {
         )
         .unwrap();
         let mut args = vec!["--stdio".to_owned(), "argument with spaces".to_owned()];
-        let program = lsp_spawn_program(&script.to_string_lossy(), &mut args)
-            .await
-            .unwrap();
+        let program = lsp_spawn_program(
+            &script.to_string_lossy(),
+            &mut args,
+            &std::collections::HashMap::from([(
+                "PATH".to_owned(),
+                std::env::var("PATH").unwrap_or_default(),
+            )]),
+        )
+        .await
+        .unwrap();
         let output = tokio::time::timeout(
             Duration::from_secs(5),
             tokio::process::Command::new(program)

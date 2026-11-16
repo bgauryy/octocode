@@ -5,7 +5,8 @@ use super::*;
 pub(super) enum Stage {
     Extracting,
     Linking,
-    Complete,
+    /// Published: the artifacts are the scope's fact cache, not unfinished work.
+    Settled,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -13,6 +14,7 @@ pub(super) enum Stage {
 pub(super) struct Manifest {
     pub(super) version: u32,
     pub(super) generation: String,
+    /// The facts namespace ([`cache::namespace`]) of the artifacts.
     pub(super) namespace: String,
     pub(super) inventory_digest: String,
     pub(super) config_digest: String,
@@ -97,15 +99,8 @@ impl<'a> Job<'a> {
         let job_lock =
             super::lock::job(&lock_path, cancel).map_err(super::lock::Wait::into_tool_error)?;
         let registry_identity = super::super::registry_identity(registry)?;
-        let identity = serde_json::to_vec(&(
-            JOB_VERSION,
-            cache::namespace(scan, root, registry)?,
-            &scan.exclude,
-            scan.walk.disclosure(),
-            &scan.cargo,
-            super::super::super::ANALYSIS_VERSION,
-        ))
-        .map_err(|error| failure(error.to_string()))?;
+        let identity = serde_json::to_vec(&(JOB_VERSION, cache::namespace(scan, root, registry)?))
+            .map_err(|error| failure(error.to_string()))?;
         let mut names = inventory
             .iter()
             .map(|entry| entry.relative_path.as_str())
@@ -141,15 +136,17 @@ impl<'a> Job<'a> {
             return Err(failure("graph checkpoint manifest must be a regular file"));
         }
         let previous = Manifest::read(&dir);
-        let compatible = previous.as_ref().is_some_and(|old| {
-            old.version == JOB_VERSION
-                && old.namespace == manifest.namespace
-                && old.stage != Stage::Complete
-        });
+        // Whatever else the build changes, a file's artifact is valid while
+        // the facts namespace is: the cache is dropped for nothing else.
+        let compatible = previous
+            .as_ref()
+            .is_some_and(|old| old.version == JOB_VERSION && old.namespace == manifest.namespace);
+        // Resumed work is an interrupted build's: a published one is a cache.
         let resumed = !scan.refresh
             && compatible
             && previous.as_ref().is_some_and(|old| {
-                old.inventory_digest == manifest.inventory_digest
+                old.stage != Stage::Settled
+                    && old.inventory_digest == manifest.inventory_digest
                     && old.config_digest == manifest.config_digest
             });
         if dir.exists() && (scan.refresh || !compatible) {
@@ -171,6 +168,7 @@ impl<'a> Job<'a> {
             })
             .collect::<BTreeMap<_, _>>();
         let mut state = State::default();
+        let mut files = Vec::new();
         for entry in std::fs::read_dir(&dir).map_err(|error| failure(error.to_string()))? {
             let entry = entry.map_err(|error| failure(error.to_string()))?;
             let name = entry.file_name().to_string_lossy().into_owned();
@@ -190,12 +188,23 @@ impl<'a> Job<'a> {
                     .len();
                 state.bytes = state.bytes.saturating_add(bytes);
                 state.artifacts.insert((*relative).into(), bytes);
+                files.push(((*relative).to_owned(), bytes, entry.path()));
             } else {
                 std::fs::remove_file(entry.path()).map_err(|error| failure(error.to_string()))?;
             }
         }
+        // A cache never refuses a build: past the disk budget (a lowered
+        // limit) the largest artifacts go, and their files extract again.
         if state.bytes > scan.limits.spill_bytes {
-            return Err(limit("checkpoint disk artifacts", scan.limits.spill_bytes));
+            files.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+            for (relative, bytes, path) in files {
+                if state.bytes <= scan.limits.spill_bytes {
+                    break;
+                }
+                std::fs::remove_file(path).map_err(|error| failure(error.to_string()))?;
+                state.artifacts.remove(&relative);
+                state.bytes = state.bytes.saturating_sub(bytes);
+            }
         }
         manifest.write(&dir, Stage::Extracting)?;
         Ok(Some(Self {

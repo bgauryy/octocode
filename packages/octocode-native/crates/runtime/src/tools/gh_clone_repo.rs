@@ -3,28 +3,23 @@ mod checkout;
 mod git;
 mod pin;
 mod plan;
-mod process;
 mod recovery;
 pub(crate) mod storage;
 mod validate;
 
-use crate::execution::cancel::CancellationCheck;
-use crate::policy::{PolicyError, path::PathPolicy};
+use crate::policy::PolicyError;
 use octocode_contract_types::{ErrorCode, GhCloneRepoQuery};
-use octocode_github::{
-    GitHubEndpoint, GitHubProvider, ProviderError, RequestContext, ResolvedCredential,
-};
+use octocode_github::{GitHubProvider, ProviderError, RequestContext};
 use pin::pin;
 #[cfg(test)]
 use plan::execute_clone;
 use plan::{execute_prepared, prepare_clone};
 use serde::Serialize;
-use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use validate::validate_query;
 
-pub use process::{GitOutput, GitRunControl, GitRunRequest, GitRunner, SystemGit};
+use crate::tools::gh_git::{CloneContext, CloneError, CloneSetup, GitRunRequest, control};
 
 /// Clone storage is an execution prerequisite, before provider or Git work.
 pub(crate) fn require_persistent_storage(enabled: bool) -> Result<(), CloneError> {
@@ -77,93 +72,6 @@ fn history_depth(query: &GhCloneRepoQuery) -> u64 {
     query.history_depth.get()
 }
 
-#[derive(Clone, Debug)]
-pub struct CloneConfig {
-    pub home: PathBuf,
-    pub persistent: bool,
-    /// The runtime's network timeout: git's network steps are sized from it.
-    pub network_timeout: Duration,
-}
-
-impl CloneConfig {
-    /// Checkout output and working directories under the configured home.
-    pub fn persistent(home: impl Into<PathBuf>) -> Self {
-        let defaults = crate::execution::RuntimeLimits::DEFAULT;
-        Self {
-            home: home.into(),
-            persistent: true,
-            network_timeout: Duration::ZERO,
-        }
-        .with_network_timeout(defaults.network_timeout)
-    }
-
-    /// Apply the runtime's network timeout.
-    #[must_use]
-    pub fn with_network_timeout(mut self, timeout: Duration) -> Self {
-        self.network_timeout = timeout;
-        self
-    }
-}
-
-/// Everything one clone reads, owned, so [`run`] does the clone's blocking
-/// setup and git work on the blocking pool: the runtime thread meanwhile
-/// sends the pin request and serves other requests. [`Self::context`] is the
-/// borrowed view that setup and git work take.
-pub struct CloneSetup {
-    pub config: CloneConfig,
-    pub endpoint: GitHubEndpoint,
-    /// Network git admission: the API transport's budget, waits on the row.
-    pub git_limiter: octocode_github::GitLimiter,
-    pub credential: Option<ResolvedCredential>,
-    pub cancellation: Arc<dyn CancellationCheck + Send>,
-    pub deadline: Instant,
-    pub path_policy: PathPolicy,
-    pub git: Arc<dyn GitRunner>,
-}
-
-impl CloneSetup {
-    pub fn context(&self) -> CloneContext<'_> {
-        CloneContext {
-            config: &self.config,
-            endpoint: &self.endpoint,
-            git_limiter: self.git_limiter.clone(),
-            credential: self.credential.as_ref(),
-            cancellation: self.cancellation.as_ref(),
-            deadline: self.deadline,
-            path_policy: &self.path_policy,
-            git: self.git.as_ref(),
-        }
-    }
-
-    /// `work` on the context, on the blocking pool, keeping the call's notices.
-    async fn off_runtime<T: Send + 'static>(
-        self: &Arc<Self>,
-        work: impl FnOnce(&CloneContext<'_>) -> Result<T, CloneError> + Send + 'static,
-    ) -> Result<T, CloneError> {
-        let setup = Arc::clone(self);
-        tokio::task::spawn_blocking(octocode_io::notice::carried(move || work(&setup.context())))
-            .await
-            .map_err(|error| {
-                CloneError::new(
-                    ErrorCode::ExecutionFailed,
-                    format!("Clone worker failed: {error}"),
-                )
-            })?
-    }
-}
-
-pub struct CloneContext<'a> {
-    pub config: &'a CloneConfig,
-    pub endpoint: &'a GitHubEndpoint,
-    /// Network git admission: the API transport's budget, waits on the row.
-    pub git_limiter: octocode_github::GitLimiter,
-    pub credential: Option<&'a ResolvedCredential>,
-    pub cancellation: &'a dyn CancellationCheck,
-    pub deadline: Instant,
-    pub path_policy: &'a PathPolicy,
-    pub git: &'a dyn GitRunner,
-}
-
 /// Where the checkout lives and what it holds; owner/repo are the caller's
 /// own input.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -210,55 +118,6 @@ pub struct CloneResult {
     /// Per-call facts the checkout follows from (a repository rename).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CloneError {
-    pub code: ErrorCode,
-    pub message: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub hints: Vec<String>,
-    /// Runnable recovery calls (`findRepository`, `viewRefs`) beside the hints.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub calls: Option<Box<serde_json::Value>>,
-    /// The provider failure a git step stopped on (the shared GitHub
-    /// limiter's rate limit or open circuit): the row is that provider
-    /// failure, with its rate-limit facts and retry ([`CloneFailure::from`]).
-    #[serde(skip)]
-    upstream: Option<Box<ProviderError>>,
-    /// The HTTP status GitHub answered the request this error classifies
-    /// (a missing repository or ref): the row's `httpStatus`, as on every
-    /// GitHub tool's row.
-    #[serde(skip)]
-    pub(crate) http_status: Option<u16>,
-}
-
-impl CloneError {
-    fn new(code: ErrorCode, message: impl Into<String>) -> Self {
-        Self {
-            code,
-            message: message.into(),
-            hints: Vec::new(),
-            calls: None,
-            upstream: None,
-            http_status: None,
-        }
-    }
-
-    /// This error, classifying a request GitHub answered with `status`.
-    fn answered(mut self, status: Option<u16>) -> Self {
-        self.http_status = status;
-        self
-    }
-
-    /// A git step stopped by a provider failure: it reaches the row as
-    /// [`CloneFailure::Provider`].
-    fn provider(error: ProviderError) -> Self {
-        let mut clone = Self::new(error.kind.code(), error.message.to_string());
-        clone.upstream = Some(Box::new(error));
-        clone
-    }
 }
 
 /// The repository metadata lookup returned 404: name the repository instead
@@ -359,14 +218,6 @@ pub async fn run(
 /// ([`PolicyError::shared_code`]), so it gets their recovery hints.
 fn policy_denied(error: PolicyError) -> CloneError {
     CloneError::new(error.shared_code(), error.message)
-}
-
-fn control<'a>(context: &'a CloneContext<'a>) -> GitRunControl<'a> {
-    GitRunControl {
-        cancellation: context.cancellation,
-        deadline: context.deadline,
-        home: &context.config.home,
-    }
 }
 
 fn check_control(context: &CloneContext<'_>) -> Result<(), CloneError> {

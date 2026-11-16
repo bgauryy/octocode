@@ -632,8 +632,11 @@ pub(super) async fn run(
         next.insert("repo".into(), json!(repo));
         super::summary::carry(view, &mut next);
         next.insert("resume".into(), json!(saved.token()));
-        data["calls"]["nextPage"] =
-            Continuation::continued(ToolId::SecurityCheck, Value::Object(next)).build();
+        crate::response::collection::insert_row_walk(
+            &mut data,
+            ToolId::SecurityCheck,
+            Continuation::continued(ToolId::SecurityCheck, Value::Object(next)),
+        );
         paging::mark_partial(
             &mut data,
             PartialReason::ProviderIncompleteResults,

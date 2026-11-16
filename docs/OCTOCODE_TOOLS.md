@@ -53,6 +53,8 @@ List a directory tree, find a half-known path, or rank files by size, line count
 
 Find text or patterns, list matching files, or count occurrences and matching lines. Matching is literal by default. Long lines show a window around the match and its column. Read the original line with `localFetch`.
 
+The default `sort:{"by":"traversal"}` walks the tree in name order, depth first, like `rg --sort path`: a page returns as soon as it fills and `next.nextPage` continues the walk, so a common term answers fast. Until the last page, `pagination.total` is a floor (`countScope:"loaded"`) and `matchCount`, `matchedLineCount` and `matchedFiles` are absent. For exact totals use `view:"countMatches"` or `view:"countLines"`, or `sort:{"by":"matchCount","order":"desc"}`; these and the other sorts scan the whole scope before page 1. Nothing is ranked: for where a name is defined, use `lspSearch` or `astSearch`.
+
 ```json
 {"queries":[{"path":"packages/octocode/src","matchString":["runCLI"]}]}
 ```
@@ -128,6 +130,8 @@ Find text, paths or filenames in GitHub's default-branch code index. A `ref` re-
 ### `ghStructure`
 
 Browse a tree, list tags and branches, resolve a ref to a commit, or get repository languages. A tree defaults to one level. Use `materialize:true` to save selected files for repeated local reads. Keep the returned commit and check materialization coverage.
+
+`materialize` reads file bytes through git. The REST tree listing names each file's blob id. For each wave of files (listed sizes up to the call's read limit, at least one file) one `git fetch` of those ids from the repository's git URL fills a temporary store, and the files are written from it. The listing, the withheld, oversized and kept outcomes, the manifest and the layout do not depend on how bytes were read. A blob larger than the read limit is reported oversized. Git authenticates as `ghCloneRepo` does, and the token never appears in a command line or URL. When git is missing, the host has no git URL, the server refuses the fetch, or a blob is absent, those files are read one by one over REST instead, without an error. Git reads need no per-file contents requests: `golang/go` `src/net/http` took 9.7 s and 198 contents requests before, and about 1.4 s with none. [Temporary store](STORAGE_AND_LIMITS.md#materialize-git-store)
 
 ### `ghGetFileContent`
 

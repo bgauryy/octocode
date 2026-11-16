@@ -14,6 +14,14 @@ pub fn analysis_capabilities() -> &'static crate::types::AnalysisCapabilities {
                             bom: "optional",
                         },
                         SourceEncodingCapability {
+                            encoding: Encoding::Latin1,
+                            bom: "optional",
+                        },
+                        SourceEncodingCapability {
+                            encoding: Encoding::Lossy,
+                            bom: "optional",
+                        },
+                        SourceEncodingCapability {
                             encoding: Encoding::Utf16Le,
                             bom: "required",
                         },
@@ -22,7 +30,7 @@ pub fn analysis_capabilities() -> &'static crate::types::AnalysisCapabilities {
                             bom: "required",
                         },
                     ],
-                    malformed: "rejected",
+                    malformed: "utf16Rejected",
                     correspondence: "scalarBoundaries",
                 },
             }

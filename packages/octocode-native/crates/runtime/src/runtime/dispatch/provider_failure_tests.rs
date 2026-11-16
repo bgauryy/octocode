@@ -15,7 +15,7 @@ fn payload_and_tool_errors_share_failure_classification() {
     }
     assert_eq!(
         DomainResult::payload(json!({"error":"failed"}), Some("error")).failure,
-        Some(FailureKind::Execution)
+        Some(crate::id::error_codes::ErrorClass::Unservable)
     );
     assert!(
         DomainResult::payload(json!({"errorCode":"classificationRateLimited"}), None)
@@ -27,14 +27,14 @@ fn payload_and_tool_errors_share_failure_classification() {
 #[test]
 fn tool_error_rows_take_their_failure_kind_from_the_error_code() {
     let unresolved = value_result(json!({"status":"error","errorCode":"notFound"}));
-    assert_eq!(unresolved.failure, Some(FailureKind::NotFound));
+    assert_eq!(unresolved.failure, Some(crate::id::error_codes::ErrorClass::CorrectInput));
     let missing = value_result(json!({"status":"error","errorCode":"notFound"}));
-    assert_eq!(missing.failure, Some(FailureKind::NotFound));
+    assert_eq!(missing.failure, Some(crate::id::error_codes::ErrorClass::CorrectInput));
     let other = value_result(json!({"status":"error","errorCode":"serverUnavailable"}));
-    assert_eq!(other.failure, Some(FailureKind::Execution));
+    assert_eq!(other.failure, Some(crate::id::error_codes::ErrorClass::Unservable));
     assert_eq!(
         value_result(json!({"status":"error"})).failure,
-        Some(FailureKind::Execution)
+        Some(crate::id::error_codes::ErrorClass::Unservable)
     );
 }
 
@@ -56,7 +56,7 @@ fn every_error_row_has_one_shape() {
         Some(next.clone()),
     );
     assert_eq!(row.status, Some("error"));
-    assert_eq!(row.failure, Some(FailureKind::NotFound));
+    assert_eq!(row.failure, Some(crate::id::error_codes::ErrorClass::CorrectInput));
     let keys: Vec<&str> = row
         .data
         .as_object()
@@ -72,7 +72,7 @@ fn every_error_row_has_one_shape() {
         bare.data,
         json!({"error": "failed", "errorCode": "executionFailed"})
     );
-    assert_eq!(bare.failure, Some(FailureKind::Execution));
+    assert_eq!(bare.failure, Some(crate::id::error_codes::ErrorClass::Unservable));
 }
 
 /// A tool payload that reports `status: "error"` is an execution failure
@@ -81,7 +81,7 @@ fn every_error_row_has_one_shape() {
 fn error_status_payload_is_an_execution_failure() {
     let failed = value_result(json!({"status": "error", "error": "compare failed"}));
     assert_eq!(failed.status, Some("error"));
-    assert_eq!(failed.failure, Some(FailureKind::Execution));
+    assert_eq!(failed.failure, Some(crate::id::error_codes::ErrorClass::Unservable));
     let empty = value_result(json!({"status": "empty"}));
     assert_eq!((empty.status, empty.failure), (Some("empty"), None));
     let ok = value_result(json!({"items": []}));
@@ -136,7 +136,7 @@ fn typed_shape_mismatch_is_invalid_input_for_every_local_tool() {
             "{tool}: {}",
             row.data
         );
-        assert_eq!(row.failure, Some(FailureKind::Execution), "{tool}");
+        assert_eq!(row.failure, Some(crate::id::error_codes::ErrorClass::CorrectInput), "{tool}");
     }
 }
 
@@ -193,7 +193,7 @@ fn provider_rows_have_one_shape() {
         },
     );
     assert_eq!(row.status, Some("error"));
-    assert_eq!(row.failure, Some(FailureKind::RateLimited));
+    assert_eq!(row.failure, Some(crate::id::error_codes::ErrorClass::Transient));
     let keys: Vec<&str> = row
         .data
         .as_object()
@@ -222,7 +222,7 @@ fn provider_rows_have_one_shape() {
     );
     assert_eq!(
         bare.data,
-        json!({"error": "Network connection failed", "errorCode": "transport"}),
+        json!({"error": "Network connection failed", "errorCode": "transport", "retryable": false}),
         "retryable is stated only when true"
     );
     // Registry and language-server rows use the same builder; an
@@ -308,7 +308,9 @@ fn http_status_is_carried_when_present_and_absent_when_not() {
         );
         assert_eq!(
             failure.data.get("retryable"),
-            retryable.then_some(&serde_json::json!(true)),
+            (crate::id::error_class(failure.data["errorCode"].as_str().unwrap())
+                == crate::id::error_codes::ErrorClass::Transient)
+                .then_some(&serde_json::json!(retryable)),
             "{code}"
         );
         assert!(

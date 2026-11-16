@@ -199,7 +199,11 @@ fn a_streamed_match_read_finds_every_hit_whatever_placeholder_its_scanner_writes
     let query = qj(&path, serde_json::json!({"matchString":["NEEDLE"]}));
     let read = fetch_with(&query, &paths, &SmallSafe);
     assert_eq!(read.status, ReadStatus::Success, "{read:?}");
-    assert_eq!(read.selected_match_count, Some(hits.len()), "every hit is found");
+    assert_eq!(
+        read.selected_match_count,
+        Some(hits.len()),
+        "every hit is found"
+    );
     let pages = walk_exactly_once_with(&query, &paths, &SmallSafe, None, &view);
     assert!(pages[0].1.contains("NEEDLE"), "the walk opens at a hit");
 }

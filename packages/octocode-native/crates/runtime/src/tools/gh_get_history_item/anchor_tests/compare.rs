@@ -294,7 +294,8 @@ async fn compare_unpatched_file_read_survives_the_comparison_pages() {
 }
 
 /// A comparison whose head is behind its base changes nothing that way
-/// round: the empty answer leads with the swapped comparison.
+/// round: the answer says so (it is not an empty row) and leads with the
+/// swapped comparison.
 #[tokio::test]
 async fn a_reversed_compare_leads_with_the_swapped_refs() {
     let server = MockServer::builder().start().await;
@@ -318,13 +319,22 @@ async fn a_reversed_compare_leads_with_the_swapped_refs() {
         json!({"operation":"compare","owner":"o","repo":"r","baseRef":"v2","headRef":"v1","pageSize":3}),
     )
     .await;
-    assert_eq!(out["status"], "empty", "{out}");
+    assert!(out.get("status").is_none(), "{out}");
+    assert_eq!(
+        out["warnings"],
+        json!(["head is behind base by 45: nothing ahead; related compares the other way."]),
+        "{out}"
+    );
     assert_eq!(out["behindBy"], 45, "{out}");
     let swap =
         crate::tools::test_support::checks::related_call(&out, "ghGetHistoryItem", |input| {
             input["queries"][0]["operation"] == "compare"
         });
     assert_eq!(swap["tool"], "ghGetHistoryItem", "{out}");
+    // The warning promises it, so the served row keeps it.
+    crate::tools::test_support::assert_lead_served(ToolId::GhGetHistoryItem, &out, |input| {
+        input["queries"][0]["baseRef"] == "v1"
+    });
     assert_eq!(
         swap["input"]["queries"][0],
         // `pageSize` is private page state (`x-cursor`): a fresh lead drops it.

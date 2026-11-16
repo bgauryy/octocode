@@ -5,7 +5,7 @@ use crate::id::ToolId;
 use serde_json::Map;
 
 /// The call that resumes `row`, the request this answer serves, at `resume`.
-fn next(row: &Value, id: &str, resume: &Resume) -> Value {
+fn next(row: &Value, id: &str, resume: &Resume) -> Continuation {
     let mut request = match resume {
         Resume::Row {
             offset,
@@ -30,7 +30,7 @@ fn next(row: &Value, id: &str, resume: &Resume) -> Value {
     };
     request["graph"] = json!(id);
     request["page"] = json!(row["page"].as_u64().unwrap_or(1) + 1);
-    Continuation::continued(ToolId::GraphQuery, request).build()
+    Continuation::continued(ToolId::GraphQuery, request)
 }
 
 pub(super) fn convert(out: &mut GraphOutput, row: &Value) {
@@ -67,7 +67,18 @@ pub(super) fn convert(out: &mut GraphOutput, row: &Value) {
         data["related"] = json!(related);
     }
     for (channel, resume) in &out.next {
-        crate::response::result::set_next(&mut out.value, &channel.name(), next(row, &id, resume));
+        let call = next(row, &id, resume);
+        match channel {
+            Channel::NextPage => crate::response::collection::insert_walk(
+                &mut out.value["next"],
+                ToolId::GraphQuery,
+                None,
+                call,
+            ),
+            Channel::Cycle(_) => {
+                crate::response::result::set_next(&mut out.value, &channel.name(), call.build());
+            }
+        }
     }
 }
 

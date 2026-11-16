@@ -12,6 +12,7 @@
 use crate::lsp::commands::is_executable_path;
 use crate::lsp::config::kept::{Kept, follow_path_search, kept};
 use crate::lsp::config::probe::{ProbeError, probe_command_stdout};
+use crate::process_env::EnvMap;
 use crate::stamp::{Proof, settle_clock};
 use octocode_io::memo::Memo;
 use std::ffi::OsString;
@@ -29,18 +30,19 @@ pub(in crate::lsp::config) struct RustupView {
 }
 
 impl RustupView {
-    /// This process's `PATH`.
-    pub(in crate::lsp::config) fn current() -> Self {
+    /// What `env`, a call's environment, gives rustup: its `PATH`, home and
+    /// toolchain selection.
+    pub(in crate::lsp::config) fn of(env: &impl EnvMap) -> Self {
         #[cfg(test)]
         if let Some(view) = TEST_VIEW.with(|view| view.borrow().clone()) {
             return view;
         }
         Self {
-            path_var: crate::process_env::var_os("PATH"),
-            home: crate::process_env::var_os("RUSTUP_HOME")
+            path_var: crate::process_env::call_var(env, "PATH"),
+            home: crate::process_env::call_var(env, "RUSTUP_HOME")
                 .map(PathBuf::from)
                 .or_else(|| std::env::home_dir().map(|home| home.join(".rustup"))),
-            toolchain: crate::process_env::var_os("RUSTUP_TOOLCHAIN"),
+            toolchain: crate::process_env::call_var(env, "RUSTUP_TOOLCHAIN"),
         }
     }
 }
@@ -49,6 +51,22 @@ impl RustupView {
 thread_local! {
     /// A test's `PATH` in place of the process's.
     static TEST_VIEW: std::cell::RefCell<Option<RustupView>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The call environment that gives discovery `view`: its `PATH`, rustup home
+/// and toolchain selection.
+#[cfg(test)]
+pub(in crate::lsp::config) fn view_env(
+    view: &RustupView,
+) -> std::collections::BTreeMap<String, String> {
+    [
+        ("PATH", view.path_var.clone()),
+        ("RUSTUP_HOME", view.home.clone().map(OsString::from)),
+        ("RUSTUP_TOOLCHAIN", view.toolchain.clone()),
+    ]
+    .into_iter()
+    .filter_map(|(name, value)| Some((name.to_owned(), value?.to_string_lossy().into_owned())))
+    .collect()
 }
 
 /// Run `body` with `view` as this thread's rustup environment.
@@ -124,7 +142,7 @@ pub(in crate::lsp::config) fn selected_component(
     let started = settle_clock();
     // Read before rustup runs: a change while it runs reads as a change.
     let inputs = inputs_of(view, proxy, &rustup, workspace_root);
-    let binary = ask_rustup(&rustup, proxy, workspace_root)?.filter(|binary| {
+    let binary = ask_rustup(view, &rustup, proxy, workspace_root)?.filter(|binary| {
         view.toolchain.is_some() || naming_toolchain_file(workspace_root, Some(binary)).is_none()
     });
     if let Some(mut inputs) = inputs {
@@ -148,6 +166,7 @@ pub(in crate::lsp::config) fn selected_component(
 /// selected toolchain has none (a failure exit, or no executable named), or
 /// the probe error when rustup gave no answer.
 fn ask_rustup(
+    view: &RustupView,
     rustup: &Path,
     proxy: &Path,
     workspace_root: &Path,
@@ -161,6 +180,17 @@ fn ask_rustup(
         .arg(name)
         .current_dir(workspace_root)
         .env("RUSTUP_AUTO_INSTALL", "0");
+    // rustup answers under the call's environment, not the process's.
+    for (name, value) in [
+        ("PATH", &view.path_var),
+        ("RUSTUP_TOOLCHAIN", &view.toolchain),
+        ("RUSTUP_HOME", &view.home.clone().map(OsString::from)),
+    ] {
+        match value {
+            Some(value) => which.env(name, value),
+            None => which.env_remove(name),
+        };
+    }
     let stdout = match probe_command_stdout(&mut which) {
         Ok(stdout) => stdout,
         Err(ProbeError::Exited(_)) => return Ok(None),

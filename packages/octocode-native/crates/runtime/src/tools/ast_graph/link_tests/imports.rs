@@ -116,7 +116,7 @@ fn syntax_basis_is_not_repeated_as_a_diagnostic_for_every_file() {
 #[test]
 fn skipped_import_target_is_an_unparsed_node_not_a_resolved_import() {
     let temp = fixture(&[("entry.ts", "import './unread';\n")]);
-    temp.write("unread.ts", [0xff]);
+    temp.write("unread.ts", [0x00]);
     let root = ingested(&temp);
     let deps = ask(root, "deps", Some("entry.ts"));
     let unread = result_row(&deps, "unread.ts");
@@ -394,32 +394,32 @@ fn unresolved_import_evidence_groups_sites_by_message_and_keeps_every_line() {
     assert_eq!(lines(1), Some(vec![3]), "{issues}");
 }
 
-/// A path rooted at a standard crate (`::std::vec::Vec`) names an external
-/// crate, not the current one: it is no unresolved internal import, in a
-/// `use`, a type position or an expression.
+/// A path rooted at `::` names an extern crate (`::std::vec::Vec`,
+/// `::serde_json::Value`), never the current one: it is no unresolved
+/// internal import, in a `use`, a type position or an expression
+/// (`crate::` gaps: `rust_unlinkable_crate_paths_count_as_unresolved_internal`).
 #[test]
-fn rooted_standard_crate_paths_are_external_not_unresolved_internal() {
+fn rooted_paths_name_extern_crates_not_unresolved_internal() {
     let temp = fixture(&[
         (
             "src/lib.rs",
             "use ::std::fmt::Display;\npub struct S { pub v: ::std::vec::Vec<u8> }\npub fn f() -> usize { ::core::mem::size_of::<u8>() + ::alloc::vec::Vec::<u8>::new().len() }\npub fn g<T: Display>(_: T) {}\n",
         ),
         (
-            "src/missing_user.rs",
-            "use ::crate_root::gone;\npub fn h() { gone(); }\n",
+            "src/extern_user.rs",
+            "pub struct T { pub r: ::regress::Regex, pub v: ::serde_json::Value }\npub fn h() -> Option<::serde::de::IgnoredAny> { None }\n",
         ),
     ]);
     let root = ingested(&temp);
     let diagnostics = ask(root, "diagnostics", Some("unresolved-internal"));
     let messages = diagnostics["rows"].to_string();
-    for std_crate in ["std", "core", "alloc"] {
+    for extern_crate in ["std", "core", "alloc", "serde", "regress", "serde_json"] {
         assert!(
-            !messages.contains(&format!("::{std_crate}::")),
-            "{std_crate}: {diagnostics}"
+            !messages.contains(&format!("::{extern_crate}::")),
+            "{extern_crate}: {diagnostics}"
         );
     }
-    // A rooted path to anything else still names this crate (edition 2015).
-    assert!(messages.contains("::crate_root"), "{diagnostics}");
+    assert_eq!(diagnostics["rows"], json!([]), "{diagnostics}");
     let imports = &ask(root, "stats", None)["imports"];
-    assert_eq!(imports["unresolvedInternal"], 1, "{imports}");
+    assert_eq!(imports["unresolvedInternal"], 0, "{imports}");
 }

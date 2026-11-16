@@ -14,7 +14,13 @@ pub(super) fn build_identity(
     cargo: Option<&str>,
     registry_identity: &str,
 ) -> String {
-    identity_of(Versions::CURRENT, options, cargo, registry_identity)
+    identity_of(
+        Versions::CURRENT,
+        options,
+        cargo,
+        registry_identity,
+        octocode_engine::security::patterns_identity(),
+    )
 }
 
 /// The representation versions a snapshot depends on: storage format,
@@ -39,6 +45,7 @@ fn identity_of(
     options: &IngestOptions,
     cargo: Option<&str>,
     registry_identity: &str,
+    patterns: &str,
 ) -> String {
     octocode_engine::digest::sha256(
         json!([
@@ -47,6 +54,9 @@ fn identity_of(
             versions.analysis,
             env!("CARGO_PKG_VERSION"),
             registry_identity,
+            // The snapshot's redacted spans and secret-bearing marks come
+            // from the known-format list; see `graph::cache::namespace`.
+            patterns,
             options.exclude,
             options.walk.disclosure(),
             options.language_globs,
@@ -251,8 +261,28 @@ mod identity_tests {
                 ..Versions::CURRENT
             },
         ];
+        let patterns = octocode_engine::security::patterns_identity();
         for versions in bumps {
-            assert_ne!(identity_of(versions, &options, None, "registry"), current);
+            assert_ne!(
+                identity_of(versions, &options, None, "registry", patterns),
+                current
+            );
         }
+    }
+
+    /// A snapshot's redacted spans come from the known-format list: an
+    /// unchanged tree under another list is not an unchanged snapshot.
+    #[test]
+    fn the_known_format_list_changes_the_build_identity() {
+        let options = IngestOptions::default();
+        let own = octocode_engine::security::patterns_identity();
+        assert_eq!(
+            identity_of(Versions::CURRENT, &options, None, "registry", own),
+            build_identity(&options, None, "registry")
+        );
+        assert_ne!(
+            identity_of(Versions::CURRENT, &options, None, "registry", "other list"),
+            build_identity(&options, None, "registry")
+        );
     }
 }

@@ -50,7 +50,7 @@ fn run(dir: &Path, scope: &str, cancel: &dyn CancellationCheck) -> GraphOutput {
 }
 
 #[test]
-fn completed_ingests_discard_extraction_artifacts() {
+fn completed_ingests_keep_extraction_artifacts_as_the_scopes_fact_cache() {
     let dir = workspace();
     let root = dir.0.to_path_buf();
     let job = super::super::super::graph::checkpoint::job_path(
@@ -59,10 +59,7 @@ fn completed_ingests_discard_extraction_artifacts() {
     );
     let first = run(&root, "a", &NeverCancel);
     assert_eq!(first.class, ExitClass::Success, "{}", first.value);
-    assert!(
-        !job.exists(),
-        "completed extraction must not remain a cache"
-    );
+    assert!(job.exists(), "completed extraction stays as the fact cache");
     let unchanged = run(&root, "a", &NeverCancel);
     assert_eq!(
         unchanged.value["extraction"]["parsedFiles"],
@@ -70,7 +67,7 @@ fn completed_ingests_discard_extraction_artifacts() {
     );
     assert_eq!(unchanged.value["extraction"]["reusedFiles"], 0);
     assert_eq!(unchanged.value["sha256"], first.value["sha256"]);
-    assert!(!job.exists());
+    assert!(job.exists());
     dir.write("a/lib.ts", "export function f() { return 42; }\n");
     let changed = run(&root, "a", &NeverCancel);
     assert_eq!(changed.class, ExitClass::Success, "{}", changed.value);
@@ -79,12 +76,13 @@ fn completed_ingests_discard_extraction_artifacts() {
             .unwrap(),
     )
     .unwrap();
-    assert_eq!(manifest["extraction"]["reusedFiles"], 0);
+    // The edited file is extracted; every other file comes from the cache.
+    assert_eq!(manifest["extraction"]["parsedFiles"], 1);
     assert_eq!(
-        manifest["extraction"]["parsedFiles"],
-        manifest["scan"]["filesScanned"]
+        manifest["extraction"]["reusedFiles"].as_u64().unwrap() + 1,
+        manifest["scan"]["filesScanned"].as_u64().unwrap()
     );
-    assert!(!job.exists());
+    assert!(job.exists());
 }
 
 /// Whether another holder could take the workspace build lock now.
@@ -198,10 +196,12 @@ fn concurrent_ingests_of_one_scope_publish_one_snapshot() {
         &home.join(".facts"),
         &root.join("a").canonicalize().expect("scope"),
     );
-    assert!(
-        !job.exists(),
-        "completed concurrent jobs release their artifacts"
-    );
+    // Whichever build finished last owns the job: it is gone or it is the
+    // scope's settled fact cache, never unfinished work.
+    if let Ok(record) = std::fs::read_to_string(job.join("job.json")) {
+        let record: Value = serde_json::from_str(&record).expect("job record");
+        assert_eq!(record["stage"], "settled", "{record}");
+    }
     // The scope is unchanged since: the next build answers with it too.
     let again = run(&root, "a", &NeverCancel);
     assert_eq!(id(&again), id(&outputs[0]), "{}", again.value);

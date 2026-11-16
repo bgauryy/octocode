@@ -41,6 +41,16 @@ impl FakeRustup {
         &self.bin
     }
 
+    /// A `PATH` with the fake rustup first, then the process's own: what a
+    /// real caller's `PATH` holds (the fake's scripts run system commands).
+    pub(super) fn path(&self) -> std::ffi::OsString {
+        let mut dirs = vec![self.bin.clone()];
+        dirs.extend(std::env::split_paths(
+            &std::env::var_os("PATH").unwrap_or_default(),
+        ));
+        std::env::join_paths(dirs).expect("PATH")
+    }
+
     pub(super) fn proxy(&self) -> PathBuf {
         self.bin.join("rust-analyzer")
     }

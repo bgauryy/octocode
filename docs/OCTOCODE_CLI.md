@@ -11,7 +11,7 @@ npx -y octocode localFetch '{"queries":[{"path":"README.md","ranges":[{"startLin
 npx -y octocode --json localFetch '{"queries":[{"path":"README.md","ranges":[{"startLine":1,"endLine":1}]}]}'
 ```
 
-The examples below use `octocode`. Substitute `npx -y octocode` if you use the npm launcher.
+The examples below use `octocode`. Substitute `npx -y octocode` if you use the npm launcher. An npm install (`npm install -g octocode`) whose install script ran makes the `octocode` command the native binary itself. Where the install script is skipped (`--ignore-scripts`) or leaves the Node launcher in place (Windows, Yarn 2+, a pnpm global install, a failed version check), each call starts Node first.
 
 ## Commands
 
@@ -46,14 +46,16 @@ When output includes a continuation command, run it unchanged. First follow `res
 |---:|---|
 | 0 | Success. A result may have more pages. |
 | 1 | All rows empty or out of range. |
-| 2 | Invalid input. Inspect the field error and the tool's schema. |
-| 3 | Target not found. |
-| 4 | Authentication or permission denied. |
-| 5 | Execution failure, unavailable saved state, or mixed failure codes. |
-| 7 | Rate limited. |
+| 2 | `correctInput`: the request is wrong or names something absent (a missing path, repository or ref included). Inspect the field error and the tool's schema. |
+| 4 | `refused`: authentication, permission, path policy or configuration refuses it. |
+| 5 | `unservable`: a valid request this setup cannot serve (unsupported language, binary or oversized file, missing language server, internal failure). |
+| 6 | `restart`: the saved paging state is gone or changed; run `next.restart`. |
+| 7 | `transient`: a timeout, outage or rate limit; a retry can succeed when the row says `retryable: true`. |
 | 130 | Interrupted. |
 
-In a batch, an invalid input row takes priority (exit 2). Otherwise failures determine the code. A mix of successful and empty rows exits 0. Always inspect the individual rows.
+Exit 3 is reserved and never used. Every error row states its `errorClass` (`correctInput`, `refused`, `unservable`, `transient`, `restart`); transient rows add a boolean `retryable` (`false` for a cancelled call). `octocode lsp install` exits 5 when it fails, and `octocode config` exits 6 on an edit conflict.
+
+In a batch, the strictest row sets the code: any `correctInput` row exits 2, else any `refused` 4, else any `restart` 6, else any `unservable` 5, else all-transient 7. A mix of successful and empty rows exits 0. Always inspect the individual rows.
 
 ## Install the MCP server
 
@@ -103,6 +105,6 @@ Public skills are bundled with the binary. An install stores the skill under the
 
 ## Clear tool caches
 
-Read-only tool calls on macOS and Linux run on a shared warm server, `octocode serve`: one per binary build, workspace and configuration, started by the first call and exiting after 10 minutes without a request. [Warm tool server](../packages/octocode-native/README.md#warm-tool-server)
+Read-only tool calls on macOS and Linux, from the CLI and from an MCP server on persistent storage, run on a shared warm server, `octocode serve`: one per binary build, workspace and process environment, started by the first call and exiting after 10 minutes without a request. A copy of the binary is another build with its own server; a hard link or symlink is the same one. [Warm tool server](../packages/octocode-native/README.md#warm-tool-server)
 
 Use `octocode cache clear --json` to stop those servers after their running calls finish and clear saved pages, provider results, materializations, URL captures and the current workspace's graph extraction checkpoints. Outstanding cursors become unusable. Stop other active tool calls and restart separate MCP servers to clear their in-memory state. Clones, published graph snapshots and credentials have separate lifecycles. [Storage and retention](STORAGE_AND_LIMITS.md)

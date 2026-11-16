@@ -4,7 +4,7 @@ mod contents;
 mod entries;
 pub(super) use contents::walk_contents;
 pub(super) use entries::{entry_kind, missing_ref, not_a_directory, traversal_from_git_tree};
-use entries::{git_kind, note_unlisted, unlisted_kind};
+use entries::{file_oid, git_kind, note_unlisted, unlisted_kind};
 
 /// Deepest level a listing may reach: every level (the contract bounds no
 /// `maxDepth`), spelled as the largest depth a lead can carry.

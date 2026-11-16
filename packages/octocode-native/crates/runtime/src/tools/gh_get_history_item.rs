@@ -29,6 +29,7 @@ const SCAN_PATH: &str = "github-history-item";
 #[cfg(test)]
 mod anchor_tests;
 mod axis;
+mod body_match;
 mod commit;
 mod compare;
 mod file_page;
@@ -356,7 +357,12 @@ fn publish_row_pages(row: &mut Value) {
         window::lift_page_limits(row, &mut page);
     }
     for (section, call) in calls {
-        crate::response::result::set_next(row, &section, call);
+        crate::response::collection::relocate_walk(
+            row,
+            crate::id::ToolId::GhGetHistoryItem,
+            &section,
+            call,
+        );
     }
 }
 

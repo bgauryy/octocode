@@ -1,17 +1,16 @@
 use super::*;
 
 #[test]
-fn missing_local_path_is_not_found_other_errors_are_execution() {
-    assert_eq!(failure_kind(ErrorCode::NotFound), FailureKind::NotFound);
-    assert_eq!(failure_kind(ErrorCode::NotFound), FailureKind::NotFound);
-    assert_eq!(failure_kind(ErrorCode::NotFound), FailureKind::NotFound);
+fn a_missing_target_is_correct_input_a_file_failure_is_unservable() {
+    use crate::id::error_codes::class;
+    assert_eq!(class(ErrorCode::NotFound), ErrorClass::CorrectInput);
+    assert_eq!(class(ErrorCode::FileAccessFailed), ErrorClass::Unservable);
+    assert_eq!(class(ErrorCode::PermissionDenied), ErrorClass::Refused);
+    assert_eq!(class(ErrorCode::StaleSnapshot), ErrorClass::Restart);
+    assert_eq!(class(ErrorCode::Timeout), ErrorClass::Transient);
     assert_eq!(
-        failure_kind(ErrorCode::FileAccessFailed),
-        FailureKind::Execution
-    );
-    assert_eq!(
-        failure_kind(ErrorCode::PermissionDenied),
-        FailureKind::Permission
+        class(ErrorCode::LanguageUnsupported),
+        ErrorClass::Unservable
     );
 }
 
@@ -24,16 +23,16 @@ fn a_row_failed_after_execution_exits_by_its_code() {
         json!({"results":[{"status":"error","data":{"errorCode":"classificationProviderError"}}]});
     assert_eq!(
         outcome(row, None, true).exit_class(),
-        ExitClass::Failed(FailureKind::Execution)
+        ExitClass::Failed(ErrorClass::Transient)
     );
     let refused = json!({"results":[{"status":"error","data":{"errorCode":"invalidInput"}}]});
     assert_eq!(
         outcome(refused, None, true).exit_class(),
-        ExitClass::InvalidInput
+        ExitClass::Failed(ErrorClass::CorrectInput)
     );
     assert_eq!(
         outcome(json!({}), None, true).exit_class(),
-        ExitClass::InvalidInput
+        ExitClass::Failed(ErrorClass::CorrectInput)
     );
 }
 
@@ -46,13 +45,13 @@ fn a_failed_batch_with_a_rejected_row_is_invalid_input() {
         {"status":"error","data":{"errorCode":"notFound"}}
     ]});
     for failure in [
-        Some(FailureKind::Execution),
-        Some(FailureKind::NotFound),
+        Some(ErrorClass::Unservable),
+        Some(ErrorClass::CorrectInput),
         None,
     ] {
         assert_eq!(
             outcome(rows.clone(), failure, true).exit_class(),
-            ExitClass::InvalidInput,
+            ExitClass::Failed(ErrorClass::CorrectInput),
             "{failure:?}"
         );
     }
@@ -66,8 +65,8 @@ fn not_a_file_and_not_a_directory_are_invalid_input() {
         let row = json!({"results":[{"status":"error","data":{"errorCode":code}}]});
         assert!(all_rows_invalid_input(&row), "{code}");
         assert_eq!(
-            outcome(row, Some(FailureKind::Execution), true).exit_class(),
-            ExitClass::InvalidInput,
+            outcome(row, Some(ErrorClass::Unservable), true).exit_class(),
+            ExitClass::Failed(ErrorClass::CorrectInput),
             "{code}"
         );
     }
@@ -92,17 +91,10 @@ fn every_declared_code_maps_to_one_exit_class() {
             "the wire spelling is the enum's"
         );
         assert_eq!(error_codes::parse(spelling), Some(code));
-        let expected = match error_codes::class(code) {
-            ErrorClass::InvalidInput => ExitClass::InvalidInput,
-            ErrorClass::NotFound => ExitClass::Failed(FailureKind::NotFound),
-            ErrorClass::Authentication => ExitClass::Failed(FailureKind::Authentication),
-            ErrorClass::Permission => ExitClass::Failed(FailureKind::Permission),
-            ErrorClass::RateLimited => ExitClass::Failed(FailureKind::RateLimited),
-            ErrorClass::Execution => ExitClass::Failed(FailureKind::Execution),
-        };
+        let expected = ExitClass::Failed(error_codes::class(code));
         let row = json!({"results":[{"status":"error","data":{"errorCode":code}}]});
         assert_eq!(
-            outcome(row, Some(failure_kind(code)), true).exit_class(),
+            outcome(row, Some(error_codes::class(code)), true).exit_class(),
             expected,
             "{code}"
         );
@@ -121,8 +113,7 @@ fn every_declared_code_maps_to_one_exit_class() {
     // No suffix or prefix matching: an undeclared spelling has no class.
     for undeclared in ["ast.language.required", "x.input.invalid", "lsp.timeout"] {
         assert_eq!(error_codes::parse(undeclared), None);
-        assert_eq!(crate::id::error_class(undeclared), ErrorClass::Execution);
-        assert!(!is_invalid_input_code(undeclared), "{undeclared}");
+        assert_eq!(crate::id::error_class(undeclared), ErrorClass::Unservable);
     }
 }
 
@@ -146,9 +137,10 @@ fn mixed_clasify_rows_follow_worst_row_precedence() {
     let good = json!({"index":0,"data":{"answers":{"ok":{"type":"noul","noul":0.8}}}});
     let bad = |code| json!({"index":1,"status":"error","data":{"errorCode":code,"error":"failed"}});
     for (code, expected) in [
-        ("notFound", ExitClass::Failed(FailureKind::NotFound)),
-        ("rateLimited", ExitClass::Failed(FailureKind::RateLimited)),
-        ("invalidInput", ExitClass::InvalidInput),
+        ("notFound", ExitClass::Failed(ErrorClass::CorrectInput)),
+        ("rateLimited", ExitClass::Failed(ErrorClass::Transient)),
+        ("authentication", ExitClass::Failed(ErrorClass::Refused)),
+        ("invalidInput", ExitClass::Failed(ErrorClass::CorrectInput)),
     ] {
         for rows in [vec![good.clone(), bad(code)], vec![bad(code), good.clone()]] {
             assert_eq!(
@@ -164,6 +156,57 @@ fn mixed_clasify_rows_follow_worst_row_precedence() {
             false
         )
         .exit_class(),
-        ExitClass::InvalidInput
+        ExitClass::Failed(ErrorClass::CorrectInput)
+    );
+}
+
+/// Batch precedence: any correctInput row exits 2, else refused 4, else
+/// restart 6, else unservable 5, else all-transient 7; an answering row
+/// never hides a failed one.
+#[test]
+fn a_batch_exits_by_its_strictest_failed_row() {
+    let row =
+        |code: &str| json!({"index":0,"status":"error","data":{"errorCode":code,"error":"x"}});
+    let ok = json!({"index":0,"data":{"files":[]}});
+    let exit = |codes: &[&str]| {
+        let rows: Vec<Value> = codes.iter().map(|code| row(code)).collect();
+        super::outcome(json!({"results":rows}), None, false).exit_class()
+    };
+    let failed = ExitClass::Failed;
+    assert_eq!(
+        exit(&[
+            "timeout",
+            "executionFailed",
+            "authentication",
+            "staleSnapshot",
+            "notFound"
+        ]),
+        failed(ErrorClass::CorrectInput)
+    );
+    assert_eq!(
+        exit(&[
+            "timeout",
+            "executionFailed",
+            "authentication",
+            "staleSnapshot"
+        ]),
+        failed(ErrorClass::Refused)
+    );
+    assert_eq!(
+        exit(&["timeout", "executionFailed", "staleSnapshot"]),
+        failed(ErrorClass::Restart)
+    );
+    assert_eq!(
+        exit(&["timeout", "executionFailed"]),
+        failed(ErrorClass::Unservable)
+    );
+    assert_eq!(
+        exit(&["timeout", "rateLimited"]),
+        failed(ErrorClass::Transient)
+    );
+    let mixed = json!({"results":[ok, row("rateLimited")]});
+    assert_eq!(
+        super::outcome(mixed, None, false).exit_class(),
+        failed(ErrorClass::Transient)
     );
 }

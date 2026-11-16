@@ -9,6 +9,7 @@ fn change_reads_prefer_the_first_unpatched_text_file() {
     let sides = ChangeSides {
         new_ref: Some("head"),
         old_ref: Some("base"),
+        needle: None,
     };
     let file = |name: &str, additions: u64, patch: Option<&str>| {
         let mut file = json!({"filename":name,"status":"modified","additions":additions,

@@ -58,7 +58,10 @@ fn toolchain_environment_reaches_the_server_without_inheriting_credentials() {
 }
 
 async fn check_server_environment() {
-    for override_environment in [false, true] {
+    // What a server is given: nothing from this process (`None`), what
+    // discovery carried from a call's environment, and what its entry
+    // configures over that. The process's own environment is never read.
+    for mode in ["process only", "carried", "configured"] {
         let (_tmp, root, mut config) = configurable_server("lsp-env", &[], None);
         let report = root.join("observed-env.json");
         let wrapper = root.join("capture-env.js");
@@ -81,11 +84,27 @@ require(process.argv[2]);
                 )
             })
             .collect::<std::collections::HashMap<_, _>>();
-        if override_environment {
-            for (key, value) in &mut expected {
-                *value = format!("configured-{key}");
+        match mode {
+            "carried" => {
+                config.env = Some(
+                    crate::lsp::client::LSP_SERVER_ENV_ALLOWLIST
+                        .iter()
+                        .filter_map(|key| Some(((*key).to_owned(), std::env::var(key).ok()?)))
+                        .collect(),
+                );
             }
-            config.env = Some(expected.clone());
+            "configured" => {
+                for (key, value) in &mut expected {
+                    *value = format!("configured-{key}");
+                }
+                let mut configured = expected.clone();
+                configured.insert("PATH".to_owned(), std::env::var("PATH").unwrap_or_default());
+                config.env = Some(configured);
+            }
+            _ => {
+                let only_path = ("PATH".to_owned(), std::env::var("PATH").unwrap_or_default());
+                config.env = Some(std::collections::HashMap::from([only_path]));
+            }
         }
         let client = NativeLspClient::new(config);
         client.start().await.expect("start environment fixture");
@@ -94,9 +113,16 @@ require(process.argv[2]);
             serde_json::from_slice(&std::fs::read(&report).expect("server environment"))
                 .expect("environment JSON");
         for (key, value) in expected {
+            if mode == "process only" {
+                assert!(
+                    observed.get(&key).is_none(),
+                    "the process's {key} reached a server the call did not carry it to"
+                );
+                continue;
+            }
             assert_eq!(
                 observed[&key], value,
-                "server environment for {key}, override={override_environment}"
+                "server environment for {key}, {mode}"
             );
         }
         for key in CREDENTIALS.iter().chain(&[CHILD]) {

@@ -1,6 +1,6 @@
 # Octocode CLI
 
-Search local source, read GitHub code and history, and resolve package versions from your terminal. The npm launcher requires Node.js 22 or later and runs the native Octocode binary for your platform.
+Search local source, read GitHub code and history, and resolve package versions from your terminal. The npm launcher requires Node.js 22 or later and runs the native Octocode binary for your platform. When npm runs the package's install script, the installed `octocode` command is that binary, so calls skip Node's startup; otherwise (`--ignore-scripts`, Windows, Yarn 2+) a Node launcher starts it.
 
 ## First read
 

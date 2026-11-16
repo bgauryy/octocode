@@ -268,11 +268,15 @@ fn facts(mut spans: Vec<[u32; 2]>, modules: &[GraphFactRustModule], content: &st
     (spans, modules)
 }
 
-/// `content` scanned as it parses; `None` when it does.
+/// `content` scanned as it parses; `None` when it does, or when the scan
+/// finds the text malformed and leaves it to the parse.
 fn disagreement(content: &str) -> Option<String> {
     let document = crate::tools::declarations::file_document(content, "a.rs")?;
     let parsed = facts(document.test_lines.clone(), &document.modules, content);
     let scanned = rust_scan::scan(content);
+    if scanned.malformed {
+        return None;
+    }
     let scanned = facts(scanned.test_lines, &scanned.modules, content);
     (parsed != scanned).then(|| format!("parsed {parsed:?}\nscanned {scanned:?}"))
 }
@@ -284,14 +288,21 @@ fn every_file_of_real_source_scans_as_it_parses() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("the crates directory");
+    let mut malformed = Vec::new();
     let disagreements = rust_files(root)
         .into_iter()
         .filter_map(|file| {
             let content = std::fs::read_to_string(&file).ok()?;
+            // Compiled source is well formed: the scan reads it alone, with
+            // no declarations parse.
+            if rust_scan::scan(&content).malformed {
+                malformed.push(file.display().to_string());
+            }
             let found = disagreement(&content)?;
             Some(format!("{}\n{found}", file.display()))
         })
         .collect::<Vec<_>>();
+    assert!(malformed.is_empty(), "scanned as malformed: {malformed:?}");
     assert!(
         disagreements.is_empty(),
         "{} files\n{}",
@@ -358,6 +369,22 @@ fn every_item_form_scans_as_it_parses() {
         "fn f<'a>(x: &'a str) { 'l: loop { break 'l; } }\n#[cfg(test)]\nmod a;\n",
         "/* /* #[cfg(test)] */ mod a; */\nmod b;\n",
         "#[cfg(test)]\nmod r#a;\n",
+        // An item on one line, its body included, after its attribute or on
+        // the attribute's own line; braces in a comment, string or char.
+        "fn a() {}\n#[cfg(test)]\nmod t { /* marker t */ }\nfn b() {}\n",
+        "#[cfg(test)] mod t { fn x() {} }\nfn b() {}\n",
+        "#[cfg(test)]\nmod t { const S: &str = \"}\"; }\nfn b() {}\n",
+        "#[cfg(test)]\nmod t { /* } { */ }\nfn b() {}\n",
+        "#[cfg(test)]\nfn t() { let _ = '}'; }\nfn b() {}\n",
+        "#[cfg(test)]\nmod t { // }\n}\nfn b() {}\n",
+        "#[cfg(test)]\nmod a { /* marker t */ }\nfn c() {}\n#[cfg(test)]\nmod b { /* marker t */ }\nfn d() {}\n",
+        // Text the parse recovers from (bare words at item level) around a
+        // well-delimited test item: the scan reads it as the parse does.
+        "l1\n// marker p\nl3\nl4\n#[cfg(test)]\nmod t { /* marker t */ }\n// marker p\nl8\nl9\nl10\n",
+        "#[cfg(test)]\nmod a { /* marker t */ }\nl3\nl4\n// marker p\n#[cfg(test)]\nmod b { /* marker t */ }\nl8\nl9\nl10\n",
+        "l1\nl2\nmod t;\n",
+        "#[cfg(test)]\nl3\nfn t() {}\n",
+        "mod m {\n    x y\n    #[cfg(test)]\n    mod t {}\n}\n",
     ] {
         assert_eq!(disagreement(content), None, "{content}");
     }
@@ -457,5 +484,26 @@ fn broken_text_scans_to_an_end() {
         "b'",
     ] {
         let _ = rust_scan::scan(broken);
+    }
+}
+
+/// Every way a module's item can start is read by the scan alone (it is not
+/// malformed), and read as the parse reads it.
+#[test]
+fn every_item_start_is_read_without_the_parse() {
+    for content in [
+        ";\n#[cfg(test)]\nmod t {}\n",
+        "#![allow(unused)]\n#[cfg(test)]\nmod t {}\n",
+        "pub(crate) fn f() {}\n#[cfg(test)]\npub(super) mod t {}\n",
+        "extern crate alloc;\nextern \"C\" {\n    fn f();\n}\n#[cfg(test)]\nmod t {}\n",
+        "unsafe impl Send for S {}\nasync fn f() {}\nconst fn g() {}\n#[cfg(test)]\nmod t {}\n",
+        "static X: u8 = 1;\ntype T = u8;\ntrait A {}\nunion U { a: u8 }\n#[cfg(test)]\nmod t {}\n",
+        "use a::b;\nmacro_rules! m {\n    () => {};\n}\n#[cfg(test)]\nmod t {}\n",
+        "#[cfg(test)]\nm! {\n    fn t() {}\n}\nfn g() {}\n",
+        "#[cfg(test)]\ncrate::m!(x);\nfn g() {}\n",
+        "thread_local! {\n    static X: u8 = 1;\n}\nmod a {\n    #[cfg(test)]\n    mod t {}\n}\n",
+    ] {
+        assert!(!rust_scan::scan(content).malformed, "{content}");
+        assert_eq!(disagreement(content), None, "{content}");
     }
 }

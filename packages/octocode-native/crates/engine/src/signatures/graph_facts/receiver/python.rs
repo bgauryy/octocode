@@ -1,5 +1,6 @@
 //! Python receiver bindings.
 use super::*;
+use crate::signatures::node_kinds::kind_of;
 
 pub(super) fn python_bindings<'t>(
     up: Up<'_, 't>,
@@ -13,17 +14,17 @@ pub(super) fn python_bindings<'t>(
         .ancestor(&["function_definition"])
         .unwrap_or(function)
         .end_byte();
-    match node.kind() {
+    match kind_of(node) {
         "parameters" | "lambda_parameters" => {
             let until = up.nth(1).unwrap_or(node).end_byte();
             let mut cursor = node.walk();
             for child in node.named_children(&mut cursor) {
-                let (name, ty) = match child.kind() {
+                let (name, ty) = match kind_of(child) {
                     "typed_parameter" => {
                         let mut inner = child.walk();
                         let name = child
                             .named_children(&mut inner)
-                            .find(|item| item.kind() == "identifier");
+                            .find(|item| kind_of(item) == "identifier");
                         (name, child.child_by_field_name("type"))
                     }
                     "default_parameter" => (child.child_by_field_name("name"), None),
@@ -43,7 +44,7 @@ pub(super) fn python_bindings<'t>(
                 return;
             };
             if !matches!(
-                left.kind(),
+                kind_of(left),
                 "identifier" | "pattern_list" | "tuple_pattern" | "list_pattern"
             ) {
                 return;
@@ -97,17 +98,17 @@ impl<'t> ReceiverTypes<'t> {
         };
         let mut methods = Vec::new();
         for statement in named_children(body) {
-            match statement.kind() {
+            match kind_of(statement) {
                 "expression_statement" => {
                     let Some(assignment) = statement
                         .named_child(0)
-                        .filter(|a| a.kind() == "assignment")
+                        .filter(|a| kind_of(a) == "assignment")
                     else {
                         continue;
                     };
                     let Some(left) = assignment
                         .child_by_field_name("left")
-                        .filter(|left| left.kind() == "identifier")
+                        .filter(|left| kind_of(left) == "identifier")
                         .and_then(|left| node_text(left, content))
                     else {
                         continue;
@@ -126,7 +127,7 @@ impl<'t> ReceiverTypes<'t> {
                 "decorated_definition" => {
                     if let Some(definition) = statement
                         .child_by_field_name("definition")
-                        .filter(|d| d.kind() == "function_definition")
+                        .filter(|d| kind_of(d) == "function_definition")
                     {
                         methods.push(definition);
                     }
@@ -138,10 +139,10 @@ impl<'t> ReceiverTypes<'t> {
             let mut pending = vec![method];
             let mut cursor = method.walk();
             while let Some(node) = pending.pop() {
-                if node.kind() == "class_definition" {
+                if kind_of(node) == "class_definition" {
                     continue;
                 }
-                if node.kind() == "assignment"
+                if kind_of(node) == "assignment"
                     && let Some(left) = node.child_by_field_name("left")
                     && let Some((object, attribute)) = Lang::Python.member_parts(left)
                     && Lang::Python.is_self(object, content)
@@ -154,10 +155,10 @@ impl<'t> ReceiverTypes<'t> {
                             python_type_text(node_text(ty, content).unwrap_or("")),
                         );
                     } else if let Some(right) = node.child_by_field_name("right")
-                        && right.kind() != "none"
+                        && kind_of(right) != "none"
                     {
                         let ty = python_constructor(right, content).or_else(|| {
-                            (right.kind() == "identifier")
+                            (kind_of(right) == "identifier")
                                 .then(|| {
                                     let path = ancestors(self.root, right);
                                     self.local(right, &path, node_text(right, content)?, content)?
@@ -179,9 +180,9 @@ impl<'t> ReceiverTypes<'t> {
 
 /// Python `T(..)` / `mod.T(..)` where `T` starts uppercase.
 pub(super) fn python_constructor(value: Node<'_>, content: &str) -> Option<String> {
-    (value.kind() == "call").then_some(())?;
+    (kind_of(value) == "call").then_some(())?;
     let function = value.child_by_field_name("function")?;
-    if !matches!(function.kind(), "identifier" | "attribute") {
+    if !matches!(kind_of(function), "identifier" | "attribute") {
         return None;
     }
     let name: String = node_text(function, content)?.split_whitespace().collect();

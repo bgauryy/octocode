@@ -138,20 +138,27 @@ impl AnchorFilter {
             Err(SourceSkip::Large(len)) => return self.check_large(path, len),
             Err(skip) => return Anchored::Unread(skip),
         };
-        // Anchors are text: BOM-marked UTF-16 bytes spell them differently
-        // from the text the parse sees, so that text is searched (bytes the
-        // admission refuses stay a hit, for the read to report).
-        let absent = self.automaton.is_some()
-            && if has_utf16_bom(&bytes) {
-                admit(&bytes, Decoding::Unicode)
-                    .is_ok_and(|text| !self.admits(text.text.as_bytes()))
-            } else {
-                !self.admits(&bytes)
-            };
+        let absent = self.automaton.is_some() && self.absent(&bytes);
         if absent {
             return Anchored::Miss(Some(crate::digest::sha256(&bytes)));
         }
         Anchored::Hit(bytes)
+    }
+
+    /// Whether no anchor group is in `bytes`. Anchors are text: BOM-marked
+    /// UTF-16 and legacy 8-bit bytes spell them differently from the text the
+    /// parse sees, so that text is searched when the bytes do not hold them
+    /// (bytes the admission refuses stay a hit, for the read to report).
+    fn absent(&self, bytes: &[u8]) -> bool {
+        if !has_utf16_bom(bytes) {
+            if self.admits(bytes) {
+                return false;
+            }
+            if std::str::from_utf8(bytes).is_ok() {
+                return true;
+            }
+        }
+        admit(bytes, Decoding::Lenient).is_ok_and(|text| !self.admits(text.text.as_bytes()))
     }
 
     /// [`Self::check`] of a file over the parse cap, `len` bytes long: its

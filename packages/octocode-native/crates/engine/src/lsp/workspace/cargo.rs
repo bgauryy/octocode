@@ -7,8 +7,10 @@ use std::sync::Arc;
 
 mod manifest;
 mod targets;
+mod unloaded;
 pub use manifest::cargo_manifest;
 pub(super) use targets::TargetRoots;
+pub use unloaded::{CACHEDIR_TAG, UnloadedCargoCaches};
 
 pub(super) fn manifest(directory: &Path) -> Option<Arc<toml::Table>> {
     cargo_manifest(directory)
@@ -139,46 +141,53 @@ fn contains_package(
         {
             continue;
         }
-        let tables = std::iter::once(&*member).chain(
-            member
-                .get("target")
-                .and_then(toml::Value::as_table)
-                .into_iter()
-                .flat_map(|targets| targets.values())
-                .filter_map(toml::Value::as_table),
+        pending.extend(
+            path_dependencies(&member, &directory, root, workspace)
+                .filter(|path| path.starts_with(root)),
         );
-        for table in tables {
-            for key in ["dependencies", "dev-dependencies", "build-dependencies"] {
-                for (name, dependency) in table
-                    .get(key)
-                    .and_then(toml::Value::as_table)
-                    .into_iter()
-                    .flatten()
-                {
-                    let inherited =
-                        dependency.get("workspace").and_then(toml::Value::as_bool) == Some(true);
-                    let dependency = if inherited {
-                        workspace
-                            .get("dependencies")
-                            .and_then(|value| value.get(name))
-                    } else {
-                        Some(dependency)
-                    };
-                    if let Some(path) = dependency
-                        .and_then(|value| value.get("path"))
-                        .and_then(toml::Value::as_str)
-                    {
-                        let base = if inherited { root } else { &directory };
-                        let path = lexical(&base.join(path));
-                        if path.starts_with(root) {
-                            pending.push(path);
-                        }
-                    }
-                }
-            }
-        }
     }
     false
+}
+
+/// The directories of the path dependencies `member` (the manifest at
+/// `directory`) declares, in every dependency table, its target-specific
+/// ones included; a `workspace = true` dependency resolves through the
+/// `[workspace.dependencies]` of the workspace at `root`.
+fn path_dependencies<'a>(
+    member: &'a toml::Table,
+    directory: &'a Path,
+    root: &'a Path,
+    workspace: &'a toml::Table,
+) -> impl Iterator<Item = PathBuf> + 'a {
+    let tables = std::iter::once(member).chain(
+        member
+            .get("target")
+            .and_then(toml::Value::as_table)
+            .into_iter()
+            .flat_map(|targets| targets.values())
+            .filter_map(toml::Value::as_table),
+    );
+    tables
+        .flat_map(|table| {
+            ["dependencies", "dev-dependencies", "build-dependencies"]
+                .into_iter()
+                .filter_map(|key| table.get(key).and_then(toml::Value::as_table))
+                .flatten()
+        })
+        .filter_map(move |(name, dependency)| {
+            let inherited =
+                dependency.get("workspace").and_then(toml::Value::as_bool) == Some(true);
+            let dependency = if inherited {
+                workspace
+                    .get("dependencies")
+                    .and_then(|value| value.get(name))?
+            } else {
+                dependency
+            };
+            let path = dependency.get("path").and_then(toml::Value::as_str)?;
+            let base = if inherited { root } else { directory };
+            Some(lexical(&base.join(path)))
+        })
 }
 
 /// Expand only the directories named by a members pattern. Literal paths

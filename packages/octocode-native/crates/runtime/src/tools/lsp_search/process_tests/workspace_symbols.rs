@@ -83,10 +83,41 @@ fn workspace_symbol_provider_coverage_is_unknown_without_losing_semantic_rows() 
             let wire = json!({"operation":"workspaceSymbol","path":anchor,"symbolFuzzy":"Shared"});
             let query: LspSearchQuery = serde_json::from_value(wire.clone()).expect("query");
             let row = symbol_row(&client, (&root, &paths), &query, &anchor, root_only).await;
-            assert!(
-                row.get("isPartial").is_none(),
-                "unknown coverage is not a proven loss: {row}"
-            );
+            if root_only {
+                // A directory or workspaceRoot search asked only the project
+                // the server loaded for it, which its warning names.
+                assert_eq!(row["isPartial"], true, "{row}");
+                assert_eq!(
+                    row["partialReasons"],
+                    json!(["workspaceSymbolOneProject"]),
+                    "{row}"
+                );
+                let project =
+                    octocode_engine::lsp::config::directory_representative(&anchor, &anchor)
+                        .expect("a source file loads the project");
+                let project = Path::new(&project)
+                    .strip_prefix(&root)
+                    .expect("inside the root")
+                    .to_string_lossy()
+                    .into_owned();
+                assert!(
+                    row["warnings"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .any(|warning| {
+                            warning
+                                .as_str()
+                                .is_some_and(|text| text.contains(&format!("project of {project}")))
+                        }),
+                    "{row}"
+                );
+            } else {
+                assert!(
+                    row.get("isPartial").is_none(),
+                    "unknown coverage is not a proven loss: {row}"
+                );
+            }
             assert!(row.get("terminalLimit").is_none());
             let found = row["matches"].as_array().expect("semantic matches");
             assert_eq!(
@@ -178,7 +209,7 @@ fn directories_of_a_cargo_workspace_share_one_language_server() {
     }
     let execution = crate::tools::lsp_search::LspExecutionConfig {
         octocode_home: Some(root.clone()),
-        ..crate::tools::lsp_search::LspExecutionConfig::default()
+        ..crate::tools::lsp_search::LspExecutionConfig::with_path()
     };
     let paths = crate::tools::test_support::workspace_policy(&root);
     let pool = LspClientPool::new(LspPoolOptions::default());

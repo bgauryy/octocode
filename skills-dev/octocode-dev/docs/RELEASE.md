@@ -62,7 +62,8 @@ Then smoke-test from a clean temp dir (`npx -y octocode-mcp@<v>`, `npx -y octoco
 ```bash
 dir=$(mktemp -d) && cd "$dir" && npm init -y >/dev/null
 npm install octocode@<v>
-readlink node_modules/.bin/octocode                         # → ../octocode/out/octocode.js
+readlink node_modules/.bin/octocode                         # → ../octocode/out/octocode
+file node_modules/octocode/out/octocode                     # → the native executable (postinstall ran)
 node_modules/.bin/octocode --version                        # → octocode <v>
 node_modules/.bin/octocode schema localSearch --view query  # exit 0
 bin=$(find node_modules/@octocodeai -path '*octocode-native-*' -name octocode -type f)

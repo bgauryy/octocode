@@ -18,7 +18,8 @@ pub(in crate::tools::gh_get_history_item::patch) struct HunkMatch {
 /// has them, never a header recomputed for the run: the run opens under the
 /// header of its first diff line's hunk, and a later hunk's header precedes
 /// that hunk's first line in the run. The shown window is the run of line
-/// numbers. With `head` (the file at the PR head) a run reaches past its
+/// numbers. A hunk's header prints once: a second run in the same hunk
+/// follows a `--` line. With `head` (the file at the PR head) a run reaches past its
 /// hunk into unchanged lines, numbered at the head; without it, a run its
 /// hunk cuts short of `context` names the new-side window it wanted
 /// (`clipped`). `None` when no diff line matches (the file matched by
@@ -42,6 +43,9 @@ pub(in crate::tools::gh_get_history_item::patch) fn matching_hunks(
     let mut clipped: Vec<(usize, usize)> = Vec::new();
     let mut hit_lines = Vec::new();
     let mut line_index = 0usize;
+    // The hunk whose header the view printed last: a hunk's header prints
+    // once, and a later run in the same hunk follows a `--` line.
+    let mut under = None;
     for (lines, (cut_above, cut_below)) in segments.iter().zip(cut_edges) {
         let is_hit = |line: &DiffLine<'_>| line.diff && needle.matches(&line.text);
         let hits = lines
@@ -79,7 +83,11 @@ pub(in crate::tools::gh_get_history_item::patch) fn matching_hunks(
             // Head lines above the run's first diff line read under that
             // line's hunk header, the hunk the run opens in.
             let opening = run.iter().find(|line| line.diff).map(|line| line.hunk);
-            let mut under = None;
+            if opening.is_some() && opening == under {
+                end_line(&mut out);
+                out.push_str(RUN_BREAK);
+                line_index += 1;
+            }
             for (at, line) in run.iter().enumerate() {
                 let hunk = if line.diff {
                     Some(line.hunk)
@@ -109,6 +117,9 @@ pub(in crate::tools::gh_get_history_item::patch) fn matching_hunks(
         hit_lines,
     })
 }
+
+/// The line between two runs of one hunk, as `grep` separates its groups.
+const RUN_BREAK: &str = "--";
 
 /// End the view's last line before another one follows: GitHub ends a
 /// patch without a final newline.

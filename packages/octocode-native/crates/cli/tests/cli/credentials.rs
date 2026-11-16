@@ -13,7 +13,7 @@ fn clasify_missing_key_is_actionable() {
         .args(["clasify", &query.to_string(), "--json"])
         .output()
         .expect("missing-key execution");
-    assert_eq!(exit_code(&output), Some(5));
+    assert_eq!(exit_code(&output), Some(4));
     let output = stdout(&output);
     assert!(output.contains("missingConfiguration"), "{output}");
     assert!(output.contains("OCTOCODE_CLASSIFICATION_API"), "{output}");
@@ -30,7 +30,7 @@ fn clasify_missing_key_is_actionable() {
         .args(["clasify", &query.to_string(), "--json"])
         .output()
         .expect("unreachable-provider execution");
-    assert_eq!(exit_code(&beta_off), Some(5));
+    assert_eq!(exit_code(&beta_off), Some(7));
     let beta_off = stdout(&beta_off);
     assert!(
         beta_off.contains("classificationProviderUnavailable"),
@@ -58,7 +58,7 @@ fn clasify_with_unreachable_provider_exits_by_failure_class() {
     };
     // A provider that cannot be reached is an execution failure, not bad input.
     let unreachable = run(serde_json::json!({"type":"noul","instructions":"Is it relevant?"}));
-    assert_eq!(exit_code(&unreachable), Some(5), "{}", stdout(&unreachable));
+    assert_eq!(exit_code(&unreachable), Some(7), "{}", stdout(&unreachable));
 }
 
 #[tokio::test]
@@ -108,7 +108,7 @@ fn blank_classification_key_disables_clasify_despite_home_and_vendor_keys() {
         .args(["clasify", &query, "--json"])
         .output()
         .unwrap();
-    assert_eq!(exit_code(&output), Some(5), "{}", stdout(&output));
+    assert_eq!(exit_code(&output), Some(4), "{}", stdout(&output));
     assert!(
         stdout(&output).contains("missingConfiguration"),
         "{}",
@@ -132,7 +132,7 @@ fn auth_login_requires_supported_credentials_and_a_terminal() {
         .args(["auth", "login"])
         .output()
         .expect("auth login");
-    assert_eq!(enterprise.status.code(), Some(5));
+    assert_eq!(enterprise.status.code(), Some(4));
 }
 
 #[test]

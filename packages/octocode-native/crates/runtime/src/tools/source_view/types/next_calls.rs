@@ -8,24 +8,39 @@ use serde::Serialize;
 pub struct FetchCall {
     pub query: LocalFetchQuery,
     continuing: bool,
+    /// The row's own page walk (`next.nextPage`): built and checked by
+    /// [`crate::response::collection::walk_query`].
+    walk: bool,
 }
 impl FetchCall {
+    /// The call that reads the next page of the result (`next.nextPage`).
+    pub fn page(query: LocalFetchQuery) -> Self {
+        Self {
+            query,
+            continuing: true,
+            walk: true,
+        }
+    }
     pub fn continued(query: LocalFetchQuery) -> Self {
         Self {
             query,
             continuing: true,
+            walk: false,
         }
     }
     pub fn related(query: LocalFetchQuery) -> Self {
         Self {
             query,
             continuing: false,
+            walk: false,
         }
     }
 }
 impl Serialize for FetchCall {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        if self.continuing {
+        if self.walk {
+            crate::response::collection::walk_query(self.query.clone())
+        } else if self.continuing {
             crate::response::result::Continuation::continued_query(self.query.clone())
         } else {
             crate::response::result::Continuation::related_query(self.query.clone())
@@ -40,20 +55,14 @@ pub struct NextCalls {
     /// unfiltered view.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unfiltered: Option<FetchCall>,
-    /// Exactly the unknown chunks, beside `unfiltered`, when they are
-    /// narrower than the complete view.
+    /// The same read replaying the selection as exactly the units it left
+    /// undecided, beside `unfiltered`, unbilled.
     #[serde(
         rename = "unfilteredUnknown",
         skip_serializing_if = "Option::is_none",
         default
     )]
     pub unfiltered_unknown: Option<FetchCall>,
-    /// The unknown chunks' `ranges` past what `unfilteredUnknown` reads
-    /// (`unfilteredUnknown2`, `unfilteredUnknown3`, …): each a call of as
-    /// many rows of `ranges` as one call takes, together reaching every
-    /// unknown chunk.
-    #[serde(flatten)]
-    pub unfiltered_unknown_rest: serde_json::Map<String, serde_json::Value>,
     /// The same classified read judging the chunks its candidate budget
     /// left unjudged.
     #[serde(
@@ -158,9 +167,6 @@ impl NextCalls {
                 *mine = theirs;
             }
         }
-        if self.unfiltered_unknown_rest.is_empty() {
-            self.unfiltered_unknown_rest = other.unfiltered_unknown_rest;
-        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -192,9 +198,6 @@ impl NextCalls {
         self.reads().into_iter().any(|(name, _, read)| {
             !matches!(name, "nextPage" | "unfiltered")
                 && read.as_ref().is_some_and(|read| read.continuing)
-        }) || self
-            .unfiltered_unknown_rest
-            .values()
-            .any(|call| call["kind"] == "continue")
+        })
     }
 }

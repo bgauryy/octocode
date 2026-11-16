@@ -17,7 +17,8 @@ Load for tool selection, scouting or cross-source research. Live schemas own fie
 | Known PR, issue, commit or two refs | `ghGetHistoryItem`; page files, patches and discussion independently |
 | Package source or version | `artifactSearch` → verified repository/ref → source |
 | Known vulnerabilities | `securityCheck` at the version in use; an empty result is not proof of safety |
-| Many searches or AST analysis in another repo | `ghStructure` materialize → returned `location.path` → local tools |
+| Many searches or AST analysis over a few paths of another repo | `ghStructure` materialize → returned `location.path` → local tools |
+| Many searches or AST analysis over the whole repo | `ghCloneRepo` → local tools |
 | Unread evidence requiring judgment by meaning | `classification` or `clasify`, when listed → exact read |
 
 Prefer the local checkout for code and GitHub for discussion. Trace `entry → transformations → state → output → consumers`; change tools when the next claim needs different evidence. Batch independent queries, wait for dependent results, and reuse observed paths, lines and refs.
@@ -27,7 +28,7 @@ Prefer the local checkout for code and GitHub for discussion. Trace `entry → t
 | Needed evidence | Select |
 |---|---|
 | File names | `localSearch view:files`; `ghSearchCode fields:[path]`; `structureSearch view:paths` |
-| Counts or distinct values | `localSearch` `view:"countLines"`, `view:"countMatches"`, or `view:"matchOnly"` + `unique:"count"` |
+| Counts or distinct values | `localSearch` `view:"countLines"`, `view:"countMatches"` (these scan the whole scope and state exact totals; a content page's `loaded` total is a floor), or `view:"matchOnly"` + `unique:"count"` |
 | Outline | `localFetch view:symbols`; large code: filtered `astSearch` symbols |
 | One declaration | Unique `matchString` + `block:true`, or AST span → `ranges` |
 | Neighboring lines | `matchString` + `contextLines`; reuse search case, whole-word and regex options |
@@ -73,7 +74,7 @@ Use exact tools for literal facts, counts, identity and absence. Narrow by path,
 |---|---|---|---|
 | Import in local code | symbol + hit line | `lspSearch` definition | The installed file in `node_modules` |
 | Lockfile or installed `package.json` | `packageName`, `version` | `artifactSearch` resolve | `owner`, `repo`, `ref`, `verification` |
-| Lockfile or installed `package.json` | `ecosystem`, `packageName`, `version` | `securityCheck` package | `affected`, `upgradeTo`, `cves` at that version |
+| Lockfile or installed `package.json` | `ecosystem`, `packageName`, `version` | `securityCheck` package | `affected`, `upgradeTo` and CVE ids at that version (the `answer` sentence lists up to five; every advisory's `cves` is in the details, `advisories[].cves`) |
 | Resolved `ref` | `ref` | `ghStructure`, then `ghGetFileContent` | Source of that exact release |
 | Two resolved versions | `baseRef`, `headRef` | `ghGetHistoryItem` compare | What changed between releases |
 | Commit SHA + paths | `ref`, `include`, `materialize:true` | `ghStructure` | `location.path` for local tools |
@@ -92,7 +93,7 @@ Use exact tools for literal facts, counts, identity and absence. Narrow by path,
 - **Match search scope to the claim.** LSP references can reach workspace importers beyond the anchor package; graph, AST and text stay within their requested paths.
 - **AST and graph edges are candidates.** Check grammar capabilities, parse assessment and scan coverage, then confirm with LSP. Empty LSP while `analysisContext` reports errors is not absence.
 - **Graph needs the workspace.** When listed, `graphBuild` rejects a materialized or cloned path outside it; use AST and text there.
-- **Materialize until `coverage.state` is `complete`.** A large selection returns `partial`; follow `next.continueMaterialize`.
+- **Materialize until `location.coverage.state` is `complete`.** A large selection returns `partial`; follow `next.continueMaterialize`.
 - **Fetched code has no LSP by default.** Text and AST work on materialized and cloned trees. `lspSearch` refuses them (`errorCode:"policy"`), and any root holding them, because a server can run repository code; only the user's `lsp.trustFetchedCode` opts in. With it on, LSP reports `inferredProject` without a tsconfig and `documentAnalysisErrors` when imported files were left out, so include project config and the source tree, then read `coverage`. A whole-repo claim needs `ghCloneRepo` (CLI, or MCP with `OCTOCODE_ENABLE_CLONE`); sparse paths and shallow history limit what it proves.
 - **Discussion lives only on GitHub.** Prefer a local checkout for code; use `ghGetHistoryItem` for PR intent.
 
@@ -110,7 +111,7 @@ Build the smallest directory containing both sides of the relationship, and keep
 
 `find` discovers nodes, `candidates` resolves ambiguous references to an exact ID, `witnesses` lists every occurrence behind a relationship, `unresolved` lists missing links with reasons. A `passes` edge is a direct reference in an argument slot, not invocation, scheduling or value propagation. Dynamic imports, feature gates, generated inputs and frameworks can constrain reachability. Test declarations suggest relevance; only test execution establishes a result.
 
-Run `responsePagination.next`, else `next.nextPage`, until neither remains, then the other `next.*` a claim needs, before an exhaustive claim; size the population from `pagination.total`, not one page. A terminal scan or model limit is not overcome by more pages. A query verifies only the snapshot blocks it reads: for coverage read `scan`, `linkage` and `argumentCoverage` from `stats` and `coverage` on call queries; for currency read `freshness` and the `stale` operation. `extraction.resumedFiles` counts recovered extraction after an interrupted build, and `refresh` ignores checkpoints.
+Before an exhaustive claim, page and branch as [usage](octocode-usage.md#read-results-and-recover) states (`responsePagination.next` first, then each row's `next.nextPage`, then the other `next.*` the claim needs); size the population from `pagination.total`, not one page (a `countScope` other than `complete`, such as a localSearch `loaded` total, is a floor: a count view sizes that population). A terminal scan or model limit is not overcome by more pages. A query verifies only the snapshot blocks it reads: for coverage read `scan`, `linkage` and `argumentCoverage` from `stats` and `coverage` on call queries; for currency read `freshness` and the `stale` operation. `extraction.resumedFiles` counts recovered extraction after an interrupted build, and `refresh` ignores checkpoints.
 
 ## History
 
@@ -130,7 +131,7 @@ Read every row's `errorCode`, message, `hints` and recovery calls, even in a suc
 | Unsupported grammar or declarations | Use the related outline or text read; set `parser` only for source written in that grammar |
 | Missing language server or capability | Inspect related text candidates and report semantic verification as unavailable; retry after configuration changes |
 | Missing path, identifier or revision | Verify the observed identity and access; use an emitted discovery call; never substitute another revision for a claim about it |
-| Timeout or transient provider failure | Retry when the failure is transient and another attempt can add evidence; follow reported backoff and `retryable:false`. Stop unchanged failures and state the remaining scope |
+| Timeout or transient provider failure | Retry when the failure is transient and another attempt can add evidence; follow reported backoff. Transient rows state a boolean `retryable`: `true` a retry can succeed, `false` it cannot; other error classes (`correctInput`, `refused`, `unservable`, `restart`) do not retry unchanged: follow `errorClass` and the hint. Stop unchanged failures and state the remaining scope |
 | Authentication, permission or rate limit | Correct access or wait for the reported reset; repeats do not restore it |
-| Stale or expired continuation | Use its restart call or repeat the original request; never construct a cursor. `responseSnapshotExpired` covers unknown or expired saved work; a malformed cursor, or one sent to another tool, is `invalidInput`; the message names the cause |
+| Stale or expired continuation | Restart as [usage](octocode-usage.md#read-results-and-recover) states. `responseSnapshotExpired` covers unknown or expired saved work; a malformed cursor, or one sent to another tool, is `invalidInput`; the message names the cause |
 | Tool or contract failure | Keep the failing call and error code, use applicable recovery, report the gap |

@@ -171,7 +171,12 @@ fn path_recovery(
     // (case-corrected, or the same path under the canonical name), else the
     // listing of the deepest existing directory (the lead's path is the fact).
     let Some(path) = found.file else {
-        return (None, view_tree());
+        return (
+            found
+                .truncated
+                .then_some(crate::tools::gh_shared::LISTING_MAY_BE_CUT_HINT),
+            view_tree(),
+        );
     };
     let hint = match (path == at.path, renamed) {
         (false, _) => crate::tools::gh_shared::CASE_DIFFERS_HINT,

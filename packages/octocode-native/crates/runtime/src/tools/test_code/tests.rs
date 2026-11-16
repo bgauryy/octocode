@@ -366,6 +366,39 @@ fn rust_test_items_files_and_mounted_modules_are_test_code() {
     assert!(in_spans(&spans, 1) && in_spans(&spans, 2), "{spans:?}");
 }
 
+/// A well-formed file's test spans come from the linear scan alone: no
+/// declarations parse runs for them, and they are the spans the parse reports.
+/// Only a text the scan finds malformed asks the parse.
+#[test]
+fn test_spans_of_a_well_formed_file_need_no_declarations_parse() {
+    let root = Fixture::new();
+    let index = index(&root);
+    for (at, (text, malformed)) in [
+        (
+            "pub fn spanned_by_the_scan() {}\n\n#[cfg(test)]\nfn helper() {}\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {}\n}\n",
+            false,
+        ),
+        ("#![cfg(test)]\nfn whole_by_the_scan() {}\n", false),
+        ("pub fn f() {}\n#[cfg(test)]\nmod tests {\n", true),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let path = root.write(&format!("src/spanned{at}.rs"), text);
+        assert_eq!(rust_scan::scan(text).malformed, malformed, "{text:?}");
+        let before = declaration_parses();
+        let spans = index.spans(&path);
+        assert_eq!(
+            declaration_parses() - before,
+            usize::from(malformed),
+            "{text:?}: declarations parses"
+        );
+        let parsed = TestCodeIndex::parse(&path, text).expect("the parse accepts the text");
+        assert_eq!(*spans, whole_or(parsed.test_lines.clone(), text), "{text:?}");
+        assert!(!spans.is_empty(), "{text:?}");
+    }
+}
+
 #[test]
 fn a_scope_keeps_its_side() {
     assert_eq!(Keep::of(None), None);

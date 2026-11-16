@@ -3,6 +3,7 @@
 //! branch that `typing.TYPE_CHECKING` keeps from running is a `type` import,
 //! however the file spells the constant.
 
+use crate::signatures::node_kinds::kind_of;
 use tree_sitter::Node;
 
 use crate::signatures::nodes::node_text;
@@ -140,12 +141,12 @@ impl TypingBindings {
         let [module, statement] = ancestors else {
             return;
         };
-        if module.kind() != "module" || statement.kind() != "expression_statement" {
+        if kind_of(module) != "module" || kind_of(statement) != "expression_statement" {
             return;
         }
         let Some(name) = node
             .child_by_field_name("left")
-            .filter(|left| left.kind() == "identifier")
+            .filter(|left| kind_of(left) == "identifier")
             .and_then(|left| node_text(left, content))
         else {
             return;
@@ -177,7 +178,7 @@ impl TypingBindings {
         while let Some(step) = steps.pop() {
             match step {
                 Step::Read(None) => values.push(None),
-                Step::Read(Some(node)) => match node.kind() {
+                Step::Read(Some(node)) => match kind_of(node) {
                     "parenthesized_expression" => steps.push(Step::Read(node.named_child(0))),
                     "not_operator" => {
                         steps.push(Step::Not);
@@ -214,7 +215,7 @@ impl TypingBindings {
 
     /// [`Self::value_at_run_time`] of a node that holds no operand.
     fn leaf_value(&self, condition: Node<'_>, content: &str, literals: bool) -> Option<bool> {
-        match condition.kind() {
+        match kind_of(condition) {
             "identifier" => {
                 let name = node_text(condition, content)?;
                 (name == CONSTANT || self.constants.contains(name)).then_some(false)
@@ -222,7 +223,7 @@ impl TypingBindings {
             "attribute" => {
                 let object = condition.child_by_field_name("object")?;
                 let attribute = condition.child_by_field_name("attribute")?;
-                let module = (object.kind() == "identifier")
+                let module = (kind_of(object) == "identifier")
                     .then(|| node_text(object, content))
                     .flatten()?;
                 (node_text(attribute, content) == Some(CONSTANT)
@@ -241,7 +242,7 @@ impl TypingBindings {
     fn keeps_from_running(&self, node: Node<'_>, ancestors: &[Node<'_>], content: &str) -> bool {
         let mut child = node;
         for &parent in ancestors.iter().rev() {
-            match parent.kind() {
+            match kind_of(parent) {
                 "if_statement" | "elif_clause" => {
                     let value = parent
                         .child_by_field_name("condition")
@@ -250,7 +251,7 @@ impl TypingBindings {
                         .child_by_field_name("consequence")
                         .is_some_and(|body| body.id() == child.id());
                     if (is_body && value == Some(false))
-                        || (child.kind() == "else_clause" && value == Some(true))
+                        || (kind_of(child) == "else_clause" && value == Some(true))
                     {
                         return true;
                     }

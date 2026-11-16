@@ -82,7 +82,9 @@ async fn a_non_default_ref_discloses_the_index_commit_and_leads_to_the_ref() {
     // advice is the description's; `viewRepo` lists them.
     assert_eq!(
         data["warnings"],
-        json!(["Files from the default-branch index at fedcba9, not dev; `matches` read at dev."]),
+        json!([
+            "Candidate files come from the default-branch index at fedcba9, not dev: a file that exists only at dev cannot appear; `matches` read at dev."
+        ]),
         "{data}"
     );
     let lead = crate::tools::test_support::checks::related_call(data, "ghStructure", |input| {

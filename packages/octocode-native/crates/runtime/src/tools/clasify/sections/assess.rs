@@ -135,9 +135,10 @@ pub(super) fn assess_and_save(
                 view: None,
             }),
         };
-        insert_next(
+        crate::response::collection::insert_walk(
             &mut output["next"],
-            ClasifyChannel::NextPage,
+            crate::id::ToolId::Clasify,
+            Some("sections"),
             Continuation::continued_query(next),
         );
     }

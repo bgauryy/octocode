@@ -147,18 +147,6 @@ fn bind_continuation_to_source(
         for read in next.reads_of_mut(ReadSource::Page) {
             local_fetch_query::set_snapshot(&mut read.query, snapshot)?;
         }
-        if let Some(digest) = result.source_sha256.as_deref() {
-            for rows in next
-                .unfiltered_unknown_rest
-                .values_mut()
-                .filter_map(|call| call.pointer_mut("/input/queries"))
-                .filter_map(serde_json::Value::as_array_mut)
-            {
-                for row in rows {
-                    row["snapshot"] = serde_json::json!(digest);
-                }
-            }
-        }
     }
     Ok(())
 }

@@ -20,17 +20,26 @@ pub(crate) use guesses::meant_field;
 /// caller learns the field and form to send. A field is said once, with the
 /// value it runs with.
 pub(crate) fn normalized_input(tool_name: &str, input: Value) -> (Value, Vec<String>) {
+    let (input, notes) = normalized(tool_name, input);
+    (input, guesses::per_call(notes))
+}
+
+/// [`normalized_input`] with each note by its row (`None`: a request field).
+fn normalized(tool_name: &str, input: Value) -> (Value, Vec<(Option<usize>, String)>) {
     let Some(id) = ToolId::from_name(tool_name) else {
         return (input, Vec::new());
     };
     let (input, resumed) = cursor_alone(input);
     if resumed.is_some() {
-        return (input, resumed.into_iter().collect());
+        return (
+            input,
+            resumed.into_iter().map(|note| (None, note)).collect(),
+        );
     }
     let mut notes = Vec::new();
     let mut input = shaped(id, input, &mut notes);
     if !input.get("queries").is_some_and(Value::is_array) {
-        return (input, guesses::per_call(notes));
+        return (input, notes);
     }
     let sent = input.clone();
     let mut reshaped_paths = Vec::new();
@@ -58,7 +67,7 @@ pub(crate) fn normalized_input(tool_name: &str, input: Value) -> (Value, Vec<Str
     );
     notes.extend(repairs.notes);
     notes.extend(reshaped);
-    (input, guesses::per_call(notes))
+    (input, notes)
 }
 
 /// One note per value [`repair_values`] read in the shape its field takes,
@@ -583,6 +592,45 @@ fn drop_default(input: &mut Value, issue: &ValidationIssue) -> Option<(Option<us
     ))
 }
 
+/// A query row another tool's contract checks (a clasify `source.query`,
+/// core `x-toolQuery`), repaired as a direct call of that tool is: the
+/// repaired row in its place, and each of that call's notes said of the
+/// field that holds it (`source.query: read …`). `None` when the issue is
+/// no such rule's, or the direct call's repair changes nothing.
+fn repair_tool_query(
+    input: &mut Value,
+    issue: &ValidationIssue,
+) -> Option<Vec<(Option<usize>, String)>> {
+    let (tool_field, query_field) = super::validate::tool_query_fields(&issue.rule_id)?;
+    let at = (0..issue.path.len()).find(|at| {
+        issue.path[*at] == query_field
+            && input
+                .pointer(&crate::json_pointer::of(&issue.path[..*at]))
+                .is_some_and(|holder| holder[tool_field].is_string())
+    })?;
+    let row = match issue.path.as_slice() {
+        [queries, index, ..] if queries == "queries" => index.parse::<usize>().ok(),
+        _ => None,
+    };
+    let start = usize::from(row.is_some()) * 2;
+    let label = issue.path.get(start..=at)?.join(".");
+    let holder = input.pointer_mut(&crate::json_pointer::of(&issue.path[..at]))?;
+    let tool = holder[tool_field].as_str()?.to_owned();
+    let query = holder.get(query_field)?;
+    let (mut ran, notes) = normalized(&tool, serde_json::json!({ "queries": [query.clone()] }));
+    let repaired = ran["queries"].get_mut(0)?.take();
+    if &repaired == query {
+        return None;
+    }
+    holder[query_field] = repaired;
+    Some(
+        notes
+            .into_iter()
+            .map(|(_, note)| (row, format!("{label}: {note}")))
+            .collect(),
+    )
+}
+
 /// Apply each issue's repair at its path, adding its note, or its path when
 /// the value was read in its field's shape ([`reshaped_notes`] says those
 /// once the call is final); whether any applied.
@@ -595,6 +643,11 @@ fn repair_values(
 ) -> bool {
     let mut applied = false;
     for issue in issues {
+        if let Some(notes) = repair_tool_query(input, issue) {
+            applied = true;
+            repairs.notes.extend(notes);
+            continue;
+        }
         let note = match issue.rule_id.as_str() {
             "schema.required" => repair_operation(tool_name, input, issue, operations),
             "schema.enum" => {

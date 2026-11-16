@@ -220,10 +220,10 @@ Behavior, judged by reading, on both surfaces. The per-tool sections below list 
 ### Per tool
 
 #### localSearch
-- Calls: content search in a folder; `view: files`, `filesWithout`, `countMatches` with `limit` (sorted by
-  count); `matchOnly` with a regex; `contextLines`; `wholeWord`; `include`/`exclude`; a term that only matches
+- Calls: content search in a folder; `view: files`, `filesWithout`, `countMatches` with `limit` and
+  `sort:{"by":"matchCount","order":"desc"}` (sorted by count); `matchOnly` with a regex; `contextLines`; `wholeWord`; `include`/`exclude`; a term that only matches
   as a regex (expect a hint).
-- Look for: hits grouped by file with line numbers; a hit in a line over 4 KB shows a window with its column
+- Look for: hits grouped by file with line numbers, in walk (name) order; on a content page that has more, `pagination.total` is a floor (`countScope: loaded`) and no `matchCount`; a hit in a line over 4 KB shows a window with its column
   and a ready read of the line; empty rows carry `files: []` and `filesScanned`, no zero counters.
 - Compare: the expert command and what "better" means are in [COMPARISONS.md](COMPARISONS.md#localsearch).
 

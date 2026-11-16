@@ -73,6 +73,8 @@ pub(super) fn path_failure(
                 Some("The path names a file (its case differs).")
             } else if found.directory.eq_ignore_ascii_case(requested) {
                 Some(crate::tools::gh_shared::CASE_DIFFERS_HINT)
+            } else if found.truncated {
+                Some(crate::tools::gh_shared::LISTING_MAY_BE_CUT_HINT)
             } else {
                 None
             };

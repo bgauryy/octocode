@@ -32,11 +32,11 @@ fn an_auth_failure_exits_by_its_code_class_in_either_output_mode() {
         );
         assert_eq!(
             auth_failure(ErrorCode::MissingConfiguration, "m", None, json_out),
-            5
+            4
         );
         assert_eq!(
             auth_failure(ErrorCode::CredentialStoreUnavailable, "m", None, json_out),
-            5
+            4
         );
     }
 }
@@ -67,7 +67,7 @@ fn logout_in_json_mode_deletes_once_and_maps_a_failure_to_its_exit_class() {
     for (kind, exit) in [
         (ProviderErrorKind::Authentication, 4),
         (ProviderErrorKind::Validation, 2),
-        (ProviderErrorKind::CredentialStoreUnavailable, 5),
+        (ProviderErrorKind::CredentialStoreUnavailable, 4),
     ] {
         let failure = |_: &str| Err(ProviderError::new(kind, "fixture delete failed"));
         assert_eq!(logout_with(&runtime, &failure, true), exit, "{kind:?}");
@@ -111,7 +111,7 @@ fn logout_targets_configured_host_preserves_environment_and_reports_delete_failu
                 "fixture delete failed",
             ))
         };
-        // A store that cannot delete is the declared execution failure.
-        assert_eq!(logout_with(&runtime, &failure, false), 5);
+        // A store that cannot delete is refused (credential store unavailable).
+        assert_eq!(logout_with(&runtime, &failure, false), 4);
     }
 }

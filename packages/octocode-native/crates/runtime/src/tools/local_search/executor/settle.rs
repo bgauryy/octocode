@@ -58,6 +58,13 @@ pub(super) fn settle_row(
     let (layout, total_files) = (page.layout, page.total_files);
     let empty = total_files == 0 && !page.classified_hits;
     let mut stats = search_stats(local_search_query::view(query), page.scanned, total_files);
+    // A streamed page counts only the files it walked: the totals are the
+    // search's only when its one page ended the walk.
+    if layout.walk.is_some_and(|walk| walk.more || walk.continued) {
+        stats.total_occurrences = None;
+        stats.matched_lines = None;
+        stats.matched_files = None;
+    }
     // Rows name paths from the workspace; so does the first unreadable one.
     if let Some(errors) = &mut stats.file_errors {
         errors.first = errors
@@ -309,6 +316,22 @@ fn file_paging(
 ) -> Option<Paging> {
     let page = local_search_query::page(query).max(1);
     let has_more = page < layout.total_pages || leftover_matches;
+    if let Some(walk) = layout.walk {
+        let unit = if layout.list {
+            "files"
+        } else {
+            layout.row_unit
+        };
+        return (total_files > 0 && (walk.more || walk.continued)).then(|| {
+            Paging::of(
+                unit,
+                (layout.offset, layout.length, layout.total_items as usize),
+                walk.more,
+                false,
+            )
+            .floor(walk.more)
+        });
+    }
     let unit = if layout.list || !layout.streamed {
         "files"
     } else {

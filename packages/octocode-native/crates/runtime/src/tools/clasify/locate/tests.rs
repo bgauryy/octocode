@@ -133,7 +133,7 @@ fn parts_end_at_block_edges_and_never_inside_a_block() {
             blocks.iter().all(|&(a, b)| size(a, b) < share),
             "the fixture's blocks must fit a part at {page}"
         );
-        let (marked, Parts { spans: parts, .. }) = mark(&text, page).expect("parts");
+        let (marked, Parts { spans: parts, .. }) = mark(&text, page, None).expect("parts");
         assert_covers(&parts, lines);
         assert!(parts.len() > 2, "{page}: {parts:?}");
         for &(_, end) in &parts[..parts.len() - 1] {
@@ -169,7 +169,7 @@ fn no_part_ends_on_a_heading_or_a_lead_in() {
             rows.iter().any(|row| row.ends_with(':')),
             "the fixture has lead-ins"
         );
-        let (marked, Parts { spans: parts, .. }) = mark(&text, page).expect("parts");
+        let (marked, Parts { spans: parts, .. }) = mark(&text, page, None).expect("parts");
         let continues = continued(&marked);
         for (index, &(start, end)) in parts[..parts.len() - 1].iter().enumerate() {
             if continues.contains(&label(parts[index + 1])) {
@@ -206,7 +206,7 @@ fn only_a_block_larger_than_a_part_is_cut_and_the_next_part_says_so() {
         rows *= 2;
     };
     let (size, share) = sizes(&text, page);
-    let (marked, Parts { spans: parts, .. }) = mark(&text, page).expect("parts");
+    let (marked, Parts { spans: parts, .. }) = mark(&text, page, None).expect("parts");
     assert_covers(&parts, text.lines().count());
     let continues = continued(&marked);
     let mut cuts = 0;
@@ -256,7 +256,7 @@ fn unmarked(marked: &str) -> (String, Vec<String>) {
 fn every_line_is_owned_by_its_own_part_from_either_side() {
     for (lines, page) in [(2, PAGE), (40, 1), (3_000, PAGE), (LABELS * 3 + 7, 1)] {
         let text = log(lines);
-        let (marked, Parts { spans: parts, .. }) = mark(&text, page).expect("parts");
+        let (marked, Parts { spans: parts, .. }) = mark(&text, page, None).expect("parts");
         let rows: Vec<&str> = marked.split_inclusive('\n').collect();
         let mut line = 0;
         for (at, row) in rows.iter().enumerate() {
@@ -287,7 +287,7 @@ fn each_marker_names_exactly_the_lines_it_holds() {
     let (blocky, _) = blocks(40, 400);
     for (text, page) in [(log(3_000), PAGE), (log(40), 1), (blocky, 900)] {
         let original: Vec<&str> = text.split_inclusive('\n').collect();
-        let (marked, Parts { spans: parts, .. }) = mark(&text, page).expect("parts");
+        let (marked, Parts { spans: parts, .. }) = mark(&text, page, None).expect("parts");
         let (mut open, mut seen, mut line) = (None, Vec::new(), 0);
         for row in marked.split_inclusive('\n') {
             match named(row) {
@@ -353,7 +353,7 @@ fn parts_cover_every_line_once_at_about_one_read_page_each() {
         (LABELS * 3 + 7, 1),
     ] {
         let text = log(lines);
-        let (marked, Parts { spans: parts, .. }) = mark(&text, page).expect("parts");
+        let (marked, Parts { spans: parts, .. }) = mark(&text, page, None).expect("parts");
         let (restored, labels) = unmarked(&marked);
         assert_eq!(restored, text, "{lines} lines");
         let pages = rendered_chars(&text)
@@ -382,7 +382,7 @@ fn parts_cover_every_line_once_at_about_one_read_page_each() {
         assert_eq!(labels[0], label(parts[0]));
     }
     // A last line without its newline keeps its text; the marker never joins it.
-    let (marked, Parts { spans: parts, .. }) = mark("a\nb", PAGE).expect("two lines");
+    let (marked, Parts { spans: parts, .. }) = mark("a\nb", PAGE, None).expect("two lines");
     assert_eq!(
         marked,
         "<lines 1-1>\na\n</lines 1-1>\n<lines 2-2>\nb\n</lines 2-2>\n"
@@ -391,10 +391,30 @@ fn parts_cover_every_line_once_at_about_one_read_page_each() {
     // A line longer than a page is one part; the text still has two.
     let lopsided = format!("a\n{}\n", "b".repeat(10 * PAGE));
     assert_eq!(
-        mark(&lopsided, PAGE).expect("two parts").1.spans,
+        mark(&lopsided, PAGE, None).expect("two parts").1.spans,
         vec![(1, 1), (2, 2)]
     );
-    assert!(mark("one line\n", PAGE).is_none());
+    assert!(mark("one line\n", PAGE, None).is_none());
+}
+
+/// A selection of `ranges` is located in the file's own lines: each part and
+/// each marker names the lines the read shows, not the text's own.
+#[test]
+fn a_range_selection_is_located_in_file_lines() {
+    let target = Target::Source(
+        json!({"tool":"localFetch","query":{"path":"out.log","ranges":[{"startLine":100,"endLine":139}]}}),
+    );
+    let state = json!({"source":{"path":"out.log"},"text":log(40)});
+    let located = locate(&target, &state, &[noul()], PAGE).expect("a range names lines");
+    assert!(located.parts.iter().all(|&(s, e)| 100 <= s && e <= 139));
+    let marked = located.state["text"].as_str().expect("text");
+    assert!(marked.contains("<lines 100-"), "{marked}");
+    // Several ranges map line by line, across the gap.
+    let target = Target::Source(json!({"tool":"localFetch","query":{"path":"out.log",
+        "ranges":[{"startLine":10,"endLine":29},{"startLine":200,"endLine":219}]}}));
+    let located = locate(&target, &state, &[noul()], PAGE).expect("two ranges");
+    let (first, last) = (located.parts[0].0, located.parts.last().expect("part").1);
+    assert_eq!((first, last), (10, 219));
 }
 
 #[test]

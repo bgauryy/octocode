@@ -1,8 +1,11 @@
 //! `materialize`: write a listing's whole selection under the Octocode home.
 use super::*;
+use crate::tools::gh_git::blobs::BlobSource;
 use std::path::{Path, PathBuf};
 
+mod blobs;
 mod snapshot;
+use blobs::{Blobs, Fetched, wave_len};
 use snapshot::{FileIdentity, Store};
 #[cfg(test)]
 mod tests;
@@ -19,6 +22,7 @@ pub(super) async fn materialize_page(
     commit_sha: &str,
     selection: &[TreeEntry],
     home: &Path,
+    blobs: Option<&BlobSource>,
     context: &RequestContext,
     value: &mut Value,
 ) -> Result<Option<MaterializeResume>, ProviderError> {
@@ -30,6 +34,7 @@ pub(super) async fn materialize_page(
         repo: &query.repo,
         commit: commit_sha,
         root: home,
+        blobs,
     };
     let Some(outcome) =
         materialize_tree(provider, &snapshot, selection, offset, &scope.path, context).await?
@@ -149,6 +154,8 @@ pub(super) struct Snapshot<'a> {
     pub(super) repo: &'a str,
     pub(super) commit: &'a str,
     pub(super) root: &'a Path,
+    /// Where file bytes come from besides REST reads, when git can serve them.
+    pub(super) blobs: Option<&'a BlobSource>,
 }
 
 /// Where materialized checkouts live under the Octocode home, versioned so
@@ -168,7 +175,7 @@ pub(crate) fn materialize_root(home: &Path) -> PathBuf {
 }
 
 /// Write `entries[offset..]` under the locked, content-verified snapshot,
-/// reading up to [`READ_CONCURRENCY`] files ahead and writing them in listing
+/// reading up to [`read_concurrency`] files ahead and writing them in listing
 /// order. The call's own limits stop the walk, never a count of files or bytes:
 /// past three quarters of its time, or at a rate limit or deadline, it resumes
 /// from that entry with what it wrote kept, so the row still reaches its
@@ -203,58 +210,34 @@ pub(super) async fn materialize_tree(
         skips: store.prior_skips(&entries[..offset], read_limit),
         recorded: Vec::new(),
     };
-    {
+    let mut git = Blobs::new(snapshot.blobs);
+    let mut next = offset;
+    'walk: while next < entries.len() {
+        // A wave starts only with time left, once something was written.
+        if writer.cursor > offset && std::time::Instant::now() >= stop_at {
+            break;
+        }
+        let wave = &entries[next..next + wave_len(&entries[next..], read_limit)];
+        next += wave.len();
+        let mut acquired =
+            acquire_wave(provider, snapshot, &store, &mut git, wave, read_limit).await;
         use futures_util::StreamExt as _;
-        // Up to READ_CONCURRENCY reads run ahead of the writer; a slow file
-        // holds back only the writes after it, never the next reads.
-        let kept = &store;
-        let mut reads = futures_util::stream::iter(&entries[offset..])
-            .map(|entry| async move {
-                if entry.kind != EntryKind::File {
-                    return (entry, Acquired::NotAFile);
+        // Up to `read_concurrency` REST reads run ahead of the writer; a slow
+        // file holds back only the writes after it, never the next reads.
+        let mut reads = futures_util::stream::iter(wave.iter().zip(acquired.drain(..)))
+            .map(|(entry, held)| async move {
+                match held {
+                    Some(held) => (entry, held),
+                    None => (entry, rest_read(provider, snapshot, entry, context).await),
                 }
-                // A credential-named file is withheld before any request.
-                if crate::policy::discovery::is_sensitive_repository_file(&entry.path) {
-                    return (entry, Acquired::Withheld);
-                }
-                // Past what this call may read, by its listed size: asking
-                // would spend a request on the same refusal.
-                if entry.size.is_some_and(|size| size > read_limit as u64) {
-                    return (entry, Acquired::Oversized);
-                }
-                // A file this snapshot already holds is not read again.
-                if crate::tools::gh_shared::is_repo_relative(&entry.path)
-                    && let Some(identity) = kept.kept(snapshot.root, &entry.path).await
-                {
-                    return (entry, Acquired::Kept(identity));
-                }
-                // Bytes, admitted by the one text rule: a file it refuses
-                // is the typed binary-file failure, skipped as unreadable.
-                // The snapshot stores them: no saved answer keeps them again.
-                let read = provider
-                    .get_file_bytes_kept_by_caller(
-                        &octocode_github::ContentRequest {
-                            owner: snapshot.owner.to_owned(),
-                            repo: snapshot.repo.to_owned(),
-                            path: entry.path.clone(),
-                            reference: Some(snapshot.commit.to_owned()),
-                        },
-                        context,
-                    )
-                    .await
-                    .and_then(|read| {
-                        crate::tools::gh_shared::text::admit_read(&read)?;
-                        Ok(read)
-                    });
-                (entry, Acquired::Read(read))
             })
-            .buffered(READ_CONCURRENCY);
+            .buffered(read_concurrency(provider));
         while let Some((entry, read)) = reads.next().await {
             // The stop applies once the call wrote something: a call that
             // wrote nothing would resume at the same entry for ever.
             let out_of_time = writer.cursor > offset && std::time::Instant::now() >= stop_at;
             if out_of_time || !writer.write(entry, read).await? {
-                break;
+                break 'walk;
             }
         }
     }
@@ -289,4 +272,117 @@ pub(super) async fn materialize_tree(
         gap: writer.skips.leaves_a_gap(),
         hint: writer.skips.binary_hint(),
     }))
+}
+
+/// What each entry of `wave` has before any REST read: what needs no
+/// request (not a file, withheld, oversized by its listed size, already in
+/// the snapshot), and what git fetched for the rest in one transfer. `None`
+/// is read over REST.
+async fn acquire_wave(
+    provider: &GitHubProvider,
+    snapshot: &Snapshot<'_>,
+    store: &Store,
+    git: &mut Blobs<'_>,
+    wave: &[TreeEntry],
+    read_limit: usize,
+) -> Vec<Option<Acquired>> {
+    use futures_util::StreamExt as _;
+    let mut acquired: Vec<Option<Acquired>> = futures_util::stream::iter(wave)
+        .map(|entry| async move {
+            if entry.kind != EntryKind::File {
+                return Some(Acquired::NotAFile);
+            }
+            // A credential-named file is withheld before any request.
+            if crate::policy::discovery::is_sensitive_repository_file(&entry.path) {
+                return Some(Acquired::Withheld);
+            }
+            // Past what this call may read, by its listed size: asking
+            // would spend a request on the same refusal.
+            if entry.size.is_some_and(|size| size > read_limit as u64) {
+                return Some(Acquired::Oversized);
+            }
+            // A file this snapshot already holds is not read again.
+            if crate::tools::gh_shared::is_repo_relative(&entry.path)
+                && let Some(identity) = store.kept(snapshot.root, &entry.path).await
+            {
+                return Some(Acquired::Kept(identity));
+            }
+            None
+        })
+        .buffered(read_concurrency(provider))
+        .collect()
+        .await;
+    let mut wanted: Vec<String> = wave
+        .iter()
+        .zip(&acquired)
+        .filter(|(_, held)| held.is_none())
+        .filter_map(|(entry, _)| entry.oid.clone())
+        .collect();
+    wanted.sort_unstable();
+    wanted.dedup();
+    let fetched = git
+        .wave(snapshot.owner, snapshot.repo, wanted, read_limit)
+        .await;
+    for (entry, held) in wave.iter().zip(&mut acquired) {
+        let (None, Some(oid)) = (&held, &entry.oid) else {
+            continue;
+        };
+        *held = match &fetched {
+            Err(error) => Some(Acquired::Read(Err(error.clone()))),
+            Ok(fetched) => match fetched.get(oid) {
+                Some(Fetched::Bytes(bytes)) => Some(Acquired::Read(git_read(
+                    bytes.clone(),
+                    oid,
+                    snapshot.commit,
+                ))),
+                Some(Fetched::Oversized) => Some(Acquired::Oversized),
+                None => None,
+            },
+        };
+    }
+    acquired
+}
+
+/// The read the REST path would have produced for these bytes: admitted by
+/// the one text rule, naming the blob in a refusal.
+fn git_read(
+    bytes: bytes::Bytes,
+    oid: &str,
+    commit: &str,
+) -> Result<octocode_github::ContentResponse, ProviderError> {
+    let read = octocode_github::ContentResponse {
+        raw_response_bytes: bytes.len(),
+        bytes,
+        resolved_ref: commit.to_owned(),
+        blob: Some(oid.to_owned()),
+    };
+    crate::tools::gh_shared::text::admit_read(&read)?;
+    Ok(read)
+}
+
+/// Bytes over REST, admitted by the one text rule: a file it refuses is the
+/// typed binary-file failure, skipped as unreadable. The snapshot stores
+/// them: no saved answer keeps them again.
+async fn rest_read(
+    provider: &GitHubProvider,
+    snapshot: &Snapshot<'_>,
+    entry: &TreeEntry,
+    context: &RequestContext,
+) -> Acquired {
+    let read = provider
+        .get_file_bytes_kept_by_caller(
+            &octocode_github::ContentRequest {
+                owner: snapshot.owner.to_owned(),
+                repo: snapshot.repo.to_owned(),
+                path: entry.path.clone(),
+                reference: Some(snapshot.commit.to_owned()),
+            },
+            context,
+        )
+        .await
+        .and_then(|read| {
+            crate::tools::gh_shared::text::admit_read(&read)?;
+            Ok(read)
+        });
+    Acquired::Read(read)
 }

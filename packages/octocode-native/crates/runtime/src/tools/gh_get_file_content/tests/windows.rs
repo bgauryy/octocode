@@ -199,7 +199,13 @@ async fn a_minified_file_walks_to_its_end_through_next_continue() {
             _ => break,
         }
     }
-    assert!(pages >= 18, "{pages} pages");
+    // Byte pages follow the response window `read` serves in: none is over
+    // its room, and none is far under it.
+    let room = crate::tools::source_view::pagination::byte_page_room(Some(50_000));
+    assert!(
+        (body.len().div_ceil(room)..=body.len().div_ceil(room / 2)).contains(&pages),
+        "{pages} pages of a {room}-character room"
+    );
     assert!(text == body, "pages join into the file exactly once");
 }
 

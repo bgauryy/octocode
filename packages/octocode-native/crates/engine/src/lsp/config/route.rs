@@ -131,6 +131,11 @@ impl Route {
     /// call (a clangd database mirror follows its source).
     pub(super) fn finished(&self, options: &LspDiscoveryOptions) -> LspLanguageServerConfig {
         let mut config = self.config.clone();
+        // The server runs under the call's environment, with what its entry
+        // configures laid over it.
+        let mut env = options.spawn_environment();
+        env.extend(config.env.take().unwrap_or_default());
+        config.env = (!env.is_empty()).then_some(env);
         match self.finish {
             Finish::AsIs => {}
             Finish::RustAnalyzer => apply_rust_analyzer_defaults(&mut config),
@@ -177,7 +182,7 @@ pub(super) fn kept_route(
     native_typescript: bool,
     resolve: impl FnOnce() -> Option<Route>,
 ) -> Option<Route> {
-    let view = RustupView::current();
+    let view = RustupView::of(&options.env);
     let question = Question {
         workspace_root: workspace_root.to_owned(),
         extension: extension.to_owned(),
@@ -186,7 +191,7 @@ pub(super) fn kept_route(
         trust_project: options.trusts_project(),
         octocode_home: options.octocode_home.clone(),
         invocation_dir: options.invocation_dir.clone(),
-        path_var: crate::process_env::var_os("PATH"),
+        path_var: crate::process_env::call_var(&options.env, "PATH"),
         home: std::env::home_dir(),
         rustup_path: view.path_var.clone(),
         rustup_home: view.home.clone(),

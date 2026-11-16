@@ -50,6 +50,12 @@ impl RequestBudget {
         self
     }
 
+    /// The stall bound [`Self::wait_stalled`] applies, if any.
+    #[must_use]
+    pub fn stall(&self) -> Option<Duration> {
+        self.stall
+    }
+
     pub fn with_timeout(timeout: Duration, max_body_bytes: usize) -> Self {
         Self::new(
             Instant::now() + timeout,

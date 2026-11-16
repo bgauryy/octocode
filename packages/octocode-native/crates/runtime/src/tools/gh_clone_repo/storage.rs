@@ -20,12 +20,6 @@ pub(crate) fn clones_root(home: &Path) -> PathBuf {
 /// ([`clone_dir`]).
 pub(crate) const CHECKOUT_DEPTH: usize = 3;
 
-/// Root of the shared object stores under the Octocode home. Never a read
-/// root: local tools see checkouts, not the object store behind them.
-pub(crate) fn store_root(home: &Path) -> PathBuf {
-    home.join("clone-store")
-}
-
 /// Written last by a store's init: a store without it is unfinished.
 const STORE_READY: &str = "octocode-store-ready";
 
@@ -61,7 +55,7 @@ impl StoreKey {
             format!("{repo}__host_{host}")
         };
         Self {
-            parent: store_root(home).join(owner.to_ascii_lowercase()),
+            parent: crate::tools::gh_git::store_root(home).join(owner.to_ascii_lowercase()),
             stem,
         }
     }
@@ -137,7 +131,7 @@ pub(super) fn is_store_worktree(home: &Path, checkout: &Path) -> bool {
     let Some(git_dir) = git_dir(checkout).filter(|_| is_file) else {
         return false;
     };
-    let root = store_root(home);
+    let root = crate::tools::gh_git::store_root(home);
     git_dir.starts_with(&root)
         || root
             .canonicalize()
@@ -319,7 +313,7 @@ fn open_lock(path: &Path) -> io::Result<fs::File> {
 }
 
 pub(super) fn stage_dir(home: &Path, clone_dir: &Path) -> Result<PathBuf, CloneError> {
-    let base = home.join("tmp").join("clone-tmp");
+    let base = crate::tools::gh_git::stage_root(home);
     create_private_dir_all(&base).map_err(storage_io)?;
     let id = STAGE_ID.fetch_add(1, Ordering::Relaxed);
     let name = clone_dir.file_name().unwrap_or_default().to_string_lossy();
@@ -387,13 +381,13 @@ pub(super) fn promote(
 /// belongs to; `git worktree prune` then drops its registration. A stage of
 /// this process or of a live one is left alone.
 pub(super) fn remove_crashed_stages(home: &Path) {
-    let Ok(stages) = fs::read_dir(home.join("tmp").join("clone-tmp")) else {
+    let Ok(stages) = fs::read_dir(crate::tools::gh_git::stage_root(home)) else {
         return;
     };
     for stage in stages.flatten().map(|entry| entry.path()) {
-        if stage_owner(&stage)
-            .is_some_and(|pid| pid != std::process::id() && !super::process::process_alive(pid))
-        {
+        if stage_owner(&stage).is_some_and(|pid| {
+            pid != std::process::id() && !crate::tools::gh_git::process::process_alive(pid)
+        }) {
             remove_dir(&stage);
         }
     }

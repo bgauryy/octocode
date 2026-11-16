@@ -55,6 +55,7 @@ fn stream_pages_price_each_row_and_file_once() {
             name: &|_, _| RowName::None,
         },
         None,
+        0,
     );
     assert!(pages.len() > 1, "{}", pages.len());
     assert_eq!(rows.get(), 30 * 40);
@@ -135,7 +136,7 @@ fn cut_page(
         root,
         &mut parsed,
         6_000,
-        (&mut pricing, None),
+        (&mut pricing, None, None),
     )
     .expect("cut");
     let priced = pricing.priced;
@@ -264,4 +265,33 @@ fn listed_file_chars_match_the_rendered_entry() {
             }
         }
     }
+}
+
+/// A page that shows everything still leaves out the first file's rows an
+/// earlier page showed.
+#[test]
+fn a_whole_page_skips_the_rows_an_earlier_page_showed() {
+    let files = (0..3u32)
+        .map(|n| TextSearchFile {
+            term_counts: Vec::new(),
+            path: format!("src/f{n}.rs"),
+            match_count: 5,
+            matches: (1..=5).map(|line| hit(line * 3)).collect(),
+            source: None,
+        })
+        .collect::<Vec<_>>();
+    let pages = stream_pages(
+        &files,
+        u32::MAX as usize,
+        true,
+        (usize::MAX, None),
+        StreamCosts {
+            file: &|_| 1,
+            row: &|_| 1,
+            name: &|_, _| RowName::None,
+        },
+        None,
+        3,
+    );
+    assert_eq!(pages, vec![vec![(0, 3..5), (1, 0..5), (2, 0..5)]]);
 }

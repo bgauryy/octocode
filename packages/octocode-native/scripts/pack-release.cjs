@@ -17,7 +17,7 @@
 
 const { execFileSync } = require('child_process');
 const { createHash } = require('crypto');
-const { existsSync, mkdirSync, readFileSync, writeFileSync } = require('fs');
+const { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, writeFileSync } = require('fs');
 const path = require('path');
 const { parseArgs } = require('util');
 const { PLATFORMS, executableName } = require('../bin/platform.cjs');
@@ -59,6 +59,36 @@ function packPlatform(platform, out) {
   return packed.filename;
 }
 
+const NODE_SHEBANG = '#!/usr/bin/env node';
+
+/** Whether the file starts with the Node shebang: only its first bytes are read, as a native bin is ~100 MB of non-text. */
+function startsWithNodeShebang(file) {
+  const fd = openSync(file, 'r');
+  try {
+    const head = Buffer.alloc(NODE_SHEBANG.length);
+    const read = readSync(fd, head, 0, head.length, 0);
+    return head.toString('latin1', 0, read) === NODE_SHEBANG;
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
+ * What stops a launcher from packing: it ships Node bins, but an install
+ * script may have replaced one in this checkout with this machine's native
+ * binary, and one that crashed between link and rename left its staging file
+ * (`.octocode.<pid>.tmp`) beside the bin, where `npm pack` would ship it.
+ */
+function launcherBinProblems(dir, bins) {
+  const problems = bins.filter(bin => !startsWithNodeShebang(path.join(dir, bin))).map(bin => `${bin} is not the Node bin; rebuild it`);
+  for (const bin of new Set(bins.map(entry => path.dirname(entry)))) {
+    for (const name of readdirSync(path.join(dir, bin))) {
+      if (/^\.octocode\.\d+\.tmp$/.test(name)) problems.push(`${path.posix.join(bin, name)} is a leftover of an interrupted install; remove it`);
+    }
+  }
+  return problems;
+}
+
 function packLauncher(manifestPath, version, out) {
   const dir = path.dirname(path.join(REPO, manifestPath));
   const manifest = readJson(path.join(dir, 'package.json'));
@@ -66,6 +96,8 @@ function packLauncher(manifestPath, version, out) {
   const bins = typeof manifest.bin === 'string' ? [manifest.bin] : Object.values(manifest.bin);
   const unbuilt = bins.filter(bin => !existsSync(path.join(dir, bin)));
   if (unbuilt.length) throw new Error(`${manifest.name}: build it first (${unbuilt.join(', ')} missing)`);
+  const problems = launcherBinProblems(dir, bins);
+  if (problems.length) throw new Error(`${manifest.name}: ${problems.join('; ')}`);
   return npmPack(dir, out).filename;
 }
 
@@ -90,6 +122,8 @@ function main() {
   writeFileSync(path.join(out, 'SHA256SUMS'), `${sums.join('\n')}\n`);
   console.log(`packed ${tarballs.length} tarballs at ${version} into ${out}:\n${sums.join('\n')}`);
 }
+
+module.exports = { launcherBinProblems };
 
 if (require.main === module) {
   try {

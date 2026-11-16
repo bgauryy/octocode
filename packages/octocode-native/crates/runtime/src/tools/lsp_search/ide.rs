@@ -119,7 +119,7 @@ impl Request<'_> {
         } else {
             // A document the server rung cannot read is its typed row to give.
             match super::read_bounded_source_async(std::path::PathBuf::from(path)).await {
-                Ok(content) => Some(sources.insert(path, content)),
+                Ok(read) => Some(sources.insert(path, read)),
                 Err(_) => return Ok(None),
             }
         };

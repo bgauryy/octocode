@@ -72,15 +72,15 @@ async fn a_kept_scope_opens_only_the_files_that_spell_the_name() {
     settle_written_so_far();
     assert_eq!(scan(&root, "f").await, ["a.ts"], "the walk");
     assert_eq!(scan(&root, "f").await, ["a.ts"], "reads each file once");
-    let (a_reads, b_reads) = (reads::of(&a), reads::of(&b));
+    let (a_reads, b_reads) = (READS.of(&a), READS.of(&b));
     assert_eq!((a_reads, b_reads), (1, 1));
 
     assert!(scan(&root, "zzz").await.is_empty());
-    assert_eq!((reads::of(&a), reads::of(&b)), (1, 1));
+    assert_eq!((READS.of(&a), READS.of(&b)), (1, 1));
     assert_eq!(scan(&root, "g").await, ["src/b.ts"]);
-    assert_eq!((reads::of(&a), reads::of(&b)), (1, 2));
+    assert_eq!((READS.of(&a), READS.of(&b)), (1, 2));
     assert_eq!(scan(&root, "function").await, ["a.ts", "src/b.ts"]);
-    assert_eq!((reads::of(&a), reads::of(&b)), (2, 3));
+    assert_eq!((READS.of(&a), READS.of(&b)), (2, 3));
 }
 
 /// Whatever the list or a file's text does between two requests reaches the
@@ -121,15 +121,11 @@ async fn the_ignored_scan_opens_only_the_files_that_spell_the_name() {
     let generated = root.join("gen/c.ts");
     settle_written_so_far();
     assert_eq!(ignored(&root, "f").await, ["gen/c.ts"]);
-    assert_eq!(reads::of(&generated), 1);
+    assert_eq!(READS.of(&generated), 1);
     assert!(ignored(&root, "zzz").await.is_empty());
-    assert_eq!(
-        reads::of(&generated),
-        1,
-        "an absent name is answered unread"
-    );
+    assert_eq!(READS.of(&generated), 1, "an absent name is answered unread");
     assert_eq!(ignored(&root, "f").await, ["gen/c.ts"]);
-    assert_eq!(reads::of(&generated), 2);
+    assert_eq!(READS.of(&generated), 2);
 
     write(&generated, "g();\n");
     assert!(ignored(&root, "f").await.is_empty());

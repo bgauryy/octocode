@@ -228,6 +228,11 @@ pub(super) fn page_result(
         scanned.redactions + source_redactions,
         &mut warnings,
     );
+    let token = selection_outcome.map(|chosen| chosen.outcome.token.as_str());
+    let mut next = match continue_calls(q, &pg, token, ext) {
+        Ok(next) => next,
+        Err(error) => return super::classified::invalid_continuation(q, error),
+    };
     // The read's first page states what every page shares.
     if pg.pagination.offset == 0 || local_fetch_query::read_progress(asked).is_none() {
         warnings.extend(super::super::extraction::unmatched_warning(
@@ -235,20 +240,16 @@ pub(super) fn page_result(
             &ext.unmatched,
         ));
         warn_unmatchable(q, source, ext, &mut warnings);
-        warnings.extend(
-            selection_outcome
-                .into_iter()
-                .flat_map(super::super::selection::Chosen::disclosure),
-        );
+        warnings.extend(selection_outcome.into_iter().flat_map(|chosen| {
+            chosen.disclosure(
+                next.as_ref()
+                    .is_some_and(|next| next.continue_window.is_some()),
+            )
+        }));
     }
     let out_of_range = pg.out_of_range;
-    let token = selection_outcome.map(|chosen| chosen.outcome.token.as_str());
-    let mut next = match continue_calls(q, &pg, token, ext) {
-        Ok(next) => next,
-        Err(error) => return super::classified::invalid_continuation(q, error),
-    };
     if let Some(chosen) = selection_outcome
-        && chosen.outcome.leaves_out()
+        && chosen.leads()
         && let Err(error) =
             attach_unfiltered(next.get_or_insert_with(NextCalls::default), asked, chosen)
     {
@@ -328,7 +329,11 @@ pub(super) fn page_result(
         },
         out_of_range,
         next,
-        selection: selection_outcome.map(|chosen| chosen.outcome.receipt.clone()),
+        // An undecided view is no selected evidence: the page that decided
+        // its units carries the receipt.
+        selection: selection_outcome
+            .filter(|chosen| !chosen.outcome.lists_undecided())
+            .map(|chosen| chosen.outcome.receipt.clone()),
         ..LocalFetchResult::blank(ReadStatus::Success)
     };
     // The view removed every selected line (a comment-only range read

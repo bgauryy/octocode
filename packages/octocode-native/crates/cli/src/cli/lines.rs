@@ -280,9 +280,14 @@ fn render_data(tool: ToolId, row: &Map<String, Value>, query: &Value) -> Option<
     let mut rest = data.clone();
     let mut body = Vec::new();
     let mut marks = Vec::new();
-    if listing(data, &mut body).is_some() {
+    // A listing's groups print relative to the directory they share, as hits do.
+    let mut relative = data.clone();
+    let root = once::relative_paths(&mut relative);
+    if listing(&relative, &mut body).is_some() {
         rest.shift_remove("files");
-        return Some(tail(query, row, rest, marks, body));
+        let mut text = tail(query, row, rest, marks, body);
+        text.root = root.map(|root| format!("root: {root}"));
+        return Some(text);
     }
     if !matches!(
         tool,

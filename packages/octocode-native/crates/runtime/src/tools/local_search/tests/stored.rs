@@ -113,7 +113,7 @@ fn only_a_page_that_issues_a_cursor_deflates_its_scan() {
     settle();
     let (policy, security) = policy_for(single.path());
     let q = ls_query(
-        serde_json::json!({"path":single.path(),"matchString":["needle"]}),
+        serde_json::json!({"path":single.path(),"matchString":["needle"],"sort":{"by":"path","order":"asc"}}),
         None,
     );
     let before = super::super::packed::deflated_on_this_thread();
@@ -135,7 +135,7 @@ fn only_a_page_that_issues_a_cursor_deflates_its_scan() {
     settle();
     let (policy, security) = policy_for(paged.path());
     let q = ls_query(
-        serde_json::json!({"path":paged.path(),"matchString":["needle"]}),
+        serde_json::json!({"path":paged.path(),"matchString":["needle"],"sort":{"by":"path","order":"asc"}}),
         None,
     );
     let before = super::super::packed::deflated_on_this_thread();
@@ -165,7 +165,7 @@ fn stored_snapshot_is_bound_to_search_meaning_and_window() {
     settle();
     let (policy, security) = policy_for(root.path());
     let q = ls_query(
-        serde_json::json!({"path":root.path(),"matchString":["needle"]}),
+        serde_json::json!({"path":root.path(),"matchString":["needle"],"sort":{"by":"path","order":"asc"}}),
         None,
     );
     let first = search_in(&q, &policy, &security, Some(2500)).expect("first");
@@ -174,7 +174,7 @@ fn stored_snapshot_is_bound_to_search_meaning_and_window() {
         Some(&q),
     );
     for change in [
-        serde_json::json!({"matchString":["compute"]}),
+        serde_json::json!({"matchString":["compute"],"sort":{"by":"path","order":"asc"}}),
         serde_json::json!({"caseMode":"sensitive"}),
         serde_json::json!({"include":["*.rs"]}),
     ] {

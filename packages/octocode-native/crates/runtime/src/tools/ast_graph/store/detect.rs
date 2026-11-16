@@ -262,12 +262,14 @@ pub(crate) fn run(
         v: View::new(t, entries),
         findings: Vec::new(),
         notes: Vec::new(),
+        file_level: Vec::new(),
     };
     for &(detectors, step) in STEPS {
         if detectors.iter().any(|d| wants(d)) {
             step(&mut c);
         }
     }
+    note_package_scoped(&mut c, wants);
     // Liveness spreads from mentioned `unreachable-file` and `test-only`
     // subjects, so `test-only` keeps unreachable findings through the scan.
     let spread = root.is_some() && wants("test-only");

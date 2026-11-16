@@ -12,6 +12,7 @@ mod object;
 mod pattern;
 mod predicates;
 mod relationships;
+pub(crate) use relationships::tool_query_fields;
 mod scalar;
 use super::{ContractValidationError, issue, schema_issue, union};
 use kinds::declared_kind;

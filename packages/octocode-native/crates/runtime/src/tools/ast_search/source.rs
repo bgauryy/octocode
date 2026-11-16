@@ -29,16 +29,16 @@ pub(super) fn read_parse_source(path: &std::path::Path) -> Result<Option<Vec<u8>
 
 /// The text astSearch parses from a source's bytes ([`read_parse_source`]):
 /// the engine's one source admission as its directory scan applies it
-/// (`Decoding::Unicode`: binary refused, UTF-8 or BOM-marked UTF-16, never
-/// a guessed legacy encoding), so a file parses the same named alone or in
-/// a directory. Coordinates count the text a read shows of it
+/// (`Decoding::Lenient`: binary refused, UTF-8, BOM-marked UTF-16, else
+/// Latin-1 or lossy UTF-8 with a warning), so a file parses the same named
+/// alone or in a directory. Coordinates count the text a read shows of it
 /// ([`admitted_for_match`]).
 pub(super) fn parse_text<'b>(
     path: &std::path::Path,
     bytes: &'b [u8],
 ) -> Result<std::borrow::Cow<'b, str>, ToolError> {
     use octocode_engine::text::{Decoding, admit};
-    admit(bytes, Decoding::Unicode)
+    admit(bytes, Decoding::Lenient)
         .map(|decoded| decoded.text)
         .map_err(|refusal| refusal_error(path, refusal))
 }
@@ -88,7 +88,7 @@ pub(super) fn judge() -> octocode_engine::structural::TextJudge {
 }
 
 /// The one error of a source refused as text, whichever reader refused it:
-/// binary content, or text that is not Unicode.
+/// binary content, or malformed declared UTF-16.
 fn refusal_error(path: &std::path::Path, refusal: octocode_engine::text::Refusal) -> ToolError {
     use octocode_engine::text::Refusal;
     match refusal {
@@ -97,7 +97,7 @@ fn refusal_error(path: &std::path::Path, refusal: octocode_engine::text::Refusal
             format!("{} is binary content, not source text.", display_name(path)),
         )),
         Refusal::NotUnicode => ToolError::new(
-            ErrorCode::FileReadFailed,
+            ErrorCode::Decode,
             format!(
                 "Could not read {} as source text: {refusal}.",
                 display_name(path)

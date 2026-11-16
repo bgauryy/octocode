@@ -7,8 +7,11 @@
 `src/cli/index.ts` forwards the argument vector unchanged. `src/cli/native-delegate.ts` resolves the platform binary through the native package's shared resolver and runs it with inherited stdin, stdout, stderr, environment, and working directory. The shared `bin/launch-native.cjs` forwards signals and returns the child's exit status. Node does not parse flags, select commands, format native output, or launch a separate management implementation.
 
 ```text
-npx octocode → Node launcher → native CLI → Rust ToolRuntime
+octocode (bin) → native CLI → Rust ToolRuntime                       after postinstall
+octocode (bin) → out/octocode.js → native CLI → Rust ToolRuntime     otherwise
 ```
+
+The bin, `out/octocode`, is a stub that imports the launcher. The postinstall step (`scripts/postinstall.mjs` → `out/install.js`, source `src/cli/native-install.ts`) replaces it with the platform package's binary, hard-linked (copied where a link is refused), once that file reports `octocode <pinned version>`: staged beside the bin and renamed over it, so the bin is always the stub or a verified binary. Every install, upgrade included, repeats it; a workspace source checkout (a package directory outside any `node_modules`) is never swapped. The stub stays when scripts do not run (`--ignore-scripts`, pnpm and Bun until the package is approved), on Windows (its `.cmd`/`.ps1` shims start Node), under Yarn 2+ (it runs bins through Node), in a pnpm global install (pnpm does not rewrite the global bin's `node` shim after a script approval), and when the platform package is missing or its binary fails the check; postinstall says why on stderr only when the stub stays unexpectedly (a missing platform package, a failed check), and never fails the install. A native bin skips the launcher and its `OCTOCODE_NATIVE_BIN` override: run `node <package>/out/octocode.js` to use one.
 
 `OCTOCODE_NATIVE_BIN` is a development override governed by the shared config rule and ignored in production. If resolution or process startup fails, Node prints the launcher failure on stderr and exits `5`; it does not interpret output flags. Once native starts, its stdout, stderr, and exit status pass through unchanged.
 
@@ -16,7 +19,7 @@ Rust owns Clap parsing, catalog presentation, validation, config and authenticat
 
 ## Build and packaging
 
-- `build.mjs` bundles `src/index.ts` to `out/octocode.js` as an ESM launcher.
+- `build.mjs` bundles `src/index.ts` to `out/octocode.js` as an ESM launcher and `src/install.ts` to `out/install.js`, and copies the bin stub `src/bin.mjs` to `out/octocode`. `scripts/postinstall.mjs` does nothing in a checkout not yet built.
 - `octocode` declares every native platform package in `optionalDependencies` (written from `PLATFORMS` by `packages/octocode-native/scripts/platform-packages.cjs`); npm installs the one matching `os`/`cpu`/`libc`. The resolver, the registry fallback and the signal-forwarding launcher from `packages/octocode-native/bin/` are bundled at build time. Every call evaluates only the resolver and the launcher: the registry fallback loads when the platform package is missing, and config only when `OCTOCODE_NATIVE_BIN` is set.
 - When npm skipped the platform package, the bundled launcher fetches it once at the pinned version (`__OCTOCODE_NATIVE_VERSION__`) into `~/.octocode/native/` (`OCTOCODE_HOME`), verifying the registry's sha512 and the binary's `--version`. Unbundled source runs never download.
 - The bundle targets Node 22 (`engines.node` `>=22`); the repository's own toolchain stays on Node 24.

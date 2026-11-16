@@ -7,7 +7,7 @@ use crate::providers::RuntimeClients;
 use crate::providers::classification::gate::GateLease;
 use errors::{
     BAD_REQUEST_HINT, budget_error, denied, is_overloaded, overloaded_error, rate_limited,
-    send_error, status_error, transport_error,
+    send_error, stall_of, stalled, status_error, transport_error,
 };
 use octocode_contract_types::ErrorCode;
 use octocode_io::budget::RequestBudget;
@@ -50,9 +50,9 @@ fn shared_client(endpoint: &Url) -> Result<reqwest::Client, ClassificationError>
     })
 }
 
-/// The client policy of a classification provider: as a request may have no
-/// deadline, ended only by a provider that stops sending
-/// ([`octocode_io::http::ClientPolicy::without_deadline`]).
+/// The client policy of a classification provider. It sets no timeout of its
+/// own: a request is ended by its budget ([`budget`]), whose stall bound
+/// ends the request, never one attempt that a retry would repeat.
 fn provider_policy(bypass_proxy: bool) -> octocode_io::http::ClientPolicy {
     octocode_io::http::ClientPolicy {
         connect_timeout: Some(CONNECT_TIMEOUT),
@@ -62,7 +62,7 @@ fn provider_policy(bypass_proxy: bool) -> octocode_io::http::ClientPolicy {
         } else {
             octocode_io::http::Proxy::System
         },
-        ..octocode_io::http::ClientPolicy::without_deadline()
+        ..octocode_io::http::ClientPolicy::default()
     }
 }
 
@@ -79,7 +79,7 @@ pub struct ClassificationError {
     pub leads: Vec<(String, serde_json::Value)>,
     /// Failure kind of the delegated read behind a context error, so a call
     /// whose every read failed alike reports it like the read tool would.
-    pub failure: Option<crate::response::result::FailureKind>,
+    pub failure: Option<crate::response::result::ErrorClass>,
     /// HTTP requests actually attempted, including retries; never rendered as an error field.
     pub provider_calls: u64,
     /// Usage reported before failure; absent when no response reported usage.
@@ -254,11 +254,17 @@ pub(crate) async fn get(
     .await
 }
 
+/// The budget of one classification request: the call's `deadline`, which
+/// may lie far away (a model's time follows its input), and a stall bound of
+/// [`octocode_io::http::READ_STALL`]. A provider still sending is never cut;
+/// one that sends nothing for the stall bound ends the request, retries
+/// included: the stall bound is the most one request waits on silence.
 pub fn budget(
     deadline: Instant,
     cancellation: octocode_io::cancellation::Cancellation,
 ) -> RequestBudget {
     RequestBudget::new(deadline, cancellation, MAX_BODY_BYTES)
+        .with_stall(octocode_io::http::READ_STALL)
 }
 
 #[cfg(test)]

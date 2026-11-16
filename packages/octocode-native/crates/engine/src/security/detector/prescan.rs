@@ -3,7 +3,7 @@
 
 use super::super::patterns::PATTERN_COUNT;
 use super::gates;
-use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
+use aho_corasick::{AhoCorasick, AhoCorasickBuilder, AhoCorasickKind};
 use std::sync::LazyLock;
 
 // ---------------------------------------------------------------------------
@@ -40,17 +40,31 @@ use std::sync::LazyLock;
 
 /// One automaton over every gated pattern's literals; its pattern id indexes
 /// `gates::GATE_LITERALS`.
-static PRESCAN: LazyLock<AhoCorasick> = LazyLock::new(|| {
+static PRESCAN: LazyLock<AhoCorasick> = LazyLock::new(|| automaton(AhoCorasickKind::DFA));
+
+/// The automaton over the gate literals. Overlapping search runs no
+/// prefilter, so every byte of every text goes through it: a DFA does one
+/// table lookup per byte where the contiguous NFA walks failure links.
+/// Both kinds report identical matches (`dfa_matches_the_nfa` pins it).
+fn automaton(kind: AhoCorasickKind) -> AhoCorasick {
     // Aho-Corasick over a fixed literal set cannot fail to build.
     #[expect(
         clippy::expect_used,
         reason = "built from static patterns, valid by construction"
     )]
     AhoCorasickBuilder::new()
+        .kind(Some(kind))
         .ascii_case_insensitive(true)
         .build(gates::GATE_LITERALS.iter().map(|(literal, _)| literal))
         .expect("prescan literal automaton must build")
-});
+}
+
+/// The shipped automaton and a contiguous-NFA twin, for the differential
+/// test.
+#[cfg(test)]
+pub(super) fn shipped_and_reference() -> (&'static AhoCorasick, AhoCorasick) {
+    (&PRESCAN, automaton(AhoCorasickKind::ContiguousNFA))
+}
 
 /// A set of pattern indices, one bit per pattern, kept on the stack: picking
 /// a text's candidates allocates nothing.

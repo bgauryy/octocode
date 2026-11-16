@@ -264,6 +264,12 @@ impl FileScan<'_> {
         let recovered = found.recovered();
         let recovered_bodies = found.recovered_bodies().to_vec();
         let matches = found.into_file_matches();
+        // Matched text and positions count the decoded text of a legacy 8-bit file.
+        let diagnostics = admitted
+            .warning()
+            .map(|warning| StructuralDiagnostic::decoded(&path_string, warning))
+            .into_iter()
+            .collect();
         (
             Tally::Parsed(crate::num::saturating_u32(matches.len())),
             StructuralSearchDetailedFileResult {
@@ -275,7 +281,7 @@ impl FileScan<'_> {
                 matches,
                 recovered,
                 recovered_bodies,
-                diagnostics: Vec::new(),
+                diagnostics,
             },
         )
     }

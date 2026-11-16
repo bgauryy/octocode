@@ -1,7 +1,8 @@
 //! Language-server prewarm (`lsp.prewarm`).
 //!
-//! A local read or search names a source file before an agent asks for its
-//! identity. When enabled, that file's server is started in the shared pool
+//! A local response that serves an lspSearch call names a source file before
+//! the agent asks for its identity. When enabled, that file's server is
+//! started in the shared pool
 //! in the background, under exactly the configuration `lspSearch` would
 //! resolve for the same file (same workspace root, same discovery options,
 //! no `rustContext` overlay, so rust-analyzer keeps its no-build-scripts /
@@ -56,25 +57,39 @@ pub fn anchor_file(query: &Value, data: &Value) -> Option<PathBuf> {
         .find(|path| path.is_absolute() && path.is_file())
 }
 
-/// The anchor of the first schema-declared lspSearch call that names an
-/// existing absolute file. Provider data resembling a call is not executable.
+/// The file of the first lspSearch call a settled response serves: its
+/// first query's `path`, on a row that answered (no `status`, no error).
+/// A served path is workspace-relative (the response stage ran), so it
+/// resolves against the workspace as the call itself would. Provider data
+/// resembling a call is not executable, and a lead the stage dropped is not
+/// in `structured`.
 #[must_use]
-pub fn lead_file(tool: crate::id::ToolId, data: &Value) -> Option<PathBuf> {
-    let structured = serde_json::json!({"results":[{"index":0,"data":data}]});
+pub fn lead_file(
+    paths: &PathPolicy,
+    tool: crate::id::ToolId,
+    structured: &Value,
+) -> Option<PathBuf> {
     let mut found = None;
-    crate::response::continuations::visit_calls(tool, &structured, &mut |call, _| {
-        if found.is_some() || call["tool"] != crate::id::ToolId::LspSearch.as_str() {
-            return;
+    for row in structured["results"].as_array().into_iter().flatten() {
+        if found.is_some() || row.get("status").is_some() || row["data"].get("errorCode").is_some()
+        {
+            continue;
         }
-        found = call["input"]["queries"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|query| query["path"].as_str())
-            .map(|path| PathBuf::from(super::render::uri_to_path(path)))
-            .find(|path| path.is_absolute() && path.is_file());
-    })
-    .ok()?;
+        let one = serde_json::json!({"results": [{"index": 0, "data": row["data"]}]});
+        crate::response::continuations::visit_calls(tool, &one, &mut |call, _| {
+            if found.is_some() || call["tool"] != crate::id::ToolId::LspSearch.as_str() {
+                return;
+            }
+            found = call["input"]["queries"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|query| query["path"].as_str())
+                .map(|path| paths.expand_and_resolve(Path::new(&super::render::uri_to_path(path))))
+                .find(|path| path.is_file());
+        })
+        .ok()?;
+    }
     found
 }
 
@@ -199,7 +214,7 @@ pub(super) async fn warm(
         })
         .await
         .ok()??;
-        let content = super::source::admitted_text(&bytes).ok()?;
+        let content = super::source::admitted_text(&bytes).ok()?.text;
         let readiness = client
             .open_document_and_wait(file, &content, None, Some(PREWARM_READY_TIMEOUT_MS))
             .await
@@ -264,34 +279,70 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// The settled response is the input: a served lead (absolute, a file
+    /// uri, or workspace-relative as the stage leaves it) resolves; a lead the
+    /// stage stripped, another tool's call, a row that did not answer and
+    /// provider-embedded data name no file.
     #[test]
-    fn a_lead_naming_lsp_search_points_at_its_anchor_file() {
-        let dir_dir = crate::tools::test_support::Fixture::new();
-        let dir = dir_dir.0.clone();
+    fn a_served_lsp_lead_points_at_its_anchor_file() {
+        let fixture = crate::tools::test_support::Fixture::new();
+        let dir = fixture.0.clone();
         std::fs::create_dir_all(&dir).expect("dir");
         let file = dir.join("a.ts");
         std::fs::write(&file, "export const a = 1;\n").expect("file");
+        let paths = crate::policy::path::PathPolicy::new(crate::policy::path::PathPolicyConfig {
+            workspace_root: Some(dir.clone()),
+            ..crate::policy::path::PathPolicyConfig::default()
+        })
+        .expect("path policy");
+        let tool = crate::id::ToolId::LocalSearch;
+        let served = |input: serde_json::Value, row: serde_json::Value| {
+            let mut row = row;
+            row["data"]["related"] =
+                json!([{"tool": "lspSearch", "kind": "related", "input": input}]);
+            json!({"results": [row]})
+        };
+        let query =
+            |path: String| json!({"queries": [{"path": path, "symbolName": "a", "line": 1}]});
+        let row = || json!({"index": 0, "data": {"files": [{"path": "a.ts"}]}});
         let uri = format!("file://{}", file.display());
-        let data = json!({"related":[{"tool":"lspSearch","kind":"related","input":{"queries":[{"path":uri,"symbolName":"a","line":1}]}}]});
         assert_eq!(
-            lead_file(crate::id::ToolId::LocalSearch, &data),
+            lead_file(&paths, tool, &served(query(uri), row())),
             Some(file.clone())
         );
-        // A file uri is percent-decoded, as lspSearch itself decodes it.
-        let spaced = dir.join("a b.ts");
-        std::fs::write(&spaced, "export const b = 1;\n").expect("spaced file");
-        let encoded = format!("file://{}/a%20b.ts", dir.display());
-        let data = json!({"related":[{"tool":"lspSearch","kind":"related","input":{"queries":[{"path":encoded,"symbolName":"b","line":1}]}}]});
         assert_eq!(
-            lead_file(crate::id::ToolId::LocalSearch, &data),
-            Some(spaced)
+            lead_file(
+                &paths,
+                tool,
+                &served(query(file.display().to_string()), row())
+            ),
+            Some(file.clone())
         );
-        let other = json!({"related":[{"tool":"localFetch","kind":"related","input":{"queries":[{"path":file}]}}]});
-        assert_eq!(lead_file(crate::id::ToolId::LocalSearch, &other), None);
-        let relative = json!({"related":[{"tool":"lspSearch","kind":"related","input":{"queries":[{"path":"a.ts"}]}}]});
-        assert_eq!(lead_file(crate::id::ToolId::LocalSearch, &relative), None);
-        let provider = json!({"files":[{"path":"a.ts","provider":data["related"][0]}]});
-        assert_eq!(lead_file(crate::id::ToolId::LocalSearch, &provider), None);
+        assert_eq!(
+            lead_file(&paths, tool, &served(query("a.ts".into()), row())),
+            Some(file.clone()),
+            "a workspace-relative served lead resolves"
+        );
+        let encoded = dir.join("a b.ts");
+        std::fs::write(&encoded, "export const b = 1;\n").expect("spaced file");
+        let uri = format!("file://{}/a%20b.ts", dir.display());
+        assert_eq!(
+            lead_file(&paths, tool, &served(query(uri), row())),
+            Some(encoded)
+        );
+        // The stage stripped the lead: no cause, no server.
+        assert_eq!(lead_file(&paths, tool, &json!({"results": [row()]})), None);
+        let other = json!({"results": [{"index": 0, "data": {"related": [
+            {"tool": "localFetch", "kind": "related", "input": {"queries": [{"path": "a.ts"}]}}]}}]});
+        assert_eq!(lead_file(&paths, tool, &other), None);
+        let empty = json!({"index": 0, "status": "empty", "data": {}});
+        assert_eq!(
+            lead_file(&paths, tool, &served(query("a.ts".into()), empty)),
+            None
+        );
+        let provider = json!({"results": [{"index": 0, "data": {"files": [{"path": "a.ts",
+            "provider": {"tool": "lspSearch", "kind": "related", "input": query("a.ts".into())}}]}}]});
+        assert_eq!(lead_file(&paths, tool, &provider), None);
         let _ = std::fs::remove_dir_all(dir);
     }
 }

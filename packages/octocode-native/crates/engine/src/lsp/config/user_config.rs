@@ -315,6 +315,7 @@ pub(super) fn user_server_for_extension(
         workspace_root,
         trust_workspace,
         options.invocation_dir.as_deref(),
+        &options.env,
     );
     Some(UserServer {
         config: LspLanguageServerConfig {

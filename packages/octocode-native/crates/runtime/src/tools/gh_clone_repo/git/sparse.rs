@@ -1,6 +1,6 @@
 //! `sparse-checkout set` arguments: cone mode for directories, exact anchored patterns once any path is a file.
-use super::{run, scoped, step_timeout};
 use crate::tools::gh_clone_repo::{CloneContext, CloneError};
+use crate::tools::gh_git::step::{run, scoped, step_timeout};
 use std::ffi::OsString;
 use std::path::Path;
 

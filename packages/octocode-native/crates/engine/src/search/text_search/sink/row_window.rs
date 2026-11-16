@@ -4,7 +4,7 @@
 //! shows is judged with its source like every other row.
 use super::long_line::line_of;
 use super::{CollectSink, SpanColumns};
-use crate::search::relevance;
+use crate::search::declaration;
 use crate::search::text_parser::RawMatch;
 use crate::types::{RowWindow, TextSearchMatch};
 use grep_matcher::Matcher;
@@ -66,7 +66,7 @@ impl<M: Matcher> CollectSink<'_, M> {
         for window in windows {
             let hit = text.floor_char_boundary(columns.lossy(window.first_hit).min(text.len()));
             let (_, column, byte_offset) = columns.position(hit);
-            let rank = relevance::line_rank(bytes, window.first_hit);
+            let rank = declaration::line_rank(bytes, window.first_hit);
             let window_start = Some(crate::num::saturating_u32(window.text.start));
             // Both ends sit on char boundaries (floor/ceil above).
             let value = text.get(window.text).unwrap_or_default().to_owned();

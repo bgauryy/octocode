@@ -34,6 +34,24 @@ fn text(value: &Value) -> Option<&str> {
     value.as_str().filter(|text| !text.trim().is_empty())
 }
 
+/// What the judge sees of a discussion item: its body, and a review's
+/// verdict (`state`). A review with a verdict and no body (an approval) is
+/// still judged on that verdict; any other item without a body has nothing to
+/// judge.
+fn discussion_state(kind: &str, item: &Value) -> Option<Value> {
+    let body = text(&item["body"]);
+    let verdict = (kind == "review").then(|| text(&item["state"])).flatten();
+    if body.is_none() && verdict.is_none() {
+        return None;
+    }
+    let mut state =
+        json!({"kind": kind, "author": item["author"], "path": item["path"], "body": body});
+    if let Some(verdict) = verdict {
+        state["state"] = json!(verdict);
+    }
+    Some(state)
+}
+
 fn entries<'a>(data: &'a Value, field: &str) -> impl Iterator<Item = (usize, &'a Value)> {
     data.get(field)
         .and_then(Value::as_array)
@@ -73,7 +91,8 @@ impl Rows {
                 let title = ["title", "messageHeadline"]
                     .iter()
                     .find_map(|key| text(&row[*key]));
-                let body = text(&row["body"]);
+                // A pull request's or issue's `body`, a commit's `messageBody`.
+                let body = text(&row["body"]).or_else(|| text(&row["messageBody"]));
                 let state = (title.is_some() || body.is_some())
                     .then(|| json!({"title": title, "body": body}));
                 self.push(format!("/{field}/{at}"), state, row.clone());
@@ -87,11 +106,7 @@ impl Rows {
             for (row_at, row) in entries(data, field) {
                 for (list, kind) in DISCUSSION {
                     for (at, item) in entries(row, list) {
-                        let state = || {
-                            text(&item["body"]).map(|body| {
-                                json!({"kind": kind, "author": item["author"], "path": item["path"], "body": body})
-                            })
-                        };
+                        let state = || discussion_state(kind, item);
                         let pointer = format!("/{field}/{row_at}/{list}/{at}");
                         self.push_named(pointer, item["path"].as_str(), state, item.clone());
                     }
@@ -260,7 +275,7 @@ impl Rows {
 }
 
 /// The name of a listing entry `<name>[/][ (<fields>)]`.
-fn entry_name(entry: &str) -> &str {
+pub(crate) fn entry_name(entry: &str) -> &str {
     match entry
         .strip_suffix(')')
         .and_then(|fields| fields.rsplit_once(" ("))
@@ -309,6 +324,47 @@ mod tests {
             rows.states(),
             vec![Some(json!({"title": "fix: crash", "body": null})), None]
         );
+    }
+
+    #[test]
+    fn a_commit_message_body_and_a_pull_request_body_are_both_judged() {
+        let data = json!({
+            "commits": [{"messageHeadline": "tidy", "messageBody": "fixes a crash"}],
+            "pullRequests": [{"title": "tidy", "body": "renames a field"}],
+        });
+        let rows = Rows::of(ToolId::GhSearchHistory, &data);
+        assert_eq!(
+            rows.states(),
+            vec![
+                Some(json!({"title": "tidy", "body": "renames a field"})),
+                Some(json!({"title": "tidy", "body": "fixes a crash"})),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_review_is_judged_on_its_verdict_when_it_has_no_body() {
+        let data = json!({"pullRequests": [{
+            "reviews": [
+                {"state": "APPROVED", "author": "a"},
+                {"state": "CHANGES_REQUESTED", "body": "fix the leak", "author": "b"},
+                {"author": "c"},
+            ],
+            "comments": [{"author": "d"}],
+        }]});
+        let states = Rows::of(ToolId::GhGetHistoryItem, &data).states();
+        assert_eq!(states.len(), 4);
+        // Page order: comments, reviews, review comments.
+        assert_eq!(states[0], None, "a comment without a body has nothing");
+        assert_eq!(
+            states[1].as_ref().map(|s| &s["state"]),
+            Some(&json!("APPROVED"))
+        );
+        assert_eq!(
+            states[2].as_ref().map(|s| &s["body"]),
+            Some(&json!("fix the leak"))
+        );
+        assert_eq!(states[3], None, "a review with neither stays unknown");
     }
 
     #[test]

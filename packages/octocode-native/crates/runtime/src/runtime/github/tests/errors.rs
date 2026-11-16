@@ -49,7 +49,10 @@ fn authentication_errors_preserve_typed_failure_and_status() {
         ),
         (ToolId::GhCloneRepo, provider_error(error())),
     ] {
-        assert_eq!(result.failure, Some(FailureKind::Authentication));
+        assert_eq!(
+            result.failure,
+            Some(crate::id::error_codes::ErrorClass::Refused)
+        );
         assert_eq!(result.data["errorCode"], "authentication");
         assert_eq!(result.data["httpStatus"], 401);
         assert!(result.data["error"].is_string());
@@ -146,7 +149,10 @@ fn permission_errors_keep_the_provider_reason_across_github_tools() {
     ] {
         assert_eq!(result.data["error"], reason);
         assert_eq!(result.data["httpStatus"], 403);
-        assert_eq!(result.failure, Some(FailureKind::Permission));
+        assert_eq!(
+            result.failure,
+            Some(crate::id::error_codes::ErrorClass::Refused)
+        );
     }
 }
 
@@ -231,7 +237,10 @@ fn file_error_names_the_missing_ref_for_explicit_branches() {
     let data = &result.data;
 
     assert_eq!(result.status, Some("error"));
-    assert_eq!(result.failure, Some(FailureKind::NotFound));
+    assert_eq!(
+        result.failure,
+        Some(crate::id::error_codes::ErrorClass::CorrectInput)
+    );
     assert_eq!(data["errorCode"], json!("notFound"));
     assert_eq!(data["httpStatus"], json!(404));
     assert!(data.get("retryable").is_none(), "{data}");
@@ -320,9 +329,14 @@ fn file_error_directory_and_binary_get_accurate_recovery() {
     let hint = result.data["hints"][0].as_str().unwrap_or_default();
     assert!(!hint.contains("Retry once"), "{hint}");
     assert!(hint.contains("Binary"), "{hint}");
-    // The caller's request cannot be served (exit 2), with the
-    // file's size and blob SHA, never a decode/execution failure.
-    assert_eq!(result.data["errorCode"], "invalidInput", "{}", result.data);
+    // Binary content is the content class localFetch refuses with the
+    // same code, never a malformed request (`invalidInput`) or a decode
+    // fault; the message keeps the file's size and blob SHA.
+    assert_eq!(
+        result.data["errorCode"], "binaryFileUnsupported",
+        "{}",
+        result.data
+    );
     let message = result.data["error"].as_str().unwrap_or_default();
     assert!(
         message.contains("1234 bytes") && message.contains("blob abc"),

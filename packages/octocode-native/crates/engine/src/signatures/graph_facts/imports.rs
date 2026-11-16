@@ -4,6 +4,7 @@ use super::positions::NodePositions;
 use super::rust::{collect_rust_imports, rust_inner_unsupported};
 use super::walk::RustNodeContext;
 use super::{GraphAccumulator, note};
+use crate::signatures::node_kinds::kind_of;
 use tree_sitter::Node;
 
 use crate::graph::{GraphFactCode, GraphFactDiagnostic, GraphFactImport, GraphFactRustModule};
@@ -93,7 +94,7 @@ pub(super) fn collect_c_include(
     acc: &mut GraphAccumulator,
 ) {
     let path = node.child_by_field_name("path");
-    let hint = match path.map(|item| item.kind()) {
+    let hint = match path.map(kind_of) {
         Some("string_literal") => "c-relative",
         Some("system_lib_string") => "c-system",
         _ => "unsupported",
@@ -127,7 +128,7 @@ pub(super) fn collect_csharp_using(
     let mut cursor = node.walk();
     let target = node
         .named_children(&mut cursor)
-        .find(|child| Some(*child) != alias && child.kind() != "comment");
+        .find(|child| Some(*child) != alias && kind_of(child) != "comment");
     let (target, alias) = match (target, alias) {
         (Some(target), alias) => (target, alias),
         // `using System;` may surface its only name in the `name` field.
@@ -212,7 +213,7 @@ pub(super) fn collect_rust_include(
     let mut cursor = node.walk();
     let Some(arguments) = node
         .named_children(&mut cursor)
-        .find(|child| child.kind() == "token_tree")
+        .find(|child| kind_of(child) == "token_tree")
     else {
         return;
     };
@@ -221,7 +222,7 @@ pub(super) fn collect_rust_include(
     let (Some(literal), None) = (literals.next(), literals.next()) else {
         return;
     };
-    let Some(specifier) = (literal.kind() == "string_literal")
+    let Some(specifier) = (kind_of(literal) == "string_literal")
         .then(|| node_text(literal, content))
         .flatten()
         .and_then(|text| text.strip_prefix('"')?.strip_suffix('"'))

@@ -64,7 +64,7 @@ pub(super) fn discovery_page(
         return;
     }
     if let Ok(next_query) = serde_json::to_value(next_query)
-        && let Some(call) = paging::next_page_call(
+        && let Some(call) = crate::response::collection::continued_page(
             ToolId::ArtifactSearch,
             next_query,
             "page",
@@ -72,7 +72,7 @@ pub(super) fn discovery_page(
             &[],
         )
     {
-        data["calls"]["nextPage"] = call;
+        crate::response::collection::insert_row_walk(data, ToolId::ArtifactSearch, call);
     }
     if let Some(total) = capped_total {
         paging::mark_partial(

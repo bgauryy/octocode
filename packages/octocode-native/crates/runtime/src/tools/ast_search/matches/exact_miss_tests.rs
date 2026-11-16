@@ -600,3 +600,38 @@ fn a_census_that_missed_a_file_or_entry_proves_no_absence() {
         );
     }
 }
+
+/// A census that holds the differing node names the part that differs, in
+/// a file and in a directory scan; a node no field of which differs keeps
+/// the list of parts a pattern may spell (FB6-1).
+#[test]
+fn a_named_miss_names_the_part_that_differs() {
+    let root = Fixture::new();
+    root.write(
+        "a.ts",
+        "function late(): number { return 1; }\nexport function plain() {}\n",
+    );
+    for path in [root.0.join("a.ts"), root.0.clone()] {
+        let out = run(
+            &root.0,
+            json!({"operation":"match","path":path,"rule":{"pattern":"function late(): string { $$$ }"}}),
+        )
+        .expect("match");
+        assert_eq!(out["status"], "empty", "{out}");
+        let notes = exact_notes(&out);
+        assert_eq!(notes.len(), 1, "{out}");
+        assert!(
+            message(notes[0]).ends_with("the first differs in its return_type."),
+            "{}",
+            message(notes[0])
+        );
+    }
+    let out = matched(&root, "function plain<$T>() { $$$ }");
+    let notes = exact_notes(&out);
+    assert!(
+        notes.first().is_some_and(
+            |note| message(note).ends_with("the first differs in its type_parameters.")
+        ),
+        "{out}"
+    );
+}

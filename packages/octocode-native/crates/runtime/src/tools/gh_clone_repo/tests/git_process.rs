@@ -164,6 +164,7 @@ fn system_git_cancellation_kills_and_reaps_process_group() {
             label: "cancellation fixture".into(),
             authorization: None,
             authorization_url: None,
+            stdin: None,
         },
         &GitRunControl {
             cancellation: cancellation.as_ref(),
@@ -223,6 +224,7 @@ fn system_git_timeout_and_failure_output_are_bounded_and_redacted() {
                 label: "redaction fixture".into(),
                 authorization: Some(token),
                 authorization_url: Some("https://github.com/owner/repo.git"),
+                stdin: None,
             },
             &control,
         )
@@ -260,7 +262,9 @@ fn system_git_timeout_and_failure_output_are_bounded_and_redacted() {
                 timeout: Duration::from_secs(10),
                 label: "stage fixture".into(),
                 authorization: None,
-                authorization_url: None},
+                authorization_url: None,
+                stdin: None,
+            },
             &control,
         )
         .expect_err("stage fixture");
@@ -294,6 +298,7 @@ fn system_git_timeout_and_failure_output_are_bounded_and_redacted() {
                 label: "store fixture".into(),
                 authorization: None,
                 authorization_url: None,
+                stdin: None,
             },
             &control,
         )
@@ -318,6 +323,7 @@ fn system_git_timeout_and_failure_output_are_bounded_and_redacted() {
                 label: "timeout fixture".into(),
                 authorization: None,
                 authorization_url: None,
+                stdin: None,
             },
             &control,
         )

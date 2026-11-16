@@ -179,6 +179,33 @@ fn a_name_filter_miss_leads_to_the_listing_without_its_name_filters() {
     assert!(related(&out, "structureSearch").is_null(), "{out}");
 }
 
+/// An empty listing its metadata filters alone emptied (no name filter, nothing
+/// skipped to lift) says how many entries the same walk lists without them
+/// and leads there (`broadenSearch`), as a name miss does.
+#[test]
+fn a_metadata_filter_miss_counts_the_entries_without_it() {
+    let root = Fixture::new();
+    std::fs::create_dir_all(root.0.join("src")).expect("dir");
+    std::fs::write(root.0.join("src/lib.rs"), "x\n").expect("file");
+    std::fs::write(root.0.join("src/main.rs"), "y\n").expect("file");
+    let out = run(
+        &root.0,
+        json!({"operation":"files","path":root.0.join("src"),"empty":true}),
+    )
+    .expect("empty listing");
+    assert_eq!(out["status"], "empty", "{out}");
+    let hint = out["hints"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .find(|hint| hint.starts_with("No entry matches empty"))
+        .unwrap_or_else(|| panic!("the miss is counted: {out}"));
+    assert!(hint.contains("2 entries match without it"), "{hint}");
+    let row = &related(&out, "structureSearch")["input"]["queries"][0];
+    assert!(row.get("empty").is_none(), "{row}");
+}
+
 /// An empty listing a depth bound emptied (a tree lists one level unless told
 /// otherwise) is no name miss: the lead keeps the filters and lifts the bound,
 /// and the hint says the matches sit deeper.

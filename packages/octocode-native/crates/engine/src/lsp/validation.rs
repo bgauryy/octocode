@@ -3,6 +3,7 @@ use crate::lsp::commands::{
     has_path_separator, is_executable_path, is_rejected_shell, which_on_path,
 };
 use crate::lsp::config::install_hint;
+use crate::process_env::EnvMap;
 use std::path::Path;
 
 /// The launchable form of a configured server command: a shell wrapper is
@@ -11,7 +12,11 @@ use std::path::Path;
 /// workspace root) when it is not found from the process directory: an
 /// `lsp-servers.json` entry then launches the same program from the CLI in
 /// the repository and from an MCP server started elsewhere.
-pub fn validate_lsp_server_path(command: String, base: Option<&Path>) -> Result<String> {
+pub fn validate_lsp_server_path(
+    command: String,
+    base: Option<&Path>,
+    env: &impl EnvMap,
+) -> Result<String> {
     if command.trim().is_empty() {
         return Err(Error::new("Language server command is required"));
     }
@@ -40,7 +45,7 @@ pub fn validate_lsp_server_path(command: String, base: Option<&Path>) -> Result<
         return absolute_string(command_path);
     }
 
-    let resolved = which_on_path(&command).map_err(|err| {
+    let resolved = which_on_path(&command, env).map_err(|err| {
         Error::new(format!(
             "Language server command not found: {command}: {err}{}",
             lookup_note(&command)
@@ -129,14 +134,21 @@ mod tests {
 
     #[test]
     fn validate_lsp_server_path_rejects_empty_string() {
-        assert!(validate_lsp_server_path(String::new(), None).is_err());
-        assert!(validate_lsp_server_path("   ".to_owned(), None).is_err());
+        assert!(
+            validate_lsp_server_path(String::new(), None, &std::collections::HashMap::new())
+                .is_err()
+        );
+        assert!(
+            validate_lsp_server_path("   ".to_owned(), None, &std::collections::HashMap::new())
+                .is_err()
+        );
     }
 
     #[test]
     fn validate_lsp_server_path_rejects_shell_wrappers() {
         for shell in ["sh", "bash", "zsh", "fish", "cmd", "powershell", "pwsh"] {
-            let result = validate_lsp_server_path(shell.to_owned(), None);
+            let result =
+                validate_lsp_server_path(shell.to_owned(), None, &std::collections::HashMap::new());
             assert!(
                 result.is_err(),
                 "shell '{shell}' must be rejected but was accepted"
@@ -148,7 +160,11 @@ mod tests {
     fn validate_lsp_server_path_rejects_nonexistent_absolute_path() {
         let dir = tempfile::tempdir().expect("dir");
         let path = dir.path().join("nonexistent_server");
-        let result = validate_lsp_server_path(path.to_string_lossy().into_owned(), None);
+        let result = validate_lsp_server_path(
+            path.to_string_lossy().into_owned(),
+            None,
+            &std::collections::HashMap::new(),
+        );
         assert!(result.is_err());
     }
 
@@ -160,7 +176,11 @@ mod tests {
         let path = dir.path().join("nonexec");
         fs::write(&path, b"#!/bin/sh").expect("write");
         fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).expect("chmod");
-        let result = validate_lsp_server_path(path.to_string_lossy().into_owned(), None);
+        let result = validate_lsp_server_path(
+            path.to_string_lossy().into_owned(),
+            None,
+            &std::collections::HashMap::new(),
+        );
         assert!(result.is_err());
         assert!(
             result
@@ -178,7 +198,11 @@ mod tests {
         let path = dir.path().join("server_exec");
         fs::write(&path, b"#!/bin/sh\necho ok\n").expect("write");
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("chmod");
-        let result = validate_lsp_server_path(path.to_string_lossy().into_owned(), None);
+        let result = validate_lsp_server_path(
+            path.to_string_lossy().into_owned(),
+            None,
+            &std::collections::HashMap::new(),
+        );
         // The command that runs is the given absolute path itself.
         let accepted = result.expect("an executable file is accepted");
         assert!(std::path::Path::new(&accepted).is_absolute(), "{accepted}");
@@ -205,7 +229,11 @@ mod tests {
         let link = dir.path().join("rust-analyzer");
         symlink(&target, &link).expect("symlink");
 
-        let result = validate_lsp_server_path(link.to_string_lossy().into_owned(), None);
+        let result = validate_lsp_server_path(
+            link.to_string_lossy().into_owned(),
+            None,
+            &std::collections::HashMap::new(),
+        );
 
         let resolved = result.expect("symlinked executable must be accepted");
         assert_eq!(
@@ -233,8 +261,13 @@ mod base_tests {
         std::fs::write(&server, "#!/bin/sh\n").expect("server");
         std::fs::set_permissions(&server, std::fs::Permissions::from_mode(0o755)).expect("chmod");
         let command = "./node_modules/.bin/fake-ls".to_owned();
-        assert!(validate_lsp_server_path(command.clone(), None).is_err());
-        let resolved = validate_lsp_server_path(command, Some(&root)).expect("rebased");
+        assert!(
+            validate_lsp_server_path(command.clone(), None, &std::collections::HashMap::new())
+                .is_err()
+        );
+        let resolved =
+            validate_lsp_server_path(command, Some(&root), &std::collections::HashMap::new())
+                .expect("rebased");
         assert_eq!(std::path::PathBuf::from(resolved), server);
     }
 }

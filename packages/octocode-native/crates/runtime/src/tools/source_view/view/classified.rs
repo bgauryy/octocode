@@ -219,57 +219,37 @@ pub(super) fn select_view_chunks(
         ext.source_lines = Some(lines);
     }
     Ok(Some(super::super::selection::Chosen::new(
-        outcome, provider, &chunks,
+        outcome, provider,
     )))
 }
 
 /// A classified page's routes to what it left out: `unfiltered` reads the
-/// whole unfiltered view and, when the unknown chunks are narrower,
-/// `unfilteredUnknown` reads exactly them (`unfilteredUnknown2`, … the rest
-/// of their ranges; every call but the last holds as many rows as a call
-/// takes). `nextCandidatePage` judges what the
-/// candidate budget left unjudged.
+/// whole unfiltered view and, when some units stayed undecided,
+/// `unfilteredUnknown` replays the selection as exactly them (unbilled, the
+/// same read, its hits marked in `matchedLines`). `nextCandidatePage` judges
+/// what the candidate budget left unjudged.
 pub(super) fn attach_unfiltered(
     calls: &mut NextCalls,
     q: &LocalFetchQuery,
     chosen: &super::super::selection::Chosen,
 ) -> Result<(), String> {
-    let query = crate::response::result::query_value(q);
-    let reads = chosen.unknown_reads(&query);
-    calls.unfiltered = Some(unfiltered_read(q)?);
-    for (index, batch) in reads
-        .chunks(crate::response::result::rows_per_call(ToolId::LocalFetch))
-        .enumerate()
-    {
-        // A lone read is the typed `unfilteredUnknown`; a batch is the same
-        // name as a multi-row call.
-        if let ([row], 0) = (batch, index) {
-            calls.unfiltered_unknown = Some(FetchCall::continued(
-                serde_json::from_value(row.clone()).map_err(|error| error.to_string())?,
-            ));
-            continue;
-        }
-        calls.unfiltered_unknown_rest.insert(
-            match index {
-                0 => "unfilteredUnknown".to_owned(),
-                n => format!("unfilteredUnknown{}", n + 1),
-            },
-            crate::response::result::Continuation::continued_input(
-                ToolId::LocalFetch,
-                serde_json::json!({ "queries": batch }),
-            )
-            .build(),
-        );
-    }
-    if calls.continue_window.is_none()
-        && let Some(token) = chosen.next_candidates()
-    {
+    let replay = |token: &str| -> Result<FetchCall, String> {
         let page = crate::response::result::with_changes(
             crate::response::result::query_value(q),
             &crate::response::paging::candidate_page_changes(ToolId::LocalFetch, token, None),
         );
-        let page = serde_json::from_value(page).map_err(|error| error.to_string())?;
-        calls.next_candidate_page = Some(FetchCall::continued(page));
+        serde_json::from_value(page)
+            .map(FetchCall::continued)
+            .map_err(|error| error.to_string())
+    };
+    calls.unfiltered = Some(unfiltered_read(q)?);
+    if let Some(token) = chosen.undecided_view() {
+        calls.unfiltered_unknown = Some(replay(&token)?);
+    }
+    if calls.continue_window.is_none()
+        && let Some(token) = chosen.next_candidates()
+    {
+        calls.next_candidate_page = Some(replay(token)?);
     }
     Ok(())
 }

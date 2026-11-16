@@ -64,6 +64,7 @@ fn a_tree_page_holds_limit_entries() {
             path: format!("f{n:03}.rs"),
             kind: EntryKind::File,
             size: Some(1),
+            oid: None,
         })
         .collect::<Vec<_>>();
     let tree = |limit: Option<u64>, materialize: bool| {

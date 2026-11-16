@@ -195,7 +195,7 @@ async fn install_runs_on_the_current_thread_runtime() {
         &tampered(),
     )
     .await;
-    assert_eq!(code, 3);
+    assert_eq!(code, 5);
     let lock = dir.path().join("rust-analyzer/2026-06-22/.lock");
     assert!(lock_is_free(&lock));
 }

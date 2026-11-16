@@ -173,8 +173,12 @@ fn publish_for_assertion(_tool: &str, output: &Value) -> Value {
     output.clone()
 }
 /// The response stage's `related[]` rule, for the shared checks.
-fn keep_workflow_lead(_tool: &str, output: &mut Value) {
-    octocode_native::response::workflow_lead::retain_guidance(output, &Value::Null);
+fn keep_workflow_lead(tool: &str, output: &mut Value) {
+    octocode_native::response::workflow_lead::retain_guidance(
+        octocode_native::id::ToolId::from_name(tool).expect("a runtime tool"),
+        output,
+        &Value::Null,
+    );
 }
 use octocode_native::response::workflow_lead::carried_identities;
 fn validate_test_input(

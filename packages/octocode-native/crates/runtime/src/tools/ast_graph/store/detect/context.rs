@@ -10,6 +10,45 @@ pub(super) struct Ctx<'a> {
     pub(super) v: View<'a>,
     pub(super) findings: Vec<Finding>,
     pub(super) notes: Vec<Value>,
+    /// Detectors that judged only file-level files ([`View::file_level`]):
+    /// [`note_package_scoped`] names them once for the files they skipped.
+    pub(super) file_level: Vec<&'static str>,
+}
+
+impl Ctx<'_> {
+    /// `detectors` judge only file-level files; the package-scoped ones
+    /// they skip are disclosed once, after every detector ran.
+    pub(super) fn judges_file_level(&mut self, detectors: &[&'static str]) {
+        self.file_level.extend(detectors);
+    }
+}
+
+/// One note for the Go/JVM/.NET production files every file-level detector
+/// the request asked for skipped: package-scoped files reference each other
+/// without imports, so their file-level structure is not observable.
+pub(super) fn note_package_scoped(c: &mut Ctx, wants: impl Fn(&str) -> bool) {
+    let detectors = c
+        .file_level
+        .iter()
+        .copied()
+        .filter(|detector| wants(detector))
+        .collect::<Vec<_>>();
+    let v = &c.v;
+    let scoped = v
+        .files
+        .iter()
+        .filter(|f| v.production(**f) && v.package_scoped(**f))
+        .count();
+    if detectors.is_empty() || scoped == 0 {
+        return;
+    }
+    let reason = format!(
+        "{scoped} Go/JVM/.NET file(s) skipped: package-scoped files reference each other without imports"
+    );
+    match detectors.as_slice() {
+        [detector] => note(&mut c.notes, detector, &reason),
+        _ => note_detectors(&mut c.notes, &detectors, &reason),
+    }
 }
 
 /// A finding prepared while the view was borrowed: detector, subject, title,

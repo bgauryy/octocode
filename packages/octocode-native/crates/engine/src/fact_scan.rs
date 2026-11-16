@@ -17,7 +17,7 @@ use crate::signatures::languages::RegistryView;
 use crate::text::analysis::{AnalysisOperation, MapLimits};
 #[cfg(test)]
 use evaluate::evaluate_walk;
-pub use evaluate::{PANICKED, SOURCE_BUDGET_EXCEEDED, over_budget_message, panicked};
+pub use evaluate::{DECODED, PANICKED, SOURCE_BUDGET_EXCEEDED, over_budget_message, panicked};
 pub use memory::{FileHold, Refusal, ScanMemory};
 
 mod memory;
@@ -63,6 +63,9 @@ pub struct GraphFactsMappedScan<T> {
     /// Files read that `keep` left unparsed.
     pub passed_over: usize,
     pub skipped: Vec<GraphFactsScanDiagnostic>,
+    /// Files indexed from decoded text (code [`DECODED`], the shared
+    /// decoding sentence), sorted by path: kept, never skipped.
+    pub decoded: Vec<GraphFactsScanDiagnostic>,
     pub files_skipped: u32,
     pub truncated: bool,
     pub scan_resume: Option<u32>,

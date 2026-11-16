@@ -181,7 +181,7 @@ async fn the_default_branch_is_looked_up_on_each_request() {
     for _ in 0..2 {
         let query = serde_json::from_value(json!({"operation":"tree","owner":"a","repo":"b"}))
             .expect("tree query");
-        let out = gh_structure::execute(&provider, &query, &context, &home)
+        let out = gh_structure::execute(&provider, &query, &context, &home, None)
             .await
             .expect("listing");
         assert_eq!(out.data["ref"], "main", "{}", out.data);
@@ -216,9 +216,9 @@ async fn concurrent_rows_on_one_commit_read_its_tree_independently() {
     };
     let (a, b, c) = (row(5), row(5), row(3));
     let (a, b, c) = tokio::join!(
-        gh_structure::execute(&provider, &a, &context, &home.0),
-        gh_structure::execute(&provider, &b, &context, &home.0),
-        gh_structure::execute(&provider, &c, &context, &home.0),
+        gh_structure::execute(&provider, &a, &context, &home.0, None),
+        gh_structure::execute(&provider, &b, &context, &home.0, None),
+        gh_structure::execute(&provider, &c, &context, &home.0, None),
     );
     for out in [a, b, c] {
         let out = out.expect("listing");

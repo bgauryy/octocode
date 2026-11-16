@@ -63,7 +63,7 @@ fn entry(head: &str, value: &Value, indent: &str, out: &mut Vec<String>) {
             out.push(format!("{head} |"));
             match numbered_lines(text).filter(|_| indent.is_empty()) {
                 Some(lines) => out.extend(lines.into_iter().map(str::to_owned)),
-                None => out.extend(text.split('\n').map(|line| format!("{inner}{line}"))),
+                None => out.extend(body_lines(text).map(|line| format!("{inner}{line}"))),
             }
         }
         Value::String(text) if text.is_empty() => out.push(format!("{head} \"\"")),
@@ -104,14 +104,16 @@ fn entry(head: &str, value: &Value, indent: &str, out: &mut Vec<String>) {
     }
 }
 
+/// The lines of a multi-line value as the layout prints them: a final line
+/// break ends the last line, so it starts no line of its own.
+fn body_lines(text: &str) -> std::str::Split<'_, char> {
+    text.strip_suffix('\n').unwrap_or(text).split('\n')
+}
+
 /// The lines of a value that is numbered source lines (`N<TAB>text`, the
 /// value's final line break ending its last line); `None` for any other.
 fn numbered_lines(text: &str) -> Option<Vec<&str>> {
-    let lines: Vec<&str> = text
-        .strip_suffix('\n')
-        .unwrap_or(text)
-        .split('\n')
-        .collect();
+    let lines: Vec<&str> = body_lines(text).collect();
     lines
         .iter()
         .all(|line| {

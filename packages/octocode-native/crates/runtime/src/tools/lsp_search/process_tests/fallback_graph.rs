@@ -150,6 +150,11 @@ fn fallback_graph_walk(
             )
             .collect(),
     );
+    config
+        .env
+        .as_mut()
+        .expect("env")
+        .insert("PATH".to_owned(), std::env::var("PATH").unwrap_or_default());
     let paths = crate::tools::test_support::workspace_policy(&root);
     let rows = tokio::runtime::Runtime::new().expect("rt").block_on(async {
         let client = NativeLspClient::new(config);

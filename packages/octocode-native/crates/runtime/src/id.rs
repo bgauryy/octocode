@@ -26,7 +26,7 @@ include!(concat!(env!("OUT_DIR"), "/tool_ids.rs"));
 /// which the output contract already rejects, is an execution failure.
 #[must_use]
 pub fn error_class(code: &str) -> error_codes::ErrorClass {
-    error_codes::parse(code).map_or(error_codes::ErrorClass::Execution, error_codes::class)
+    error_codes::parse(code).map_or(error_codes::ErrorClass::Unservable, error_codes::class)
 }
 
 /// The declared `errorCode` of a row's `data`; `None` when it has none (or
@@ -45,6 +45,18 @@ impl ToolId {
     #[must_use]
     pub fn from_name(name: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|id| id.as_str() == name)
+    }
+
+    /// The cross-tool calls this tool's served description promises as its
+    /// `related` output (artifactSearch: the advisory lead of an exact row).
+    /// The response stage keeps a promised call by that promise alone; a
+    /// contract-lock test pins each target to the producing description.
+    #[must_use]
+    pub(crate) const fn promised_links(self) -> &'static [Self] {
+        match self {
+            Self::ArtifactSearch => &[Self::SecurityCheck],
+            _ => &[],
+        }
     }
 
     /// A local-filesystem tool (honours local policy + allowed paths).
@@ -99,8 +111,9 @@ impl ToolId {
 
     /// The scope and unit of the selection receipt a classified row of this
     /// tool carries: the hits of one provider page
-    /// ([`Self::selects_provider_page`]), or the chunks of the view a reader
-    /// selects from; `None` for a tool whose rows are never classified.
+    /// ([`Self::selects_provider_page`]), the hits of a search's view, or the
+    /// chunks of the view a reader selects from; `None` for a tool whose rows
+    /// are never classified.
     #[must_use]
     pub(crate) const fn selection_receipt(
         self,
@@ -113,7 +126,12 @@ impl ToolId {
             return Some((SelectionScope::ProviderPage, SelectionUnit::Hits));
         }
         match self {
-            Self::LocalSearch | Self::LocalFetch | Self::GhGetFileContent => {
+            // A search's units are its hits (`local_search::selection`).
+            Self::LocalSearch => Some((SelectionScope::SelectedView, SelectionUnit::Hits)),
+            // A read's units are the hits of a search it follows, else the
+            // chunks of its view: a read that failed before choosing says
+            // the broader, chunks.
+            Self::LocalFetch | Self::GhGetFileContent => {
                 Some((SelectionScope::SelectedView, SelectionUnit::Chunks))
             }
             _ => None,

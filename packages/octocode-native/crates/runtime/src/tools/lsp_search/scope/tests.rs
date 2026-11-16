@@ -119,6 +119,7 @@ fn fingerprint_changes_on_edit_add_delete() {
         root: &root,
         server_root: Some(&root),
         include: &include,
+        cargo_caches_unloaded: false,
     };
     let scope = |stopped: &(dyn Fn() -> bool + Sync)| {
         fingerprint::fingerprint(&walked, SystemTime::now(), stopped)
@@ -163,6 +164,7 @@ fn fingerprint_changes_after_same_size_edit_with_restored_old_mtime() {
         root: &root,
         server_root: Some(&root),
         include: &include,
+        cargo_caches_unloaded: false,
     };
     let digest =
         || fingerprint::fingerprint(&walked, SystemTime::now(), &|| false).expect("fingerprint");
@@ -192,6 +194,7 @@ fn a_fingerprint_observed_at_one_instant_does_not_change_as_files_age() {
         root: &root,
         server_root: Some(&root),
         include: &include,
+        cargo_caches_unloaded: false,
     };
     let digest =
         |observed| fingerprint::fingerprint(&walked, observed, &|| false).expect("fingerprint");
@@ -221,6 +224,7 @@ fn concurrent_requests_own_their_fingerprint_walks() {
         root: &root,
         server_root: Some(&root),
         include: &include,
+        cargo_caches_unloaded: false,
     };
     let walked = (0..REQUESTS)
         .map(|_| AtomicUsize::new(0))
@@ -384,6 +388,7 @@ fn the_fingerprint_walks_ignored_files_only_under_the_server_root() {
         root: &root,
         server_root: Some(&server),
         include: &include,
+        cargo_caches_unloaded: false,
     };
     let (first, entries) =
         fingerprint::fingerprint(&scope, SystemTime::now(), &|| false).expect("fingerprint");
@@ -461,4 +466,42 @@ fn siblings_hold_files_of_the_anchors_language() {
         scope.siblings(),
         [canonical.join("b").to_string_lossy().into_owned()]
     );
+}
+
+/// Build scripts off, spelled nested (`cargo: {buildScripts: {enable}}`) or
+/// as the flat dotted key a configuration section lookup also finds, leaves
+/// the Cargo cache directories unloaded; anything else does not.
+#[test]
+fn cargo_caches_are_unloaded_for_either_spelling_of_build_scripts_off() {
+    let (_dir, root) = fixture();
+    write(&root.join("src/lib.rs"), "pub fn a() {}\n");
+    let unloaded = |language: &str, options: Option<serde_json::Value>| {
+        let scope = resolve(&root.join("src/lib.rs"), &root, &root, "rust");
+        let mut config = octocode_engine::lsp::types::LspLanguageServerConfig {
+            command: "rust-analyzer".into(),
+            args: None,
+            workspace_root: root.to_string_lossy().into_owned(),
+            language_id: Some(language.into()),
+            document_language_ids: Default::default(),
+            initialization_options: options,
+            env: None,
+            max_memory_mb: None,
+            source: Default::default(),
+        };
+        config.language_id = Some(language.into());
+        scope.serve_with(&config).cargo_caches_unloaded
+    };
+    let off = serde_json::json!({"cargo": {"buildScripts": {"enable": false}}});
+    let flat_off = serde_json::json!({"cargo.buildScripts.enable": false});
+    assert!(unloaded("rust", Some(off)));
+    assert!(unloaded("rust", Some(flat_off)));
+    assert!(!unloaded(
+        "rust",
+        Some(serde_json::json!({"cargo.buildScripts.enable": true}))
+    ));
+    assert!(!unloaded("rust", None));
+    assert!(!unloaded(
+        "python",
+        Some(serde_json::json!({"cargo.buildScripts.enable": false}))
+    ));
 }

@@ -47,7 +47,6 @@ fn bom_empty_anchors_and_scalar_boundaries_are_exact() {
     for bytes in [
         vec![0xff, 0xfe, 0, 0xd8],
         vec![0xfe, 0xff, 0xd8, 0],
-        vec![0xc0, 0xaf],
         vec![0xff, 0xfe, 0x41],
     ] {
         assert!(matches!(
@@ -125,4 +124,74 @@ fn admitted_digests_name_the_bytes_and_the_text() {
     let text = AdmittedSource::from_text("x");
     assert_eq!(text.source_digest(), None);
     assert_eq!(text.text_digest(), crate::digest::sha256(b"x"));
+}
+
+/// 8-bit text is admitted by the rule reads use: Latin-1 decodes one char per
+/// byte and each range maps back to the raw bytes; the warning is the
+/// engine's own sentence.
+#[test]
+fn latin1_source_is_admitted_and_maps_back_to_raw_bytes() {
+    let raw = b"fn caf\xe9() {}\nfn \xfc() {}\n";
+    let source = AdmittedSource::from_bytes(raw, "a.rs", &mut budget()).unwrap();
+    assert_eq!(source.text(), "fn caf\u{e9}() {}\nfn \u{fc}() {}\n");
+    assert_eq!(source.warning(), Some(crate::text::LATIN1_WARNING));
+    assert_eq!(source.snapshot.as_ref().unwrap().encoding, Encoding::Latin1);
+    let text = source.text();
+    let start = text.find("fn \u{fc}").unwrap();
+    let range = ByteRange::new(start as u32, (start + "fn \u{fc}".len()) as u32);
+    let OriginBranch::Transcoded(origin) = source.project(range).unwrap() else {
+        panic!("Latin-1 is transcoded");
+    };
+    assert_eq!(
+        &raw[origin.raw_range.start_byte as usize..origin.raw_range.end_byte as usize],
+        b"fn \xfc"
+    );
+    // A scalar is one byte: a position inside its two decoded bytes is no boundary.
+    assert!(
+        source
+            .project(ByteRange::new(start as u32 + 4, start as u32 + 4))
+            .is_err()
+    );
+}
+
+/// UTF-8 text with stray bytes keeps its characters and reads each stray run
+/// as one U+FFFD; every range maps back to the exact raw bytes.
+#[test]
+fn lossy_source_maps_replacement_runs_to_their_raw_bytes() {
+    let raw = b"let a = \"\xc3\xa9\"; \xff\xfe\nlet b = 1;\n\xc3(\n";
+    let source = AdmittedSource::from_bytes(raw, "a.rs", &mut budget()).unwrap();
+    // Each maximal invalid run is one replacement: `ff` and `fe` are two.
+    assert_eq!(
+        source.text(),
+        "let a = \"\u{e9}\"; \u{fffd}\u{fffd}\nlet b = 1;\n\u{fffd}(\n"
+    );
+    assert_eq!(source.warning(), Some(crate::text::LOSSY_WARNING));
+    assert_eq!(source.snapshot.as_ref().unwrap().encoding, Encoding::Lossy);
+    let text = source.text();
+    let raw_of = |needle: &str| {
+        let start = text.find(needle).unwrap();
+        let OriginBranch::Transcoded(origin) = source
+            .project(ByteRange::new(start as u32, (start + needle.len()) as u32))
+            .unwrap()
+        else {
+            panic!("lossy is transcoded");
+        };
+        &raw[origin.raw_range.start_byte as usize..origin.raw_range.end_byte as usize]
+    };
+    assert_eq!(raw_of("let b"), b"let b");
+    assert_eq!(raw_of("\u{fffd}\u{fffd}\nlet"), b"\xff\xfe\nlet");
+    assert_eq!(raw_of("\u{fffd}("), b"\xc3(");
+    assert_eq!(raw_of("\u{e9}"), b"\xc3\xa9");
+}
+
+/// The snapshot a source stores names its encoding, and an invalid byte
+/// length or BOM for it is refused like any other.
+#[test]
+fn legacy_snapshots_validate_like_utf8_ones() {
+    for bytes in [&b"caf\xe9\n"[..], &b"\xc3\xa9 \xff\n"[..]] {
+        let source = AdmittedSource::from_bytes(bytes, "a.rs", &mut budget()).unwrap();
+        let snapshot = source.snapshot.unwrap();
+        assert_eq!(snapshot.bom_bytes, 0);
+        assert!(!snapshot.encoding.is_utf16());
+    }
 }

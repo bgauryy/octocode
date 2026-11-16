@@ -25,6 +25,7 @@
 //! `extends` even when it names an interface. Later entries are always
 //! interfaces.
 
+use crate::signatures::node_kinds::kind_of;
 use tree_sitter::Node;
 
 use super::super::nodes::node_text;
@@ -73,7 +74,7 @@ pub(super) fn collect_heritage(
     from: &str,
 ) {
     let mut bases: Vec<(&'static str, Node<'_>)> = Vec::new();
-    match (Clauses::of(&acc.ext), node.kind()) {
+    match (Clauses::of(&acc.ext), kind_of(node)) {
         (Clauses::Rust, "impl_item") => {
             if let Some(trait_node) = node.child_by_field_name("trait") {
                 bases.push(("implements", trait_node));
@@ -93,12 +94,12 @@ pub(super) fn collect_heritage(
             if let Some(arguments) = node.child_by_field_name("superclasses") {
                 let mut cursor = arguments.walk();
                 for argument in arguments.named_children(&mut cursor) {
-                    let base = match argument.kind() {
+                    let base = match kind_of(argument) {
                         "identifier" | "attribute" => Some(argument),
                         // `Generic[T]`, `Base[int]`: the subscripted name.
                         "subscript" => argument
                             .child_by_field_name("value")
-                            .filter(|value| matches!(value.kind(), "identifier" | "attribute")),
+                            .filter(|value| matches!(kind_of(value), "identifier" | "attribute")),
                         _ => None,
                     };
                     if let Some(base) = base
@@ -128,7 +129,7 @@ pub(super) fn collect_heritage(
             let mut cursor = node.walk();
             let extends = node
                 .named_children(&mut cursor)
-                .find(|child| child.kind() == "extends_interfaces");
+                .find(|child| kind_of(child) == "extends_interfaces");
             if let Some(extends) = extends {
                 push_type_list(&mut bases, extends, "extends");
             }
@@ -137,11 +138,11 @@ pub(super) fn collect_heritage(
             let mut cursor = node.walk();
             let base_list = node
                 .named_children(&mut cursor)
-                .find(|child| child.kind() == "base_list");
+                .find(|child| kind_of(child) == "base_list");
             if let Some(base_list) = base_list {
                 let mut cursor = base_list.walk();
                 let types = base_list.named_children(&mut cursor).filter_map(|child| {
-                    match child.kind() {
+                    match kind_of(child) {
                         // `record R(int X) : Base(X)` names its base with arguments.
                         "primary_constructor_base_type" => child.child_by_field_name("type"),
                         "argument_list" | "comment" => None,
@@ -163,7 +164,7 @@ pub(super) fn collect_heritage(
             let mut cursor = node.walk();
             let clause = node
                 .named_children(&mut cursor)
-                .find(|child| child.kind() == "base_class_clause");
+                .find(|child| kind_of(child) == "base_class_clause");
             if let Some(clause) = clause {
                 push_children(&mut bases, clause, "extends", |kind| {
                     matches!(
@@ -260,7 +261,7 @@ fn push_children<'t>(
     bases.extend(
         parent
             .named_children(&mut cursor)
-            .filter(|child| accept(child.kind()))
+            .filter(|child| accept(kind_of(child)))
             .map(|child| (relation, child)),
     );
 }
@@ -274,7 +275,7 @@ fn push_type_list<'t>(
     let mut cursor = holder.walk();
     let list = holder
         .named_children(&mut cursor)
-        .find(|child| child.kind() == "type_list");
+        .find(|child| kind_of(child) == "type_list");
     if let Some(list) = list {
         push_children(bases, list, relation, is_java_type);
     }

@@ -21,6 +21,13 @@ impl Frame {
         ((fraction * canvas as f64 - offset as f64) / content as f64).clamp(0.0, 1.0)
     }
 
+    /// Whether the source fills the whole canvas (only scaled, never padded):
+    /// a canvas fraction is then already a fraction of the original.
+    fn fills_canvas(&self) -> bool {
+        (self.left, self.top, self.width, self.height)
+            == (0, 0, self.canvas_width, self.canvas_height)
+    }
+
     /// A provider `box` (fractions of the canvas) as fractions of the
     /// original image. `None` when the box lacks an edge or, once clamped
     /// into the image, has no area (it lay in the padding).
@@ -57,9 +64,10 @@ impl CapturedAssets {
             .map(String::as_str)
     }
 
-    /// Adds `sourceBox` to each box answer whose image was fitted: the
+    /// Adds `sourceBox` to each box answer whose image was padded: the
     /// provider's box mapped onto the original. Other answers, and boxes
-    /// whose image is unfitted or ambiguous, stay as the provider returned.
+    /// whose image is unfitted, only scaled (its `box` is already on the
+    /// original) or ambiguous, stay as the provider returned.
     pub(crate) fn attach_source_boxes(&self, questions: &[Value], answers: &mut [Value]) {
         for (question, answer) in questions.iter().zip(answers) {
             if answer["type"] != "box" {
@@ -68,6 +76,7 @@ impl CapturedAssets {
             let mapped = self
                 .image_of(question)
                 .and_then(|key| self.frames.get(key))
+                .filter(|frame| !frame.fills_canvas())
                 .and_then(|frame| frame.source_box(&answer["box"]));
             if let Some(mapped) = mapped {
                 answer["sourceBox"] = mapped;
@@ -192,6 +201,26 @@ mod tests {
                 "{question}"
             );
         }
+    }
+
+    /// An image only scaled into the window fills its canvas, so the
+    /// provider's box is already on the original: the answer states `box`
+    /// alone, never a `sourceBox` that repeats it.
+    #[test]
+    fn a_scaled_only_image_answers_its_box_alone() {
+        let mut scaled = assets(&["img"], &["img"]);
+        scaled.frames.insert(
+            "img".into(),
+            Frame {
+                canvas_width: 1568,
+                canvas_height: 1045,
+                left: 0,
+                top: 0,
+                width: 1568,
+                height: 1045,
+            },
+        );
+        assert_eq!(mapped(&scaled, "x")[1], answer());
     }
 
     #[test]

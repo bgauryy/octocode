@@ -48,6 +48,11 @@ pub(crate) trait ToolOutput: Sync {
         _removed: &[Value],
     ) {
     }
+
+    /// Remove from a classified row's `data` what only the judge read (a
+    /// listing's body), unless the query asked for it. Called on every
+    /// outcome of one row's selection: selected, failed or unavailable.
+    fn strip_judge_only(&self, _data: &mut Value, _query: &Value) {}
 }
 
 /// Keep, in each `tool` lead of `data` (`next` calls and `related[]`), only

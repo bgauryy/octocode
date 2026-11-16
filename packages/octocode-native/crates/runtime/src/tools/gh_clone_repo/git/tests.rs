@@ -1,7 +1,7 @@
 //! Limiter refusals of a git transfer: provider failures versus the caller's own stop.
-use super::admission::admission_error;
 use super::*;
 use crate::tools::gh_clone_repo::CloneFailure;
+use crate::tools::gh_git::admission::admission_error;
 use octocode_github::{ProviderError, ProviderErrorKind, RateLimit};
 
 fn limited(kind: ProviderErrorKind) -> ProviderError {

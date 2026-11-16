@@ -97,6 +97,7 @@ fn run_with_held_stderr(code: i32) -> (BoundedOutput, Duration, Duration) {
             "python3",
             timeout,
             1024,
+            None,
             Duration::ZERO,
             &NeverCancel,
         );

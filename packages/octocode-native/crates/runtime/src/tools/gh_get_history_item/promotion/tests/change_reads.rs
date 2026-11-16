@@ -37,6 +37,7 @@ fn change_reads_number_each_side_from_its_own_hunk_side() {
     let sides = ChangeSides {
         new_ref: Some("c0ffee"),
         old_ref: Some("parent1"),
+        needle: None,
     };
     let reads = change_reads("o", "r", std::slice::from_ref(&modified), &sides, |_| true);
     let names = reads.iter().map(|(name, _)| *name).collect::<Vec<_>>();
@@ -104,4 +105,43 @@ fn change_reads_number_each_side_from_its_own_hunk_side() {
         reads.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
         ["readAtCommit"]
     );
+}
+
+/// After a `matchString` the pick is the file with the most hits (not the
+/// most churn), and its windows cover the hunks that hold the literal only.
+#[test]
+fn a_literal_picks_the_most_hit_file_and_reads_its_hit_hunks() {
+    let request = HistoryItemRequest::from_row(json!({
+        "operation":"pullRequest","owner":"o","repo":"r","number":5,"matchString":["needle"]
+    }))
+    .expect("pr query");
+    let needle = request.matcher.as_deref();
+    let file = |name: &str, additions: u64, patch: &str| json!({"filename":name,"status":"modified","additions":additions,"deletions":1,"patch":patch});
+    // `a.rs` churns most and has one hit; `b.rs` has two hits, in its second hunk.
+    let files = [
+        file("src/a.rs", 50, "@@ -1,3 +1,3 @@\n a\n-x\n+needle\n c"),
+        file(
+            "src/b.rs",
+            2,
+            "@@ -1,3 +1,3 @@\n a\n-x\n+y\n c\n@@ -100,3 +100,4 @@\n a\n+needle one\n+needle two\n c",
+        ),
+    ];
+    let sides = ChangeSides {
+        new_ref: Some("head"),
+        old_ref: None,
+        needle,
+    };
+    let reads = change_reads("o", "r", &files, &sides, |_| true);
+    let row = &reads[0].1["input"]["queries"][0];
+    assert_eq!(row["path"], "src/b.rs", "{reads:?}");
+    let ranges = row["ranges"].as_array().expect("ranges");
+    assert_eq!(ranges.len(), 1, "only the hit hunk is read: {row}");
+    assert!(ranges[0]["startLine"].as_u64() >= Some(90), "{row}");
+    // Without the literal the most-changed file leads, over both hunks.
+    let sides = ChangeSides {
+        needle: None,
+        ..sides
+    };
+    let reads = change_reads("o", "r", &files, &sides, |_| true);
+    assert_eq!(reads[0].1["input"]["queries"][0]["path"], "src/a.rs");
 }

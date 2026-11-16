@@ -76,21 +76,6 @@ pub fn workspace_root_marker_names() -> impl Iterator<Item = &'static str> {
     WORKSPACE_ROOT_MARKERS.iter().map(|(marker, _)| *marker)
 }
 
-/// A source file inside `workspace_root` (in the language its project markers
-/// imply) to open so servers that need an open document before answering
-/// workspace-wide queries (tsserver: "No Project") have a project loaded.
-/// Prefers where the project's sources live — tsconfig/jsconfig `include`
-/// roots, then `src/` — so a root-level script outside the compiled project
-/// (`build.mjs`, `*.config.js`) does not become the representative and load
-/// an inferred project that knows none of the workspace symbols. Each search
-/// is a breadth-first walk that skips hidden, vendored, and build dirs.
-pub fn workspace_root_representative_source(workspace_root: &str) -> Option<String> {
-    let extension = workspace_root_languages(workspace_root)
-        .into_iter()
-        .next()?;
-    representative_source_for(workspace_root, extension)
-}
-
 /// Representative-source extensions (`.ts`, `.rs`, `.go`, `.py`) of every
 /// project marker at `workspace_root`, in server-selection order and
 /// deduplicated. The first is the language a root-only query uses; the rest
@@ -145,8 +130,15 @@ fn declares_language_workspace(root: &Path, family: &str) -> bool {
     }
 }
 
-/// [`workspace_root_representative_source`] for one language, as returned
-/// by [`workspace_root_languages`].
+/// A source file inside `workspace_root`, in one language its project
+/// markers imply (`extension`, as [`workspace_root_languages`] returns it),
+/// to open so servers that need an open document before answering
+/// workspace-wide queries (tsserver: "No Project") have a project loaded.
+/// Prefers where the project's sources live — tsconfig/jsconfig `include`
+/// roots, then `src/` — so a root-level script outside the compiled project
+/// (`build.mjs`, `*.config.js`) does not become the representative and load
+/// an inferred project that knows none of the workspace symbols. Each search
+/// is a breadth-first walk that skips hidden, vendored, and build dirs.
 #[must_use]
 pub fn representative_source_for(workspace_root: &str, extension: &str) -> Option<String> {
     let root = Path::new(workspace_root);

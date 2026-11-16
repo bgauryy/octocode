@@ -17,7 +17,9 @@ async fn a_provider_failure_fails_the_row_and_the_runtime_recovers() {
         .and(path("/v1/systemone"))
         .respond_with(move |request: &Request| {
             if counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
-                ResponseTemplate::new(401)
+                // 403, not 401: a rejected credential is remembered for a
+                // minute (`gate::AUTH_MEMO`), so a rerun would be refused.
+                ResponseTemplate::new(403)
             } else {
                 Typed.respond(request)
             }

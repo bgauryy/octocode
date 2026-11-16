@@ -2,8 +2,9 @@
 //! Nonempty success keeps evidence, warnings and required `next` calls, but
 //! drops advisory hints and related requests whose facts are already stated.
 //! Empty and failed rows keep actionable recovery. A related request carrying
-//! otherwise unstated identity, or explicitly required by a warning, remains
-//! part of the answer until its owning data states that fact directly.
+//! otherwise unstated identity, explicitly required by a warning, or reading
+//! more of an asked item remains part of the answer until its owning data
+//! states that fact directly.
 use crate::id::ToolId;
 use serde_json::{Map, Value};
 use std::collections::HashMap;
@@ -12,7 +13,13 @@ use std::collections::HashMap;
 /// dispatch boundary states empty/error outcomes in `status`; successful
 /// partial rows still carry their coverage in typed fields and warnings.
 /// No tool-specific result shape or response-size target decides this rule.
-pub fn retain_guidance(structured: &mut Value, request: &Value) {
+pub fn retain_guidance(tool: ToolId, structured: &mut Value, request: &Value) {
+    let asked = request["queries"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|row| crate::response::result::fresh_query_row(tool, row))
+        .collect::<Vec<_>>();
     let Some(rows) = structured.get_mut("results").and_then(Value::as_array_mut) else {
         return;
     };
@@ -29,7 +36,7 @@ pub fn retain_guidance(structured: &mut Value, request: &Value) {
         };
         let kept = related
             .into_iter()
-            .filter(|call| answers(data, request, call))
+            .filter(|call| answers(tool, data, request, call) || reads_more(tool, &asked, call))
             .collect::<Vec<_>>();
         if !kept.is_empty() {
             data.insert("related".to_owned(), Value::Array(kept));
@@ -37,18 +44,124 @@ pub fn retain_guidance(structured: &mut Value, request: &Value) {
     }
 }
 
-/// Whether `call` is part of the answer of the row `data`: it carries an
-/// identity neither the row nor its `request` states, or one the row's
-/// notes name.
-fn answers(data: &Map<String, Value>, request: &Value, call: &Value) -> bool {
+/// The only number-valued request fields that name an item. Every other
+/// number a schema declares selects a part (a line, a limit, a page) and is
+/// never an identity; a guard test walks every tool's schema.
+const IDENTITY_NUMBERS: [&str; 1] = ["number"];
+
+/// Whether `call` is part of the answer of the row `data`: someone already
+/// promised it (a note names its tool or the row's `related`, or the
+/// producing tool's description promises the link), it carries an identity
+/// neither the row nor its `request` states, or one the row's notes name.
+/// Anything else repeats facts the row states and is dropped.
+fn answers(tool: ToolId, data: &Map<String, Value>, request: &Value, call: &Value) -> bool {
     note_names_tool(data, call)
-        || carried_identities(call).into_iter().any(|identity| {
-            let exact = |text: &str| text == identity;
+        || note_names_related(data)
+        || promised_link(tool, call)
+        || carried_identities(call).iter().any(|identity| {
+            let exact = |text: &str| text == identity.as_str();
             !(holds(request, &exact) || stated(data, &|_| true, &exact))
                 || stated(data, &|key| NOTES.contains(&key), &|text| {
-                    text.contains(identity)
+                    mentions(text, identity)
                 })
         })
+}
+
+/// Whether `text` mentions `identity` as a whole: a digit-only one as a
+/// whole number (`#874`, not `1874`), any other between identifier or path
+/// boundaries (`o` is not in `no body`, `lib.rs` is in `src/lib.rs`).
+fn mentions(text: &str, identity: &str) -> bool {
+    if identity.is_empty() {
+        return false;
+    }
+    if identity.bytes().all(|byte| byte.is_ascii_digit()) {
+        return text
+            .split(|c: char| !c.is_ascii_digit())
+            .any(|number| number == identity);
+    }
+    let inside = |c: char| c.is_alphanumeric() || c == '_' || c == '-';
+    // A dot joins when a name runs on through it (`lib.rs.backup`), not as
+    // the full stop that ends a sentence.
+    let joined_after = |rest: &str| {
+        let mut chars = rest.chars();
+        match chars.next() {
+            Some('.') => chars.next().is_some_and(inside),
+            Some(c) => inside(c),
+            None => false,
+        }
+    };
+    let joined_before = |head: &str| {
+        let mut chars = head.chars().rev();
+        match chars.next() {
+            Some('.') => chars.next().is_some_and(inside),
+            Some(c) => inside(c),
+            None => false,
+        }
+    };
+    text.match_indices(identity).any(|(at, found)| {
+        let head = text.get(..at).unwrap_or_default();
+        let rest = text.get(at + found.len()..).unwrap_or_default();
+        !joined_before(head) && !joined_after(rest)
+    })
+}
+
+/// Whether `call` is a cross-tool link `tool`'s description promises (the
+/// tool states it: [`ToolId::promised_links`]).
+fn promised_link(tool: ToolId, call: &Value) -> bool {
+    call["tool"]
+        .as_str()
+        .is_some_and(|target| tool.promised_links().iter().any(|to| to.as_str() == target))
+}
+
+/// Whether `call` asks one of the `asked` items (this request's own rows,
+/// as fresh requests) for more of it: a call to the same tool each of whose
+/// rows is an asked row with its part selector (the list the contract
+/// enumerates, such as sections) changed or added and every other field as
+/// asked or left out, no identity of it dropped. That is the way to the rest of this
+/// answer; a call that changes any other field (the item, the operation, a
+/// view) asks another question.
+fn reads_more(tool: ToolId, asked: &[Value], call: &Value) -> bool {
+    call["tool"] == tool.as_str()
+        && call["input"]["queries"]
+            .as_array()
+            .filter(|rows| !rows.is_empty())
+            .is_some_and(|rows| {
+                rows.iter().all(|row| {
+                    let row = crate::response::result::fresh_query_row(tool, row);
+                    asked.iter().any(|asked| selects_more_of(tool, asked, &row))
+                })
+            })
+}
+
+/// Whether `row` is `asked` with other parts selected: it changes or adds a
+/// part selector, keeps every non-list field it holds as asked (its other
+/// lists, such as the `include` that narrows a `patches` read, ride along),
+/// and keeps each identity the asked row carries ([`carried_identities`]).
+fn selects_more_of(tool: ToolId, asked: &Value, row: &Value) -> bool {
+    let (Some(asked_fields), Some(fields)) = (asked.as_object(), row.as_object()) else {
+        return false;
+    };
+    let identities = serde_json::json!({"tool": tool.as_str(), "input": {"queries": [asked]}});
+    let selectors = enumerated(tool);
+    let selects = |field: &String, value: &Value| {
+        value.as_array().is_some_and(|items| {
+            selectors.get(field).is_some_and(|parts| {
+                items.iter().all(|item| {
+                    item.as_str()
+                        .is_some_and(|item| parts.iter().any(|p| p == item))
+                })
+            })
+        })
+    };
+    fields
+        .iter()
+        .any(|(field, value)| selects(field, value) && asked_fields.get(field) != Some(value))
+        && fields
+            .iter()
+            .all(|(field, value)| value.is_array() || asked_fields.get(field) == Some(value))
+        && carried_identities(&identities)
+            .into_iter()
+            .all(|identity| holds(row, &|text: &str| text == identity))
 }
 
 /// A note can promise a call by tool rather than by an item identity: its
@@ -61,29 +174,7 @@ fn note_names_tool(data: &Map<String, Value>, call: &Value) -> bool {
     let Some(tool) = call["tool"].as_str() else {
         return false;
     };
-    let names = |text: &str| {
-        text.split_whitespace().any(|word| {
-            word.trim_matches(|c| {
-                matches!(
-                    c,
-                    '`' | '\''
-                        | '"'
-                        | '('
-                        | ')'
-                        | '['
-                        | ']'
-                        | '{'
-                        | '}'
-                        | ','
-                        | '.'
-                        | ':'
-                        | ';'
-                        | '!'
-                        | '?'
-                )
-            }) == tool
-        })
-    };
+    let names = |text: &str| names_word(text, tool);
     stated(data, &|key| NOTES.contains(&key), &names)
         || data
             .get("diagnostics")
@@ -94,11 +185,46 @@ fn note_names_tool(data: &Map<String, Value>, call: &Value) -> bool {
             .any(names)
 }
 
+/// A warning or notice that sends the reader to `related` (or `related[]`)
+/// promises that row's own calls, whatever facts they repeat. Brackets trim
+/// away, so `related[]` is the same word.
+fn note_names_related(data: &Map<String, Value>) -> bool {
+    stated(data, &|key| NOTES.contains(&key), &|text| {
+        names_word(text, "related")
+    })
+}
+
+/// Whether `text` holds `name` as a standalone word.
+fn names_word(text: &str, name: &str) -> bool {
+    text.split_whitespace().any(|word| {
+        word.trim_matches(|c| {
+            matches!(
+                c,
+                '`' | '\''
+                    | '"'
+                    | '('
+                    | ')'
+                    | '['
+                    | ']'
+                    | '{'
+                    | '}'
+                    | ','
+                    | '.'
+                    | ':'
+                    | ';'
+                    | '!'
+                    | '?'
+            )
+        }) == name
+    })
+}
+
 /// Whether a text scalar satisfies `matches`: identities require equality,
 /// while a prose note can mention an identity inside a sentence.
 fn holds(value: &Value, matches: &impl Fn(&str) -> bool) -> bool {
     match value {
         Value::String(text) => matches(text),
+        Value::Number(number) => matches(&number.to_string()),
         Value::Array(items) => items.iter().any(|item| holds(item, matches)),
         Value::Object(map) => map.values().any(|item| holds(item, matches)),
         _ => false,
@@ -122,16 +248,11 @@ fn stated(
 
 /// The identities a call carries: each text value of its query rows that
 /// is no value its tool's schema enumerates for that property (an operation,
-/// a view), outside lists (literals, globs and sections select; they name no
+/// a view), and each number in an [`IDENTITY_NUMBERS`] field, outside lists (literals, globs and sections select; they name no
 /// item). Paths, refs, SHAs and advisory ids are what a dropped call could
 /// otherwise take away.
-pub fn carried_identities(call: &Value) -> Vec<&str> {
-    fn collect<'a>(
-        value: &'a Value,
-        field: &str,
-        named: Option<&Enumerated>,
-        out: &mut Vec<&'a str>,
-    ) {
+pub fn carried_identities(call: &Value) -> Vec<String> {
+    fn collect(value: &Value, field: &str, named: Option<&Enumerated>, out: &mut Vec<String>) {
         match value {
             Value::String(text)
                 if !text.is_empty()
@@ -139,7 +260,10 @@ pub fn carried_identities(call: &Value) -> Vec<&str> {
                         .and_then(|fields| fields.get(field))
                         .is_some_and(|values| values.contains(text)) =>
             {
-                out.push(text);
+                out.push(text.clone());
+            }
+            Value::Number(number) if IDENTITY_NUMBERS.contains(&field) => {
+                out.push(number.to_string());
             }
             Value::Object(map) => map
                 .iter()

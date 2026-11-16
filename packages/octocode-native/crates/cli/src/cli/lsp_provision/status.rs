@@ -35,12 +35,14 @@ pub(super) fn run_status(
     let problems =
         octocode_engine::lsp::config::route_problems(path, config.as_ref(), &workspace, discovery);
     let effective = config.as_ref().map(effective_invocation);
-    let (server_available, probe_error) =
-        match config.as_ref().map(|c| is_command_available(&c.command)) {
-            Some(Ok(available)) => (available, None),
-            Some(Err(error)) => (false, Some(error)),
-            None => (false, None),
-        };
+    let (server_available, probe_error) = match config
+        .as_ref()
+        .map(|c| is_command_available(&c.command, &c.env.clone().unwrap_or_default()))
+    {
+        Some(Ok(available)) => (available, None),
+        Some(Err(error)) => (false, Some(error)),
+        None => (false, None),
+    };
     let server_command: Option<String> = config.map(|c| c.command);
     let lang = language_id.as_deref().unwrap_or("unknown");
 

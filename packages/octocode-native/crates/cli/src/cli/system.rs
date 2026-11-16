@@ -8,7 +8,7 @@ use octocode_contract_types::ErrorCode;
 use octocode_native::providers::github::StoredCredentials;
 use octocode_native::response::exit::ExitClass;
 use octocode_native::runtime::{
-    AuthStatus, FailureKind, LoginPlan, LoginTarget, ToolRuntime, Verification,
+    AuthStatus, ErrorClass, LoginPlan, LoginTarget, ToolRuntime, Verification,
 };
 use serde_json::json;
 
@@ -42,7 +42,7 @@ pub async fn auth_status(runtime: &ToolRuntime, json_out: bool) -> u8 {
         quota,
     } = &status;
     // Not authenticated is the documented auth exit (4), whatever the mode.
-    let unauthenticated = super::exit_code(ExitClass::Failed(FailureKind::Authentication));
+    let unauthenticated = super::exit_code(ExitClass::Failed(ErrorClass::Refused));
     if json_out {
         let written = write_json(&json!({
             "authenticated": verification.authenticated(),

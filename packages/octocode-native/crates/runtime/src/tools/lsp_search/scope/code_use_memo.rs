@@ -50,7 +50,7 @@ pub(super) fn kept_or_read(
         }
     }
     #[cfg(test)]
-    reads::note(Path::new(file));
+    READS.note(Path::new(file));
     let uses = read()?;
     let settled = meta
         .as_ref()
@@ -65,27 +65,4 @@ pub(super) fn kept_or_read(
 
 /// Test-only count of the times each file was read for its answer.
 #[cfg(test)]
-pub(super) mod reads {
-    use std::collections::HashMap;
-    use std::path::{Path, PathBuf};
-    use std::sync::{LazyLock, Mutex, PoisonError};
-
-    static READS: LazyLock<Mutex<HashMap<PathBuf, usize>>> = LazyLock::new(Mutex::default);
-
-    pub(in super::super) fn note(path: &Path) {
-        *READS
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .entry(path.to_path_buf())
-            .or_default() += 1;
-    }
-
-    pub(in super::super) fn of(path: &Path) -> usize {
-        READS
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(path)
-            .copied()
-            .unwrap_or(0)
-    }
-}
+pub(super) static READS: super::path_counter::PathCounter = super::path_counter::PathCounter::new();

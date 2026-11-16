@@ -1,6 +1,7 @@
 //! Test declaration adapters. GoogleTest needs a direct framework include;
 //! the model observes syntax and does not evaluate conditional preprocessing.
 
+use crate::signatures::node_kinds::kind_of;
 use tree_sitter::Node;
 
 use crate::graph::{GraphTestIdentity, GraphTestKind};
@@ -14,7 +15,7 @@ pub(super) struct TestContext {
 
 impl TestContext {
     pub(super) fn observe(&mut self, node: Node<'_>, source: &str) {
-        match node.kind() {
+        match kind_of(node) {
             "preproc_include" => {
                 if let Some(path) = node
                     .child_by_field_name("path")
@@ -76,7 +77,7 @@ pub(super) fn test_identity<'t>(
     name: Node<'t>,
     context: &TestContext,
 ) -> Option<(GraphTestIdentity, Node<'t>)> {
-    if extension == "rs" && node.kind() == "function_item" && has_test_attribute(node, source) {
+    if extension == "rs" && kind_of(node) == "function_item" && has_test_attribute(node, source) {
         return Some((
             GraphTestIdentity::Rust {
                 name: node_text(name, source)?.to_owned(),
@@ -96,7 +97,7 @@ pub(super) fn test_identity<'t>(
         _ => return None,
     };
     if context.overridden.contains(macro_name)
-        || node.kind() != "function_definition"
+        || kind_of(node) != "function_definition"
         || node.child_by_field_name("type").is_some()
         || node.child_by_field_name("body").is_none()
     {
@@ -112,17 +113,17 @@ pub(super) fn test_identity<'t>(
     let mut cursor = parameters.walk();
     let arguments: Vec<_> = parameters
         .named_children(&mut cursor)
-        .filter(|child| child.kind() != "comment")
+        .filter(|child| kind_of(child) != "comment")
         .collect();
     let [suite, test] = arguments.as_slice() else {
         return None;
     };
     let plain = |node: Node<'t>| {
-        if node.kind() != "parameter_declaration" || node.named_child_count() != 1 {
+        if kind_of(node) != "parameter_declaration" || node.named_child_count() != 1 {
             return None;
         }
         node.child_by_field_name("type")
-            .filter(|name| name.kind() == "type_identifier")
+            .filter(|name| kind_of(name) == "type_identifier")
     };
     let suite = plain(*suite)?;
     let test = plain(*test)?;
@@ -140,14 +141,14 @@ pub(super) fn test_identity<'t>(
 fn has_test_attribute(node: Node<'_>, source: &str) -> bool {
     let mut previous = node.prev_named_sibling();
     while let Some(attribute) = previous {
-        match attribute.kind() {
+        match kind_of(attribute) {
             "attribute_item" => {
                 let mut cursor = attribute.walk();
                 if attribute.named_children(&mut cursor).any(|inner| {
-                    inner.kind() == "attribute"
+                    kind_of(inner) == "attribute"
                         && inner.named_child_count() == 1
                         && inner.named_child(0).is_some_and(|name| {
-                            name.kind() == "identifier" && node_text(name, source) == Some("test")
+                            kind_of(name) == "identifier" && node_text(name, source) == Some("test")
                         })
                 }) {
                     return true;

@@ -18,7 +18,7 @@ pub mod uri;
 pub(crate) mod validation;
 pub mod workspace;
 
-pub use transport::with_caller_deadline;
+pub use transport::{lookup_section, with_caller_deadline};
 
 /// Largest source the LSP layer reads, synchronizes (`didOpen`), resolves
 /// anchors in, or cuts snippets from. One bound for every path so they cannot

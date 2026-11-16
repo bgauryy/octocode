@@ -16,6 +16,7 @@
 //! one, so the fact is omitted rather than guessed. Java, C# and C++ fall back
 //! from an unbound bare name to a field of the enclosing class.
 
+use crate::signatures::node_kinds::kind_of;
 use std::collections::HashMap;
 
 use tree_sitter::Node;
@@ -84,7 +85,7 @@ impl Lang {
             Self::CSharp => ("member_access_expression", "expression", "name"),
             Self::Cpp => ("field_expression", "argument", "field"),
         };
-        (node.kind() == kind).then_some(())?;
+        (kind_of(node) == kind).then_some(())?;
         Some((
             node.child_by_field_name(object)?,
             node.child_by_field_name(member)?,
@@ -93,10 +94,12 @@ impl Lang {
 
     fn is_self(self, node: Node<'_>, content: &str) -> bool {
         match self {
-            Self::Rust => node.kind() == "self",
-            Self::Python => node.kind() == "identifier" && node_text(node, content) == Some("self"),
+            Self::Rust => kind_of(node) == "self",
+            Self::Python => {
+                kind_of(node) == "identifier" && node_text(node, content) == Some("self")
+            }
             Self::Java | Self::CSharp | Self::Cpp => {
-                matches!(node.kind(), "this" | "this_expression")
+                matches!(kind_of(node), "this" | "this_expression")
             }
             Self::Go => false,
         }
@@ -153,10 +156,10 @@ impl<'t> ReceiverTypes<'t> {
     ) -> Option<String> {
         let lang = self.lang;
         let function = if lang == Lang::Java {
-            (call.kind() == "method_invocation").then_some(call)?
+            (kind_of(call) == "method_invocation").then_some(call)?
         } else {
             let function = call.child_by_field_name("function")?;
-            if function.kind() == "generic_function" {
+            if kind_of(function) == "generic_function" {
                 function.child_by_field_name("function")?
             } else {
                 function
@@ -186,7 +189,7 @@ impl<'t> ReceiverTypes<'t> {
         if constructed.is_some() {
             return constructed;
         }
-        if receiver.kind() == "identifier" {
+        if kind_of(receiver) == "identifier" {
             let name = node_text(receiver, content)?;
             if matches!(name, "self" | "this") {
                 return None;
@@ -203,7 +206,7 @@ impl<'t> ReceiverTypes<'t> {
         if lang.is_self(object, content) {
             return self.enclosing_field(path, member, content, false);
         }
-        if lang == Lang::Go && object.kind() == "identifier" {
+        if lang == Lang::Go && kind_of(object) == "identifier" {
             let owner = self
                 .local(object, path, node_text(object, content)?, content)?
                 .ty
@@ -226,7 +229,7 @@ impl<'t> ReceiverTypes<'t> {
     ) -> Option<&Binding> {
         let position = at.start_byte();
         for &node in path.iter().rev() {
-            if self.lang.is_function(node.kind()) {
+            if self.lang.is_function(kind_of(node)) {
                 let found = self
                     .bindings_of(node, content)
                     .iter()
@@ -282,7 +285,7 @@ fn named_children(node: Node<'_>) -> Vec<Node<'_>> {
 
 /// Index of the last node in `path` whose kind is in `kinds`.
 fn nearest(path: &[Node<'_>], kinds: &[&str]) -> Option<usize> {
-    path.iter().rposition(|node| kinds.contains(&node.kind()))
+    path.iter().rposition(|node| kinds.contains(&kind_of(node)))
 }
 
 /// The nearest ancestor of `node` whose kind is in `kinds`, found in one
@@ -291,7 +294,7 @@ fn ancestor<'t>(root: Node<'t>, node: Node<'t>, kinds: &[&str]) -> Option<Node<'
     let mut nearest = None;
     let mut current = root;
     while current.id() != node.id() {
-        if kinds.contains(&current.kind()) {
+        if kinds.contains(&kind_of(current)) {
             nearest = Some(current);
         }
         current = current.child_with_descendant(node)?;
@@ -338,7 +341,7 @@ impl<'t> Up<'_, 't> {
             .path
             .iter()
             .rev()
-            .find(|node| kinds.contains(&node.kind()))
+            .find(|node| kinds.contains(&kind_of(*node)))
         {
             return Some(*found);
         }

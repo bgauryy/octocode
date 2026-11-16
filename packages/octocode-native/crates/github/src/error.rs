@@ -170,6 +170,17 @@ pub struct ProviderError {
 }
 
 impl ProviderError {
+    /// The declared `errorCode` this failure reports: its kind's, except a
+    /// reason that names a content class of its own. Binary content is the
+    /// code localFetch refuses the same bytes with, not a malformed request.
+    #[must_use]
+    pub const fn code(&self) -> ErrorCode {
+        match self.reason {
+            Some(ProviderErrorReason::BinaryFile) => ErrorCode::BinaryFileUnsupported,
+            _ => self.kind.code(),
+        }
+    }
+
     pub fn new(kind: ProviderErrorKind, message: impl Into<String>) -> Self {
         Self {
             kind,

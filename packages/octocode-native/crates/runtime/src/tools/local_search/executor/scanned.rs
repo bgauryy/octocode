@@ -1,6 +1,7 @@
 //! The scan a page is cut from: the walk planned and run, or a stored scan
 //! reused once it is proved to answer the query.
 mod options;
+pub(crate) mod streamed;
 
 #[cfg(test)]
 pub(crate) use options::{JUDGED_PATHS, test_held_limit};
@@ -18,7 +19,7 @@ use crate::policy::prune::DefaultsFlag;
 use crate::response::result::ToolError;
 use octocode_contract_types::{ErrorCode, LocalSearchQuery};
 use octocode_engine::search::text_search::{Pause, SearchWindow, Windowed, search_window};
-use octocode_engine::types::{SearchSort, TextSearchOptions};
+use octocode_engine::types::TextSearchOptions;
 use std::sync::Arc;
 
 /// A scan with what every later stage needs from it.
@@ -49,6 +50,9 @@ pub(crate) struct Scanned {
     pub(crate) paused: Option<Pause>,
     /// A stored scan read by page; `parsed` holds only its stats then.
     pub(crate) seek: Option<Arc<super::super::packed::Packed>>,
+    /// `parsed` holds the files a traversal stream read for this page, not
+    /// the scope ([`streamed`]); it stores nothing.
+    pub(crate) stream: Option<streamed::StreamFacts>,
 }
 
 /// [`scan_resumed`] of a query that resumes no paused search.
@@ -86,21 +90,12 @@ pub(crate) fn scan_resumed(
     let validated = search_root(query, paths)?;
     let keep = crate::tools::test_code::Keep::of(local_search_query::test_code(query));
     let base = search_options(query, &validated.canonical);
-    // A relevance sort ranks test code after source by the same verdict a
-    // `testCode` scope keeps by: a module mounted only under test is test
-    // code, whatever its file is named.
-    let ranks = base.sort == SearchSort::Relevance;
-    let verdicts = (keep.is_some() || ranks)
-        .then(|| Arc::new(crate::tools::test_code::TestCodeIndex::new(paths)));
+    let verdicts = keep.map(|_| Arc::new(crate::tools::test_code::TestCodeIndex::new(paths)));
     let options = TextSearchOptions {
         terms,
         test_code: keep
             .zip(verdicts.clone())
             .map(|(keep, index)| crate::tools::test_code::text_scope(keep, index)),
-        test_code_rank: verdicts
-            .clone()
-            .filter(|_| ranks)
-            .map(crate::tools::test_code::text_rank),
         // Each file is judged at the sizes a read of it is.
         judge: Some(judge(limits)),
         ..base
@@ -114,6 +109,55 @@ pub(crate) fn scan_resumed(
     // names the same root relative to the workspace cuts the same pages.
     let page_budget = crate::response::page_windows::page_budget(response_window);
     let query_key = query_key(query, &validated.canonical, page_budget);
+    if streamed::streams(query) {
+        let output_root = if validated.canonical.is_file() {
+            validated.canonical.parent().unwrap_or(&validated.canonical)
+        } else {
+            validated.canonical.as_path()
+        };
+        let ScanOutput {
+            mut parsed,
+            skipped,
+            walked,
+            stream,
+            ..
+        } = streamed::scan_stream(
+            query,
+            paths,
+            options,
+            cancel,
+            (&query_key, output_root, page_budget),
+        )?;
+        if let Some(verdicts) = verdicts.as_ref() {
+            disclose_unread(&mut parsed.stats, &verdicts.unread());
+        }
+        if parsed.files.is_empty()
+            && parsed.stats.files_searched.unwrap_or(0) == 0
+            && parsed.stats.error_count.unwrap_or(0) > 0
+        {
+            return Err(unreadable_scope(&parsed.stats));
+        }
+        let identity = fingerprint(&query_key, &parsed.files, &parsed.stats);
+        return Ok(Scanned {
+            validated,
+            parsed,
+            digests: None,
+            page_budget,
+            identity,
+            query_key,
+            stored_redaction: None,
+            learned: Arc::default(),
+            // A whole walk that found nothing offers what it searched, to
+            // the readings of the miss ([`Alternates`]).
+            reusable: walked,
+            search_options,
+            policy_key,
+            skipped,
+            paused: None,
+            seek: None,
+            stream,
+        });
+    }
     let window = super::super::window::window(query, resumed, (&query_key, &policy_key), cancel);
     let ScanOutput {
         mut parsed,
@@ -123,14 +167,12 @@ pub(crate) fn scan_resumed(
         mut walked,
         paused,
         seek,
+        ..
     } = scan_in(query, paths, options, &policy_key, cancel, window)?;
     // What a `testCode` scope's verdicts read, a parent module outside this
     // root too, proves a stored scan as the walk's ignore inputs do, past what
-    // the walk already stamps. A relevance rank alone decides no row's
-    // membership: the stored scan keeps the order its pages were cut in.
-    if let (Some(walked), Some(verdicts)) =
-        (&mut walked, verdicts.as_ref().filter(|_| keep.is_some()))
-    {
+    // the walk already stamps.
+    if let (Some(walked), Some(verdicts)) = (&mut walked, verdicts.as_ref()) {
         let stamped = walked
             .entries
             .iter()
@@ -144,7 +186,7 @@ pub(crate) fn scan_resumed(
     }
     // A verdict that needed a file it could not read is unproven: the row
     // says so as for any other path it could not read.
-    if let Some(verdicts) = verdicts.as_ref().filter(|_| keep.is_some()) {
+    if let Some(verdicts) = verdicts.as_ref() {
         disclose_unread(&mut parsed.stats, &verdicts.unread());
     }
     // A stored scan was stored under the snapshot derived from its query
@@ -183,6 +225,7 @@ pub(crate) fn scan_resumed(
         skipped,
         paused,
         seek,
+        stream: None,
     })
 }
 
@@ -230,6 +273,8 @@ pub(crate) struct ScanOutput {
     pub(crate) paused: Option<Pause>,
     /// A stored scan read by page (see [`Scanned::seek`]).
     pub(crate) seek: Option<Arc<super::super::packed::Packed>>,
+    /// A traversal stream's place in the walk (see [`Scanned::stream`]).
+    pub(crate) stream: Option<streamed::StreamFacts>,
 }
 
 /// What a stored scan's fresh page derived from it.
@@ -323,18 +368,7 @@ pub(crate) fn scan_in(
             &|| cancel.check().is_err(),
             window,
         )
-        .map_err(|error| {
-            // A malformed glob or file type is caller input.
-            let code = match error.kind() {
-                octocode_engine::error::ErrorKind::InvalidInput => ErrorCode::InvalidInput,
-                octocode_engine::error::ErrorKind::InvalidGlob => ErrorCode::InvalidGlob,
-                octocode_engine::error::ErrorKind::ResourceExhausted => {
-                    return held_past_budget(query, &error, root.is_file());
-                }
-                _ => ErrorCode::ExecutionFailed,
-            };
-            ToolError::new(code, error.to_string())
-        })?;
+        .map_err(|error| engine_error(query, &error, root.is_file()))?;
         let skipped = Arc::new(walk.skipped());
         match windowed {
             Windowed::Whole(parsed) => (parsed, None, skipped, None, Some(recorder.walked()), None),
@@ -368,7 +402,27 @@ pub(crate) fn scan_in(
         walked,
         paused,
         seek,
+        stream: None,
     })
+}
+
+/// A failed search as the tool reports it: a malformed glob or file type is
+/// caller input; a scan past the held bound is refused with the calls that
+/// answer within it.
+pub(crate) fn engine_error(
+    query: &LocalSearchQuery,
+    error: &octocode_engine::error::Error,
+    one_file: bool,
+) -> ToolError {
+    let code = match error.kind() {
+        octocode_engine::error::ErrorKind::InvalidInput => ErrorCode::InvalidInput,
+        octocode_engine::error::ErrorKind::InvalidGlob => ErrorCode::InvalidGlob,
+        octocode_engine::error::ErrorKind::ResourceExhausted => {
+            return held_past_budget(query, error, one_file);
+        }
+        _ => ErrorCode::ExecutionFailed,
+    };
+    ToolError::new(code, error.to_string())
 }
 
 /// Whether a stored scan can serve `query`'s page. A whole scan is cut

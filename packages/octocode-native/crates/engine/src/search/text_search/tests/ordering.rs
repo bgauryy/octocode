@@ -24,16 +24,9 @@ fn sorting_an_unordered_record_set_is_deterministic() {
             path: path.to_owned(),
             entry: FileEntry::new(),
             matched_lines: 1,
-            rank_lines: 1,
-            rank_submatches: 1,
             submatches: 1,
             om_matches: Vec::new(),
             sort_time: None,
-            line_weight: 0,
-            demoted: false,
-            generated: false,
-            declares: false,
-            covered: 0,
             source: None,
             not_utf8: false,
             utf8_bom: false,
@@ -85,15 +78,6 @@ fn traversal_sort_output_is_stable_across_runs() {
 }
 
 #[test]
-fn explicit_traversal_sort_bypasses_post_collection_sorting() {
-    let mut o = opts("/fixture".to_owned(), "m");
-    o.sort = SearchSort::Traversal;
-    assert!(preserves_traversal_order(&o));
-    o.sort = SearchSort::Path;
-    assert!(!preserves_traversal_order(&o));
-}
-
-#[test]
 fn match_count_order_ranks_the_most_matched_file_first_and_keeps_every_file() {
     let t = TmpDir::new();
     for i in 0..30 {
@@ -136,4 +120,54 @@ fn aggregate_totals_saturate_instead_of_overflowing() {
     assert_eq!(r.stats.match_count, Some(u32::MAX));
     assert_eq!(r.stats.matched_lines, Some(u32::MAX));
     assert_eq!(r.stats.files_matched, Some(2));
+}
+
+/// Traversal is the walk order structureSearch uses: siblings by name,
+/// depth first, so full paths compare component by component. It is not the
+/// string order `path` sorts by (`a-b/y` and `a.c` before `a/x`), and it does
+/// not depend on how many workers searched.
+#[test]
+fn traversal_is_path_component_order_whatever_the_worker_count() {
+    let t = TmpDir::new();
+    for file in ["a/x", "a-b/y", "a.c", "B", "a/z/1"] {
+        t.write(file, "needle\n");
+    }
+    let run = |sort: SearchSort| {
+        let mut o = opts(t.path(), "needle");
+        o.sort = sort;
+        search(o)
+            .expect("ok")
+            .files
+            .into_iter()
+            .map(|f| f.path)
+            .collect::<Vec<_>>()
+    };
+    let cores = crate::cpu::host().cores();
+    let mut orders = vec![run(SearchSort::Traversal)];
+    // Every other core busy: the walk takes one thread.
+    let busy = (1..cores)
+        .map(|_| crate::cpu::host().enter())
+        .collect::<Vec<_>>();
+    orders.push(run(SearchSort::Traversal));
+    drop(busy);
+    let mut expected = orders[0].clone();
+    expected.sort_by(|a, b| Path::new(a).cmp(Path::new(b)));
+    for order in &orders {
+        assert_eq!(order, &expected);
+    }
+    let names = expected
+        .iter()
+        .map(|path| {
+            path.strip_prefix(&t.path())
+                .unwrap_or(path)
+                .trim_start_matches('/')
+                .to_owned()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["B", "a/x", "a/z/1", "a-b/y", "a.c"]);
+    assert_ne!(
+        orders[0],
+        run(SearchSort::Path),
+        "path keeps the string order"
+    );
 }

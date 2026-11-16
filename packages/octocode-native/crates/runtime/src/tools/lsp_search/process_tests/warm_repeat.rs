@@ -89,6 +89,11 @@ fn repeated_references_ask_again_and_read_each_file_once() {
         .into_iter()
         .collect(),
     );
+    server
+        .env
+        .as_mut()
+        .expect("env")
+        .insert("PATH".to_owned(), std::env::var("PATH").unwrap_or_default());
     let paths = crate::tools::test_support::workspace_policy(&root);
     let path = root.join("a.ts").to_string_lossy().into_owned();
     let uri = octocode_engine::lsp::uri::path_to_uri(&path).expect("uri");

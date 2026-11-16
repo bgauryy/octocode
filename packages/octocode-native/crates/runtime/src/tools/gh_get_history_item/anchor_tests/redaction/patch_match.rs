@@ -1,8 +1,8 @@
-//! Patch matching preserves complete, redacted discussion.
+//! `matchString` runs on redacted text: patches and discussion bodies alike.
 use super::*;
 
-/// A patch `matchString` inside a secret finds no file: matching runs on
-/// redacted patches, while independent discussion stays complete and redacted.
+/// A `matchString` inside a secret finds no file and no comment: matching
+/// runs on the redacted patches and bodies, so it never confirms a secret.
 #[tokio::test]
 async fn a_match_string_inside_a_secret_matches_nothing() {
     let server = MockServer::builder().start().await;
@@ -45,7 +45,7 @@ async fn a_match_string_inside_a_secret_matches_nothing() {
     )
     .await;
     let comments = out["pullRequests"][0]["comments"].as_array();
-    assert_eq!(comments.map(Vec::len), Some(2), "{out}");
+    assert_eq!(comments.map(Vec::len), Some(0), "{out}");
     let files = out["pullRequests"][0]["files"].as_array();
     assert!(files.is_none_or(Vec::is_empty), "{out}");
     assert!(!leaks(&out.to_string()), "{out}");

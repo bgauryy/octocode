@@ -5,13 +5,12 @@ use crate::support::Workspace;
 use serde_json::json;
 use std::time::Duration;
 
-/// Targeted prewarm uses internal search candidates before public advice is
-/// removed, so a following lookup still finds its language server warm.
-#[test]
-fn targeted_prewarm_starts_the_matched_source_server_before_a_following_lookup() {
+/// A workspace with one TypeScript file whose language server is a script
+/// that writes a marker file when it starts, and a `targeted` server over it.
+fn marker_server() -> (Server, std::path::PathBuf, std::path::PathBuf, Workspace) {
     use std::os::unix::fs::PermissionsExt;
     let workspace = Workspace::new();
-    let root = &workspace.workspace;
+    let root = workspace.workspace.clone();
     std::fs::write(root.join("package.json"), "{}\n").unwrap();
     std::fs::write(root.join("a.ts"), "export function target() {}\n").unwrap();
     let marker = root.join("server-started");
@@ -41,39 +40,77 @@ fn targeted_prewarm_starts_the_matched_source_server_before_a_following_lookup()
                "clientInfo": {"name": "test", "version": "1"}}),
     );
     server.send(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+    (server, marker, root, workspace)
+}
+
+/// One localSearch over `root`, answered as its evidence JSON.
+fn search(
+    server: &mut Server,
+    root: &std::path::Path,
+    query: serde_json::Value,
+) -> serde_json::Value {
+    let mut query = query;
+    query["path"] = json!(root.to_string_lossy());
     let found = server.request(
         "tools/call",
-        json!({"name": "localSearch", "arguments": {"queries": [{
-            "path": root.to_string_lossy(), "matchString": ["target"]
-        }]}}),
+        json!({"name": "localSearch", "arguments": {"queries": [query]}}),
     );
-    let evidence: serde_json::Value = serde_json::from_str(
+    serde_json::from_str(
         found["result"]["content"][0]["text"]
             .as_str()
             .expect("tool text"),
     )
-    .expect("tool JSON");
-    let data = &evidence["results"][0]["data"];
-    assert_eq!(data["files"][0]["path"], "a.ts", "{evidence}");
-    assert_eq!(
-        data["files"][0]["matches"][0]["value"], "export function target() {}",
-        "{evidence}"
-    );
-    assert!(
-        !data["related"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|call| call["tool"] == "lspSearch"),
-        "{evidence}"
-    );
-    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    .expect("tool JSON")
+}
+
+fn started_within(marker: &std::path::Path, wait: Duration) -> bool {
+    let deadline = std::time::Instant::now() + wait;
     while !marker.exists() && std::time::Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(50));
     }
+    marker.exists()
+}
+
+fn serves_lsp_lead(evidence: &serde_json::Value) -> bool {
+    evidence["results"][0]["data"]["related"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|call| call["tool"] == "lspSearch")
+}
+
+/// Targeted prewarm follows the response the agent receives: a lead the
+/// response stage stripped (the matched symbol is already stated by the
+/// request) has no visible cause, so it starts no language server.
+#[test]
+fn a_stripped_lead_starts_no_language_server() {
+    let (mut server, marker, root, _workspace) = marker_server();
+    let evidence = search(&mut server, &root, json!({"matchString": ["target"]}));
+    let data = &evidence["results"][0]["data"];
+    assert_eq!(data["files"][0]["path"], "a.ts", "{evidence}");
+    assert!(!serves_lsp_lead(&evidence), "{evidence}");
     assert!(
-        marker.exists(),
-        "the matched a.ts server starts before any lspSearch"
+        !started_within(&marker, Duration::from_secs(3)),
+        "no lspSearch lead is served, so no server starts"
+    );
+    assert!(server.finish().success());
+}
+
+/// Positive control: a served lspSearch lead (the symbol it names is not
+/// stated by the request, which names it after a declaration keyword) starts its server before any
+/// lspSearch call.
+#[test]
+fn a_served_lead_starts_its_language_server_before_a_following_lookup() {
+    let (mut server, marker, root, _workspace) = marker_server();
+    let evidence = search(
+        &mut server,
+        &root,
+        json!({"matchString": ["function target"]}),
+    );
+    assert!(serves_lsp_lead(&evidence), "{evidence}");
+    assert!(
+        started_within(&marker, Duration::from_secs(3)),
+        "the served lead's server starts"
     );
     assert!(server.finish().success());
 }

@@ -4,7 +4,6 @@ mod cut;
 mod files;
 mod listing;
 mod memo;
-mod output;
 mod probe;
 mod selected;
 use crate::response::result::Continuation;
@@ -332,5 +331,5 @@ fn execute_structure_within(
             budget,
         ),
     }
-    .map(output::finish)
+    .map(crate::response::result::finished)
 }

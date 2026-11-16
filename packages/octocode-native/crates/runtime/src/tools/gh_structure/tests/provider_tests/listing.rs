@@ -23,6 +23,7 @@ async fn listing_paths_are_normalized_and_escapes_rejected() {
             &query(json!({"operation":"tree","owner":"a","repo":"b","path":requested})),
             Ok(&context),
             home.path(),
+            None,
         )
         .await
         .unwrap_or_else(|failure| panic!("{requested}: {}", failure.message));
@@ -39,6 +40,7 @@ async fn listing_paths_are_normalized_and_escapes_rejected() {
             &query(json!({"operation":"tree","owner":"a","repo":"b","path":escape})),
             Ok(&context),
             home.path(),
+            None,
         )
         .await
         .expect_err(escape);
@@ -264,6 +266,7 @@ async fn a_listing_of_a_file_leads_to_its_read() {
         &query(json!({"operation":"tree","owner":"a","repo":"b","path":"src/lib.rs","ref":"main"})),
         Ok(&context),
         home.path(),
+        None,
     )
     .await
     .expect_err("a file is not a tree");
@@ -311,9 +314,15 @@ async fn a_listing_of_a_submodule_or_symlink_leads_to_its_content() {
     let listing = |path: &str| {
         query(json!({"operation":"tree","owner":"a","repo":"b","path":path,"ref":"main"}))
     };
-    let submodule = run(&provider, &listing("vendor/lib"), Ok(&context), home.path())
-        .await
-        .expect_err("a submodule is not a tree");
+    let submodule = run(
+        &provider,
+        &listing("vendor/lib"),
+        Ok(&context),
+        home.path(),
+        None,
+    )
+    .await
+    .expect_err("a submodule is not a tree");
     assert_eq!(submodule.error.reason, Some(ProviderErrorReason::Submodule));
     assert!(submodule.hints.is_empty(), "{:?}", submodule.hints);
     let next = submodule.calls.expect("submodule lead");
@@ -325,9 +334,15 @@ async fn a_listing_of_a_submodule_or_symlink_leads_to_its_content() {
         "{next}"
     );
     assert_eq!(row["ref"], pinned, "{next}");
-    let symlink = run(&provider, &listing("docs/link"), Ok(&context), home.path())
-        .await
-        .expect_err("a symlink is not a tree");
+    let symlink = run(
+        &provider,
+        &listing("docs/link"),
+        Ok(&context),
+        home.path(),
+        None,
+    )
+    .await
+    .expect_err("a symlink is not a tree");
     assert_eq!(
         symlink.message,
         "Path \"docs/link\" is a symlink, not a directory"

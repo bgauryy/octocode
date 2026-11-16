@@ -20,7 +20,7 @@ pub(super) fn provider_row(
     hints: Vec<String>,
     next: Option<Value>,
 ) -> DomainResult {
-    let code = error.kind.code();
+    let code = error.code();
     let upstream = Upstream {
         retryable: error.retryable,
         http_status: error.status,

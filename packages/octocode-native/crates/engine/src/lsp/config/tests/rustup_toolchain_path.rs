@@ -2,7 +2,7 @@
 //! rustup proxy would then run that directory's `rust-analyzer`: the repository's
 //! own program. Such a build is not taken as the server.
 use super::rustup_fixture::{FakeRustup, toolchain_binary};
-use crate::lsp::config::invocation::rustup::{RustupView, with_view};
+use crate::lsp::config::invocation::rustup::{RustupView, view_env, with_view};
 use crate::lsp::config::{
     LspDiscoveryOptions, default_server_for_file, repository_toolchain_refusal,
     server_command_resolves,
@@ -23,15 +23,19 @@ fn route(toolchain_file: &str, selected: &str, env_toolchain: bool) -> (bool, Op
         toolchain_file.replace("{root}", &root.0.to_string_lossy()),
     );
     let view = RustupView {
-        path_var: Some(rustup.bin().as_os_str().to_owned()),
+        path_var: Some(rustup.path()),
         home: Some(root.join("rustup-home")),
         toolchain: env_toolchain.then(|| "stable".into()),
     };
+    let view_for_env = view.clone();
     with_view(view, || {
         let config = default_server_for_file(
             "src/lib.rs",
             &project.to_string_lossy(),
-            &LspDiscoveryOptions::default(),
+            &LspDiscoveryOptions {
+                env: view_env(&view_for_env),
+                ..LspDiscoveryOptions::default()
+            },
         );
         (
             config.as_ref().is_some_and(server_command_resolves),

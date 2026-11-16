@@ -186,12 +186,73 @@ impl Query<'_> {
             };
             extra.insert("coverage".into(), coverage);
         }
+        let (hints, mut related) = (hints, related);
+        // The manifest states each declared name's unresolved call sites, so
+        // this costs no evidence read and holds for listed answers too.
+        let mut unresolved = None;
+        if op == "callers" && how.direction == Direction::In {
+            let (named, lead) = self.unresolved_callers(&seeds)?;
+            if named > 0 {
+                // The `unresolved` lead (by callee name) lists those sites;
+                // the note promises it so the served row keeps it.
+                let reach = if lead.is_some() {
+                    "related lists them by name; text search may find more"
+                } else {
+                    "text search may find more"
+                };
+                unresolved = Some(format!(
+                    "{named} call sites name the target but their receiver could not be resolved; {reach}"
+                ));
+                related.extend(lead);
+            }
+        }
         if !related.is_empty() {
             extra.insert("related".into(), Value::Array(related));
         }
         let mut out = run_page(self.options, g, extra, page);
         crate::response::result::add_hints(&mut out.value, hints);
+        if let Some(warning) = unresolved {
+            crate::response::paging::mark_partial(
+                &mut out.value,
+                crate::response::paging::PartialReason::CallSitesUnresolved,
+                &[warning],
+            );
+        }
         Ok(out)
+    }
+
+    /// The call sites no edge records whose callee spells one of `seeds`'
+    /// names (`x.f(..)` for `f`): callers the walk cannot list, by name only,
+    /// counted at build into the manifest. With the `unresolved` call that
+    /// lists them, when there are any.
+    fn unresolved_callers(&self, seeds: &[u32]) -> Result<(u64, Option<Value>), GraphOutput> {
+        let g = self.g;
+        let mut names = std::collections::BTreeSet::new();
+        for seed in seeds {
+            let name = g.text(g.t.nodes[*seed as usize].name, self.cancel)?;
+            names.insert(super::super::manifest::spelled_name(&name).to_owned());
+        }
+        let count = names
+            .iter()
+            .map(|name| {
+                g.manifest["unresolvedCallNames"][name]
+                    .as_u64()
+                    .unwrap_or(0)
+            })
+            .sum::<u64>();
+        let lead = (count > 0 && names.len() == 1).then(|| {
+            // The sites are scoped by what they call, not by who calls.
+            let mut row = serde_json::Map::new();
+            super::paging::pin(&mut row, self.options, &g.id);
+            row.insert("operation".into(), json!("unresolved"));
+            row.insert("symbolName".into(), json!(names.iter().next()));
+            crate::response::result::Continuation::related(
+                crate::id::ToolId::GraphQuery,
+                Value::Object(row),
+            )
+            .build()
+        });
+        Ok((count, lead))
     }
 
     /// Why a walk listed nothing when the same walk lists rows without its

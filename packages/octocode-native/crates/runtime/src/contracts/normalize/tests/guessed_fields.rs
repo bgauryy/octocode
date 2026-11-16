@@ -384,6 +384,98 @@ fn a_value_read_by_its_shape_runs_and_is_named_or_refused() {
     }
 }
 
+/// Names an agent reads in the GitHub tools' own output or in
+/// GitHub's API run as the field the tool takes, values mapped: every row
+/// names `commitSha`, the input is `ref`; a search `kind` (`pr`) is its
+/// `operation`; GitHub's `in:file` is `matchIn: ["content"]`.
+#[test]
+fn github_names_from_output_and_the_api_run_as_the_declared_field() {
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    for (tool, sent, ran, note) in [
+        (
+            "ghGetFileContent",
+            json!({"owner":"o","repo":"r","path":"a.rs","commitSha":sha}),
+            json!({"ref":sha}),
+            "send `ref` next time",
+        ),
+        (
+            "ghStructure",
+            json!({"operation":"tree","owner":"o","repo":"r","commitSha":sha}),
+            json!({"ref":sha}),
+            "send `ref` next time",
+        ),
+        (
+            "ghSearchCode",
+            json!({"owner":"o","repo":"r","keywords":["x"],"commitSha":sha}),
+            json!({"ref":sha}),
+            "send `ref` next time",
+        ),
+        (
+            "ghCloneRepo",
+            json!({"owner":"o","repo":"r","commitSha":sha}),
+            json!({"ref":sha}),
+            "send `ref` next time",
+        ),
+        (
+            "ghSearchHistory",
+            json!({"kind":"pr","owner":"o","repo":"r","keywords":["x"]}),
+            json!({"operation":"pullRequest"}),
+            "send `operation: \"pullRequest\"` next time",
+        ),
+        (
+            "ghSearchHistory",
+            json!({"kind":"issues","owner":"o","repo":"r","keywords":["x"]}),
+            json!({"operation":"issue"}),
+            "send `operation: \"issue\"` next time",
+        ),
+        (
+            "ghSearchHistory",
+            json!({"type":"pull_request","owner":"o","repo":"r","keywords":["x"]}),
+            json!({"operation":"pullRequest"}),
+            "send `operation: \"pullRequest\"` next time",
+        ),
+        // GitHub's compare API names its sides `base` and `head`.
+        (
+            "ghGetHistoryItem",
+            json!({"owner":"o","repo":"r","operation":"compare","base":"v1","head":"v2"}),
+            json!({"baseRef":"v1","headRef":"v2"}),
+            "send `baseRef` next time",
+        ),
+        // ast-grep's `language`.
+        (
+            "astSearch",
+            json!({"operation":"match","path":".","rule":{"pattern":"f($X)"},"language":"rust"}),
+            json!({"parser":"rust"}),
+            "send `parser` next time",
+        ),
+        (
+            "ghSearchCode",
+            json!({"owner":"o","repo":"r","keywords":["x"],"match":"file"}),
+            json!({"matchIn":["content"]}),
+            "send `matchIn: [\"content\"]` next time",
+        ),
+        (
+            "ghSearchCode",
+            json!({"owner":"o","repo":"r","keywords":["x"],"match":["file","path"]}),
+            json!({"matchIn":["content","path"]}),
+            "send `matchIn: [\"content\",\"path\"]` next time",
+        ),
+    ] {
+        let (row, notes, shown) = run(tool, sent.clone());
+        for (field, value) in ran.as_object().expect("fields") {
+            assert_eq!(
+                row.get(field).unwrap_or(&Value::Null),
+                value,
+                "{tool} {sent}: {row}"
+            );
+        }
+        assert!(
+            shown.is_none() && notes.iter().any(|said| said.contains(note)),
+            "{tool} {sent}: {notes:?} {shown:?}"
+        );
+    }
+}
+
 /// A `{tool, query}` field sent as the query alone (`source:{path}`) runs as
 /// the one tool whose query form takes exactly those fields, wherever the
 /// field sits, and the call names the form to send. A value fitting no tool,

@@ -143,7 +143,9 @@ pub(crate) mod lsp_search_query;
 #[derive(Clone, Debug, Default)]
 pub struct LspExecutionConfig {
     pub trust_project_config: bool,
-    /// Resolved `OCTOCODE_*` settings (process env and trusted `.env` layers).
+    /// Resolved `OCTOCODE_*` settings and the environment variables a call
+    /// carries to language servers ([`octocode_engine::process_env::CALL_ENV`]),
+    /// from the host's environment and trusted `.env` layers.
     pub env: std::collections::BTreeMap<String, String>,
     pub octocode_home: Option<std::path::PathBuf>,
     /// The runtime's working directory: the invocation directory language
@@ -160,6 +162,22 @@ pub struct LspExecutionConfig {
     /// one content policy.
     pub security: crate::security::ContentSecurity,
     pub(crate) prewarm_state: std::sync::Arc<std::sync::Mutex<prewarm::WarmState>>,
+}
+
+#[cfg(test)]
+impl LspExecutionConfig {
+    /// The default settings with this test process's `PATH` as the call's:
+    /// a fake server written in Node starts under the environment it is
+    /// given, and a call carries its own.
+    pub(crate) fn with_path() -> Self {
+        Self {
+            env: std::env::var("PATH")
+                .into_iter()
+                .map(|path| ("PATH".to_owned(), path))
+                .collect(),
+            ..Self::default()
+        }
+    }
 }
 
 impl LspExecutionConfig {

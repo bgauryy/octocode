@@ -1,5 +1,5 @@
 //! One build at a time writes a scope's extraction job; a waiting build can
-//! be cancelled, and completion leaves a job another build holds alone.
+//! be cancelled, and settling leaves a job another build holds alone.
 use super::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -44,8 +44,8 @@ fn a_held_job_blocks_a_second_build_until_released_and_the_wait_cancels() {
         artifact.is_file(),
         "a waiting build never prunes the holder's files"
     );
-    // Completion by another build leaves the held job as its holder left it.
-    complete(&job_dir, &held.manifest.generation).unwrap();
+    // Settling by another build leaves the held job as its holder left it.
+    settle(&job_dir, &held.manifest.generation).unwrap();
     assert!(Manifest::read(&job_dir).is_some_and(|manifest| manifest.stage == Stage::Extracting));
     drop(held);
     assert!(open(&scan, &policy, &NeverCancel).unwrap().is_some());

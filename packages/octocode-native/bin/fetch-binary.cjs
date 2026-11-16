@@ -82,6 +82,26 @@ function extractTarFile(tar, wanted) {
   return null;
 }
 
+/** What `bin --version` prints. */
+function versionOutput(bin) {
+  return execFileSync(bin, ['--version'], { encoding: 'utf8', timeout: 30_000 });
+}
+
+/**
+ * Throws unless `bin --version` (through `run`) reports `octocode <version>`:
+ * the binary runs on this machine and is the pinned release.
+ *
+ * @param {string} bin
+ * @param {string} version
+ * @param {(bin: string) => string} [run]
+ */
+function verifyBinaryVersion(bin, version, run = versionOutput) {
+  const reported = run(bin).trim();
+  if (reported !== `octocode ${version}`) {
+    throw new Error(`${bin} reports '${reported}', expected 'octocode ${version}'`);
+  }
+}
+
 /**
  * Path of the cached native binary for `suffix` at `version`, downloading it
  * first when absent. Throws with the reason when any step fails.
@@ -97,7 +117,7 @@ async function fetchNativeBinary({
   env = process.env,
   fetch: fetchImpl = fetch,
   log = line => process.stderr.write(`${line}\n`),
-  run = bin => execFileSync(bin, ['--version'], { encoding: 'utf8', timeout: 30_000 }),
+  run = versionOutput,
 }) {
   const target = PLATFORMS[suffix];
   if (!target) throw new Error(`no platform package for '${suffix}'`);
@@ -122,10 +142,7 @@ async function fetchNativeBinary({
   const staged = nodePath.join(dir, `.${file}.${process.pid}.${Date.now()}.tmp`);
   try {
     writeFileSync(staged, binary, { mode: 0o755 });
-    const reported = run(staged).trim();
-    if (reported !== `octocode ${version}`) {
-      throw new Error(`downloaded binary reports '${reported}', expected 'octocode ${version}'`);
-    }
+    verifyBinaryVersion(staged, version, run);
     try {
       renameSync(staged, destination);
     } catch (error) {
@@ -138,4 +155,4 @@ async function fetchNativeBinary({
   return destination;
 }
 
-module.exports = { extractTarFile, fetchNativeBinary, registryFor };
+module.exports = { extractTarFile, fetchNativeBinary, registryFor, verifyBinaryVersion };

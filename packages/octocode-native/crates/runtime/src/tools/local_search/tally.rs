@@ -112,6 +112,7 @@ pub(super) fn shape(
         selection: None,
         tally: Some(tally),
         notes: Vec::new(),
+        walk: None,
     })
 }
 
@@ -172,5 +173,6 @@ fn layout(query: &LocalSearchQuery, files: usize) -> Layout {
         streamed: true,
         merge_context: None,
         pages: None,
+        walk: None,
     }
 }

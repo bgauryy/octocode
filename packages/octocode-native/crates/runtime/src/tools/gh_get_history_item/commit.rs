@@ -237,24 +237,15 @@ fn commit_file_page(
 }
 
 /// A commit read's leads in rank order: the unfiltered read when a
-/// `matchString` hit nothing, the pull request the commit names, then both
-/// sides of the diff; the response keeps the first ones its lead cap allows.
+/// `matchString` hit nothing, the pull request the commit names (the route
+/// to its discussion, ahead of the diff's side reads), then both sides of
+/// the diff; the response keeps the first ones its lead cap allows.
 fn commit_leads(query: &HistoryItemRequest, commit: &CommitFacts<'_>, page: FilePage) -> Vec<Lead> {
     let mut leads = Vec::from_iter(page.without_match);
-    let pull_request = commit_pull_request_lead(commit.message, &commit.sha, query);
-    // A pull request the commit names is the route to its discussion, ahead
-    // of the diff's side reads; a search by SHA is only a guess, so it
-    // yields to them.
-    let named = pull_request
-        .as_ref()
-        .is_some_and(|lead| lead.0 == "readPullRequest");
-    if named {
-        leads.extend(pull_request.clone());
-    }
+    leads.extend(
+        commit_pull_request_lead(commit.message, query).map(|lead| ("readPullRequest", lead)),
+    );
     leads.extend(page.side_reads);
-    if !named {
-        leads.extend(pull_request);
-    }
     leads
 }
 

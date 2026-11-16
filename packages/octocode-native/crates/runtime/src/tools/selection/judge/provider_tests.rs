@@ -7,11 +7,24 @@ use std::time::{Duration, Instant};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate, matchers::method};
 
 /// A retry-free evaluator, so each candidate is one provider request.
-fn evaluator(key: &str, base_url: String) -> Evaluator {
+pub(super) fn evaluator(key: &str, base_url: String) -> Evaluator {
+    evaluator_of(key, base_url, "jev-test")
+}
+
+/// The same, as a model of its own: what an endpoint's windows have taught
+/// is kept per endpoint and model, and a mock server's port can be reused.
+/// Each evaluator's credential is its own (`key` plus a counter): the gate
+/// remembers a refused credential per endpoint and credential digest.
+pub(super) fn evaluator_of(key: &str, base_url: String, model: &str) -> Evaluator {
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let key = format!(
+        "{key}-{}",
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    );
     Evaluator::new(
-        Some(secrecy::SecretString::from(key.to_owned())),
+        Some(secrecy::SecretString::from(key)),
         base_url,
-        "jev-test".into(),
+        model.into(),
         &crate::providers::classification::jev::JEV,
         Some(Duration::from_secs(10)),
         0,
@@ -19,7 +32,7 @@ fn evaluator(key: &str, base_url: String) -> Evaluator {
     )
 }
 
-fn context(timeout: Duration) -> ExecutionContext {
+pub(super) fn context(timeout: Duration) -> ExecutionContext {
     ExecutionContext {
         cancellation: octocode_io::cancellation::Cancellation::new(),
         deadline: Some(Instant::now() + timeout),
@@ -36,13 +49,18 @@ fn evaluator_receives_context_and_long_context_and_keeps_success_after_failure()
         Mock::given(method("POST"))
             .respond_with(|request: &Request| {
                 let body: Value = request.body_json().expect("request");
-                if body["state"]["text"] == "failed candidate" {
-                    return ResponseTemplate::new(200).set_body_json(json!({"answers":{}}));
-                }
+                // The question about the failing candidate (unit 1 of the shared
+                // state) comes back without an answer.
+                let failing = |id: &str| {
+                    body["questions"][id]["instructions"]["target"]
+                        .as_str()
+                        .is_some_and(|label| label.starts_with("unit 1"))
+                };
                 let answers = body["questions"]
                     .as_object()
                     .expect("questions")
                     .iter()
+                    .filter(|(id, _)| !failing(id))
                     .map(|(id, question)| {
                         let legend = question["criteria"]
                             .as_array()
@@ -75,17 +93,20 @@ fn evaluator_receives_context_and_long_context_and_keeps_success_after_failure()
         let mut usage = ClassificationUsage::default();
         let mut failures = Vec::new();
         let decisions = evaluator
-            .select(JudgeCall {
-                failures: &mut failures,
-                candidates: &candidates,
-                admitted: &[0, 1],
-                predicates: &predicates,
-                research_context: Some(research_context),
-                long_context: crate::tools::judgment::LongContext::Always,
-                handle: executor.handle(),
-                context: &context,
-                usage: &mut usage,
-            })
+            .select_grouped(
+                JudgeCall {
+                    failures: &mut failures,
+                    candidates: &candidates,
+                    admitted: &[0, 1],
+                    predicates: &predicates,
+                    research_context: Some(research_context),
+                    long_context: crate::tools::judgment::LongContext::Always,
+                    handle: executor.handle(),
+                    context: &context,
+                    usage: &mut usage,
+                },
+                4,
+            )
             .unwrap_or_else(|error| {
                 panic!("independent outcomes: {error:?}; failures: {failures:?}")
             });
@@ -102,9 +123,9 @@ fn evaluator_receives_context_and_long_context_and_keeps_success_after_failure()
                 .as_ref()
                 .is_some_and(|hints| !hints.is_empty())
         );
-        assert_eq!(usage.calls, 2);
+        assert_eq!(usage.calls, 1, "both candidates share one request");
         assert_eq!(usage.known_usage_calls, 1);
-        assert_eq!(usage.unknown_usage_calls, 1);
+        assert_eq!(usage.unknown_usage_calls, 0);
         assert_eq!((usage.input_tokens, usage.output_tokens), (10, 2));
         assert_eq!(
             usage.models.into_iter().collect::<Vec<_>>(),
@@ -122,7 +143,7 @@ fn evaluator_receives_context_and_long_context_and_keeps_success_after_failure()
     let initial = executor
         .block_on(server.received_requests())
         .expect("requests");
-    assert_eq!(initial.len(), 2);
+    assert_eq!(initial.len(), 1);
     for request in initial {
         assert_eq!(
             request
@@ -132,10 +153,11 @@ fn evaluator_receives_context_and_long_context_and_keeps_success_after_failure()
             Some("true")
         );
         let body: Value = request.body_json().expect("request");
-        assert!(body["state"].get("sourceLines").is_none());
-        assert_eq!(
-            body["state"]["sourceLineRanges"],
-            json!([[4, 5], [0, 0], [9, 9]])
+        let units = body["state"]["units"].as_str().expect("units");
+        assert!(!units.contains("\"sourceLines\""), "{units}");
+        assert!(
+            units.contains("\"sourceLineRanges\":[[4,5],[0,0],[9,9]]"),
+            "{units}"
         );
         // Context travels once, beside the evidence.
         assert_eq!(body["state"]["context"], "Explain retry behavior");
@@ -149,7 +171,7 @@ fn evaluator_receives_context_and_long_context_and_keeps_success_after_failure()
             .block_on(server.received_requests())
             .expect("requests")
             .len(),
-        4,
+        2,
         "changing research context must not reuse the previous successful judgment"
     );
 }
@@ -235,7 +257,7 @@ fn a_refused_connection_is_named_not_the_circuit_it_opens() {
 }
 
 /// A provider answering every question with direct evidence.
-fn direct_answers(request: &Request) -> ResponseTemplate {
+pub(super) fn direct_answers(request: &Request) -> ResponseTemplate {
     let body: Value = request.body_json().expect("request");
     let answers = body["questions"]
         .as_object()
@@ -429,17 +451,20 @@ fn identical_candidate_states_in_one_call_share_one_request() {
     let context = context(Duration::from_secs(10));
     let mut usage = ClassificationUsage::default();
     let mut decisions = evaluator
-        .select(JudgeCall {
-            failures: &mut Vec::new(),
-            candidates: &candidates,
-            admitted: &[0, 1, 2],
-            predicates: &["Does this describe termination?".to_owned()],
-            research_context: None,
-            long_context: crate::tools::judgment::LongContext::Never,
-            handle: executor.handle(),
-            context: &context,
-            usage: &mut usage,
-        })
+        .select_grouped(
+            JudgeCall {
+                failures: &mut Vec::new(),
+                candidates: &candidates,
+                admitted: &[0, 1, 2],
+                predicates: &["Does this describe termination?".to_owned()],
+                research_context: None,
+                long_context: crate::tools::judgment::LongContext::Never,
+                handle: executor.handle(),
+                context: &context,
+                usage: &mut usage,
+            },
+            4,
+        )
         .expect("judged");
     decisions.sort_by_key(|(ordinal, _)| *ordinal);
     assert_eq!(
@@ -453,7 +478,13 @@ fn identical_candidate_states_in_one_call_share_one_request() {
     let requests = executor
         .block_on(server.received_requests())
         .expect("requests");
-    assert_eq!(requests.len(), 2, "one request per distinct state");
-    assert_eq!(usage.calls, 2);
-    assert_eq!((usage.input_tokens, usage.output_tokens), (20, 4));
+    assert_eq!(requests.len(), 1, "one request for the distinct states");
+    let body: Value = requests[0].body_json().expect("request");
+    assert_eq!(
+        body["questions"].as_object().expect("questions").len(),
+        2,
+        "one question per distinct state"
+    );
+    assert_eq!(usage.calls, 1);
+    assert_eq!((usage.input_tokens, usage.output_tokens), (10, 2));
 }

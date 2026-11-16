@@ -89,7 +89,7 @@ pub(crate) fn execute_symbols(
     response_window: Option<usize>,
 ) -> Result<(Value, NamePlaces), ToolError> {
     run_symbols(q, paths, cancel, response_window)
-        .map(|(page, places)| (super::output::finish(page), places))
+        .map(|(page, places)| (crate::response::result::finished(page), places))
 }
 
 fn run_symbols(

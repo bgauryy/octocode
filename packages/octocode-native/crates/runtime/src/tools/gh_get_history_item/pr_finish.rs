@@ -55,6 +55,14 @@ fn mark_unmatched(
     None
 }
 
+/// The same pull-request read without its `matchString`: the recovery of a
+/// literal that dropped entries.
+fn without_match_lead(query: &HistoryItemRequest) -> Value {
+    let mut same = fresh_pr_query(query);
+    query.sections().set_on(&mut same);
+    without_match_string(same)
+}
+
 /// The reads that recover a pull-request read whose literal or file scope
 /// matched no changed file, in rank order: the same read without the
 /// `matchString` (when the literal missed), then the whole file inventory
@@ -63,9 +71,7 @@ fn unmatched_leads(query: &HistoryItemRequest, literal_missed: bool) -> Map<Stri
     let target = fresh_pr_query(query);
     let mut leads = Map::new();
     if literal_missed {
-        let mut same = target.clone();
-        query.sections().set_on(&mut same);
-        leads.insert("withoutMatchString".into(), without_match_string(same));
+        leads.insert("withoutMatchString".into(), without_match_lead(query));
     }
     let mut inventory = target;
     for key in ["include", "fileStatus", "minChanges", "contextLines"] {
@@ -93,6 +99,7 @@ pub(super) fn finish_pr(
         menu,
         comment_reads,
         commit_file_pages,
+        body_drops,
     } = shaped;
     // A `matchString` miss in the files is an empty row only when no other
     // section of the read (body, comments, reviews) holds evidence;
@@ -115,8 +122,21 @@ pub(super) fn finish_pr(
     if let Some((dropped, listed)) = files.match_dropped {
         push_warnings(
             &mut out,
-            [super::filter::match_dropped_warning(dropped, listed)],
+            [super::filter::match_dropped_warning(
+                dropped,
+                listed,
+                "changed files",
+                "patch line",
+            )],
         );
+    }
+    if !body_drops.is_empty() {
+        push_warnings(&mut out, body_drops);
+        ensure_calls(&mut out);
+        if let Some(next) = out["calls"].as_object_mut() {
+            next.entry("withoutMatchString")
+                .or_insert_with(|| without_match_lead(query));
+        }
     }
     promote_pr_continuations(&mut out, query);
     if !commit_file_pages.is_empty() {
@@ -143,6 +163,10 @@ pub(super) fn finish_pr(
     // A miss already leads to its recovery reads; the menu would offer the
     // whole-PR patches the miss was narrowing away from.
     let menu = menu.filter(|_| out["status"] != "empty");
+    if let Some(note) = super::pr_menu::hunk_read_warning(plan.needle.is_some(), &files.side_reads)
+    {
+        push_warnings(&mut out, [note]);
+    }
     attach_leads(&mut out, files.side_reads, menu);
     lead_with_comment_reads(&mut out, comment_reads);
     ToolData::from(out)

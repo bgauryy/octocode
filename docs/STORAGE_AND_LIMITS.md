@@ -14,8 +14,9 @@ The home defaults to `~/.octocode` on macOS and Linux or `%USERPROFILE%\.octocod
 | Home `clones/` and `clone-store/` | `ghCloneRepo` checkouts and the Git stores that back them. A clean checkout at the resolved commit can be reused after an access check. If it has local changes, Octocode refuses reuse and preserves the worktree. Keep its backing store while using a checkout. |
 | Home `cache/provider-answers-v3/` | Reusable GitHub and package registry responses, separated by origin and credential |
 | Home `tmp/` | Saved response pages, continuation handles, section assessments, LSP answers, graph query rows, GitHub rate-limit state, and clone staging |
+| Home `tmp/materialize-git/` | Throwaway git stores for one `ghStructure` materialize call. [Lifecycle](#materialize-git-store) |
 | Home `tmp/materialize/v3/` and `tmp/capture/url/` | Commit-pinned GitHub files and captured URL or image evidence, respectively. Use the inspection path the tool returns. |
-| Workspace `.octocode/graph/` | Published graph snapshots and temporary `.facts` checkpoints. Set `local.graphHome` to use `octocode-graph/` under a different directory. |
+| Workspace `.octocode/graph/` | Published graph snapshots and `.facts`, each scope's per-file extraction (deflate-compressed, about a tenth of the facts' JSON), kept after a build so the next build of the scope extracts only the files that changed and links all of them again; it lives with the scope's snapshots. Set `local.graphHome` to use `octocode-graph/` under a different directory. |
 
 ## Cache storage and lifecycle
 
@@ -24,7 +25,7 @@ The home defaults to `~/.octocode` on macOS and Linux or `%USERPROFILE%\.octocod
 | Response pages, provider answers, and section plans | Saved under the configured home. An eligible cursor can resume from a later process. | Held in the current runtime. Paths and GitHub files can still be read directly. Use a running MCP server for multi-call section plans. |
 | GitHub checkouts and materialized files | `ghCloneRepo` and `ghStructure` can write local outputs. | A request requiring materialization returns `persistentStorageDisabled`. An ordinary file read returns content without a materialized `location.path`. |
 | URL and image captures | Inspectable captures are retained for 24 hours. A fresh URL request fetches again. | Capture requiring persistent storage is unavailable. |
-| Explicit graph builds | Publish snapshots and checkpoint interrupted extraction. | Publish requested snapshots, with extraction intermediates held in RAM. |
+| Explicit graph builds | Publish snapshots, checkpoint interrupted extraction and keep each file's extraction for the next build. | Publish requested snapshots, with extraction intermediates held in RAM. |
 | Maintenance | A runtime startup checks whether a daily cleanup is due. | Automatic cleanup and disk rate-limit mirrors are disabled. |
 
 To use memory mode for one workspace, put this in its `.octocode/.octocoderc` and restart MCP. To select it for one shell invocation, prefix the command with `OCTOCODE_STORAGE_MODE=memory`. Existing files, installed language servers, and login credentials have their own lifecycle.
@@ -55,6 +56,10 @@ octocode cache clear --json
 The command drains warm CLI servers. Its receipt lists the directories removed from the configured home, including saved pages, provider answers, captures, and materialized files, plus this workspace's extraction checkpoints. Previously issued cursors may expire. Clones and their backing stores, published graphs, credentials, and installed servers survive a cache clear. [CLI cache command](OCTOCODE_CLI.md#clear-tool-caches)
 
 In persistent mode, startup checks for expired entries at most once per 24 hours when the temporary directory exists. It removes aged materialized files under their snapshot locks, old captures, and expired saved work. Clone outputs have no automatic expiry.
+
+## Materialize git store
+
+Each `ghStructure` materialize call that reads bytes through git creates a bare repository at `tmp/materialize-git/<pid>-<nonce>` in the home, fetches the listed blobs into it, and reads them back into the snapshot. The call removes the directory when it succeeds, fails or is cancelled. A killed process can leave one behind; the next materialize call that opens a store removes directories whose process id no longer runs and leaves live ones. The store holds only blobs, is never reused across calls, and is not part of the snapshot. [How materialize reads bytes](OCTOCODE_TOOLS.md#ghstructure)
 
 ## Fixed internal limits
 

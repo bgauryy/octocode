@@ -1,15 +1,13 @@
-//! The `grep_searcher` sink that collects one file's matches, spans, contexts, and line weights.
+//! The `grep_searcher` sink that collects one file's matches, spans and contexts.
 
 use super::mode::MatchWork;
 use super::state::{Charge, Held, context_weight, match_weight, raw_weight};
 use crate::num::saturating_u32;
-use crate::search::relevance;
+use crate::search::declaration;
 use crate::search::text_parser::{FileEntry, RawMatch, strip_trailing_newline};
 use crate::text::interior_offset;
 use crate::text::utf8_offsets::byte_to_utf16_offset;
 use crate::types::TextSearchMatch;
-use crate::types::hit_rank;
-use aho_corasick::AhoCorasick;
 use grep_matcher::Matcher;
 use grep_searcher::{Searcher, Sink, SinkContext, SinkMatch};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -101,14 +99,6 @@ pub(super) struct CollectSink<'a, M: Matcher> {
     /// Absolute offset of the first NUL byte when the file was quit as binary.
     /// The searcher stops there, so bytes after it are unsearched.
     pub(super) binary_offset: Option<u64>,
-    /// Summed [`relevance::line_weight`] (only with `work.weigh_lines`).
-    pub(super) line_weight: u32,
-    /// A matched line declares the matched name (only with `work.weigh_lines`).
-    pub(super) declares: bool,
-    /// The alternation's words, when ranking by their coverage.
-    pub(super) words: Option<&'a AhoCorasick>,
-    /// Bit `i`: word `i` of `words` matched a line.
-    pub(super) covered: u64,
     /// A matched or context line was not UTF-8, so its value is decoded
     /// text, not verbatim bytes ([`block_text`]).
     pub(super) not_utf8: bool,
@@ -120,13 +110,6 @@ pub(super) struct CollectSink<'a, M: Matcher> {
     /// The search's test-code scope and this file's path: matched lines
     /// on the other side are left out.
     pub(super) test_code: Option<(&'a crate::types::TestCodeScope, &'a std::path::Path)>,
-    /// Relevance-only facts; these never exclude a hit.
-    pub(super) rank_test_code: Option<(&'a crate::types::TestCodeRank, &'a std::path::Path)>,
-    rank_spans: Option<std::sync::Arc<Vec<[u32; 2]>>>,
-    pub(super) production_lines: u32,
-    pub(super) production_submatches: u32,
-    pub(super) production_weight: u32,
-    pub(super) production_covered: u64,
     /// The search's line scope and this file's path: matched lines outside
     /// its spans are left out.
     pub(super) line_scope: Option<(&'a crate::types::LineScope, &'a std::path::Path)>,
@@ -147,27 +130,19 @@ impl<'a, M: Matcher> CollectSink<'a, M> {
         matcher: &'a M,
         work: MatchWork,
         (stop, held): (&'a AtomicBool, &std::sync::Arc<Held>),
-        (words, terms): (Option<&'a AhoCorasick>, &'a [M]),
+        terms: &'a [M],
     ) -> Self {
         Self {
             charge: Charge::new(held),
-            words,
             terms,
             term_counts: vec![0; terms.len()],
             test_code: None,
-            rank_test_code: None,
-            rank_spans: None,
-            production_lines: 0,
-            production_submatches: 0,
-            production_weight: 0,
-            production_covered: 0,
             line_scope: None,
             scope_spans: None,
             inspect_deferred: None,
             test_spans: None,
             test_lines_excluded: 0,
             source: None,
-            covered: 0,
             matcher,
             entry: FileEntry::new(),
             submatches: 0,
@@ -176,8 +151,6 @@ impl<'a, M: Matcher> CollectSink<'a, M> {
             om_matches: Vec::new(),
             stop,
             binary_offset: None,
-            line_weight: 0,
-            declares: false,
             not_utf8: false,
         }
     }
@@ -286,7 +259,7 @@ impl<M: Matcher> CollectSink<'_, M> {
                 line_number,
                 column,
                 byte_offset,
-                rank: relevance::line_rank(bytes, start),
+                rank: declaration::line_rank(bytes, start),
                 window_start: None,
             });
         }
@@ -300,45 +273,6 @@ impl<M: Matcher> CollectSink<'_, M> {
             self.stop.store(true, Ordering::Relaxed);
         }
         fits
-    }
-
-    /// Read classification once, on the file's first kept hit.
-    fn read_rank_spans(&mut self) {
-        if self.rank_spans.is_none()
-            && let Some((rank, path)) = self.rank_test_code
-        {
-            self.rank_spans = Some(if (rank.test_path)(path) {
-                std::sync::Arc::new(vec![crate::types::WHOLE_FILE])
-            } else {
-                (rank.spans)(path)
-            });
-        }
-    }
-
-    fn production_line(&self, line: u32) -> bool {
-        self.rank_spans.as_ref().is_none_or(|spans| {
-            !spans
-                .iter()
-                .any(|[start, end]| (*start..=*end).contains(&line))
-        })
-    }
-
-    /// Cover prepared, raw, deferred, long-line and context row producers.
-    fn rank_rows(&mut self, raw: usize, prepared: usize) {
-        let Some(spans) = &self.rank_spans else {
-            return;
-        };
-        let production = |line| {
-            !spans
-                .iter()
-                .any(|[start, end]| (*start..=*end).contains(&line))
-        };
-        for row in &mut self.entry.raw_matches[raw..] {
-            row.rank = hit_rank::source_rank(row.rank, production(row.line_number));
-        }
-        for row in &mut self.entry.prepared[prepared..] {
-            row.rank_source(production(row.line));
-        }
     }
 
     /// Whether the line scope and the test-code scope keep the matched block
@@ -437,23 +371,6 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
         if !self.keeps_line(line_number, bytes) {
             return Ok(true);
         }
-        self.read_rank_spans();
-        // Only multiline blocks need an index. Build it once, not one prefix
-        // scan per dense submatch or alternation word. Single-line hits allocate
-        // nothing; without active rank facts no line lookup is needed.
-        let rank_lines = self.rank_spans.as_ref().and_then(|_| {
-            let first = memchr::memchr(b'\n', bytes)?;
-            (first + 1 < bytes.len()).then(|| {
-                std::iter::once(0)
-                    .chain(memchr::memchr_iter(b'\n', bytes).map(|at| at + 1))
-                    .collect::<Vec<_>>()
-            })
-        });
-        let line_at = |byte| {
-            rank_lines.as_ref().map_or(line_number, |starts| {
-                line_number.saturating_add(saturating_u32(crate::text::line_at(starts, byte) - 1))
-            })
-        };
         let mut count: u32 = 0;
         let mut first_start = None;
         let mut spans = Vec::new();
@@ -500,62 +417,9 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
         if !self.terms.is_empty() {
             self.count_terms(bytes, &spans)?;
         }
-        if self.work.weigh_lines {
-            // Count-lines never enumerates submatches: find the first one here.
-            let first = match first_start {
-                Some(start) => start,
-                None => self
-                    .matcher
-                    .find(bytes)
-                    .map_err(|error| std::io::Error::other(error.to_string()))?
-                    .map_or(0, |matched| matched.start()),
-            };
-            let production = self.production_line(line_at(first));
-            let weight = relevance::line_weight(bytes, first);
-            self.declares |= production && weight == relevance::DECLARATION_WEIGHT;
-            self.line_weight = self.line_weight.saturating_add(weight);
-            if production && self.rank_spans.is_some() {
-                self.production_weight = self.production_weight.saturating_add(weight);
-            }
-            if let Some(words) = self.words {
-                for found in words.find_overlapping_iter(bytes) {
-                    let bit = 1 << found.pattern().as_usize();
-                    self.covered |= bit;
-                    if self.rank_spans.is_some() && self.production_line(line_at(found.start())) {
-                        self.production_covered |= bit;
-                    }
-                }
-            }
-        }
         self.submatches = self.submatches.saturating_add(count.max(1));
         let lines = saturating_u32(bytes.split_inclusive(|&b| b == b'\n').count().max(1));
         self.matched_lines = self.matched_lines.saturating_add(lines);
-        if self.rank_spans.is_some() {
-            let production_lines = (line_number..line_number.saturating_add(lines))
-                .filter(|&line| self.production_line(line))
-                .count();
-            self.production_lines = self
-                .production_lines
-                .saturating_add(saturating_u32(production_lines));
-            let production_matches = if spans.is_empty() {
-                if production_lines > 0 {
-                    count.max(1)
-                } else {
-                    0
-                }
-            } else {
-                saturating_u32(
-                    spans
-                        .iter()
-                        .filter(|(start, _)| self.production_line(line_at(*start)))
-                        .count(),
-                )
-            };
-            self.production_submatches = self
-                .production_submatches
-                .saturating_add(production_matches);
-            self.rank_rows(raw_rows, prepared_rows);
-        }
         // The block's line row, when one was kept; its spans held as kept.
         let rows = self.entry.raw_matches[raw_rows..]
             .iter()

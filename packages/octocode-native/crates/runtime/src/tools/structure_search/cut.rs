@@ -2,8 +2,6 @@
 //! (`nextPage` and the related `narrowScope` query).
 use super::listing::Listing;
 use super::{continuation, narrow_scope};
-use crate::response::result::insert_next;
-use octocode_contract_types::StructureSearchChannel;
 use serde_json::{Value, json};
 use std::num::NonZeroU64;
 
@@ -155,9 +153,10 @@ impl Cut {
                 .unwrap_or(NonZeroU64::MAX),
                 snapshot: self.snapshot.clone(),
             };
-            insert_next(
+            crate::response::collection::insert_walk(
                 &mut out["calls"],
-                StructureSearchChannel::NextPage,
+                crate::id::ToolId::StructureSearch,
+                None,
                 continuation(query, next),
             );
         }
@@ -172,9 +171,10 @@ impl Cut {
             }
         }
         if let Some(lead) = self.walk_lead() {
-            insert_next(
+            crate::response::collection::insert_walk(
                 &mut out["calls"],
-                StructureSearchChannel::NextPage,
+                crate::id::ToolId::StructureSearch,
+                None,
                 continuation(query, lead),
             );
         }

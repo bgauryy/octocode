@@ -212,3 +212,78 @@ fn family_key_ignores_options_and_splits_on_workspace_binary_and_language() {
         assert_ne!(family(&first), family(&other));
     }
 }
+
+#[cfg(unix)]
+mod one_server_per_resolution {
+    use super::*;
+    use crate::lsp::config::identity::fixture::FakeToolchains;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn rust_analyzer(
+        tc: &FakeToolchains,
+        path: &str,
+        extra: &[(&str, &str)],
+    ) -> LspLanguageServerConfig {
+        let workspace = tc.root.join("work");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        LspLanguageServerConfig {
+            command: "rust-analyzer".to_owned(),
+            args: None,
+            workspace_root: workspace.to_string_lossy().into_owned(),
+            language_id: Some("rust".to_owned()),
+            document_language_ids: Default::default(),
+            initialization_options: None,
+            env: Some(tc.env(path, extra)),
+            max_memory_mb: None,
+            source: Default::default(),
+        }
+    }
+
+    /// Servers the pool starts for `configs`, asked for in turn.
+    async fn starts(configs: &[LspLanguageServerConfig]) -> usize {
+        let pool = pool(4, 60_000);
+        let started = Arc::new(AtomicUsize::new(0));
+        for config in configs {
+            let started = Arc::clone(&started);
+            pool.acquire(
+                canonical_lsp_key(config).expect("key"),
+                canonical_lsp_family(config).expect("family"),
+                || async move {
+                    let id = started.fetch_add(1, Ordering::SeqCst);
+                    Ok(Some(FakeClient::new(id)))
+                },
+            )
+            .await
+            .expect("acquire")
+            .expect("client");
+        }
+        started.load(Ordering::SeqCst)
+    }
+
+    /// A GUI host and a terminal that differ in `PATH`, `LANG` and `TMPDIR`
+    /// and resolve rust-analyzer and the toolchain alike share one server.
+    #[tokio::test]
+    async fn clients_differing_only_in_path_lang_and_tmpdir_share_one_server() {
+        let tc = FakeToolchains::install();
+        let gui = rust_analyzer(
+            &tc,
+            "{bin}:/usr/bin:/bin",
+            &[("LANG", "C"), ("TMPDIR", "/tmp/gui")],
+        );
+        let terminal = rust_analyzer(
+            &tc,
+            "/opt/homebrew/bin:/usr/bin:{bin}:/bin",
+            &[("LANG", "en_US.UTF-8"), ("TMPDIR", "/var/folders/term")],
+        );
+        assert_eq!(starts(&[gui.clone(), terminal.clone(), gui]).await, 1);
+    }
+
+    /// A client whose environment selects another toolchain gets its own.
+    #[tokio::test]
+    async fn clients_resolving_to_other_toolchains_do_not_share() {
+        let tc = FakeToolchains::install();
+        let stable = rust_analyzer(&tc, "{bin}:/usr/bin", &[]);
+        let nightly = rust_analyzer(&tc, "{bin}:/usr/bin", &[("RUSTUP_TOOLCHAIN", "nightly")]);
+        assert_eq!(starts(&[stable, nightly]).await, 2);
+    }
+}

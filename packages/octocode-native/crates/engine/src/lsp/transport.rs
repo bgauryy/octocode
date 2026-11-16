@@ -26,3 +26,4 @@ pub use progress::Readiness;
 pub use progress::{HealthLevel, ServerHealth};
 pub(crate) use progress::{ProgressTracker, STARTUP_SETTLE_MS};
 pub(crate) use server_requests::ClientRequestContext;
+pub use server_requests::lookup_section;

@@ -50,6 +50,38 @@ pub(super) fn scan_disclosure(scan: &Value) -> Value {
     scan
 }
 
+/// The name a call spells: the last segment of a qualified callee or symbol
+/// name (`x.f` and `A::f` spell `f`).
+pub(super) fn spelled_name(name: &str) -> &str {
+    name.rsplit(['.', ':']).next().unwrap_or(name)
+}
+
+/// Per declared symbol name, how many call sites spell it on a receiver no
+/// edge resolves: the callers `graphQuery callers` cannot list. Only names a
+/// symbol declares are kept, the only names a `callers` target can have.
+fn unresolved_call_names(tables: &format::GraphTables) -> BTreeMap<String, u64> {
+    let declared = tables
+        .nodes
+        .iter()
+        .filter(|node| node.kind == format::NodeKind::Symbol)
+        .map(|node| spelled_name(tables.str(node.name)))
+        .collect::<BTreeSet<_>>();
+    let mut counts = BTreeMap::<&str, u64>::new();
+    for site in &tables.unresolved {
+        if site.relation != format::EdgeKind::Calls {
+            continue;
+        }
+        let name = spelled_name(tables.str(site.callee));
+        if declared.contains(name) {
+            *counts.entry(name).or_default() += 1;
+        }
+    }
+    counts
+        .into_iter()
+        .map(|(name, count)| (name.to_owned(), count))
+        .collect()
+}
+
 pub(super) struct ManifestInput<'a> {
     pub(super) id: &'a str,
     pub(super) scope: &'a str,
@@ -148,6 +180,7 @@ pub(super) fn manifest(input: &ManifestInput) -> Value {
             "unscanned": imports[ImportOutcome::Unscanned as usize],
         },
         "calls": input.projection.calls,
+        "unresolvedCallNames": unresolved_call_names(tables),
         "argumentCoverage": input.argument_coverage,
         "extraction": {
             "parsedFiles": input.built.parsed_files,

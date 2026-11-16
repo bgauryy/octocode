@@ -4,6 +4,7 @@
 use super::positions::NodePositions;
 use super::walk::method_kind;
 use super::{GraphAccumulator, heritage};
+use crate::signatures::node_kinds::kind_of;
 use tree_sitter::Node;
 
 use crate::graph::{
@@ -43,7 +44,7 @@ fn is_recovered_keyword_declaration(node: Node<'_>, name: &str, file_path: &str)
         return false;
     }
     let member = matches!(
-        node.kind(),
+        kind_of(node),
         "method_definition"
             | "method_signature"
             | "abstract_method_signature"
@@ -100,7 +101,7 @@ fn python_member(
     acc: &mut GraphAccumulator,
     active_decl: Option<&str>,
 ) -> Option<GraphFactDeclaration> {
-    let attribute = (node.kind() == "attribute")
+    let attribute = (kind_of(node) == "attribute")
         .then(|| instance_attribute(node, ancestors.iter().rev().copied(), content))
         .flatten();
     let declared = match &attribute {

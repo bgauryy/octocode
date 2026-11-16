@@ -23,25 +23,36 @@ fn rewrite(job_dir: &Path, edit: impl FnOnce(&mut serde_json::Value)) {
     std::fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
 }
 
-fn never(_: &Path, _: std::time::SystemTime) -> bool {
-    false
+/// A home with no snapshot of any root.
+fn never(_: &Path) -> Option<std::time::SystemTime> {
+    None
 }
 
-fn always(_: &Path, _: std::time::SystemTime) -> bool {
-    true
+/// A home whose every root was published after any job's last write.
+fn always(_: &Path) -> Option<std::time::SystemTime> {
+    Some(std::time::SystemTime::now() + std::time::Duration::from_secs(3600))
 }
 
+/// A settled fact cache lives with the snapshots of its root: it stays while
+/// one remains, is never counted as unfinished bytes, and goes with the last.
 #[test]
-fn completion_removes_the_job_and_its_lock_file() {
+fn a_settled_cache_lives_and_dies_with_its_roots_snapshots() {
     let (_dir, scan) = fixture();
+    let base = scan.checkpoint.clone().unwrap();
     let built = build(&scan, &NeverCancel).unwrap();
-    let job_dir = job_path(scan.checkpoint.as_ref().unwrap(), &scan.root);
-    complete(
+    let job_dir = job_path(&base, &scan.root);
+    settle(
         &job_dir,
         built.construction.checkpoint_generation.as_deref().unwrap(),
     )
     .unwrap();
-    assert!(!job_dir.exists());
+    let older = |_: &Path| Some(std::time::SystemTime::UNIX_EPOCH);
+    assert_eq!(prune_jobs(&base, &older), 0, "a cache is not unfinished");
+    assert!(job_dir.is_dir(), "its root still has a snapshot");
+    assert_eq!(prune_jobs(&base, &always), 0);
+    assert!(job_dir.is_dir(), "a newer snapshot does not end a cache");
+    assert_eq!(prune_jobs(&base, &never), 0);
+    assert!(!job_dir.exists(), "no snapshot of its root is left");
     #[cfg(unix)]
     assert!(!lock::job_lock_path(&job_dir).exists());
 }
@@ -62,6 +73,26 @@ fn a_held_job_is_never_pruned_whatever_supersedes_it() {
     drop(held);
     assert_eq!(prune_jobs(scan.checkpoint.as_ref().unwrap(), &always), 0);
     assert!(!job_dir.exists());
+}
+
+/// The bytes a build states are its own root's jobs: a held job of another
+/// root in the same home is neither pruned nor counted.
+#[test]
+fn kept_job_bytes_count_only_the_given_root() {
+    let (_dir, scan) = fixture();
+    let base = scan.checkpoint.clone().unwrap();
+    let job_dir = interrupted(&scan);
+    rewrite(&job_dir, |record| {
+        record["root"] = serde_json::json!("/nowhere/gone");
+    });
+    let _held = lock::try_job(&lock::job_lock_path(&job_dir))
+        .unwrap()
+        .expect("unheld");
+    let other = std::path::Path::new("/some/other/root");
+    assert_eq!(prune_jobs_of(&base, &always, Some(other)), 0);
+    assert!(job_dir.is_dir(), "another root's held job stays");
+    assert!(prune_jobs_of(&base, &always, Some(std::path::Path::new("/nowhere/gone"))) > 0);
+    assert!(prune_jobs(&base, &always) > 0, "the home's total");
 }
 
 #[test]

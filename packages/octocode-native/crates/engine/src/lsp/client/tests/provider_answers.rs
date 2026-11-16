@@ -64,10 +64,10 @@ fn fresh_requests_observe_each_provider_answer() {
             language_id: Some("typescript".into()),
             document_language_ids: Default::default(),
             initialization_options: Some(json!({"token": "INIT_OPTION_SECRET"})),
-            env: Some(std::collections::HashMap::from([(
-                "REGISTRY_TOKEN".into(),
-                "SERVER_ENV_SECRET".into(),
-            )])),
+            env: Some(std::collections::HashMap::from([
+                ("REGISTRY_TOKEN".into(), "SERVER_ENV_SECRET".into()),
+                ("PATH".into(), std::env::var("PATH").unwrap_or_default()),
+            ])),
             max_memory_mb: None,
             source: Default::default(),
         });
@@ -228,7 +228,10 @@ fn open_documents_follow_their_files_and_never_replay_older_answers() {
             language_id: Some("typescript".into()),
             document_language_ids: Default::default(),
             initialization_options: None,
-            env: None,
+            env: Some(std::collections::HashMap::from([(
+                "PATH".into(),
+                std::env::var("PATH").unwrap_or_default(),
+            )])),
             max_memory_mb: None,
             source: Default::default(),
         });

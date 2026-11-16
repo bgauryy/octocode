@@ -12,6 +12,7 @@ fn snapshot(home: &Path) -> Snapshot<'_> {
         owner: "octo",
         repo: "demo",
         commit: "abc123",
+        blobs: None,
     }
 }
 
@@ -27,6 +28,7 @@ fn entry(path: &str, bytes: &[u8]) -> TreeEntry {
         path: path.into(),
         kind: EntryKind::File,
         size: Some(bytes.len() as u64),
+        oid: None,
     }
 }
 

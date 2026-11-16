@@ -285,6 +285,14 @@ impl WalkErrors {
 }
 
 impl StructuralDiagnostic {
+    /// The warning on a file read as legacy 8-bit text ([`crate::text::decode`]):
+    /// matches and positions count its decoded text.
+    #[must_use]
+    pub fn decoded(path: &str, warning: &str) -> Self {
+        Self::new("structural.source.decoded", "warning", "source", warning)
+            .with_path(path.to_owned())
+    }
+
     pub(super) fn new(
         code: impl Into<String>,
         severity: impl Into<String>,

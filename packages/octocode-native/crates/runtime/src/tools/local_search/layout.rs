@@ -9,7 +9,6 @@ mod stream;
 use super::local_search_query::{
     self, default_matches_per_file, default_page_size, streamed_layout,
 };
-use super::rows::rank_file_rows;
 use crate::policy::path::PathPolicy;
 use crate::response::result::ToolError;
 #[cfg(test)]
@@ -94,6 +93,67 @@ impl StreamCuts {
     }
 }
 
+/// A page cut from the files a traversal stream read ([`super::streamed`]):
+/// the first file's rows an earlier page showed are skipped, and nothing
+/// shows whole while the walk goes on.
+pub(super) struct Walking {
+    pub(super) start_row: usize,
+    /// The walk reached its end: no candidate lies past the files.
+    pub(super) ended: bool,
+}
+
+/// The test a traversal stream ends by: `true` for the file that makes its
+/// page overflow, so the page is full and the rows past it are the next
+/// page's. It prices the page as the cut does, less the enclosing names and
+/// the per-file paging (which cost more), so a page it calls full is full
+/// whatever the cut charges: it never ends a stream early, and may read a
+/// file or two beyond the exact cut. Files are given in walk order; the
+/// first one's rows before `start_row` were shown by an earlier page.
+pub(super) fn page_fill(
+    query: &LocalSearchQuery,
+    paths: &PathPolicy,
+    output_root: &std::path::Path,
+    (budget, start_row): (usize, usize),
+) -> impl FnMut(&octocode_engine::types::TextSearchFile) -> bool + Send + use<> {
+    let costs = PageCosts::new(query, paths, output_root);
+    let view = local_search_query::view(query);
+    let list = list_view(view);
+    let limit = local_search_query::limit(query)
+        .unwrap_or(usize::MAX)
+        .max(1);
+    let (mut used, mut entries, mut first) = (0usize, 0usize, true);
+    move |file| {
+        let skipped = if std::mem::take(&mut first) {
+            start_row.min(file.matches.len())
+        } else {
+            0
+        };
+        let (chars, count) = if list {
+            (listed_file_chars(file, view) + costs.prefix_chars + 1, 1)
+        } else {
+            let rows = &file.matches[skipped..];
+            (
+                costs.file(file) + rows.iter().map(|row| costs.row(row)).sum::<usize>(),
+                rows.len().max(1),
+            )
+        };
+        let past = used.saturating_add(chars) > budget || entries.saturating_add(count) > limit;
+        let overflows = past && (used > 0 || count > 1);
+        used = used.saturating_add(chars);
+        entries = entries.saturating_add(count);
+        overflows
+    }
+}
+
+/// What a streamed page says of the pages around it.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct WalkPage {
+    /// Rows remain after this page.
+    pub(super) more: bool,
+    /// An earlier page showed rows of this search.
+    pub(super) continued: bool,
+}
+
 /// How one page is cut and shown.
 pub(super) struct Layout {
     pub(super) list: bool,
@@ -119,6 +179,9 @@ pub(super) struct Layout {
     /// Every page of a streamed cut, when this call cut it (a fresh page
     /// stores the scan by them, see [`super::page_view::encode_pages`]).
     pub(super) pages: Option<std::sync::Arc<Vec<PageRows>>>,
+    /// The page is one of a traversal stream: its totals are floors while
+    /// `more` rows remain ([`Self::walked`]).
+    pub(super) walk: Option<WalkPage>,
 }
 
 /// The unit of one hit row: an occurrence on matchOnly pages, a matched line
@@ -144,7 +207,7 @@ impl Layout {
         output_root: &std::path::Path,
         parsed: &mut octocode_engine::types::TextSearchResult,
         page_budget: usize,
-        (pricing, cuts): (&mut NamePricing<'_>, Option<&StreamCuts>),
+        (pricing, cuts, walking): (&mut NamePricing<'_>, Option<&StreamCuts>, Option<&Walking>),
     ) -> Result<Self, ToolError> {
         let view = local_search_query::view(query);
         let list = list_view(view);
@@ -163,8 +226,11 @@ impl Layout {
         // whole (it is at most one page of files).
         // A `limit` below the result's rows pages it, however small it is.
         let within_limit = local_search_query::limit(query).is_none_or(|limit| hits_total <= limit);
-        let show_all =
-            !list && within_limit && fits_whole(&parsed.files, page_budget, &costs, true) && {
+        let show_all = !list
+            && within_limit
+            && walking.is_none_or(|walking| walking.ended)
+            && fits_whole(&parsed.files, page_budget, &costs, true)
+            && {
                 if priced_names {
                     let all = (0..parsed.files.len()).collect::<Vec<_>>();
                     pricing.price(&parsed.files, all)?;
@@ -172,25 +238,14 @@ impl Layout {
                 }
                 fits_whole(&parsed.files, page_budget, &costs, false)
             };
-        let matches_per = if show_all {
-            saturating_u32(hits_total)
+        // A streamed page shows rows as written, file after file; only the
+        // match-page grid cuts a file into fixed runs of rows.
+        let matches_per = if streamed_layout(query) {
+            u32::MAX
         } else {
             default_matches_per_file()
         }
         .max(1);
-        // A file with more hits than one match page shows its deciding rows
-        // first: declarations, then assignments/branches/returns, then other
-        // code, then comments and strings (stable by line within a rank). A
-        // row repeating an earlier row's text adds nothing and follows every
-        // distinct row. Pages partition that order; each page is shown in
-        // source order.
-        if !match_only {
-            for file in &mut parsed.files {
-                if saturating_u32(file.matches.len()) > matches_per {
-                    rank_file_rows(&mut file.matches);
-                }
-            }
-        }
         let streamed = streamed_layout(query);
         let mut pages = None;
         let (shown, total_pages, total_items, offset) = if streamed && list {
@@ -204,7 +259,7 @@ impl Layout {
                 page_budget,
                 &mut costs,
                 (pricing, cuts),
-                &mut pages,
+                (walking.map_or(0, |walking| walking.start_row), &mut pages),
             )?
         } else {
             Self::grid(query, parsed.files.len(), matches_per)
@@ -238,7 +293,22 @@ impl Layout {
             streamed,
             merge_context,
             pages,
+            walk: None,
         })
+    }
+
+    /// State that this page is one of a traversal stream: it starts after
+    /// `offset` rows earlier pages showed, and `more` rows remain. Its
+    /// totals count what the walk has shown so far, a floor while `more`.
+    pub(super) fn walked(&mut self, offset: usize, more: bool) {
+        self.walk = Some(WalkPage {
+            more,
+            continued: offset > 0,
+        });
+        self.offset = offset;
+        self.total_items = saturating_u32(offset + self.length);
+        self.total_pages = if more { 2 } else { 1 };
+        self.out_of_range = false;
     }
 
     /// The layout of the page `query` asks for of a seekable stored scan
@@ -278,6 +348,7 @@ impl Layout {
             context,
             streamed: true,
             pages: None,
+            walk: None,
         }
     }
 
@@ -297,7 +368,7 @@ impl Layout {
         page_budget: usize,
         costs: &mut PageCosts,
         (pricing, cuts): (Option<&mut NamePricing<'_>>, Option<&StreamCuts>),
-        cut_pages: &mut Option<std::sync::Arc<Vec<PageRows>>>,
+        (start, cut_pages): (usize, &mut Option<std::sync::Arc<Vec<PageRows>>>),
     ) -> Result<(PageRows, u32, u32, usize), ToolError> {
         // `through`: the cut stops after that page, every reserved name
         // costing nothing (see below).
@@ -320,6 +391,7 @@ impl Layout {
                     },
                 },
                 through,
+                start,
             )
         };
         // Free reserved names make the first page reach at least as far as

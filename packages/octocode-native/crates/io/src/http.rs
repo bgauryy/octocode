@@ -7,8 +7,10 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 mod date;
+mod failure;
 mod trust;
 pub use date::parse_http_date;
+pub use failure::SendFailure;
 
 /// The first Age list member, in seconds. Overflow remains old rather than
 /// becoming a cache miss that resets the age (RFC 9111 sections 1.2.2 and 5.1).
@@ -77,10 +79,12 @@ pub enum Proxy {
     Direct,
 }
 
-/// The longest a client with no deadline of its own waits for its peer's next
-/// bytes ([`ClientPolicy::read_timeout`]), the first answer byte included.
-/// It ends a dead or silent socket, never flowing work: every read that
-/// arrives starts it again. It matches the request budget every surface had
+/// The longest a request with no deadline of its own waits for its peer's next
+/// bytes, the first answer byte included: a client's
+/// [`ClientPolicy::read_timeout`], or the stall bound of a budget whose
+/// requests are retried ([`crate::budget::RequestBudget::with_stall`]), which
+/// ends the request rather than one attempt of it. It ends a dead or silent
+/// socket, never flowing work: every read that arrives starts it again. It matches the request budget every surface had
 /// before requests lost their fixed deadline, so no exchange that completed
 /// then (a model thinking before its first byte) is cut by it now.
 #[cfg_attr(

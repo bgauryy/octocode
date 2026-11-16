@@ -248,6 +248,7 @@ pub(super) fn outline_file(
     let cancelled = || cancel.check().is_err();
     let mut maps = super::super::source::mapping_budget(cancel, &cancelled);
     let (admitted, _) = super::super::source::admitted_for_match(canonical, &b, &mut maps)?;
+    let decoded = admitted.warning();
     let source = admitted.text();
     let source_path = canonical.to_string_lossy();
     let parser = crate::tools::ast_search::language::parser_override(
@@ -291,6 +292,11 @@ pub(super) fn outline_file(
         return Ok(Err(unsupported()));
     };
     let mut diagnostics = vec![];
+    if let Some(warning) = decoded {
+        diagnostics.push(json!({
+            "code": "structural.source.decoded", "severity": "warning", "message": warning
+        }));
+    }
     if let Some(note) = crate::tools::ast_search::language::cpp_header_note(
         canonical,
         ast_search_query_symbols::language(q).as_deref(),

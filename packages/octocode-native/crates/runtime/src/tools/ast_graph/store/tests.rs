@@ -9,10 +9,12 @@ mod arguments;
 mod call_recall;
 mod cargo_workspaces;
 mod cochange;
+mod decoded;
 mod detectors;
 mod evidence;
 mod evidence_coverage;
 mod extraction_faults;
+mod fact_cache;
 mod find_ranking;
 mod graph_views;
 mod impact;
@@ -177,15 +179,24 @@ fn ingest_root(dir: &Path, root: &Path, keep: Option<usize>, refresh: bool) -> G
     )
 }
 
-/// A completed build leaves no extraction to reuse on a later request.
+/// A build that ran, not the answer of an unchanged scope: every selected
+/// input was extracted or reused from the scope's fact cache, and nothing
+/// resumed an interrupted build.
 fn assert_fresh_build(output: &GraphOutput) {
     assert_eq!(output.class, ExitClass::Success, "{}", output.value);
     assert!(output.value.get("reused").is_none(), "{}", output.value);
-    assert_eq!(output.value["extraction"]["reusedFiles"], 0);
     assert_eq!(output.value["extraction"]["resumedFiles"], 0);
     assert_eq!(
-        output.value["extraction"]["parsedFiles"], output.value["scan"]["filesScanned"],
-        "an explicit build must extract its selected inputs: {}",
+        output.value["extraction"]["parsedFiles"]
+            .as_u64()
+            .unwrap_or(0)
+            + output.value["extraction"]["reusedFiles"]
+                .as_u64()
+                .unwrap_or(0),
+        output.value["scan"]["filesScanned"]
+            .as_u64()
+            .unwrap_or(u64::MAX),
+        "an explicit build must account for its selected inputs: {}",
         output.value
     );
 }

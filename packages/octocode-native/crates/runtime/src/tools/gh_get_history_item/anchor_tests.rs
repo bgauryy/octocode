@@ -17,6 +17,7 @@ mod batches;
 mod commit;
 mod commit_match;
 mod compare;
+mod discussion_match;
 mod issue;
 mod pull_request;
 mod redaction;

@@ -97,6 +97,9 @@ fn summary(row: Value, target: Target<'_>) -> Value {
             fields.shift_remove(detail);
         }
     }
+    if let Some(Value::Array(warnings)) = fields.get_mut("warnings") {
+        super::global::collapse_withdrawn(warnings);
+    }
     let sources = fields.shift_remove("sources");
     let related = fields.shift_remove("related");
     lean.extend(fields);

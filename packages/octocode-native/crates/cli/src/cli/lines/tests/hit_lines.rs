@@ -15,7 +15,7 @@ fn hits_print_like_rg_and_lose_no_field() {
             "996-) {",
             "997:  let sb = SearcherBuilder::new();  [function build 992-1016]",
             "# rowPart: part 1 of 2",
-            "# responsePagination: hasMore",
+            "# responsePagination: hasMore true",
             "# warnings: incomplete",
             "# responsePagination.next: octocode localSearch '{\"cursor\":\"issued-response-page\"}'",
             "# next.nextPage: octocode localSearch '{\"cursor\":\"issued-tool-page\"}'",
@@ -80,7 +80,7 @@ fn empty_values_crlf_and_clipped_structural_matches() {
         render(ToolId::AstSearch, &ast, &json!({}), None)
             .expect("lines")
             .out,
-        "m.ts:1:function foo(a) …  [endLine 3 column 1 clipped]"
+        "m.ts:1:function foo(a) …  [endLine 3 column 1 clipped true]"
     );
 }
 

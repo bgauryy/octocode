@@ -363,3 +363,33 @@ fn an_empty_pages_check_states_only_what_it_withheld_beyond_the_page() {
     );
     assert!(body.get("warnings").is_none(), "{body}");
 }
+
+/// A binary among the skipped paths is outside the text the check of an
+/// empty page searched: the absence sentence counts it as not searched,
+/// as it does a binary the page's own walk skipped, never as searched.
+#[test]
+fn an_empty_pages_check_counts_a_skipped_binary_as_not_searched() {
+    let root = tempfile::tempdir().expect("fixture");
+    let mut blob = vec![0u8; 16];
+    blob.extend_from_slice(b"needle");
+    blob.extend_from_slice(&[0u8; 16]);
+    fs::write(root.path().join("visible.txt"), "nothing\n").expect("file");
+    let excluded = root.path().join("node_modules");
+    fs::create_dir_all(&excluded).expect("directory");
+    fs::write(excluded.join("blob.bin"), blob).expect("file");
+    let query = ls_query(
+        serde_json::json!({"path":root.path(),"matchString":["needle"],"view":"files"}),
+        None,
+    );
+    let (policy, security) = policy_for(root.path());
+    let body = search_in(&query, &policy, &security, None)
+        .expect("search")
+        .to_row()
+        .expect("result");
+    assert!(paths(&body).is_empty(), "an empty page: {body}");
+    let absence = body["hints"][0].as_str().expect("absence sentence");
+    assert!(
+        absence.contains("a check searched") && absence.contains("not searched: 1 binary file"),
+        "{body}"
+    );
+}

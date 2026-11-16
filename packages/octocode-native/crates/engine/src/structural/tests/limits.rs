@@ -82,7 +82,7 @@ fn structural_review_pattern_depth_is_explicitly_incomplete() {
 #[test]
 fn structural_review_backtracking_exhaustion_cannot_satisfy_negation() {
     let source = format!("probe({});", vec!["1"; 150].join(","));
-    let rule = json!({"kind":"call_expression","not":{"pattern":"probe($$$A, $$$B, absent)"}});
+    let rule = json!({"kind":"call_expression","not":{"pattern":"probe($$$A, $$$B, probe)"}});
     let result = evaluate_source(&source, "wide.ts", "ts", None, Some(&rule));
     assert_eq!(result.status, "truncated");
     assert!(result.matches.is_empty());
@@ -135,7 +135,7 @@ fn structural_review_file_limits_retain_completed_files() {
         format!("probe({});", vec!["1"; 150].join(",")),
     )
     .expect("limited file");
-    let rule = json!({"kind":"call_expression","not":{"pattern":"probe($$$A, $$$B, absent)"}});
+    let rule = json!({"kind":"call_expression","not":{"pattern":"probe($$$A, $$$B, probe)"}});
     let result = search_files_detailed(review_file_options(&root, rule.clone(), 10))
         .expect("partial file search");
     assert_eq!(result.status, "truncated");

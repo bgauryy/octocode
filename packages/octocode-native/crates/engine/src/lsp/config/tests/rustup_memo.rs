@@ -2,7 +2,7 @@
 //! once per state of what it reads: a declaration lead asks on every search
 //! hit, and a process per hit is the whole cost of that hit.
 use super::rustup_fixture::{FakeRustup, toolchain_binary};
-use crate::lsp::config::invocation::rustup::{RustupView, with_view};
+use crate::lsp::config::invocation::rustup::{RustupView, view_env, with_view};
 use crate::lsp::config::{LspDiscoveryOptions, default_server_for_file, server_command_resolves};
 use crate::lsp::types::ServerSource;
 use crate::stamp::settle_written_so_far;
@@ -34,7 +34,7 @@ fn machine() -> Machine {
     let workspace = root.join("project/crate");
     std::fs::create_dir_all(&workspace).expect("workspace");
     let view = RustupView {
-        path_var: Some(rustup.bin().as_os_str().to_owned()),
+        path_var: Some(rustup.path()),
         home: Some(home.clone()),
         ..RustupView::default()
     };
@@ -55,7 +55,10 @@ impl Machine {
             default_server_for_file(
                 "src/lib.rs",
                 &self.workspace.to_string_lossy(),
-                &LspDiscoveryOptions::default(),
+                &LspDiscoveryOptions {
+                    env: view_env(&self.view),
+                    ..LspDiscoveryOptions::default()
+                },
             )
             .is_some_and(|config| server_command_resolves(&config))
         })
@@ -90,7 +93,10 @@ fn a_route_resolved_without_rustup_answering_is_not_kept() {
             default_server_for_file(
                 "src/lib.rs",
                 &machine.workspace.to_string_lossy(),
-                &LspDiscoveryOptions::default(),
+                &LspDiscoveryOptions {
+                    env: view_env(&machine.view),
+                    ..LspDiscoveryOptions::default()
+                },
             )
         })
     };
@@ -219,7 +225,7 @@ fn an_unprovable_answer_is_not_kept() {
     let machine = Machine {
         home: root.join("rustup-home"),
         view: RustupView {
-            path_var: Some(rustup.bin().as_os_str().to_owned()),
+            path_var: Some(rustup.path()),
             home: Some(root.join("rustup-home")),
             ..RustupView::default()
         },
@@ -250,7 +256,10 @@ fn the_lead_and_the_server_route_share_one_answer() {
         let config = default_server_for_file(
             "src/lib.rs",
             &machine.workspace.to_string_lossy(),
-            &LspDiscoveryOptions::default(),
+            &LspDiscoveryOptions {
+                env: view_env(&machine.view),
+                ..LspDiscoveryOptions::default()
+            },
         )
         .expect("rust route");
         assert_eq!(config.source, ServerSource::Path);

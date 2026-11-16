@@ -100,6 +100,7 @@ pub(super) fn scan(
         parsed: result.parsed,
         passed_over: result.passed_over,
         skipped: result.skipped,
+        decoded: result.decoded,
         files_skipped: result.files_skipped,
         truncated: walk.was_capped,
         scan_resume: None,

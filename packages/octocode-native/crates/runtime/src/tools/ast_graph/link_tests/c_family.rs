@@ -163,7 +163,7 @@ fn c_forward_declarations_link_their_own_definition() {
     let callees = ask_with(root, "callees", Some("x.c#first"), |o| {
         o.confidence = Some("high".into());
     });
-    assert_eq!(result_ids(&callees), ["x.c#later@3"], "{callees}");
+    assert_eq!(result_ids(&callees), ["x.c#later@2"], "{callees}");
 }
 
 /// Two programs each defining `usage`: each calls its own, and a third

@@ -4,7 +4,7 @@
 
 use crate::support::{PACED_LIMITS, Run as _, Workspace, call, row_data};
 use octocode_native::response::exit::ExitClass;
-use octocode_native::runtime::FailureKind;
+use octocode_native::runtime::ErrorClass;
 use serde_json::json;
 use wiremock::matchers::{method, path, query_param_contains};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -78,7 +78,7 @@ async fn a_rate_limited_row_offers_a_retry_and_the_batch_exits_rate_limited() {
     assert_eq!(row_data(&again)["errorCode"], "rateLimited");
     assert_eq!(
         outcome.exit_class(),
-        ExitClass::Failed(FailureKind::RateLimited)
+        ExitClass::Failed(ErrorClass::Transient)
     );
     runtime.close().await;
 }

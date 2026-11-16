@@ -6,6 +6,7 @@ use super::head_sources::head_sources;
 use super::load::PrLoads;
 use crate::tools::gh_get_history_item::Source;
 use crate::tools::gh_get_history_item::axis::Axis;
+use crate::tools::gh_get_history_item::body_match::keep_loaded;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::pr_finish::pr_metadata;
 use crate::tools::gh_get_history_item::pr_menu::{INVENTORY_ALL_PATCHES_FILES, pr_next_menu};
@@ -65,6 +66,9 @@ pub(in crate::tools::gh_get_history_item) struct ShapedPr {
     /// What the row's pages leave to read beside its public pages.
     /// Each listed commit's next file page (`continueCommitFiles…`).
     pub(in crate::tools::gh_get_history_item) commit_file_pages: Vec<(String, Value)>,
+    /// What a `matchString` dropped of the discussion sections, one
+    /// disclosure each.
+    pub(in crate::tools::gh_get_history_item) body_drops: Vec<String>,
 }
 
 pub(super) async fn shape_pr(
@@ -84,6 +88,11 @@ pub(super) async fn shape_pr(
         commits,
     } = loads;
     let patches = wants.has(Section::Patches);
+    let needle = plan.needle.as_deref();
+    let mut body_drops = Vec::new();
+    let inline = keep_loaded(inline, needle, "review comments", &mut body_drops);
+    let discussion = keep_loaded(discussion, needle, "comments", &mut body_drops);
+    let reviews = keep_loaded(reviews, needle, "reviews", &mut body_drops);
     let mut row = pr_metadata(&raw, query);
     let mut pagination = Map::new();
     if wants.has(Section::Body) {
@@ -166,6 +175,7 @@ pub(super) async fn shape_pr(
         menu,
         comment_reads,
         commit_file_pages,
+        body_drops,
     })
 }
 

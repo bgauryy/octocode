@@ -33,7 +33,7 @@ fn check(probe: &Probe, outcome: &ToolOutcome) -> Vec<String> {
     let exit = outcome.exit_class();
     let exit_ok = match probe.status {
         "empty" => exit == ExitClass::Empty,
-        _ => matches!(exit, ExitClass::Failed(_) | ExitClass::InvalidInput),
+        _ => matches!(exit, ExitClass::Failed(_)),
     };
     if !exit_ok {
         failures.push(format!("{label}: exit class {exit:?}: {out}"));

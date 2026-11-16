@@ -339,3 +339,17 @@ async fn a_transient_graphql_backoff_is_disclosed_as_retry_after() {
         context.client_waits()
     );
 }
+
+/// A retry's backoff is jittered from zero, and a wait under a millisecond is
+/// recorded as none: a draw of zero would retry with nothing disclosed. Every
+/// retry waits at least a millisecond, so every backoff reaches `clientWaits`.
+#[test]
+fn every_retry_backoff_is_long_enough_to_be_disclosed() {
+    let retry = RetryPolicy {
+        max_attempts: 3,
+        base_delay: Duration::from_millis(1),
+    };
+    for _ in 0..500 {
+        assert!(retry.backoff().next_delay(0) >= Duration::from_millis(1));
+    }
+}

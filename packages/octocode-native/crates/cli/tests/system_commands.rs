@@ -167,7 +167,7 @@ fn login_treats_a_blank_hostname_as_the_configured_host() {
             .args(["auth", "login", "--hostname", blank, "--json"])
             .output()
             .expect("auth login");
-        assert_eq!(output.status.code(), Some(5), "{blank:?}");
+        assert_eq!(output.status.code(), Some(4), "{blank:?}");
         let value = json_of(&output);
         assert_eq!(value["errorCode"], "missingConfiguration", "{value}");
         assert!(
@@ -181,7 +181,7 @@ fn login_treats_a_blank_hostname_as_the_configured_host() {
         .args(["auth", "login"])
         .output()
         .expect("auth login");
-    assert_eq!(text.status.code(), Some(5));
+    assert_eq!(text.status.code(), Some(4));
     assert!(stderr(&text).contains("OCTOCODE_GITHUB_CLIENT_ID is required"));
 }
 

@@ -58,7 +58,10 @@ fn rate_limit_rows_have_one_shape_on_every_github_tool() {
                 keys,
                 ["error", "errorCode", "retryable", "httpStatus", "rateLimit"]
             );
-            assert_eq!(result.failure, Some(FailureKind::RateLimited));
+            assert_eq!(
+                result.failure,
+                Some(crate::id::error_codes::ErrorClass::Transient)
+            );
         }
         // A file read adds only the file's identity.
         let file = file_row(error.clone(), json!({"owner":"a","repo":"b","path":"x"}));
@@ -92,10 +95,10 @@ fn login_advice_needs_an_anonymous_caller_and_a_spent_primary_quota() {
     assert!(!advised(secondary_with_quota(), true));
 }
 
-/// A provider/transport row states `retryable:true` when a retry can
-/// help and omits the key otherwise (absence = do not retry unchanged).
+/// A transient provider row states the emitter's verdict as a boolean
+/// `retryable`; a row of any other class omits the key.
 #[test]
-fn provider_rows_state_retryable_only_when_true() {
+fn provider_rows_state_retryable_only_when_transient() {
     for kind in [
         ProviderErrorKind::Transport,
         ProviderErrorKind::Timeout,
@@ -111,9 +114,11 @@ fn provider_rows_state_retryable_only_when_true() {
             file_row(error.clone(), json!({"owner":"a","repo":"b","path":"x"})),
             provider_error(error.clone()),
         ] {
+            let transient = crate::id::error_class(result.data["errorCode"].as_str().unwrap())
+                == crate::id::error_codes::ErrorClass::Transient;
             assert_eq!(
                 result.data.get("retryable"),
-                expected.then_some(&json!(true)),
+                transient.then_some(&json!(expected)),
                 "{kind:?}: {}",
                 result.data
             );

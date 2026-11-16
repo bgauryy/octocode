@@ -1,7 +1,7 @@
 //! The `octocode mcp` child process and its JSON-RPC line protocol, shared by
 //! the era tests and `progress`.
 
-use crate::support::Workspace;
+use crate::support::{PersistentCli, Workspace};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin};
@@ -24,9 +24,21 @@ impl Server {
 
     /// [`Self::start`] with extra environment variables.
     pub(super) fn start_with(workspace: &Workspace, env: &[(&str, &str)]) -> Self {
-        let mut child = workspace
-            .cli()
-            .envs(env.iter().copied())
+        let mut command = workspace.cli();
+        command.envs(env.iter().copied());
+        Self::spawn(command)
+    }
+
+    /// A server on persistent storage in `persistent`'s socket namespace,
+    /// so its tools run on a warm server the fixture owns and stops.
+    pub(super) fn start_persistent(persistent: &PersistentCli, env: &[(&str, &str)]) -> Self {
+        let mut command = persistent.cli();
+        command.envs(env.iter().copied());
+        Self::spawn(command)
+    }
+
+    fn spawn(mut command: std::process::Command) -> Self {
+        let mut child = command
             .arg("mcp")
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())

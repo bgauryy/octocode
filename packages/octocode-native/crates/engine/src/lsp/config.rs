@@ -1,6 +1,7 @@
 mod catalog;
 mod defaults;
 mod directory;
+pub(crate) mod identity;
 mod invocation;
 mod kept;
 mod probe;
@@ -28,6 +29,7 @@ pub use directory::{
     default_server_for_directory, directory_languages, directory_representative,
     typescript_server_fallback_for_directory,
 };
+pub(crate) use identity::launch_identity;
 pub(super) use invocation::current_node_command;
 pub(crate) use invocation::{is_generic_interpreter_command, is_rust_analyzer_command};
 pub use probe::{is_command_available, repository_toolchain_refusal, server_command_resolves};
@@ -38,7 +40,6 @@ pub use user_config::{
 };
 pub use workspace_root::{
     representative_source_for, workspace_root_languages, workspace_root_marker_names,
-    workspace_root_representative_source,
 };
 
 #[cfg(test)]

@@ -11,6 +11,23 @@ fn every_lead() -> Value {
         .collect()
 }
 
+/// [`every_lead`] without the calls `tool`'s description promises
+/// (`ToolId::promised_links`), which a row keeps by that promise alone.
+fn leads_for(tool: ToolId) -> Value {
+    every_lead()
+        .as_array()
+        .expect("leads")
+        .iter()
+        .filter(|call| {
+            !tool
+                .promised_links()
+                .iter()
+                .any(|to| to.as_str() == call["tool"])
+        })
+        .cloned()
+        .collect()
+}
+
 fn next() -> Value {
     json!({"nextPage": {"kind": "continue", "tool": "x", "input": {"cursor": "c"}}})
 }
@@ -24,7 +41,7 @@ fn nonempty_success_has_no_optional_guidance() {
             "content": "1\tα evidence\n2\tβ evidence",
             "hints": ["Read the next workflow tool."],
             "warnings": ["Selected source was redacted."],
-            "related": every_lead(), "next": next()
+            "related": leads_for(tool), "next": next()
         }});
         let empty = json!({"index": 1, "status": "empty", "data": {
             "hints": ["Try an exact spelling."], "related": every_lead()
@@ -34,7 +51,7 @@ fn nonempty_success_has_no_optional_guidance() {
             "hints": ["List its parent."], "related": every_lead()
         }});
         let mut output = json!({"results": [success, empty, error]});
-        retain_guidance(&mut output, &Value::Null);
+        retain_guidance(tool, &mut output, &Value::Null);
         let data = &output["results"][0]["data"];
         assert!(data.get("hints").is_none(), "{tool}: {data}");
         assert!(data.get("related").is_none(), "{tool}: {data}");
@@ -57,13 +74,13 @@ fn every_batch_of_the_selected_workflow_remains_reachable() {
             json!({"kind": "related", "tool": target.as_str(),
                 "input": {"queries": [{"id": id}]}})
         });
-        let mut related = every_lead().as_array().expect("leads").clone();
+        let mut related = leads_for(tool).as_array().expect("leads").clone();
         related.retain(|call| call["tool"] != target.as_str());
         related.extend(calls.clone());
         let mut output = response(json!({"data": {
             "ids": ["first", "second"], "related": related, "next": next()
         }}));
-        retain_guidance(&mut output, &Value::Null);
+        retain_guidance(tool, &mut output, &Value::Null);
         assert_eq!(
             output["results"][0]["data"]["related"],
             json!(calls),
@@ -86,7 +103,7 @@ fn batches_with_already_stated_identities_are_optional() {
             "files": [{"path": "src/first.rs"}, {"path": "src/second.rs"}, {"path": "src/third.rs"}],
             "related": calls, "next": next()
         }}));
-        retain_guidance(&mut output, &Value::Null);
+        retain_guidance(target, &mut output, &Value::Null);
         assert!(
             output["results"][0]["data"].get("related").is_none(),
             "{target}: {output}"
@@ -114,7 +131,7 @@ fn substring_collisions_do_not_erase_unstated_lead_identities() {
                 "path": if in_request { "other.rs" } else { longer.as_str() },
                 "related": [read], "next": next()
             }}));
-            retain_guidance(&mut output, &request);
+            retain_guidance(ToolId::LocalSearch, &mut output, &request);
             assert_eq!(
                 output["results"][0]["data"]["related"],
                 json!([read]),
@@ -138,7 +155,7 @@ fn enum_spelling_in_a_path_remains_an_identity() {
         let mut output = response(json!({"index": 0, "data": {
             "path": "known.rs", "related": [read, optional], "next": next()
         }}));
-        retain_guidance(&mut output, &Value::Null);
+        retain_guidance(ToolId::LocalSearch, &mut output, &Value::Null);
         assert_eq!(
             output["results"][0]["data"]["related"],
             json!([read]),
@@ -159,17 +176,16 @@ fn a_note_promised_tool_retains_its_related_calls() {
     for tool in ToolId::ALL {
         for target in ToolId::ALL {
             for channel in ["warnings", "hints", "notices", "diagnostics"] {
-                let recovery =
-                    format!("Run the related `{target}` request to inspect the alternatives.");
-                let mut data = json!({"files": [], "related": every_lead()});
+                let recovery = format!("Run the `{target}` request to inspect the alternatives.");
+                let mut data = json!({"files": [], "related": leads_for(tool)});
                 data[channel] = if channel == "diagnostics" {
                     json!([{"message": "A different spelling exists.", "recovery": recovery}])
                 } else {
                     json!([recovery])
                 };
                 let mut output = response(json!({"index": 0, "data": data}));
-                retain_guidance(&mut output, &Value::Null);
-                let expected = every_lead()
+                retain_guidance(tool, &mut output, &Value::Null);
+                let expected = leads_for(tool)
                     .as_array()
                     .expect("leads")
                     .iter()
@@ -212,9 +228,9 @@ fn source_and_tool_name_substrings_do_not_retain_optional_calls() {
                     "warnings": [format!("Use {spelling}.")],
                     "hints": [format!("Use {spelling}.")],
                     "notices": [format!("Use {spelling}.")],
-                    "related": every_lead()
+                    "related": leads_for(tool)
                 }}));
-                retain_guidance(&mut output, &Value::Null);
+                retain_guidance(tool, &mut output, &Value::Null);
                 let related = output["results"][0]["data"]["related"]
                     .as_array()
                     .cloned()
@@ -231,7 +247,7 @@ fn source_and_tool_name_substrings_do_not_retain_optional_calls() {
 fn a_complete_row_has_no_optional_related_calls() {
     let mut output = response(json!({"index": 0, "data": {
         "files": [], "related": every_lead(), "next": next()}}));
-    retain_guidance(&mut output, &Value::Null);
+    retain_guidance(ToolId::LocalSearch, &mut output, &Value::Null);
     let data = &output["results"][0]["data"];
     assert_eq!(data["next"], next());
     assert!(data.get("related").is_none(), "{data}");
@@ -255,7 +271,7 @@ fn a_row_that_did_not_answer_whole_keeps_every_lead() {
             row["data"]["next"] = next();
             let before = row.clone();
             let mut output = response(row);
-            retain_guidance(&mut output, &Value::Null);
+            retain_guidance(tool, &mut output, &Value::Null);
             assert_eq!(output["results"][0], before, "{tool}");
         }
     }
@@ -267,7 +283,7 @@ fn a_complete_selection_is_a_complete_row() {
     let mut output = response(json!({"index": 0, "data": {
         "selection": {"status": "complete", "unknownItems": 0, "excludedItems": 3},
         "related": every_lead()}}));
-    retain_guidance(&mut output, &Value::Null);
+    retain_guidance(ToolId::LocalSearch, &mut output, &Value::Null);
     assert!(output["results"][0]["data"].get("related").is_none());
 }
 
@@ -305,7 +321,7 @@ fn a_call_carrying_an_unstated_fact_is_part_of_the_answer() {
         crate::response::result::attach_related(&mut data, call);
     }
     let mut output = response(json!({"index": 0, "data": data}));
-    retain_guidance(&mut output, &Value::Null);
+    retain_guidance(ToolId::LocalSearch, &mut output, &Value::Null);
     let data = &output["results"][0]["data"];
     assert_eq!(
         data["related"],
@@ -324,6 +340,7 @@ fn the_two_lead_rules_together_drop_no_fact_found_nowhere_else() {
     fn holds(value: &Value, identity: &str) -> bool {
         match value {
             Value::String(text) => text.contains(identity),
+            Value::Number(number) => number.to_string() == identity,
             Value::Array(items) => items.iter().any(|item| holds(item, identity)),
             Value::Object(map) => map
                 .iter()
@@ -347,7 +364,7 @@ fn the_two_lead_rules_together_drop_no_fact_found_nowhere_else() {
             {"index": 1, "data": {"files": [{"path": "src/own.rs"}], "related": related.clone()}},
         ]});
         super::super::answered_leads::drop_answered_leads(tool, &mut output, &request);
-        retain_guidance(&mut output, &request);
+        retain_guidance(tool, &mut output, &request);
         let kept = output["results"][1]["data"]["related"]
             .as_array()
             .cloned()
@@ -356,7 +373,7 @@ fn the_two_lead_rules_together_drop_no_fact_found_nowhere_else() {
         for dropped in related.iter().filter(|call| !kept.contains(call)) {
             for identity in super::carried_identities(dropped) {
                 assert!(
-                    holds(&output, identity) || holds(&request, identity),
+                    holds(&output, &identity) || holds(&request, &identity),
                     "{tool}: `{identity}` of {dropped} is found nowhere else"
                 );
             }
@@ -386,7 +403,7 @@ fn partial_success_preserves_coverage_and_required_reads() {
         let mut output = response(json!({"data": data}));
         output["responsePagination"] = json!({"hasMore": true, "next": next["read"]});
         let response_page = output["responsePagination"].clone();
-        retain_guidance(&mut output, &Value::Null);
+        retain_guidance(ToolId::LocalSearch, &mut output, &Value::Null);
         let data = &output["results"][0]["data"];
         for (key, value) in coverage.as_object().expect("coverage") {
             assert_eq!(&data[key], value);
@@ -415,8 +432,369 @@ fn nested_source_values_and_error_recovery_are_not_advice() {
         "errorCode": "quoted source error", "warnings": ["source warning"]});
     let mut output = response(json!({"data": {"content": evidence,
         "hints": ["Explore another tool."], "related": every_lead()}}));
-    retain_guidance(&mut output, &Value::Null);
+    retain_guidance(ToolId::LocalSearch, &mut output, &Value::Null);
     assert_eq!(output["results"][0]["data"]["content"], evidence);
     assert!(output["results"][0]["data"].get("hints").is_none());
     assert!(output["results"][0]["data"].get("related").is_none());
+}
+
+/// A call to the row's own tool that asks one asked item for other parts
+/// (only its lists differ or are added, such as sections or includes) is
+/// the way to the rest of this answer: a complete row keeps it. A call that
+/// changes another field (the item, the operation, a view), the asked query
+/// itself, or the same row sent to another tool stays optional. A call for
+/// another number is another item, so it stays as a fact the row lacks.
+#[test]
+fn a_call_reading_more_of_an_asked_item_stays() {
+    let asked = json!({"operation": "pullRequest", "owner": "o", "repo": "r", "number": 7,
+        "mainGoal": "why it changed"});
+    let request = json!({"queries": [asked]});
+    let call = |tool: &str, row: Value| json!({"kind": "related", "tool": tool, "input": {"queries": [row]}});
+    let pr = |number: u32, sections: Option<Value>| {
+        let mut row =
+            json!({"operation": "pullRequest", "owner": "o", "repo": "r", "number": number});
+        if let Some(sections) = sections {
+            row["sections"] = sections;
+        }
+        row
+    };
+    let more_files = call("ghGetHistoryItem", pr(7, Some(json!(["files", "body"]))));
+    let more_discussion = call(
+        "ghGetHistoryItem",
+        pr(7, Some(json!(["comments", "reviews"]))),
+    );
+    // Another number names another item: a fact the row lacks, so it stays.
+    let other_item = call("ghGetHistoryItem", pr(8, Some(json!(["files"]))));
+    let dropped = [
+        call(
+            "ghGetHistoryItem",
+            json!({"operation": "issue", "owner": "o", "repo": "r", "number": 7}),
+        ),
+        call("ghGetHistoryItem", pr(7, None)),
+        call("ghSearchHistory", pr(7, Some(json!(["files"])))),
+    ];
+    let mut related = vec![
+        more_files.clone(),
+        more_discussion.clone(),
+        other_item.clone(),
+    ];
+    related.extend(dropped);
+    let mut output = response(json!({"index": 0, "data": {
+        "pullRequests": [{"number": 7, "title": "t"}], "related": related
+    }}));
+    retain_guidance(ToolId::GhGetHistoryItem, &mut output, &request);
+    assert_eq!(
+        output["results"][0]["data"]["related"],
+        json!([more_files, more_discussion, other_item]),
+        "{output}"
+    );
+}
+
+/// A list the contract does not enumerate (search keywords, match strings,
+/// globs) is not a choice among the tool's parts: a call that changes only
+/// such a list asks another question and is no way to the rest of the
+/// answer. Its lists ride along with a changed part selector (`sections`).
+#[test]
+fn only_a_changed_part_selector_reads_more_of_an_asked_item() {
+    let search = |keywords: Value| {
+        json!({"kind": "related", "tool": "ghSearchCode",
+            "input": {"queries": [{"owner": "o", "repo": "r", "keywords": keywords}]}})
+    };
+    let request = json!({"queries": [{"owner": "o", "repo": "r", "keywords": ["a"]}]});
+    let mut output = response(json!({"index": 0, "data": {
+        "files": [{"path": "p"}],
+        "related": [search(json!(["b"])), search(json!(["a", "b"]))]
+    }}));
+    retain_guidance(ToolId::GhSearchCode, &mut output, &request);
+    assert!(
+        output["results"][0]["data"].get("related").is_none(),
+        "{output}"
+    );
+
+    let asked = json!({"operation": "pullRequest", "owner": "o", "repo": "r", "number": 7});
+    let request = json!({"queries": [asked]});
+    let patches = json!({"kind": "related", "tool": "ghGetHistoryItem", "input": {"queries": [
+        {"operation": "pullRequest", "owner": "o", "repo": "r", "number": 7,
+         "sections": ["patches"], "include": ["src/a.ts"]}]}});
+    let include_only = json!({"kind": "related", "tool": "ghGetHistoryItem", "input": {"queries": [
+        {"operation": "pullRequest", "owner": "o", "repo": "r", "number": 7,
+         "include": ["src/a.ts"]}]}});
+    let another_item = json!({"kind": "related", "tool": "ghGetHistoryItem", "input": {"queries": [
+        {"operation": "pullRequest", "owner": "o", "repo": "r", "number": 7, "sections": ["files"]},
+        {"operation": "pullRequest", "owner": "o", "repo": "r", "number": 8, "sections": ["files"]}]}});
+    let mut output = response(json!({"index": 0, "data": {
+        "pullRequests": [{"number": 7}],
+        "related": [patches.clone(), include_only, another_item]
+    }}));
+    retain_guidance(ToolId::GhGetHistoryItem, &mut output, &request);
+    assert_eq!(
+        output["results"][0]["data"]["related"],
+        json!([patches, another_item]),
+        "{output}"
+    );
+}
+
+fn related_call(tool: &str, query: Value) -> Value {
+    json!({"kind": "related", "tool": tool, "input": {"queries": [query]}})
+}
+
+/// A note that sends the reader to `related` promises that row's own calls,
+/// whatever facts those calls repeat: the warning's advisory id is not in
+/// the call, which carries only the package the request states.
+#[test]
+fn a_note_naming_related_keeps_that_rows_calls() {
+    let package = json!({"operation": "package", "ecosystem": "npm", "packageName": "axios", "version": "1.6.0"});
+    let details = related_call(
+        "securityCheck",
+        json!({"operation": "package", "ecosystem": "npm", "packageName": "axios",
+            "version": "1.6.0", "view": "details"}),
+    );
+    let request = json!({"queries": [package]});
+    for (channel, kept) in [
+        ("warnings", true),
+        ("notices", true),
+        ("hints", false),
+        ("content", false),
+    ] {
+        let note = "GitHub withdrew GHSA-xxxx-yyyy-zzzz: not a match; related reads it whole.";
+        let mut data = json!({"answer": "none", "related": [details]});
+        data[channel] = if channel == "content" {
+            json!(note)
+        } else {
+            json!([note])
+        };
+        let mut output = response(json!({"index": 0, "data": data}));
+        retain_guidance(ToolId::SecurityCheck, &mut output, &request);
+        let related = &output["results"][0]["data"]["related"];
+        assert_eq!(
+            related.as_array().is_some_and(|calls| !calls.is_empty()),
+            kept,
+            "{channel}: {output}"
+        );
+    }
+    // Only a standalone word names `related`.
+    let mut output = response(json!({"index": 0, "data": {
+        "answer": "none", "warnings": ["unrelated or relatedness are not it"], "related": [details]}}));
+    retain_guidance(ToolId::SecurityCheck, &mut output, &request);
+    assert!(output["results"][0]["data"].get("related").is_none());
+}
+
+/// The artifact row's securityCheck call is promised by the producing tool's
+/// own description; a cross-tool call nothing promised stays optional.
+#[test]
+fn a_promised_cross_tool_call_stays_and_an_unpromised_one_goes() {
+    let artifact = json!({"packageName": "axios", "version": "1.6.0", "ecosystem": "npm"});
+    let check = related_call(
+        "securityCheck",
+        json!({"operation": "package", "ecosystem": "npm", "packageName": "axios", "version": "1.6.0"}),
+    );
+    let mut output =
+        response(json!({"index": 0, "data": {"artifacts": [artifact], "related": [check]}}));
+    retain_guidance(ToolId::ArtifactSearch, &mut output, &Value::Null);
+    assert_eq!(
+        output["results"][0]["data"]["related"],
+        json!([check]),
+        "{output}"
+    );
+
+    let lsp = related_call(
+        "lspSearch",
+        json!({"path": "src/a.rs", "symbolName": "a", "line": 1}),
+    );
+    let mut output = response(
+        json!({"index": 0, "data": {"files": [{"path": "src/a.rs", "symbolName": "a"}], "related": [lsp]}}),
+    );
+    retain_guidance(ToolId::LocalSearch, &mut output, &Value::Null);
+    assert!(
+        output["results"][0]["data"].get("related").is_none(),
+        "{output}"
+    );
+}
+
+/// A pull request number is an identity: the commit that names "(#874)"
+/// states it only inside prose, so the read of that pull request stays, and
+/// a row that states the number itself drops it.
+#[test]
+fn a_number_is_an_identity_only_in_its_identity_field() {
+    let read = related_call(
+        "ghGetHistoryItem",
+        json!({"operation": "pullRequest", "owner": "o", "repo": "r", "number": 874}),
+    );
+    let request =
+        json!({"queries": [{"operation": "commit", "owner": "o", "repo": "r", "sha": "abc"}]});
+    let mut output = response(json!({"index": 0, "data": {
+        "message": "Fix (#874)", "related": [read]}}));
+    retain_guidance(ToolId::GhGetHistoryItem, &mut output, &request);
+    assert_eq!(
+        output["results"][0]["data"]["related"],
+        json!([read]),
+        "{output}"
+    );
+
+    let mut output = response(json!({"index": 0, "data": {
+        "number": 874, "message": "Fix (#874)", "related": [read]}}));
+    retain_guidance(ToolId::GhGetHistoryItem, &mut output, &request);
+    assert!(
+        output["results"][0]["data"].get("related").is_none(),
+        "{output}"
+    );
+
+    // A selector number (a line) is no identity: a read differing only in it is optional.
+    let fetch =
+        |line: u32| related_call("localFetch", json!({"path": "src/a.rs", "startLine": line}));
+    let mut output = response(json!({"index": 0, "data": {
+        "path": "src/a.rs", "related": [fetch(10)]}}));
+    retain_guidance(ToolId::LocalSearch, &mut output, &Value::Null);
+    assert!(
+        output["results"][0]["data"].get("related").is_none(),
+        "{output}"
+    );
+}
+
+/// Each promised cross-tool link is promised by the producing tool's served
+/// description: it names the target tool and says `related`.
+#[test]
+fn every_promised_link_is_named_by_the_producing_description() {
+    let presentation = crate::contracts::cli_presentation().expect("presentation");
+    for (from, to) in ToolId::ALL
+        .iter()
+        .flat_map(|from| from.promised_links().iter().map(move |to| (*from, *to)))
+    {
+        let description = presentation["tools"]
+            .as_array()
+            .and_then(|tools| tools.iter().find(|tool| tool["name"] == from.as_str()))
+            .and_then(|tool| tool["mcp"]["description"].as_str())
+            .expect("served description");
+        assert!(
+            names_word(description, to.as_str()) && names_word(description, "related"),
+            "{from}'s description must name {to} and `related`"
+        );
+        assert_ne!(from, to, "a promised link crosses tools");
+    }
+}
+
+fn names_word(text: &str, word: &str) -> bool {
+    text.split(|c: char| !c.is_alphanumeric())
+        .any(|w| w == word)
+}
+
+/// A number is an identity only in an `IDENTITY_NUMBERS` field: every
+/// numeric property any tool's query schema declares is classified, so a
+/// new one cannot silently become (or fail to be) an identity.
+#[test]
+fn every_numeric_query_property_is_classified() {
+    /// Numbers that select a part of an answer (a line, a page, a limit).
+    const SELECTOR_NUMBERS: &[&str] = &[
+        "after",
+        "before",
+        "candidatePage",
+        "column",
+        "depth",
+        "endLine",
+        "historyDepth",
+        "importerPage",
+        "keep",
+        "limit",
+        "line",
+        "matchPage",
+        "matched",
+        "materializeOffset",
+        "max",
+        "maxDepth",
+        "min",
+        "minChanges",
+        "minDepth",
+        "minScore",
+        "nthChild",
+        "occurrence",
+        "offset",
+        "page",
+        "pageSize",
+        "position",
+        "rowOffset",
+        "scanOffset",
+        "startLine",
+        "walkOffset",
+    ];
+    fn walk(
+        value: &Value,
+        shared: &Value,
+        field: &str,
+        out: &mut Vec<String>,
+        seen: &mut Vec<String>,
+    ) {
+        match value {
+            Value::Object(map) => {
+                if matches!(
+                    map.get("type").and_then(Value::as_str),
+                    Some("integer" | "number")
+                ) {
+                    out.push(field.to_owned());
+                }
+                for (key, item) in map {
+                    match (key.as_str(), item) {
+                        ("properties", Value::Object(properties)) => {
+                            for (name, schema) in properties {
+                                walk(schema, shared, name, out, seen);
+                            }
+                        }
+                        ("$ref", Value::String(reference)) => {
+                            if let Some(name) = reference.strip_prefix("#/$defs/")
+                                && !seen.contains(&format!("{name}@{field}"))
+                            {
+                                seen.push(format!("{name}@{field}"));
+                                walk(&shared[name], shared, field, out, seen);
+                            }
+                        }
+                        _ => walk(item, shared, field, out, seen),
+                    }
+                }
+            }
+            Value::Array(items) => items
+                .iter()
+                .for_each(|item| walk(item, shared, field, out, seen)),
+            _ => {}
+        }
+    }
+    let whole = crate::contracts::parsed_contract().expect("contract");
+    let mut unclassified = Vec::new();
+    for tool in ToolId::ALL {
+        let contract = crate::contracts::tool_contract(tool).expect("tool contract");
+        let mut numeric = Vec::new();
+        walk(
+            &contract["querySchema"],
+            &whole["$defs"],
+            "",
+            &mut numeric,
+            &mut Vec::new(),
+        );
+        for field in numeric {
+            if !super::IDENTITY_NUMBERS.contains(&field.as_str())
+                && !SELECTOR_NUMBERS.contains(&field.as_str())
+            {
+                unclassified.push(format!("{tool}.{field}"));
+            }
+        }
+    }
+    assert!(
+        unclassified.is_empty(),
+        "classify these numeric fields: {unclassified:?}"
+    );
+}
+
+/// A short identity is named only as a whole segment: the owner `o` is not
+/// in "no body holds it", and a path or a number still is where it stands.
+#[test]
+fn an_identity_is_mentioned_as_a_whole_segment_only() {
+    use super::mentions;
+    assert!(!mentions("no body holds it", "o"));
+    assert!(!mentions("src/lib.rs.backup", "lib.rs"));
+    assert!(!mentions("my-repo", "repo"));
+    assert!(mentions("owned by o, see r", "o"));
+    assert!(mentions("it is held by o.", "o"));
+    assert!(mentions("src/lib.rs", "lib.rs"));
+    assert!(mentions("read `a/b` next", "a/b"));
+    assert!(mentions("Fix (#874)", "874"));
+    assert!(!mentions("Fix (#1874)", "874"));
+    assert!(!mentions("anything", ""));
 }

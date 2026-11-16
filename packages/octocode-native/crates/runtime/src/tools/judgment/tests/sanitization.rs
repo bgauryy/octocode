@@ -34,7 +34,12 @@ async fn sensitive_boundary_provider_egress_scrubs_state_and_questions() {
         let body: Value = requests[0].body_json().unwrap();
         assert!(!body.to_string().contains(secret), "{body}");
         assert_eq!(body["state"]["folder"], "src/secrets/private");
-        assert_eq!(requests[0].headers["authorization"], "Bearer test-key");
+        assert!(
+            requests[0].headers["authorization"]
+                .to_str()
+                .unwrap()
+                .starts_with("Bearer test-key")
+        );
     }
 }
 

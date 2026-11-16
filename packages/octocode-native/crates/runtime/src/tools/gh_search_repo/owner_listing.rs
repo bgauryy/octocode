@@ -5,10 +5,12 @@ use octocode_github::{GitHubProvider, ProviderError, RepositorySearchPage, Reque
 /// by relevance, and its own default order is creation (oldest first).
 /// Search excludes archived repositories by default (`archived:false`); the
 /// listing API cannot, so unless `keep_archived` it filters them and keeps
-/// reading provider pages until a page of kept rows, the end of the listing
-/// (no Link next), or the page budget. A page never holds more than `per` rows: a provider page
-/// whose kept rows would overflow it is left whole to the next call (the
-/// cursor resumes at it), so no kept row is cut or shown twice.
+/// reading provider pages until a page of kept rows or the end of the listing
+/// (no Link next): the request's own cancellation and the transport's pacing
+/// bound the reads, not a page count. A page never holds more than `per`
+/// rows: a provider page whose kept rows would overflow it is left whole to
+/// the next call (the cursor resumes at it), so no kept row is cut or shown
+/// twice.
 pub(super) async fn owner_listing(
     provider: &GitHubProvider,
     owner: &str,
@@ -21,13 +23,11 @@ pub(super) async fn owner_listing(
     let mut items = Vec::new();
     let mut filtered_out = 0;
     let mut provider_page = current;
-    let mut pages_read = 0;
     let more = loop {
         let (batch, has_next) = provider
             .transport
             .list_owner_repositories(owner, "pushed", order, provider_page, per, context)
             .await?;
-        pages_read += 1;
         let read = batch.len();
         let kept = batch
             .into_iter()
@@ -43,7 +43,7 @@ pub(super) async fn owner_listing(
         }
         filtered_out += read - kept.len();
         items.extend(kept);
-        if !has_next || items.len() >= per || pages_read >= MAX_OWNER_LISTING_PAGES {
+        if !has_next || items.len() >= per {
             break has_next;
         }
         provider_page += 1;
@@ -62,9 +62,6 @@ pub(super) async fn owner_listing(
         },
     ))
 }
-
-/// Provider pages read by one owner-only listing call before it stops.
-const MAX_OWNER_LISTING_PAGES: usize = 5;
 
 pub(super) struct OwnerListing {
     /// Last provider page listed; the next cursor is the page after it.

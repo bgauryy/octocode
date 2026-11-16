@@ -117,3 +117,51 @@ fn the_read_of_a_window_row_opens_the_line_at_its_hit() {
         );
     }
 }
+
+/// A window row says so on its row: one warning names the first window hit
+/// and the localFetch read of its whole line, so that read stays on a
+/// complete row once the response stage drops optional leads.
+#[test]
+fn a_window_row_is_disclosed_and_keeps_its_whole_line_read() {
+    let root = tempfile::tempdir().expect("fixture");
+    fs::create_dir_all(root.path().join("src")).expect("dir");
+    let line = format!(
+        "{} NEEDLE {}",
+        "z".repeat(LONG_LINE_BYTES),
+        "z".repeat(LONG_LINE_BYTES)
+    );
+    fs::write(root.path().join("src/one.txt"), format!("short\n{line}\n")).expect("fixture");
+    let (policy, security) = policy_for(root.path());
+    let request = ls_query(
+        serde_json::json!({"path": "src", "matchString": ["NEEDLE"]}),
+        None,
+    );
+    let row = search_in(&request, &policy, &security, None)
+        .expect("search")
+        .to_row()
+        .expect("row");
+    let at = format!("{}:2", row["files"][0]["path"].as_str().expect("a path"));
+    let warning = row["warnings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .find(|warning| warning.contains(&at))
+        .unwrap_or_else(|| panic!("the window hit {at} is disclosed: {row}"));
+    assert!(warning.contains("localFetch"), "{warning}");
+    let mut output = serde_json::json!({"results": [{"index": 0, "data": row}]});
+    crate::response::workflow_lead::retain_guidance(
+        crate::id::ToolId::LocalSearch,
+        &mut output,
+        &serde_json::json!({"queries": [request]}),
+    );
+    let data = &output["results"][0]["data"];
+    assert!(
+        data["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|call| call["tool"] == "localFetch"),
+        "the whole-line read stays: {data}"
+    );
+}

@@ -228,11 +228,20 @@ impl CompiledPattern {
                     .chain(alternate_kinds),
             )
         };
+        let root_at = Some(super::node_key(root))
+            .filter(|key| super::node_at(&tree, *key).is_some_and(|found| found.id() == root.id()));
+        let declaring = super::declaring_nodes(&tree);
+        let required = super::required_literal(root, &source, lang.expando());
         Ok(Self {
             language,
             expando: lang.expando(),
             source,
             tree: Some(tree),
+            root_at,
+            required,
+            #[cfg(test)]
+            probe: Default::default(),
+            declaring,
             selected_node: None,
             special: None,
             candidate_plan,
@@ -256,6 +265,11 @@ impl CompiledPattern {
                 source: pattern.to_owned(),
                 tree: None,
                 selected_node: None,
+                root_at: None,
+                required: None,
+                #[cfg(test)]
+                probe: Default::default(),
+                declaring: Default::default(),
                 special: Some(SpecialPattern::JsxTagName {
                     capture: capture.to_owned(),
                 }),
@@ -276,6 +290,11 @@ impl CompiledPattern {
                 source: pattern.to_owned(),
                 tree: None,
                 selected_node: None,
+                root_at: None,
+                required: None,
+                #[cfg(test)]
+                probe: Default::default(),
+                declaring: Default::default(),
                 special: Some(SpecialPattern::KeyValuePair {
                     key_capture: key_capture.to_owned(),
                     value_capture: value_capture.to_owned(),
@@ -338,11 +357,17 @@ impl CompiledPattern {
         let selected_node = selected.ok_or_else(|| {
             CompileError::grammar(format!("context contains no '{selector}' node"))
         })?;
+        let declaring = super::declaring_nodes(&tree);
         Ok(Self {
             language,
             expando: lang.expando(),
             source,
             tree: Some(tree),
+            root_at: None,
+            required: None,
+            #[cfg(test)]
+            probe: Default::default(),
+            declaring,
             special: None,
             candidate_plan: CandidatePlan::from_kind(selector),
             selected_node: Some(selected_node),

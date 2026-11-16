@@ -1,4 +1,5 @@
 use crate::num::saturating_u32;
+use crate::signatures::node_kinds::kind_of;
 use tree_sitter::Node;
 
 use crate::graph::{
@@ -24,12 +25,12 @@ pub(super) fn collect(
     let Some(adapter) = acc.argument_adapter else {
         return;
     };
-    if !adapter.is_recipient(node.kind()) {
+    if !adapter.is_recipient(kind_of(node)) {
         return;
     }
     if adapter == ArgumentAdapter::Scala
         && node.parent().is_some_and(|parent| {
-            parent.kind() == "call_expression"
+            kind_of(parent) == "call_expression"
                 && parent.child_by_field_name("function") == Some(node)
         })
     {
@@ -48,9 +49,9 @@ pub(super) fn collect(
         let mut group_cursor = group.walk();
         let attributed = group
             .named_children(&mut group_cursor)
-            .any(|child| child.kind() == "attribute_item");
+            .any(|child| kind_of(child) == "attribute_item");
         let observation = if !attributed
-            && matches!(group.kind(), "arguments" | "argument_list")
+            && matches!(kind_of(group), "arguments" | "argument_list")
             && node.child_by_field_name("placement") != Some(group)
         {
             let mut slots = Vec::new();
@@ -105,7 +106,7 @@ pub(super) fn collect(
             GraphArgumentGroupObservation::Slots { slots }
         } else {
             GraphArgumentGroupObservation::Unsupported {
-                construct: group.kind().to_owned(),
+                construct: kind_of(group).to_owned(),
             }
         };
         observations.push(GraphArgumentGroup {
@@ -157,7 +158,7 @@ pub(super) fn collect(
                 },
             )
             .or_else(|| {
-                (recipient.kind() == "method_invocation")
+                (kind_of(recipient) == "method_invocation")
                     .then(|| call_callee(recipient, content).map(|(name, _)| name))
                     .flatten()
             }),
@@ -176,13 +177,13 @@ fn groups(node: Node<'_>, adapter: ArgumentAdapter) -> (Vec<Node<'_>>, Node<'_>)
             let mut cursor = recipient.walk();
             recipient
                 .named_children(&mut cursor)
-                .find(|n| matches!(n.kind(), "token_tree" | "argument_list"))
+                .find(|n| matches!(kind_of(n), "token_tree" | "argument_list"))
         }) {
             groups.push(group);
         }
         if adapter == ArgumentAdapter::Scala
             && let Some(inner) = recipient.child_by_field_name("function")
-            && matches!(inner.kind(), "call_expression" | "instance_expression")
+            && matches!(kind_of(inner), "call_expression" | "instance_expression")
         {
             recipient = inner;
         } else {

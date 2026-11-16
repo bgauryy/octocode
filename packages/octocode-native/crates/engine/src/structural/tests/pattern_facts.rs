@@ -249,3 +249,33 @@ fn a_declaration_name_reads_as_written() {
         Some(("type_identifier".to_owned(), "Foo_$X".to_owned()))
     );
 }
+
+/// A declaration that differs from the pattern in a part it spells names
+/// that part's field: a return type, the type parameters a node lacks, a
+/// parameter list. A pattern that matches, or spells no declaration, names
+/// none.
+#[test]
+fn a_differing_declaration_names_the_field_that_differs() {
+    let ts = "function a(): number { return 1; }\nfunction b() {}\nfunction c(x: string) {}\n";
+    assert_eq!(
+        pattern_differences("function a(): string { $$$ }", "ts", ts, 1),
+        ["return_type"]
+    );
+    assert_eq!(
+        pattern_differences("function b<$T>() { $$$ }", "ts", ts, 2),
+        ["type_parameters"]
+    );
+    assert_eq!(
+        pattern_differences("function c(y: number) { $$$ }", "ts", ts, 3),
+        ["parameters"]
+    );
+    let rust = "fn a() -> u8 { 1 }\n";
+    assert_eq!(
+        pattern_differences("fn a() -> u16 { $$$ }", "rs", rust, 1),
+        ["return_type"]
+    );
+    assert!(pattern_differences("fn a() -> u8 { $$$ }", "rs", rust, 1).is_empty());
+    assert!(pattern_differences("fn a($$$) -> $R { $$$ }", "rs", rust, 1).is_empty());
+    assert!(pattern_differences("$X.unwrap()", "rs", rust, 1).is_empty());
+    assert!(pattern_differences("fn a() -> u16 { $$$ }", "rs", rust, 2).is_empty());
+}

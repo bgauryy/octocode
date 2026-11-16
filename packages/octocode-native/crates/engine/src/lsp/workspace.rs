@@ -5,7 +5,10 @@ use std::path::{Path, PathBuf};
 mod cargo;
 mod includes;
 mod modules;
-pub use cargo::{cargo_manifest, cargo_workspace_root, declares_cargo_workspace};
+pub use cargo::{
+    CACHEDIR_TAG, UnloadedCargoCaches, cargo_manifest, cargo_workspace_root,
+    declares_cargo_workspace,
+};
 #[cfg(all(test, unix))]
 use includes::PACKAGE_FILES_READ;
 #[cfg(test)]

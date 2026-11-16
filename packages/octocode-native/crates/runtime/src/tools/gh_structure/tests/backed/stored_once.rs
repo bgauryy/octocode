@@ -77,7 +77,7 @@ async fn materialize(provider: &GitHubProvider, home: &std::path::Path) -> Value
     let query = serde_json::from_value(json!({"operation":"tree","owner":"a","repo":"b",
         "ref":"main","maxDepth":5,"materialize":true}))
     .expect("tree query");
-    crate::tools::gh_structure::execute(provider, &query, &default_context(), home)
+    crate::tools::gh_structure::execute(provider, &query, &default_context(), home, None)
         .await
         .expect("materialize")
         .data

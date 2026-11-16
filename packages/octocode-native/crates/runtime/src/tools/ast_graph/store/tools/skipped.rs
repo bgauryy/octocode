@@ -5,9 +5,10 @@
 //! `leads::skipped`'s sentence and lead).
 use super::*;
 use crate::id::ToolId;
+use crate::response::result::ToolError;
 use crate::tools::empty_walk::{FileProbe, Globs, Walk, diagnose_shown};
 use crate::tools::leads::skipped;
-use crate::tools::leads::unparsed::{Reader, Unparsed};
+use crate::tools::leads::unparsed::{Reader, SourceTypes, Unparsed};
 
 /// A build's reading of a file no grammar parses: no node or edge holds it.
 const BUILD: Reader = Reader {
@@ -78,12 +79,19 @@ fn unparsed(
     Some(found)
 }
 
+/// The source types a build's disclosure judges unparsed files by: every
+/// grammar's beside parsed files; none when it parsed no file, so every
+/// such file is named.
+fn read_by(parsed_any: bool) -> Option<SourceTypes> {
+    parsed_any.then(|| SourceTypes::read_by(None))
+}
+
 /// The hints of the files a build left out for want of a graph grammar.
 /// A build that parsed no file names every one of them; beside parsed files
 /// the ones of no known type are named (they could be source) and the rest
 /// are a count per type.
-fn unparsed_hints(found: &Unparsed, parsed_any: bool) -> Vec<String> {
-    let (named, typed) = found.disclosed(&BUILD, parsed_any, None);
+fn unparsed_hints(found: &Unparsed, read: Option<&SourceTypes>) -> Vec<String> {
+    let (named, typed) = found.disclosed(&BUILD, read, None);
     let typed = typed.as_ref().and_then(Value::as_object).map(|counts| {
         let listed = counts
             .iter()
@@ -106,9 +114,9 @@ pub(super) fn note_skipped(
     paths: &PathPolicy,
     context: &ExecutionContext,
     out: &mut Value,
-) {
+) -> Result<(), ToolError> {
     if out["id"].is_null() {
-        return;
+        return Ok(());
     }
     let parsed_any = out["scan"]["filesScanned"].as_u64().unwrap_or(0) > 0;
     let options = IngestOptions::of_query(query, root.to_path_buf());
@@ -121,7 +129,7 @@ pub(super) fn note_skipped(
             .map(String::as_str),
         "parserGlobs",
     ) else {
-        return;
+        return Ok(());
     };
     let parsed = octocode_engine::signatures::graph_facts::graph_fact_extensions();
     let keep = |path: &Path| {
@@ -145,10 +153,17 @@ pub(super) fn note_skipped(
         default_excludes: options.walk.default_excludes,
     };
     if let Some(found) = unparsed(root, walk, &options.exclude, paths, &permits, &keep, &stop) {
-        crate::response::paging::push_warnings(out, unparsed_hints(&found, parsed_any));
+        let read = read_by(parsed_any);
+        crate::response::paging::push_warnings(out, unparsed_hints(&found, read.as_ref()));
+        // Each file the hint counts is its own `unparsed` entry; the walk
+        // finished, so the list is whole.
+        if let Some(skipped) = skipped::skipped_paths(found.skipped(read.as_ref()), true, false)? {
+            out["skippedPaths"] =
+                serde_json::to_value(skipped).map_err(skipped::skipped_path_error)?;
+        }
     }
     if parsed_any {
-        return;
+        return Ok(());
     }
     let probe = FileProbe::new(root, &permits, &keep)
         .stopping(&stop)
@@ -164,7 +179,7 @@ pub(super) fn note_skipped(
             .unwrap_or_else(|| path.display().to_string())
     };
     let Ok(verdict) = diagnose_shown(root, walk, &shown, |relaxed| probe.find(relaxed)) else {
-        return;
+        return Ok(());
     };
     let skipping = walk.skipping();
     let named = skipping
@@ -180,10 +195,11 @@ pub(super) fn note_skipped(
             named: &named,
         },
     ) else {
-        return;
+        return Ok(());
     };
     // The same build with exactly the skipping causes lifted.
     let lead = skipped::lead(ToolId::GraphBuild, query, &disclosure.causes);
     crate::response::paging::push_warnings(out, [disclosure.text]);
     crate::response::result::attach_related(out, lead);
+    Ok(())
 }

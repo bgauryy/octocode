@@ -1,5 +1,6 @@
 //! Rust `cfg` predicates that compile an item only under test.
 
+use crate::signatures::node_kinds::kind_of;
 use tree_sitter::Node;
 
 use crate::signatures::nodes::node_text;
@@ -43,7 +44,7 @@ pub(super) fn cfg_attr_outside_test<'t>(inner: &'t str, name: &str) -> Option<&'
 /// Whether the named `children` of a node include an inner `#![cfg(test)]`.
 pub(super) fn inner_cfg_requires_test_among(children: &[Node<'_>], content: &str) -> bool {
     children.iter().any(|&child| {
-        child.kind() == "inner_attribute_item"
+        kind_of(child) == "inner_attribute_item"
             && node_text(child, content)
                 .and_then(|text| text.trim().strip_prefix("#!["))
                 .and_then(|text| text.strip_suffix(']'))

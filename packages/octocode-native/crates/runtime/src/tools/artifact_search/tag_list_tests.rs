@@ -86,6 +86,7 @@ async fn another_packages_tag_of_the_version_is_named_never_pinned() {
         let data = lookup(&server, &tags).await;
         assert_eq!(data["artifacts"][0]["ref"], tag, "{data}");
         assert_eq!(data["artifacts"][0]["verification"], "tag", "{data}");
+        assert_eq!(data["artifacts"][0]["releaseTag"], tag, "{data}");
     }
 }
 
@@ -102,6 +103,7 @@ async fn a_word_before_v_that_names_no_package_is_the_release_tag() {
         let row = &data["artifacts"][0];
         assert_eq!(row["ref"], tag, "{data}");
         assert_eq!(row["verification"], "tag", "{data}");
+        assert_eq!(row["releaseTag"], tag, "{data}");
         let warnings = data["warnings"].to_string();
         assert!(warnings.contains(tag), "the pin names its tag: {data}");
         assert!(!warnings.contains("other packages"), "{data}");

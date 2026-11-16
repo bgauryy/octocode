@@ -162,3 +162,27 @@ fn a_default_row_leaves_secondary_facts_to_a_fields_pick() {
         }
     }
 }
+
+/// An owner listing excludes archived repositories unless its filters ask
+/// for them: no filters, empty filters and an omitted `archive` all exclude.
+#[test]
+fn an_owner_listing_excludes_archived_unless_its_filter_includes_them() {
+    let archive = |filters: Option<serde_json::Value>| {
+        let mut query = json!({"operation":"list","owner":"o"});
+        if let Some(filters) = filters {
+            query["filters"] = filters;
+        }
+        let query: GhSearchRepoQuery = serde_json::from_value(query).expect("query");
+        access::archive(&query)
+    };
+    assert_eq!(archive(None), GitHubArchive::Exclude);
+    assert_eq!(archive(Some(json!({}))), GitHubArchive::Exclude);
+    assert_eq!(
+        archive(Some(json!({"archive":"include"}))),
+        GitHubArchive::Include
+    );
+    assert_eq!(
+        archive(Some(json!({"archive":"only"}))),
+        GitHubArchive::Only
+    );
+}

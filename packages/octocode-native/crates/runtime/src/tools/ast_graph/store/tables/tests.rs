@@ -13,6 +13,73 @@ fn interned_strings_that_share_a_hash_keep_their_own_ids() {
     assert_eq!(interner.strings, ["a", "b", "c", "d"]);
 }
 
+/// The text the tables store a value as is what a `serde_json::Value` of it
+/// prints, field for field, whatever the value holds (tagged enums, skipped
+/// fields, nested spans): the order of a type's fields is the order of its
+/// JSON.
+#[test]
+fn json_interned_without_a_value_matches_the_value_route() {
+    let sources = [
+        ("a.rs", include_str!("../tables.rs")),
+        ("b.rs", include_str!("../tables/arguments.rs")),
+        (
+            "c.ts",
+            "import {a as b} from './x';\nexport class K<T> extends Base { m(x: T) { return b(x).y?.z(1, 'two', ...rest); } }\n",
+        ),
+        (
+            "d.py",
+            "import os\nclass A(B):\n    def f(self, x, *a, k=1):\n        return os.path.join(x, k, 'é')\n",
+        ),
+        ("e.go", "package p\nfunc F(x int) { G(x, func() {}) }\n"),
+    ];
+    let mut interner = Interner::default();
+    let mut checked = 0;
+    let mut check = |value: &dyn both_routes::Json| {
+        let id = value.intern(&mut interner);
+        assert_eq!(interner.strings[id as usize], value.via_value());
+        checked += 1;
+    };
+    for (file, source) in sources {
+        let facts = octocode_engine::signatures::extract_graph_facts(source, file).expect("facts");
+        for declaration in &facts.declarations {
+            check(&both_routes::Of(&declaration.test_identity));
+            check(&both_routes::Of(&declaration.parse_assessment));
+        }
+        for site in &facts.argument_sites {
+            check(&both_routes::Of(site));
+            for group in &site.groups {
+                check(&both_routes::Of(&group.observation));
+            }
+        }
+        for call in &facts.calls {
+            check(&both_routes::Of(call));
+        }
+    }
+    assert!(checked > 100, "{checked} values compared");
+}
+
+/// Both routes of one value, behind one type.
+mod both_routes {
+    use super::Interner;
+    use serde::Serialize;
+
+    pub(super) trait Json {
+        fn intern(&self, interner: &mut Interner) -> u32;
+        fn via_value(&self) -> String;
+    }
+
+    pub(super) struct Of<'a, T>(pub(super) &'a T);
+
+    impl<T: Serialize> Json for Of<'_, T> {
+        fn intern(&self, interner: &mut Interner) -> u32 {
+            interner.json(self.0)
+        }
+        fn via_value(&self) -> String {
+            serde_json::json!(self.0).to_string()
+        }
+    }
+}
+
 #[test]
 fn package_names_follow_ecosystem_rules() {
     assert_eq!(
@@ -50,9 +117,8 @@ fn callee_split_handles_member_and_path_calls() {
 }
 
 /// A minified bundle repeats one name on one line thousands of times. Its
-/// keys stay unique and deterministic (`name@line`, then `.2`, `.3`, … in
-/// order), and making them unique tries each suffix once: linear in the
-/// declarations, never a probe from `.2` per repeat.
+/// keys stay unique and deterministic (`name@1`, `name@2`, … in source
+/// order), with no suffix probe: linear in the declarations.
 #[test]
 fn same_name_repeats_on_one_line_get_unique_keys_in_linear_work() {
     let dir = crate::tools::test_support::Fixture::new();
@@ -87,10 +153,9 @@ fn same_name_repeats_on_one_line_get_unique_keys_in_linear_work() {
         probes < 2 * repeats,
         "{probes} suffix probes for {repeats} repeats"
     );
-    let line = template.line;
-    assert_eq!(keys[0], format!("x.js#a@{line}"));
-    assert_eq!(keys[1], format!("x.js#a@{line}.2"));
-    assert_eq!(keys[repeats - 1], format!("x.js#a@{line}.{repeats}"));
+    assert_eq!(keys[0], "x.js#a@1");
+    assert_eq!(keys[1], "x.js#a@2");
+    assert_eq!(keys[repeats - 1], format!("x.js#a@{repeats}"));
     assert_eq!(keys.iter().collect::<BTreeSet<_>>().len(), repeats);
 }
 

@@ -11,6 +11,7 @@ use super::rust_macro_args::record_rust_macro;
 use super::scala::is_scala;
 use super::walk::{RustNodeContext, is_grouped_go_import};
 use super::{GraphAccumulator, heritage};
+use crate::signatures::node_kinds::kind_of;
 use tree_sitter::Node;
 
 use crate::graph::{GraphFactCall, GraphFactEdge, GraphFactImport};
@@ -37,7 +38,7 @@ pub(super) fn collect_node_facts(
     rust: Option<RustNodeContext<'_>>,
     deadline: std::time::Instant,
 ) -> Option<(String, String)> {
-    let kind = node.kind();
+    let kind = kind_of(node);
     acc.test_context.observe(node, content);
     if acc.ext == "rs"
         && kind == "macro_invocation"

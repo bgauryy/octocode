@@ -4,7 +4,7 @@
 use super::TextSearchPathFilter;
 use super::collect::{WalkControl, WorkerRecs, file_searcher, walk_scope};
 use super::mode::Mode;
-use super::result::{build_result, preserves_traversal_order};
+use super::result::build_result;
 use super::state::{CollectResult, CollectState, Held};
 use super::window::{Clock, Earlier, Pause, Resume, Searched};
 use crate::digest::{ListedFiles, stamp_of};
@@ -63,6 +63,20 @@ pub(super) struct Plan {
     pub(super) ends: Option<Instant>,
     pub(super) clock: Clock,
     pub(super) resume: Option<Resume>,
+}
+
+impl Finished {
+    pub(super) fn new(path: PathBuf, stamp: Option<SourceStamp>, result: CollectResult) -> Self {
+        Self {
+            path,
+            stamp,
+            result,
+        }
+    }
+
+    pub(super) fn into_parts(self) -> (PathBuf, Option<SourceStamp>, CollectResult) {
+        (self.path, self.stamp, self.result)
+    }
 }
 
 impl Run {
@@ -207,11 +221,8 @@ pub(super) fn collect_ordered<M: Matcher + Sync>(
     let mut files = found
         .into_inner()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    // A one-worker traversal walk is already in walk order; a parallel walk
-    // is put in the order of its paths.
-    if !preserves_traversal_order(opts) {
-        files.sort_by(|a, b| a.path().cmp(b.path()));
-    }
+    // A parallel walk is put in the order of its paths.
+    files.sort_by(|a, b| a.path().cmp(b.path()));
     {
         let mut commit = run.lock();
         commit.total = Some(files.len());
@@ -257,7 +268,7 @@ pub(super) fn collect_ordered<M: Matcher + Sync>(
                             local: Vec::new(),
                             state: &state,
                         };
-                        scope.search_entry(&state, dent, &mut searcher, &mut recs);
+                        scope.search_entry(&state, dent.path(), &mut searcher, &mut recs);
                     }
                     let finished = Finished {
                         path: dent.path().to_path_buf(),

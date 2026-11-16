@@ -68,7 +68,7 @@ fn a_java_method_wins_the_name_of_its_field() {
 }
 
 /// A Rust getter named as its field keeps its plain ID: the field takes the
-/// line suffix.
+/// repeat suffix.
 #[test]
 fn a_rust_getter_keeps_its_id_beside_its_field() {
     let temp = fixture(&[
@@ -86,8 +86,8 @@ fn a_rust_getter_keeps_its_id_beside_its_field() {
         call_edges(root, "src/lib.rs#size"),
         [edge("src/lib.rs#Buf.len", "receiver-type", "high")]
     );
-    let field = ask(root, "node", Some("src/lib.rs#Buf.len@2"));
-    assert_eq!(field["node"]["id"], "src/lib.rs#Buf.len@2", "{field}");
+    let field = ask(root, "node", Some("src/lib.rs#Buf.len@1"));
+    assert_eq!(field["node"]["id"], "src/lib.rs#Buf.len@1", "{field}");
 }
 
 /// "A callable of the same type wins" compares the type, not its name: a

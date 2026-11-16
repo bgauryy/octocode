@@ -127,6 +127,7 @@ fn cochange_counts_shared_commits_and_marks_linked_files() {
         "{}",
         out.value
     );
+    assert!(out.value.get("warnings").is_none(), "{}", out.value);
     for row in rows {
         let share = row["share"].as_f64().expect("share");
         let expected = row["commits"].as_f64().unwrap_or_default() / target_commits as f64;
@@ -203,4 +204,79 @@ fn cochange_outside_git_is_an_actionable_git_error() {
     );
     let message = out.value["error"].as_str().unwrap_or_default();
     assert!(message.contains("Git"), "{}", out.value);
+}
+
+/// A shallow clone of `history` holding its last `depth` commits on each
+/// path, built and ingested; `None` when git is unavailable.
+fn shallow_clone(source: &Fixture, depth: u32) -> Option<Fixture> {
+    let clone = Fixture::new();
+    let url = format!("file://{}", source.0.as_path().display());
+    let depth = depth.to_string();
+    if !git(
+        clone.0.as_path(),
+        &["clone", "-q", "--depth", &depth, &url, "."],
+    ) {
+        return None;
+    }
+    assert_eq!(
+        ingest_fixture(clone.0.as_path(), None).class,
+        ExitClass::Success
+    );
+    Some(clone)
+}
+
+/// A shallow clone's boundary commits have no parents here, so Git diffs
+/// them against nothing and lists every file of their tree: no change set.
+/// They count toward no row and no `targetCommits`, and the answer says the
+/// history is shallow. Depth 3 of `history` reaches the merge, "main moves
+/// on" and "4"; "b only" is the boundary. Only "4" {a,e} counts for `a.ts`.
+#[test]
+fn cochange_on_a_shallow_clone_skips_boundary_commits_and_says_so() {
+    let Some(dir) = history() else {
+        return;
+    };
+    let Some(clone) = shallow_clone(&dir, 3) else {
+        return;
+    };
+    let out = cochange(&clone, "src/a.ts", |_| {});
+    assert_eq!(out.class, ExitClass::Success, "{}", out.value);
+    assert_eq!(out.value["summary"]["targetCommits"], 1, "{}", out.value);
+    let rows = out.value["rows"].as_array().expect("rows");
+    let shape = rows
+        .iter()
+        .map(|row| {
+            (
+                row["path"].as_str().unwrap_or_default(),
+                row["commits"].as_u64().unwrap_or_default(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(shape, vec![("app/src/e.ts", 1)], "{}", out.value);
+    let warnings = out.value["warnings"].as_array().expect("warnings");
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.as_str().unwrap_or_default().contains("shallow")),
+        "{}",
+        out.value
+    );
+}
+
+/// When the target's only commit is the boundary of a depth-1 clone, no
+/// file is co-changed, and the empty answer's reason names the shallow
+/// history rather than an untracked file.
+#[test]
+fn cochange_on_a_depth_one_clone_lists_no_boundary_rows() {
+    let Some(dir) = history() else {
+        return;
+    };
+    let Some(clone) = shallow_clone(&dir, 1) else {
+        return;
+    };
+    let out = cochange(&clone, "src/a.ts", |_| {});
+    assert_eq!(out.class, ExitClass::Empty, "{}", out.value);
+    assert_eq!(out.value["rows"], json!([]), "{}", out.value);
+    assert_eq!(out.value["summary"]["targetCommits"], 0, "{}", out.value);
+    let reason = out.value["summary"]["reason"].as_str().unwrap_or_default();
+    assert!(reason.contains("shallow"), "{}", out.value);
 }

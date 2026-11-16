@@ -21,9 +21,14 @@ function parseJson(text) {
   }
 }
 
-/** The launcher a `.bin`/global shim runs: `octocode/out/octocode.js`, not another package's bin. */
-function shimTarget(bin) {
-  const wanted = join('octocode', 'out', 'octocode.js');
+/**
+ * The file a `.bin`/global shim runs: the bin the installed `octocode` package
+ * declares (its postinstall may have made it the native binary), not another
+ * package's bin.
+ */
+function shimTarget(bin, pkgDir) {
+  const declared = JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf8')).bin;
+  const wanted = join('octocode', declared);
   if (!existsSync(bin)) return { ok: false, note: `${bin} missing` };
   if (!POSIX) {
     const text = readFileSync(bin, 'utf8');
@@ -119,7 +124,7 @@ async function upgradeCliPhase(ctx, run) {
   const daemonsBefore = ctx.listDaemons(ctx.dirs.tmp);
   await step('cli.upgrade.install', `npm install <octocode-${to}.tgz> <${platformName}-${to}.tgz> over octocode@${from}`, () => {
     const install = npm(['install', tgz('cli'), tgz('platform')], cli);
-    const shim = shimTarget(bin);
+    const shim = shimTarget(bin, packageDir(cli, 'octocode', 'project'));
     const stale = existsSync(packageDir(cli, '@octocodeai/octocode-native', 'project'));
     return { ok: install.status === 0 && shim.ok && !stale, note: `${shim.note}${stale ? '; @octocodeai/octocode-native is still installed' : ''}` };
   });
@@ -207,7 +212,7 @@ async function globalPhase(ctx, run) {
   await step('global.upgrade', `npm install -g --prefix <tmp> <octocode, octocode-mcp, ${platformName} ${to} tarballs>`, async () => {
     const install = npm(['install', '-g', '--prefix', prefix, tgz('cli'), tgz('mcp'), tgz('platform')], ctx.root);
     const use = useCheck(ctx, gbin);
-    const shim = shimTarget(gbin);
+    const shim = shimTarget(gbin, packageDir(prefix, 'octocode', 'global'));
     const session = ctx.startMcp(prefix, 'global');
     const result = await ctx.mcpCheck(session, to);
     await session.close();

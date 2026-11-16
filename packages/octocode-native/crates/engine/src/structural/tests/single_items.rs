@@ -32,6 +32,9 @@ fn a_single_capture_binds_one_declared_name() {
     let go = "package p\nfunc f() {\n  var a int\n  var p, q int\n  a := g()\n  b, c := g()\n}\n";
     assert_eq!(lines(go, "go", "var $A int"), [3]);
     assert_eq!(lines(go, "go", "$A := $C"), [5]);
+    // Items of other kinds, a separator between them, are still more items.
+    let assign = "package p\nfunc f() {\n  a = g()\n  s.x, b = g()\n}\n";
+    assert_eq!(lines(assign, "go", "$A = $C"), [3]);
     let c = "int a = 1;\nint b = 1, c = 2;\n";
     assert_eq!(lines(c, "c", "int $A = $B;"), [1]);
 }

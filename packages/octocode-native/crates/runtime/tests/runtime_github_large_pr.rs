@@ -48,6 +48,29 @@ impl Respond for Recording {
     }
 }
 
+/// Every related[] call of the inventory `data` is an optional fresh read of
+/// more of the same pull request (#9 of a/b), runnable as written: never
+/// required pagination, never another item.
+fn related_reads_only_this_pr(data: &Value) {
+    support::checks::assert_leads_valid(data);
+    for call in data["related"].as_array().into_iter().flatten() {
+        assert_eq!(call["kind"], "related", "{call}");
+        assert_eq!(call["tool"], "ghGetHistoryItem", "{call}");
+        for query in call["input"]["queries"].as_array().into_iter().flatten() {
+            assert_eq!(
+                (
+                    &query["operation"],
+                    &query["owner"],
+                    &query["repo"],
+                    &query["number"]
+                ),
+                (&json!("pullRequest"), &json!("a"), &json!("b"), &json!(9)),
+                "{call}"
+            );
+        }
+    }
+}
+
 /// No page and no lead: `next` is absent and `hints` holds at most prose.
 fn no_continuation(value: &serde_json::Value) -> bool {
     value.get("next").is_none()

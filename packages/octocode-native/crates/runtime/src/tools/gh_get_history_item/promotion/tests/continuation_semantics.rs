@@ -63,6 +63,7 @@ fn source_recovery_is_required_only_when_requested_patch_is_missing() {
     let sides = ChangeSides {
         new_ref: Some("head"),
         old_ref: Some("parent"),
+        needle: None,
     };
     // Missing source is two continuations, one per side; delivered
     // source is optional, one related call reading both sides.

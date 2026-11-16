@@ -1,25 +1,13 @@
-mod admission;
 mod sparse;
 mod store_config;
 
 use super::{CloneContext, CloneError, GitRunRequest, control, storage};
 use crate::policy::discovery::is_sensitive_repository_file;
-use admission::git_permit;
+use crate::tools::gh_git::step::{hardened, run, scoped, step_timeout};
 use octocode_contract_types::ErrorCode;
 use sparse::{sparse_set_args, withhold_args};
 use std::ffi::OsString;
 use std::path::Path;
-use std::time::Duration;
-
-/// The most one git step may run: until the caller's deadline. No step has
-/// a wall-clock cap of its own, so a transfer that keeps flowing is never
-/// cut; a stalled one is ended by git itself ([`stall_args`]), and
-/// cancellation ends any step at once.
-fn step_timeout(context: &CloneContext<'_>) -> Duration {
-    context
-        .deadline
-        .saturating_duration_since(std::time::Instant::now())
-}
 
 pub(super) fn read_head(
     context: &CloneContext<'_>,
@@ -221,6 +209,7 @@ pub(super) fn symlinks(
         label: "list checkout symlinks".into(),
         authorization: None,
         authorization_url: None,
+        stdin: None,
     };
     context
         .git
@@ -276,6 +265,7 @@ fn list_tree(
         label: "list credential-named files".into(),
         authorization: None,
         authorization_url: None,
+        stdin: None,
     };
     context
         .git
@@ -725,69 +715,6 @@ pub(super) fn prune_worktrees(context: &CloneContext<'_>, store: &Path) -> Resul
         None,
     )?;
     Ok(())
-}
-
-fn scoped(target: &Path, args: &[&str]) -> Vec<OsString> {
-    let mut result = vec!["-C".into(), target.as_os_str().to_owned()];
-    result.extend(args.iter().map(OsString::from));
-    result
-}
-
-/// Global options prepended to every git invocation. `core.symlinks=false`
-/// makes clone/fetch/checkout materialize repository symlinks as plain files
-/// holding the link text, so a hostile repo cannot point into other
-/// `~/.octocode` state that localFetch would then read through the clone.
-const HARDENING_ARGS: [&str; 2] = ["-c", "core.symlinks=false"];
-
-fn hardened(args: Vec<OsString>) -> Vec<OsString> {
-    HARDENING_ARGS
-        .iter()
-        .map(OsString::from)
-        .chain(args)
-        .collect()
-}
-
-/// Options that make git end an HTTP transfer which moves less than a byte
-/// per second for `network_timeout`: the stall bound of every network step.
-fn stall_args(network_timeout: Duration) -> Vec<OsString> {
-    vec![
-        "-c".into(),
-        "http.lowSpeedLimit=1".into(),
-        "-c".into(),
-        format!("http.lowSpeedTime={}", network_timeout.as_secs().max(1)).into(),
-    ]
-}
-
-fn run(
-    context: &CloneContext<'_>,
-    args: Vec<OsString>,
-    timeout: Duration,
-    label: &str,
-    authorization_url: Option<&str>,
-) -> Result<super::GitOutput, CloneError> {
-    let mut args = hardened(args);
-    if authorization_url.is_some() {
-        args.splice(0..0, stall_args(context.config.network_timeout));
-    }
-    let authorization = context
-        .credential
-        .map(octocode_github::ResolvedCredential::expose_secret);
-    // Network git operations share the host/token executor: honor its
-    // secondary-limit cooldown and cap concurrent clones via the `git` group.
-    let _git_permit = match authorization_url {
-        Some(url) => Some(git_permit(context, url, authorization)?),
-        None => None,
-    };
-    context.git.run(
-        &GitRunRequest {
-            args,
-            timeout,
-            label: label.into(),
-            authorization,
-            authorization_url,
-        },
-        &control(context),
-    )
 }
 
 #[cfg(test)]

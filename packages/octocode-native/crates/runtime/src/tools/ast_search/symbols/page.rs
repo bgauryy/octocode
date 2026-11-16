@@ -216,7 +216,7 @@ fn attach_symbol_leads(
 ) {
     let page = ast_search_query_symbols::page(q).max(1) as usize;
     if more
-        && let Some(lead) = crate::response::paging::next_page_call(
+        && let Some(lead) = crate::response::collection::continued_page(
             ToolId::AstSearch,
             crate::response::result::query_row(q, &[]),
             "page",
@@ -224,7 +224,7 @@ fn attach_symbol_leads(
             &[("snapshot", json!(set.snapshot))],
         )
     {
-        out["calls"] = json!({ "nextPage": lead });
+        out["calls"] = crate::response::collection::walk_calls(ToolId::AstSearch, None, lead);
     }
     if let Some(window) = expand_scan.filter(|_| !more) {
         if let Some(scan_offset) = std::num::NonZeroU64::new(u64::from(window.scan_offset)) {

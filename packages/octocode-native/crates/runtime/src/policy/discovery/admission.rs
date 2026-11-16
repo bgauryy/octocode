@@ -86,6 +86,9 @@ pub(crate) struct WalkAdmission<'a> {
     prune: Option<octocode_engine::search::walk::RootedPrune>,
     /// Generated files are default-excluded ([`WalkRules::generated`]).
     generated: bool,
+    /// The include globs as authored: one that spells a file out exactly
+    /// (no wildcard) asks for it, so the generated-file default lifts for it.
+    include: Vec<String>,
     /// [`WalkRules::engine_prunes`].
     engine_prunes: bool,
     /// The entries that could hold a path the include globs match: only
@@ -110,6 +113,7 @@ impl<'a> WalkAdmission<'a> {
         Self {
             prune: crate::policy::prune::rooted(root, rules.defaults, rules.include),
             generated: rules.defaults && rules.generated,
+            include: rules.include.to_vec(),
             engine_prunes: rules.engine_prunes,
             scope: octocode_engine::search::glob::IncludeScope::new(root, rules.include),
             discovery,
@@ -140,7 +144,27 @@ impl<'a> WalkAdmission<'a> {
                 && path
                     .file_name()
                     .is_some_and(|name| generated_file_pattern(&name.to_string_lossy()).is_some())
+                && !self.include_names(path)
         }
+    }
+
+    /// Whether an include glob spells `path` out exactly: a name without a
+    /// slash is any file of that name (as a gitignore pattern), a path is
+    /// that path under the root. A wildcard glob that merely reaches the
+    /// file is not a request for it.
+    fn include_names(&self, path: &Path) -> bool {
+        let relative = self.shown(path);
+        self.include.iter().any(|glob| {
+            let glob = glob.strip_prefix("./").unwrap_or(glob);
+            let glob = glob.strip_prefix('/').unwrap_or(glob);
+            !glob.is_empty()
+                && !glob.contains(['*', '?', '[', '{', '\\', '!'])
+                && if glob.contains('/') {
+                    glob == relative
+                } else {
+                    relative.rsplit('/').next() == Some(glob)
+                }
+        })
     }
 
     /// [`Self::excludes`], recording a left-out entry the include globs

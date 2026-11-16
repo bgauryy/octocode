@@ -121,16 +121,21 @@ impl FileFilter<'_> {
     }
 }
 
-/// The per-call count of changed files a `matchString` dropped: in scope,
-/// searched, and holding no hit.
 /// An `include` scope that kept some of the changed files: the item's
 /// `changedFileCount` counts them all.
 pub(super) fn include_kept_warning(kept: usize, loaded: usize) -> String {
     format!("include kept {kept} of {loaded} changed files.")
 }
 
-pub(super) fn match_dropped_warning(dropped: usize, listed: usize) -> String {
-    format!("matchString dropped {dropped} of {listed} changed files: no patch line holds it.")
+/// `matchString` dropped `dropped` of `listed` `noun`s (changed files,
+/// comments, reviews): none holds it in its `holder` (a patch line, a body).
+pub(super) fn match_dropped_warning(
+    dropped: usize,
+    listed: usize,
+    noun: &str,
+    holder: &str,
+) -> String {
+    format!("matchString dropped {dropped} of {listed} {noun}: no {holder} holds it.")
 }
 
 /// A `matchString` that kept none of the listed changed files it could

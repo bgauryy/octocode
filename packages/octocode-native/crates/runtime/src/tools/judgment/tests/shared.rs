@@ -150,3 +150,41 @@ async fn a_later_request_reaches_the_provider_again() {
         assert_eq!(judged.provider_calls, 1);
     }
 }
+
+/// The gate remembers a refusal per endpoint and credential digest: a 401
+/// for key A refuses key A within the memo, never key B of the same account
+/// holder who fixed the key, nor a quota (402) of another account.
+#[tokio::test]
+async fn a_rejected_key_is_refused_without_refusing_another_key_of_the_endpoint() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(wiremock::matchers::header("authorization", "Bearer key-a"))
+        .respond_with(ResponseTemplate::new(401))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .respond_with(|request: &Request| response(request))
+        .mount(&server)
+        .await;
+    let ask = |evaluator: Evaluator| {
+        let (state, questions) = (json!("x"), [question()]);
+        async move {
+            let (budget, gate) = (evaluation_budget(&evaluator), evaluator.gate());
+            evaluator
+                .evaluate_prepared(input(&state, &questions), None, &budget, &gate)
+                .await
+        }
+    };
+    let (a, b) = (
+        evaluator_with_key(&server, "key-a"),
+        evaluator_with_key(&server, "key-b"),
+    );
+    assert_ne!(a.partition().identity(), b.partition().identity());
+    let first = ask(a).await.unwrap_err();
+    assert_eq!(first.provider_calls, 1);
+    // Key A stays refused within the window, without a request.
+    let again = ask(evaluator_with_key(&server, "key-a")).await.unwrap_err();
+    assert_eq!(again.provider_calls, 0);
+    // Key B is another credential: it reaches the provider and is answered.
+    ask(b).await.expect("another key is not refused");
+}

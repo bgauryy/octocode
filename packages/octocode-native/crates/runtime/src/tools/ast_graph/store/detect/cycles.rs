@@ -45,6 +45,7 @@ pub(crate) fn file_graph(
 }
 
 pub(super) fn detect_cycles(c: &mut Ctx) {
+    c.judges_file_level(&["cycle"]);
     let v = &c.v;
     // Go forbids import cycles between packages; file-level SCCs inside one
     // package are normal.
@@ -116,8 +117,10 @@ pub(super) fn detect_cycles(c: &mut Ctx) {
                 ],
             ),
         };
-        // The groups are the `cycles` operation's over production files: a loop
-        // that only test or config files close is not a production finding.
+        // The groups are found over production files only (`file_level`),
+        // unlike the `cycles` operation, which reads every file
+        // (`file_graph(|_| true)`): a loop that only test or config files
+        // close is not a production finding.
         controls.push("test and config files left out");
         if rust {
             confidence = f64::min(confidence, 0.35);

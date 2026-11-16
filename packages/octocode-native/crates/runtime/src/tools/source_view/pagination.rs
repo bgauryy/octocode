@@ -91,10 +91,11 @@ impl LineBudget {
 pub(crate) const MIN_BYTE_PAGE: usize = 4_096;
 
 /// A byte page's room, in the escaped UTF-16 units a JSON string of it
-/// takes (the unit of `responseChars`): [`LINE_PAGE_BYTES`], or the line
-/// page budget when that is smaller, and never under [`MIN_BYTE_PAGE`].
+/// takes (the unit of `responseChars`): the line page budget, as a page of
+/// many lines gets, and never under [`MIN_BYTE_PAGE`]. A wide response window
+/// reads one long line in as few pages as it holds.
 fn byte_page(line_page_bytes: usize) -> usize {
-    line_page_bytes.clamp(MIN_BYTE_PAGE, LINE_PAGE_BYTES)
+    line_page_bytes.max(MIN_BYTE_PAGE)
 }
 
 /// The bytes a line page holds under the response `window` a read is served
@@ -412,7 +413,7 @@ pub fn continuation(q: &LocalFetchQuery, p: &Pagination) -> Option<NextCalls> {
         );
         local_fetch_query::set_progress(&mut query, Some(progress));
         NextCalls {
-            continue_window: Some(FetchCall::continued(query)),
+            continue_window: Some(FetchCall::page(query)),
             read_bounded_lines: None,
             restart: None,
             ..NextCalls::default()

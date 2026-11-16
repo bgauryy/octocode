@@ -1,5 +1,6 @@
 //! Java receiver bindings.
 use super::*;
+use crate::signatures::node_kinds::kind_of;
 
 pub(super) fn java_bindings<'t>(up: Up<'_, 't>, content: &str, out: &mut Vec<Binding>) {
     let node = up.node;
@@ -11,16 +12,16 @@ pub(super) fn java_bindings<'t>(up: Up<'_, 't>, content: &str, out: &mut Vec<Bin
             clean_type_text(node_text(ty, content)?, Lang::Java)
         }
     };
-    match node.kind() {
+    match kind_of(node) {
         "formal_parameter" | "catch_formal_parameter" => {
             let Some(name) = node.child_by_field_name("name") else {
                 return;
             };
             let until = up.nth(2).unwrap_or(node);
-            let ty = if node.kind() == "catch_formal_parameter" {
+            let ty = if kind_of(node) == "catch_formal_parameter" {
                 let mut cursor = node.walk();
                 node.named_children(&mut cursor)
-                    .find(|child| child.kind() == "catch_type")
+                    .find(|child| kind_of(child) == "catch_type")
                     .and_then(|ty| clean_type_text(node_text(ty, content)?, Lang::Java))
             } else {
                 declared(node.child_by_field_name("type"), None)
@@ -58,7 +59,7 @@ pub(super) fn java_bindings<'t>(up: Up<'_, 't>, content: &str, out: &mut Vec<Bin
                 node.child_by_field_name("type"),
                 node.child_by_field_name("value"),
             );
-            let until = if node.kind() == "resource" {
+            let until = if kind_of(node) == "resource" {
                 up.ancestor(&["try_with_resources_statement"])
                     .unwrap_or(node)
             } else {
@@ -68,7 +69,7 @@ pub(super) fn java_bindings<'t>(up: Up<'_, 't>, content: &str, out: &mut Vec<Bin
         }
         "lambda_expression" => {
             if let Some(parameters) = node.child_by_field_name("parameters")
-                && parameters.kind() != "formal_parameters"
+                && kind_of(parameters) != "formal_parameters"
             {
                 bind_pattern(
                     parameters,
@@ -85,7 +86,7 @@ pub(super) fn java_bindings<'t>(up: Up<'_, 't>, content: &str, out: &mut Vec<Bin
 }
 
 pub(super) fn java_constructor(value: Node<'_>, content: &str) -> Option<String> {
-    (value.kind() == "object_creation_expression").then_some(())?;
+    (kind_of(value) == "object_creation_expression").then_some(())?;
     clean_type_text(
         node_text(value.child_by_field_name("type")?, content)?,
         Lang::Java,

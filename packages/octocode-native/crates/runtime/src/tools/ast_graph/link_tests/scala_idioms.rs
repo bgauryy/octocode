@@ -20,7 +20,7 @@ fn construction_and_companions_bind_the_class_or_object() {
         ),
     ]);
     let root = ingested(&temp);
-    let class = "src/acme/Box.scala#Box@3";
+    let class = "src/acme/Box.scala#Box@1";
     assert_eq!(
         callees(root, "src/acme/Use.scala#Use.a"),
         [to(class, "constructs:same-package")]

@@ -1,34 +1,10 @@
 use super::Continuation;
 use crate::id::ToolId;
-use crate::id::error_codes::{self, ErrorClass};
 use octocode_contract_types::ErrorCode;
 use serde_json::Value;
 
-/// How a call failed, for the caller's exit code and error state.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
-pub enum FailureKind {
-    NotFound,
-    Authentication,
-    Permission,
-    RateLimited,
-    Execution,
-}
-
 /// The one text of a stale snapshot, whichever tool's cursor went stale.
 pub(crate) const STALE_SNAPSHOT_ERROR: &str = "The snapshot does not match this source and query (they changed, or the snapshot is missing or from another call); nothing shown remains valid: run the restart call, page 1 without the snapshot.";
-
-/// The failure an error row with `code` reports. A rejected request is an
-/// execution failure here; [`crate::response::exit::ExitClass::InvalidInput`] is
-/// decided from the rows.
-pub(crate) fn failure_kind(code: ErrorCode) -> FailureKind {
-    match error_codes::class(code) {
-        ErrorClass::NotFound => FailureKind::NotFound,
-        ErrorClass::Authentication => FailureKind::Authentication,
-        ErrorClass::Permission => FailureKind::Permission,
-        ErrorClass::RateLimited => FailureKind::RateLimited,
-        ErrorClass::InvalidInput | ErrorClass::Execution => FailureKind::Execution,
-    }
-}
 
 /// A local tool call that failed as a whole. The dispatcher renders it as
 /// the one error row: `errorCode`, `error`, then `hints` and `next` when set.
@@ -79,7 +55,7 @@ impl ToolError {
             SourceError::Deadline => ErrorCode::Timeout,
             SourceError::LimitExceeded(_) => ErrorCode::ScopeTooBroad,
             SourceError::Refused(Refusal::Binary) => ErrorCode::BinaryFileUnsupported,
-            SourceError::Refused(Refusal::NotUnicode) => ErrorCode::FileReadFailed,
+            SourceError::Refused(Refusal::NotUnicode) => ErrorCode::Decode,
             SourceError::InvalidMap(_) => ErrorCode::ExecutionFailed,
         };
         Self::new(code, error.to_string())

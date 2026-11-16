@@ -10,30 +10,6 @@ use serde_json::{Map, Value, json};
 use crate::contracts::envelope::{NOTICES, TIMED_NOTICES};
 use crate::id::ToolId;
 
-/// The continuation call that reads cursor `field` (a page number or a
-/// token) at `next`: `query` (the
-/// complete query row the continuation repeats) with `field` set and each
-/// of `set` written after it (`snapshot`, an outer cursor's reset), built
-/// as an exact replay of `tool`. The one next-page builder; `None` only
-/// when `query` is not an object.
-pub(crate) fn next_page_call(
-    tool: ToolId,
-    query: Value,
-    field: &str,
-    next: impl Into<Value>,
-    set: &[(&str, Value)],
-) -> Option<Value> {
-    let mut changes = Map::new();
-    changes.insert(field.into(), next.into());
-    for (field, value) in set {
-        changes.insert((*field).into(), value.clone());
-    }
-    query.is_object().then(|| {
-        let row = crate::response::result::with_changes(query, &Value::Object(changes));
-        crate::response::result::Continuation::continued(tool, row).build()
-    })
-}
-
 /// What a candidate page changes in its query: private progress dropped
 /// (never the scan's `snapshot` pin, which the page keeps), the
 /// `selection` token set, and a newer `snapshot` when the caller has one.

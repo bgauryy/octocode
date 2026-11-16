@@ -20,6 +20,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 mod coverage;
+mod declaration_rank;
 mod digests;
 mod judge_gate;
 mod limits;
@@ -28,13 +29,14 @@ mod listed;
 mod matching;
 mod multiline;
 mod ordering;
-mod ranking;
 mod row_windows;
 mod selection;
 mod snippets;
 mod spans;
+mod streaming;
 mod term_counts;
 mod test_code;
+mod walk_order;
 mod walk_parity;
 mod windows;
 

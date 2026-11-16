@@ -6,6 +6,7 @@ use crate::lsp::commands::{
     has_path_separator, is_executable_path, is_rejected_shell, which_on_path,
 };
 use crate::lsp::types::LspLanguageServerConfig;
+use crate::process_env::EnvMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -120,17 +121,31 @@ const PROBE_POLL: std::time::Duration = std::time::Duration::from_millis(10);
 /// proxy answers instead of installing a toolchain; a probe that could not
 /// answer (stopped, or failed for another reason than a missing or
 /// non-executable program) is an error, not "unavailable".
-pub fn is_command_available(command: &str) -> Result<bool, String> {
-    let command = resolve_known_server_command(command);
+pub fn is_command_available(command: &str, env: &impl EnvMap) -> Result<bool, String> {
+    let command = resolve_known_server_command(command, env);
     if is_rejected_shell(&command) {
         return Ok(false);
     }
     if typescript_cli_from_command(&command).is_some() {
-        return Ok(current_node_command().is_some());
+        return Ok(current_node_command(env).is_some());
     }
     if is_rust_analyzer_command(&command) {
         let mut probe = Command::new(&command);
         probe.arg("--version").env("RUSTUP_AUTO_INSTALL", "0");
+        let view = super::invocation::rustup::RustupView::of(env);
+        for (name, value) in [
+            ("PATH", &view.path_var),
+            ("RUSTUP_TOOLCHAIN", &view.toolchain),
+            (
+                "RUSTUP_HOME",
+                &view.home.clone().map(std::ffi::OsString::from),
+            ),
+        ] {
+            match value {
+                Some(value) => probe.env(name, value),
+                None => probe.env_remove(name),
+            };
+        }
         return match probe_command(&mut probe, false) {
             Ok(_) => Ok(true),
             Err(ProbeError::Exited(_)) => Ok(false),
@@ -155,7 +170,7 @@ pub fn is_command_available(command: &str) -> Result<bool, String> {
     if Path::new(&command).is_absolute() {
         return Ok(is_executable_path(Path::new(&command)));
     }
-    which_on_path(&command)
+    which_on_path(&command, env)
         .map(|path| is_executable_path(&path))
         .or_else(|err| match err {
             which::Error::CannotFindBinaryPath => Ok(false),
@@ -168,11 +183,12 @@ pub fn is_command_available(command: &str) -> Result<bool, String> {
 /// a rustup proxy costs one bounded `rustup which` call, kept until something
 /// rustup reads changes.
 pub fn server_command_resolves(config: &LspLanguageServerConfig) -> bool {
-    let command = resolve_known_server_command(&config.command);
+    let env = config.env.clone().unwrap_or_default();
+    let command = resolve_known_server_command(&config.command, &env);
     if is_rejected_shell(&command) {
         return false;
     }
-    let view = super::invocation::rustup::RustupView::current();
+    let view = super::invocation::rustup::RustupView::of(&env);
     let program = if Path::new(&command).is_absolute() || has_path_separator(&command) {
         Some(PathBuf::from(&command))
     } else {
@@ -214,7 +230,7 @@ pub fn repository_toolchain_refusal(config: &LspLanguageServerConfig) -> Option<
         return None;
     }
     let file = super::invocation::rustup::repository_toolchain(
-        &super::invocation::rustup::RustupView::current(),
+        &super::invocation::rustup::RustupView::of(&config.env.clone().unwrap_or_default()),
         Path::new(&config.workspace_root),
         &config.command,
     )?;

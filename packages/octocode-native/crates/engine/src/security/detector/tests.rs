@@ -4,7 +4,7 @@
 
 mod sampling;
 
-use super::prescan::prescan_candidates;
+use super::prescan::{prescan_candidates, shipped_and_reference};
 use super::regex_forms::{ascii_pattern_regex, pattern_regex};
 use super::*;
 use sampling::{Lcg, sample};
@@ -118,6 +118,45 @@ fn every_pattern_redacts_only_its_sample() {
         }
     }
     assert_eq!(dead, Vec::<&str>::new());
+}
+
+/// The prescan automaton is a DFA for speed; it must report exactly the
+/// overlapping hits of the contiguous NFA on pattern samples, on the source
+/// of every crate, and on mixed-case and non-ASCII text.
+#[test]
+fn dfa_prescan_matches_the_nfa() {
+    let (dfa, nfa) = shipped_and_reference();
+    let hits = |automaton: &aho_corasick::AhoCorasick, text: &str| {
+        automaton
+            .find_overlapping_iter(text)
+            .map(|hit| (hit.pattern().as_usize(), hit.start(), hit.end()))
+            .collect::<Vec<_>>()
+    };
+    let mut rng = Lcg(0xd1ff);
+    let mut texts: Vec<String> = (0..PATTERNS.len())
+        .flat_map(|idx| matching_samples(idx, &mut rng))
+        .collect();
+    texts.push("GHP_Ghp_ ſk_live_ AKIA\u{1F600}ghp_ \u{212A}ey".to_string());
+    let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let mut stack = vec![crates];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path
+                .extension()
+                .is_some_and(|ext| ext == "rs" || ext == "json")
+                && let Ok(text) = std::fs::read_to_string(&path)
+            {
+                texts.push(text);
+            }
+        }
+    }
+    assert!(texts.len() > 500);
+    for text in &texts {
+        assert_eq!(hits(dfa, text), hits(&nfa, text));
+    }
 }
 
 /// The prescan gate is necessary: every text a pattern matches selects that

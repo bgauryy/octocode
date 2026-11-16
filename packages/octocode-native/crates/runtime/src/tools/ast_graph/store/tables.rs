@@ -45,14 +45,35 @@ pub(super) const REEXPORTED_NAME: &str = "reexported-name";
 /// string's hash, newest first, and compares the stored text.
 #[derive(Default)]
 struct Interner {
-    hasher: std::collections::hash_map::RandomState,
-    newest: HashMap<u64, u32>,
+    hasher: crate::tools::ast_graph::hashing::FastState,
+    newest: HashMap<u64, u32, crate::tools::ast_graph::hashing::IdentityState>,
     /// By id: the previous id with the same hash, else [`NONE`].
     older: Vec<u32>,
     strings: Vec<String>,
+    /// The JSON text of the value being interned ([`Interner::json`]), kept
+    /// to write the next one into.
+    scratch: Vec<u8>,
 }
 
 impl Interner {
+    /// The id of `value` as the JSON text the tables store it as: its fields
+    /// in the order its type declares them, which is what a `serde_json::Value`
+    /// of it holds (the workspace builds `serde_json` with `preserve_order`),
+    /// without building that value.
+    fn json<T: serde::Serialize>(&mut self, value: &T) -> u32 {
+        let mut text = std::mem::take(&mut self.scratch);
+        text.clear();
+        // The values interned here are plain data (no map with a key that is
+        // not a string), which never fails to serialize.
+        if serde_json::to_writer(&mut text, value).is_err() {
+            text.clear();
+            text.extend_from_slice(b"null");
+        }
+        let id = self.id(std::str::from_utf8(&text).unwrap_or("null"));
+        self.scratch = text;
+        id
+    }
+
     fn id(&mut self, value: &str) -> u32 {
         use std::hash::BuildHasher;
         self.id_hashed(self.hasher.hash_one(value), value)
@@ -281,11 +302,14 @@ fn symbol_keys(
         repeat.1 += u32::from(!is_member_data(decl, by_id));
     }
     let mut used = BTreeSet::<String>::new();
-    // The last suffix each repeated name and line took: every suffix below
-    // it is taken (keys are never released), so the next repeat resumes
-    // there instead of trying `.2` again. The keys are the ones a probe from
-    // `.2` would give, in linear work.
-    let mut last = HashMap::<(&str, u32), u32>::new();
+    // A repeated name's suffix is its place among the same-named
+    // declarations that take one, in source order: a line inserted above
+    // them moves no key, so `drift` sees no relation change.
+    let mut ordinals = HashMap::<&str, u32>::new();
+    // The last suffix each repeated key took past a collision: every suffix
+    // below it is taken (keys are never released), so the next collision
+    // resumes there instead of trying `.2` again, in linear work.
+    let mut last = HashMap::<String, u32>::new();
     ordered
         .iter()
         .zip(&names)
@@ -297,19 +321,21 @@ fn symbol_keys(
                 others > 1
             };
             let mut key = if repeated {
-                format!("{file}#{qualified_name}@{}", decl.line)
+                let ordinal = ordinals.entry(qualified_name.as_str()).or_default();
+                *ordinal += 1;
+                format!("{file}#{qualified_name}@{ordinal}")
             } else {
                 format!("{file}#{qualified_name}")
             };
             if !used.insert(key.clone()) {
-                let n = last
-                    .entry((qualified_name.as_str(), decl.line))
-                    .or_insert(1);
+                // Only a name that itself holds `@` can collide.
+                let n = last.entry(key.clone()).or_insert(1);
+                let taken = key.clone();
                 loop {
                     #[cfg(test)]
                     KEY_PROBES.with(|probes| probes.set(probes.get() + 1));
                     *n += 1;
-                    key = format!("{file}#{qualified_name}@{}.{n}", decl.line);
+                    key = format!("{taken}.{n}");
                     if used.insert(key.clone()) {
                         break;
                     }

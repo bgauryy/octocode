@@ -35,12 +35,12 @@ pub struct RetryPolicy {
     pub base_delay: Duration,
 }
 impl RetryPolicy {
-    /// The 5xx/network backoff: full jitter from `base_delay`, no floor.
-    fn backoff(&self) -> Backoff {
+    /// The 5xx/network backoff: full jitter from `base_delay`, floored at [`MIN_BACKOFF`].
+    pub(crate) fn backoff(&self) -> Backoff {
         Backoff {
             base: self.base_delay,
             cap: MAX_BACKOFF,
-            floor: Duration::ZERO,
+            floor: MIN_BACKOFF,
         }
     }
 }
@@ -299,6 +299,13 @@ impl GitHubTransport {
     /// Mirror blocking rate-limit facts under `dir` so separate processes
     /// (one CLI process per call) honor each other's limits. `None` keeps
     /// the state in memory only (non-persistent storage mode).
+    /// How many requests this transport's budget lets run at once: the most a
+    /// caller reading many files ahead can usefully keep in flight, since the
+    /// budget's global permits queue every request past it.
+    pub fn read_concurrency(&self) -> usize {
+        self.budget.config().global_concurrency.max(1)
+    }
+
     /// Clone admission on this transport's budget and rate-limit state.
     #[must_use]
     pub fn git_limiter(&self) -> crate::GitLimiter {
@@ -385,6 +392,16 @@ pub const HTTP_USER_AGENT: &str = "octocode-native";
 
 /// Upper bound for one 5xx/network backoff sleep.
 const MAX_BACKOFF: Duration = Duration::from_secs(8);
+/// The shortest backoff: zero is a valid jitter draw, and a wait under a
+/// millisecond is not recorded in `clientWaits`.
+#[cfg_attr(
+    octocode_clippy_ratchet,
+    expect(
+        clippy::disallowed_methods,
+        reason = "the resolution of clientWaits (a wait under a millisecond is recorded as none), not a work budget: no limit or deadline derives it"
+    )
+)]
+const MIN_BACKOFF: Duration = Duration::from_millis(1);
 
 mod attempts;
 mod context;

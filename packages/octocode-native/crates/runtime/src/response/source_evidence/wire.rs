@@ -152,6 +152,8 @@ fn snapshot(
     budget.record(6, cancel)?;
     let encoding = match value.encoding {
         domain::Encoding::Utf8 => "utf8",
+        domain::Encoding::Latin1 => "latin1",
+        domain::Encoding::Lossy => "lossy",
         domain::Encoding::Utf16Le => "utf16le",
         domain::Encoding::Utf16Be => "utf16be",
     };

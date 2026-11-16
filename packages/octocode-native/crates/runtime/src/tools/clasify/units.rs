@@ -24,9 +24,10 @@ use crate::providers::classification::gate::{GateLease, call_cap};
 use crate::tools::judgment::{
     ClassificationError, EvaluationInput, Evaluator, Judged, LongContext, shared::Evaluations,
 };
+use crate::tools::selection::entry_name;
 use crate::tools::source_capture::{self, SourceReader};
 use futures_util::{StreamExt as _, stream};
-use octocode_contract_types::{ClasifyChannel, ErrorCode};
+use octocode_contract_types::ErrorCode;
 use serde_json::{Map, Value, json};
 
 mod hits;
@@ -79,17 +80,6 @@ fn scalar(value: &Value) -> Option<String> {
         Value::String(text) if !text.trim().is_empty() => Some(text.clone()),
         Value::Number(number) => Some(number.to_string()),
         _ => None,
-    }
-}
-
-/// A listing entry `<name>[/][ (<fields>)]` as its name.
-fn entry_name(entry: &str) -> &str {
-    match entry
-        .strip_suffix(')')
-        .and_then(|fields| fields.rsplit_once(" ("))
-    {
-        Some((name, _)) => name,
-        None => entry,
     }
 }
 
@@ -310,13 +300,14 @@ pub(super) fn judge_source(
         Some(query) => {
             if let Some(call) = next_page(row, name, query, can_resume) {
                 if can_resume {
-                    crate::response::result::set_next(
-                        &mut output,
-                        ClasifyChannel::NextPage.key(),
+                    crate::response::collection::insert_walk(
+                        &mut output["next"],
+                        ToolId::Clasify,
+                        None,
                         call,
                     );
                 } else {
-                    crate::response::result::attach_related(&mut output, call);
+                    crate::response::result::attach_related(&mut output, call.build());
                 }
             }
         }
@@ -334,7 +325,12 @@ pub(super) fn judge_source(
 }
 
 /// The same row over the tool's next page `query`.
-fn next_page(row: &Row, tool: &str, query: &Map<String, Value>, can_resume: bool) -> Option<Value> {
+fn next_page(
+    row: &Row,
+    tool: &str,
+    query: &Map<String, Value>,
+    can_resume: bool,
+) -> Option<crate::response::result::Continuation> {
     let questions = row
         .keys
         .iter()
@@ -361,7 +357,7 @@ fn next_page(row: &Row, tool: &str, query: &Map<String, Value>, can_resume: bool
     } else {
         crate::response::result::Continuation::related(ToolId::Clasify, call)
     };
-    Some(continuation.build())
+    Some(continuation)
 }
 
 /// An `evaluate` row whose `content` array is judged item by item.

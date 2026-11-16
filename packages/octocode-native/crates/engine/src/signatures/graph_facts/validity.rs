@@ -1,6 +1,7 @@
 //! Recovery context for extracted occurrences, without guessing repaired names.
 
 use crate::num::saturating_u32;
+use crate::signatures::node_kinds::kind_of;
 use tree_sitter::Node;
 
 use crate::graph::{GraphParseAssessment, GraphParseScope, ObservedSpan};
@@ -59,7 +60,7 @@ pub(super) fn assess<'t>(
         // preprocessor, so a conditional branch it cannot place (`else`
         // followed by `#ifdef`) is an error in that one statement, and its
         // clean sibling statements keep their parse.
-        if parent.kind() == "compound_statement" {
+        if kind_of(parent) == "compound_statement" {
             break;
         }
         if parent.child_by_field_name("body").is_some_and(|body| {

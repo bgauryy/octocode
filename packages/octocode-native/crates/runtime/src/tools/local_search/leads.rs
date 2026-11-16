@@ -82,6 +82,7 @@ impl Found<'_> {
         if let Some(read) = self.read_lead() {
             add("read".into(), read);
         }
+        warnings.extend(self.windowed_hits());
         if let (Some(symbol), Some(definition)) = (self.symbol, self.definition)
             && let Some(row) = crate::tools::leads::lsp::verify_query(
                 &definition.source,

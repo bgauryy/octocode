@@ -38,7 +38,7 @@ async fn github(
 
 #[tokio::test]
 async fn github_failures_exit_by_failure_kind() {
-    assert_exit(&github(404, &[], true).await.2, 3);
+    assert_exit(&github(404, &[], true).await.2, 2);
     assert_exit(&github(401, &[], true).await.2, 4);
     let denied = github(403, &[], true).await;
     assert_exit(&denied.2, 4);
@@ -138,9 +138,9 @@ async fn clasify_exits_by_worst_row_outcome() {
     let state = json!({"content":{"fact":"present"}});
     let cases = [
         (rows(vec![read(&file)]), 0),
-        (rows(vec![read(&missing)]), 3),
-        (rows(vec![read(&file), read(&missing)]), 3),
-        (rows(vec![read(&missing), read(&file)]), 3),
+        (rows(vec![read(&missing)]), 2),
+        (rows(vec![read(&file), read(&missing)]), 2),
+        (rows(vec![read(&missing), read(&file)]), 2),
         (rows(vec![state.clone()]), 0),
     ];
     for (input, expected) in cases {

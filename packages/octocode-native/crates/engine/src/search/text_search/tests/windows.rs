@@ -134,7 +134,6 @@ fn a_paused_pcre2_search_resumed_to_its_end_equals_one_unpaused_search() {
     ];
     for sort in [
         SearchSort::MatchCount,
-        SearchSort::Relevance,
         SearchSort::Path,
         SearchSort::Traversal,
     ] {

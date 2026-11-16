@@ -17,14 +17,15 @@ pub(super) fn other_projects(
     server_root: &str,
 ) -> BTreeMap<PathBuf, Vec<String>> {
     let mut roots = HashMap::<&Path, PathBuf>::new();
-    let root = canonical(server_root);
+    let root = super::super::scope::canonical_root(server_root);
     let mut outside = BTreeMap::<PathBuf, Vec<String>>::new();
     for file in files {
         let dir = Path::new(file.as_str()).parent().unwrap_or(Path::new(""));
         let own = roots.entry(dir).or_insert_with(|| {
-            scope
-                .project_root_of(file)
-                .map_or_else(|_| dir.to_path_buf(), |own| canonical(&own))
+            scope.project_root_of(file).map_or_else(
+                |_| dir.to_path_buf(),
+                |own| super::super::scope::canonical_root(&own),
+            )
         });
         if *own != root {
             outside.entry(own.clone()).or_default().push(file.clone());
@@ -60,10 +61,6 @@ pub(super) fn dependent_projects(
         others.retain(|root, _| dependents.includes(root));
     }
     others
-}
-
-fn canonical(path: &str) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.into())
 }
 
 /// A file that spells the name in code and is not in the answer may be one the

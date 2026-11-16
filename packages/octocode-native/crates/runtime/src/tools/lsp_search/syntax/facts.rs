@@ -22,7 +22,7 @@ impl File {
         Some(Self {
             path: path.to_owned(),
             uri: octocode_engine::lsp::uri::path_to_uri(path).ok()?,
-            content: read_bounded_source(std::path::Path::new(path)).ok()?,
+            content: read_bounded_source(std::path::Path::new(path)).ok()?.text,
             language_id: octocode_engine::lsp::config::detect_language_id(path),
         })
     }

@@ -80,8 +80,18 @@ impl Producer {
 #[serde(rename_all = "lowercase")]
 pub enum Encoding {
     Utf8,
+    /// 8-bit text read one char per byte ([`crate::text::Charset::Latin1`]).
+    Latin1,
+    /// UTF-8 with stray bytes read as U+FFFD ([`crate::text::Charset::Lossy`]).
+    Lossy,
     Utf16Le,
     Utf16Be,
+}
+impl Encoding {
+    /// Whether raw bytes are two-byte units (a BOM-marked UTF-16 source).
+    pub fn is_utf16(self) -> bool {
+        matches!(self, Self::Utf16Le | Self::Utf16Be)
+    }
 }
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct SourceSnapshot {

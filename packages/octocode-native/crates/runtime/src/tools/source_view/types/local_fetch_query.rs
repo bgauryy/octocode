@@ -78,14 +78,22 @@ pub(crate) fn case_sensitive_for(query: &LocalFetchQuery, pattern: &str) -> bool
     })
 }
 
+/// The lines kept around each `matchString` hit: the query's `contextLines`,
+/// else the contract's default (`limits.defaultReadContextLines`).
 pub(crate) fn context_lines(query: &LocalFetchQuery) -> octocode_engine::types::SearchContext {
     matched(query)
         .and_then(|q| q.context_lines.as_ref())
-        .map(|context| octocode_engine::types::SearchContext {
-            before: crate::num::u32_of_signed(context.before),
-            after: crate::num::u32_of_signed(context.after),
-        })
-        .unwrap_or_default()
+        .map_or_else(
+            || {
+                octocode_engine::types::SearchContext::symmetric(
+                    octocode_engine::num::saturating_u32(crate::id::DEFAULT_READ_CONTEXT_LINES),
+                )
+            },
+            |context| octocode_engine::types::SearchContext {
+                before: crate::num::u32_of_signed(context.before),
+                after: crate::num::u32_of_signed(context.after),
+            },
+        )
 }
 
 pub(crate) fn whole_word(query: &LocalFetchQuery) -> bool {

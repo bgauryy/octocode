@@ -301,8 +301,8 @@ fn reports_a_stable_read_failure_and_extracts_past_any_parse_size() {
     let fixture = tempfile::tempdir().expect("fixture");
     let root = fixture.path().to_path_buf();
     fs::create_dir_all(&root).expect("create fixture");
-    // Not [0xff, 0xfe]: that is a UTF-16 byte-order mark, which is admitted.
-    fs::write(root.join("invalid.js"), [0xc3, 0x28]).expect("write invalid utf8 fixture");
+    // A NUL byte is binary content: the one source a scan cannot read as text.
+    fs::write(root.join("invalid.js"), b"x\0y").expect("write binary fixture");
     // No parse size refuses a file the scan admits: `max_file_bytes` alone
     // bounds what it reads.
     let extraction_size = crate::security::MAX_CONTENT_SIZE;
@@ -326,6 +326,41 @@ fn reports_a_stable_read_failure_and_extracts_past_any_parse_size() {
             .map(|diagnostic| (diagnostic.relative_path.as_str(), diagnostic.code.as_str()))
             .collect::<Vec<_>>(),
         [("invalid.js", "graph.scan.readFailed")]
+    );
+}
+
+/// A source that is not UTF-8 is indexed as the reads show it, like any
+/// other file: Latin-1 text and UTF-8 with stray bytes name their
+/// declarations, and neither is skipped as unreadable.
+#[test]
+fn indexes_legacy_8_bit_sources_instead_of_skipping_them() {
+    let fixture = tempfile::tempdir().expect("fixture");
+    let root = fixture.path().to_path_buf();
+    fs::write(
+        root.join("latin.rs"),
+        b"pub fn caf\xe9() {}\nfn beta() { let _ = beta; }\n",
+    )
+    .expect("write Latin-1 fixture");
+    fs::write(
+        root.join("stray.rs"),
+        b"// \xc3\xa9 \xff\npub fn gamma() {}\n",
+    )
+    .expect("write stray-byte fixture");
+
+    let result = scan_graph_facts(GraphFactsScanOptions {
+        path: path_string(&root),
+        ..Default::default()
+    })
+    .expect("scan graph facts");
+
+    assert!(result.skipped.is_empty(), "{:?}", result.skipped);
+    assert_eq!(
+        result
+            .entries
+            .iter()
+            .map(|entry| entry.relative_path.as_str())
+            .collect::<Vec<_>>(),
+        ["latin.rs", "stray.rs"]
     );
 }
 

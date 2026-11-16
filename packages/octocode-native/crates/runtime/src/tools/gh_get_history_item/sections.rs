@@ -1,5 +1,5 @@
 //! The sections one history-item read returns.
-use super::{GhGetHistoryItemQuery, gh_get_history_item_query};
+use super::{GhGetHistoryItemQuery, ItemOperation, gh_get_history_item_query};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Section {
     Body,
@@ -33,8 +33,8 @@ impl std::fmt::Display for Section {
 use serde_json::Value;
 
 /// The sections one read returns: the generated `sections`, with the one
-/// default resolved (a `matchString` with no section named reads the
-/// patches it searches). Continuations set it back on the wire in the
+/// default resolved (a `matchString` with no section named reads what it
+/// searches: an issue's comments, else the patches). Continuations set it back on the wire in the
 /// published order ([`Sections::wire`]).
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct Sections(u8);
@@ -72,7 +72,13 @@ impl Sections {
                 .filter(|s| names.iter().any(|name| name == s.name())),
         );
         if named.is_empty() && gh_get_history_item_query::match_strings(query).is_some() {
-            Self::of([Section::Patches])
+            Self::of([
+                if gh_get_history_item_query::operation(query) == ItemOperation::Issue {
+                    Section::Comments
+                } else {
+                    Section::Patches
+                },
+            ])
         } else {
             named
         }

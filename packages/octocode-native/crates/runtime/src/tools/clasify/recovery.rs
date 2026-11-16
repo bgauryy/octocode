@@ -1,6 +1,9 @@
 use super::{Captured, Input, Row, Target};
 use crate::id::ToolId;
-use crate::id::{error_class, error_codes::ErrorClass};
+use crate::id::{
+    error_class,
+    error_codes::{self, ErrorClass},
+};
 use crate::tools::source_capture;
 use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
@@ -99,9 +102,17 @@ pub(super) fn add(row: &Row, captured: Option<&Captured>, failure: &mut Value, c
     }
     // A refused input judged nothing: its own hints say how to fix it, and
     // no judgment failed that another tool could stand in for.
-    let refused = failure["errorCode"]
-        .as_str()
-        .is_some_and(|code| error_class(code) == ErrorClass::InvalidInput);
+    // The two size refusals are judged rows: their hints below name the split.
+    let refused = failure["errorCode"].as_str().is_some_and(|code| {
+        error_class(code) == ErrorClass::CorrectInput
+            && !matches!(
+                error_codes::parse(code),
+                Some(
+                    ErrorCode::ClassificationStateTooLarge
+                        | ErrorCode::ClassificationContextTooLarge
+                )
+            )
+    });
     if acquisition || refused {
         return;
     }
@@ -261,13 +272,14 @@ fn assets_call(row: &Row, source: &Value) -> Option<Value> {
     Some(crate::response::result::Continuation::related(ToolId::Clasify, call).build())
 }
 
-/// Whether the same read can answer differently when repeated: not after a
-/// not-found, permission or input refusal.
+/// Whether the same read is worth offering again: not after a failure the
+/// caller must correct or a refusal. An unservable read (a binary file) still
+/// leads to the source, which the reader inspects directly.
 pub(super) fn rereadable(failure: &Value) -> bool {
     failure["errorCode"].as_str().is_none_or(|code| {
         !matches!(
             error_class(code),
-            ErrorClass::NotFound | ErrorClass::Permission | ErrorClass::InvalidInput
+            ErrorClass::CorrectInput | ErrorClass::Refused
         )
     })
 }
@@ -338,7 +350,7 @@ mod tests {
         let Input::Judge(Target::Source(source)) = &row.input else {
             unreachable!()
         };
-        let mut failure = json!({"errorCode":"classificationContextUnavailable"});
+        let mut failure = json!({"errorCode":"classificationContextFailed"});
         add(&row, None, &mut failure, true);
         assert_eq!(failure["related"][0]["kind"], "related");
         assert_eq!(

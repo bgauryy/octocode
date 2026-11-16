@@ -2,7 +2,7 @@ use super::ClassificationError;
 use crate::providers::classification::CIRCUIT_OPEN;
 use crate::providers::classification::gate::GateDenied;
 use octocode_contract_types::ErrorCode;
-use octocode_io::budget::BudgetStop;
+use octocode_io::budget::{BudgetStop, RequestBudget};
 use octocode_io::retry::{StatusClass, classify_status};
 use serde_json::Value;
 use std::time::Duration;
@@ -21,6 +21,27 @@ pub(super) fn budget_error(stop: BudgetStop) -> ClassificationError {
             "Retry later; the evidence stays readable without classification.",
         ),
     }
+}
+
+/// The stall bound that stopped a request, when its budget stopped it at the
+/// stall bound rather than at the call's deadline or by cancellation.
+pub(super) fn stall_of(budget: &RequestBudget, stop: BudgetStop) -> Option<Duration> {
+    budget
+        .stall()
+        .filter(|_| stop == BudgetStop::Deadline && budget.check().is_ok())
+}
+
+/// A provider that took the request and then sent nothing for `stall`. It is
+/// not retried: another attempt would wait on the same silent provider again.
+pub(super) fn stalled(stall: Duration) -> ClassificationError {
+    ClassificationError::new(
+        CIRCUIT_OPEN,
+        format!(
+            "Classification provider accepted the request, then sent nothing for {}s; the request ended there, without retrying.",
+            stall.as_secs_f64().ceil()
+        ),
+        "Retry later; the evidence stays readable without classification. If it repeats, check OCTOCODE_CLASSIFICATION_API_HOST and the provider's status.",
+    )
 }
 
 pub(super) fn transport_error() -> ClassificationError {
@@ -115,6 +136,7 @@ pub(super) fn denied(reason: GateDenied) -> ClassificationError {
         ),
         GateDenied::RateLimited { retry_after } => rate_limited(None, Some(retry_after), true),
         GateDenied::QuotaExhausted => quota_exhausted(),
+        GateDenied::CredentialRejected => credential_rejected(),
         GateDenied::CircuitOpen { retry_after } => ClassificationError {
             paused: true,
             ..ClassificationError::new(
@@ -135,6 +157,16 @@ pub(crate) fn quota_exhausted() -> ClassificationError {
         "Classification provider billing or quota is exhausted (HTTP 402); retrying will not help.",
         // A rerun sooner is refused the same way (`gate::QUOTA_MEMO`).
         "Add credit or quota to the OCTOCODE_CLASSIFICATION_API account, then rerun in a minute: this process repeats the refusal until then.",
+    )
+}
+
+/// The provider refused the account's credential (HTTP 401).
+pub(super) fn credential_rejected() -> ClassificationError {
+    ClassificationError::new(
+        ErrorCode::ClassificationProviderError,
+        "Classification provider returned HTTP 401; response body omitted.",
+        // A rerun sooner is refused the same way (`gate::AUTH_MEMO`).
+        "Check OCTOCODE_CLASSIFICATION_API and account access, then rerun in a minute: this process repeats the refusal until then.",
     )
 }
 

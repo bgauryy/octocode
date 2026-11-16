@@ -153,7 +153,7 @@ fn a_deleted_worktree_is_made_again() {
 fn a_worktree_whose_store_is_gone_is_preserved() {
     let fixture = Fixture::shared();
     let (root, home, runner, path) = first_row(&fixture);
-    fs::remove_dir_all(storage::store_root(&home)).expect("delete store");
+    fs::remove_dir_all(crate::tools::gh_git::store_root(&home)).expect("delete store");
     let error = again(&fixture, &root, &home, &runner).expect_err("store gone");
     assert_eq!(error.code, ErrorCode::CheckoutDirty);
     assert!(path.join("README.md").is_file(), "the worktree is intact");

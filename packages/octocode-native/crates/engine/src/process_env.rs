@@ -1,10 +1,20 @@
-//! The variables the engine reads from its own process environment, not
-//! from a call's. A host that keeps one process for many calls (the CLI's
-//! warm server) cannot hand a call its own values of these, so it keys on
-//! them. Every read goes through [`var_os`], whose name must be in
-//! [`PROCESS_ENV`]; the tests below hold the engine's sources to that, so a
-//! new read cannot be left out of a host's key.
+//! The environment the engine reads, and from where.
+//!
+//! - [`CALL_ENV`]: variables a call carries. A host that keeps one process
+//!   for many calls (the CLI's warm server, shared by MCP sessions) hands each
+//!   call its own values (`LspDiscoveryOptions::env`, the spawn environment
+//!   of `LspLanguageServerConfig::env`), and the engine reads them only
+//!   through [`call_var`], never from its own process: a call's language
+//!   servers are found and started under the caller's `PATH` and toolchain
+//!   variables.
+//! - [`PROCESS_ENV`]: variables read from the engine's own process, which no
+//!   call can bring: the third-party walker reads the global ignore rules
+//!   (`XDG_CONFIG_HOME`, the git config files) and `HOME` itself. A host that
+//!   keeps one process for many calls keys on them. Every read goes through
+//!   [`var_os`], whose name must be in [`PROCESS_ENV`]; the tests below hold
+//!   the engine's sources to both accessors, so a new read cannot bypass them.
 
+use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsString;
 
 /// Every variable the engine reads from its process environment.
@@ -13,14 +23,22 @@ pub const PROCESS_ENV: &[&str] = &[
     "XDG_CONFIG_HOME",
     "GIT_CONFIG_GLOBAL",
     "GIT_CONFIG_SYSTEM",
+    // What `std::env::home_dir` reads (discovery's per-user locations, the
+    // walker's global rules).
+    "HOME",
+    "USERPROFILE",
+];
+
+/// Every variable the engine reads from a call's environment.
+pub const CALL_ENV: &[&str] = &[
     // Language-server discovery and startup share toolchain locations and
     // selection, including rustup proxies (`lsp::config`, `lsp::client`).
     "RUSTUP_HOME",
     "CARGO_HOME",
     "RUSTUP_TOOLCHAIN",
     "PATH",
-    // What a spawned language server is given (`lsp::client`); `HOME` is
-    // also what `std::env::home_dir` reads.
+    // What a spawned language server is given (`lsp::client`).
+    "XDG_CONFIG_HOME",
     "HOME",
     "USERPROFILE",
     "HOMEDRIVE",
@@ -53,12 +71,51 @@ pub const PROCESS_ENV: &[&str] = &[
     "TMP",
 ];
 
-/// Whether `name` is in [`PROCESS_ENV`].
-pub const fn declares(name: &str) -> bool {
+/// A call's environment: the host's resolved variables.
+pub type Env = BTreeMap<String, String>;
+
+/// A map of variable names to values the engine can read a call's
+/// environment from.
+pub trait EnvMap {
+    fn lookup(&self, name: &str) -> Option<&String>;
+}
+
+impl EnvMap for BTreeMap<String, String> {
+    fn lookup(&self, name: &str) -> Option<&String> {
+        self.get(name)
+    }
+}
+
+impl EnvMap for HashMap<String, String> {
+    fn lookup(&self, name: &str) -> Option<&String> {
+        self.get(name)
+    }
+}
+
+/// Whether a request carries `name` to the engine: a setting (`OCTOCODE_*`)
+/// or a [`CALL_ENV`] variable.
+pub fn carried(name: &str) -> bool {
+    name.starts_with("OCTOCODE_") || call_declares(name)
+}
+
+/// Whether `name` is in [`CALL_ENV`].
+pub const fn call_declares(name: &str) -> bool {
+    listed(CALL_ENV, name)
+}
+
+/// Reads `name`, a variable in [`CALL_ENV`], from the call's `env`: never
+/// from the process.
+pub fn call_var(env: &impl EnvMap, name: &'static str) -> Option<OsString> {
+    debug_assert!(call_declares(name), "{name} is not in CALL_ENV");
+    env.lookup(name).map(OsString::from)
+}
+
+/// Whether `list` holds `name`, as a constant expression.
+const fn listed(list: &[&str], name: &str) -> bool {
     let name = name.as_bytes();
     let mut index = 0;
-    while index < PROCESS_ENV.len() {
-        let declared = PROCESS_ENV[index].as_bytes();
+    while index < list.len() {
+        let declared = list[index].as_bytes();
         if declared.len() == name.len() {
             let mut at = 0;
             while at < name.len() && declared[at] == name[at] {
@@ -71,6 +128,11 @@ pub const fn declares(name: &str) -> bool {
         index += 1;
     }
     false
+}
+
+/// Whether `name` is in [`PROCESS_ENV`].
+pub const fn declares(name: &str) -> bool {
+    listed(PROCESS_ENV, name)
 }
 
 /// Reads `name`, a variable in [`PROCESS_ENV`], from the process.
@@ -189,6 +251,18 @@ mod tests {
                     direct.push(format!("{at}: {read}"));
                 }
             }
+            // A call variable is read from a call's environment, by a name
+            // in CALL_ENV.
+            for (index, line) in text.lines().enumerate() {
+                for read in line.split("call_var(").skip(1) {
+                    let call = read.split(')').next().unwrap_or_default();
+                    if let Some(name) = call.split('"').nth(1)
+                        && !super::call_declares(name)
+                    {
+                        undeclared.push(format!("{}:{}: {name}", path.display(), index + 1));
+                    }
+                }
+            }
             for (index, line) in text.lines().enumerate() {
                 for read in line.split("process_env::var_os(\"").skip(1) {
                     let name = read.split('"').next().unwrap_or_default();
@@ -244,6 +318,28 @@ mod tests {
                 env_reads(source)
             );
         }
+    }
+
+    /// A name a call carries is not also read from the process, except the
+    /// ones a spawned server is handed from the call (`HOME` and friends are
+    /// both: the walker reads the process's, a server is given the call's).
+    #[test]
+    fn a_name_read_from_the_process_is_never_the_only_source_of_a_call_variable() {
+        for name in ["PATH", "LANG", "TMPDIR", "RUSTUP_HOME", "GOPATH"] {
+            assert!(super::call_declares(name), "{name}");
+            assert!(!declares(name), "{name} must not key a server");
+        }
+    }
+
+    /// Reads come from the call's map, not the process.
+    #[test]
+    fn a_call_variable_is_read_from_the_call_env_only() {
+        let env = super::Env::from([("PATH".to_owned(), "/call/bin".to_owned())]);
+        assert_eq!(
+            super::call_var(&env, "PATH"),
+            Some(std::ffi::OsString::from("/call/bin"))
+        );
+        assert_eq!(super::call_var(&super::Env::new(), "PATH"), None);
     }
 
     #[test]

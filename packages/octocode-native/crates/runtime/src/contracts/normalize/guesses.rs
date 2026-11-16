@@ -69,6 +69,35 @@ const WALKS: &[ToolId] = &[
 /// The tools whose hop limit is `depth` and no `maxDepth`.
 const HOPS: &[ToolId] = &[ToolId::GraphQuery, ToolId::LspSearch];
 const READERS: &[ToolId] = &[ToolId::LocalFetch, ToolId::GhGetFileContent];
+/// The GitHub tools whose rows pin a commit by `ref` alone.
+const GH_REFS: &[ToolId] = &[
+    ToolId::GhGetFileContent,
+    ToolId::GhStructure,
+    ToolId::GhSearchCode,
+    ToolId::GhSearchHistory,
+    ToolId::GhCloneRepo,
+];
+
+/// `text` lower-cased without separators: `pull_request` and `PullRequest`
+/// are one spelling.
+fn folded(text: &str) -> String {
+    text.chars()
+        .filter(|c| !matches!(c, '_' | '-' | ' '))
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// The history search a kind of item names: pull requests (`pr`, GitHub's
+/// `type:pr`), issues or commits, in the singular or plural.
+fn history_operation(value: &Value, _: &Map<String, Value>) -> Option<Fields> {
+    let operation = match folded(value.as_str()?).as_str() {
+        "pr" | "prs" | "pull" | "pulls" | "pullrequest" | "pullrequests" => "pullRequest",
+        "issue" | "issues" => "issue",
+        "commit" | "commits" => "commit",
+        _ => return None,
+    };
+    Some(vec![("operation", json!(operation))])
+}
 
 /// A guess at a row field.
 const fn row(
@@ -204,8 +233,51 @@ pub(super) const GUESSES: &[Guess] = &[
             (!words.is_empty() && words.iter().all(plain)).then(|| vec![("keywords", json!(words))])
         }),
     ),
-    row(&[ToolId::GhSearchHistory], "type", "operation", Read::Text),
-    row(&[ToolId::GhSearchCode], "match", "matchIn", Read::Listed),
+    // GitHub's own words for what a history search reads: its REST `type`
+    // qualifier (`type:pr`), or the kind of item every row names.
+    row(
+        &[ToolId::GhSearchHistory],
+        "type",
+        "operation",
+        Read::Shaped(history_operation),
+    ),
+    row(
+        &[ToolId::GhSearchHistory],
+        "kind",
+        "operation",
+        Read::Shaped(history_operation),
+    ),
+    // GitHub's `in:` qualifier: `in:file` searches content, `in:path` paths.
+    row(
+        &[ToolId::GhSearchCode],
+        "match",
+        "matchIn",
+        Read::Shaped(|value, _| {
+            let sent: Vec<&str> = match value {
+                Value::String(one) => vec![one],
+                Value::Array(items) => items.iter().map(Value::as_str).collect::<Option<_>>()?,
+                _ => return None,
+            };
+            let read = sent
+                .iter()
+                .map(|place| match folded(place).as_str() {
+                    "file" | "content" | "code" => Some("content"),
+                    "path" => Some("path"),
+                    _ => None,
+                })
+                .collect::<Option<Vec<_>>>()?;
+            Some(vec![("matchIn", json!(read))])
+        }),
+    ),
+    // Every GitHub row names the commit it read `commitSha`; the input that
+    // pins it is `ref`.
+    row(GH_REFS, "commitSha", "ref", Read::Text),
+    // GitHub's compare API names its two sides `base` and `head`. `number`
+    // alone is never read as an `operation`: an issue or a pull request.
+    row(&[ToolId::GhGetHistoryItem], "base", "baseRef", Read::Text),
+    row(&[ToolId::GhGetHistoryItem], "head", "headRef", Read::Text),
+    // ast-grep's `--lang` / `language:`.
+    row(&[ToolId::AstSearch], "language", "parser", Read::Text),
     // `startLine` and `endLine` beside `path` read as one range below.
     row(READERS, "startLine", "ranges", Read::Refused),
     row(READERS, "endLine", "ranges", Read::Refused),

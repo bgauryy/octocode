@@ -7,13 +7,11 @@ use prefix::is_leading_binary;
 pub(super) use prefix::read_prefix;
 
 use super::file_terms::{CopiedRead, FILE_TERMS_MAX_BYTES};
-use super::mode::{MatchWork, ranks_by_relevance};
+use super::mode::MatchWork;
 use super::sink::CollectSink;
 use super::state::{Charge, Held};
-use crate::search::relevance;
 use crate::search::text_parser::FileEntry;
 use crate::types::{SearchContext, SearchedSource, TextSearchMatch, TextSearchOptions};
-use aho_corasick::AhoCorasick;
 use grep_matcher::Matcher;
 use grep_searcher::{BinaryDetection, Searcher, SearcherBuilder};
 use sha2::{Digest as _, Sha256};
@@ -60,18 +58,11 @@ pub(super) fn build_searcher(
     sb.build()
 }
 
-/// Leading bytes kept from the searched read for the generated-header check.
-const HEAD_BYTES: usize = relevance::GENERATED_HEADER_BYTES;
-
 /// The searcher's read of one opened file. Every byte the search reads
-/// passes through here once, so the generated-header prefix and the
-/// file-level terms' bytes come from that read instead of a second one.
+/// passes through here once, so the file-level terms' bytes come from that
+/// read instead of a second one.
 struct SourceTap<'f> {
     file: &'f std::fs::File,
-    /// The first [`HEAD_BYTES`] bytes, when `keep_head` is set.
-    head: [u8; HEAD_BYTES],
-    head_len: usize,
-    keep_head: bool,
     /// Every byte read, up to [`FILE_TERMS_MAX_BYTES`], when file-level terms
     /// are checked against this same read.
     copy: Option<Vec<u8>>,
@@ -129,21 +120,12 @@ pub(super) fn hashed_source(
 }
 
 impl<'f> SourceTap<'f> {
-    pub(super) fn new(file: &'f std::fs::File, keep_head: bool, copy: bool) -> Self {
+    pub(super) fn new(file: &'f std::fs::File, copy: bool) -> Self {
         Self {
             file,
-            head: [0; HEAD_BYTES],
-            head_len: 0,
-            keep_head,
             copy: copy.then(Vec::new),
             eof: false,
         }
-    }
-
-    /// The leading bytes, when the read reached [`HEAD_BYTES`] or the end.
-    fn head(&self) -> Option<&[u8]> {
-        (self.keep_head && (self.head_len == HEAD_BYTES || self.eof))
-            .then(|| &self.head[..self.head_len])
     }
 }
 
@@ -158,11 +140,6 @@ impl std::io::Read for SourceTap<'_> {
             return Ok(0);
         }
         let bytes = &buf[..read];
-        if self.keep_head && self.head_len < HEAD_BYTES {
-            let take = (HEAD_BYTES - self.head_len).min(read);
-            self.head[self.head_len..self.head_len + take].copy_from_slice(&bytes[..take]);
-            self.head_len += take;
-        }
         if let Some(copy) = &mut self.copy {
             let room = saturating_usize(FILE_TERMS_MAX_BYTES) - copy.len();
             copy.extend_from_slice(&bytes[..read.min(room)]);
@@ -179,20 +156,10 @@ pub(super) struct FileOutcome {
     pub(super) entry: FileEntry,
     pub(super) submatches: u32,
     pub(super) matched_lines: u32,
-    /// Relevance density of production hits, or all hits for a test-only file.
-    pub(super) rank_lines: u32,
-    pub(super) rank_submatches: u32,
-    pub(super) production_hit: bool,
     pub(super) om_matches: Vec<TextSearchMatch>,
     pub(super) binary: bool,
     /// The first NUL came before any text: nothing text-searchable was lost.
     pub(super) opaque: bool,
-    pub(super) line_weight: u32,
-    pub(super) declares: bool,
-    pub(super) covered: u32,
-    /// `relevance` only: the leading bytes declare a generated file; `None`
-    /// when the read did not reach them.
-    pub(super) generated_header: Option<bool>,
     /// The searched bytes, when file-level terms are checked.
     pub(super) copied: Option<CopiedRead>,
     /// A returned line was not UTF-8 (see [`CollectSink::not_utf8`]).
@@ -215,33 +182,9 @@ impl<M: Matcher> From<CollectSink<'_, M>> for FileOutcome {
             entry: sink.entry,
             submatches: sink.submatches,
             matched_lines: sink.matched_lines,
-            rank_lines: if sink.production_lines > 0 {
-                sink.production_lines
-            } else {
-                sink.matched_lines
-            },
-            rank_submatches: if sink.production_lines > 0 {
-                sink.production_submatches
-            } else {
-                sink.submatches
-            },
-            production_hit: sink.production_lines > 0,
             om_matches: sink.om_matches,
             binary: sink.binary_offset.is_some(),
             opaque: sink.binary_offset == Some(0),
-            line_weight: if sink.production_lines > 0 {
-                sink.production_weight
-            } else {
-                sink.line_weight
-            },
-            covered: if sink.production_lines > 0 {
-                sink.production_covered
-            } else {
-                sink.covered
-            }
-            .count_ones(),
-            declares: sink.declares,
-            generated_header: None,
             copied: None,
             not_utf8: sink.not_utf8,
             utf8_bom: false,
@@ -267,11 +210,8 @@ pub(super) struct FileSearcher<'a, M: Matcher> {
     pub(super) stop: &'a AtomicBool,
     /// The search's bound on what its kept evidence holds.
     pub(super) held: &'a std::sync::Arc<Held>,
-    /// Keep the leading bytes for the generated-header check.
-    pub(super) keep_head: bool,
     /// Keep the read bytes for the file-level terms check.
     pub(super) copy: bool,
-    pub(super) words: Option<&'a AhoCorasick>,
     /// One matcher per searched term, counted per term by a count view
     /// (empty: no per-term counts).
     pub(super) terms: &'a [M],
@@ -361,20 +301,9 @@ impl<M: Matcher> FileSearcher<'_, M> {
     /// [`Self::search`]'s read of the file.
     fn search_read(&mut self, file: &std::fs::File, path: &Path) -> std::io::Result<FileOutcome> {
         let work = self.work_for(file)?;
-        let mut tap = SourceTap::new(file, self.keep_head, self.copy);
-        let mut sink = CollectSink::new(
-            self.matcher,
-            work,
-            (self.stop, self.held),
-            (self.words, self.terms),
-        );
+        let mut tap = SourceTap::new(file, self.copy);
+        let mut sink = CollectSink::new(self.matcher, work, (self.stop, self.held), self.terms);
         sink.test_code = self.opts.test_code.as_ref().map(|scope| (scope, path));
-        sink.rank_test_code = self
-            .opts
-            .test_code_rank
-            .as_ref()
-            .filter(|_| ranks_by_relevance(self.opts))
-            .map(|rank| (rank, path));
         sink.line_scope = self.opts.line_scope.as_ref().map(|scope| (scope, path));
         sink.source = Some(path);
         sink.inspect_deferred = self
@@ -393,18 +322,11 @@ impl<M: Matcher> FileSearcher<'_, M> {
             }
             return self.search_read_whole(file, path, work);
         }
-        // Only a matched file's header decides its rank.
-        let header = |matched: bool| {
-            matched
-                .then(|| tap.head().map(relevance::has_generated_header))
-                .flatten()
-        };
         let offset = sink
             .binary_offset
             .filter(|offset| *offset != 0 && *offset <= MAX_BINARY_PREFIX_BYTES);
         let Some(offset) = offset else {
             let mut outcome = FileOutcome::from(sink);
-            outcome.generated_header = header(outcome.matched_lines > 0);
             outcome.copied = tap.copy.map(|bytes| CopiedRead {
                 bytes,
                 eof: tap.eof,
@@ -416,12 +338,8 @@ impl<M: Matcher> FileSearcher<'_, M> {
         let prefix_searcher = self
             .prefix_searcher
             .get_or_insert_with(|| build_searcher(opts, context, BinaryDetection::none()));
-        let mut prefix_sink = CollectSink::new(
-            self.matcher,
-            self.work,
-            (self.stop, self.held),
-            (self.words, self.terms),
-        );
+        let mut prefix_sink =
+            CollectSink::new(self.matcher, self.work, (self.stop, self.held), self.terms);
         prefix_sink.test_code = self.opts.test_code.as_ref().map(|scope| (scope, path));
         prefix_sink.line_scope = self.opts.line_scope.as_ref().map(|scope| (scope, path));
         prefix_sink.source = Some(path);
@@ -434,7 +352,6 @@ impl<M: Matcher> FileSearcher<'_, M> {
         let mut outcome = FileOutcome::from(prefix_sink);
         outcome.binary = true;
         outcome.opaque = is_leading_binary(&prefix, outcome.matched_lines > 0);
-        outcome.generated_header = header(outcome.matched_lines > 0);
         outcome.copied = tap.copy.map(|bytes| CopiedRead {
             bytes,
             eof: tap.eof,
@@ -446,12 +363,8 @@ impl<M: Matcher> FileSearcher<'_, M> {
     /// through the same line buffer, so a NUL ends it where it ends a read of
     /// the file. Only for a search with no per-file scope ([`super::listable`]).
     pub(super) fn search_held(&mut self, bytes: &[u8]) -> std::io::Result<FileOutcome> {
-        let mut sink = CollectSink::new(
-            self.matcher,
-            self.work,
-            (self.stop, self.held),
-            (self.words, self.terms),
-        );
+        let mut sink =
+            CollectSink::new(self.matcher, self.work, (self.stop, self.held), self.terms);
         self.searcher
             .search_reader(self.matcher, bytes, &mut sink)?;
         let offset = sink
@@ -466,12 +379,8 @@ impl<M: Matcher> FileSearcher<'_, M> {
         let prefix_searcher = self
             .prefix_searcher
             .get_or_insert_with(|| build_searcher(opts, context, BinaryDetection::none()));
-        let mut prefix_sink = CollectSink::new(
-            self.matcher,
-            self.work,
-            (self.stop, self.held),
-            (self.words, self.terms),
-        );
+        let mut prefix_sink =
+            CollectSink::new(self.matcher, self.work, (self.stop, self.held), self.terms);
         prefix_searcher.search_slice(self.matcher, prefix, &mut prefix_sink)?;
         let mut outcome = FileOutcome::from(prefix_sink);
         outcome.binary = true;

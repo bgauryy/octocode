@@ -4,6 +4,7 @@
 //! carries requests in and results out.
 use super::listing::Listing;
 use super::resources;
+use super::warm::Warm;
 use octocode_contract_types::ErrorCode;
 use octocode_native::runtime::error::{McpResult, mcp_result};
 use octocode_native::runtime::{Channel, RuntimeError, ToolRuntime};
@@ -26,13 +27,18 @@ const SERVER_INFO_META_KEY: &str = "io.modelcontextprotocol/serverInfo";
 
 pub(super) struct Handler {
     runtime: Arc<ToolRuntime>,
+    warm: Arc<Warm>,
     tools: Vec<Tool>,
     config: ServerConfig,
     next_request: AtomicU64,
 }
 
 impl Handler {
-    pub(super) fn new(runtime: Arc<ToolRuntime>, listing: Listing) -> Result<Self, String> {
+    pub(super) fn new(
+        runtime: Arc<ToolRuntime>,
+        warm: Arc<Warm>,
+        listing: Listing,
+    ) -> Result<Self, String> {
         let instructions = listing.instructions;
         let tools = listing
             .tools
@@ -60,20 +66,25 @@ impl Handler {
             .with_instructions(instructions);
         Ok(Self {
             runtime,
+            warm,
             tools,
             config,
             next_request: AtomicU64::new(1),
         })
     }
 
-    /// Run one call to completion; a cancelled call is cancelled in the
-    /// runtime, which unwinds its work.
+    /// Run one call to completion: on the warm server when it runs there,
+    /// else in this process. A cancelled call is cancelled where it runs,
+    /// which unwinds its work.
     async fn run(
         &self,
         tool: &str,
         input: Value,
         cancelled: tokio_util::sync::CancellationToken,
     ) -> Result<McpResult, RuntimeError> {
+        if let Some(served) = self.warm.call(tool, &input, &cancelled).await {
+            return served;
+        }
         let request = format!("mcp-{}", self.next_request.fetch_add(1, Ordering::Relaxed));
         let admission = self.runtime.admit_with(request.clone(), None);
         let result = match admission {

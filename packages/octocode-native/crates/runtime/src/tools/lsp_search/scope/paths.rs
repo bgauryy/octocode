@@ -46,6 +46,17 @@ pub(in super::super) fn canonical_uri(uri: &str) -> String {
     canonical(&super::super::render::uri_to_path(uri))
 }
 
+/// `path` resolved through its symlinks, or as given when it does not
+/// resolve: a server or project root compared with another resolved one.
+pub(in super::super) fn canonical_root(path: &str) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.into())
+}
+
+/// The heap bytes one kept path weighs.
+pub(super) fn path_bytes(path: &Path) -> usize {
+    std::mem::size_of::<PathBuf>() + path.as_os_str().len()
+}
+
 pub(in super::super) fn canonical(path: &str) -> String {
     let resolve = || {
         let given = std::path::Path::new(path);
@@ -291,6 +302,23 @@ impl super::Scope {
         scope.server_root = std::fs::canonicalize(server_root).ok();
         scope.discovery = discovery.clone();
         scope
+    }
+
+    /// Follow what the request's server loads. rust-analyzer whose effective
+    /// options (the `rustContext` overlay applied) turn build scripts off
+    /// loads no file of the Cargo cache directories it leaves out
+    /// ([`octocode_engine::lsp::workspace::UnloadedCargoCaches`]), so the
+    /// scope walk does not enter them. Its own default runs build scripts:
+    /// only an explicit `false` turns them off.
+    pub(in super::super) fn serve_with(
+        mut self,
+        config: &octocode_engine::lsp::types::LspLanguageServerConfig,
+    ) -> Self {
+        self.cargo_caches_unloaded = config.language_id.as_deref() == Some("rust")
+            && config.initialization_options.as_ref().and_then(|options| {
+                octocode_engine::lsp::lookup_section(options, "cargo.buildScripts.enable")
+            }) == Some(&serde_json::Value::Bool(false));
+        self
     }
 
     /// The language server root of `file` as this request's discovery finds

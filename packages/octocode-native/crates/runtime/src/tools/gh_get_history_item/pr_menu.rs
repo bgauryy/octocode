@@ -1,5 +1,6 @@
 //! The pull-request read menu: the public query a continuation starts from,
 //! and its optional section menu.
+use super::patch::hunks::hit_hunks;
 use super::patch::locate::hunk_windows;
 use super::patch_hop::includable;
 use super::util::merge;
@@ -47,8 +48,10 @@ pub(super) fn base_public_query(q: &HistoryItemRequest, operation: ItemOperation
 }
 
 /// An executable `ghGetHistoryItem` continuation.
-pub(super) fn continuation(q: Value) -> Option<Value> {
-    Some(Continuation::continued_query(wire_query::<GhGetHistoryItemQuery>(q)?).build())
+pub(super) fn continuation(q: Value) -> Option<Continuation> {
+    Some(Continuation::continued_query(wire_query::<
+        GhGetHistoryItemQuery,
+    >(q)?))
 }
 
 /// The recovery of a `matchString` that hit no patch line (a pull
@@ -226,6 +229,9 @@ pub(super) fn churn(file: &Value) -> u64 {
 pub(super) struct ChangeSides<'a> {
     pub(super) new_ref: Option<&'a str>,
     pub(super) old_ref: Option<&'a str>,
+    /// The read's `matchString`: the pick is the file with the most hits and
+    /// its windows read the hit hunks only.
+    pub(super) needle: Option<&'a super::matcher::Matcher>,
 }
 
 /// The first selected file GitHub sent without a patch whose text is
@@ -266,10 +272,16 @@ pub(super) fn change_reads(
     selected: impl Fn(&Value) -> bool,
 ) -> Vec<(&'static str, Value)> {
     use crate::content::{FileType, classify_file_type};
+    let hits = |file: &Value| {
+        sides.needle.map_or(0, |needle| {
+            let patch = file.get("patch").and_then(Value::as_str).unwrap_or("");
+            hit_hunks(patch, needle).1
+        })
+    };
     let rank = |file: &Value| {
         let path = file.get("filename").and_then(Value::as_str).unwrap_or("");
         let code = classify_file_type(path) == Some(FileType::Code) && !is_test_path(path);
-        (code, churn(file))
+        (hits(file), code, churn(file))
     };
     let missing_patch = first_unpatched(files, &selected);
     let Some(file) = missing_patch.or_else(|| {
@@ -284,6 +296,12 @@ pub(super) fn change_reads(
     let path = file.get("filename").and_then(Value::as_str).unwrap_or("");
     let status = file.get("status").and_then(Value::as_str).unwrap_or("");
     let patch = file.get("patch").and_then(Value::as_str).unwrap_or("");
+    // A literal reads the hunks that hold it, not the file's other changes.
+    let hit_patch = sides
+        .needle
+        .map(|needle| hit_hunks(patch, needle).0)
+        .filter(|hit| !hit.is_empty());
+    let patch = hit_patch.as_deref().unwrap_or(patch);
     // A side read row the contract accepts.
     let source_read = |row: Value| wire_query::<GhGetFileContentQuery>(row.clone()).map(|_| row);
     // A file with no patch has no hunks to bound a read: both sides read whole.
@@ -341,6 +359,21 @@ pub(super) fn change_reads(
         name,
         Continuation::related_input(ToolId::GhGetFileContent, json!({"queries": rows})).build(),
     )]
+}
+
+/// The note a `matchString` read states when its patches are cut to the
+/// hunks that hold it and `side_reads` offers the source of those hunks
+/// (`related`): it promises that call, so the response stage keeps it. `None`
+/// without a literal or a related read (a missing patch's reads are required
+/// continuations, never optional).
+pub(super) fn hunk_read_warning(
+    needle: bool,
+    side_reads: &[(&'static str, Value)],
+) -> Option<String> {
+    (needle && side_reads.iter().any(|(_, call)| call["kind"] == "related")).then(|| {
+        "patches show only the hunks that hold matchString; related reads the source of those hunks at each side."
+            .to_owned()
+    })
 }
 
 pub(super) fn remove_key(value: &mut Value, key: &str) {

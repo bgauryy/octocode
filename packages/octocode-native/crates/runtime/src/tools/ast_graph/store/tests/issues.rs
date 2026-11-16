@@ -67,7 +67,63 @@ fn issues_rank_hypotheses_with_evidence_and_controls() {
     let only = ask(root, "issues", None, |o| o.detectors = vec!["cycle".into()]);
     assert_eq!(only.value["pagination"]["total"], 1);
     let bad = ask(root, "issues", None, |o| o.detectors = vec!["nope".into()]);
-    assert_eq!(bad.class, ExitClass::InvalidInput);
+    assert_eq!(
+        bad.class,
+        ExitClass::Failed(crate::id::error_codes::ErrorClass::CorrectInput)
+    );
+}
+
+/// A cycle finding past the `cycles` preview carries its member count and
+/// the first members; a `cycles` read lists them all, one call away.
+#[test]
+fn issue_cycle_rows_past_the_preview_lead_to_the_cycles_listing() {
+    let dir = issues_fixture();
+    let src = dir.0.as_path().join("app/src");
+    for n in 0..55 {
+        std::fs::write(
+            src.join(format!("big{n}.ts")),
+            format!(
+                "import {{ b{next} }} from './big{next}';\nexport const b{n} = () => b{next}();\n",
+                next = (n + 1) % 55
+            ),
+        )
+        .expect("ring file");
+    }
+    let main = std::fs::read_to_string(src.join("main.ts")).expect("main");
+    std::fs::write(src.join("main.ts"), format!("import './big0';\n{main}")).expect("entry");
+    assert_eq!(
+        ingest_fixture(dir.0.as_path(), None).class,
+        ExitClass::Success
+    );
+    let out = ask(dir.0.as_path(), "issues", None, |o| {
+        o.detectors = vec!["cycle".into()];
+        o.limit = Some(500);
+    });
+    let cycle = out.value["rows"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|row| row["evidence"]["size"] == 55)
+        .unwrap_or_else(|| panic!("55-file cycle: {}", out.value));
+    let shown = cycle["evidence"]["members"].as_array().map(Vec::len);
+    assert_eq!(shown, Some(50), "{cycle}");
+    assert_eq!(cycle["evidence"]["membersTruncated"], true, "{cycle}");
+    let lead = out.value["related"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|lead| lead["input"]["queries"][0]["operation"] == "cycles")
+        .unwrap_or_else(|| panic!("cycles lead: {}", out.value));
+    assert_eq!(lead["tool"], "graphQuery", "{lead}");
+    let listed = ask(dir.0.as_path(), "cycles", None, |_| {});
+    let row = listed.value["rows"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|row| row["size"] == 55)
+        .unwrap_or_else(|| panic!("cycles row: {}", listed.value));
+    assert_eq!(row["nodesTruncated"], true, "{row}");
+    assert_eq!(listed.next.len(), 1, "the cycle's members page on");
 }
 
 /// Finding evidence lists every member, export and site it counts: a list
@@ -298,7 +354,7 @@ fn issues_take_explicit_entrypoints_in_place_of_the_inferred_ones() {
     });
     assert_eq!(
         missing.class,
-        ExitClass::Failed(crate::runtime::FailureKind::NotFound),
+        ExitClass::Failed(crate::runtime::ErrorClass::CorrectInput),
         "{}",
         missing.value
     );
@@ -388,7 +444,152 @@ fn drift_diffs_two_snapshots_by_file_cycle_transition_and_relation() {
     });
     assert_eq!(same.class, ExitClass::Empty, "{}", same.value);
     let missing = ask(root, "drift", None, |_| {});
-    assert_eq!(missing.class, ExitClass::InvalidInput, "{}", missing.value);
+    assert_eq!(
+        missing.class,
+        ExitClass::Failed(crate::id::error_codes::ErrorClass::CorrectInput),
+        "{}",
+        missing.value
+    );
+}
+
+/// A name declared more than once in one scope (TypeScript overloads) keys
+/// each declaration by its place among the same-named ones, not by its line:
+/// a line inserted above them moves no relation, while renaming them does.
+#[test]
+fn drift_keeps_repeated_names_across_a_moved_line_and_sees_a_rename() {
+    let dir = fixture();
+    let root = dir.0.as_path();
+    let flags = |name: &str, lead: &str| {
+        format!(
+            "{lead}export function make() {{\n  function {name}(flag: string): string;\n  function {name}(flag: string, def: string): string;\n  function {name}(flag: string, def?: string): string {{\n    return def ?? flag;\n  }}\n  return {name}('x', 'y');\n}}\n"
+        )
+    };
+    dir.write("app/src/flags.ts", flags("getArg", ""));
+    let base = ingest_fixture(root, None);
+    assert_eq!(base.class, ExitClass::Success, "{}", base.value);
+    let base_id = base.value["id"].as_str().expect("id").to_owned();
+    let relations = |out: &GraphOutput| {
+        out.value["rows"]
+            .as_array()
+            .map(|rows| {
+                rows.iter()
+                    .filter(|row| row["category"] == "relation")
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    };
+
+    dir.write(
+        "app/src/flags.ts",
+        flags("getArg", "// moved down a line\n"),
+    );
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    let moved = ingest_fixture(root, None);
+    assert_eq!(moved.class, ExitClass::Success, "{}", moved.value);
+    let out = ask(root, "drift", None, |o| {
+        o.baseline = Some(base_id.clone());
+        o.limit = Some(500);
+    });
+    assert_eq!(out.class, ExitClass::Success, "{}", out.value);
+    assert!(
+        out.value["rows"]
+            .as_array()
+            .expect("rows")
+            .contains(&json!({"category":"file","change":"changed","path":"app/src/flags.ts"})),
+        "{}",
+        out.value
+    );
+    assert_eq!(relations(&out), Vec::<Value>::new(), "{}", out.value);
+
+    dir.write(
+        "app/src/flags.ts",
+        flags("readArg", "// moved down a line\n"),
+    );
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    let renamed = ingest_fixture(root, None);
+    assert_eq!(renamed.class, ExitClass::Success, "{}", renamed.value);
+    let out = ask(root, "drift", None, |o| {
+        o.baseline = Some(base_id.clone());
+        o.limit = Some(500);
+    });
+    let changed = relations(&out);
+    assert!(
+        changed.iter().any(|row| row["change"] == "removed"
+            && row["to"].as_str().is_some_and(|to| to.contains("getArg"))),
+        "{}",
+        out.value
+    );
+    assert!(
+        changed.iter().any(|row| row["change"] == "added"
+            && row["to"].as_str().is_some_and(|to| to.contains("readArg"))),
+        "{}",
+        out.value
+    );
+}
+
+/// Every detector that judges file-level structure skips Go/JVM/.NET files
+/// (package-scoped: they reference each other without imports) and says so
+/// once, naming every such detector the request ran; detectors not run are
+/// not named.
+#[test]
+fn file_level_detectors_disclose_skipped_package_scoped_files() {
+    let dir = crate::tools::test_support::Fixture::new();
+    std::fs::create_dir_all(dir.0.as_path().join(".git")).expect("git marker");
+    write_under(
+        &dir,
+        "app",
+        &[
+            ("go.mod", "module example.com/app\n\ngo 1.22\n"),
+            (
+                "main.go",
+                "package main\n\nimport \"example.com/app/lib\"\n\nfunc main() { lib.Run() }\n",
+            ),
+            ("lib/lib.go", "package lib\n\nfunc Run() {}\n"),
+        ],
+    );
+    let root = dir.0.as_path();
+    assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
+    let skipped = |detectors: &[&str]| {
+        let out = ask(root, "issues", None, |o| {
+            o.detectors = detectors.iter().map(|d| (*d).to_owned()).collect();
+            o.min_tier = Some(0);
+        });
+        out.value["summary"]["notes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|note| {
+                note["skipped"]
+                    .as_str()
+                    .is_some_and(|text| text.contains("Go/JVM/.NET"))
+            })
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let all = skipped(&[]);
+    assert_eq!(all.len(), 1, "{all:?}");
+    for detector in [
+        "cycle",
+        "unreachable-file",
+        "test-only",
+        "critical-file",
+        "single-point-of-failure",
+    ] {
+        assert!(
+            all[0]["detectors"]
+                .as_array()
+                .is_some_and(|named| named.contains(&json!(detector))),
+            "{detector}: {all:?}"
+        );
+    }
+    let one = skipped(&["critical-file"]);
+    assert_eq!(one.len(), 1, "{one:?}");
+    assert_eq!(one[0]["detector"], "critical-file", "{one:?}");
+    assert_eq!(
+        skipped(&["single-point-of-failure"])[0]["detector"],
+        "single-point-of-failure"
+    );
 }
 
 /// `summary.byDetector` counts the findings before `minTier` and `minScore`
@@ -430,6 +631,12 @@ fn by_detector_reconciles_with_the_listed_total_through_the_filter() {
         filtered.value
     );
     assert!(!notes(&all).contains("byDetector"), "{}", all.value);
+    // The note names the tier that lists what it hid.
+    assert!(
+        notes(&filtered).contains("lists them"),
+        "{}",
+        filtered.value
+    );
     // The hidden count is stated once: `hiddenBelowTier`, never again on a note.
     let restated = filtered.value["summary"]["notes"]
         .as_array()

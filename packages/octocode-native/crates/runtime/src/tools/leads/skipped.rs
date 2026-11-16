@@ -230,9 +230,10 @@ pub(crate) fn skipped_paths(
 /// `count` when more sit behind it, or with `every_path` each path on its
 /// own. A withheld or unreadable entry's path is the directory that holds
 /// what was left out, so a group of them is the deepest directory holding
-/// them all, with their summed count. `sampled` when entries were collapsed
-/// or the walk did not finish (`incomplete`). A result stored with every
-/// path is shown either way through this. `None` when empty.
+/// them all, with their summed count, which marks the collapse. `sampled`
+/// only when the walk did not finish (`incomplete`): its counts are floors. A
+/// result stored with every path is shown either way through this. `None` when
+/// empty.
 pub(crate) fn grouped(
     entries: impl IntoIterator<Item = SkippedPath>,
     every_path: bool,
@@ -256,11 +257,27 @@ pub(crate) fn grouped(
             _ => groups.push(entry),
         }
     }
-    let collapsed = groups.iter().any(|group| group.count.is_some());
     (!groups.is_empty()).then_some(SkippedPaths {
         entries: groups,
-        sampled: collapsed || incomplete,
+        sampled: incomplete,
     })
+}
+
+/// `first`'s entries followed by `then`'s, as one `skippedPaths`: causes
+/// grouped by rule beside causes listed path by path ([`skipped_paths`]).
+/// `sampled` when either walk did not finish.
+pub(crate) fn appended(
+    first: Option<SkippedPaths>,
+    then: Option<SkippedPaths>,
+) -> Option<SkippedPaths> {
+    match (first, then) {
+        (Some(mut first), Some(then)) => {
+            first.entries.extend(then.entries);
+            first.sampled |= then.sampled;
+            Some(first)
+        }
+        (first, then) => first.or(then),
+    }
 }
 
 /// Whether an entry of `cause` names the directory holding what was left

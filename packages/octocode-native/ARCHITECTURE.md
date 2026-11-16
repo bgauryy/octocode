@@ -28,6 +28,8 @@ through `NtSetInformationFile`. Directory sharing restrictions also prevent rena
 confinement does not depend on those restrictions blocking attribute-only changes.
 Other non-Unix targets retain the checked-path fallback.
 
+`materialize` acquires bytes through git before REST. `materialize/blobs.rs` takes blob ids from the REST listing (`TreeEntry.oid`), groups files into waves bounded by the call's read limit, and asks `gh_git/blobs.rs` (the shared git module: the `SystemGit` runner `ghCloneRepo` also uses, under its limiter and askpass credentials) to `fetch --stdin` them into a per-call bare store under `<home>/tmp/materialize-git/` and stream them back with `cat-file --batch` into the unchanged writer. Admission, outcomes, manifest and layout stay in `materialize`. Any git unavailability leaves the entries to per-file REST reads. Behavior and request cost: [ghStructure](../../docs/OCTOCODE_TOOLS.md#ghstructure); store lifecycle: [storage](../../docs/STORAGE_AND_LIMITS.md#materialize-git-store).
+
 ## Public catalog
 
 The runtime executes every [catalog tool](../../docs/OCTOCODE_TOOLS.md). `execution/availability.rs` resolves exposure by surface and configuration. The CLI and MCP share execution, credentials, path policy and content checks. Discovery applies the [availability rules](../../docs/CONFIGURATION.md#tool-availability-cli-and-mcp) without probing providers. A key enables `clasify` and inline selection on the [supported tools](../../docs/OCTOCODE_TOOLS.md#context-selection). The [data contract](../../docs/TOOL_DATA_CONTRACT.md) defines new requests, input repairs, validation errors and cursor continuations.

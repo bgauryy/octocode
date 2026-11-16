@@ -159,17 +159,14 @@ fn reader_failure(
         .map(str::to_owned)
         .collect();
     let final_failure = declared.is_some_and(|(_, class)| {
-        matches!(
-            class,
-            ErrorClass::NotFound | ErrorClass::Permission | ErrorClass::InvalidInput
-        )
+        !matches!(class, ErrorClass::Transient | ErrorClass::Restart)
     });
     if !final_failure {
         hints.push(RERUN_HINT.into());
     } else if hints.is_empty() && leads.is_empty() {
         // Re-running a final failure fails the same way: say the code's fix.
         let hint = match declared {
-            Some((code, ErrorClass::InvalidInput)) => {
+            Some((code, ErrorClass::CorrectInput)) => {
                 rows::error_code_hint(reader, code, &Value::Null)
             }
             Some((code, _)) => {

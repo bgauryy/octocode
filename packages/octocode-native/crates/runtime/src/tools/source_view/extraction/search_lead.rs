@@ -3,7 +3,8 @@ use super::super::types::local_fetch_query;
 use octocode_contract_types::{
     CaseMode, LocalFetchQuery, LocalSearchQueryContent, LocalSearchQueryContentContextLines,
     LocalSearchQueryContentMultiline, LocalSearchQueryContentView, LocalSearchSort,
-    LocalSearchSortAnyOrder, LocalSearchSortAnyOrderBy, RegexEngine, SortOrder, TextMatchTerms,
+    LocalSearchSortAscOnly, LocalSearchSortAscOnlyBy, LocalSearchSortAscOnlyOrder, RegexEngine,
+    TextMatchTerms,
 };
 
 /// A content localSearch of `terms` under `path` with every other field at
@@ -37,15 +38,17 @@ pub(crate) fn text_search_query(path: &str, terms: &[&str]) -> Option<LocalSearc
         path: path.try_into().ok()?,
         reasoning: None,
         regex_engine: RegexEngine::Literal,
+        row_offset: None,
         scan_offset: None,
         selection: None,
         snapshot: None,
-        sort: LocalSearchSort::AnyOrder(LocalSearchSortAnyOrder {
-            by: LocalSearchSortAnyOrderBy::Relevance,
-            order: SortOrder::Desc,
+        sort: LocalSearchSort::AscOnly(LocalSearchSortAscOnly {
+            by: LocalSearchSortAscOnlyBy::Traversal,
+            order: LocalSearchSortAscOnlyOrder::Asc,
         }),
         test_code: None,
         view: LocalSearchQueryContentView::Content,
+        walk_offset: None,
         whole_word: false,
     })
 }

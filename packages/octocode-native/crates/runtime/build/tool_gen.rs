@@ -244,7 +244,6 @@ fn render_limits(contract: &Value) -> Result<String, Box<dyn Error>> {
     };
     let max_items = limit("maxInputArrayItems")?;
     let read_context = limit("defaultReadContextLines")?;
-    let clasify_context = limit("clasifyContextLines")?;
     let response_chars = limit("defaultResponseChars")?;
     Ok(format!(
         "/// Contract `limits.maxInputArrayItems`: native input-security array ceiling.\n\
@@ -252,9 +251,6 @@ fn render_limits(contract: &Value) -> Result<String, Box<dyn Error>> {
          /// Contract `limits.defaultReadContextLines`: lines around each\n\
          /// `matchString` hit when `contextLines` is omitted.\n\
          pub const DEFAULT_READ_CONTEXT_LINES: usize = {read_context};\n\n\
-         /// Contract `limits.clasifyContextLines`: lines each side of a\n\
-         /// localSearch hit clasifyContext judges when no context field is set.\n\
-         pub const CLASIFY_CONTEXT_LINES: u32 = {clasify_context};\n\n\
          /// Contract `limits.defaultResponseChars`: characters per response\n\
          /// page when a call sets no `responseChars`.\n\
          pub const DEFAULT_RESPONSE_CHARS: usize = {response_chars};\n\n"

@@ -77,11 +77,6 @@ impl Axis {
         Self::ALL.into_iter().find(|axis| axis.key() == key)
     }
 
-    /// The one linear page name inside this axis's pagination.
-    pub(super) fn next_name() -> &'static str {
-        "nextPage"
-    }
-
     pub(super) fn cursor(self) -> Cursor {
         match self {
             Self::Body | Self::ReviewBody | Self::Patches | Self::CommentBody => Cursor::Offset,

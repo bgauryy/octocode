@@ -20,7 +20,7 @@ fn stale_row() -> Value {
 }
 
 /// Each `(response, failure, all rows failed, expected class)`.
-fn assert_classes<const N: usize>(cases: [(Value, Option<FailureKind>, bool, ExitClass); N]) {
+fn assert_classes<const N: usize>(cases: [(Value, Option<ErrorClass>, bool, ExitClass); N]) {
     for (value, failure, all_failed, expected) in cases {
         assert_eq!(
             outcome(value.clone(), failure, all_failed).exit_class(),
@@ -50,7 +50,7 @@ fn outcomes_classify_by_their_rows() {
             json!({"results":[{"data":{}}, row("error", "invalidInput")]}),
             None,
             false,
-            ExitClass::InvalidInput,
+            ExitClass::Failed(ErrorClass::CorrectInput),
         ),
         (
             json!({"results":[{"data":{}}],"responsePagination":{"hasMore":true}}),
@@ -60,23 +60,28 @@ fn outcomes_classify_by_their_rows() {
         ),
         (
             json!({"results":[row("error", "invalidPattern")]}),
-            Some(FailureKind::Execution),
+            Some(ErrorClass::Unservable),
             true,
-            ExitClass::InvalidInput,
+            ExitClass::Failed(ErrorClass::CorrectInput),
         ),
         (
             json!({"results":[row("error", "notFound")]}),
-            Some(FailureKind::NotFound),
+            Some(ErrorClass::CorrectInput),
             true,
-            ExitClass::Failed(FailureKind::NotFound),
+            ExitClass::Failed(ErrorClass::CorrectInput),
         ),
         (
             json!({"results":[row("error", "fileAccessFailed")]}),
-            Some(FailureKind::Execution),
+            Some(ErrorClass::Unservable),
             true,
-            ExitClass::Failed(FailureKind::Execution),
+            ExitClass::Failed(ErrorClass::Unservable),
         ),
-        (json!({"results":[]}), None, true, ExitClass::InvalidInput),
+        (
+            json!({"results":[]}),
+            None,
+            true,
+            ExitClass::Failed(ErrorClass::CorrectInput),
+        ),
     ]);
 }
 
@@ -89,14 +94,14 @@ fn a_batch_ends_like_its_worst_row() {
             json!({"results":[row("empty", ""), row("error", "notFound")]}),
             None,
             false,
-            ExitClass::Failed(FailureKind::NotFound),
+            ExitClass::Failed(ErrorClass::CorrectInput),
         ),
         (
             json!({"results":[row("empty", ""), row("error", "notFound"),
                     row("error", "fileAccessFailed")]}),
             None,
             false,
-            ExitClass::Failed(FailureKind::Execution),
+            ExitClass::Failed(ErrorClass::CorrectInput),
         ),
         // A failed row is never hidden by an answering one, whichever
         // order the batch lists them in.
@@ -104,39 +109,39 @@ fn a_batch_ends_like_its_worst_row() {
             json!({"results":[{"data":{}}, row("error", "notFound")]}),
             None,
             false,
-            ExitClass::Failed(FailureKind::NotFound),
+            ExitClass::Failed(ErrorClass::CorrectInput),
         ),
         (
             json!({"results":[row("error", "notFound"), {"data":{}}]}),
             None,
             false,
-            ExitClass::Failed(FailureKind::NotFound),
+            ExitClass::Failed(ErrorClass::CorrectInput),
         ),
         (
             json!({"results":[page_row(), row("error", "notFound")]}),
             None,
             false,
-            ExitClass::Failed(FailureKind::NotFound),
+            ExitClass::Failed(ErrorClass::CorrectInput),
         ),
         (
             json!({"results":[{"data":{}}, row("error", "notFound"),
                     row("error", "fileAccessFailed")]}),
             None,
             false,
-            ExitClass::Failed(FailureKind::Execution),
+            ExitClass::Failed(ErrorClass::CorrectInput),
         ),
-        // A rejected row outranks every failed row (the documented 2).
+        // A correctInput row outranks every failed row (the documented 2).
         (
             json!({"results":[row("error", "notFound"), row("error", "invalidInput")]}),
             None,
             false,
-            ExitClass::InvalidInput,
+            ExitClass::Failed(ErrorClass::CorrectInput),
         ),
         (
             json!({"results":[row("error", "invalidInput"), row("error", "notFound")]}),
             None,
             false,
-            ExitClass::InvalidInput,
+            ExitClass::Failed(ErrorClass::CorrectInput),
         ),
     ]);
 }
@@ -179,19 +184,19 @@ fn a_continuation_or_an_answer_is_success() {
 #[test]
 fn stale_and_retryable_rows_are_failures() {
     assert_classes([
-        // A stale snapshot is an error row: exit 5, alone or beside
+        // A stale snapshot is an error row: exit 6, alone or beside
         // answering rows, even when a healthy page is offered.
         (
             stale_row(),
-            Some(FailureKind::Execution),
+            Some(ErrorClass::Unservable),
             true,
-            ExitClass::Failed(FailureKind::Execution),
+            ExitClass::Failed(ErrorClass::Restart),
         ),
         (
             json!({"results":[page_row(), stale_row()["results"][0].clone()]}),
             None,
             false,
-            ExitClass::Failed(FailureKind::Execution),
+            ExitClass::Failed(ErrorClass::Restart),
         ),
         // A retryable failure (`next.retry`) is still a failure: it keeps
         // its own exit whether the other rows answered or found nothing.
@@ -199,19 +204,19 @@ fn stale_and_retryable_rows_are_failures() {
             json!({"results":[{"data":{}}, retry_row("rateLimited")]}),
             None,
             false,
-            ExitClass::Failed(FailureKind::RateLimited),
+            ExitClass::Failed(ErrorClass::Transient),
         ),
         (
             json!({"results":[row("empty", ""), retry_row("server")]}),
             None,
             false,
-            ExitClass::Failed(failure_kind(ErrorCode::Server)),
+            ExitClass::Failed(crate::id::error_codes::class(ErrorCode::Server)),
         ),
         (
             json!({"results":[retry_row("rateLimited")]}),
-            Some(FailureKind::RateLimited),
+            Some(ErrorClass::Transient),
             true,
-            ExitClass::Failed(FailureKind::RateLimited),
+            ExitClass::Failed(ErrorClass::Transient),
         ),
     ]);
 }

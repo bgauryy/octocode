@@ -80,7 +80,7 @@ fn row_with(definitions: &str, b_go: &str) -> serde_json::Value {
     .expect("config");
     let execution = crate::tools::lsp_search::LspExecutionConfig {
         octocode_home: Some(root.clone()),
-        ..crate::tools::lsp_search::LspExecutionConfig::default()
+        ..crate::tools::lsp_search::LspExecutionConfig::with_path()
     };
     let query = serde_json::from_value(serde_json::json!({
         "operation": "references", "path": root.join("a.go").to_string_lossy(),

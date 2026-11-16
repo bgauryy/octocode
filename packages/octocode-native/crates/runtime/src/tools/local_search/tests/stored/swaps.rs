@@ -18,7 +18,7 @@ fn a_swapped_matched_file_drops_the_stored_scan_and_restarts_its_page() {
     settle();
     let (policy, security) = policy_for(root.path());
     let request = ls_query(
-        serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "matchString": ["needle"]}),
+        serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "matchString": ["needle"],"sort":{"by":"path","order":"asc"}}),
         None,
     );
     let snapshot = search_in(&request, &policy, &security, Some(6_000))
@@ -62,7 +62,7 @@ fn a_stored_page_checks_the_read_policy_of_the_files_it_shows() {
     let stored = |root: &std::path::Path| {
         let (policy, security) = policy_for(root);
         let request = ls_query(
-            serde_json::json!({"path": root.to_string_lossy().into_owned(), "matchString": ["needle"]}),
+            serde_json::json!({"path": root.to_string_lossy().into_owned(), "matchString": ["needle"],"sort":{"by":"path","order":"asc"}}),
             None,
         );
         let snapshot = search_in(&request, &policy, &security, Some(6_000))
@@ -121,7 +121,7 @@ fn a_key_file_rewritten_under_its_stamp_restarts_the_page_that_shows_it() {
     let pages = |root: &std::path::Path| {
         let (policy, security) = policy_for(root);
         let request = ls_query(
-            serde_json::json!({"path": root.to_string_lossy().into_owned(), "matchString": ["needle"]}),
+            serde_json::json!({"path": root.to_string_lossy().into_owned(), "matchString": ["needle"],"sort":{"by":"path","order":"asc"}}),
             None,
         );
         let snapshot = search_in(&request, &policy, &security, Some(6_000))
@@ -197,7 +197,7 @@ fn a_key_file_rewritten_before_a_continuation_restarts_it() {
     settle();
     let (policy, security) = policy_for(root.path());
     let request = ls_query(
-        serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "matchString": ["needle"]}),
+        serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "matchString": ["needle"],"sort":{"by":"path","order":"asc"}}),
         None,
     );
     let run = |query: &LocalSearchQuery| search_in(query, &policy, &security, Some(6_000));

@@ -66,6 +66,28 @@ fn match_string_patch_view_keeps_only_match_patch() {
     assert_eq!(page.rows[0]["fullPatchChars"], patch.chars().count());
 }
 
+/// A hunk's header prints once, however many runs hit it: a second run of the
+/// same hunk follows a `--` line, and a later hunk keeps its own header. The
+/// hit locators count the separator as a line of the view.
+#[test]
+fn a_hunk_prints_its_header_once_and_runs_in_it_are_separated() {
+    let patch = "@@ -1,12 +1,12 @@ fn f\n a\n-one hit\n+one needle\n c\n d\n e\n f\n g\n h\n-two\n+two needle\n k\n@@ -40,2 +40,2 @@ fn g\n x\n+three needle\n";
+    let found = match_patch(patch, "needle", 0, None).expect("hits");
+    assert_eq!(
+        found.text.trim_end(),
+        "@@ -1,12 +1,12 @@ fn f\n2\t+one needle\n--\n9\t+two needle\n@@ -40,2 +40,2 @@ fn g\n41\t+three needle"
+    );
+    let lines = found.text.lines().collect::<Vec<_>>();
+    assert!(
+        found
+            .hit_lines
+            .iter()
+            .all(|at| lines[*at].contains("needle")),
+        "{lines:?} {:?}",
+        found.hit_lines
+    );
+}
+
 /// A run of one side's lines numbers each on its own side, as the whole
 /// numbered patch does: an addition at its new line, a deletion at its old
 /// line, in a whole-file delete or add too; the header stays the hunk's.
@@ -228,20 +250,29 @@ fn context_ranges_past_the_read_limit_preserve_every_requested_window() {
 fn match_string_defaults_to_the_contract_context_and_one_page_of_hit_files() {
     assert_eq!(
         match_context(&patch_request(json!({"matchString":["miri"]}))),
-        (0, 0)
+        (
+            crate::id::DEFAULT_READ_CONTEXT_LINES,
+            crate::id::DEFAULT_READ_CONTEXT_LINES
+        )
     );
     let patch = "@@ -1,3 +1,3 @@\n a\n-old miri\n+new miri\n b\n";
     let query = patch_request(json!({"matchString":["miri"]}));
     let view = history_patch_view(patch, "a.rs", &query);
+    let lines = crate::id::DEFAULT_READ_CONTEXT_LINES;
+    let stated = patch_request(
+        json!({"matchString":["miri"],"contextLines":{"before":lines,"after":lines}}),
+    );
+    let stated = history_patch_view(patch, "a.rs", &stated);
     assert_eq!(
         (view.text.as_str(), view.narrowed, view.clipped.len()),
-        ("@@ -1,3 +1,3 @@\n2\t-old miri\n2\t+new miri\n", true, 0)
+        (stated.text.as_str(), stated.narrowed, stated.clipped.len())
     );
     let hits_only =
         patch_request(json!({"matchString":["miri"],"contextLines":{"before":0,"after":0}}));
+    let hits = history_patch_view(patch, "a.rs", &hits_only);
     assert_eq!(
-        history_patch_view(patch, "a.rs", &hits_only).text,
-        "@@ -1,3 +1,3 @@\n2\t-old miri\n2\t+new miri\n"
+        (hits.text.as_str(), hits.narrowed, hits.clipped.len()),
+        ("@@ -1,3 +1,3 @@\n2\t-old miri\n2\t+new miri\n", true, 0)
     );
     assert_eq!(
         file_page_size(&query, true),

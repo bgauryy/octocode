@@ -93,7 +93,11 @@ pub(in super::super) fn salted_items_payload(
                 true,
             );
         }
-        return no_answer(query, "noLocations", &format!("{kind} returned no results"));
+        return no_answer(
+            query,
+            "noLocations",
+            &format!("{} returned no results", lsp_search_query::operation(query)),
+        );
     }
     let sizes = sizes(&raw_items);
     let (page, pagination, next_page) = paginate(
@@ -102,7 +106,7 @@ pub(in super::super) fn salted_items_payload(
         &Pages::of(query, budget, &sizes, &snapshot),
     );
     let mut row = json!({
-        "operation": kind,
+        "operation": lsp_search_query::operation(query),
         "matches": page,
         "lsp": { "serverAvailable": true },
         "pagination": pagination
@@ -154,7 +158,7 @@ pub(super) fn document_symbols_payload(
         symbols[spans[window.start].start..spans[window.end - 1].end].to_vec()
     };
     let mut row = json!({
-        "operation": "documentSymbols",
+        "operation": lsp_search_query::operation(query),
         "symbols": document_symbol_rows(&page, &symbols),
         "lsp": {
             "serverAvailable": true,

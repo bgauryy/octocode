@@ -10,8 +10,10 @@ use crate::response::result::ToolError;
 use crate::tools::empty_walk::{Cause, Globs, Hits, ProbeWork, Tagged, Verdict, Walk, diagnose};
 use crate::tools::leads::skipped::{SkippedEntry, skipped_cause, skipped_paths};
 use octocode_contract_types::{LocalSearchQuery, SkippedPaths};
-use octocode_engine::search::text_search::{TextSearchPathFilter, search_cancellable};
-use octocode_engine::types::{SearchOutput, SearchSort, TextSearchOptions};
+use octocode_engine::search::text_search::{
+    Stream, Streaming, TextSearchPathFilter, search_cancellable, search_stream,
+};
+use octocode_engine::types::{PatternSyntax, SearchOutput, SearchSort, TextSearchOptions};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -26,6 +28,9 @@ mod tests;
 pub(super) struct Lifted {
     tagged: Tagged,
     withheld: crate::policy::discovery::Withheld,
+    /// Files that walk met that are binary from their leading bytes: never
+    /// text it searched.
+    binary_skipped: u32,
 }
 
 /// Re-run an empty search over what the defaults leave out (ignored and
@@ -127,7 +132,7 @@ pub(super) fn disclose_unsearched(
             checked: lifted
                 .as_ref()
                 .ok()
-                .and_then(|lifted| absent(&skipped, &lifted.withheld)),
+                .and_then(|lifted| absent(&skipped, lifted)),
             ..Unsearched::default()
         });
     }
@@ -171,21 +176,23 @@ pub(super) fn disclose_unsearched(
 }
 
 /// The check of the skipped paths searched them and found nothing, so no
-/// lead lifts them: what it searched, by cause, and what the path policy
-/// withheld from its walk beyond the page's own, both stated as counts in the
-/// empty page's one absence sentence. Security-policy directories (`.git/`)
-/// are left out of that count: no setting lifts them, so they hide nothing
-/// a search could reach.
-fn absent(skipped: &Skipped<'_>, withheld: &crate::policy::discovery::Withheld) -> Option<Checked> {
+/// lead lifts them: what it searched, by cause, what the path policy
+/// withheld from its walk beyond the page's own, and the binary files it met
+/// (never text it searched), all stated as counts in the empty page's one
+/// absence sentence. Security-policy directories (`.git/`) are left out of
+/// the withheld count: no setting lifts them, so they hide nothing a search
+/// could reach.
+fn absent(skipped: &Skipped<'_>, lifted: &Lifted) -> Option<Checked> {
     let paths = skipped.walk.counts();
     if paths.is_empty() {
         return None;
     }
-    let beyond = withheld.beyond(&skipped.walk.withheld);
+    let beyond = lifted.withheld.beyond(&skipped.walk.withheld);
     let policy_dirs: usize = beyond.dirs.values().sum();
     Some(Checked {
         paths,
         withheld: beyond.total().saturating_sub(policy_dirs),
+        binary_skipped: lifted.binary_skipped,
     })
 }
 
@@ -197,6 +204,8 @@ pub(super) struct Checked {
     /// Entries its walk withheld beyond the page's own, less security-policy
     /// directories.
     pub(super) withheld: usize,
+    /// Files its walk met that are binary from their leading bytes.
+    pub(super) binary_skipped: u32,
 }
 
 /// What a page's walk skipped, by cause, for the empty page's check of it.
@@ -300,10 +309,25 @@ fn charged_search(
         admitted,
         work: Arc::clone(work),
     });
-    // One walker: the parallel walk admits entries in no fixed order.
-    options.sort = SearchSort::Traversal;
-    let found = search_cancellable(options, filter, &|| cancel.check().is_err() || work.cut());
-    let mut found = found.ok()?;
+    // The walk order, read one entry at a time: the parallel walk admits
+    // entries in no fixed order. (A PCRE2 search lists its candidates first
+    // and has no stream.)
+    let stop = || cancel.check().is_err() || work.cut();
+    let mut found = if options.syntax == PatternSyntax::Pcre2 {
+        options.sort = SearchSort::Traversal;
+        search_cancellable(options, filter, &stop).ok()?
+    } else {
+        let stream = Stream {
+            bind: String::new(),
+            from: 0,
+            pin: None,
+            enough: Box::new(|_| false),
+        };
+        match search_stream(options, filter, &stop, stream).ok()? {
+            Streaming::Streamed(streamed) => streamed.result,
+            Streaming::Stale => return None,
+        }
+    };
     // Named by path, as a whole walk would list them.
     found.files.sort_by(|a, b| a.path.cmp(&b.path));
     Some(found)
@@ -542,6 +566,7 @@ fn probe_lifted(
     // Refusing the final entry can end the walk before its next cancellation
     // check. The probe's own cut flag still makes the unchecked scope unknown.
     let cut = cut || !searched.stats.cap_reasons.is_empty();
+    let binary_skipped = searched.stats.skipped_binary_count.unwrap_or(0);
     let tagged = Tagged::found(
         &root,
         globs,
@@ -549,5 +574,9 @@ fn probe_lifted(
         cut,
     )
     .map_err(|_| ())?;
-    Ok(Lifted { tagged, withheld })
+    Ok(Lifted {
+        tagged,
+        withheld,
+        binary_skipped,
+    })
 }

@@ -31,14 +31,19 @@ fn the_error_flag_and_the_exit_class_agree() {
 }
 
 fn all_rows_invalid_input(value: &Value) -> bool {
-    value["results"]
-        .as_array()
-        .is_some_and(|rows| !rows.is_empty() && rows.iter().all(is_invalid_input_row))
+    value["results"].as_array().is_some_and(|rows| {
+        !rows.is_empty()
+            && rows.iter().all(|row| {
+                row["data"]["errorCode"]
+                    .as_str()
+                    .is_some_and(|code| crate::id::error_class(code) == ErrorClass::CorrectInput)
+            })
+    })
 }
 
-fn outcome(
+pub(super) fn outcome(
     structured_content: Value,
-    failure: Option<FailureKind>,
+    failure: Option<ErrorClass>,
     all_failed: bool,
 ) -> ToolOutcome {
     ToolOutcome {

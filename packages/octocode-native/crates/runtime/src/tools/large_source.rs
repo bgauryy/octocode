@@ -46,10 +46,18 @@ pub(crate) use searched::{ChangedLines, Patched, changed_lines};
 const WINDOW_LINES: usize = 5_000;
 #[cfg(test)]
 use held::WINDOW_BYTES;
-/// Source bytes a byte page's window holds from its offset on: more than a
-/// page takes. The window is sealed ([`sealed`]), so it needs no margin for a
-/// secret scan; a redaction its end cuts shows whole.
+/// Fewest source bytes a byte page's window holds from its offset on
+/// ([`byte_window_bytes`]). The window is sealed ([`sealed`]), so it needs no
+/// margin for a secret scan; a redaction its end cuts shows whole.
 const BYTE_WINDOW_BYTES: usize = 384 * 1024;
+
+/// Source bytes a byte page's window holds from its offset on under the
+/// response `share`: more than the page takes (its room never takes more
+/// than three bytes for an escaped unit), and never under
+/// [`BYTE_WINDOW_BYTES`].
+fn byte_window_bytes(share: Option<usize>) -> usize {
+    BYTE_WINDOW_BYTES.max(3 * crate::tools::source_view::pagination::byte_page_room(share))
+}
 /// A line past this is no key-block line, whatever it spells: a key's own lines are
 /// short, and a line of this length is judged by its bytes alone.
 const KEY_LINE_BYTES: usize = 1024 * 1024;

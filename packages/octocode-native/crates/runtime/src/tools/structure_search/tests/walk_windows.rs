@@ -272,7 +272,7 @@ fn a_window_offers_at_most_one_walk_continuation() {
                         };
                         let mut out = json!({});
                         cut.finish(&mut out, &files_query(), &mut Vec::new());
-                        let out = super::super::output::finish(out);
+                        let out = crate::response::result::finished(out);
                         let kind = |query: &Value| {
                             if query.get("walkOffset").is_some() {
                                 "resume"

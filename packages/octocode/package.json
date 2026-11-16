@@ -3,7 +3,7 @@
   "description": "Code research CLI for Octocode tools, local workspaces, GitHub repositories, LSP, and MCP setup",
   "version": "20.2.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
-  "bin": "./out/octocode.js",
+  "bin": "./out/octocode",
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "dependencies": {
     "@typescript/native-preview": "7.0.0-dev.20260707.2"
@@ -29,6 +29,7 @@
   },
   "files": [
     "out",
+    "scripts/postinstall.mjs",
     "skills/**",
     "README.md",
     "LICENSE"
@@ -66,6 +67,7 @@
     "lint:own": "prettier --check src tests",
     "lint:oxlint": "yarn run -T oxlint -c ../../.oxlintrc.json .",
     "lint": "yarn lint:own && yarn lint:oxlint",
+    "postinstall": "node scripts/postinstall.mjs",
     "prepack": "node scripts/prepack.mjs",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",

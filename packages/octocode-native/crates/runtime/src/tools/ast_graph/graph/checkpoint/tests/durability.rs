@@ -104,4 +104,17 @@ fn facts_past_one_artifact_bound_link_without_a_checkpoint() {
     scan.limits.artifact_bytes = 64;
     let built = build(&scan, &NeverCancel).expect("an oversized artifact refuses nothing");
     assert_eq!(built.facts.len(), 12);
+    assert_eq!(built.construction.uncheckpointed_files, 12);
+}
+
+/// Past the disk budget every further file is linked from its decoded facts
+/// and counted, so the build can say what an interruption would parse again.
+#[test]
+fn files_past_the_disk_budget_link_and_are_counted() {
+    let (_dir, mut scan) = fixture();
+    scan.limits.spill_bytes = 0;
+    let built = build(&scan, &NeverCancel).expect("a full disk budget refuses nothing");
+    assert_eq!(built.facts.len(), 12);
+    assert_eq!(built.construction.checkpointed_files, 0);
+    assert_eq!(built.construction.uncheckpointed_files, 12);
 }

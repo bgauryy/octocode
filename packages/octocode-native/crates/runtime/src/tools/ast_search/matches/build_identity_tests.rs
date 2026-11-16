@@ -20,7 +20,7 @@ fn answer(build: &str, row: &Value, root: &std::path::Path) -> Result<Value, Too
         &crate::execution::cancel::NeverCancel,
         Some(1),
     )
-    .map(super::super::output::finish)
+    .map(crate::response::result::finished)
 }
 
 /// The same query and scan under two builds digest differently, and a page-2

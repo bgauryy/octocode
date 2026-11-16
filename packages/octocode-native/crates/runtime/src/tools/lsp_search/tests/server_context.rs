@@ -14,7 +14,10 @@ fn rust_context_overlays_the_engine_headless_defaults() {
         initialization_options: Some(
             octocode_engine::lsp::config::rust_analyzer_headless_options(),
         ),
-        env: None,
+        env: Some(std::collections::HashMap::from([(
+            "PATH".to_owned(),
+            std::env::var("PATH").unwrap_or_default(),
+        )])),
         max_memory_mb: None,
         source: Default::default(),
     };
@@ -54,7 +57,10 @@ pub(super) fn rust_server_config(
         initialization_options: Some(
             octocode_engine::lsp::config::rust_analyzer_headless_options(),
         ),
-        env: None,
+        env: Some(std::collections::HashMap::from([(
+            "PATH".to_owned(),
+            std::env::var("PATH").unwrap_or_default(),
+        )])),
         max_memory_mb: None,
         source: Default::default(),
     };

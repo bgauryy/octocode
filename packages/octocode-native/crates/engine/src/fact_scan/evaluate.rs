@@ -13,10 +13,10 @@ use super::{
 };
 use crate::search::walk::Stop;
 use crate::stamp::SourceStamp;
-use crate::types::GraphFactsScanOptions;
+use crate::types::{GraphFactsScanDiagnostic, GraphFactsScanOptions};
 use ordered::watch_stop;
+pub use outcome::{DECODED, PANICKED, SOURCE_BUDGET_EXCEEDED, over_budget_message, panicked};
 use outcome::{GraphFactsScanOutcome, Mapped, contained, failed, mapped_outcome, skipped};
-pub use outcome::{PANICKED, SOURCE_BUDGET_EXCEEDED, over_budget_message, panicked};
 
 use crate::contain::{Phase, contain, observe, within};
 
@@ -97,6 +97,7 @@ pub(super) fn evaluate_walk_with_registry<T: Send>(
     let mut pacer = crate::scan_budget::ScanPacer::new(budget.filter(|_| timed));
     let mut kept: Vec<(String, T)> = Vec::new();
     let mut skipped = Vec::new();
+    let mut decoded = Vec::new();
     let (mut evaluated, mut parsed, mut passed_over) = (0, 0, 0);
     let limit = hold.map_or(usize::MAX, |hold| hold.limit);
     let mut held = 0_usize;
@@ -131,8 +132,13 @@ pub(super) fn evaluate_walk_with_registry<T: Send>(
             held = held.saturating_add(weight);
             match outcome {
                 None => passed_over += 1,
-                Some(GraphFactsScanOutcome::Entry(path, value)) => {
+                Some(GraphFactsScanOutcome::Entry(path, value, warning)) => {
                     parsed += 1;
+                    decoded.extend(warning.map(|message| GraphFactsScanDiagnostic {
+                        relative_path: path.clone(),
+                        code: DECODED.to_owned(),
+                        message: message.to_owned(),
+                    }));
                     kept.extend(value.map(|value| (path, value)));
                 }
                 Some(GraphFactsScanOutcome::Skipped(diagnostic)) => skipped.push(diagnostic),
@@ -153,6 +159,9 @@ pub(super) fn evaluate_walk_with_registry<T: Send>(
     let truncated = truncated || scan_resume.is_some();
     kept.sort_unstable_by(|left, right| left.0.cmp(&right.0));
     skipped.sort_unstable_by(|left, right| left.relative_path.cmp(&right.relative_path));
+    decoded.sort_unstable_by(|left: &GraphFactsScanDiagnostic, right| {
+        left.relative_path.cmp(&right.relative_path)
+    });
     let files_skipped = crate::num::saturating_u32(skipped.len());
 
     Ok(GraphFactsMappedScan {
@@ -160,6 +169,7 @@ pub(super) fn evaluate_walk_with_registry<T: Send>(
         parsed,
         passed_over,
         skipped,
+        decoded,
         files_skipped,
         truncated,
         scan_resume,
@@ -317,7 +327,7 @@ impl<T> EntryEvaluator<'_, T> {
             Err(crate::text::analysis::SourceError::Refused(_)) => {
                 return outcome(
                     "graph.scan.readFailed",
-                    "file could not be admitted as text (binary, or not UTF-8 or BOM-marked UTF-16)",
+                    "file could not be admitted as text (binary content, or malformed BOM-marked UTF-16)",
                 );
             }
             Err(error) => return Err(GraphScanError::Source(error)),
@@ -405,7 +415,7 @@ impl<T> EntryEvaluator<'_, T> {
                     &mut *map_budget,
                 )
             );
-            return mapped_outcome(relative_path, kept);
+            return mapped_outcome(relative_path, kept, admitted.warning());
         }
         if let FactsSource::Declarations(extract) = self.source {
             let Some(facts) = extracted!(
@@ -432,7 +442,7 @@ impl<T> EntryEvaluator<'_, T> {
                     &mut *map_budget,
                 )
             );
-            return mapped_outcome(relative_path, kept);
+            return mapped_outcome(relative_path, kept, admitted.warning());
         }
         let Some((parsed, reused)) = extracted!(
             relative_path,
@@ -463,7 +473,7 @@ impl<T> EntryEvaluator<'_, T> {
                 &mut *map_budget,
             )
         );
-        mapped_outcome(relative_path, kept)
+        mapped_outcome(relative_path, kept, admitted.warning())
     }
 
     fn selected_parser(&self, path: &Path) -> Result<Option<&str>, ()> {

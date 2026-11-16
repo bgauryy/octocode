@@ -73,7 +73,7 @@ impl Scope {
         }
         let (root, server_root, anchor, extension, discovery) = (
             PathBuf::from(&self.root),
-            canonical_path(server_root),
+            super::paths::canonical_root(server_root),
             PathBuf::from(anchor),
             extension.to_owned(),
             self.discovery.clone(),
@@ -101,10 +101,6 @@ impl Scope {
     pub(in super::super) fn known_dependents(&self) -> Option<&Dependents> {
         self.dependents.get()
     }
-}
-
-fn canonical_path(path: &str) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.into())
 }
 
 /// Reads kept by scope root, server root, anchor directory and extension;
@@ -136,7 +132,7 @@ fn kept_or_read(
         return Some(Dependents::clone(&kept));
     }
     #[cfg(test)]
-    reads::note(root);
+    WALKS.note(root);
     // Before the walk's first read, on the request's own clock.
     let started = octocode_engine::stamp::settle_clock();
     let (found, read) = read_dependents(root, server_root, anchor, extension, discovery, stopped)?;
@@ -146,7 +142,7 @@ fn kept_or_read(
                 .roots
                 .iter()
                 .flatten()
-                .map(|root| path_bytes(root))
+                .map(|root| super::paths::path_bytes(root))
                 .sum::<usize>()
             + proof.weight();
         KEPT.put_proven(
@@ -158,10 +154,6 @@ fn kept_or_read(
         );
     }
     Some(found)
-}
-
-fn path_bytes(path: &Path) -> usize {
-    std::mem::size_of::<PathBuf>() + path.as_os_str().len()
 }
 
 /// What one read of the dependents depended on.
@@ -263,7 +255,10 @@ fn read_dependents(
             &probe.to_string_lossy(),
             discovery,
         )
-        .map_or_else(|_| dir.to_path_buf(), |own| canonical_path(&own));
+        .map_or_else(
+            |_| dir.to_path_buf(),
+            |own| super::paths::canonical_root(&own),
+        );
         read.watched.push(entry.path().to_path_buf());
         if own != server_root {
             by_root.entry(own).or_default().push(entry.into_path());
@@ -285,30 +280,7 @@ fn read_dependents(
 
 /// Test-only count of the dependents walks of each scope root.
 #[cfg(test)]
-pub(in super::super) mod reads {
-    use std::collections::HashMap;
-    use std::path::{Path, PathBuf};
-    use std::sync::{LazyLock, Mutex, PoisonError};
-
-    static WALKS: LazyLock<Mutex<HashMap<PathBuf, usize>>> = LazyLock::new(Mutex::default);
-
-    pub(super) fn note(root: &Path) {
-        *WALKS
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .entry(root.to_path_buf())
-            .or_default() += 1;
-    }
-
-    pub(super) fn of(root: &Path) -> usize {
-        WALKS
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(root)
-            .copied()
-            .unwrap_or(0)
-    }
-}
+pub(super) static WALKS: super::path_counter::PathCounter = super::path_counter::PathCounter::new();
 
 #[cfg(test)]
 mod tests;

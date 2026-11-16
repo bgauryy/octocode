@@ -230,9 +230,9 @@ mod seek;
 #[cfg(unix)]
 mod special_files;
 mod stored;
+mod streamed;
 mod tally;
 mod test_code;
-mod timing;
 mod windows;
 
 /// A generated Rust file of `functions` functions with five `let ` lines

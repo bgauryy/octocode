@@ -70,8 +70,10 @@ Output: text, on a terminal or a pipe; --json prints JSON (schema always does).
 Text shows control characters as pictures (␛, ␇, ␊); --json keeps them exact.
 Text on stdout: search hits (line:text, context line-text), sites and outlines
 under their file's path once, a lone one as path:line:…; path:N is always a line,
-and [ … ] after a line or path lists its other fields. Files sharing a directory
-print relative to the # root: line before them. Counts by file are a table,
+and [ … ] after a line or path lists its other fields; a text field every hit of
+a file holds (role call) prints where its value changes and holds for the hits
+after it. Files sharing a directory, hits and listings alike, print relative to
+the # root: line before them. Counts by file are a table,
 count first. A listing puts entries under their dir/ (one entry: dir/entry).
 Any other result is indented key: value lines (a read's numbered lines
 unindented); a field every item of a list shares follows the list's key in
@@ -88,11 +90,13 @@ and notices, and progress when stderr is a terminal.
 Errors: a failed row as above. A call rejected before it runs (invalid input,
 timeout) prints the same way: errorCode and error, then # status: error; with
 --json, the JSON envelope. Both are on stdout.
-Exits: 0 success, 1 empty, 2 invalid input (including batch rows), 3 not found,
-4 auth required, 5 execution error, 7 rate limited, 130 interrupted.
-A batch exits 2 if any row rejected its input, else its failed rows' code (5 if
-they differ), else 1 only when every row is empty or out of range, else 0;
-stdout still carries every row's result.
+Exits: 0 success, 1 empty, 2 correctInput (invalid input or a missing target),
+4 refused (auth, permission, policy), 5 unservable, 6 restart (stale page or
+edit conflict), 7 transient (a retry can help), 130 interrupted. Every error row
+states its errorClass. A batch exits 2 if any row is correctInput, else 4 if any
+is refused, else 6 if any is restart, else 5 if any is unservable, else 7 when
+every failure is transient, else 1 only when every row is empty or out of range,
+else 0; stdout still carries every row's result.
 More pages still exit 0: run responsePagination.next, else next.nextPage, until neither remains."#;
 
 /// The last lines of both root helps.

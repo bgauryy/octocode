@@ -9,6 +9,7 @@ use super::super::filters::{EntryKind, lstat, visit_path, visit_replayed};
 use super::super::{EntryFilter, Visit};
 use super::{MAX_RECURSION_DEPTH, QueryState, walk_children, walk_frame};
 use crate::error::Error;
+use crate::search::walk::read_ahead;
 use crate::search::walk::{DirRules, Stop};
 use crate::types::fs_resume::{Child, Frame};
 
@@ -45,7 +46,8 @@ fn queue_ahead(
                     .as_ref()
                     .zip(rules)
                     .is_none_or(|(ignore, rules)| !ignore.is_ignored_in(rules, dir, true))
-            }),
+            })
+            .map(read_ahead::Key::from),
     );
 }
 

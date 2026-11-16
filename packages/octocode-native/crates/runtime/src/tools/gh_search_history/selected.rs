@@ -35,6 +35,32 @@ fn named(row: &Value) -> impl Iterator<Item = Named> + '_ {
 const ROWS: [&str; 3] = ["pullRequests", "issues", "commits"];
 
 impl ToolOutput for Output {
+    /// A body only the judge read leaves the rows; one the caller picked in
+    /// `fields` stays.
+    fn strip_judge_only(&self, data: &mut Value, query: &Value) {
+        let picked = |key: &str| {
+            query["fields"]
+                .as_array()
+                .is_some_and(|fields| fields.iter().any(|field| field == key))
+        };
+        for rows in ROWS {
+            for row in data
+                .get_mut(rows)
+                .and_then(Value::as_array_mut)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_object_mut)
+            {
+                for key in super::shape::ROW_BODIES
+                    .into_iter()
+                    .filter(|key| !picked(key))
+                {
+                    row.shift_remove(key);
+                }
+            }
+        }
+    }
+
     /// A read or search lead that follows a row classification cut goes,
     /// unless a shown row names the same item; leads that follow no row
     /// (the query's own pages, broader or narrower searches) stay.

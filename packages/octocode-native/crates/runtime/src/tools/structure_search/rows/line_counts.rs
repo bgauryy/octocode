@@ -209,8 +209,8 @@ fn line_count(
     };
     let mut buffer = [0_u8; 16 * 1024];
     // Newlines terminate lines; a non-empty final line without one still counts.
-    let mut lines = 0_usize;
-    let mut last_byte = None;
+    let mut lines = octocode_engine::text::LineCount::default();
+    let mut first = true;
     let mut wide = None::<Utf16Lines>;
     loop {
         cancel.check().map_err(ToolError::cancelled)?;
@@ -219,13 +219,11 @@ fn line_count(
                 if let Some(wide) = wide {
                     return Ok(Some(wide.finish()));
                 }
-                return Ok(Some(Lines::Counted(
-                    lines + usize::from(last_byte.is_some_and(|b| b != b'\n')),
-                )));
+                return Ok(Some(Lines::Counted(lines.lines())));
             }
             Ok(bytes) => {
                 let read = &buffer[..bytes];
-                if last_byte.is_none() {
+                if std::mem::take(&mut first) {
                     if octocode_engine::text::sniff(read)
                         == octocode_engine::text::BinaryVerdict::Binary
                     {
@@ -240,9 +238,8 @@ fn line_count(
                 } else if read.contains(&0) {
                     return Ok(Some(Lines::Binary));
                 } else {
-                    lines += read.iter().filter(|byte| **byte == b'\n').count();
+                    lines.feed(read);
                 }
-                last_byte = read.last().copied();
             }
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(_) => return Ok(Some(Lines::Unreadable)),

@@ -8,7 +8,8 @@
 //! keep the rows' field order otherwise, which puts identity first. A field
 //! with the same single-word value on every row is stated once after the
 //! head in `[ … ]`, as a path's other fields are. A row without a field
-//! prints `-` in its column. Any other list keeps its `key: value` layout.
+//! prints `-` in its column; the columns after its last field are left out
+//! (a row ends early). Any other list keeps its `key: value` layout.
 //! Counts by file are such a table, the count first ([`count_table`]).
 use super::{one_line, words};
 use serde_json::{Map, Value};
@@ -111,8 +112,15 @@ pub(super) fn table(key: &str, items: &[Value], indent: &str) -> Option<Vec<Stri
     }
     let mut lines = vec![head];
     for row in &rows {
+        // A row ends at its last field: a trailing `-` marks nothing, since
+        // no later cell follows to be misplaced. The first column stays.
+        let held = columns
+            .iter()
+            .rposition(|name| row.contains_key(*name))
+            .map_or(1, |last| last + 1);
         let cells: Vec<String> = columns
             .iter()
+            .take(held)
             .map(|name| match row.get(*name) {
                 None => ABSENT.to_owned(),
                 Some(Value::String(text)) if text.is_empty() => "\"\"".to_owned(),

@@ -111,6 +111,16 @@ impl Workspace {
                 "true".into(),
             ),
         ]);
+        // The environment a call carries to language-server discovery and
+        // start, as a real entry point (CLI, MCP, warm server) hands it: the
+        // process's own `PATH` and toolchain variables. The variables the
+        // fixture sets above (the isolated home) keep their fixture values.
+        for name in octocode_engine::process_env::CALL_ENV {
+            if let Some(value) = std::env::var_os(name) {
+                env.entry((*name).into())
+                    .or_insert_with(|| value.to_string_lossy().into_owned());
+            }
+        }
         for (key, value) in extra {
             env.insert((*key).into(), value.clone());
         }

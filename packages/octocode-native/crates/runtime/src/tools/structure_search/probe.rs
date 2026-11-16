@@ -187,7 +187,7 @@ pub(super) fn probe_listing<Q: Listing>(
 }
 
 /// An empty listing that skipped nothing worth lifting (no
-/// `includeSkipped`) and filtered by name: when the same listing without its
+/// `includeSkipped`) and filtered by name, else by metadata: when the same listing without its
 /// name filters (`walk` of the relaxed query, within the probe budget) finds
 /// entries below `root` (the listed directory itself is no find), lead to
 /// it (`next.broadenSearch`) and say how many it lists, so a name miss gets
@@ -207,14 +207,20 @@ pub(super) fn broaden_empty<Q: Listing>(
     }
     let row = serde_json::to_value(query).unwrap_or_else(|_| json!({}));
     // The fields that keep entries by name or path (contract `x-listing`):
-    // an empty listing they alone emptied is broadened by dropping them.
-    let dropped = crate::contracts::listing_roles::structure_search::FIELDS
-        .iter()
-        .filter(|(field, role)| {
-            *role == ListingRole::Name && crate::response::output::has_value(&row, field)
-        })
-        .map(|(field, _)| *field)
-        .collect::<Vec<_>>();
+    // an empty listing they alone emptied is broadened by dropping them; one
+    // with none, by dropping the fields that keep entries by metadata.
+    let set = |wanted: ListingRole| {
+        crate::contracts::listing_roles::structure_search::FIELDS
+            .iter()
+            .filter(|(field, role)| {
+                *role == wanted && crate::response::output::has_value(&row, field)
+            })
+            .map(|(field, _)| *field)
+            .collect::<Vec<_>>()
+    };
+    let dropped = Some(set(ListingRole::Name))
+        .filter(|names| !names.is_empty())
+        .unwrap_or_else(|| set(ListingRole::Metadata));
     if dropped.is_empty() {
         return Ok(());
     }

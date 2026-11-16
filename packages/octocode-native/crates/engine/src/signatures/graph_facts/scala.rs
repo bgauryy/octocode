@@ -16,6 +16,7 @@
 //! (`implicit def F: Monad[F] = new Monad[F] { … }`) gives that declaration
 //! its bases: its members are the declaration's children.
 
+use crate::signatures::node_kinds::kind_of;
 use tree_sitter::Node;
 
 pub(super) const ANONYMOUS_TEMPLATE: &str = "<anonymous-template>";
@@ -35,7 +36,7 @@ pub(super) fn is_scala(ext: &str) -> bool {
 /// The bases of a Scala declaration node, in written order.
 pub(super) fn bases(node: Node<'_>) -> Vec<Base<'_>> {
     let mut out = Vec::new();
-    match node.kind() {
+    match kind_of(node) {
         "class_definition" | "trait_definition" | "object_definition" | "enum_definition" => {
             if let Some(extend) = node.child_by_field_name("extend") {
                 let mut cursor = extend.walk();
@@ -49,7 +50,7 @@ pub(super) fn bases(node: Node<'_>) -> Vec<Base<'_>> {
                 let mut cursor = body.walk();
                 let typed_self = body
                     .named_children(&mut cursor)
-                    .find(|child| child.kind() == "self_type")
+                    .find(|child| kind_of(child) == "self_type")
                     .filter(|alias| alias.named_child_count() > 1);
                 if let Some(alias) = typed_self {
                     out.push(Base::Opaque(SELF_TYPE, alias));
@@ -64,7 +65,7 @@ pub(super) fn bases(node: Node<'_>) -> Vec<Base<'_>> {
                 let mut cursor = instance.walk();
                 for child in instance.named_children(&mut cursor) {
                     if !matches!(
-                        child.kind(),
+                        kind_of(child),
                         "template_body" | "arguments" | "early_defs" | "end_marker" | "comment"
                     ) {
                         base_types(child, &mut out);
@@ -79,12 +80,12 @@ pub(super) fn bases(node: Node<'_>) -> Vec<Base<'_>> {
 
 /// `new A with B { … }`: an instance expression with a template body.
 pub(super) fn is_anonymous_class(node: Node<'_>) -> bool {
-    if node.kind() != "instance_expression" {
+    if kind_of(node) != "instance_expression" {
         return false;
     }
     let mut cursor = node.walk();
     node.named_children(&mut cursor)
-        .any(|child| child.kind() == "template_body")
+        .any(|child| kind_of(child) == "template_body")
 }
 
 /// Whether the anonymous class `node` is the whole value of `parent`, the
@@ -96,7 +97,7 @@ pub(super) fn is_declaration_value(
 ) -> bool {
     parent.is_some_and(|parent| {
         matches!(
-            parent.kind(),
+            kind_of(parent),
             "val_definition" | "var_definition" | "function_definition"
         ) && (parent.child_by_field_name("value") == Some(node)
             || parent.child_by_field_name("body") == Some(node))
@@ -107,7 +108,7 @@ pub(super) fn is_declaration_value(
 /// The type names one base clause contributes: `A with B` is two bases,
 /// `Base[F]` and `Base[F](x)` name `Base`.
 fn base_types<'t>(node: Node<'t>, out: &mut Vec<Base<'t>>) {
-    match node.kind() {
+    match kind_of(node) {
         "type_identifier" | "stable_type_identifier" => out.push(Base::Named(node)),
         "generic_type" => match node.child_by_field_name("type") {
             Some(inner) => base_types(inner, out),
@@ -121,7 +122,7 @@ fn base_types<'t>(node: Node<'t>, out: &mut Vec<Base<'t>>) {
             let mut cursor = node.walk();
             let mut refined = false;
             for child in node.named_children(&mut cursor) {
-                if child.kind() == "refinement" {
+                if kind_of(child) == "refinement" {
                     refined = true;
                 } else {
                     base_types(child, out);

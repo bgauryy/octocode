@@ -169,11 +169,17 @@ async fn sections_fill_the_window_the_provider_states() {
         sections <= fewest + 2,
         "{sections} sections for {fewest} windows: {first}"
     );
+    // Every call is a request the provider received: the whole source, then
+    // the sections. A section is sized by the window's average bytes per
+    // character, so one denser than the average can pass the window by a few
+    // bytes; it is refused and split (`sections::whole`), and its request
+    // counts like any other.
     assert_eq!(
         data["usage"]["calls"],
-        json!(sections + 1),
-        "only the whole source refused: {first}"
+        json!(requests().await.len()),
+        "usage counts every request sent: {first}"
     );
+    assert_eq!(data["usage"]["refused"], 1, "the whole source: {first}");
 
     let before = requests().await.len();
     let again = clasify(&runtime, vec![row]).await;
@@ -184,7 +190,11 @@ async fn sections_fill_the_window_the_provider_states() {
         sections <= fewest + 1,
         "{sections} sections for {fewest} windows: {again}"
     );
-    assert_eq!(data["usage"]["calls"], json!(sections), "{again}");
+    assert_eq!(
+        data["usage"]["calls"],
+        json!(requests().await.len() - before),
+        "{again}"
+    );
     // The learned window sent no whole source to be refused.
     assert!(data["usage"].get("refused").is_none(), "{again}");
     let sent = requests().await;
@@ -252,10 +262,10 @@ async fn a_size_the_provider_refused_is_not_uploaded_whole_again() {
     // First: the whole source is tried once and refused, then its sections.
     let first = clasify(&runtime, vec![row("big.txt")]).await;
     let data = &first["results"][0]["data"];
-    let sections = data["coverage"]["totalSections"].as_u64().unwrap();
-    assert_eq!(data["usage"]["calls"], json!(sections + 1), "{first}");
-    let after_first = requests().await;
-    assert_eq!(after_first, sections + 1);
+    // The whole source once, then its sections (a section denser than the
+    // window's average may be refused and split: it counts as a request).
+    assert_eq!(data["usage"]["calls"], json!(requests().await), "{first}");
+    assert_eq!(data["usage"]["refused"], 1, "{first}");
 
     // Again, and a larger one: sections only, the same answer.
     for file in ["big.txt", "bigger.txt"] {
@@ -264,8 +274,13 @@ async fn a_size_the_provider_refused_is_not_uploaded_whole_again() {
         let data = &again["results"][0]["data"];
         let sections = data["coverage"]["totalSections"].as_u64().unwrap();
         assert_eq!(data["answers"]["socket"]["noul"], 0.96, "{again}");
-        assert_eq!(data["usage"]["calls"], json!(sections), "{file}: {again}");
-        assert_eq!(requests().await - before, sections, "{file}");
+        assert!(sections > 1, "{file}: {again}");
+        assert_eq!(
+            data["usage"]["calls"],
+            json!(requests().await - before),
+            "{file}: {again}"
+        );
+        assert!(data["usage"].get("refused").is_none(), "{file}: {again}");
         let largest = server
             .received_requests()
             .await

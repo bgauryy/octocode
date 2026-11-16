@@ -64,7 +64,7 @@ pub(crate) async fn run_at(
 ) -> Result<ToolData, ProviderError> {
     let provider = one_shot_provider(server);
     let query = serde_json::from_value(query).expect("canonical tree query");
-    gh_structure::execute(&provider, &query, &default_context(), home).await
+    gh_structure::execute(&provider, &query, &default_context(), home, None).await
 }
 
 /// An empty code search result, `incomplete` or not.

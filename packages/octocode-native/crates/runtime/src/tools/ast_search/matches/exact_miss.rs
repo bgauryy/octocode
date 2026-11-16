@@ -28,6 +28,9 @@ pub(super) struct ExactMiss {
     /// The syntax tree of the first counted node, where the pattern's shape
     /// is compared with the source.
     tree: Option<Value>,
+    /// The fields of the first counted node that differ from what the
+    /// pattern spells there (`type_parameters`); empty when none is known.
+    differs: Vec<String>,
     /// What the census narrowed the kind's nodes to, and the rule listing
     /// every node of the kind (offered, never run here); `None` when the
     /// census counted every node of the kind.
@@ -110,20 +113,23 @@ pub(super) fn exact_miss(
         .iter()
         .filter(|file| !file.matches.is_empty())
         .count();
-    let tree = scan
+    // The first counted node: where its syntax tree is offered and which
+    // spelled part of it differs from the pattern.
+    let first = scan
         .files
         .iter()
         .find(|file| !file.matches.is_empty())
         .and_then(|file| {
             let path = row_file(scope, &json!({"path": file.path}))?;
+            let bytes = super::super::source::read_parse_source(&path).ok()??;
+            let source = super::super::source::matched_text(&path, &bytes)
+                .ok()?
+                .into_owned();
             // A directory scan keeps only row prices: the file is matched
             // once more for the declaration's line.
-            let first_line = |matches: &[StructuralDetailedMatch]| {
-                matches.first().map(|found| u64::from(found.start_line))
-            };
+            let first_line =
+                |matches: &[StructuralDetailedMatch]| matches.first().map(|found| found.start_line);
             let line = first_line(file.matches.held()).or_else(|| {
-                let bytes = super::super::source::read_parse_source(&path).ok()??;
-                let source = super::super::source::matched_text(&path, &bytes).ok()?;
                 let parser = Some(file.parser.as_str()).filter(|parser| !parser.is_empty());
                 let found = octocode_engine::structural::search_detailed(
                     &source,
@@ -134,8 +140,21 @@ pub(super) fn exact_miss(
                 );
                 first_line(&found.matches)
             });
-            tree_lead(q, scope, &path, line)
+            let differs = line
+                .zip(q.pattern_text())
+                .zip(scope_extension(scope))
+                .map(|((line, pattern), extension)| {
+                    octocode_engine::structural::pattern_differences(
+                        &pattern, &extension, &source, line,
+                    )
+                })
+                .unwrap_or_default();
+            Some((tree_lead(q, scope, &path, line.map(u64::from)), differs))
         });
+    let (tree, differs) = match first {
+        Some((tree, differs)) => (tree, differs),
+        None => (None, Vec::new()),
+    };
     let symbols = (count == 0 && narrowed.is_none() && wrapper.is_none()).then(|| symbols_row(q));
     Some(ExactMiss {
         kind: census_kinds(&declaration).join(" or "),
@@ -143,6 +162,7 @@ pub(super) fn exact_miss(
         files,
         query,
         tree,
+        differs,
         narrowed,
         symbols,
         wrapper,
@@ -373,6 +393,7 @@ impl ExactMiss {
             files,
             query,
             tree,
+            differs,
             narrowed,
             symbols,
             wrapper,
@@ -394,7 +415,13 @@ impl ExactMiss {
         let listed = leads.listed(&kind, &parent);
         let syntax = "syntaxTree shows how a declaration parses.";
         let replace = "Replace a spelled part with $X or $$$";
-        let differ = "differ from the pattern in a part it spells: its parameters, its body, a type or modifier it names.";
+        let differ = match differs.as_slice() {
+            [] => "differ from the pattern in a part it spells: its parameters, its body, a type or modifier it names.".to_owned(),
+            fields => format!(
+                "differ from the pattern in a part it spells; the first differs in its {}.",
+                fields.join(", ")
+            ),
+        };
         let text = |literal: &str| format!("the text `{literal}` (the pattern's longest name)");
         // What a zero count found none of, as one noun phrase.
         let none_of = match &narrowing {

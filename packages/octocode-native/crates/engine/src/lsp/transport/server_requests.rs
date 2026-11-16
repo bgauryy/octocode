@@ -133,7 +133,11 @@ fn configuration_for_section(context: &ClientRequestContext, section: Option<&st
     Value::Null
 }
 
-fn lookup_section<'a>(configuration: &'a Value, section: &str) -> Option<&'a Value> {
+/// The value a server reads for a dotted `section` of its configuration: a
+/// flat dotted key first, then the nested path. The one rule for every reader
+/// of server options, so a gate never reads a setting differently from the
+/// server it guards.
+pub fn lookup_section<'a>(configuration: &'a Value, section: &str) -> Option<&'a Value> {
     if let Some(value) = configuration.get(section) {
         return Some(value);
     }

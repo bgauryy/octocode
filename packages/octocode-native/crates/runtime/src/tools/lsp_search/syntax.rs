@@ -83,7 +83,7 @@ impl Request<'_> {
         if Path::new(self.path).is_dir() {
             return None;
         }
-        let content = read_bounded_source_async(self.path.into()).await.ok()?;
+        let content = read_bounded_source_async(self.path.into()).await.ok()?.text;
         let file = File {
             path: self.path.to_owned(),
             uri: octocode_engine::lsp::uri::path_to_uri(self.path).ok()?,

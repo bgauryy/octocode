@@ -122,7 +122,7 @@ async fn github_image_resolves_the_commit_and_pins_its_capture() {
         .unwrap()
         .structured_content;
     assert_eq!(
-        text["results"][0]["data"]["errorCode"], "invalidInput",
+        text["results"][0]["data"]["errorCode"], "binaryFileUnsupported",
         "{text}"
     );
     assert!(!text.to_string().contains(&STANDARD.encode(png())));

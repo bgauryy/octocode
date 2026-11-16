@@ -1,5 +1,6 @@
 //! Visibility hints from a declaration's own header, selected by its grammar.
 
+use crate::signatures::node_kinds::kind_of;
 use tree_sitter::Node;
 
 use super::nodes::node_text;
@@ -24,7 +25,7 @@ pub(crate) enum VisibilityAdapter {
 impl VisibilityAdapter {
     pub(super) fn transparent_namespace(self, node: Node<'_>) -> bool {
         matches!(self, Self::CFamily)
-            && node.kind() == "namespace_definition"
+            && kind_of(node) == "namespace_definition"
             && node.child_by_field_name("name").is_some()
     }
 
@@ -48,7 +49,7 @@ impl VisibilityAdapter {
             Self::Go => name.chars().next().is_some_and(char::is_uppercase),
             Self::CFamily => {
                 (parent.is_none() || public_namespace_scope)
-                    && !(node.kind() == "namespace_definition"
+                    && !(kind_of(node) == "namespace_definition"
                         && node.child_by_field_name("name").is_none())
                     && !header_has(node, content, &["storage_class_specifier"], &["static"])
             }
@@ -91,19 +92,20 @@ fn is_written_export(ancestors: &[Node<'_>]) -> bool {
         .rev()
         .find(|parent| {
             !matches!(
-                parent.kind(),
+                kind_of(*parent),
                 "lexical_declaration" | "variable_declaration" | "ambient_declaration"
             )
         })
-        .is_some_and(|parent| parent.kind() == "export_statement")
+        .is_some_and(|parent| kind_of(parent) == "export_statement")
 }
 
 fn header_has(node: Node<'_>, content: &str, containers: &[&str], keywords: &[&str]) -> bool {
     let mut cursor = node.walk();
     node.named_children(&mut cursor).any(|child| {
-        if containers.contains(&child.kind()) {
+        if containers.contains(&kind_of(child)) {
             modifier_has(child, content, keywords, 0)
-        } else if node.kind() == "template_declaration" && child.kind() != "template_parameter_list"
+        } else if kind_of(node) == "template_declaration"
+            && kind_of(child) != "template_parameter_list"
         {
             header_has(child, content, containers, keywords)
         } else {
@@ -113,7 +115,7 @@ fn header_has(node: Node<'_>, content: &str, containers: &[&str], keywords: &[&s
 }
 
 fn modifier_has(node: Node<'_>, content: &str, keywords: &[&str], depth: u8) -> bool {
-    if keywords.contains(&node.kind())
+    if keywords.contains(&kind_of(node))
         || node_text(node, content).is_some_and(|text| keywords.contains(&text))
     {
         return true;
@@ -123,8 +125,8 @@ fn modifier_has(node: Node<'_>, content: &str, keywords: &[&str], depth: u8) -> 
     }
     let mut cursor = node.walk();
     node.children(&mut cursor).any(|child| {
-        keywords.contains(&child.kind())
-            || (child.kind() == "access_modifier"
+        keywords.contains(&kind_of(child))
+            || (kind_of(child) == "access_modifier"
                 && modifier_has(child, content, keywords, depth + 1))
     })
 }

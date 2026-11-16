@@ -5,7 +5,8 @@
 use crate::config::{ConfigInput, FileInput, RuntimeSurface};
 use crate::execution::RuntimeLimits;
 use crate::runtime::{Channel, ToolRuntime};
-use crate::tools::gh_clone_repo::storage::{clones_root, store_root};
+use crate::tools::gh_clone_repo::storage::clones_root;
+use crate::tools::gh_git::store_root;
 use crate::tools::gh_structure::materialize::materialize_root;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;

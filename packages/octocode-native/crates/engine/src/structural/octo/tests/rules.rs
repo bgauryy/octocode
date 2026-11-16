@@ -301,3 +301,47 @@ fn inside_nested_under_has_resolves_ancestors_without_a_cursor_path() {
     assert_eq!(matches.len(), 1);
     assert!(matches[0].text.starts_with("function outer"));
 }
+
+const SHARED_NAME_SRC: &str = "def a(self):\n    self.f(1)\n    self.g(1)\ndef b(self):\n    self.f(1)\n    self.g(2)\ndef c(self):\n    self.f(1)\ndef d(self):\n    self.f(1, 2)\n    self.g(1, 2)\n";
+
+fn first_lines(matches: &[StructuralMatch]) -> Vec<u32> {
+    matches.iter().map(|m| m.start_line).collect()
+}
+
+/// `not` is evaluated apart from the bindings of its siblings, as ast-grep
+/// does: reusing `$A` / `$$$A` inside `not: {has}` must not make the negation
+/// vacuous when the arguments differ.
+#[test]
+fn not_ignores_bindings_made_by_sibling_rules() {
+    for name in ["$$$A", "$A"] {
+        let rule = json!({
+            "kind": "function_definition",
+            "has": {"pattern": format!("self.f({name})"), "stopBy": "end"},
+            "not": {"has": {"pattern": format!("self.g({name})"), "stopBy": "end"}},
+        });
+        let matches = run_rule(SHARED_NAME_SRC, "py", rule);
+        assert_eq!(first_lines(&matches), [7], "name {name}");
+    }
+}
+
+/// The same name across `all` is one binding: the arguments must agree.
+#[test]
+fn a_name_reused_across_all_still_binds() {
+    let rule = |name: &str| {
+        json!({
+            "kind": "function_definition",
+            "all": [
+                {"has": {"pattern": format!("self.f({name})"), "stopBy": "end"}},
+                {"has": {"pattern": format!("self.g({name})"), "stopBy": "end"}},
+            ],
+        })
+    };
+    assert_eq!(
+        first_lines(&run_rule(SHARED_NAME_SRC, "py", rule("$$$A"))),
+        [1, 9]
+    );
+    assert_eq!(
+        first_lines(&run_rule(SHARED_NAME_SRC, "py", rule("$A"))),
+        [1]
+    );
+}

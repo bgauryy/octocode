@@ -4,7 +4,7 @@ use octocode_native::response::exit::ExitClass;
 use octocode_native::response::outcome::ToolOutcome;
 use octocode_native::response::wire::wire_json;
 use octocode_native::runtime::error::tool_error_result;
-use octocode_native::runtime::{FailureKind, RuntimeError};
+use octocode_native::runtime::{ErrorClass, RuntimeError};
 use serde_json::Value;
 #[cfg(unix)]
 use serde_json::json;
@@ -162,11 +162,11 @@ pub(super) fn exit_code(class: ExitClass) -> u8 {
     match class {
         ExitClass::Success => 0,
         ExitClass::Empty => 1,
-        ExitClass::InvalidInput => 2,
-        ExitClass::Failed(FailureKind::NotFound) => 3,
-        ExitClass::Failed(FailureKind::Authentication | FailureKind::Permission) => 4,
-        ExitClass::Failed(FailureKind::Execution) => 5,
-        ExitClass::Failed(FailureKind::RateLimited) => 7,
+        ExitClass::Failed(ErrorClass::CorrectInput) => 2,
+        ExitClass::Failed(ErrorClass::Refused) => 4,
+        ExitClass::Failed(ErrorClass::Unservable) => 5,
+        ExitClass::Failed(ErrorClass::Restart) => 6,
+        ExitClass::Failed(ErrorClass::Transient) => 7,
     }
 }
 
@@ -224,7 +224,7 @@ mod tests {
                 "expiresAt":"2026-11-02T00:00:00.000Z","replayed":false}});
         let outcome = || ToolOutcome {
             structured_content: Sanitized::scrubbed(fixture.clone()),
-            failure: Some(FailureKind::Execution),
+            failure: Some(ErrorClass::Unservable),
             all_failed: false,
             continued: None,
         };

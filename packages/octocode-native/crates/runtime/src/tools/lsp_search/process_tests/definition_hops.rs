@@ -80,7 +80,7 @@ fn definition_of(file: &str, symbol: &str, line: u32) -> (Vec<String>, Vec<Strin
     .expect("config");
     let execution = crate::tools::lsp_search::LspExecutionConfig {
         octocode_home: Some(root.to_path_buf()),
-        ..crate::tools::lsp_search::LspExecutionConfig::default()
+        ..crate::tools::lsp_search::LspExecutionConfig::with_path()
     };
     let query = serde_json::from_value(serde_json::json!({
         "operation": "definition", "path": root.join(file).to_string_lossy(),

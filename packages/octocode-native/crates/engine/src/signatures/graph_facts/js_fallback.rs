@@ -4,6 +4,7 @@
 //! type-only statement, and any other import or re-export stays
 //! [`UNKNOWN_LOAD`], because a file no parser accepted makes no load claim.
 
+use crate::signatures::node_kinds::kind_of;
 use tree_sitter::Node;
 
 use super::GraphAccumulator;
@@ -20,19 +21,19 @@ pub(super) fn is_fallback_lane(extension: &str) -> bool {
 fn has_token(node: Node<'_>, token: &str) -> bool {
     let mut cursor = node.walk();
     node.children(&mut cursor)
-        .any(|child| child.kind() == token)
+        .any(|child| kind_of(child) == token)
 }
 
 fn named_child_of<'t>(node: Node<'t>, kinds: &[&str]) -> Option<Node<'t>> {
     let mut cursor = node.walk();
     node.named_children(&mut cursor)
-        .find(|child| kinds.contains(&child.kind()))
+        .find(|child| kinds.contains(&kind_of(child)))
 }
 
 fn named_children_of<'t>(node: Node<'t>, kind: &str) -> Vec<Node<'t>> {
     let mut cursor = node.walk();
     node.named_children(&mut cursor)
-        .filter(|child| child.kind() == kind)
+        .filter(|child| kind_of(child) == kind)
         .collect()
 }
 
@@ -93,7 +94,7 @@ pub(super) fn collect_import(
     if let Some(clause) = named_child_of(node, &["import_clause"]) {
         let mut cursor = clause.walk();
         for part in clause.named_children(&mut cursor) {
-            match part.kind() {
+            match kind_of(part) {
                 "identifier" => bindings.push(Binding {
                     local: Some(part),
                     imported: Some("default".to_owned()),
@@ -199,7 +200,7 @@ pub(super) fn collect_export(
             .and_then(|declaration| declaration.child_by_field_name("name"))
             .or_else(|| {
                 node.child_by_field_name("value")
-                    .filter(|value| value.kind() == "identifier")
+                    .filter(|value| kind_of(value) == "identifier")
             });
         push("default".to_owned(), text_of(written, content), "value");
     } else if has_token(node, "=") {
@@ -220,12 +221,12 @@ pub(super) fn variable<'t>(
     node: Node<'t>,
     ancestors: &[Node<'t>],
 ) -> Option<(&'static str, Node<'t>)> {
-    if node.kind() != "variable_declarator" {
+    if kind_of(node) != "variable_declarator" {
         return None;
     }
     let statement = *ancestors.last()?;
     if !matches!(
-        statement.kind(),
+        kind_of(statement),
         "lexical_declaration" | "variable_declaration"
     ) {
         return None;
@@ -234,7 +235,7 @@ pub(super) fn variable<'t>(
         .len()
         .checked_sub(2)
         .map(|index| ancestors[index])?;
-    let module_level = match holder.kind() {
+    let module_level = match kind_of(holder) {
         "program" => true,
         "export_statement" => {
             ancestors.len() >= 3 && ancestors[ancestors.len() - 3].kind() == "program"
@@ -246,10 +247,10 @@ pub(super) fn variable<'t>(
     }
     let name = node
         .child_by_field_name("name")
-        .filter(|name| name.kind() == "identifier")?;
+        .filter(|name| kind_of(name) == "identifier")?;
     let callable = node.child_by_field_name("value").is_some_and(|value| {
         matches!(
-            value.kind(),
+            kind_of(value),
             "arrow_function" | "function_expression" | "function" | "generator_function"
         )
     });

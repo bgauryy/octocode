@@ -52,7 +52,7 @@ Where each part of [the protocol](../../../docs/OCTOCODE_PROTOCOL.md) lives. Nat
 | Snapshot identity | `crates/runtime/src/tools/local_search/cursor.rs`; response tokens in `crates/runtime/src/response/pager.rs` |
 | Path sandbox and directory pruning | `crates/runtime/src/policy/path.rs`, `policy/prune.rs` |
 | Secret scanning and redaction | `crates/engine/src/security/`, `crates/runtime/src/security/content.rs` |
-| Search and ranking | `crates/engine/src/search/` (`text_search.rs`, `relevance.rs`) |
+| Search (walk-order streaming and whole-scope scans) | `crates/engine/src/search/` (`text_search.rs`, `text_search/stream.rs`) |
 | Minification | `crates/engine/src/minify/` |
 | AST and rewrite | `crates/engine/src/structural/`, `crates/runtime/src/tools/ast_*` |
 | LSP | `crates/engine/src/lsp/`, `crates/runtime/src/tools/lsp_search/` |
@@ -215,7 +215,7 @@ These are not user settings and are not read from `.octocoderc`. User settings a
 
 | Variable | Read by | Effect |
 |---|---|---|
-| `OCTOCODE_NATIVE_BIN` | `octocode` and `octocode-mcp` launchers | Absolute path to a native `octocode` binary used instead of the platform package. Ignored when `NODE_ENV=production`; the bundled launchers honor it only with `NODE_ENV` `development` or `test` |
+| `OCTOCODE_NATIVE_BIN` | `octocode` and `octocode-mcp` launchers | Absolute path to a native `octocode` binary used instead of the platform package. Ignored when `NODE_ENV=production`; the bundled launchers honor it only with `NODE_ENV` `development` or `test`. An installed `octocode` whose postinstall made its bin the native binary never reads it: run `node <package>/out/octocode.js` |
 | `XDG_CONFIG_HOME` | native `octocode install` (Linux) | Locates IDE config directories (default `~/.config`); never moves the Octocode home |
 
 ## Ownership rules

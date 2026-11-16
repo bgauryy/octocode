@@ -49,6 +49,36 @@ fn a_field_at_its_default_beside_another_form_runs_without_it() {
     );
 }
 
+/// A clasify source's `query` is the row a direct call of its tool
+/// takes, so it is repaired as that direct call is, and the note names the
+/// field to send under `source.query`.
+#[test]
+fn a_source_query_is_repaired_as_its_tools_direct_call() {
+    let query = json!({"path":".","matchString":["x"],"contextLines":4});
+    let sent = json!({"queries":[{"operation":"evaluate",
+        "source":{"tool":"localSearch","query":query},
+        "questions":{"r":{"type":"noul","instructions":"Is it?"}}}]});
+    let direct = normalized_input("localSearch", json!({"queries":[query]})).0;
+    let input = accepted("clasify", sent.clone());
+    assert_eq!(
+        input["queries"][0]["source"]["query"], direct["queries"][0],
+        "{input}"
+    );
+    assert_eq!(
+        input["queries"][0]["source"]["query"]["contextLines"],
+        json!({"before":4,"after":4}),
+        "{input}"
+    );
+    let notes = normalized_input("clasify", sent).1;
+    assert!(
+        notes
+            .iter()
+            .any(|note| note.starts_with("queries[0]: source.query: ")
+                && note.contains("contextLines")),
+        "{notes:?}"
+    );
+}
+
 /// A value is repaired one nesting level per validation round, so the rounds
 /// a call takes are its own depth: a rule sent as JSON text nested deeper than
 /// any fixed count of rounds still runs, read whole.

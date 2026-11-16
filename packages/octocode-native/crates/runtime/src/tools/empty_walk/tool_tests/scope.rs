@@ -80,6 +80,57 @@ fn a_generated_file_is_default_excluded_by_every_searching_tool() {
     assert!(out.to_string().contains("app.min.js"), "inventory: {out}");
 }
 
+/// An `include` that spells a generated file out (`app.min.js`) asks for it:
+/// the default exclusion lifts for that file, but a wildcard that merely
+/// reaches it (`*.js`) does not.
+#[test]
+fn an_include_naming_a_generated_file_exactly_reads_it() {
+    let root = Fixture::new();
+    std::fs::write(root.0.join("visible.md"), "nothing here\n").expect("visible");
+    std::fs::write(root.0.join("app.min.js"), "function needle() {}\n").expect("generated");
+    for tool in [local_search(), ast_match()] {
+        let mut query = (tool.query)(&root.0);
+        if tool.name == "astSearch match" {
+            query["parser"] = json!("javascript");
+        }
+        query["include"] = json!(["app.min.js"]);
+        let out = (tool.run)(&root.0, &query);
+        assert!(
+            (tool.found)(&out),
+            "{}: exact include did not lift the default: {out}",
+            tool.name
+        );
+        query["include"] = json!(["*.js"]);
+        let out = (tool.run)(&root.0, &query);
+        assert!(
+            !(tool.found)(&out),
+            "{}: a wildcard include read a generated file: {out}",
+            tool.name
+        );
+    }
+}
+
+/// The file-type table is built only for a page that passed a file over: an
+/// astSearch match over files every grammar reads builds nothing, one beside
+/// a `.toml` builds it once.
+#[test]
+fn an_ast_match_builds_the_file_type_table_only_for_a_passed_over_file() {
+    use crate::tools::leads::unparsed::TABLE_BUILDS;
+    let root = Fixture::new();
+    std::fs::write(root.0.join("a.rs"), "fn needle() {}\n").expect("source");
+    let query = row(
+        &root.0,
+        json!({"operation": "match", "parser": "rust", "rule": {"pattern": "fn needle() {}"}}),
+    );
+    TABLE_BUILDS.with(|builds| builds.set(0));
+    let out = run_ast(&root.0, &query);
+    assert!(out["matchCount"].as_u64().is_some_and(|n| n > 0), "{out}");
+    assert_eq!(TABLE_BUILDS.with(std::cell::Cell::get), 0, "{out}");
+    std::fs::write(root.0.join("conf.toml"), "needle = 1\n").expect("passed over");
+    run_ast(&root.0, &query);
+    assert_eq!(TABLE_BUILDS.with(std::cell::Cell::get), 1);
+}
+
 /// A glob with a `..` segment never matches under `path`: every tool with
 /// globs warns of it in the same words.
 #[test]
@@ -111,7 +162,8 @@ fn a_parent_glob_is_warned_of_in_every_tool() {
 /// astSearch admits a source by the one text rule in both modes: a file
 /// named as `path` parses exactly as the directory scan parses it. A
 /// BOM-marked UTF-16 file decodes (as localFetch reads it) and matches; a
-/// file with a NUL is binary in both.
+/// Latin-1 file matches with the decode warning; a file with a NUL is binary
+/// in both.
 #[test]
 fn ast_search_admits_a_source_the_same_as_a_file_and_in_a_directory() {
     let root = Fixture::new();
@@ -150,32 +202,29 @@ fn ast_search_admits_a_source_the_same_as_a_file_and_in_a_directory() {
         error.code,
         octocode_contract_types::ErrorCode::BinaryFileUnsupported
     );
-    // Latin-1 is no Unicode text: the scan skips it unreadable, and the file
-    // named alone is refused the same way, never parsed from a guess.
+    // Latin-1 is admitted as a read shows it, in both modes: the match is
+    // found and the row states the shared decode warning.
     std::fs::create_dir(root.0.join("legacy")).expect("legacy");
     std::fs::write(
         root.0.join("legacy/latin.js"),
         b"function needle() {} // caf\xe9\n",
     )
     .expect("latin");
-    assert_eq!(
-        matched(&root.0.join("legacy")),
-        0,
-        "Latin-1 in the directory scan"
-    );
-    let query: AstSearchQuery = serde_json::from_value(row(
-        &root.0.join("legacy/latin.js"),
-        json!({"operation": "match", "parser": "javascript", "rule": {"pattern": "function needle() {}"}}),
-    ))
-    .expect("query");
-    let error =
-        crate::tools::ast_search::execute_ast(&query, &paths, &security, &NeverCancel, None)
-            .expect_err("not unicode");
-    assert_eq!(
-        error.code,
-        octocode_contract_types::ErrorCode::FileReadFailed,
-        "{error:?}"
-    );
+    for path in [root.0.join("legacy"), root.0.join("legacy/latin.js")] {
+        let out = run_ast(
+            &root.0,
+            &row(
+                &path,
+                json!({"operation": "match", "parser": "javascript", "rule": {"pattern": "function needle() {}"}}),
+            ),
+        );
+        assert_eq!(out["matchCount"], 1, "Latin-1 at {path:?}: {out}");
+        assert!(
+            out.to_string()
+                .contains(octocode_engine::text::LATIN1_WARNING),
+            "{path:?}: {out}"
+        );
+    }
 }
 
 /// Skipped paths remain disclosed even when a bounded probe cannot prove

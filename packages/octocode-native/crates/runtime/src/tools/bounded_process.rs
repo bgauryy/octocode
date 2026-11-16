@@ -1,4 +1,4 @@
-//! A bounded helper subprocess: no stdin, capped stdout, a wall-clock limit,
+//! A bounded helper subprocess: optional stdin, capped stdout, a wall-clock limit,
 //! cooperative cancellation, and (on Unix) its own process group so a
 //! timeout or cancel also kills any grandchildren it started.
 //!
@@ -17,7 +17,7 @@ use std::{
 mod capture;
 mod gated;
 
-use capture::{read_capped, read_nul_records, read_stderr};
+use capture::{read_capped, read_chunks, read_nul_records, read_stderr};
 use gated::Gated;
 
 /// Why a bounded run produced no output. The message names the command.
@@ -61,7 +61,27 @@ pub(crate) fn run_bounded(
     max_stdout: usize,
     cancel: &dyn CancellationCheck,
 ) -> Result<BoundedOutput, BoundedError> {
-    run_bounded_draining(command, label, timeout, max_stdout, DRAIN_GRACE, cancel)
+    run_bounded_input(command, label, timeout, max_stdout, None, cancel)
+}
+
+/// [`run_bounded`] feeding `input` to the command's stdin, then closing it.
+pub(crate) fn run_bounded_input(
+    command: Command,
+    label: &str,
+    timeout: Duration,
+    max_stdout: usize,
+    input: Option<&[u8]>,
+    cancel: &dyn CancellationCheck,
+) -> Result<BoundedOutput, BoundedError> {
+    run_bounded_draining(
+        command,
+        label,
+        timeout,
+        max_stdout,
+        input,
+        DRAIN_GRACE,
+        cancel,
+    )
 }
 
 /// [`run_bounded`] with stderr's drain grace named, so a test can end stderr
@@ -71,6 +91,7 @@ fn run_bounded_draining(
     label: &str,
     timeout: Duration,
     max_stdout: usize,
+    input: Option<&[u8]>,
     stderr_grace: Duration,
     cancel: &dyn CancellationCheck,
 ) -> Result<BoundedOutput, BoundedError> {
@@ -78,6 +99,7 @@ fn run_bounded_draining(
         command,
         label,
         timeout,
+        input,
         stderr_grace,
         cancel,
         move |stdout| read_capped(stdout, max_stdout),
@@ -99,6 +121,7 @@ fn run_bounded_with_stdout<T: Send, F>(
     mut command: Command,
     label: &str,
     timeout: Duration,
+    input: Option<&[u8]>,
     stderr_grace: Duration,
     cancel: &dyn CancellationCheck,
     reader: F,
@@ -108,7 +131,11 @@ where
 {
     cancel.check().map_err(BoundedError::Cancelled)?;
     command
-        .stdin(Stdio::null())
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     octocode_engine::process::contain(&mut command);
@@ -135,8 +162,17 @@ where
         .stderr
         .take()
         .map(|pipe| Gated::new(pipe, Arc::clone(&finished), stderr_grace));
+    let stdin = child.stdin.take();
     let started = Instant::now();
     let (outcome, status, stdout, stderr) = thread::scope(|scope| {
+        // Written from its own thread: a command that fills its stdout pipe
+        // before it has read all its input must not deadlock with this write.
+        // A command that ends early breaks the pipe, which ends the write.
+        scope.spawn(move || {
+            if let (Some(mut pipe), Some(input)) = (stdin, input) {
+                let _ = std::io::Write::write_all(&mut pipe, input);
+            }
+        });
         let stdout_reader = scope.spawn(|| reader(stdout));
         let stderr_reader = scope.spawn(|| read_stderr(stderr));
         let outcome = loop {
@@ -204,9 +240,37 @@ pub(crate) fn run_bounded_records(
         command,
         label,
         timeout,
+        None,
         DRAIN_GRACE,
         cancel,
         move |stdout| read_nul_records(stdout, max_record, record),
+    )?;
+    Ok(BoundedOutput {
+        status,
+        stdout: Vec::new(),
+        stderr,
+    })
+}
+
+/// Runs `command` with `input` on stdin, delivering its stdout to `chunk` as
+/// it arrives and keeping none of it: output of any size passes through in
+/// bounded pieces. The sink's error fails the run.
+pub(crate) fn run_bounded_chunks(
+    command: Command,
+    label: &str,
+    timeout: Duration,
+    input: Option<&[u8]>,
+    cancel: &dyn CancellationCheck,
+    chunk: &mut (dyn FnMut(&[u8]) -> Result<(), String> + Send),
+) -> Result<BoundedOutput, BoundedError> {
+    let (status, (), stderr) = run_bounded_with_stdout(
+        command,
+        label,
+        timeout,
+        input,
+        DRAIN_GRACE,
+        cancel,
+        move |stdout| read_chunks(stdout, chunk),
     )?;
     Ok(BoundedOutput {
         status,

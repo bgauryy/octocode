@@ -176,20 +176,23 @@ async fn a_materialize_of_a_walk_with_a_failed_subtree_is_not_complete() {
 async fn a_materialize_out_of_time_resumes_without_gaps_or_a_second_tree() {
     use crate::tools::gh_structure::materialize::{Snapshot, materialize_tree};
     use crate::tools::gh_structure::{EntryKind, TreeEntry};
-    // Reads run eight ahead: three waves of 24 files, the third past the call's
-    // three-quarters stop. The margins are seconds, so a loaded machine's
+    // Reads run as many ahead as the request budget allows: three waves of
+    // files, the third past the call's three-quarters stop. The margins are seconds, so a loaded machine's
     // scheduling delay cannot move a read past the deadline.
     const READ: std::time::Duration = std::time::Duration::from_millis(1_200);
     const CALL: std::time::Duration = std::time::Duration::from_secs(4);
     let server = MockServer::builder().start().await;
-    let entries = (0..24)
+    let provider = crate::tools::gh_shared::test_support::one_shot_provider(&server);
+    let files = 3 * provider.transport.read_concurrency();
+    let entries = (0..files)
         .map(|n| TreeEntry {
             path: format!("f{n}.rs"),
             kind: EntryKind::File,
             size: Some(8),
+            oid: None,
         })
         .collect::<Vec<_>>();
-    for n in 0..24 {
+    for n in 0..files {
         wiremock::Mock::given(wiremock::matchers::path(format!(
             "/api/v3/repos/a/b/contents/f{n}.rs"
         )))
@@ -204,13 +207,13 @@ async fn a_materialize_out_of_time_resumes_without_gaps_or_a_second_tree() {
         .mount(&server)
         .await;
     }
-    let provider = crate::tools::gh_shared::test_support::one_shot_provider(&server);
     let home = crate::tools::test_support::Fixture::new();
     let snapshot = Snapshot {
         owner: "a",
         repo: "b",
         commit: SHA,
         root: &home.0,
+        blobs: None,
     };
     let mut offset = 0;
     let mut calls = 0;
@@ -231,7 +234,7 @@ async fn a_materialize_out_of_time_resumes_without_gaps_or_a_second_tree() {
         }
     };
     assert!(calls > 1, "the deadline ended the first call");
-    for n in 0..24 {
+    for n in 0..files {
         assert!(
             std::path::Path::new(&local)
                 .join(format!("f{n}.rs"))
@@ -240,7 +243,7 @@ async fn a_materialize_out_of_time_resumes_without_gaps_or_a_second_tree() {
         );
     }
     let reads = server.received_requests().await.unwrap().len();
-    assert!(reads >= 24, "{reads}");
+    assert!(reads >= files, "{reads}");
 }
 
 /// A first read that arrives past the call's three-quarters stop is still
@@ -258,6 +261,7 @@ async fn a_first_read_past_the_stop_is_written_so_the_walk_progresses() {
             path: format!("f{n}.rs"),
             kind: EntryKind::File,
             size: Some(8),
+            oid: None,
         })
         .collect::<Vec<_>>();
     for n in 0..2 {
@@ -282,6 +286,7 @@ async fn a_first_read_past_the_stop_is_written_so_the_walk_progresses() {
         repo: "b",
         commit: SHA,
         root: &home.0,
+        blobs: None,
     };
     let context = octocode_github::RequestContext::with_timeout(CALL, 1024 * 1024);
     let outcome = materialize_tree(&provider, &snapshot, &entries, 0, "", &context)

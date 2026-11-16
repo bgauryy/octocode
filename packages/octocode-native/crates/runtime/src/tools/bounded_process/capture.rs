@@ -108,3 +108,23 @@ pub(super) fn read_nul_records(
     }
     Ok(())
 }
+
+/// Hands each piece of `source` to `chunk` as it is read, keeping none.
+pub(super) fn read_chunks(
+    source: Option<impl Read>,
+    chunk: &mut (dyn FnMut(&[u8]) -> Result<(), String> + Send),
+) -> Result<(), String> {
+    let Some(mut source) = source else {
+        return Ok(());
+    };
+    let mut buffer = vec![0_u8; 64 * 1024];
+    loop {
+        let count = source
+            .read(&mut buffer)
+            .map_err(|error| error.to_string())?;
+        if count == 0 {
+            return Ok(());
+        }
+        chunk(&buffer[..count])?;
+    }
+}

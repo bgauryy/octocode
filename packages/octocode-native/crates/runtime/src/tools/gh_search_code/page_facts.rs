@@ -4,7 +4,7 @@ use super::search_page::SearchPage;
 use super::{GhSearchCodeQuery, code_output};
 use crate::id::ToolId;
 use crate::response::paging::mark_partial;
-use crate::response::result::{Continuation, ToolData};
+use crate::response::result::ToolData;
 use crate::tools::gh_shared::{SearchCompleteness, apply_partial, push_warning_front};
 use octocode_engine::num::{saturating_u64, saturating_usize};
 use serde_json::json;
@@ -139,6 +139,7 @@ pub(super) fn pagination(
             data.items.len(),
             current < data.pages,
         )
+        .with_unit("files")
         .with_total(data.total)
         .out_of_range(past_end)
         .to_value()
@@ -184,8 +185,9 @@ pub(super) fn skeleton(
         crate::response::pager::continuing_block_chars(ToolId::GhSearchCode)
     } else {
         if more {
-            value["next"]["nextPage"] = Continuation::cursor(
-                ToolId::GhSearchCode.as_str(),
+            crate::response::collection::insert_cursor_walk(
+                &mut value,
+                ToolId::GhSearchCode,
                 crate::response::cursor::issued::placeholder(),
             );
         }

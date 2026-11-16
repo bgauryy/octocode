@@ -118,7 +118,7 @@ impl Recorder {
             .iter()
             .chain(&seen.watched)
             .chain(&rules)
-            .map(|path| std::mem::size_of::<PathBuf>() + path.as_os_str().len())
+            .map(|path| super::paths::path_bytes(path))
             .sum();
         WALKS.put_proven(
             key(&root.to_string_lossy(), include),

@@ -2,6 +2,7 @@ use super::route::Route;
 use super::types::{LspDiscoveryOptions, ServerSpec};
 use crate::lsp::bundled_tsgo::bundled_tsgo;
 use crate::lsp::commands::{command_resolves_to_executable, is_executable_path};
+use crate::process_env::EnvMap;
 use crate::lsp::module_path::install_anchor;
 use crate::lsp::types::{LspLanguageServerConfig, ServerSource};
 use std::ffi::OsStr;
@@ -79,7 +80,7 @@ fn resolve_spec_invocation(
 ) -> Resolved {
     let trust_workspace = options.trusts_project();
     if spec.language_id == "python" {
-        let path_var = crate::process_env::var_os("PATH");
+        let path_var = crate::process_env::call_var(&options.env, "PATH");
         if let Some((command, args)) = resolve_pyright_family(
             workspace_root,
             path_var.as_deref(),
@@ -121,7 +122,7 @@ fn resolve_spec_invocation(
     // project's Rust version: the rustup proxy on PATH runs it, ahead of a
     // managed download.
     let toolchain_component = rustup::toolchain_component(
-        &rustup::RustupView::current(),
+        &rustup::RustupView::of(&options.env),
         Path::new(workspace_root),
         spec.command,
     );
@@ -142,6 +143,7 @@ fn resolve_spec_invocation(
         workspace_root,
         trust_workspace,
         options.invocation_dir.as_deref(),
+        &options.env,
     );
     let source = if managed.is_some() {
         ServerSource::Managed
@@ -262,6 +264,7 @@ pub(super) fn resolve_server_invocation(
     workspace_root: &str,
     trust_workspace: bool,
     invocation_dir: Option<&Path>,
+    env: &impl EnvMap,
 ) -> (String, Vec<String>, ServerSource) {
     let managed_start = install_anchor();
     resolve_server_invocation_with_environment(
@@ -274,7 +277,8 @@ pub(super) fn resolve_server_invocation(
             trust_workspace,
             invocation_dir,
         ),
-        command_resolves_to_executable(command),
+        command_resolves_to_executable(command, env),
+        env,
     )
 }
 
@@ -284,10 +288,11 @@ pub(super) fn resolve_server_invocation_with_environment(
     workspace_root: &str,
     search: &TypeScriptServerSearch<'_>,
     command_available_on_path: bool,
+    env: &impl EnvMap,
 ) -> (String, Vec<String>, ServerSource) {
     if let Some((cli_path, source)) =
         resolve_typescript_server_cli(command, workspace_root, search, command_available_on_path)
-        && let Some(node_command) = current_node_command()
+        && let Some(node_command) = current_node_command(env)
     {
         let mut resolved_args = Vec::with_capacity(args.len() + 1);
         resolved_args.push(cli_path.to_string_lossy().into_owned());
@@ -296,14 +301,14 @@ pub(super) fn resolve_server_invocation_with_environment(
     }
 
     (
-        resolve_known_server_command(command),
+        resolve_known_server_command(command, env),
         args,
         ServerSource::Path,
     )
 }
 
-pub(super) fn resolve_known_server_command(command: &str) -> String {
-    if Path::new(command).is_absolute() || command_resolves_to_executable(command) {
+pub(super) fn resolve_known_server_command(command: &str, env: &impl EnvMap) -> String {
+    if Path::new(command).is_absolute() || command_resolves_to_executable(command, env) {
         return command.to_owned();
     }
     match command {

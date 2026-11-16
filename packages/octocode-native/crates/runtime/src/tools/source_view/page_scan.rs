@@ -70,7 +70,7 @@ pub(super) fn warn_redacted(
     redactions: usize,
     warnings: &mut Vec<String>,
 ) {
-    let redactions = redactions.min(placeholders(text));
+    let redactions = redactions.min(crate::security::placeholders(text));
     if redactions > 0 || view_redacted || blanked {
         warnings.push(crate::security::redacted_content_warning(redactions));
     }

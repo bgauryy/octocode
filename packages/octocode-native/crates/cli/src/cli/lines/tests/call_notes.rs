@@ -19,7 +19,7 @@ fn match_notes_are_words() {
     let hit = json!({"results":[{"index":0,"data":{"files":[{"path":"a.rs","matches":[
             {"line":3,"value":"fn a()","declaration":true}]}]}}]});
     let lines = render(ToolId::LocalSearch, &hit, &json!({}), None).expect("lines");
-    assert_eq!(lines.out, "a.rs:3:fn a()  [declaration]");
+    assert_eq!(lines.out, "a.rs:3:fn a()  [declaration true]");
 }
 
 #[test]

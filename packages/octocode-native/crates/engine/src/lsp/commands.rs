@@ -1,17 +1,20 @@
+use crate::process_env::EnvMap;
 use std::path::{Path, PathBuf};
 
-pub(crate) fn command_resolves_to_executable(command: &str) -> bool {
-    which_on_path(command)
+pub(crate) fn command_resolves_to_executable(command: &str, env: &impl EnvMap) -> bool {
+    which_on_path(command, env)
         .map(|path| is_executable_path(&path))
         .unwrap_or(false)
 }
 
-/// `command` as `which` finds it on the `PATH` discovery reads
-/// ([`crate::process_env`], the source route resolution keys on), the one
-/// lookup of a program by name: `which::which` reads the process
-/// environment itself.
-pub(crate) fn which_on_path(command: impl AsRef<std::ffi::OsStr>) -> which::Result<PathBuf> {
-    let paths = crate::process_env::var_os("PATH");
+/// `command` as `which` finds it on the call's `PATH` (`env`, read through
+/// [`crate::process_env::call_var`]), the one lookup of a program by name:
+/// `which::which` would read the process environment itself.
+pub(crate) fn which_on_path(
+    command: impl AsRef<std::ffi::OsStr>,
+    env: &impl EnvMap,
+) -> which::Result<PathBuf> {
+    let paths = crate::process_env::call_var(env, "PATH");
     match std::env::current_dir() {
         Ok(cwd) => which::which_in(command, paths, cwd),
         Err(_) => which::which_in_global(command, paths)?

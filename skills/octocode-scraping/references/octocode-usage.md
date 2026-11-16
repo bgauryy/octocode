@@ -64,4 +64,4 @@ Classification receipts describe candidate decisions, not corpus completeness. S
 
 Cursor handles are bound to tool, access context and saved state. Memory-mode handles die with the runtime; persistent state may resume across processes. Expired or foreign handles fail without contacting the provider. Restart explicitly from the original request when required.
 
-CLI exits: 0 success (possibly paged), 1 empty, 2 input, 3 not found, 4 authentication, 5 execution, 7 rate limit. Exit zero alone proves no completeness claim. Use the [evidence rules](evidence.md) for source claims; the research skill owns query recipes.
+CLI exits: 0 success (possibly paged), 1 empty, 2 correctInput (a missing target included), 4 refused, 5 unservable, 6 restart, 7 transient; 3 is unused. Every error row states `errorClass`. Exit zero alone proves no completeness claim. Use the [evidence rules](evidence.md) for source claims; the research skill owns query recipes.

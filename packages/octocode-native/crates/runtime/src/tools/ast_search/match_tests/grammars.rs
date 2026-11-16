@@ -42,7 +42,8 @@ fn a_pattern_that_does_not_apply_to_a_grammar_is_named_not_failed() {
 /// no grammar parses whose name is of a known other type (ripgrep's default
 /// type table) is a quiet `skippedGrammars` count; only a file of unknown
 /// type, which could hold the language's source, says absence there is
-/// unproven. Without one language every grammar-less file is named.
+/// unproven. Without one language the same holds for every grammar the scan
+/// reads: a JSON, CSS or HTML file holds none of their source.
 #[test]
 fn under_a_rule_language_only_files_of_unknown_type_warn() {
     let root = Fixture::new();
@@ -82,8 +83,12 @@ fn under_a_rule_language_only_files_of_unknown_type_warn() {
     )
     .expect("several grammars");
     assert!(mixed.get("inferredLanguage").is_none(), "{mixed}");
-    assert!(
-        mixed["notices"].to_string().contains("4 files skipped"),
+    let notices = mixed["notices"].to_string();
+    assert!(notices.contains("1 file skipped"), "{mixed}");
+    assert!(notices.contains("gen.rs.in"), "{mixed}");
+    assert_eq!(
+        mixed["skippedGrammars"],
+        json!({"css":1,"html":1,"toml":1}),
         "{mixed}"
     );
 }

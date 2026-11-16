@@ -1,45 +1,8 @@
-//! Match rows: ranking, projection, and context-window merging.
+//! Match rows: projection and context-window merging.
 
 use super::types::*;
 use octocode_engine::num::saturating_u32;
 use octocode_engine::types::SearchContext;
-
-/// Order rows for paging: production before test, then lexical hit rank and
-/// distinct complete values before repeats within each source class.
-///
-/// The order is worked out on row indices and applied by swapping the rows
-/// where they are: a file's rows are the largest thing a scan holds, so
-/// ranking never makes a second copy of them (a result of millions of rows
-/// would take twice its memory to rank).
-pub(super) fn rank_file_rows(matches: &mut [octocode_engine::types::TextSearchMatch]) {
-    let mut order = (0..matches.len()).collect::<Vec<_>>();
-    order.sort_by_key(|&row| std::cmp::Reverse(matches[row].rank.unwrap_or(1)));
-    let mut seen = std::collections::HashSet::new();
-    let (mut ranked, repeats): (Vec<_>, Vec<_>) = order.into_iter().partition(|&row| {
-        seen.insert((
-            matches[row].has_production_priority(),
-            matches[row].value_digest,
-        ))
-    });
-    ranked.extend(repeats);
-    // Duplicate preference is local to each source class: even a repeated
-    // production hit precedes a distinct test hit. This stable pass preserves
-    // lexical/duplicate order inside each class.
-    ranked.sort_by_key(|&row| !matches[row].has_production_priority());
-    // `ranked[at]` is the row that belongs at `at`: follow each cycle of
-    // that permutation once, marking a place done by pointing it at itself.
-    for start in 0..ranked.len() {
-        let mut at = start;
-        loop {
-            let from = std::mem::replace(&mut ranked[at], at);
-            if from == at || from == start {
-                break;
-            }
-            matches.swap(at, from);
-            at = from;
-        }
-    }
-}
 
 /// The row a page shows for `matched`. `span_columns`: the view's rows are
 /// spans, each stating its column

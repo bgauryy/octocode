@@ -6,6 +6,7 @@ pub(super) async fn execute_tree(
     query: &GhStructureQueryTree,
     context: &RequestContext,
     home: &Path,
+    blobs: Option<&BlobSource>,
     read_commit: &mut Option<String>,
 ) -> Result<ToolData, ProviderError> {
     let scope = Scope::of(query)?;
@@ -64,6 +65,7 @@ pub(super) async fn execute_tree(
             &commit_sha,
             &traversal.entries,
             home,
+            blobs,
             context,
             &mut value,
         )
@@ -121,9 +123,9 @@ pub(super) async fn execute_tree(
     if resumed && let Some(map) = value.as_object_mut() {
         map.remove("files");
         map.remove("pagination");
-        if let Some(calls) = map.get_mut("calls").and_then(Value::as_object_mut) {
-            calls.remove("nextPage");
-        }
+    }
+    if resumed {
+        crate::response::collection::remove_row_walk(&mut value);
     }
     if !resumed && structure_is_empty(&value) && value.get("isPartial").is_none() {
         output.status = Some("empty");

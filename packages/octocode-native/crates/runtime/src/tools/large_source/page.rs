@@ -180,7 +180,7 @@ pub(super) fn continue_window(
             );
             local_fetch_query::set_snapshot(&mut query, Some(snapshot))
                 .map_err(|error| error.to_string())?;
-            Ok::<_, String>(FetchCall::continued(query))
+            Ok::<_, String>(FetchCall::page(query))
         })
         .transpose()?;
     match (result.next.as_mut(), read) {

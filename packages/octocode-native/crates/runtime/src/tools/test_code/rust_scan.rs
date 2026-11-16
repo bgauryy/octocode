@@ -1,9 +1,10 @@
-//! What a Rust source too large for the declarations parse says about test
-//! code, read token by token in one linear pass: the same test spans and file
-//! modules the parse reports, so such a file is classified, not guessed at. The
-//! parse still decides what an attribute means: each distinct `cfg` or `path`
-//! attribute is parsed on its own, so there is one rule for what compiles only
-//! under test.
+//! What a Rust source says about test code, read token by token in one linear
+//! pass: the same test spans and file modules the declarations parse reports,
+//! without the parse's signatures and graph, so every well-formed file is
+//! classified by this pass (a malformed one by the parse, whose recovery is
+//! its own). The parse still decides what an attribute means: each distinct
+//! `cfg` or `path` attribute is parsed on its own, so there is one rule for
+//! what compiles only under test.
 use octocode_engine::graph::GraphFactRustModule;
 use std::collections::HashMap;
 
@@ -57,6 +58,7 @@ pub(super) fn scan(content: &str) -> Scanned {
         whole: false,
         inline_name: None,
         last_end: 1,
+        item_next: true,
         meanings: HashMap::new(),
         out: Scanned {
             test_lines: Vec::new(),
@@ -143,6 +145,9 @@ struct Pass<'t> {
     /// The `{` to come opens the body of this `mod`.
     inline_name: Option<String>,
     last_end: u32,
+    /// The next token starts a module's item: the file's first, or the one
+    /// after an item of a module ended (its `;`, or the `}` that closed it).
+    item_next: bool,
     meanings: HashMap<&'t str, Meaning>,
     out: Scanned,
 }
@@ -182,6 +187,7 @@ impl<'t> Pass<'t> {
             Token::Punct(b';') => {
                 self.end_span_at(lexeme.end_line, |_| true);
                 self.next_node();
+                self.item_next = self.in_module();
             }
             Token::Punct(b',') => {
                 let before = self.last_end;
@@ -207,6 +213,11 @@ impl<'t> Pass<'t> {
     /// The first token of a node opens the span an attribute before it asked
     /// for.
     fn start_node(&mut self, lexeme: Lexeme<'t>) {
+        if std::mem::take(&mut self.item_next) {
+            // A module holds items: a token after one that cannot start
+            // another is text the parse recovers from in its own way.
+            self.out.malformed |= self.in_module() && !self.starts_item(lexeme);
+        }
         if self.node_line.is_none() {
             self.node_line = Some(lexeme.line);
         }
@@ -253,6 +264,41 @@ impl<'t> Pass<'t> {
             if let Some(span) = self.span.as_mut() {
                 span.ends = ends;
             }
+        }
+    }
+
+    /// The tokens read now are a module's own (the file's, or an inline
+    /// `mod`'s body outside any macro): items, by the grammar.
+    fn in_module(&self) -> bool {
+        self.stack
+            .last()
+            .is_none_or(|frame| frame.module && !frame.in_macro && !frame.opaque)
+    }
+
+    /// Whether `lexeme`, in a module where an item starts, can start one:
+    /// its visibility or keyword, or the path of an item macro (`name!`,
+    /// `a::b!`). Attributes are read before any node starts.
+    fn starts_item(&self, lexeme: Lexeme<'t>) -> bool {
+        match lexeme.token {
+            Token::Punct(b';') => true,
+            Token::Word(
+                "pub" | "fn" | "const" | "static" | "struct" | "enum" | "union" | "trait" | "impl"
+                | "mod" | "use" | "extern" | "type" | "unsafe" | "async" | "safe" | "macro_rules"
+                | "macro" | "auto" | "default",
+            ) => true,
+            Token::Word(_) => {
+                let mut ahead = self.tokens.clone();
+                match ahead.next() {
+                    Some(next) if next.token == Token::Punct(b'!') => true,
+                    Some(next) if next.token == Token::Punct(b':') => {
+                        ahead.next().is_some_and(|after| {
+                            after.token == Token::Punct(b':') && after.start == next.start + 1
+                        })
+                    }
+                    _ => false,
+                }
+            }
+            _ => false,
         }
     }
 
@@ -408,6 +454,8 @@ impl<'t> Pass<'t> {
             outer_node_line: self.node_line.take(),
             outer_node_keyword: self.node_keyword.take(),
         });
+        // A module's body starts with an item.
+        self.item_next = self.in_module();
     }
 
     fn close(&mut self, closer: u8, lexeme: Lexeme<'t>) {
@@ -457,6 +505,7 @@ impl<'t> Pass<'t> {
                     .is_some_and(|span| span.depth == self.stack.len());
                 if !value {
                     self.next_node();
+                    self.item_next = self.in_module();
                 }
             }
         }

@@ -17,7 +17,11 @@
 //!   matrix cannot starve concurrent calls;
 //! - remembers exhausted billing or quota (HTTP 402) for [`QUOTA_MEMO`]:
 //!   every call fails fast until then, and the first call after it probes
-//!   again, since credit can be added.
+//!   again, since credit can be added;
+//! - remembers a rejected credential (HTTP 401) for [`AUTH_MEMO`] the same
+//!   way: the gate is per account key, so every further request of the
+//!   account would be refused too, and one rerun probes again. A 403 is not
+//!   remembered: it can be one model's refusal, not the account's.
 //!
 //! Permits are held only while a request is on the wire; callers drop them
 //! before any retry backoff sleep. The gate is transport-neutral: it reports
@@ -39,6 +43,9 @@ pub(crate) const CIRCUIT_THRESHOLD: u32 = 5;
 pub(crate) const CIRCUIT_COOLDOWN: Duration = Duration::from_secs(10);
 /// How long a 402 stops every call to the endpoint before one probes again.
 pub(crate) const QUOTA_MEMO: Duration = Duration::from_secs(60);
+/// How long a 401 stops every call of the account before one probes again:
+/// the span a 402 does.
+pub(crate) const AUTH_MEMO: Duration = QUOTA_MEMO;
 /// Gates kept before idle ones are dropped (see [`lease`]).
 const RETAINED_GATES: usize = 64;
 
@@ -58,6 +65,8 @@ pub(crate) enum GateDenied {
     },
     /// The provider reported exhausted billing or quota within [`QUOTA_MEMO`].
     QuotaExhausted,
+    /// The provider rejected the account's credential within [`AUTH_MEMO`].
+    CredentialRejected,
 }
 
 #[derive(Debug)]
@@ -70,6 +79,7 @@ struct GateState {
     consecutive_failures: u32,
     open_until: Option<Instant>,
     quota_until: Option<Instant>,
+    auth_until: Option<Instant>,
 }
 
 /// Admission state for one provider endpoint.
@@ -163,6 +173,7 @@ impl ClassificationGate {
                 consecutive_failures: 0,
                 open_until: None,
                 quota_until: None,
+                auth_until: None,
             }),
             notify: Notify::new(),
         }
@@ -184,6 +195,7 @@ impl ClassificationGate {
             || running(state.not_before)
             || running(state.open_until)
             || running(state.quota_until)
+            || running(state.auth_until)
     }
 
     fn set_limit(&self, limit: usize) {
@@ -217,15 +229,30 @@ impl ClassificationGate {
     /// Whether a 402 within [`QUOTA_MEMO`] still stops requests; an expired
     /// memo is cleared so the next request probes.
     fn quota_exhausted(&self, now: Instant) -> bool {
-        let mut state = self.lock();
-        match state.quota_until {
-            Some(until) if now < until => true,
+        Self::remembered(&mut self.lock().quota_until, now)
+    }
+
+    /// Whether a 401 within [`AUTH_MEMO`] still stops requests.
+    fn credential_rejected(&self, now: Instant) -> bool {
+        Self::remembered(&mut self.lock().auth_until, now)
+    }
+
+    /// Whether a refusal memo is still running; an expired one is cleared so
+    /// the next request probes.
+    fn remembered(until: &mut Option<Instant>, now: Instant) -> bool {
+        match *until {
+            Some(end) if now < end => true,
             Some(_) => {
-                state.quota_until = None;
+                *until = None;
                 false
             }
             None => false,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn expire_auth_memo(&self) {
+        self.lock().auth_until = Some(Instant::now());
     }
 
     #[cfg(test)]
@@ -264,6 +291,13 @@ impl GateLease {
         self.gate.quota_exhausted(Instant::now())
     }
 
+    /// Whether the endpoint rejected the credential within [`AUTH_MEMO`]
+    /// (`acquire` refuses every permit meanwhile).
+    #[cfg(test)]
+    pub(crate) fn credential_rejected(&self) -> bool {
+        self.gate.credential_rejected(Instant::now())
+    }
+
     /// Wait for a permit, honouring cancellation, the budget deadline, the
     /// shared cooldown, the adaptive limit, and this call's fairness cap.
     pub(crate) async fn acquire(&self, budget: &RequestBudget) -> Result<GatePermit, GateDenied> {
@@ -271,6 +305,9 @@ impl GateLease {
             // Checked every turn: a waiter queued before the 402 stops too.
             if self.gate.quota_exhausted(Instant::now()) {
                 return Err(GateDenied::QuotaExhausted);
+            }
+            if self.gate.credential_rejected(Instant::now()) {
+                return Err(GateDenied::CredentialRejected);
             }
             if budget.cancellation.is_cancelled() {
                 return Err(GateDenied::Cancelled);
@@ -364,6 +401,13 @@ impl GatePermit {
     /// [`QUOTA_MEMO`] passes.
     pub(crate) fn quota_exhausted(self) {
         self.gate.lock().quota_until = Some(Instant::now() + QUOTA_MEMO);
+    }
+
+    /// The provider rejected the credential (HTTP 401): not a health signal,
+    /// so the limit and circuit stay as they are, but no call sends more
+    /// until [`AUTH_MEMO`] passes.
+    pub(crate) fn credential_rejected(self) {
+        self.gate.lock().auth_until = Some(Instant::now() + AUTH_MEMO);
     }
 
     /// Transport error or server failure: count toward opening the circuit.

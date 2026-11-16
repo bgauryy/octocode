@@ -80,11 +80,13 @@ pub(super) async fn issue(
     // The discussion's first comment batch depends only on the page asked
     // for, so it loads beside the issue too (wasted only when the number
     // names a pull request).
+    // A `matchString` scans every batch instead ([`issue_comments`]).
     let first_batch = query
         .sections()
         .has(Section::Comments)
         .then(|| first_comment_batch(query))
-        .flatten();
+        .flatten()
+        .filter(|_| query.matcher.is_none());
     let (fetched, closed_by, prefetched) = tokio::join!(
         fetch(source, &issue_path, &[], context),
         async {
@@ -141,6 +143,7 @@ pub(super) async fn issue(
     let mut row = header_for();
     let mut pagination = Map::new();
     let mut remainder = Remainder::default();
+    let mut dropped = None;
     // A summary previews the body, as a pull request's does; the body read
     // (`sections:["body"]`, its `readBody` lead) holds it whole.
     let summary = sections.is_empty();
@@ -175,8 +178,9 @@ pub(super) async fn issue(
             used,
             total: raw.get("comments").and_then(Value::as_u64),
         };
-        let page = issue_comments(source, query, context, &at, prefetched).await?;
-        page.attach(&at, &mut row, &mut pagination, &mut remainder);
+        let mut page = issue_comments(source, query, context, &at, prefetched).await?;
+        dropped = page.dropped.take();
+        page.attach(&mut row, &mut pagination, &mut remainder);
         // The discussion the caller asked for is always stated: an empty
         // list says zero. A body hop lists only the bodies it continues.
         if !comment_hop && row.get("comments").is_none() {
@@ -193,6 +197,12 @@ pub(super) async fn issue(
     }
     let previewed = row["bodyPreview"].is_string();
     let mut out = json!({"issues":[row]});
+    if let Some(warning) = dropped {
+        // Lossless recovery: the same read without the literal.
+        crate::response::paging::push_warnings(&mut out, [warning]);
+        ensure_calls(&mut out);
+        out["calls"]["withoutMatchString"] = without_match_lead(query);
+    }
     promote_issue_continuations(&mut out, query, &remainder);
     if previewed {
         attach_body_read(&mut out, query);
@@ -231,6 +241,15 @@ fn issue_header(raw: &Value) -> Value {
         "updatedAt":(str_at(raw,"/state").unwrap_or("open") == "open").then(|| utc_date(str_at(raw,"/updated_at"))),
         "closedAt":utc_value(raw.get("closed_at"))
     })
+}
+
+/// The issue read without its `matchString`, from its first comment page.
+fn without_match_lead(query: &HistoryItemRequest) -> Value {
+    let mut same = super::pr_menu::base_public_query(query, super::ItemOperation::Issue);
+    for key in ["offset", "page", "pageSize"] {
+        super::pr_menu::remove_key(&mut same, key);
+    }
+    super::pr_menu::without_match_string(same)
 }
 
 /// A summary's body preview offers the whole body as related work (the

@@ -42,19 +42,15 @@ pub(super) fn add_edge(
 
 /// A Rust `use` path that unambiguously targets the current crate, so failing to
 /// resolve it means the intra-crate edge graph is incomplete — never a benign
-/// external dependency. `crate::`/`self::`/`super::` and leading `::` qualify,
-/// except a leading `::` naming a standard crate (`::std::vec::Vec`), which is
-/// that external crate.
+/// external dependency: `crate::`, `self::` and `super::`. A leading `::`
+/// names an extern crate (`::serde::Deserialize`, `::std::vec::Vec`), as
+/// the resolver reads it: what that crate is follows the manifest, like any
+/// crate name.
 pub(super) fn rust_internal_specifier(spec: &str) -> bool {
-    let first = spec
-        .trim_start_matches("::")
-        .split("::")
-        .next()
-        .unwrap_or("");
-    if spec.starts_with("::") {
-        return !matches!(first, "std" | "core" | "alloc");
-    }
-    matches!(first, "crate" | "self" | "super")
+    matches!(
+        spec.split("::").next().unwrap_or(""),
+        "crate" | "self" | "super"
+    )
 }
 
 /// Whether a relative specifier climbs above the snapshot root from the

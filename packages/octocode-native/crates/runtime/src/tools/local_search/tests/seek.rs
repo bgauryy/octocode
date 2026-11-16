@@ -71,7 +71,7 @@ fn a_continuation_inflates_its_page_not_the_scan() {
         settle();
         let pages = continuations(
             root.path(),
-            serde_json::json!({"matchString":["a"],"view":"matchOnly"}),
+            serde_json::json!({"matchString":["a"],"view":"matchOnly","sort":{"by":"path","order":"asc"}}),
         );
         for &(page, decoded, shown, _) in &pages {
             assert!(shown > 0, "{spans} spans, page {page} shows rows");
@@ -228,7 +228,7 @@ fn every_seek_page_equals_its_fresh_page_and_the_walk_joins_once() {
         settle();
         let pages = walk_against_fresh(
             root.path(),
-            serde_json::json!({"matchString":[pattern],"view":"matchOnly"}),
+            serde_json::json!({"matchString":[pattern],"view":"matchOnly","sort":{"by":"path","order":"asc"}}),
             window,
         );
         assert!(pages.len() > 2, "{pattern}: {} pages", pages.len());
@@ -255,7 +255,7 @@ fn every_seek_page_equals_its_fresh_page_and_the_walk_joins_once() {
     }
     settle();
     for fields in [
-        serde_json::json!({"matchString":["needle"]}),
+        serde_json::json!({"matchString":["needle"],"sort":{"by":"path","order":"asc"}}),
         serde_json::json!({"matchString":["needle"],"sort":{"by":"path","order":"desc"}}),
     ] {
         let pages = walk_against_fresh(root.path(), fields.clone(), Some(2_500));
@@ -269,7 +269,7 @@ fn every_seek_page_equals_its_fresh_page_and_the_walk_joins_once() {
     // streamed cut) is a walk again.
     let pages = walk_against_fresh(
         root.path(),
-        serde_json::json!({"matchString":["needle"],"matchPage":2}),
+        serde_json::json!({"matchString":["needle"],"matchPage":2,"sort":{"by":"path","order":"asc"}}),
         Some(2_500),
     );
     // Match page `p` of a file starts at `(p - 1) × rows per match page`:
@@ -304,7 +304,7 @@ fn context_pages_from_the_stored_scan_show_every_line_once() {
     for (before, after) in [(3, 3), (0, 4), (4, 0)] {
         let pages = walk_against_fresh(
             root.path(),
-            serde_json::json!({"matchString":["needle"],"contextLines":{"before":before,"after":after}}),
+            serde_json::json!({"matchString":["needle"],"contextLines":{"before":before,"after":after},"sort":{"by":"path","order":"asc"}}),
             Some(2_500),
         );
         assert!(pages.len() > 2, "({before},{after})");
@@ -390,7 +390,7 @@ fn list_pages_from_a_whole_scan_match_their_fresh_pages() {
     settle();
     let pages = walk_against_fresh(
         root.path(),
-        serde_json::json!({"matchString":["needle"],"view":"files"}),
+        serde_json::json!({"matchString":["needle"],"view":"files","sort":{"by":"path","order":"asc"}}),
         Some(1_000),
     );
     assert!(pages.len() > 2);
@@ -469,8 +469,7 @@ fn a_classification_page_continued_without_classification_is_cut_from_its_whole_
         executor.handle().clone(),
         std::time::Duration::from_secs(5),
     );
-    let fields =
-        serde_json::json!({"matchString":["needle"],"contextLines":{"before":0,"after":0}});
+    let fields = serde_json::json!({"matchString":["needle"],"contextLines":{"before":0,"after":0},"sort":{"by":"path","order":"asc"}});
     let mut classified = fields.clone();
     classified["path"] = root.path().to_string_lossy().into_owned().into();
     classified["classification"] = serde_json::json!({"predicates": ["Is this kept?"]});

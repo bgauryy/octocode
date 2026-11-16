@@ -6,7 +6,7 @@ pub use envelope::envelope;
 pub(crate) use envelope::{placeholders_per_row, warn_redacted_rows};
 pub(crate) use recovery::{
     CANCELLED_HINT, GITHUB_AUTH_RECOVERY_HINT, LARGE_SOURCE_HINT, attach_diagnostics,
-    attach_error_hint, error_code_hint, note_error_hint,
+    attach_error_hint, error_code_hint, finish_error_row, note_error_hint,
 };
 pub(crate) use restart::require_restart;
 use serde_json::{Value, json};
@@ -34,6 +34,7 @@ pub(crate) fn result_row(index: usize, mut data: Value, status: Option<&str>) ->
     {
         data.remove("status");
     }
+    finish_error_row(&mut data);
     lead_with_error_identity(&mut data);
     let mut row = json!({"index":index,"data":data});
     if let Some(status) = status {
@@ -44,7 +45,7 @@ pub(crate) fn result_row(index: usize, mut data: Value, status: Option<&str>) ->
 
 /// Keys an error row states first, in this order: the shape of every error
 /// row, whichever tool or layer built it.
-const ERROR_LEAD: [&str; 2] = ["errorCode", "error"];
+const ERROR_LEAD: [&str; 3] = ["errorCode", "errorClass", "error"];
 
 /// Reorders an error row's `data` so [`ERROR_LEAD`] come first and the rest
 /// keep their order.
@@ -63,12 +64,6 @@ fn lead_with_error_identity(data: &mut Value) {
     }
     ordered.extend(std::mem::take(map));
     *map = ordered;
-}
-
-/// Row `errorCode`s that reject the caller's input (CLI exit 2): the request
-/// is wrong, so broadening or retrying it cannot help.
-pub fn is_invalid_input_code(code: &str) -> bool {
-    crate::id::error_class(code) == crate::id::error_codes::ErrorClass::InvalidInput
 }
 
 #[cfg(test)]

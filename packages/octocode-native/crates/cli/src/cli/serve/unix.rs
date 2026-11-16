@@ -7,12 +7,14 @@ mod identity;
 mod served;
 mod sockets;
 mod startup;
+mod surface;
 #[cfg(test)]
 mod tests;
 
-pub(in crate::cli) use client::call;
+pub(in crate::cli) use client::{Remote, Warm, call};
 pub(in crate::cli) use daemon::run;
 pub(in crate::cli) use sockets::{stop_all, stop_all_and_wait};
+pub(in crate::cli) use surface::Surface;
 
 use std::path::{Path, PathBuf};
 

@@ -3,7 +3,7 @@ mod scanned;
 mod settle;
 
 use super::cursor::cursor;
-use super::layout::{Layout, NamePricing};
+use super::layout::{Layout, NamePricing, Walking};
 use super::local_search_query;
 use super::page_view::{PageView, StoredPage};
 use super::probes::Alternates;
@@ -13,6 +13,7 @@ use super::verify::{
     redact_scan, validate_matched, verify_shown,
 };
 use crate::execution::cancel::CancellationCheck;
+use crate::id::ToolId;
 use crate::policy::path::PathPolicy;
 use crate::response::result::ToolError;
 use crate::security::ContentSecurity;
@@ -26,11 +27,12 @@ pub(super) use scanned::scan;
 pub(super) use scanned::scan_query;
 #[cfg(test)]
 pub(super) use scanned::{JUDGED_PATHS, test_held_limit};
-pub(super) use scanned::{Scanned, scan_resumed, search_options};
+pub(super) use scanned::{Scanned, scan_resumed, search_options, streamed};
 use serde_json::json;
 pub(super) use settle::search_stats;
 use settle::{Page, settle_row};
 use std::sync::Arc;
+use streamed::{WalkCut, walk_cut};
 
 /// One localSearch row; `selection` judges it under `classification`. A list
 /// `matchString` runs as the one regex query that finds the same lines.
@@ -141,7 +143,11 @@ pub(super) fn page_of(
             &scope,
             &mut scan.parsed,
             scan.page_budget,
-            (scan.stored_redaction.as_deref(), scan.reusable.is_some()),
+            (
+                scan.stored_redaction.as_deref(),
+                scan.reusable.is_some() && scan.stream.is_none(),
+                scan.stream.as_ref(),
+            ),
             &scan.learned,
             selection,
             &scan.identity,
@@ -164,15 +170,25 @@ pub(super) fn page_of(
         .selection
         .as_ref()
         .map(super::selection::Selected::token);
-    let (next, match_next, leftover_matches) = cursor(
-        query,
-        &view,
-        &scan.identity,
-        reusable,
-        std::mem::take(&mut scan.policy_key),
-        selection_token,
-        &|| cancel.check().is_err(),
-    )?;
+    let (next, match_next, leftover_matches) = if scan.stream.is_some() {
+        // A streamed page continues the walk, not a stored scan.
+        let next = super::cursor::walk_next(
+            query,
+            shaped.walk.as_ref(),
+            view.layout.offset + view.layout.length,
+        )?;
+        (next, None, false)
+    } else {
+        cursor(
+            query,
+            &view,
+            &scan.identity,
+            reusable,
+            std::mem::take(&mut scan.policy_key),
+            selection_token,
+            &|| cancel.check().is_err(),
+        )?
+    };
     cancel.check().map_err(ToolError::cancelled)?;
     let mut rows = annotate_rows(
         &scope,
@@ -206,7 +222,11 @@ pub(super) fn page_of(
     if let Some(call) = match_next {
         for file in &mut result.files {
             if file.pagination.as_ref().is_some_and(|page| page.has_more) {
-                file.next = Some(json!({"nextPage":call.clone()}));
+                file.next = Some(crate::response::collection::walk_calls(
+                    ToolId::LocalSearch,
+                    Some("files"),
+                    call.clone(),
+                ));
             }
         }
     }
@@ -289,6 +309,8 @@ pub(super) struct Shaped {
     pub(super) tally: Option<super::tally::Tally>,
     /// Scan-wide facts the row states (a `keyPath` scope's shared lines).
     pub(super) notes: Vec<String>,
+    /// Where a streamed page's walk goes on; `None` when it ended.
+    pub(super) walk: Option<WalkCut>,
 }
 
 /// Redact the scan, order it, cut the page, and verify what it shows.
@@ -306,7 +328,11 @@ pub(super) fn shape_page(
     scope: &PageScope<'_, impl CancellationCheck>,
     parsed: &mut octocode_engine::types::TextSearchResult,
     page_budget: usize,
-    (stored_redaction, fresh): (Option<&Redaction>, bool),
+    (stored_redaction, fresh, stream): (
+        Option<&Redaction>,
+        bool,
+        Option<&scanned::streamed::StreamFacts>,
+    ),
     learned: &super::manifest::Learned,
     selection: Option<&crate::tools::selection::Runtime>,
     identity: &str,
@@ -370,15 +396,25 @@ pub(super) fn shape_page(
     };
     let mut pricing = NamePricing::new(learned.prices.by_index(&parsed.files), &mut outline);
     // A selection keeps other rows than the stored scan's cut was made of.
-    let cuts = selection.is_none().then_some(&learned.cuts);
-    let layout = Layout::cut(
+    let cuts = (selection.is_none() && stream.is_none()).then_some(&learned.cuts);
+    let walking = stream.map(|facts| Walking {
+        start_row: facts.start_row,
+        ended: facts.ended,
+    });
+    let mut layout = Layout::cut(
         query,
         paths,
         output_root,
         parsed,
         page_budget,
-        (&mut pricing, cuts),
+        (&mut pricing, cuts, walking.as_ref()),
     )?;
+    // Where the walk goes on after this page, from the cut as made.
+    let walk = stream.and_then(|facts| {
+        let cut = walk_cut(facts, &parsed.files, &layout.shown, layout.list);
+        layout.walked(facts.listed, cut.is_some());
+        cut
+    });
     learned.prices.learn(&parsed.files, pricing.priced);
     for (index, _) in &layout.shown {
         validate_matched(paths, &output_root.join(&parsed.files[*index].path))?;
@@ -424,6 +460,7 @@ pub(super) fn shape_page(
         selection,
         tally: None,
         notes,
+        walk,
     })
 }
 
@@ -478,5 +515,6 @@ fn shape_stored_page(
         selection: None,
         tally: None,
         notes: Vec::new(),
+        walk: None,
     })
 }

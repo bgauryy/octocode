@@ -1,7 +1,7 @@
 use crate::response::outcome::ToolOutcome;
 
 use super::*;
-use crate::response::result::FailureKind;
+use crate::response::result::ErrorClass;
 use crate::response::stage::{isolate_output_rows, response_all_failed};
 
 fn mcp_from_rows(mut structured: Value) -> Value {
@@ -11,7 +11,7 @@ fn mcp_from_rows(mut structured: Value) -> Value {
         "ghCloneRepo",
         Ok(ToolOutcome {
             structured_content: crate::security::Sanitized::sealed(structured),
-            failure: Some(FailureKind::Execution),
+            failure: Some(ErrorClass::Unservable),
             all_failed,
             continued: None,
         }),

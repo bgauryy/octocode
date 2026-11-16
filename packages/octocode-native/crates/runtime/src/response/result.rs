@@ -3,9 +3,10 @@
 mod channel;
 mod error;
 mod typed_row;
+pub use crate::id::error_codes::ErrorClass;
 pub(crate) use channel::insert_next;
-pub use error::{FailureKind, ToolError};
-pub(crate) use error::{STALE_SNAPSHOT_ERROR, failure_kind, missing_path_lead};
+pub use error::ToolError;
+pub(crate) use error::{STALE_SNAPSHOT_ERROR, missing_path_lead};
 use serde::Serialize;
 use serde_json::Value;
 #[cfg(test)]
@@ -24,6 +25,7 @@ use octocode_contract_types::ToolQuery;
 /// fails at its source instead of failing whichever tool call publishes it.
 /// Release builds skip the check; publication still applies it.
 #[must_use]
+#[derive(Clone)]
 pub(crate) struct Continuation {
     tool: ToolId,
     call: Value,
@@ -503,6 +505,12 @@ fn runs_all_of(wider: &Value, narrower: &Value) -> bool {
 }
 
 /// Assemble a producer's explicitly typed private `calls` into public channels.
+/// [`finish_calls`] of an owned value, for a `map` over a row's result.
+pub(crate) fn finished(mut value: Value) -> Value {
+    finish_calls(&mut value);
+    value
+}
+
 pub(crate) fn finish_calls(value: &mut Value) {
     if let Some(calls) = value.as_object_mut().and_then(|row| row.remove("calls")) {
         attach_calls(value, calls);

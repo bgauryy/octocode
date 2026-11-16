@@ -49,6 +49,15 @@ impl GitRunner for FailingLsTree {
     ) -> Result<GitOutput, CloneError> {
         self.0.run_nul_records(request, control, record)
     }
+
+    fn run_stream(
+        &self,
+        request: &GitRunRequest<'_>,
+        control: &GitRunControl<'_>,
+        sink: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
+    ) -> Result<GitOutput, CloneError> {
+        self.0.run_stream(request, control, sink)
+    }
 }
 
 /// A sparse path whose type `ls-tree` cannot resolve fails the clone with

@@ -23,7 +23,7 @@ pub(super) fn cursor(
     policy_key: String,
     selection: Option<&str>,
     cancelled: &dyn Fn() -> bool,
-) -> Result<(Option<Value>, Option<Value>, bool), ToolError> {
+) -> Result<(Option<Value>, Option<Continuation>, bool), ToolError> {
     let page = local_search_query::page(query).max(1);
     let match_page = local_search_query::match_page(query).max(1);
     let layout = &view.layout;
@@ -65,6 +65,33 @@ pub(super) fn cursor(
     Ok((next, match_next, leftover_matches))
 }
 
+/// The call that continues a streamed page where its walk goes on
+/// ([`super::executor::streamed`]); `None` when the walk is over. `listed`
+/// counts the rows (files in list views) the pages so far showed.
+pub(super) fn walk_next(
+    query: &LocalSearchQuery,
+    cut: Option<&super::executor::streamed::WalkCut>,
+    listed: usize,
+) -> Result<Option<Value>, ToolError> {
+    let Some(cut) = cut else {
+        return Ok(None);
+    };
+    // A zero cursor position is its omission.
+    let position = |value: usize| (value > 0).then(|| json!(value));
+    let changes = json!({
+        "walkOffset": position(cut.walk as usize),
+        "rowOffset": position(cut.row),
+        "scanOffset": position(listed),
+        "snapshot": super::executor::streamed::snapshot_of(&cut.pin),
+    });
+    let next = local_search_query::edited(query, &changes)?;
+    Ok(Some(crate::response::collection::walk_calls(
+        ToolId::LocalSearch,
+        None,
+        Continuation::continued_query(next),
+    )))
+}
+
 /// A continuation whose snapshot no longer describes the source; `next.restart`
 /// reruns the query from its first page, without any cursor.
 pub(super) fn stale_snapshot(query: &LocalSearchQuery) -> ToolError {
@@ -91,8 +118,8 @@ pub(super) fn build_next(
     match_page: u32,
     snapshot: Option<&str>,
     selection: Option<&str>,
-) -> Result<(Option<Value>, Option<Value>), ToolError> {
-    let mut map = serde_json::Map::new();
+) -> Result<(Option<Value>, Option<Continuation>), ToolError> {
+    let mut map = json!({});
     let mut base = query_value(q);
     if let Some(token) = selection {
         base["selection"] = json!(token);
@@ -113,7 +140,7 @@ pub(super) fn build_next(
     let opens_file_group = match_page <= 1 || local_search_query::snapshot(q).is_none();
     if page < total_pages
         && (opens_file_group || next_match_page.is_none())
-        && let Some(call) = crate::response::paging::next_page_call(
+        && let Some(call) = crate::response::collection::continued_page(
             ToolId::LocalSearch,
             base.clone(),
             "page",
@@ -121,7 +148,7 @@ pub(super) fn build_next(
             &[("matchPage", json!(1))],
         )
     {
-        map.insert("nextPage".into(), call);
+        crate::response::collection::insert_walk(&mut map, ToolId::LocalSearch, None, call);
     }
     let match_next = next_match_page
         .map(|next_match_page| {
@@ -132,11 +159,13 @@ pub(super) fn build_next(
             if let Some(snapshot) = snapshot {
                 changes["snapshot"] = json!(snapshot);
             }
-            local_search_query::edited(q, &changes)
-                .map(|query| Continuation::continued_query(query).build())
+            local_search_query::edited(q, &changes).map(Continuation::continued_query)
         })
         .transpose()?;
-    Ok(((!map.is_empty()).then_some(Value::Object(map)), match_next))
+    Ok((
+        (map.as_object().is_some_and(|calls| !calls.is_empty())).then_some(map),
+        match_next,
+    ))
 }
 
 /// Snapshot identity: the [`query_key`] (the validated root plus every
@@ -224,10 +253,12 @@ pub(super) fn malformed_snapshot(query: &LocalSearchQuery) -> Option<ToolError> 
 /// carry the caller's intent: they stay out of [`query_key`], so a
 /// continuation may change them and keep its snapshot. Every other field
 /// is search semantics, including any field the contract adds later.
-const NON_SEMANTIC_FIELDS: [&str; 6] = [
+const NON_SEMANTIC_FIELDS: [&str; 8] = [
     "page",
     "matchPage",
     "scanOffset",
+    "walkOffset",
+    "rowOffset",
     "snapshot",
     "selection",
     "classification",

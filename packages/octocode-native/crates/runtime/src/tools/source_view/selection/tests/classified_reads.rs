@@ -153,12 +153,12 @@ fn unfiltered_unknown_reads_exactly_the_unknown_chunks_beside_the_whole_view() {
         (2, 1, 2)
     );
     let next = result.next.expect("recovery");
+    // The unknown chunks are the same read replaying the selection's
+    // undecided view, not a rewritten `ranges` read.
     let unknown = next.unfiltered_unknown.expect("unknown chunks").query;
-    assert_eq!(
-        serde_json::to_value(&unknown).unwrap()["ranges"],
-        json!([{"startLine":3,"endLine":4}])
-    );
-    assert!(!local_fetch_query::has_classification(&unknown));
+    assert!(local_fetch_query::has_classification(&unknown));
+    assert!(local_fetch_query::selection(&unknown).is_some());
+    assert!(local_fetch_query::line_ranges(&unknown).is_empty());
     let whole = next.unfiltered.expect("whole view").query;
     assert!(!local_fetch_query::has_classification(&whole));
     assert!(local_fetch_query::line_ranges(&whole).is_empty());
@@ -250,11 +250,10 @@ fn a_candidate_page_keeps_the_snapshot_its_query_pins() {
     );
 }
 
-/// Unknown chunks past one row's `ranges` are not dropped:
-/// `unfilteredUnknown` reads the first ranges and `unfilteredUnknown2`,
-/// … read the rest.
+/// However many unknown chunks a page leaves, `unfilteredUnknown` is one
+/// replay that lists every one of them, none dropped past a row's `ranges`.
 #[test]
-fn every_unknown_range_has_a_read_past_one_row() {
+fn one_replay_lists_every_unknown_chunk() {
     let words = (0..30)
         .map(|i| if i % 2 == 0 { "maybe" } else { "keep" })
         .collect::<Vec<_>>();
@@ -262,29 +261,36 @@ fn every_unknown_range_has_a_read_past_one_row() {
     let query = json!({"path":"source.txt",
         "classification":{"predicates":["Is it kept?"]}});
     let result = budgeted_read(&text, &query, 64);
-    let next = serde_json::to_value(result.next.expect("leads")).unwrap();
-    let mut ranges = Vec::new();
-    for name in [
-        "unfilteredUnknown",
-        "unfilteredUnknown2",
-        "unfilteredUnknown3",
-    ] {
-        for row in next[name]["input"]["queries"]
-            .as_array()
-            .into_iter()
-            .flatten()
-        {
-            ranges.extend(row["ranges"].as_array().unwrap().iter().cloned());
-        }
+    let next = result.next.expect("leads");
+    let replay = serde_json::to_value(&next.unfiltered_unknown.expect("replay").query).unwrap();
+    let mut replayed = budgeted_read(&text, &replay, 64);
+    let (mut maybe, mut keep) = (0, 0);
+    let mut pages = 0;
+    loop {
+        assert_eq!(replayed.error_code, None, "{replayed:?}");
+        let shown = replayed.content.as_deref().unwrap_or_default();
+        maybe += shown.matches("maybe").count();
+        keep += shown.matches("keep").count();
+        pages += 1;
+        let Some(page) = replayed
+            .next
+            .as_ref()
+            .and_then(|next| next.continue_window.as_ref())
+        else {
+            break;
+        };
+        assert!(pages < 10, "the pages end");
+        let page = serde_json::to_value(&page.query).unwrap();
+        replayed = budgeted_read(&text, &page, 64);
     }
-    let expected = (0..30)
-        .step_by(2)
-        .map(|i| json!({"startLine":i+1,"endLine":i+1}))
-        .collect::<Vec<_>>();
-    assert_eq!(ranges, expected, "{next}");
+    assert_eq!((maybe, keep), (15, 0), "{pages} pages");
     assert!(
-        next["unfiltered"]["input"]["queries"][0]
-            .get("ranges")
-            .is_none()
+        replayed.selection.is_none(),
+        "an undecided view has no receipt"
+    );
+    assert!(
+        replayed
+            .next
+            .is_none_or(|next| next.unfiltered_unknown.is_none())
     );
 }

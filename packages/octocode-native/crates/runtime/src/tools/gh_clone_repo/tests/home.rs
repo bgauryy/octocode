@@ -22,6 +22,15 @@ impl GitRunner for UnreachableGit {
     ) -> Result<GitOutput, CloneError> {
         panic!("git must not run here: {request:?}")
     }
+
+    fn run_stream(
+        &self,
+        request: &GitRunRequest<'_>,
+        _control: &GitRunControl<'_>,
+        _sink: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
+    ) -> Result<GitOutput, CloneError> {
+        panic!("git must not run here: {request:?}")
+    }
 }
 
 /// A runner whose `git --version` prints `banner`; any other step fails the
@@ -49,6 +58,15 @@ impl GitRunner for VersionGit {
         request: &GitRunRequest<'_>,
         _control: &GitRunControl<'_>,
         _record: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
+    ) -> Result<GitOutput, CloneError> {
+        panic!("git must not run here: {request:?}")
+    }
+
+    fn run_stream(
+        &self,
+        request: &GitRunRequest<'_>,
+        _control: &GitRunControl<'_>,
+        _sink: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
     ) -> Result<GitOutput, CloneError> {
         panic!("git must not run here: {request:?}")
     }

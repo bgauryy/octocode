@@ -2,7 +2,7 @@
 //! itself.
 
 use crate::error::{Error, ErrorKind, Result};
-use crate::search::walk::{IgnoreRules, walk_builder};
+use crate::search::walk::{DirRules, IgnoreRules, ListedRules, Probe, walk_builder};
 use crate::types::IgnorePolicy;
 use crate::types::{SearchSort, TextSearchOptions};
 use ignore::WalkBuilder;
@@ -17,7 +17,7 @@ use std::time::SystemTime;
 /// `--sort`/`--sortr` deterministically.
 pub(super) fn build_walk_builder(
     opts: &TextSearchOptions,
-) -> Result<(WalkBuilder, Option<EntryRule>)> {
+) -> Result<(WalkBuilder, Option<EntryRule>, Selection)> {
     let mut wb = walk_builder(
         Path::new(&opts.path),
         IgnorePolicy::ALL,
@@ -25,6 +25,7 @@ pub(super) fn build_walk_builder(
         opts.max_depth.map(|max_depth| max_depth as usize + 1),
     );
 
+    let mut selection = Selection::default();
     let mut rule = EntryRule {
         overrides: None,
         types: None,
@@ -39,6 +40,7 @@ pub(super) fn build_walk_builder(
             .build()
             .map_err(|error| Error::with_kind(ErrorKind::InvalidInput, error.to_string()))?;
         wb.types(types.clone());
+        selection.types = Some(types.clone());
         rule.types = Some(types);
     }
 
@@ -52,10 +54,46 @@ pub(super) fn build_walk_builder(
         )?
         .overrides();
         wb.overrides(overrides.clone());
+        selection.overrides = Some(overrides.clone());
         rule.overrides = Some(overrides);
     }
 
-    Ok((wb, (rule.hidden || rule.ignored.is_some()).then_some(rule)))
+    Ok((
+        wb,
+        (rule.hidden || rule.ignored.is_some()).then_some(rule),
+        selection,
+    ))
+}
+
+/// What the `ignore` walker drops inside itself, apart from the ignore and
+/// dot rules the search applies: the include and exclude globs, and the
+/// `language` type. A walk of its own applies it the way the walker does, so
+/// what it drops is silent, as it is there.
+#[derive(Clone, Default)]
+pub(super) struct Selection {
+    overrides: Option<Override>,
+    types: Option<Types>,
+}
+
+impl Selection {
+    /// Whether the walker drops the entry `path` before the search sees it:
+    /// a glob that leaves it out, or, when no glob selects it, a type that
+    /// does not hold it.
+    pub(super) fn prunes(&self, path: &Path, is_dir: bool) -> bool {
+        if let Some(overrides) = self.overrides.as_ref().filter(|o| !o.is_empty()) {
+            let matched = overrides.matched(path, is_dir);
+            if matched.is_ignore() {
+                return true;
+            }
+            if matched.is_whitelist() {
+                return false;
+            }
+        }
+        self.types
+            .as_ref()
+            .filter(|types| !types.is_empty())
+            .is_some_and(|types| types.matched(path, is_dir).is_ignore())
+    }
 }
 
 /// Why the walk leaves an entry out on its own (see [`EntryRule`]).
@@ -93,11 +131,25 @@ impl EntryRule {
             .unwrap_or_default()
     }
 
-    pub(super) fn skips(&self, dent: &ignore::DirEntry, is_dir: bool) -> Option<Skipped> {
-        if dent.depth() == 0 {
+    /// The rules of the directory `dir` a walk enters, from what its
+    /// listing shows of its rule files; `None` with `includeIgnored`.
+    pub(super) fn enter(&self, dir: &Path, listed: Option<ListedRules>) -> Option<DirRules> {
+        self.ignored.as_ref().map(|rules| rules.enter(dir, listed))
+    }
+
+    /// Whether the rules leave `entry` out, and which. With `rules` (its
+    /// directory's, [`Self::enter`]) the decision has no cache lookup; both
+    /// decide the same, and neither has an effect.
+    pub(super) fn skips(
+        &self,
+        rules: Option<&DirRules>,
+        entry: Probe<'_>,
+        is_dir: bool,
+    ) -> Option<Skipped> {
+        if entry.depth == 0 {
             return None;
         }
-        let path = dent.path();
+        let path = entry.path;
         if self
             .overrides
             .as_ref()
@@ -105,9 +157,13 @@ impl EntryRule {
         {
             return None;
         }
-        let decided = self.ignored.as_ref().map_or(ignore::Match::None, |rules| {
-            rules.decide_entry(path, is_dir)
-        });
+        let decided = self
+            .ignored
+            .as_ref()
+            .map_or(ignore::Match::None, |ignored| match rules {
+                Some(rules) => ignored.decide_in(rules, path, is_dir),
+                None => ignored.decide_entry(path, is_dir),
+            });
         if decided.is_ignore() {
             return Some(Skipped::Ignored);
         }
@@ -116,20 +172,22 @@ impl EntryRule {
                 .types
                 .as_ref()
                 .is_some_and(|types| types.matched(path, is_dir).is_whitelist());
-        (self.hidden && !selected && is_hidden(dent)).then_some(Skipped::Hidden)
+        (self.hidden && !selected && is_hidden(path)).then_some(Skipped::Hidden)
     }
 }
 
-fn is_hidden(dent: &ignore::DirEntry) -> bool {
-    if dent.file_name().as_encoded_bytes().first() == Some(&b'.') {
+fn is_hidden(path: &Path) -> bool {
+    if path
+        .file_name()
+        .is_some_and(|name| name.as_encoded_bytes().first() == Some(&b'.'))
+    {
         return true;
     }
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt as _;
         const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
-        if dent
-            .metadata()
+        if std::fs::symlink_metadata(path)
             .is_ok_and(|meta| meta.file_attributes() & FILE_ATTRIBUTE_HIDDEN != 0)
         {
             return true;
@@ -138,17 +196,11 @@ fn is_hidden(dent: &ignore::DirEntry) -> bool {
     false
 }
 
-pub(super) fn capture_sort_time(
-    opts: &TextSearchOptions,
-    entry: &ignore::DirEntry,
-) -> Option<SystemTime> {
+pub(super) fn capture_sort_time(opts: &TextSearchOptions, path: &Path) -> Option<SystemTime> {
     match opts.sort {
-        SearchSort::Modified => entry.metadata().ok()?.modified().ok(),
-        SearchSort::Accessed => entry.metadata().ok()?.accessed().ok(),
-        SearchSort::Created => entry.metadata().ok()?.created().ok(),
-        SearchSort::Path
-        | SearchSort::Traversal
-        | SearchSort::Relevance
-        | SearchSort::MatchCount => None,
+        SearchSort::Modified => std::fs::symlink_metadata(path).ok()?.modified().ok(),
+        SearchSort::Accessed => std::fs::symlink_metadata(path).ok()?.accessed().ok(),
+        SearchSort::Created => std::fs::symlink_metadata(path).ok()?.created().ok(),
+        SearchSort::Path | SearchSort::Traversal | SearchSort::MatchCount => None,
     }
 }

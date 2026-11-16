@@ -26,7 +26,7 @@ For a two-line README starting with `# Example project`, the response is
 | `data` with no `status` | The query returned evidence. Check for pagination and coverage warnings. |
 | `status: "empty"` | The query found nothing in its stated scope. |
 | `status: "outOfRange"` | The requested page is beyond the available collection. A file range that starts beyond the end instead reports invalid input. |
-| `status: "error"` | Read `data.errorCode`, `data.error`, hints and any recovery calls. Valid siblings in a mixed batch can still succeed. |
+| `status: "error"` | Read `data.errorCode`, `data.errorClass`, `data.error`, hints and any recovery calls. Valid siblings in a mixed batch can still succeed. |
 
 Use `octocode schema <tool> --view variants` for examples, `--select operation=<value>` to narrow a schema, and `--view output` for result fields. Native validation accepts some unambiguous input repairs. Each repaired call runs, and one warning per repair states the field and form that ran, such as a common field mapped to a declared one or `"matchString":"x"` read as `["x"]`. Correct ambiguous input using the reported field error. An invalid envelope can fail before producing rows. [CLI exit codes](OCTOCODE_CLI.md#exit-codes)
 

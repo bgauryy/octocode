@@ -13,10 +13,10 @@ fn run(root: &std::path::Path, query: Value) -> Result<Value, ToolError> {
     execute_ast(&query, &paths, &security, &NeverCancel, None)
 }
 
-/// A Latin-1 source named alone fails every operation with one reader-facing
-/// message naming the file and the encoding, never an engine type name.
+/// A Latin-1 source named alone is read as a directory scan reads it: every
+/// operation answers, and says it decoded the file as Latin-1.
 #[test]
-fn a_non_unicode_source_names_its_encoding_in_every_operation() {
+fn a_legacy_source_is_read_and_names_its_decoding_in_every_operation() {
     let root = Fixture::new();
     let file = root.0.join("latin1.ts");
     std::fs::write(
@@ -29,14 +29,22 @@ fn a_non_unicode_source_names_its_encoding_in_every_operation() {
         json!({"operation":"symbols","path":file}),
         json!({"operation":"syntaxTree","path":file}),
     ] {
-        let error = run(&root.0, query.clone()).expect_err("not Unicode");
-        assert_eq!(error.code, ErrorCode::FileReadFailed, "{query}");
-        assert_eq!(
-            error.message,
-            "Could not read latin1.ts as source text: not valid UTF-8 or BOM-marked UTF-16 text.",
-            "{query}"
+        let out = run(&root.0, query.clone()).expect("legacy text is read");
+        assert!(
+            out.to_string()
+                .contains(octocode_engine::text::LATIN1_WARNING),
+            "{query}: {out}"
         );
     }
+    // Binary content stays refused, under the one binary code.
+    let binary = root.0.join("bin.ts");
+    std::fs::write(&binary, b"export const s = 1;\0").expect("binary");
+    let error = run(
+        &root.0,
+        json!({"operation":"match","path":binary,"rule":{"kind":"function_declaration"}}),
+    )
+    .expect_err("binary");
+    assert_eq!(error.code, ErrorCode::BinaryFileUnsupported);
 }
 
 /// The recovery of a file with no grammar names the input field that sets

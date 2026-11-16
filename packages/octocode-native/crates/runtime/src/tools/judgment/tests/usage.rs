@@ -101,16 +101,23 @@ fn selection_preserves_sibling_decisions_and_accounts_for_every_request() {
     let server = executor.block_on(MockServer::start());
     executor.block_on(async {
         Mock::given(method("POST")).respond_with(|request: &Request| {
+            // One request per candidate (a unit group holds one unit): the
+            // question is about its own state; "fail" gets no answer.
             let request: Value = request.body_json().unwrap();
-            if request["state"]["text"] == "fail" {
-                return ResponseTemplate::new(200).set_body_json(json!({"model":"resolved","answers":{}}));
-            }
-            let criteria = request["questions"]["answer"]["criteria"].as_array().unwrap();
-            let legend: serde_json::Map<String,Value> = criteria.iter().enumerate().map(|(index, value)| (index.to_string(), value.clone())).collect();
-            let probabilities: serde_json::Map<String,Value> = criteria.iter().enumerate().map(|(index, _)| (index.to_string(),json!(if index == if request["state"]["text"] == "second" { 2 } else { 0 } { 1.0 } else { 0.0 }))).collect();
+            let text = request["state"]["text"].as_str().unwrap();
+            let answers: serde_json::Map<String, Value> = request["questions"].as_object().unwrap().iter().filter_map(|(key, question)| {
+                if text.contains("fail") {
+                    return None;
+                }
+                let second = text.contains("second");
+                let criteria = question["criteria"].as_array().unwrap();
+                let legend: serde_json::Map<String,Value> = criteria.iter().enumerate().map(|(index, value)| (index.to_string(), value.clone())).collect();
+                let probabilities: serde_json::Map<String,Value> = criteria.iter().enumerate().map(|(index, _)| (index.to_string(),json!(if index == if second { 2 } else { 0 } { 1.0 } else { 0.0 }))).collect();
+                Some((key.clone(), json!({"type":"score","score":if second {2.0} else {0.0},"confidence":0.7,"legend":legend,"probabilities":probabilities})))
+            }).collect();
             ResponseTemplate::new(200).set_delay(Duration::from_millis(60)).set_body_json(json!({
                 "model":"resolved","usage":{"input_tokens":10,"output_tokens":2},
-                "answers":{"answer":{"type":"score","score":if request["state"]["text"] == "second" {2.0} else {0.0},"confidence":0.7,"legend":legend,"probabilities":probabilities}}
+                "answers":answers
             }))
         }).expect(3).mount(&server).await;
     });
@@ -147,7 +154,8 @@ fn selection_preserves_sibling_decisions_and_accounts_for_every_request() {
     assert!(outcome.receipt.reason.is_some());
     assert_eq!(
         executor.block_on(server.received_requests()).unwrap().len(),
-        3
+        3,
+        "one request per candidate"
     );
 }
 

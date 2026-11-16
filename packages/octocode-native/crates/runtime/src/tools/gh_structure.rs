@@ -3,6 +3,7 @@
 use crate::id::ToolId;
 use crate::response::result::ToolData;
 use crate::response::result::query_row;
+use crate::tools::gh_git::blobs::BlobSource;
 use crate::tools::gh_shared::{
     GhFailure, PathRecovery, RepoPath, default_branch, locate_path, missing_path, parent_dir,
     push_warning_front, read_failure_scope, search_failure, tree_recovery, with_read_recovery,
@@ -36,12 +37,13 @@ pub async fn run(
     query: &GhStructureQuery,
     request: Result<&RequestContext, ProviderError>,
     home: &Path,
+    blobs: Option<&BlobSource>,
 ) -> Result<ToolData, GhFailure> {
     if let GhStructureQuery::Tree(query) = query {
-        return run_tree(provider, query, request, home).await;
+        return run_tree(provider, query, request, home, blobs).await;
     }
     let context = request.map_err(search_failure)?;
-    let error = match execute(provider, query, context, home).await {
+    let error = match execute(provider, query, context, home, blobs).await {
         Ok(output) => return Ok(output),
         Err(error) => error,
     };
@@ -77,10 +79,11 @@ pub(crate) async fn execute(
     query: &GhStructureQuery,
     context: &RequestContext,
     home: &Path,
+    blobs: Option<&BlobSource>,
 ) -> Result<ToolData, ProviderError> {
     match query {
         GhStructureQuery::Tree(query) => {
-            execute_tree(provider, query, context, home, &mut None).await
+            execute_tree(provider, query, context, home, blobs, &mut None).await
         }
         GhStructureQuery::Refs(query) => refs::refs(provider, query, context).await,
         GhStructureQuery::Languages(query) => refs::languages(provider, query, context).await,
@@ -95,12 +98,13 @@ async fn run_tree(
     query: &GhStructureQueryTree,
     request: Result<&RequestContext, ProviderError>,
     home: &Path,
+    blobs: Option<&BlobSource>,
 ) -> Result<ToolData, GhFailure> {
     let context = request.map_err(search_failure)?;
     let listed = listed_at(query).map_err(search_failure)?;
     let query = listed.as_ref().unwrap_or(query);
     let mut read_commit = None;
-    let error = match execute_tree(provider, query, context, home, &mut read_commit).await {
+    let error = match execute_tree(provider, query, context, home, blobs, &mut read_commit).await {
         Ok(output) => return Ok(output),
         Err(error) => error,
     };
@@ -183,16 +187,24 @@ fn listed_at(query: &GhStructureQueryTree) -> Result<Option<GhStructureQueryTree
     }))
 }
 
-const CONTENTS_LIMIT: usize = 1000;
-/// GitHub reads one listing step (a walk level, a materialize chunk) sends
-/// at once; the global request semaphore still bounds the total.
-const READ_CONCURRENCY: usize = 8;
+use crate::tools::gh_shared::CONTENTS_LIMIT;
+/// GitHub reads one listing step (a walk level, a materialize chunk) sends at
+/// once: the request budget's own concurrency, so a step keeps every permit
+/// busy and no read waits on a permit the step itself holds.
+fn read_concurrency(provider: &GitHubProvider) -> usize {
+    provider.transport.read_concurrency()
+}
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 struct TreeEntry {
     path: String,
     kind: EntryKind,
     size: Option<u64>,
+    /// The git blob id of a file at the listed commit. A materialize
+    /// fetches these through git; a listing that did not name one
+    /// (`None`, as in a saved older one) reads the file over REST.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    oid: Option<String>,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 enum EntryKind {

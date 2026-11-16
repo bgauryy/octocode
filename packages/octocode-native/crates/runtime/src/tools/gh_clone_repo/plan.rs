@@ -1,11 +1,12 @@
 //! One fresh clone: resolve its destination, hold its lock and publish a verified checkout.
 use super::checkout::{fresh_clone, reuse_checkout};
-use super::validate::{repository_url, validate_query, web_root};
+use super::validate::validate_query;
 use super::{
     CloneContext, CloneError, CloneLocation, CloneResult, GhCloneRepoQuery, Sparse, check_control,
     control, history_depth, policy_denied, storage,
 };
 use crate::policy::PolicyErrorCode;
+use crate::tools::gh_git::endpoint::{repository_url, web_root};
 use octocode_contract_types::ErrorCode;
 use std::path::{Path, PathBuf};
 

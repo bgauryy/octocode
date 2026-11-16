@@ -42,6 +42,7 @@ fn parse(json: &str) -> GhSearchHistoryQuery {
     serde_json::from_str(json).expect("GitHub history search test data should be valid")
 }
 
+mod judged_text;
 mod provider;
 mod shaping;
 mod terms;

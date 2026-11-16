@@ -1,5 +1,6 @@
-//! What keys a server: the build, the workspace, and the call identity
-//! drawn from the configuration and the environment.
+//! What keys a server: the build, the workspace and the process
+//! environment. What keys a runtime inside it: the configuration identity
+//! and the call's whole environment.
 
 use octocode_native::config::SHELL_DIRECTORY_ENV;
 use std::collections::BTreeMap;
@@ -14,28 +15,39 @@ pub(super) fn served_env(mut env: BTreeMap<String, String>) -> BTreeMap<String, 
     env
 }
 
-/// A digest of what a server shares between the calls it answers: the
-/// config module's identity, every `OCTOCODE_*` variable, and the variables
-/// the engine reads from the server's own process instead of the call's
-/// environment ([`PROCESS_ENV`], [`octocode_io::http::NETWORK_ENV`]).
+/// What a runtime keeps its calls under: the configuration identity
+/// ([`octocode_native::config::ConfigOutput::identity_digest`], which covers
+/// every declared `OCTOCODE_*` name, both home files and the workspace's
+/// rc file). It keys the runtime, not the socket: a call under another
+/// configuration reaches the same server and gets its own runtime.
+pub(super) fn call_identity(config: &octocode_native::config::ConfigOutput) -> String {
+    config.identity_digest()
+}
+
+/// A digest of the variables the engine reads from a server's own process
+/// ([`PROCESS_ENV`]) and from the environment the HTTP clients are built
+/// from ([`octocode_io::http::NETWORK_ENV`]) that are set in `env`. A call
+/// cannot bring its own values of these, so another value is another
+/// server; the server checks it against its own ([`own_process_identity`]).
 ///
 /// [`PROCESS_ENV`]: octocode_engine::process_env::PROCESS_ENV
-pub(super) fn call_identity(
-    config: &octocode_native::config::ConfigOutput,
-    env: &BTreeMap<String, String>,
-) -> String {
+pub(super) fn process_identity(env: &BTreeMap<String, String>) -> String {
     use std::fmt::Write as _;
-    let mut identity = config.identity_digest();
+    let mut identity = String::new();
     for (name, value) in env {
         let name = name.as_str();
         if octocode_io::http::NETWORK_ENV.contains(&name)
             || octocode_engine::process_env::declares(name)
-            || name.starts_with("OCTOCODE_")
         {
-            let _ = write!(identity, "\n{name}={value}");
+            let _ = writeln!(identity, "{name}={value}");
         }
     }
     octocode_engine::digest::sha256(identity.as_bytes())
+}
+
+/// [`process_identity`] of this process.
+pub(super) fn own_process_identity() -> String {
+    process_identity(&served_env(octocode_io::env::vars_lossy()))
 }
 
 /// A digest of a whole environment: the runtimes a server keeps are told
@@ -60,33 +72,45 @@ pub(super) fn workspace_of(cwd: &Path) -> PathBuf {
         .to_path_buf()
 }
 
-/// This binary by real path, version, size and modification time: a
-/// rebuild is another build, and every path that reaches the same file (a
-/// symlink, a relative or `..` spelling) is the same build, so it reaches
-/// the same server and its warm language servers.
+/// This binary by file, version, size and modification time: the file is
+/// its device and inode, so every path that reaches it (a symlink, a
+/// relative or `..` spelling, a hard link) is the same build and reaches the
+/// same server and its warm language servers. A copy is another file, so
+/// another build with its own server. Version, size and time tell a file
+/// overwritten in place from the build that started a server. No path is
+/// in it: moving a binary keeps its server.
 pub(super) fn exe_identity() -> Option<String> {
     build_identity(&std::env::current_exe().ok()?)
 }
 
 /// [`exe_identity`] of the binary at `exe`.
 pub(super) fn build_identity(exe: &Path) -> Option<String> {
-    let exe = std::fs::canonicalize(exe).ok()?;
-    let meta = std::fs::metadata(&exe).ok()?;
+    file_identity(&std::fs::metadata(exe).ok()?, env!("CARGO_PKG_VERSION"))
+}
+
+/// The build `meta` describes, as `version` of the program.
+pub(super) fn file_identity(meta: &std::fs::Metadata, version: &str) -> Option<String> {
+    use std::os::unix::fs::MetadataExt;
     let built = meta
         .modified()
         .ok()
         .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
         .map_or(0, |age| age.as_nanos());
     Some(format!(
-        "{}|{}|{}|{built}",
-        exe.display(),
-        env!("CARGO_PKG_VERSION"),
+        "{}:{}|{version}|{}|{built}",
+        meta.dev(),
+        meta.ino(),
         meta.len()
     ))
 }
 
-/// 16 hex digits over the build, the workspace and the call identity.
-pub(super) fn server_key(exe: &str, workspace: &Path, identity: &str) -> String {
-    let key = format!("{exe}\n{}\n{identity}", workspace.display());
+/// Salt of [`server_key`]: a change of what the key means bumps it, so a
+/// new client never reaches a server of the old meaning, which idles out.
+const KEY_VERSION: &str = "serve-key-2";
+
+/// 16 hex digits over the build, the workspace and the process identity
+/// ([`process_identity`]).
+pub(super) fn server_key(exe: &str, workspace: &Path, process: &str) -> String {
+    let key = format!("{KEY_VERSION}\n{exe}\n{}\n{process}", workspace.display());
     octocode_engine::digest::sha256(key.as_bytes())[..16].to_owned()
 }

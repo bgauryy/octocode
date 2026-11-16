@@ -2,6 +2,7 @@
 use super::*;
 use crate::graph::GraphReceiverCall;
 use crate::num::saturating_u32;
+use crate::signatures::node_kinds::kind_of;
 
 /// A Rust function's declared return type and the type `?` yields from it,
 /// as receiver types spell them (`Self` is the enclosing impl's type). An
@@ -12,12 +13,12 @@ pub(in crate::signatures::graph_facts) fn rust_return_types(
     ancestors: &[Node<'_>],
     content: &str,
 ) -> (Option<String>, Option<String>) {
-    let written = matches!(node.kind(), "function_item" | "function_signature_item")
+    let written = matches!(kind_of(node), "function_item" | "function_signature_item")
         .then(|| node.child_by_field_name("return_type"))
         .flatten()
         .and_then(|ty| node_text(ty, content));
     let asynchronous = named_children(node).iter().any(|child| {
-        child.kind() == "function_modifiers"
+        kind_of(child) == "function_modifiers"
             && node_text(*child, content).is_some_and(|text| text.contains("async"))
     });
     let Some(written) = written.filter(|_| !asynchronous) else {
@@ -28,7 +29,7 @@ pub(in crate::signatures::graph_facts) fn rust_return_types(
         if ty != "Self" {
             return Some(ty);
         }
-        let implementation = ancestors.iter().rev().find(|n| n.kind() == "impl_item")?;
+        let implementation = ancestors.iter().rev().find(|n| kind_of(*n) == "impl_item")?;
         clean_type_text(
             node_text(implementation.child_by_field_name("type")?, content)?,
             Lang::Rust,
@@ -42,7 +43,7 @@ pub(in crate::signatures::graph_facts) fn rust_return_types(
 fn value_call(value: Node<'_>) -> Option<(Node<'_>, bool)> {
     let (mut value, mut unwrap) = (value, false);
     loop {
-        value = match value.kind() {
+        value = match kind_of(value) {
             "parenthesized_expression" => value.named_child(0)?,
             "reference_expression" => value.child_by_field_name("value")?,
             "try_expression" if !unwrap => {
@@ -68,7 +69,7 @@ impl<'t> ReceiverTypes<'t> {
     pub(super) fn rust_bindings(&self, up: Up<'_, 't>, content: &str, out: &mut Vec<Binding>) {
         let node = up.node;
         let pattern = node.child_by_field_name("pattern");
-        match node.kind() {
+        match kind_of(node) {
             "parameter" => {
                 let Some(pattern) = pattern else { return };
                 let until = up.nth(2).unwrap_or(node);
@@ -81,7 +82,7 @@ impl<'t> ReceiverTypes<'t> {
                 let until = up.nth(1).unwrap_or(node).end_byte();
                 let mut cursor = node.walk();
                 for child in node.named_children(&mut cursor) {
-                    if child.kind() != "parameter" {
+                    if kind_of(child) != "parameter" {
                         bind_pattern(child, None, child.end_byte(), until, content, out);
                     }
                 }
@@ -99,10 +100,10 @@ impl<'t> ReceiverTypes<'t> {
                 let value_call = node
                     .child_by_field_name("value")
                     .and_then(value_call)
-                    .filter(|(value, _)| ty.is_none() && value.kind() == "call_expression")
+                    .filter(|(value, _)| ty.is_none() && kind_of(value) == "call_expression")
                     .map(|(value, unwrap)| call_reference(value, unwrap));
                 bind_pattern(pattern, ty, node.end_byte(), until, content, out);
-                if pattern.kind() == "identifier"
+                if kind_of(pattern) == "identifier"
                     && let Some(binding) = out.last_mut()
                 {
                     binding.value_call = value_call;
@@ -145,7 +146,7 @@ impl<'t> ReceiverTypes<'t> {
     /// The declared type of the file-level `static` or `const` named `name`.
     pub(super) fn rust_item_type(&self, name: &str, content: &str) -> Option<String> {
         let item = named_children(self.root).into_iter().find(|item| {
-            matches!(item.kind(), "static_item" | "const_item")
+            matches!(kind_of(item), "static_item" | "const_item")
                 && item
                     .child_by_field_name("name")
                     .and_then(|n| node_text(n, content))
@@ -167,13 +168,13 @@ impl<'t> ReceiverTypes<'t> {
         content: &str,
     ) -> Option<GraphReceiverCall> {
         let function = call.child_by_field_name("function")?;
-        let function = if function.kind() == "generic_function" {
+        let function = if kind_of(function) == "generic_function" {
             function.child_by_field_name("function")?
         } else {
             function
         };
         let (receiver, unwrap) = value_call(self.lang.member_parts(function)?.0)?;
-        match receiver.kind() {
+        match kind_of(receiver) {
             "call_expression" => Some(call_reference(receiver, unwrap)),
             "identifier" if !typed => {
                 let name = node_text(receiver, content)?;
@@ -211,7 +212,7 @@ impl<'t> ReceiverTypes<'t> {
     pub(super) fn rust_constructor(&self, value: Node<'t>, content: &str) -> Option<String> {
         let mut value = value;
         loop {
-            value = match value.kind() {
+            value = match kind_of(value) {
                 "try_expression" | "await_expression" | "parenthesized_expression" => {
                     value.named_child(0)?
                 }
@@ -219,10 +220,10 @@ impl<'t> ReceiverTypes<'t> {
                 _ => break,
             };
         }
-        let ty = match value.kind() {
+        let ty = match kind_of(value) {
             "call_expression" => {
                 let function = value.child_by_field_name("function")?;
-                if function.kind() != "scoped_identifier" {
+                if kind_of(function) != "scoped_identifier" {
                     return None;
                 }
                 let name = node_text(function.child_by_field_name("name")?, content)?;

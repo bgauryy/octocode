@@ -122,9 +122,10 @@ pub(in super::super) fn offer_next_page(
         query,
         &json!({"page": next.page, "snapshot": next.snapshot}),
     ) {
-        crate::response::result::insert_next(
+        crate::response::collection::insert_walk(
             &mut row["next"],
-            octocode_contract_types::LspSearchChannel::NextPage,
+            crate::id::ToolId::LspSearch,
+            None,
             crate::response::result::Continuation::continued_query(page),
         );
     }

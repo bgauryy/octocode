@@ -92,7 +92,7 @@ fn a_time_cut_window_states_the_cut_once_on_the_page_that_resumes_the_walk() {
         let mut out = json!({});
         let mut warnings = Vec::new();
         cut.finish(&mut out, &files_query(), &mut warnings);
-        let out = super::super::output::finish(out);
+        let out = crate::response::result::finished(out);
         let last = page == total_pages;
         let stated = warnings
             .iter()

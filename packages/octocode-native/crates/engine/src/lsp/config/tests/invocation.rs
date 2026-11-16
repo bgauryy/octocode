@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn keeps_unknown_server_commands_unchanged() {
     assert_eq!(
-        resolve_known_server_command("definitely-not-an-octocode-server"),
+        resolve_known_server_command("definitely-not-an-octocode-server", &process_path()),
         "definitely-not-an-octocode-server"
     );
 }
@@ -28,9 +28,15 @@ fn wraps_non_executable_typescript_cli_with_current_node() {
         panic!("temporary cli path is not utf-8");
     };
 
-    let (command, args, _) =
-        resolve_server_invocation(cli_str, vec!["--stdio".to_owned()], root_str, false, None);
-    assert_eq!(Some(command), current_node_command());
+    let (command, args, _) = resolve_server_invocation(
+        cli_str,
+        vec!["--stdio".to_owned()],
+        root_str,
+        false,
+        None,
+        &process_path(),
+    );
+    assert_eq!(Some(command), current_node_command(&process_path()));
     assert_eq!(args.len(), 2);
     assert_eq!(
         PathBuf::from(&args[0]),
@@ -67,9 +73,10 @@ fn resolves_bundled_typescript_server_from_current_dir_for_external_workspace() 
             workspace_trusted: false,
         },
         false,
+        &process_path(),
     );
 
-    assert_eq!(Some(command), current_node_command());
+    assert_eq!(Some(command), current_node_command(&process_path()));
     assert_eq!(
         PathBuf::from(&args[0]),
         std::fs::canonicalize(&cli).expect("canonicalize temporary cli")
@@ -249,6 +256,11 @@ fn absolute_non_executable_non_node_command_is_unavailable() {
     let Some(command_str) = command.to_str() else {
         panic!("temporary command path is not utf-8");
     };
-    assert!(!command_resolves_to_executable(command_str));
-    assert!(!is_command_available(command_str).expect("check command availability"));
+    assert!(!command_resolves_to_executable(
+        command_str,
+        &process_path()
+    ));
+    assert!(
+        !is_command_available(command_str, &process_path()).expect("check command availability")
+    );
 }

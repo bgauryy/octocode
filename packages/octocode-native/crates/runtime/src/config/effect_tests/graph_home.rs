@@ -90,7 +90,7 @@ async fn graph_home_builds_a_checkout_outside_the_workspace() {
     let refused = call(&tools, "graphBuild", json!({"path":path})).await;
     assert_eq!(
         data(&refused)["errorCode"],
-        "invalidInput",
+        "outsideAllowedRoots",
         "{}",
         data(&refused)
     );

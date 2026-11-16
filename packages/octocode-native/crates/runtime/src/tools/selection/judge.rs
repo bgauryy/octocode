@@ -216,6 +216,7 @@ fn selection_failure(
     Some(octocode_contract_types::SelectionFailure {
         candidate: i64::try_from(ordinal).ok()?,
         error: error.message.parse().ok()?,
+        error_class: Some(crate::id::error_codes::class(error.code)),
         error_code: error.code,
         hints: if error.hints.is_empty() {
             None
@@ -237,6 +238,9 @@ impl SelectionJudge for Evaluator {
             "partition":self.partition().identity(), "model":self.model,
             "template":template(),
             "sourceCoordinates":1,
+            // Whole units of a page share requests (unit groups) up to this
+            // many: a plan judged at another size is not replayed.
+            "unitGroups":requests::GROUP_UNITS,
         })
     }
 
@@ -253,13 +257,33 @@ impl SelectionJudge for Evaluator {
     }
 
     fn select(&self, call: JudgeCall<'_>) -> Judgments {
+        self.select_grouped(call, requests::GROUP_UNITS)
+    }
+}
+
+impl Evaluator {
+    /// [`SelectionJudge::select`] with whole units sharing a request up to
+    /// `group_units` of them.
+    fn select_grouped(&self, call: JudgeCall<'_>, group_units: usize) -> Judgments {
         if !self.is_configured() {
             return Err("classificationUnavailable".into());
         }
         let policy =
             Policy::from_contract().ok_or(JudgeFailure::from("invalidClassificationPolicy"))?;
-        let requests =
-            requests::requests(&call).ok_or(JudgeFailure::from("invalidClassificationRequest"))?;
+        let long = call.long_context == crate::tools::judgment::LongContext::Always;
+        // One request's room, from the provider's stated windows at what its
+        // answers taught of their tokens, never past the request body limit.
+        let body = crate::id::clasify_policy::REQUEST_BYTES;
+        let caps = requests::Caps {
+            question_bytes: self.request_fit(None, long).bytes.min(body),
+            request_bytes: self
+                .fit(None, long, self.request_window(long))
+                .bytes
+                .min(body),
+            group_units,
+        };
+        let requests = requests::requests(&call, caps)
+            .ok_or(JudgeFailure::from("invalidClassificationRequest"))?;
         let gate = self.gate();
         let long_context = call.long_context;
         let context = call.context;
@@ -368,3 +392,5 @@ impl SelectionJudge for Evaluator {
 mod provider_tests;
 #[cfg(test)]
 mod question_tests;
+#[cfg(test)]
+mod unit_group_tests;

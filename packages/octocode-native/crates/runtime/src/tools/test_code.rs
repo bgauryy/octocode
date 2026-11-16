@@ -3,16 +3,15 @@
 //! ([`octocode_engine::text::test_paths::is_test_path`]), a Rust module
 //! mounted only under `#[cfg(test)]` (its parent's `mod name;` sits in a
 //! test-only item, or the parent is test code itself), and the Rust items
-//! compiled only under test (`#[cfg(test)]`, `#![cfg(test)]`), read from the
-//! file's declarations parse, kept by the text's digest. A file is parsed only
-//! when a search asks about it, and a text parsed once (by an earlier page, a
-//! repeat, or another file with the same bytes) is not parsed again while the
-//! store keeps it.
+//! compiled only under test (`#[cfg(test)]`, `#![cfg(test)]`), read by a
+//! linear scan that reports what the file's declarations parse does
+//! ([`rust_scan`]; the parse reads only a text the scan finds malformed), kept
+//! by the text's digest. A file is read only when a search asks about it, and
+//! a text read once (by an earlier page, a repeat, or another file with the
+//! same bytes) is not read again while the store keeps it.
 //! A file is test code whole by where it lies (path or mount) or by its spans; one wholly on the side a scope
-//! leaves out is left out as a file in every view and tool. A file too large
-//! for the parse is read by a scan that reports the same facts
-//! ([`rust_scan`]); one that cannot be read at all is named by
-//! [`TestCodeIndex::unread`]. A walk's verdict on a file it has yet to read
+//! leaves out is left out as a file in every view and tool. A file that cannot
+//! be read at all is named by [`TestCodeIndex::unread`]. A walk's verdict on a file it has yet to read
 //! ([`TestCodeIndex::test_path_unread`]) asks module roots first; only a file
 //! that verdict would leave out is confirmed against the `#[path]` mounts of
 //! its crate, so a file production mounts is never left out unread.
@@ -41,7 +40,7 @@ use crate_targets::CrateTargets;
 use mount_targets::{Mount, Parent, Placement};
 use once_each::OnceEach;
 use rust_source::{may_be_test_whole, whole_or};
-pub(crate) use scoped::{Scoped, text_rank, text_scope};
+pub(crate) use scoped::{Scoped, text_scope};
 
 /// Which side of the test-code line a scope keeps; `None` keeps both.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -370,12 +369,16 @@ impl TestCodeIndex {
         path: &Path,
         content: &str,
     ) -> Option<Arc<octocode_engine::graph::GraphFactsDocument>> {
+        #[cfg(test)]
+        DECLARATION_PARSES.with(|parses| parses.set(parses.get() + 1));
         crate::tools::declarations::file_document(content, &path.to_string_lossy())
     }
 
-    /// What the declarations parse of `content` says of test code, or the
-    /// scan of a text past what the parse admits, from [`FACTS`] when the same
-    /// text (the same path's kind of source) was read before.
+    /// What `content` says of test code, from [`FACTS`] when the same text
+    /// (the same path's kind of source) was read before: the linear scan
+    /// ([`rust_scan`]), which reports the test spans and modules the
+    /// declarations parse does, and the parse only for a text the scan finds
+    /// malformed (what the parse recovers from it is its own) and admits.
     fn facts(path: &Path, content: &str) -> Arc<rust_scan::Scanned> {
         #[cfg(test)]
         PARSES.with(|parses| parses.set(parses.get() + 1));
@@ -387,13 +390,18 @@ impl TestCodeIndex {
         if let Some(kept) = FACTS.get(&digest, &kind, Arc::clone) {
             return kept;
         }
-        let facts = match Self::parse(path, content) {
+        let scanned = rust_scan::scan(content);
+        let facts = match scanned
+            .malformed
+            .then(|| Self::parse(path, content))
+            .flatten()
+        {
             Some(document) => rust_scan::Scanned {
                 test_lines: document.test_lines.clone(),
                 modules: document.modules.clone(),
                 malformed: false,
             },
-            None => rust_scan::scan(content),
+            None => scanned,
         };
         let facts = Arc::new(facts);
         FACTS.put(digest, kind, facts.weight(), Arc::clone(&facts));
@@ -416,11 +424,11 @@ impl TestCodeIndex {
 
 impl TestCodeIndex {
     /// What `content`, the text of the parent `path`, says of the modules it
-    /// mounts: the parse when a span read already made it, else the linear
-    /// scan ([`rust_scan`]), which reports the same modules and test spans
-    /// without the declarations parse. A walk asks every parent of every file
-    /// it lists, so a parent's full parse (signatures, graph) would cost more
-    /// than the one request that reads its files.
+    /// mounts: what a span read already found, else the linear scan
+    /// ([`rust_scan`]) without the digest and store a span read keeps
+    /// ([`Self::parsed`]); a malformed text goes to that read, which asks the
+    /// parse. A walk asks every parent of every file it lists, and most
+    /// parents are read for their mounts alone.
     fn mount_facts(&self, path: &Path, content: &str) -> Arc<Parsed> {
         self.parsed.known(path).unwrap_or_else(|| {
             let crate_root = self.crate_target(path).is_some();
@@ -469,6 +477,17 @@ thread_local! {
 #[cfg(test)]
 pub(crate) fn parses() -> usize {
     PARSES.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+thread_local! {
+    static DECLARATION_PARSES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Declarations parses this thread's test-code index ran ([`TestCodeIndex::parse`]).
+#[cfg(test)]
+fn declaration_parses() -> usize {
+    DECLARATION_PARSES.with(std::cell::Cell::get)
 }
 
 /// What a Rust text says of test code, by its digest (and the extension the

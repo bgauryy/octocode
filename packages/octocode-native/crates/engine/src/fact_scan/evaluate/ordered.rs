@@ -84,7 +84,7 @@ pub(super) fn weighed_chunk<E: Sync, T: Send, X: Send>(
             let weighed = catch(Phase::Extract, || -> Result<Weighed<T>, X> {
                 let outcome = evaluate(entry)?;
                 let weight = match (hold, &outcome) {
-                    (Some(hold), Some(GraphFactsScanOutcome::Entry(_, Some(value)))) => {
+                    (Some(hold), Some(GraphFactsScanOutcome::Entry(_, Some(value), _))) => {
                         within(Phase::Weigh, || (hold.weigh)(value))
                     }
                     _ => 0,

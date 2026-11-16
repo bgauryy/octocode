@@ -33,7 +33,7 @@ Topology triages file relationships; it never proves symbol identity (use semant
 
 | Question | Start with | Candidate for |
 |---|---|---|
-| What a file affects or relies on | graphQuery `dependents`/`deps` (`target`, optional `depth`); `impact` (`target`, or `since` for a diff) | Blast radius, coupling |
+| What a file affects or relies on | graphQuery `dependents`/`deps` (`target`, optional `depth`); `impact` (`target`, or `since` for a diff; rows carry `risk`: `changed` at depth 0, then `direct`, `likely`, `transitive`, `candidate`) | Blast radius, coupling |
 | Layer reachability | graphQuery `path` (`target` to `to`), plus the declared rule | Boundary crossing |
 | Mutual dependency | graphQuery `cycles` (production import cycles, type-only included; rows `{size,nodes,runtime}`); `issues` with `detectors: ["cycle"]` (each row's `evidence` adds `runtime`, `witness` edges and `suggestedCuts`) | Initialization or change coupling |
 | Unreachable or removable | graphQuery `issues` with `detectors: ["unreachable-file","unused-export","test-only"]` and explicit `entries` | Alternate entrypoint, stale code |

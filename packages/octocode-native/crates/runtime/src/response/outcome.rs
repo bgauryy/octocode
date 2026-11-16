@@ -1,6 +1,6 @@
 //! What execution hands to response shaping: one domain row's result
 //! ([`DomainResult`]) and one finished call ([`ToolOutcome`]).
-use crate::response::result::{FailureKind, failure_kind};
+use crate::id::error_codes::{self, ErrorClass};
 use crate::security::Sanitized;
 use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 pub struct ToolOutcome {
     /// The envelope every surface prints, sealed by the output gate.
     pub structured_content: Sanitized,
-    pub failure: Option<FailureKind>,
+    pub failure: Option<ErrorClass>,
     pub all_failed: bool,
     /// The saved request a `{"cursor":…}` call continued, as it ran; `None`
     /// for a fresh call, whose input says it. A surface that describes the
@@ -31,7 +31,7 @@ pub(crate) struct DomainResult {
     pub data: Value,
     pub status: Option<&'static str>,
     pub(crate) source_digest: Option<String>,
-    pub failure: Option<FailureKind>,
+    pub failure: Option<ErrorClass>,
     /// Leaves of `data` judged against their whole source, for the output
     /// gate; never part of `data`.
     pub(crate) judged: crate::security::JudgedLeaves,
@@ -45,7 +45,7 @@ impl DomainResult {
             data.get("errorCode")
                 .and_then(Value::as_str)
                 .and_then(crate::id::error_codes::parse)
-                .map_or(FailureKind::Execution, failure_kind)
+                .map_or(ErrorClass::Unservable, error_codes::class)
         });
         Self {
             diagnostics: Default::default(),
@@ -66,7 +66,7 @@ impl DomainResult {
         next: Option<Value>,
     ) -> Self {
         // One exit class per code: the contract's table decides it.
-        let kind = failure_kind(code);
+        let kind = error_codes::class(code);
         let mut data = json!({"error": message.into(), "errorCode": code});
         crate::response::result::add_hints(&mut data, hints);
         if let Some(calls) = next {
@@ -91,8 +91,8 @@ impl DomainResult {
     ///  hints?, next?}
     /// ```
     ///
-    /// `retryable:true` appears only when a retry can help (absence = do not
-    /// retry unchanged). `httpStatus` appears only
+    /// `retryable` is a boolean on transient rows only (true: a retry can
+    /// help); the row finaliser drops it from every other class. `httpStatus` appears only
     /// when the upstream answered. Rate-limit members are seconds and absent
     /// when unknown, never null or a made-up 0. There is no `status`, `type`,
     /// `rateLimitRemaining`, `rateLimitReset` sibling and no raw provider
@@ -107,8 +107,9 @@ impl DomainResult {
     ) -> Self {
         let mut row = Self::failure(code, message, Vec::new(), None);
         let data = &mut row.data;
-        if upstream.retryable {
-            data["retryable"] = json!(true);
+        // The emitter's verdict on a transient failure; no other class states it.
+        if error_codes::class(code) == ErrorClass::Transient {
+            data["retryable"] = json!(upstream.retryable);
         }
         if let Some(status) = upstream.http_status {
             data["httpStatus"] = json!(status);

@@ -63,6 +63,62 @@ async fn payment_required_is_remembered_for_every_call_until_the_memo_expires() 
     assert_eq!((probe.code, probe.provider_calls), (error.code, 1));
 }
 
+/// A rejected credential is the account's, not one request's: a matrix of
+/// sixty units sends only the requests already in flight, and the rest fail
+/// fast with the same error. One probe follows the memo; 403, 5xx and 402 are
+/// not read as it.
+#[tokio::test]
+async fn a_rejected_credential_stops_the_rest_of_a_matrix_until_the_memo_expires() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(401))
+        .mount(&server)
+        .await;
+    let call = fresh_gate(4);
+    let uri = server.uri();
+    let sends = (0..60).map(|_| send(&uri, Duration::from_secs(10), 0, &call));
+    let errors = futures_util::future::join_all(sends).await;
+    assert!(errors.iter().all(|result| matches!(
+        result,
+        Err(error) if error.code == ErrorCode::ClassificationProviderError
+    )));
+    let sent = server.received_requests().await.expect("requests").len();
+    assert!(
+        (1..=gate::call_cap(4)).contains(&sent),
+        "{sent} requests for 60 units"
+    );
+    let refused = errors
+        .iter()
+        .filter(|result| matches!(result, Err(error) if error.provider_calls == 0))
+        .count();
+    assert_eq!(refused, 60 - sent);
+    assert!(call.credential_rejected());
+    call.gate().expire_auth_memo();
+    send(&uri, Duration::from_secs(10), 0, &call.fork())
+        .await
+        .unwrap_err();
+    let probed = server.received_requests().await.expect("requests").len();
+    assert_eq!(probed, sent + 1, "one probe after the memo");
+}
+
+#[tokio::test]
+async fn a_forbidden_request_is_not_remembered_as_a_rejected_credential() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(403))
+        .expect(2)
+        .mount(&server)
+        .await;
+    let call = fresh_gate(4);
+    for _ in 0..2 {
+        let error = send(&server.uri(), Duration::from_secs(10), 0, &call)
+            .await
+            .unwrap_err();
+        assert_eq!(error.provider_calls, 1);
+    }
+    assert!(!call.credential_rejected());
+}
+
 #[tokio::test]
 async fn system_overloaded_body_is_retried_and_shrinks_the_gate() {
     for status in [500, 400] {

@@ -2,36 +2,50 @@
 
 use super::TextSearchPathFilter;
 use super::collect::{WalkControl, WorkerRecs};
-use super::file_search::{FileOutcome, FileSearcher, hashed_source, read_prefix};
+use super::file_search::{FileOutcome, FileSearcher, hashed_source};
 use super::file_terms::FileTerms;
-use super::mode::ranks_by_relevance;
 use super::state::{CollectState, FileRec};
-use super::walk_rule::{EntryRule, Skipped, capture_sort_time};
-use crate::num::saturating_u64;
-use crate::search::relevance;
+use super::walk_rule::{EntryRule, Selection, Skipped, capture_sort_time};
+use crate::search::walk::Probe;
 use crate::types::TextSearchOptions;
-use aho_corasick::AhoCorasick;
 use grep_matcher::Matcher;
 use ignore::WalkState;
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
+
+impl<'a> Probe<'a> {
+    /// The entry the `ignore` walker yielded.
+    pub(super) fn of(dent: &'a ignore::DirEntry) -> Self {
+        Probe {
+            path: dent.path(),
+            depth: dent.depth(),
+            file_type: dent.file_type(),
+        }
+    }
+}
 
 /// Walk-wide settings and shared state every worker reads while visiting.
 pub(super) struct WalkScope<'a> {
     pub(super) opts: &'a TextSearchOptions,
     /// Ignored and dot entries left out, reported when skipped.
-    pub(super) rule: Option<EntryRule>,
+    pub(super) rule: Option<Arc<EntryRule>>,
+    /// What the walker drops inside itself (globs, `language`).
+    pub(super) selection: Selection,
     pub(super) state: &'a CollectState,
     pub(super) control: WalkControl<'a>,
     pub(super) max_file_bytes: u64,
     /// Files-without-match: keep unmatched files instead of matched ones.
     pub(super) keep_unmatched: bool,
-    pub(super) identifier: bool,
     pub(super) file_terms: Option<FileTerms>,
-    pub(super) attributes: Option<relevance::GitAttributes>,
-    pub(super) words: Option<AhoCorasick>,
     /// Which files the search's judge need not judge.
     pub(super) judge_gate: super::judge_gate::JudgeGate,
+    /// A cancelled walk lets the files it handed out finish and commit
+    /// instead of stopping them mid-file (a stream: what it read before the
+    /// cut is the same on every run).
+    pub(super) drains: bool,
+    /// How many workers open files at once; none: all of them.
+    pub(super) open_gate: Option<super::open_gate::OpenGate>,
 }
 
 impl WalkScope<'_> {
@@ -61,7 +75,7 @@ impl WalkScope<'_> {
     ) -> WalkState {
         match self.admit(dent, path_filter) {
             Ok(dent) => {
-                self.search_entry(self.state, &dent, files, worker_recs);
+                self.search_entry(self.state, dent.path(), files, worker_recs);
                 WalkState::Continue
             }
             Err(walk_state) => walk_state,
@@ -72,12 +86,11 @@ impl WalkScope<'_> {
     pub(super) fn search_entry<M: Matcher>(
         &self,
         state: &CollectState,
-        dent: &ignore::DirEntry,
+        path: &Path,
         files: &mut FileSearcher<'_, M>,
         worker_recs: &mut WorkerRecs<'_>,
     ) {
         let opts = self.opts;
-        let path: &Path = dent.path();
         // A test-code scope leaves out, unread, every file whose location
         // (path or mount) puts it on the other side; a file that may mix
         // both is searched and its hits are kept by line.
@@ -102,7 +115,7 @@ impl WalkScope<'_> {
         {
             return;
         }
-        let Some((file, meta)) = self.open_within_ceiling(state, dent) else {
+        let Some((file, meta)) = self.open_within_ceiling(state, path) else {
             return;
         };
         let file_len = meta.len();
@@ -116,21 +129,6 @@ impl WalkScope<'_> {
         state
             .test_lines_excluded
             .fetch_add(u64::from(outcome.test_lines_excluded), Ordering::Relaxed);
-        let relative = path
-            .strip_prefix(&opts.path)
-            .unwrap_or(path)
-            .to_string_lossy();
-        let generated = ranks_by_relevance(opts)
-            && outcome.matched_lines > 0
-            && (relevance::is_generated_path(&relative)
-                || self
-                    .attributes
-                    .as_ref()
-                    .is_some_and(|marks| marks.marks_generated(path))
-                || outcome.generated_header.unwrap_or_else(|| {
-                    read_prefix(&file, saturating_u64(relevance::GENERATED_HEADER_BYTES))
-                        .is_ok_and(|prefix| relevance::has_generated_header(&prefix))
-                }));
         state.files_searched.fetch_add(1, Ordering::Relaxed);
         state.bytes_searched.fetch_add(file_len, Ordering::Relaxed);
         if outcome.opaque {
@@ -164,22 +162,13 @@ impl WalkScope<'_> {
             state.file_terms_dropped.fetch_add(1, Ordering::Relaxed);
             return;
         }
-        let demoted = generated
-            || (ranks_by_relevance(opts)
-                && (relevance::is_demoted_path(&relative)
-                    || opts.test_code_rank.as_ref().is_some_and(|rank| {
-                        if has_match {
-                            !outcome.production_hit
-                        } else {
-                            (rank.test_path)(path)
-                        }
-                    })));
         // A stopped walk keeps what it found without reading further.
         let source = (opts.values.hashed() && !files.stop.load(Ordering::Relaxed))
             .then(|| hashed_source(&file, &meta))
             .flatten();
         drop(file);
-        let path = dent.path().to_string_lossy().into_owned();
+        let sort_time = capture_sort_time(opts, path);
+        let path = path.to_string_lossy().into_owned();
         // The rows stay held with the record, and the record itself too.
         let mut charge = outcome.charge;
         if !charge.add(super::state::record_weight(&path, &outcome.term_counts)) {
@@ -190,16 +179,9 @@ impl WalkScope<'_> {
             path,
             entry: outcome.entry,
             matched_lines: outcome.matched_lines,
-            rank_lines: outcome.rank_lines,
-            rank_submatches: outcome.rank_submatches,
             submatches: outcome.submatches,
             om_matches: outcome.om_matches,
-            sort_time: capture_sort_time(opts, dent),
-            line_weight: outcome.line_weight,
-            covered: outcome.covered,
-            demoted,
-            generated,
-            declares: outcome.declares && self.identifier,
+            sort_time,
             source,
             not_utf8: outcome.not_utf8,
             utf8_bom: outcome.utf8_bom,
@@ -231,6 +213,23 @@ impl WalkScope<'_> {
         crate::types::wholly_left_out(scope.keep_test, &spans)
     }
 
+    /// Whether the walk must end before its next entry: stopped, or the
+    /// caller cancelled (recorded, and every worker stops unless the walk
+    /// [`drains`](Self::drains)), keeping the files already finished.
+    pub(super) fn halted(&self) -> bool {
+        if self.state.stopped() {
+            return true;
+        }
+        if (self.control.cancelled)() {
+            self.state.cancelled.store(true, Ordering::Relaxed);
+            if !self.drains {
+                self.state.stop.store(true, Ordering::Relaxed);
+            }
+            return true;
+        }
+        false
+    }
+
     /// The entry when it is a file to search, or the walk state to return
     /// for it (stop, cancellation, walk error, filter).
     pub(super) fn admit(
@@ -238,15 +237,8 @@ impl WalkScope<'_> {
         dent: std::result::Result<ignore::DirEntry, ignore::Error>,
         path_filter: &dyn TextSearchPathFilter,
     ) -> std::result::Result<ignore::DirEntry, WalkState> {
-        let (opts, state) = (self.opts, self.state);
-        // Between entries: end the walk on stop or cancellation, keeping
-        // the files already finished.
-        if state.stopped() {
-            return Err(WalkState::Quit);
-        }
-        if (self.control.cancelled)() {
-            state.cancelled.store(true, Ordering::Relaxed);
-            state.stop.store(true, Ordering::Relaxed);
+        let state = self.state;
+        if self.halted() {
             return Err(WalkState::Quit);
         }
         let dent = match dent {
@@ -256,41 +248,16 @@ impl WalkScope<'_> {
                 return Err(WalkState::Continue);
             }
         };
-        let is_dir = dent.file_type().is_some_and(|kind| kind.is_dir());
-        let skip = || {
-            if is_dir {
+        let probe = Probe::of(&dent);
+        let is_dir = probe.is_dir();
+        if left_out(self.rule.as_deref(), path_filter, probe, is_dir) {
+            return Err(if is_dir {
                 WalkState::Skip
             } else {
                 WalkState::Continue
-            }
-        };
-        match self
-            .rule
-            .as_ref()
-            .and_then(|rule| rule.skips(&dent, is_dir))
-        {
-            Some(Skipped::Ignored) => {
-                path_filter.skipped_ignored(dent.path(), is_dir);
-                return Err(skip());
-            }
-            Some(Skipped::Hidden) => {
-                path_filter.skipped_hidden(dent.path(), is_dir);
-                return Err(skip());
-            }
-            None => {}
+            });
         }
-        if !path_filter.allows_entry(dent.path(), dent.file_type()) {
-            return Err(skip());
-        }
-        // A directory at the depth limit is yielded but never entered (the
-        // walk counts root files as `max_depth` 0): one that holds entries
-        // is a part of the tree left unsearched.
-        if is_dir
-            && opts.max_depth.map(|max| max as usize + 1) == Some(dent.depth())
-            && std::fs::read_dir(dent.path()).is_ok_and(|mut entries| entries.next().is_some())
-        {
-            state.depth_cut_dirs.fetch_add(1, Ordering::Relaxed);
-        }
+        self.note_depth_cut(probe, is_dir);
         if !dent.file_type().is_some_and(|t| t.is_file()) {
             if dent.path_is_symlink() {
                 path_filter.skipped_symlink(dent.path());
@@ -298,6 +265,18 @@ impl WalkScope<'_> {
             return Err(WalkState::Continue);
         }
         Ok(dent)
+    }
+
+    /// A directory at the depth limit is yielded but never entered (the
+    /// walk counts root files as `max_depth` 0): one that holds entries is a
+    /// part of the tree left unsearched.
+    pub(super) fn note_depth_cut(&self, entry: Probe<'_>, is_dir: bool) {
+        if is_dir
+            && self.opts.max_depth.map(|max| max as usize + 1) == Some(entry.depth)
+            && std::fs::read_dir(entry.path).is_ok_and(|mut entries| entries.next().is_some())
+        {
+            self.state.depth_cut_dirs.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     /// Whether a file of `len` bytes is above the byte ceiling (recorded as
@@ -316,12 +295,17 @@ impl WalkScope<'_> {
     fn open_within_ceiling(
         &self,
         state: &CollectState,
-        dent: &ignore::DirEntry,
+        path: &Path,
     ) -> Option<(std::fs::File, std::fs::Metadata)> {
-        let path = dent.path();
         // Keep successful files, but report incomplete coverage when
         // opening or matching fails. A skipped file proves no absence.
-        let (file, meta) = match crate::text::open_regular(path) {
+        let permit = self
+            .open_gate
+            .as_ref()
+            .map(super::open_gate::OpenGate::enter);
+        let opened = crate::text::open_regular(path);
+        drop(permit);
+        let (file, meta) = match opened {
             Ok(opened) => opened,
             Err(error) => {
                 state.record_error(format!("{}: {error}", path.display()));
@@ -368,5 +352,36 @@ impl WalkScope<'_> {
                 None
             }
         }
+    }
+}
+
+/// Whether the walk leaves `entry` out on its own: an ignore or dot rule
+/// ([`EntryRule`]) or the path filter. The entry is reported to the filter
+/// first, so what the rules leave out is counted, not lost.
+pub(super) fn left_out(
+    rule: Option<&EntryRule>,
+    path_filter: &dyn TextSearchPathFilter,
+    entry: Probe<'_>,
+    is_dir: bool,
+) -> bool {
+    match rule.and_then(|rule| rule.skips(None, entry, is_dir)) {
+        Some(skipped) => {
+            report_left_out(path_filter, skipped, entry.path, is_dir);
+            true
+        }
+        None => !path_filter.allows_entry(entry.path, entry.file_type),
+    }
+}
+
+/// Report to the path filter an entry the rules left out.
+pub(super) fn report_left_out(
+    path_filter: &dyn TextSearchPathFilter,
+    skipped: Skipped,
+    path: &Path,
+    is_dir: bool,
+) {
+    match skipped {
+        Skipped::Ignored => path_filter.skipped_ignored(path, is_dir),
+        Skipped::Hidden => path_filter.skipped_hidden(path, is_dir),
     }
 }

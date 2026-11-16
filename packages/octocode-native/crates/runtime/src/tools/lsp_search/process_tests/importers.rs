@@ -149,7 +149,7 @@ fn importer_fixture_serving(
     .expect("config");
     let execution = crate::tools::lsp_search::LspExecutionConfig {
         octocode_home: Some(root.to_path_buf()),
-        ..crate::tools::lsp_search::LspExecutionConfig::default()
+        ..crate::tools::lsp_search::LspExecutionConfig::with_path()
     };
     // The fixture is the repository as it stood before the first page: its
     // files are settled, and only a later write is a change.

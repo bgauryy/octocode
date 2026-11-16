@@ -366,7 +366,7 @@ fn the_response_page_comes_before_the_rows_next_page() {
         "{out}"
     );
     assert!(
-        out.contains("\n# responsePagination: hasMore\n# responsePagination.next: octocode "),
+        out.contains("\n# responsePagination: hasMore true\n# responsePagination.next: octocode "),
         "{out}"
     );
 }
@@ -437,6 +437,22 @@ fn a_path_is_stated_once_per_file() {
             let Some(path) = group["path"].as_str().or_else(|| group["dir"].as_str()) else {
                 continue;
             };
+            // A listing group's `dir/` heads its entries, unindented; the
+            // shared root itself prints as `./`.
+            if group["dir"].is_string() {
+                let relative = roots
+                    .iter()
+                    .find_map(|root| {
+                        (path == *root)
+                            .then_some(".")
+                            .or_else(|| path.strip_prefix(&format!("{root}/")))
+                    })
+                    .unwrap_or(path);
+                let head = format!("{relative}/");
+                let lines = out.lines().filter(|line| line.starts_with(&head)).count();
+                assert_eq!(lines, 1, "{tool:?} {path}: {out}");
+                continue;
+            }
             let path = roots
                 .iter()
                 .find_map(|root| path.strip_prefix(&format!("{root}/")))

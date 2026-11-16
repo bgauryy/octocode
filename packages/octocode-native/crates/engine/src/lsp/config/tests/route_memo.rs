@@ -3,11 +3,9 @@
 //! warm request's discovery.
 use super::write_lsp_config;
 use crate::lsp::config::catalog::resolve_route;
-use crate::lsp::config::invocation::rustup::{RustupView, with_view};
+use crate::lsp::config::invocation::rustup::{RustupView, view_env, with_view};
 use crate::lsp::config::route::kept_route;
-use crate::lsp::config::{
-    LspDiscoveryOptions, default_server_for_directory, default_server_for_file,
-};
+use crate::lsp::config::{LspDiscoveryOptions, default_server_for_directory};
 use crate::lsp::module_path::install_anchor;
 use crate::stamp::settle_written_so_far;
 use crate::test_support::TmpDir;
@@ -26,14 +24,15 @@ fn machine() -> Machine {
     let workspace = root.join("project");
     std::fs::create_dir_all(&workspace).expect("workspace");
     std::fs::create_dir_all(root.join("bin")).expect("bin");
-    let options = LspDiscoveryOptions {
-        octocode_home: Some(root.join(".octocode")),
-        ..LspDiscoveryOptions::default()
-    };
     let view = RustupView {
         path_var: Some(root.join("bin").into_os_string()),
         home: Some(root.join("rustup-home")),
         ..RustupView::default()
+    };
+    let options = LspDiscoveryOptions {
+        octocode_home: Some(root.join(".octocode")),
+        env: view_env(&view),
+        ..LspDiscoveryOptions::default()
     };
     settle_written_so_far();
     Machine {
@@ -165,40 +164,6 @@ fn only_path_directories_before_the_found_server_count() {
     machine.root.write("early/gopls", "#!/bin/sh\n");
     settle_written_so_far();
     assert_eq!(machine.route("main.go").1, 1, "before the found directory");
-}
-
-/// Median time of a warm route through the memo and of resolving it each
-/// time, for the A/B gate: `cargo test -p octocode-engine --lib
-/// route_memo::warm_route_cost -- --ignored --nocapture` (a release-like
-/// profile measures better than the unoptimized test build).
-#[test]
-#[ignore = "a measurement, not a check"]
-fn warm_route_cost() {
-    let workspace = std::env::current_dir().expect("cwd");
-    let root = workspace.to_string_lossy().into_owned();
-    let file = workspace.join("src/lib.rs").to_string_lossy().into_owned();
-    let options = LspDiscoveryOptions::default();
-    let median = |work: &dyn Fn()| {
-        let mut times = (0..2000)
-            .map(|_| {
-                let start = std::time::Instant::now();
-                work();
-                start.elapsed().as_nanos()
-            })
-            .collect::<Vec<_>>();
-        times.sort_unstable();
-        times[times.len() / 2]
-    };
-    default_server_for_file(&file, &root, &options);
-    let cached = median(&|| {
-        std::hint::black_box(default_server_for_file(&file, &root, &options));
-    });
-    let anchor = install_anchor();
-    let uncached = median(&|| {
-        let route = resolve_route(".rs", &root, &options, anchor.as_deref(), true);
-        std::hint::black_box(route.map(|route| route.finished(&options)));
-    });
-    println!("warm route: cached {cached} ns, uncached {uncached} ns (median of 2000)");
 }
 
 /// A file that is on `PATH` but not executable is no server; `chmod +x` makes

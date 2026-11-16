@@ -3,7 +3,8 @@ mod read;
 use super::{emit_error, write_json};
 pub use manage::manage;
 use octocode_contract_types::ErrorCode;
-use octocode_native::runtime::ToolRuntime;
+use octocode_native::response::exit::ExitClass;
+use octocode_native::runtime::{ErrorClass, ToolRuntime};
 pub use read::{check, get, list};
 use serde_json::json;
 use std::io;
@@ -30,13 +31,16 @@ impl ManageError {
         }
     }
 
-    /// The CLI exit class: bad input is 2; a conflict or contract drift is a
-    /// retryable execution failure, 5.
+    /// The CLI exit class: bad input is correctInput (2), a conflict is a
+    /// restart (6: refresh, then edit again), and contract drift is
+    /// unservable (5).
     pub fn exit_code(&self) -> u8 {
-        match self {
-            Self::InvalidInput(_) => 2,
-            Self::Conflict(_) | Self::Unavailable(_) => 5,
-        }
+        let class = match self {
+            Self::InvalidInput(_) => ErrorClass::CorrectInput,
+            Self::Conflict(_) => ErrorClass::Restart,
+            Self::Unavailable(_) => ErrorClass::Unservable,
+        };
+        super::exit_code(ExitClass::Failed(class))
     }
 
     /// Map a locked-file edit error: `WouldBlock` is a revision conflict,

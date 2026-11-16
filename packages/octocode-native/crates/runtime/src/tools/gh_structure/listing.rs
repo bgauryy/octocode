@@ -297,18 +297,18 @@ pub(super) fn attach_continuations(
             // without it, the next page would cut a shallower listing.
             row.insert("maxDepth".to_owned(), json!(scope.depth));
         }
-        if let Some(call) = crate::response::paging::next_page_call(
+        if let Some(call) = crate::response::collection::continued_page(
             ToolId::GhStructure,
             next_query,
             "page",
             current + 1,
             &[],
         ) {
-            value["calls"]["nextPage"] = call;
+            crate::response::collection::insert_row_walk(value, ToolId::GhStructure, call);
         }
     }
     if retry_tree
-        && let Some(call) = crate::response::paging::next_page_call(
+        && let Some(call) = crate::response::collection::continued_page(
             ToolId::GhStructure,
             query_row(query, &[]),
             "page",
@@ -316,7 +316,7 @@ pub(super) fn attach_continuations(
             &[],
         )
     {
-        value["calls"]["retry"] = call;
+        value["calls"]["retry"] = call.build();
     }
     Ok(())
 }

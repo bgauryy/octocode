@@ -350,7 +350,7 @@ fn page(fields: &Map<String, Value>) -> Option<String> {
     Some(text)
 }
 
-/// Fields as words: `key` for true, `key value` for a scalar or a list of
+/// Fields as words: `key value` for a scalar (`key true`, `key false`) or a list of
 /// scalars, `key (words)` for a nested object, a page block as its count
 /// ([`page`]); JSON only for a list of objects or lists.
 pub(super) fn words(fields: &Map<String, Value>) -> String {
@@ -360,7 +360,6 @@ pub(super) fn words(fields: &Map<String, Value>) -> String {
     fields
         .iter()
         .map(|(key, value)| match value {
-            Value::Bool(true) => key.clone(),
             Value::String(text) => format!("{key} {}", one_line(text)),
             Value::Object(inner) => match page(inner) {
                 Some(page) => format!("{key} {page}"),

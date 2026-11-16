@@ -215,11 +215,12 @@ mod tests {
     #[test]
     fn each_classified_tool_has_one_selection_receipt_and_an_unavailable_receipt_leaves_all_unknown()
      {
-        for tool in [
-            ToolId::LocalSearch,
-            ToolId::LocalFetch,
-            ToolId::GhGetFileContent,
-        ] {
+        assert_eq!(
+            ToolId::LocalSearch.selection_receipt(),
+            Some((SelectionScope::SelectedView, SelectionUnit::Hits)),
+            "a search judges its hits, as its live receipt does"
+        );
+        for tool in [ToolId::LocalFetch, ToolId::GhGetFileContent] {
             assert_eq!(
                 tool.selection_receipt(),
                 Some((SelectionScope::SelectedView, SelectionUnit::Chunks))

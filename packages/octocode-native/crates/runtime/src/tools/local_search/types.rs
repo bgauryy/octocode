@@ -63,6 +63,8 @@ pub struct SearchMatch {
 pub(crate) struct Paging {
     facts: crate::response::pages::PageFacts,
     pub(crate) has_more: bool,
+    /// `total` is a floor: the walk goes on past the rows counted.
+    loaded: bool,
 }
 
 impl Paging {
@@ -80,7 +82,15 @@ impl Paging {
                 .with_total(total)
                 .out_of_range(past_end),
             has_more,
+            loaded: false,
         }
+    }
+
+    /// `total` counts only what the walk has shown so far (`countScope`
+    /// `loaded`) while `floor`.
+    pub(crate) fn floor(mut self, floor: bool) -> Self {
+        self.loaded = floor;
+        self
     }
 
     pub(crate) fn out_of_range(&self) -> bool {
@@ -90,7 +100,11 @@ impl Paging {
 
 impl Serialize for Paging {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.facts.to_value().serialize(serializer)
+        let mut value = self.facts.to_value();
+        if self.loaded {
+            value["countScope"] = serde_json::json!("loaded");
+        }
+        value.serialize(serializer)
     }
 }
 

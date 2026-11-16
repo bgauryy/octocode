@@ -5,10 +5,28 @@ use serde::{Deserialize, Serialize};
 
 const EXTRACTION_VERSION: u32 = 1;
 
+/// What decides a file's extraction, and nothing else: the artifacts of this
+/// namespace are one scope's fact cache, which a build reuses whatever else
+/// it changes (the files it scans, how it links).
 pub(super) fn namespace(
     scan: &GraphScan,
     root: &Path,
     registry: RegistryView<'_>,
+) -> Result<String, ToolError> {
+    namespace_under(
+        scan,
+        root,
+        registry,
+        octocode_engine::security::patterns_identity(),
+    )
+}
+
+/// [`namespace`] under the known-format list `patterns` names.
+fn namespace_under(
+    scan: &GraphScan,
+    root: &Path,
+    registry: RegistryView<'_>,
+    patterns: &str,
 ) -> Result<String, ToolError> {
     serde_json::to_string(&(
         root,
@@ -17,6 +35,13 @@ pub(super) fn namespace(
         env!("CARGO_PKG_VERSION"),
         EXTRACTION_VERSION,
         super::registry_identity(registry)?,
+        super::super::ANALYSIS_VERSION,
+        // The facts kept are the scrubbed ones: the known-format list that
+        // scrubbed them decides what they hold. The personal-data masks
+        // (`output.redactUuid`, `output.redactEmails`) are applied to a
+        // response when it is sealed, never to what a build keeps, so they
+        // are no part of this key.
+        patterns,
     ))
     .map_err(|error| {
         ToolError::new(

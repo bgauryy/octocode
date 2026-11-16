@@ -126,6 +126,7 @@ async fn a_missing_ref_of_a_renamed_repository_names_it_canonically() {
         &query(json!({"owner":"a","repo":"b","operation":"refs","ref":"nope"})),
         Ok(&context),
         home.path(),
+        None,
     )
     .await
     .expect_err("missing ref");

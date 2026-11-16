@@ -82,6 +82,7 @@ export type StepRow = {
   error?: string;
   condition?: StepCondition;
   count?: number;
+  note?: string;
   chunks?: number;
   complete?: boolean;
   cleanupError?: string;

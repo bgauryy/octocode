@@ -165,7 +165,12 @@ fn impact_since_with_no_changes_is_empty() {
         out.value
     );
     let bare = ask(dir.0.as_path(), "impact", None, |_| {});
-    assert_eq!(bare.class, ExitClass::InvalidInput, "{}", bare.value);
+    assert_eq!(
+        bare.class,
+        ExitClass::Failed(crate::id::error_codes::ErrorClass::CorrectInput),
+        "{}",
+        bare.value
+    );
 }
 
 /// `since` lists a changed path outside the graph with its git status, so

@@ -177,6 +177,14 @@ pub(crate) fn build_graph_with_registry(
             sanitize(security, &format!("{}: {}", skipped.code, skipped.message)),
         ));
     }
+    for decoded in facts.decoded {
+        built.diagnostics.push(Diagnostic::new(
+            normalize(&decoded.relative_path),
+            None,
+            DiagnosticCode::Decoded,
+            decoded.message,
+        ));
+    }
     let js_modules = ModulesByName::new(
         known
             .iter()

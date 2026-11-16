@@ -46,7 +46,7 @@ pub(super) fn filters(q: &GhSearchRepoQuery) -> Option<&GhSearchRepoQuerySearchF
 pub(super) fn archive(q: &GhSearchRepoQuery) -> GitHubArchive {
     match q {
         GhSearchRepoQuery::Search(q) => q.filters.as_ref().and_then(|f| f.archive),
-        GhSearchRepoQuery::List(q) => q.filters.as_ref().map(|f| f.archive),
+        GhSearchRepoQuery::List(q) => q.filters.as_ref().and_then(|f| f.archive),
         GhSearchRepoQuery::Get(_) => Some(GitHubArchive::Include),
     }
     .unwrap_or(GitHubArchive::Exclude)

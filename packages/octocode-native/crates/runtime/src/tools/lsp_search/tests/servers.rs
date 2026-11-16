@@ -22,7 +22,7 @@ fn user_server(
     .expect("config");
     super::super::LspExecutionConfig {
         octocode_home: Some(dir.to_path_buf()),
-        ..super::super::LspExecutionConfig::default()
+        ..super::super::LspExecutionConfig::with_path()
     }
 }
 
@@ -66,7 +66,7 @@ async fn an_oversized_source_is_refused_with_a_read_of_it() {
     let row = serde_json::json!({
         "operation": "documentSymbols", "path": file.to_string_lossy()
     });
-    let result = run_row(row, &paths, &super::super::LspExecutionConfig::default()).await;
+    let result = run_row(row, &paths, &super::super::LspExecutionConfig::with_path()).await;
     assert_eq!(result["errorCode"], "fileTooLarge", "{result}");
     let read = crate::tools::test_support::checks::related_call(&result, "localFetch", |_| true);
     assert_eq!(read["tool"], "localFetch", "{result}");
@@ -175,7 +175,7 @@ async fn a_server_that_fails_to_start_names_its_invocation() {
     .expect("config");
     let execution = super::super::LspExecutionConfig {
         octocode_home: Some(root.to_path_buf()),
-        ..super::super::LspExecutionConfig::default()
+        ..super::super::LspExecutionConfig::with_path()
     };
     let hover = |file: &str| {
         serde_json::json!({
@@ -213,7 +213,7 @@ async fn markdown_without_a_server_offers_supported_source_recovery() {
     let row = serde_json::json!({
         "operation": "documentSymbols", "path": root.join("guide.md").to_string_lossy()
     });
-    let result = run_row(row, &paths, &super::super::LspExecutionConfig::default()).await;
+    let result = run_row(row, &paths, &super::super::LspExecutionConfig::with_path()).await;
     assert_eq!(result["errorCode"], "serverUnavailable", "{result}");
     let message = result["error"].as_str().expect("error");
     assert!(!message.contains("astSearch"), "{result}");

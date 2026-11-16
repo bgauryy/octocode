@@ -4,7 +4,7 @@ use octocode_github::ProviderErrorKind;
 use wiremock::matchers::path_regex;
 
 #[tokio::test]
-async fn a_missing_path_is_classified_as_missing_and_located_from_one_tree_read() {
+async fn a_missing_path_is_classified_as_missing_and_located_from_its_parent_listing() {
     let server = server().await;
     mount_json(
         &server,
@@ -40,6 +40,7 @@ async fn a_missing_path_is_classified_as_missing_and_located_from_one_tree_read(
         &query(json!({"operation":"tree","owner":"a","repo":"b","path":"docs/nope/missing"})),
         Ok(&context),
         home.path(),
+        None,
     )
     .await
     .expect_err("missing path");
@@ -51,8 +52,9 @@ async fn a_missing_path_is_classified_as_missing_and_located_from_one_tree_read(
     assert_eq!(calls["viewTree"]["input"]["queries"][0]["path"], "docs");
     // Cost: the repository and its head, the tree read, the Contents read
     // (a git tree answers 404 for a submodule path too, so only Contents
-    // tells a missing path from a submodule), then one recursive tree read
-    // that locates the directory that exists, whatever the depth walked.
+    // tells a missing path from a submodule), then the listings from the
+    // missing path's parent up to the directory that exists: never the
+    // commit's recursive tree, whose size follows the repository's.
     let requests = server.received_requests().await.unwrap_or_default();
     let mut paths = requests
         .iter()
@@ -75,8 +77,44 @@ async fn a_missing_path_is_classified_as_missing_and_located_from_one_tree_read(
             "/commits/HEAD",
             &format!("/git/trees/{SHA}:docs%2Fnope%2Fmissing"),
             "/contents/docs%2Fnope%2Fmissing",
-            &format!("/git/trees/{SHA}"),
+            "/contents/docs%2Fnope",
+            "/contents/docs",
         ],
         "{paths:?}"
+    );
+}
+
+/// The Contents API lists 1,000 entries of a directory at most: a missing
+/// path whose parent lists that many may sit past the cut, and the failure
+/// says so beside its listing lead.
+#[tokio::test]
+async fn a_missing_path_in_a_full_listing_says_it_may_be_past_the_cut() {
+    let server = server().await;
+    mount_json(
+        &server,
+        &format!("/api/v3/repos/a/b/git/trees/{SHA}"),
+        200,
+        json!({"sha": SHA, "truncated": false, "tree": []}),
+    )
+    .await;
+    let entries = (0..crate::tools::gh_shared::CONTENTS_LIMIT)
+        .map(|n| json!({"name":format!("f{n}"),"path":format!("docs/f{n}"),"type":"file","size":1}))
+        .collect::<Vec<_>>();
+    mount_json(&server, "/api/v3/repos/a/b/contents/docs", 200, entries).await;
+    let provider = mock_provider(&server, RetryPolicy::default());
+    let context = default_context();
+    let home = tempfile::tempdir().expect("home");
+    let failure = run(
+        &provider,
+        &query(json!({"operation":"tree","owner":"a","repo":"b","path":"docs/readme.md"})),
+        Ok(&context),
+        home.path(),
+        None,
+    )
+    .await
+    .expect_err("missing path");
+    assert_eq!(
+        failure.hints,
+        [crate::tools::gh_shared::LISTING_MAY_BE_CUT_HINT]
     );
 }

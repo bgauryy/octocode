@@ -6,7 +6,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[tokio::test]
 async fn clasify_provider_errors_only_on_requested_models_invocation() {
-    for (response, expected) in [
+    for (case, (response, expected)) in [
         (
             ResponseTemplate::new(200).set_body_json(json!({"models":[]})),
             None,
@@ -23,12 +23,18 @@ async fn clasify_provider_errors_only_on_requested_models_invocation() {
             ResponseTemplate::new(200).set_body_json(json!({"wrong":[]})),
             Some(ErrorCode::InvalidClassificationResponse),
         ),
-    ] {
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        // One key per case: the gate remembers a rejected key per endpoint,
+        // and a closed mock server's port can be served again.
+        let key = format!("fixture-key-{case}");
         let server = MockServer::start().await;
         let workspace = Workspace::new();
         Mock::given(method("GET"))
             .and(path("/v1/models"))
-            .and(header("authorization", "Bearer fixture-key"))
+            .and(header("authorization", format!("Bearer {key}").as_str()))
             .respond_with(response)
             .expect(1..)
             .mount(&server)
@@ -36,7 +42,7 @@ async fn clasify_provider_errors_only_on_requested_models_invocation() {
         let runtime = workspace.runtime(&provider_env(
             &server,
             &[
-                ("OCTOCODE_CLASSIFICATION_API", "fixture-key".into()),
+                ("OCTOCODE_CLASSIFICATION_API", key.clone()),
                 ("OCTOCODE_BETA", "false".into()),
             ],
         ));

@@ -40,8 +40,8 @@ pub(crate) use fields::{ensure_calls, field_names, lean_rows, pick_rows, push_wa
 #[cfg(test)]
 pub(crate) use paths::repo_path;
 pub(crate) use paths::{
-    PathRecovery, RepoPath, is_repo_relative, listing_path, locate_path, missing_path, parent_dir,
-    tree_recovery,
+    CONTENTS_LIMIT, LISTING_MAY_BE_CUT_HINT, PathRecovery, RepoPath, is_repo_relative,
+    listing_path, locate_path, missing_path, parent_dir, tree_recovery,
 };
 pub(crate) use rename::{
     RenameCheck, Rerun, Rescope, canonical_query, canonical_repo, name_canonically,

@@ -156,12 +156,32 @@ pub fn sniff_complete(bytes: &[u8]) -> BinaryVerdict {
     }
 }
 
-/// Text decoded from file bytes, and the warning when it was not UTF-8.
+/// How [`Decoded::text`] came from its bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Charset {
+    /// Valid UTF-8, a leading BOM aside.
+    Utf8,
+    /// BOM-marked UTF-16.
+    Utf16,
+    /// 8-bit text: one char per byte ([`Decoded::interior`]).
+    Latin1,
+    /// UTF-8 with stray bytes, each run replaced by U+FFFD.
+    Lossy,
+}
+
+/// Text decoded from file bytes, how, and the warning when it was not UTF-8.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Decoded<'a> {
     pub text: Cow<'a, str>,
+    pub charset: Charset,
     pub warning: Option<&'static str>,
 }
+
+/// The warning on text with stray non-UTF-8 bytes replaced.
+pub const LOSSY_WARNING: &str = "Not valid UTF-8: invalid bytes were replaced with U+FFFD.";
+
+/// The warning on 8-bit text decoded as Latin-1.
+pub const LATIN1_WARNING: &str = "Not valid UTF-8: decoded as Latin-1 (ISO-8859-1); characters from other 8-bit encodings may be approximate, and byte offsets count the decoded UTF-8 text.";
 
 /// Source text from file bytes: UTF-8 when valid; otherwise the encoding
 /// fallback is flagged with a warning. Bytes holding no valid non-ASCII
@@ -175,6 +195,7 @@ pub fn decode(bytes: &[u8]) -> Decoded<'_> {
     {
         return Decoded {
             text,
+            charset: Charset::Utf16,
             warning: Some(UTF16_WARNING),
         };
     }
@@ -189,20 +210,21 @@ impl<'a> Decoded<'a> {
         if let Ok(text) = std::str::from_utf8(bytes) {
             return Self {
                 text: Cow::Borrowed(text),
+                charset: Charset::Utf8,
                 warning: None,
             };
         }
         if !latin1_text(bytes) {
             return Self {
                 text: String::from_utf8_lossy(bytes),
-                warning: Some("Not valid UTF-8: invalid bytes were replaced with U+FFFD."),
+                charset: Charset::Lossy,
+                warning: Some(LOSSY_WARNING),
             };
         }
         Self {
             text: Cow::Owned(bytes.iter().map(|&byte| char::from(byte)).collect()),
-            warning: Some(
-                "Not valid UTF-8: decoded as Latin-1 (ISO-8859-1); characters from other 8-bit encodings may be approximate, and byte offsets count the decoded UTF-8 text.",
-            ),
+            charset: Charset::Latin1,
+            warning: Some(LATIN1_WARNING),
         }
     }
 }
@@ -288,6 +310,11 @@ pub fn admit(bytes: &[u8], decoding: Decoding) -> Result<Decoded<'_>, Refusal> {
         Decoding::Unicode => decode_unicode(bytes)
             .map(|text| Decoded {
                 text,
+                charset: if has_utf16_bom(bytes) {
+                    Charset::Utf16
+                } else {
+                    Charset::Utf8
+                },
                 warning: has_utf16_bom(bytes).then_some(UTF16_WARNING),
             })
             .ok_or(Refusal::NotUnicode),

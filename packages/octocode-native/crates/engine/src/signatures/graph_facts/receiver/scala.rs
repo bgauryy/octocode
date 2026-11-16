@@ -24,6 +24,7 @@
 //! Members a template inherits are not visible here; the linker resolves
 //! them through the template's bases.
 
+use crate::signatures::node_kinds::kind_of;
 use std::collections::{HashMap, HashSet};
 
 use tree_sitter::Node;
@@ -80,16 +81,16 @@ impl ScalaTerms {
         content: &str,
     ) -> ScalaCall {
         let mut out = ScalaCall::default();
-        if call.kind() == "infix_expression" {
+        if kind_of(call) == "infix_expression" {
             return call
                 .child_by_field_name("left")
-                .filter(|left| left.kind() == "identifier")
+                .filter(|left| kind_of(left) == "identifier")
                 .map_or(out, |left| self.observe_receiver(left, path, content));
         }
         let Some(function) = scala_applied_function(call) else {
             return out;
         };
-        match function.kind() {
+        match kind_of(function) {
             "identifier" => {
                 let term = node_text(function, content)
                     .and_then(|name| self.lookup(path, name, function.start_byte(), content));
@@ -98,7 +99,7 @@ impl ScalaTerms {
             "field_expression" => {
                 if let Some(receiver) = function
                     .child_by_field_name("value")
-                    .filter(|value| value.kind() == "identifier")
+                    .filter(|value| kind_of(value) == "identifier")
                 {
                     out = self.observe_receiver(receiver, path, content);
                 }
@@ -128,15 +129,15 @@ impl ScalaTerms {
 /// The terms `scope` binds for code inside it.
 fn binders(scope: Node<'_>, content: &str) -> Vec<Binder> {
     let mut out = Vec::new();
-    match scope.kind() {
+    match kind_of(scope) {
         "lambda_expression" => {
             let mut cursor = scope.walk();
             for parameters in scope.children_by_field_name("parameters", &mut cursor) {
-                match parameters.kind() {
+                match kind_of(parameters) {
                     "identifier" => value(&mut out, parameters, None, content),
                     "bindings" | "binding" => {
                         let mut inner = parameters.walk();
-                        let list = if parameters.kind() == "binding" {
+                        let list = if kind_of(parameters) == "binding" {
                             vec![parameters]
                         } else {
                             parameters.named_children(&mut inner).collect()
@@ -203,13 +204,13 @@ fn parameter_clause(
     content: &str,
     out: &mut Vec<Binder>,
 ) {
-    if clause.kind() != kind {
+    if kind_of(clause) != kind {
         return;
     }
     let mut cursor = clause.walk();
     for param in clause
         .named_children(&mut cursor)
-        .filter(|param| param.kind() == parameter)
+        .filter(|param| kind_of(param) == parameter)
     {
         if let Some(name) = param.child_by_field_name("name") {
             let ty = type_text(param.child_by_field_name("type"), content);
@@ -224,20 +225,20 @@ fn self_alias(body: Node<'_>, content: &str, out: &mut Vec<Binder>) {
     let mut cursor = body.walk();
     let Some(alias) = body
         .named_children(&mut cursor)
-        .find(|child| child.kind() == "self_type")
+        .find(|child| kind_of(child) == "self_type")
     else {
         return;
     };
     let Some(name) = alias
         .named_child(0)
-        .filter(|name| name.kind() == "identifier")
+        .filter(|name| kind_of(name) == "identifier")
         .and_then(|name| node_text(name, content))
         .filter(|name| !matches!(*name, "this" | "_"))
     else {
         return;
     };
     let template = body.parent().and_then(|holder| {
-        let named = match holder.kind() {
+        let named = match kind_of(holder) {
             "instance_expression" => {
                 let parent = holder.parent();
                 is_declaration_value(holder, parent, content).then_some(parent?)?
@@ -267,24 +268,25 @@ fn statements(scope: Node<'_>, block: bool, content: &str, out: &mut Vec<Binder>
                 Term::Value(ty)
             }
         };
-        let from = if block && matches!(statement.kind(), "val_definition" | "var_definition") {
+        let from = if block && matches!(kind_of(statement), "val_definition" | "var_definition") {
             statement.end_byte()
         } else {
             0
         };
-        let (name, term) = match statement.kind() {
+        let (name, term) = match kind_of(statement) {
             "object_definition" => (statement.child_by_field_name("name"), Term::Object),
             "function_definition" | "function_declaration" | "given_definition" => {
                 let parameterless = {
                     let mut inner = statement.walk();
                     !statement
                         .named_children(&mut inner)
-                        .any(|child| child.kind() == "parameters")
+                        .any(|child| kind_of(child) == "parameters")
                 };
                 let ty = parameterless
                     .then(|| type_text(statement.child_by_field_name("return_type"), content))
                     .flatten();
-                let term = if declared && parameterless && statement.kind() != "given_definition" {
+                let term = if declared && parameterless && kind_of(statement) != "given_definition"
+                {
                     Term::Parameterless(ty)
                 } else {
                     term(ty)
@@ -299,7 +301,7 @@ fn statements(scope: Node<'_>, block: bool, content: &str, out: &mut Vec<Binder>
                 let Some(pattern) = statement.child_by_field_name("pattern") else {
                     continue;
                 };
-                if pattern.kind() != "identifier" {
+                if kind_of(pattern) != "identifier" {
                     let start = out.len();
                     pattern_binders(pattern, content, out);
                     for binder in &mut out[start..] {
@@ -327,7 +329,7 @@ fn statements(scope: Node<'_>, block: bool, content: &str, out: &mut Vec<Binder>
 fn pattern_binders(pattern: Node<'_>, content: &str, out: &mut Vec<Binder>) {
     let mut pending = vec![pattern];
     while let Some(node) = pending.pop() {
-        match node.kind() {
+        match kind_of(node) {
             "identifier" => {
                 if node_text(node, content).is_some_and(|name| name.starts_with(char::is_lowercase))
                 {
@@ -337,7 +339,7 @@ fn pattern_binders(pattern: Node<'_>, content: &str, out: &mut Vec<Binder>) {
             "typed_pattern" => {
                 let ty = type_text(node.child_by_field_name("type"), content);
                 match node.child_by_field_name("pattern") {
-                    Some(name) if name.kind() == "identifier" => value(out, name, ty, content),
+                    Some(name) if kind_of(name) == "identifier" => value(out, name, ty, content),
                     Some(inner) => pending.push(inner),
                     None => {}
                 }

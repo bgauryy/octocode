@@ -5,7 +5,8 @@ use super::{provision_server, uninstall_server};
 use octocode_engine::lsp::config::LspDiscoveryOptions;
 use octocode_engine::lsp::managed::{manifest, platform_id, resolve_cached_server};
 use octocode_native::config::LspAutoInstall;
-use octocode_native::runtime::ToolRuntime;
+use octocode_native::response::exit::ExitClass;
+use octocode_native::runtime::{ErrorClass, ToolRuntime};
 use std::path::Path;
 
 /// The runtime's resolved language-server discovery settings, so status and
@@ -151,7 +152,7 @@ pub(super) async fn run_install(
                 }
             }
         } else {
-            worst = 3;
+            worst = super::super::exit_code(ExitClass::Failed(ErrorClass::Unservable));
             if !json {
                 println!("{name}: {}", outcome.error.clone().unwrap_or_default());
             }

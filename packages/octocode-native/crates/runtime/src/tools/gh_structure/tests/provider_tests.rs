@@ -52,5 +52,5 @@ async fn list(server: &MockServer, value: Value) -> Result<ToolData, ProviderErr
     let home = tempfile::tempdir().expect("home");
     let provider = mock_provider(server, RetryPolicy::default());
     let context = default_context();
-    execute(&provider, &query(value), &context, home.path()).await
+    execute(&provider, &query(value), &context, home.path(), None).await
 }

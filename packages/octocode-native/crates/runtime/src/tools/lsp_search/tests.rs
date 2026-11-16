@@ -36,6 +36,7 @@ mod limit;
 mod loading_server;
 #[cfg(unix)]
 mod missed_files;
+mod operation_echo;
 mod outline;
 mod pagination;
 mod receipts;

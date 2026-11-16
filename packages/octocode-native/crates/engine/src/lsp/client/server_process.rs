@@ -23,7 +23,7 @@ pub(super) const GRACEFUL_EXIT_TIMEOUT_MS: u64 = 2_000;
 /// servers find their per-user caches/toolchains. Rust's explicit toolchain
 /// homes and selection must match discovery even when HOME is isolated.
 /// Any additional environment must be requested explicitly via the server config.
-pub(super) const LSP_SERVER_ENV_ALLOWLIST: &[&str] = &[
+pub const LSP_SERVER_ENV_ALLOWLIST: &[&str] = &[
     "PATH",
     "RUSTUP_HOME",
     "CARGO_HOME",
@@ -62,11 +62,11 @@ pub(super) const LSP_SERVER_ENV_ALLOWLIST: &[&str] = &[
     "TEMP",
     "TMP",
 ];
-// Read from the process, so declared there (`crate::process_env`).
+// Read from the call's environment, so declared there (`crate::process_env`).
 const _: () = {
     let mut index = 0;
     while index < LSP_SERVER_ENV_ALLOWLIST.len() {
-        assert!(crate::process_env::declares(
+        assert!(crate::process_env::call_declares(
             LSP_SERVER_ENV_ALLOWLIST[index]
         ));
         index += 1;
@@ -139,14 +139,17 @@ async fn exited_unreaped(child: &mut Child, limit: Duration) -> bool {
 pub(super) async fn lsp_spawn_program(
     validated_command: &str,
     args: &mut Vec<String>,
+    env: &std::collections::HashMap<String, String>,
 ) -> Result<String> {
     if executable_has_node_shebang(validated_command).await? {
-        let node = tokio::task::spawn_blocking(crate::lsp::config::current_node_command)
-            .await
-            .map_err(|err| Error::new(format!("Failed to resolve Node executable: {err}")))?
-            .ok_or_else(|| {
-                Error::new("Node executable is required to start this language server")
-            })?;
+        let env = env.clone();
+        let node =
+            tokio::task::spawn_blocking(move || crate::lsp::config::current_node_command(&env))
+                .await
+                .map_err(|err| Error::new(format!("Failed to resolve Node executable: {err}")))?
+                .ok_or_else(|| {
+                    Error::new("Node executable is required to start this language server")
+                })?;
         args.insert(0, validated_command.to_owned());
         return Ok(node);
     }

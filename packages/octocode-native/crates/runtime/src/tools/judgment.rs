@@ -278,17 +278,18 @@ impl Evaluator {
     /// fill: the provider's stated window (`long`: the long-context one) at
     /// what this endpoint's answers taught of its tokens ([`windows`]).
     pub(crate) fn request_fit(&self, model: Option<&str>, long: bool) -> RequestFit {
-        let defaults = self.provider.defaults();
-        windows::request_bytes(
-            &self.base_url,
-            model.unwrap_or(&self.model),
-            long,
-            if long {
-                defaults.long_context_tokens
-            } else {
-                defaults.context_tokens
-            },
-        )
+        self.fit(model, long, self.provider.defaults().question_window(long))
+    }
+
+    /// What a window of `tokens` holds at what this endpoint's answers taught
+    /// of its tokens ([`windows`]).
+    pub(crate) fn fit(&self, model: Option<&str>, long: bool, tokens: u64) -> RequestFit {
+        windows::request_bytes(&self.base_url, model.unwrap_or(&self.model), long, tokens)
+    }
+
+    /// The provider's window for one whole request (`long`: the long one).
+    pub(crate) fn request_window(&self, long: bool) -> u64 {
+        self.provider.defaults().request_window(long)
     }
 
     pub(crate) async fn evaluate_prepared(

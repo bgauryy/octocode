@@ -374,7 +374,8 @@ pub(super) async fn judge(
         }
         cancel.check().map_err(LspFailure::cancelled)?;
         match read_bounded_source_async(readable.canonical.clone()).await {
-            Ok(text) if text.len() <= security.limits().whole_source => {
+            Ok(read) if read.text.len() <= security.limits().whole_source => {
+                let text = read.text;
                 let path = &readable.canonical;
                 judged.push(request.judge(&text, path, |digest| {
                     crate::tools::judged_rows::judged(&text, digest, path, security)

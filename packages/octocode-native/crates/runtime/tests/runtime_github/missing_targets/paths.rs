@@ -221,12 +221,13 @@ async fn gh_structure_of_a_missing_path_recovers_to_the_nearest_directory() {
     runtime.close().await;
 }
 
-/// A missing path is located from one read: the commit's recursive tree,
-/// walked in memory. No directory is listed level by level, and the leads
-/// are the ones the listings gave: the case-corrected file, else the
-/// deepest existing directory.
+/// A missing path is located by listing its parent first, matching
+/// case-insensitively there, and walking up only while a parent is missing:
+/// the commit's recursive tree (194 MB on next.js) is never read. The leads
+/// are the ones the tree gave: the case-corrected file, else the deepest
+/// existing directory.
 #[tokio::test]
-async fn a_missing_path_is_located_from_one_tree_read() {
+async fn a_missing_path_is_located_from_its_parent_listing_without_the_tree() {
     let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     Mock::given(method("GET"))
@@ -236,33 +237,45 @@ async fn a_missing_path_is_located_from_one_tree_read() {
         .await;
     Mock::given(method("GET"))
         .and(path(format!("/api/v3/repos/a/b/git/trees/{sha}")))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "sha": sha, "truncated": false, "tree": [
-                {"path":"README.md","type":"blob","mode":"100644","size":3},
-                {"path":"tokio","type":"tree","mode":"040000"},
-                {"path":"tokio/src","type":"tree","mode":"040000"},
-                {"path":"tokio/src/lib.rs","type":"blob","mode":"100644","size":3},
-                {"path":"tokio/src/link.rs","type":"blob","mode":"120000","size":6}
-            ]
-        })))
-        // One read per recovery at most: a tree at a commit is immutable,
-        // so a later recovery may answer from the kept one.
-        .expect(1..=2)
-        .mount(&server)
-        .await;
-    Mock::given(method("GET"))
-        .and(wiremock::matchers::path_regex(
-            r"^/api/v3/repos/a/b/contents/?$",
-        ))
         .respond_with(ResponseTemplate::new(500))
         .expect(0)
         .mount(&server)
         .await;
-    for missing in ["Tokio%2Fsrc%2Flib.rs", "tokio%2Fsrc%2Fnope.rs"] {
+    for (dir, entries) in [
+        (
+            "",
+            json!([
+                {"name":"tokio","path":"tokio","type":"dir"},
+                {"name":"README.md","path":"README.md","type":"file","size":3,"sha":"1"}
+            ]),
+        ),
+        (
+            "/tokio",
+            json!([{"name":"src","path":"tokio/src","type":"dir"}]),
+        ),
+        (
+            "/tokio%2Fsrc",
+            json!([
+                {"name":"lib.rs","path":"tokio/src/lib.rs","type":"file","size":3,"sha":"2"},
+                {"name":"link.rs","path":"tokio/src/link.rs","type":"symlink","size":6,"sha":"3"}
+            ]),
+        ),
+    ] {
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v3/repos/a/b/contents{dir}")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(entries))
+            .mount(&server)
+            .await;
+    }
+    for missing in [
+        "Tokio%2Fsrc%2Flib.rs",
+        "Tokio%2Fsrc",
+        "Tokio",
+        "tokio%2Fsrc%2Fnope.rs",
+    ] {
         Mock::given(method("GET"))
             .and(path(format!("/api/v3/repos/a/b/contents/{missing}")))
             .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})))
-            .expect(1)
             .mount(&server)
             .await;
     }
@@ -279,6 +292,7 @@ async fn a_missing_path_is_located_from_one_tree_read() {
         "tokio/src/lib.rs",
         "{data}"
     );
+    let before = server.received_requests().await.unwrap_or_default().len();
     let outcome = call(&runtime, "ghGetFileContent", read("tokio/src/nope.rs"))
         .await
         .expect("error row");
@@ -291,6 +305,19 @@ async fn a_missing_path_is_located_from_one_tree_read() {
         )["input"]["queries"][0]["path"],
         "tokio/src",
         "{data}"
+    );
+    // The parent exists: its one listing locates the file, nothing above it.
+    let listed = server.received_requests().await.unwrap_or_default()[before..]
+        .iter()
+        .map(|request| request.url.path().to_owned())
+        .filter(|path| path.starts_with("/api/v3/repos/a/b/contents") && !path.ends_with("nope.rs"))
+        .collect::<Vec<_>>();
+    assert!(
+        listed.len() <= 1
+            && listed
+                .iter()
+                .all(|path| path == "/api/v3/repos/a/b/contents/tokio%2Fsrc"),
+        "{listed:?}"
     );
     runtime.close().await;
     server.verify().await;

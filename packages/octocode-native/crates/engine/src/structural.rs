@@ -91,6 +91,18 @@ pub fn pattern_declaration(pattern: &str, ext: &str) -> Option<PatternDeclaratio
     octo::pattern_declaration(&AgLanguage::new(entry), pattern)
 }
 
+/// The fields (`type_parameters`, `return_type`) in which the declaration of
+/// `pattern`'s kind that starts on 1-based `line` of `content`, in the
+/// grammar of `ext`, differs from the pattern: the part there is absent or
+/// is not what the pattern spells. Empty when the pattern spells no
+/// declaration, no node of its kind starts there, or no field-held part
+/// differs.
+pub fn pattern_differences(pattern: &str, ext: &str, content: &str, line: u32) -> Vec<String> {
+    languages::find_entry(ext)
+        .map(|entry| octo::pattern_differences(&AgLanguage::new(entry), pattern, content, line))
+        .unwrap_or_default()
+}
+
 /// The kind of node a structural `pattern` parses as in the grammar of
 /// `ext`; `None` when it does not compile or is a special pattern.
 pub fn pattern_kind(pattern: &str, ext: &str) -> Option<String> {

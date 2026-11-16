@@ -996,8 +996,11 @@ fn respond(
         let mut next = package_row(package, name, version);
         summary::carry(package.view, &mut next);
         next.insert("resume".into(), json!(resume.token));
-        data["calls"]["nextPage"] =
-            Continuation::continued(ToolId::SecurityCheck, Value::Object(next)).build();
+        crate::response::collection::insert_row_walk(
+            &mut data,
+            ToolId::SecurityCheck,
+            Continuation::continued(ToolId::SecurityCheck, Value::Object(next)),
+        );
         paging::mark_partial(
             &mut data,
             PartialReason::ProviderIncompleteResults,

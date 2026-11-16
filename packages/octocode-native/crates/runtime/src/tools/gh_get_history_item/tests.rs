@@ -200,3 +200,24 @@ fn normalized_response_budget_is_enforced() {
         "GitHub history item response exceeds 4 bytes"
     );
 }
+
+/// A commit that names its pull request ("(#874)") leads to reading it; one
+/// that names none states no route at all: no search by SHA is guessed.
+#[test]
+fn a_commit_leads_to_the_pull_request_its_message_names_and_guesses_none() {
+    let query = HistoryItemRequest::from_row(json!({
+        "operation":"commit", "owner":"o", "repo":"r", "ref":"abc123abc123abc123abc123abc123abc123abcd"}))
+    .expect("commit row");
+    let lead = super::patch_hop::commit_pull_request_lead("Fix the loop (#874)", &query)
+        .expect("a named pull request");
+    assert_eq!(lead["tool"], "ghGetHistoryItem", "{lead}");
+    assert_eq!(lead["input"]["queries"][0]["number"], 874, "{lead}");
+    assert_eq!(
+        lead["input"]["queries"][0]["operation"], "pullRequest",
+        "{lead}"
+    );
+    assert_eq!(
+        super::patch_hop::commit_pull_request_lead("Fix the loop", &query),
+        None
+    );
+}

@@ -6,6 +6,7 @@ import { existsSync, writeFileSync, rmSync, mkdirSync } from 'fs';
 import { propagateOctocodeEnv } from './octocode-config.mjs';
 import { browserMajorVersion, planRealProfile } from './real-profile.mjs';
 import { flagArgs } from './cli-flags.mjs';
+import { openSelectedTab } from './open-tab.mjs';
 import { OPEN_BROWSER_HELP } from './open-browser-help.mjs';
 import { errorMessage } from './error-message.mjs';
 import {
@@ -219,6 +220,16 @@ const proxy = effectiveProxy(
 );
 const proxyRequested = Boolean(proxy.server || proxy.pacUrl);
 
+async function openTab(url: string): Promise<string> {
+  try {
+    return await openSelectedTab(PORT, url, line => console.error(line));
+  } catch (e) {
+    return err(
+      `Chrome on port ${PORT} is reused, but opening ${url} failed: ${errorMessage(e)}`
+    );
+  }
+}
+
 const existing = await checkRunning(PORT);
 if (existing) {
   // Report which workspace's isolated session owns the reused browser, if any.
@@ -230,6 +241,9 @@ if (existing) {
     USER_AGENT && '--userAgent',
     hasFlag('--windowSize') && '--windowSize',
   ].filter(Boolean);
+  // A reused browser keeps its tabs: the requested URL opens in a new tab that later commands
+  // without a target use, and the result reports it.
+  const targetId = URL_ARG ? await openTab(URL_ARG) : undefined;
   // Commands without a port use this browser next, unless another workspace owns it.
   if (!owner.workspace || owner.workspace === WORKSPACE)
     recordActiveSession(CHROME_STATE_DIR, {
@@ -237,12 +251,14 @@ if (existing) {
       pid: owner.session?.pid,
       wsUrl: existing.webSocketDebuggerUrl,
       reused: true,
+      targetId,
     });
   ok({
     status: 'BROWSER_READY',
     wsUrl: existing.webSocketDebuggerUrl,
     port: PORT,
     reused: true,
+    ...(targetId ? { url: URL_ARG, targetId } : {}),
     browser: existing.Browser,
     ...(owner.session
       ? {

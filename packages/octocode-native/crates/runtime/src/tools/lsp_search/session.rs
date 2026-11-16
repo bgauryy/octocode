@@ -143,7 +143,13 @@ pub(super) async fn read_anchor_document(
         return Ok(None);
     }
     match read_bounded_source_async(std::path::PathBuf::from(&target.path)).await {
-        Ok(content) => Ok(Some(sources.insert(&target.path, content))),
+        Ok(read) => Ok(Some(sources.insert(&target.path, read))),
+        Err(SourceReadError::Binary) => Err(target.fail(
+            query,
+            ErrorCode::BinaryFileUnsupported,
+            "The source document is binary content, not source text.",
+            false,
+        )),
         Err(SourceReadError::TooLarge(len)) => Err(target.fail(
             query,
             ErrorCode::FileTooLarge,

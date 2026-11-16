@@ -6,6 +6,7 @@ mod handler;
 mod listing;
 mod progress;
 pub(super) mod resources;
+mod warm;
 
 use handler::Handler;
 use octocode_native::config::RuntimeSurface;
@@ -16,11 +17,20 @@ use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
+use warm::Warm;
 
 /// How long a failed start waits for the client's first request.
 const STARTUP_FAILURE_REPLY: Duration = Duration::from_secs(10);
 /// How long shutdown waits for in-flight requests to unwind.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
+
+/// The MCP server's runtime host: this process's environment and directory.
+pub(super) fn mcp_host() -> HostOptions {
+    HostOptions {
+        surface: RuntimeSurface::Mcp,
+        ..HostOptions::default()
+    }
+}
 
 /// A failed start answers the client's first request (its `initialize`) with
 /// the reason, then exits, so the client shows why instead of a closed
@@ -71,20 +81,17 @@ async fn termination() {
 /// grace period for it to unwind.
 pub(super) async fn run() -> ! {
     octocode_engine::memory::MEMORY.sweep_expired_while_running();
-    let host = HostOptions {
-        surface: RuntimeSurface::Mcp,
-        ..HostOptions::default()
-    };
-    let runtime = match ToolRuntime::from_host(host) {
+    let runtime = match ToolRuntime::from_host(mcp_host()) {
         Ok(runtime) => Arc::new(runtime),
         Err(error) => {
             fail_startup(&format!("Server initialization failed: {}", error.message)).await
         }
     };
+    let warm = Arc::new(Warm::resolve());
     let handler = octocode_native::contracts::cli_presentation()
         .map_err(str::to_owned)
         .and_then(|presentation| listing::build(presentation, &runtime.catalog()))
-        .and_then(|listing| Handler::new(Arc::clone(&runtime), listing));
+        .and_then(|listing| Handler::new(Arc::clone(&runtime), Arc::clone(&warm), listing));
     let handler = match handler {
         Ok(handler) => handler,
         Err(message) => fail_startup(&format!("Server initialization failed: {message}")).await,
@@ -100,7 +107,8 @@ pub(super) async fn run() -> ! {
     // `serve` returns once `initialize` is answered (rmcp sends the reply
     // first): warm the workspace's language servers in the background for
     // the session's first lspSearch.
-    runtime.prewarm_lsp_workspace(&tokio::runtime::Handle::current());
+    let prewarm = Arc::clone(&runtime);
+    tokio::spawn(async move { warm.prewarm(&prewarm).await });
     let stop = service.cancellation_token();
     tokio::spawn(async move {
         termination().await;

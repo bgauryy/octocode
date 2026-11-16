@@ -3,8 +3,10 @@ use super::super::GraphScanError;
 use crate::types::GraphFactsScanDiagnostic;
 
 pub(super) enum GraphFactsScanOutcome<T> {
-    /// A parsed file and what the caller's map kept of it (`None`: nothing).
-    Entry(String, Option<T>),
+    /// A parsed file, what the caller's map kept of it (`None`: nothing), and
+    /// why its text is not the file's UTF-8 when it was decoded
+    /// ([`crate::text::analysis::AdmittedSource::warning`]).
+    Entry(String, Option<T>, Option<&'static str>),
     Skipped(GraphFactsScanDiagnostic),
 }
 
@@ -39,9 +41,10 @@ pub(super) enum Mapped<T> {
 pub(super) fn mapped_outcome<T>(
     relative_path: String,
     mapped: Mapped<T>,
+    decoded: Option<&'static str>,
 ) -> Result<Option<GraphFactsScanOutcome<T>>, GraphScanError> {
     Ok(match mapped {
-        Mapped::Kept(kept) => Some(GraphFactsScanOutcome::Entry(relative_path, kept)),
+        Mapped::Kept(kept) => Some(GraphFactsScanOutcome::Entry(relative_path, kept, decoded)),
         Mapped::OverBudget(_, exceeded) => Some(skipped(
             relative_path,
             SOURCE_BUDGET_EXCEEDED,
@@ -63,6 +66,10 @@ pub fn over_budget_message(exceeded: &str) -> String {
 /// The skip code of a file whose source correspondence outgrows the
 /// per-file budget, whichever stage measured it.
 pub const SOURCE_BUDGET_EXCEEDED: &str = "graph.scan.sourceBudgetExceeded";
+
+/// The code of a file indexed from decoded text (Latin-1 or lossy): it is in
+/// the graph; its message is the shared decoding sentence.
+pub const DECODED: &str = "graph.scan.decoded";
 
 /// The skip code of a file whose work panicked, whichever phase did.
 pub const PANICKED: &str = "graph.scan.panicked";

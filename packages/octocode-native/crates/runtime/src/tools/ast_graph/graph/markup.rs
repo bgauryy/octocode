@@ -23,7 +23,7 @@ fn read_scripts(
     let Ok(source) = read_regular(Path::new(&entry.path), max_bytes) else {
         return unread;
     };
-    match source.admit(Decoding::Unicode) {
+    match source.admit(Decoding::Lenient) {
         Ok(decoded) => markup_scripts(&decoded.text, relative, extension),
         Err(_) => unread,
     }

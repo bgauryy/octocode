@@ -132,7 +132,7 @@
       "crates/runtime/src/tools/ast_graph/store/snapshots.rs": 1,
       "crates/runtime/src/tools/bounded_process.rs": 1,
       "crates/runtime/src/tools/clasify/sections/store.rs": 1,
-      "crates/runtime/src/tools/gh_clone_repo/git/admission.rs": 1,
+      "crates/runtime/src/tools/gh_git/admission.rs": 1,
       "crates/runtime/src/tools/local_search/packed/read.rs": 1,
       "crates/runtime/src/tools/lsp_search/heritage/scan.rs": 1,
       "crates/runtime/src/tools/lsp_search/importers.rs": 1,
@@ -162,7 +162,6 @@
       "crates/engine/src/lsp/managed.rs": 1,
       "crates/engine/src/lsp/workspace.rs": 4,
       "crates/engine/src/lsp/workspace/includes.rs": 1,
-      "crates/engine/src/search/relevance/demotion.rs": 1,
       "crates/engine/src/search/walk/ignore_rules.rs": 1,
       "crates/engine/src/search/walk/ignore_rules/git_dir.rs": 2
     },
@@ -214,7 +213,7 @@
     "runtime": {
       "crates/runtime/src/tools/ast_graph/cargo/workspaces.rs": 1,
       "crates/runtime/src/tools/ast_graph/store/query/assess/changed.rs": 1,
-      "crates/runtime/src/tools/gh_clone_repo/process.rs": 1
+      "crates/runtime/src/tools/gh_git/process.rs": 1
     }
   },
   "clippy::disallowed_methods(std::thread::sleep)": {

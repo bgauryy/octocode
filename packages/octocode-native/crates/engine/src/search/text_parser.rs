@@ -14,7 +14,7 @@ pub(crate) struct RawMatch {
     /// The hit's byte in its source line (not in `line_text`, which may be
     /// only a window of a long line).
     pub(crate) byte_offset: u32,
-    /// [`relevance::line_rank`](super::relevance::line_rank) of the hit,
+    /// [`relevance::line_rank`](super::declaration::line_rank) of the hit,
     /// taken on its whole source line.
     pub(crate) rank: u32,
     /// [`TextSearchMatch::window_start`]: `line_text` is a window of its
@@ -186,7 +186,7 @@ pub fn line_match(
     column: u32,
     byte_offset: u32,
 ) -> TextSearchMatch {
-    let rank = super::relevance::line_rank(line_text.as_bytes(), byte_offset as usize);
+    let rank = super::declaration::line_rank(line_text.as_bytes(), byte_offset as usize);
     let value_digest = TextSearchMatch::digest_of(line_text);
     TextSearchMatch {
         deferred: None,

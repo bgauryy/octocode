@@ -8,6 +8,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use wiremock::{Mock, MockServer, ResponseTemplate, matchers::method};
 mod failures;
 mod retries;
+mod stall;
 
 fn test_budget(timeout: Duration) -> RequestBudget {
     budget(
@@ -57,16 +58,4 @@ async fn mount_ok_once(server: &MockServer) {
         .expect(1)
         .mount(server)
         .await;
-}
-
-/// B75: a classification request may run without a deadline, so only a
-/// provider that stops sending ends it ([`octocode_io::http::READ_STALL`]),
-/// never a total, whichever proxy route it takes.
-#[test]
-fn a_provider_request_is_bounded_only_by_its_read_stall() {
-    for bypass_proxy in [false, true] {
-        let policy = provider_policy(bypass_proxy);
-        assert_eq!(policy.read_timeout, Some(octocode_io::http::READ_STALL));
-        assert_eq!(policy.timeout, None);
-    }
 }

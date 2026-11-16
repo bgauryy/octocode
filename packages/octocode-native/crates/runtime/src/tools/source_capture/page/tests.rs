@@ -30,7 +30,7 @@ fn a_final_reader_failure_keeps_its_own_leads_and_hints() {
     let transient = reader_failure(
         ToolId::LocalFetch.output(),
         &json!({
-            "errorCode": "fileReadFailed", "error": "io", "hints": ["Disk busy."]
+            "errorCode": "timeout", "error": "io", "hints": ["Disk busy."]
         }),
     );
     assert_eq!(

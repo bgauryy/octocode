@@ -136,9 +136,9 @@ The JSON needs exactly one query row, and that row names no `content`, `source` 
 | `longContext` | Retry with the long window after a provider refusal | `true` requests the long window up front. `false` keeps the standard window. An admitted longer request can cost more provider tokens. |
 | `view` | `summary` | Request `details` on the first evaluation for distributions, model and available provenance. Repeating an evaluation to switch views makes a fresh provider request. |
 
-Fresh judgments consume provider tokens even when Octocode already has the file. A fresh `evaluate` or `sections` request starts again. Saved pages replay their answers. Repeating an inline candidate-page cursor can replay it with `calls: 0` while the same runtime retains it. Eviction or a new process can require new inference.
+Fresh judgments consume provider tokens even when Octocode already has the file. A fresh `evaluate` or `sections` request starts again. Saved pages replay their answers. Repeating an inline candidate-page cursor, or a fresh inline `classification` query identical to a judged one (same query, source and judge), can replay it with `calls: 0` and `replayed: true` while the same runtime retains it. A `clasify` `evaluate` has no such memory: it bills every time, even for an identical request. Each row, path, entry or whole-file chunk is judged in its own provider request (batching several in one request was measured on 2026-11-15 and judged worse on fuzzy questions), so `usage.calls` counts requests and `usage.remainingInputTokensEstimate` prices the rest. Eviction or a new process can require new inference.
 
-Section plans and their saved response pages expire after 30 minutes of inactivity. With `storage.mode: "memory"` every CLI call runs in its own process, which keeps nothing for a later call: use one running MCP server for a section plan or a source read larger than one response. A warning discloses when the read needs paging. A one-shot CLI call can still `evaluate` local or GitHub text and supply a read that fits one response. URL and image capture require persistent storage. [Storage modes](STORAGE_AND_LIMITS.md#cache-storage-and-lifecycle)
+Section plans and their saved response pages expire after 30 minutes of inactivity. With `storage.mode: "memory"` every CLI call runs in its own process, which keeps nothing for a later call: use one running MCP server for a section plan or a source read larger than one response. A warning discloses when the read needs paging. A one-shot CLI call can still `evaluate` local or GitHub text and supply a read that fits one response. A classified read in a one-shot call is delivered with what it judged: `next.unfiltered` is then a fresh request, and `next.nextCandidatePage` and `next.unfilteredUnknown` are left out with a warning that counts the undecided units. URL and image capture require persistent storage. [Storage modes](STORAGE_AND_LIMITS.md#cache-storage-and-lifecycle)
 
 ## Recovery
 
@@ -149,6 +149,7 @@ Section plans and their saved response pages expire after 30 minutes of inactivi
 | `classificationContextEmpty`, refused source, or expired plan | Check the source with its reader. Start a fresh request after expiry. |
 | `classificationContextTooLarge` or `classificationStateTooLarge` | Use narrower line ranges or a `sections` call, if offered. Literal content and image rows can receive a size refusal. |
 | Provider error after capture | Inspect the error, then use the returned source read when available. |
+| Provider HTTP 401 (rejected key) | Fix `OCTOCODE_CLASSIFICATION_API`. The process remembers the rejection for a minute, so the rest of a matrix fails fast without more requests, and the next call after that probes once. A 403 is not remembered: it can be one model's refusal. |
 
 ## Limits
 

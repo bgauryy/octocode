@@ -174,28 +174,17 @@ mod tests {
 
     /// The whole-source recovery of a whole read keeps that scope
     /// on GitHub; range and saved-progress reads retain their bounds, and
-    /// every row of a multi-row call becomes a GitHub read.
+    /// the unknown-units replay stays a GitHub read.
     #[test]
     fn a_whole_view_lead_keeps_full_content_and_every_row_is_rewritten() {
         let source: GhGetFileContentQuery =
             serde_json::from_value(json!({"owner":"o","repo":"r","path":"README.md"}))
                 .expect("query");
-        let mut rest = serde_json::Map::new();
-        rest.insert(
-            "unfilteredUnknown2".into(),
-            Continuation::related_input(
-                ToolId::LocalFetch,
-                json!({"queries":[{"path":"README.md","ranges":[{"startLine": 1, "endLine": 2}]},
-                    {"path":"README.md","ranges":[{"startLine": 9, "endLine": 9}]}]}),
-            )
-            .build(),
-        );
         let mut result = LocalFetchResult::blank(ReadStatus::Success);
         result.next = Some(NextCalls {
             unfiltered: Some(read(json!({}))),
             unfiltered_unknown: Some(read(json!({"ranges":[{"startLine": 3, "endLine": 4}]}))),
             continue_window: Some(read(json!({"readProgress":{"offset":50,"unit":"lines"}}))),
-            unfiltered_unknown_rest: rest,
             ..NextCalls::default()
         });
         let next = rewrite_continuations(&mut result, &source, "abc123").expect("next");
@@ -210,13 +199,7 @@ mod tests {
         );
         let window = &next["nextPage"]["input"]["queries"][0];
         assert_eq!(window["readProgress"]["offset"], 50);
-        let rows = next["unfilteredUnknown2"]["input"]["queries"]
-            .as_array()
-            .expect("rows");
-        assert_eq!(rows.len(), 2);
-        assert!(
-            rows.iter()
-                .all(|row| row["owner"] == "o" && row["ref"] == "abc123")
-        );
+        let unknown = &next["unfilteredUnknown"]["input"]["queries"][0];
+        assert!(unknown["owner"] == "o" && unknown["ref"] == "abc123");
     }
 }

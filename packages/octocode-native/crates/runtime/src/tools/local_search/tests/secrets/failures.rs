@@ -223,7 +223,7 @@ fn many_text_cut_files_are_a_count_with_a_lossless_listing() {
         .expect("fixture");
     }
     let request = ls_query(
-        serde_json::json!({"path": root.path(), "matchString": ["alpha"], "regexEngine": "literal", "view": "files", "defaultExcludes": false}),
+        serde_json::json!({"path": root.path(), "matchString": ["alpha"], "regexEngine": "literal", "view": "files", "defaultExcludes": false, "sort": {"by": "path", "order": "asc"}}),
         None,
     );
     let (policy, security) = policy_for(root.path());

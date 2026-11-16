@@ -45,22 +45,22 @@ fn a_settled_read_serves_repeats_until_a_build_file_changes() {
     let first = read(&root).expect("read");
     assert!(first.includes(&root.join("b")));
     assert!(!first.includes(&root.join("c")));
-    assert_eq!(reads::of(&root), 1);
+    assert_eq!(WALKS.of(&root), 1);
     assert_eq!(read(&root), Some(first.clone()));
-    assert_eq!(reads::of(&root), 1, "a repeat reads the kept answer");
+    assert_eq!(WALKS.of(&root), 1, "a repeat reads the kept answer");
     write(
         &root.join("c/go.mod"),
         "module example.com/c\n\nrequire example.com/a v1.0.0\n",
     );
     settle_written_so_far();
     let after = read(&root).expect("read again");
-    assert_eq!(reads::of(&root), 2);
+    assert_eq!(WALKS.of(&root), 2);
     assert!(after.includes(&root.join("c")));
     // An edit of a read build file changes its stamp too.
     write(&root.join("b/go.mod"), "module example.com/b\n");
     settle_written_so_far();
     let edited = read(&root).expect("read after the edit");
-    assert_eq!(reads::of(&root), 3);
+    assert_eq!(WALKS.of(&root), 3);
     assert!(!edited.includes(&root.join("b")));
 }
 
@@ -89,7 +89,7 @@ fn an_unsettled_read_is_not_kept() {
     let (_dir, root) = repository();
     assert!(read(&root).is_some());
     assert!(read(&root).is_some());
-    assert_eq!(reads::of(&root), 2);
+    assert_eq!(WALKS.of(&root), 2);
 }
 
 /// A scope that is its repository's root widens nowhere above it: a write
@@ -111,7 +111,7 @@ fn a_write_above_the_repository_keeps_the_read() {
     write(&outer_path.join("beside.txt"), "x");
     settle_written_so_far();
     assert!(read(&root).is_some());
-    assert_eq!(reads::of(&root), 1);
+    assert_eq!(WALKS.of(&root), 1);
 }
 
 /// A Cargo project depends on the anchor's package only through a

@@ -269,7 +269,7 @@ fn an_empty_match_beside_parsed_files_names_the_ignored_ones() {
     assert_eq!(found["matchCount"], 1, "{found}");
 }
 
-/// A file the scan skips (over the parse limit, not UTF-8) is one skip:
+/// A file the scan skips (over the parse limit, binary) is one skip:
 /// `filesSkipped` alone (never also `filesUnevaluated`), one diagnostic per
 /// file, and its recovery names tools that reach it.
 #[test]
@@ -278,11 +278,7 @@ fn a_skipped_file_is_one_skip_with_one_diagnostic() {
     root.write("a.ts", "foo(1);\n");
     let large = "foo(2);\n".repeat(crate::security::SourceLimits::REAL.whole_source / 8 + 1);
     root.write("big.ts", large);
-    std::fs::write(
-        root.0.join("bin.ts"),
-        [0xff_u8, b'f', b'o', b'o', b'(', 0xfe],
-    )
-    .expect("binary");
+    std::fs::write(root.0.join("bin.ts"), [0_u8, b'f', b'o', b'o', b'(', 0xfe]).expect("binary");
     let out = run(
         &root.0,
         json!({"operation":"match","path":root.0,"parser":"typescript","rule":{"pattern":"foo($A)"}}),

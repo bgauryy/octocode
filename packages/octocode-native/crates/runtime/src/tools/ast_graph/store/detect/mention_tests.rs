@@ -49,12 +49,13 @@ fn reference_scan<'k>(
     let mut local: Found<'k> = Default::default();
     for (index, line) in text.lines().enumerate() {
         for (offset, token) in tokens(line) {
-            if token.contains(['/', '.']) {
-                if let Some(stem) = key(stems, &path_key(token)) {
+            let named = token.trim_end_matches('.');
+            if named.contains(['/', '.']) {
+                if let Some(stem) = key(stems, &path_key(named)) {
                     local[STEMS].entry(stem).or_insert(index + 1);
                 }
-            } else if let Some(stem) = key(stems, token)
-                && is_quoted(line, offset, token)
+            } else if let Some(stem) = key(stems, named)
+                && is_quoted(line, offset, named)
             {
                 local[STEMS].entry(stem).or_insert(index + 1);
             }
@@ -127,6 +128,34 @@ fn a_path_token_keys_the_directory_it_names() {
         "'../dist/index.js'",
     ] {
         assert_eq!(hits(parentless), ["index"], "{parentless}");
+    }
+}
+
+/// A file is named by its name with an extension or by a path: a stem as a
+/// word of prose is no mention, a sentence's closing dot included ("the
+/// test oracle.").
+#[test]
+fn a_word_ending_a_sentence_names_no_file() {
+    let stems = set(&["oracle"]);
+    let names = BTreeSet::new();
+    let keys = Keys::new(&stems, &names);
+    for code in [false, true] {
+        let hits = |text: &str| scan_text(text, code, &keys)[STEMS].len();
+        for word in [
+            "/// The whole snapshot decoded at once: the test oracle.",
+            "ask the oracle... then",
+            "oracle",
+        ] {
+            assert_eq!(hits(word), 0, "{word}");
+        }
+        for named in [
+            "see oracle.py.",
+            "../oracle.py",
+            "import ./oracle",
+            "'oracle'",
+        ] {
+            assert_eq!(hits(named), 1, "{named}");
+        }
     }
 }
 

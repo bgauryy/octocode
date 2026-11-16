@@ -234,6 +234,9 @@ impl FileFacts {
 /// codes, so diagnostics sort as their stored text does.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) enum DiagnosticCode {
+    /// The file is indexed from decoded text (Latin-1 or lossy), as
+    /// localSearch reads it; the message is the shared decoding sentence.
+    Decoded,
     /// The one default prune left out this directory.
     DefaultExcluded,
     /// An import of project code climbs above the snapshot root: a scope
@@ -256,6 +259,7 @@ impl DiagnosticCode {
     /// The code a snapshot stores and graphQuery `diagnostics` returns.
     pub(crate) fn as_str(self) -> &'static str {
         match self {
+            Self::Decoded => "decoded",
             Self::DefaultExcluded => "default-excluded",
             Self::OutsideRoot => "outside-root",
             Self::ParseRecovery => "parse-recovery",
@@ -365,6 +369,9 @@ pub(crate) struct BuildProgress {
     pub checkpointed_files: usize,
     pub spilled_bytes: u64,
     pub memory_only_files: usize,
+    /// Files past a checkpoint budget or one artifact's bound, linked
+    /// without a checkpoint: an interrupted build parses them again.
+    pub uncheckpointed_files: usize,
     pub max_spill_bytes: u64,
     pub max_memory_only_bytes: u64,
 }

@@ -2,9 +2,14 @@
 // flag (browser, new tab, id, URL, type, first page), the target inventory and the first navigation.
 import { join } from 'path';
 import type { Payload, Session } from './cdp-connection.mjs';
+import type { StealthSession } from './stealth-session.mjs';
 import { cdpHttp, cdpRequest } from './engine-io.mjs';
 import { errorMessage } from './error-message.mjs';
-import { isAboutOrDataUrl, stealthEnabled } from './mandatory-stealth.mjs';
+import {
+  applyMandatoryStealth,
+  isAboutOrDataUrl,
+  stealthEnabled,
+} from './mandatory-stealth.mjs';
 import {
   readJsonObject,
   writeJson,
@@ -40,6 +45,8 @@ type TargetFlags = {
   targetUrl?: string;
   targetType?: string;
   strict?: boolean;
+  /** The tab `open --url` selected: the default page while it exists. */
+  preferredId?: string;
 };
 
 /** A CDP Target.TargetInfo row from Target.getTargets. */
@@ -112,11 +119,11 @@ async function browserTarget(
 }
 
 // A non-blank URL opens on about:blank first and navigates after stealth is applied.
-async function newTabTarget(
+export async function newTabTarget(
   chrome: ChromeEndpoint,
   tabUrl: string,
   note: Log
-): Promise<Selection> {
+): Promise<Extract<Selection, { error?: undefined }>> {
   const openUrl = !isAboutOrDataUrl(tabUrl) ? 'about:blank' : tabUrl;
   const pendingNavigate = openUrl !== tabUrl ? tabUrl : null;
   const tab = await chrome.open(openUrl);
@@ -186,11 +193,16 @@ async function targetByType(
 
 async function firstPage(
   chrome: ChromeEndpoint,
-  strict: boolean | undefined,
+  sel: TargetFlags,
   note: Log
 ): Promise<Selection> {
   const pages = (await chrome.targets()).filter(t => t.type === 'page');
-  const t = uniqueTarget(pages, strict);
+  const selected = pages.find(t => t.id === sel.preferredId);
+  if (selected) {
+    note(`[CDP_RUNNER] Using the tab open selected: ${selected.url}`);
+    return attach(selected);
+  }
+  const t = uniqueTarget(pages, sel.strict);
   // No match means no page at all: uniqueTarget only returns undefined for an empty list.
   if (!t)
     return {
@@ -216,7 +228,7 @@ export function selectTarget(
   if (sel.targetUrl) return targetByUrl(chrome, sel, sel.targetUrl, note);
   if (sel.targetType)
     return targetByType(chrome, sel.targetType, sel.strict, note);
-  return firstPage(chrome, sel.strict, note);
+  return firstPage(chrome, sel, note);
 }
 
 /** How the target was selected, as recorded in the session metadata. */
@@ -364,6 +376,24 @@ export async function navigateTab(
     returnByValue: true,
   });
   return location.result?.value || url;
+}
+
+/**
+ * Loads the URL a new tab was opened without: stealth setup first when enabled, so the first
+ * document load already runs under the overrides, then the navigation. Returns the URL reached.
+ */
+export async function stealthThenNavigate(
+  cdp: StealthSession,
+  pendingNavigate: string | null,
+  { log, note }: { log: Log; note: Log }
+): Promise<string | undefined> {
+  if (stealthEnabled())
+    await applyMandatoryStealth(cdp, {
+      navigateUrl: pendingNavigate ?? undefined,
+    });
+  if (!pendingNavigate) return undefined;
+  note(`[CDP_RUNNER] Navigating to ${pendingNavigate}`);
+  return navigateTab(cdp, pendingNavigate, log);
 }
 
 // A tab opened on about: or data: is usable once its document has loaded.

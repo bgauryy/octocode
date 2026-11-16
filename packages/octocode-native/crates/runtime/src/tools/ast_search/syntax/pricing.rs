@@ -235,6 +235,8 @@ impl<'a> DescriptorCosts<'a> {
             &catalog.snapshots,
             |row| match row {
                 OutputSourceSnapshot::Utf8 { id, .. }
+                | OutputSourceSnapshot::Latin1 { id, .. }
+                | OutputSourceSnapshot::Lossy { id, .. }
                 | OutputSourceSnapshot::Utf16le { id, .. }
                 | OutputSourceSnapshot::Utf16be { id, .. } => id.as_str(),
             },

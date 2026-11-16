@@ -140,12 +140,15 @@ fn scan_token<'k>(
     local: &mut Found<'k>,
 ) {
     let token = &text[start..end];
-    if memchr::memchr2(b'/', b'.', token.as_bytes()).is_some() {
-        if let Some(stem) = keys.of(path_key(token), STEM) {
+    // A file is named with its extension or a path: dots closing a sentence
+    // ("the test oracle.") leave a bare word.
+    let named = token.trim_end_matches('.');
+    if memchr::memchr2(b'/', b'.', named.as_bytes()).is_some() {
+        if let Some(stem) = keys.of(path_key(named), STEM) {
             local[STEMS].entry(stem).or_insert(line);
         }
-    } else if let Some(stem) = keys.of(token, STEM)
-        && quoted(text.as_bytes(), start, end)
+    } else if let Some(stem) = keys.of(named, STEM)
+        && quoted(text.as_bytes(), start, start + named.len())
     {
         // A bare name as a whole string literal (`'worker'`) is a file a
         // loader may build a path from.

@@ -38,6 +38,64 @@ pub fn assert_output_contract(tool: &str, output: &Value) {
     assert_leads_valid(output);
     assert_continued_listings_have_more(tool, output);
     assert_no_fact_only_in_a_dropped_lead(tool, output);
+    assert_related_promise_has_calls(tool, output);
+}
+
+/// A success row keeps what its warnings and notices promise: a note that
+/// sends the reader to `related` comes with calls there (the note is a
+/// promise `response::workflow_lead` keeps), and one that names a
+/// `next.<channel>` call comes with that call. Both hold for the row as built
+/// and as served, after the response stage drops leads (FB6 reflection: a
+/// note that names a field the row lacks costs the reader a guess).
+pub fn assert_related_promise_has_calls(tool: &str, output: &Value) {
+    let names_related = |text: &str| {
+        text.split_whitespace()
+            .any(|word| word.trim_matches(|c: char| !c.is_alphanumeric()) == "related")
+    };
+    let mut served = output.clone();
+    keep_workflow_lead(tool, &mut served);
+    for (stage, output) in [("built", output), ("served", &served)] {
+        for row in output["results"].as_array().into_iter().flatten() {
+            let data = &row["data"];
+            if row.get("status").is_some() || data.get("errorCode").is_some() {
+                continue;
+            }
+            let notes: Vec<&str> = ["warnings", "notices"]
+                .iter()
+                .flat_map(|note| data[note].as_array().into_iter().flatten())
+                .filter_map(Value::as_str)
+                .collect();
+            assert!(
+                !notes.iter().any(|text| names_related(text))
+                    || data["related"]
+                        .as_array()
+                        .is_some_and(|calls| !calls.is_empty()),
+                "{tool} ({stage}): a note promises `related` but the row carries none\n{row}"
+            );
+            for channel in notes.iter().flat_map(|text| next_channels(text)) {
+                assert!(
+                    data["next"].get(channel).is_some(),
+                    "{tool} ({stage}): a note names next.{channel} but the row carries none\n{row}"
+                );
+            }
+        }
+    }
+}
+
+/// The `next.<channel>` calls `text` names, as `next.nextPage` or
+/// `` `next.expandScan` ``.
+fn next_channels(text: &str) -> impl Iterator<Item = &str> {
+    text.match_indices("next.").filter_map(move |(at, _)| {
+        let before = text[..at].chars().next_back();
+        if before.is_some_and(|c| c.is_alphanumeric() || c == '.') {
+            return None;
+        }
+        let rest = &text[at + "next.".len()..];
+        let end = rest
+            .find(|c: char| !c.is_ascii_alphanumeric())
+            .unwrap_or(rest.len());
+        (end > 0 && rest.starts_with(|c: char| c.is_ascii_lowercase())).then(|| &rest[..end])
+    })
 }
 
 /// No fact lives only in a lead the response stage drops: each identity a
@@ -47,6 +105,7 @@ pub fn assert_no_fact_only_in_a_dropped_lead(tool: &str, output: &Value) {
     fn states(value: &Value, identity: &str) -> bool {
         match value {
             Value::String(text) => text.contains(identity),
+            Value::Number(number) => number.to_string() == identity,
             Value::Array(items) => items.iter().any(|item| states(item, identity)),
             Value::Object(map) => map.iter().any(|(key, item)| {
                 !matches!(key.as_str(), "related" | "next") && states(item, identity)
@@ -68,7 +127,7 @@ pub fn assert_no_fact_only_in_a_dropped_lead(tool: &str, output: &Value) {
             }
             for identity in carried_identities(call) {
                 assert!(
-                    states(&row["data"], identity),
+                    states(&row["data"], &identity),
                     "{tool}: `{identity}` lives only in a dropped lead {call}\n{row}"
                 );
             }

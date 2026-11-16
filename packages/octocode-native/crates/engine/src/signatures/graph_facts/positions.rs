@@ -1,5 +1,6 @@
 //! Graph positions of syntax-tree nodes and the error spans of a recovered parse.
 
+use crate::signatures::node_kinds::kind_of;
 use tree_sitter::Node;
 
 use crate::graph::{GraphPosition, GraphRange};
@@ -17,7 +18,7 @@ pub(super) fn declaration_end_byte(node: Node<'_>) -> usize {
         }
         loop {
             let child = cursor.node();
-            let comment = crate::signatures::node_kinds::is_comment_kind(child.kind());
+            let comment = crate::signatures::node_kinds::is_comment_kind(kind_of(child));
             let at = child.start_position();
             // An inline comment or a body-indented trailing comment belongs
             // to this declaration. Only outdented comment extras can belong
@@ -28,7 +29,7 @@ pub(super) fn declaration_end_byte(node: Node<'_>) -> usize {
             if !child.is_extra()
                 && !child.is_missing()
                 && child.start_byte() < child.end_byte()
-                && !child.kind().trim().is_empty()
+                && !kind_of(child).trim().is_empty()
                 && !comment
             {
                 break;
@@ -98,7 +99,7 @@ pub(super) fn leading_annotation_starts(children: &[Node<'_>]) -> Vec<Option<usi
         .iter()
         .map(|child| {
             let leading = run;
-            let kind = child.kind();
+            let kind = kind_of(child);
             if is_annotation_kind(kind) && kind != "inner_attribute_item" {
                 run.get_or_insert(child.start_byte());
             } else if !is_comment_kind(kind) {

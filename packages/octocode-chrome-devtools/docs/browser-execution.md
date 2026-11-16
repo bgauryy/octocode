@@ -28,7 +28,7 @@ Use the page's observed labels and selectors; this example is a plan shape, not 
 | `goto` | Root `url`; waits for navigation commit and document readiness, including redirects. `after` adds task readiness. |
 | `act` | `action` and explicit `ref`, `selector`, or exact `role` + `name`; trusted input and actionability checks; foregrounds the owning page, including isolated frames. Optional `value`, `key`, `toRef`, `toSelector`. |
 | `wait` | Visible target or text `value`; no action. |
-| `extract` | CSS `selector`; all matches saved. `fields`: `text`, `href`, `value`, `role`, `name`; default text + href. `name` reads aria-label/name attributes, not computed accessible name. Empty is failure unless `allowEmpty: true`. |
+| `extract` | CSS `selector`; all matches saved. `fields`: `text`, `href`, `value`, `role`, `name`; default text + href. `name` reads aria-label/name attributes, not computed accessible name. Zero matches return an empty result with a `note` and the plan continues; `allowEmpty: false` makes zero matches fail the plan. |
 | `cdp` | Any installed `Domain.method`, optional object `params`; saves the full result. Runtime exceptions fail. |
 | `readStream` | String or referenced `handle`, optional `size` (1–1048576, default 65536); saves every IO.read chunk through EOF as JSONL, then closes unless `close: false`. |
 | `listen` | Unique `id`, `event` as Domain.event, optional `where` mapping JSON pointers in the payload to scalar equality tests; streams every event into JSONL, counts matches separately. |

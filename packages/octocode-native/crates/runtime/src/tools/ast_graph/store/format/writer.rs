@@ -193,7 +193,7 @@ impl<'t> Encoder<'t> {
         let ids = (0..=u32::MAX)
             .zip(&texts)
             .map(|(index, text)| (*text, index))
-            .collect::<HashMap<_, _>>();
+            .collect::<HashMap<_, _, crate::tools::ast_graph::hashing::FastState>>();
         let id = |text: &str| ids.get(text).copied().unwrap_or(0);
         let sids = tables.strings.iter().map(&id).collect();
         let empty = id("");

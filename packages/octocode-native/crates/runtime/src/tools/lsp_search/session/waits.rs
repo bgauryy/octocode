@@ -113,7 +113,10 @@ mod tests {
             language_id: language_id.map(str::to_owned),
             document_language_ids: Default::default(),
             initialization_options: None,
-            env: None,
+            env: Some(std::collections::HashMap::from([(
+                "PATH".to_owned(),
+                std::env::var("PATH").unwrap_or_default(),
+            )])),
             max_memory_mb: None,
             source: Default::default(),
         };
@@ -138,7 +141,10 @@ mod tests {
             language_id: Some("rust".into()),
             document_language_ids: Default::default(),
             initialization_options: None,
-            env: None,
+            env: Some(std::collections::HashMap::from([(
+                "PATH".to_owned(),
+                std::env::var("PATH").unwrap_or_default(),
+            )])),
             max_memory_mb: None,
             source: Default::default(),
         };
@@ -193,7 +199,10 @@ mod tests {
             language_id: Some("rust".into()),
             document_language_ids: Default::default(),
             initialization_options: None,
-            env: None,
+            env: Some(std::collections::HashMap::from([(
+                "PATH".to_owned(),
+                std::env::var("PATH").unwrap_or_default(),
+            )])),
             max_memory_mb: None,
             source: Default::default(),
         };

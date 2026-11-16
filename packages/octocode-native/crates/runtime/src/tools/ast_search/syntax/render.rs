@@ -82,7 +82,7 @@ pub(super) fn render_tree_page(
         out["diagnostics"] = json!(diagnostics);
     }
     if *more
-        && let Some(lead) = crate::response::paging::next_page_call(
+        && let Some(lead) = crate::response::collection::continued_page(
             ToolId::AstSearch,
             crate::response::result::query_row(q, &[]),
             "page",
@@ -90,7 +90,7 @@ pub(super) fn render_tree_page(
             &[("snapshot", json!(snapshot))],
         )
     {
-        out["calls"] = json!({ "nextPage": lead });
+        out["calls"] = crate::response::collection::walk_calls(ToolId::AstSearch, None, lead);
     }
     if r.status == "partial" {
         use crate::response::paging::{mark_partial, terminal_limit};

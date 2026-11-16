@@ -1,6 +1,9 @@
 //! Pull request file inventories: patchless and renamed files, identity headers, filters, provider caps and totals.
 
-use super::{mount_file_batches, mount_pr, no_continuation, numbered, raw_patch, rest_file, run};
+use super::{
+    mount_file_batches, mount_pr, no_continuation, numbered, raw_patch, related_reads_only_this_pr,
+    rest_file, run,
+};
 use crate::support::{self};
 use serde_json::{Value, json};
 use std::time::Duration;
@@ -111,13 +114,13 @@ async fn pr_inventory_supports_explicit_patch_selection_and_keeps_all_patches() 
         json!({"src/server/":["M +15 -0 sseKeepAlive.ts","M +241 -94 webStandardStreamableHttp.ts"]}),
         "{data}"
     );
+    // A patch read the inventory offers is optional and reads this PR; the
+    // menu of reads is kept, not dropped as already stated.
+    related_reads_only_this_pr(&data);
     assert!(
-        !data["related"]
+        data["related"]
             .as_array()
-            .into_iter()
-            .flatten()
-            .any(|call| call["tool"] == "ghGetHistoryItem"
-                && call["input"]["queries"][0]["sections"] == json!(["patches"])),
+            .is_some_and(|calls| calls.iter().any(|call| call["tool"] == "ghGetHistoryItem")),
         "{data}"
     );
     let selected = json!({"sections":["patches"],"include":selected_paths});
@@ -147,9 +150,10 @@ async fn pr_inventory_supports_explicit_patch_selection_and_keeps_all_patches() 
 }
 
 /// A completed inventory keeps every requested path and the provider's
-/// changed-file count without offering an optional patch menu or its tip.
+/// changed-file count, with no tip; a patch read it offers is an optional
+/// related call of this PR, never required pagination.
 #[tokio::test]
-async fn a_large_pr_inventory_states_coverage_without_an_optional_patch_menu() {
+async fn a_large_pr_inventory_states_coverage_and_offers_patches_only_as_optional_reads() {
     let server = MockServer::builder().start().await;
     mount_pr(&server, 120).await;
     let hunk = Some("@@ -1 +1 @@\n-a\n+b");
@@ -173,17 +177,8 @@ async fn a_large_pr_inventory_states_coverage_without_an_optional_patch_menu() {
         );
     }
     assert!(data.get("hints").is_none(), "{data}");
-    assert!(
-        !data["related"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|call| {
-                call["tool"] == "ghGetHistoryItem"
-                    && call["input"]["queries"][0]["sections"] == json!(["patches"])
-            }),
-        "{data}"
-    );
+    assert!(no_continuation(&data), "{data}");
+    related_reads_only_this_pr(&data);
 }
 
 #[tokio::test]

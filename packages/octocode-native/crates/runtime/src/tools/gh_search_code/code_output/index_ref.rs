@@ -61,10 +61,12 @@ pub(in crate::tools::gh_search_code) async fn disclose_index_ref(
     } else {
         String::new()
     };
-    // The per-call facts only: the index commit and the ref. That files
-    // only at the ref are missing is the description's, and `viewRepo`
-    // lists them.
-    let warning = format!("Files from the default-branch index{index}, not {reference}{lines}.");
+    // The index commit, the ref, and what that leaves unsearched: a file that
+    // exists only at the ref is not a candidate, so its absence proves
+    // nothing. `viewRepo` lists the ref's own files.
+    let warning = format!(
+        "Candidate files come from the default-branch index{index}, not {reference}: a file that exists only at {reference} cannot appear{lines}."
+    );
     push_warnings(value, [warning]);
     // Rows not at the ref were moved or renamed there: search their names
     // across the whole tree (a moved file may leave the searched path).

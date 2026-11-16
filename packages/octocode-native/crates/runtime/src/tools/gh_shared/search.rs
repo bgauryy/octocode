@@ -119,7 +119,8 @@ pub(crate) fn with_search_repair(
 ) -> GhFailure {
     let (leads, hints) = if failure.error.reason == Some(ProviderErrorReason::SearchWindowExceeded)
     {
-        let last = page_replay(tool, query, SearchWindow::PageStart.last_page(per));
+        let last = page_replay(tool, query, SearchWindow::PageStart.last_page(per))
+            .map(crate::response::result::Continuation::build);
         (
             last.map_or_else(|| json!({}), |last| json!({ "repair": last })),
             Vec::new(),
@@ -158,14 +159,18 @@ pub(crate) fn add_next(
         return;
     }
     if let Some(next) = page_replay(tool, query, page + 1) {
-        value["calls"] = json!({"nextPage": next});
+        value["calls"] = crate::response::collection::walk_calls(tool, None, next);
     }
 }
 
 /// The same query at `page`: an exact replay, none when the query is not
 /// an object row.
-fn page_replay(tool: ToolId, query: &impl serde::Serialize, page: usize) -> Option<Value> {
-    crate::response::paging::next_page_call(tool, query_row(query, &[]), "page", page, &[])
+fn page_replay(
+    tool: ToolId,
+    query: &impl serde::Serialize,
+    page: usize,
+) -> Option<crate::response::result::Continuation> {
+    crate::response::collection::continued_page(tool, query_row(query, &[]), "page", page, &[])
 }
 
 /// The listing that checks an empty search's `path` scope (a path that is
@@ -244,7 +249,7 @@ pub(crate) fn apply_partial(
     if incomplete {
         mark_partial(value, PartialReason::ProviderIncompleteResults, &[]);
         if let Some(retry) = page_replay(tool, query, page) {
-            value["calls"]["retry"] = retry;
+            value["calls"]["retry"] = retry.build();
         }
     }
 }

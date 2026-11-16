@@ -15,6 +15,7 @@ mod plan;
 mod provider_hits;
 mod provider_page;
 mod row_units;
+pub(crate) use row_units::entry_name;
 mod run;
 mod saved;
 #[cfg(test)]
@@ -143,7 +144,7 @@ pub(crate) fn serialized_chars(value: &Value) -> usize {
 /// What an undecided view says of the `shown` units it lists.
 pub(crate) fn undecided_note(shown: usize) -> String {
     format!(
-        "Lists only the {} the selection's walk left undecided (judged unsure, unjudged or not judgeable), unfiltered, as next.unfiltered lists every hit: they are not selected evidence, and the selection receipt of the page that decided them counts them.",
+        "Lists only the {} the selection's walk left undecided (judged unsure, unjudged or not judgeable), unfiltered, as the unfiltered lead of the page that decided them lists every hit (this view carries no lead of its own): they are not selected evidence, and the selection receipt of the page that decided them counts them.",
         octocode_engine::text::counted(shown, "hit", "hits")
     )
 }
@@ -243,12 +244,6 @@ impl Outcome {
     pub(crate) fn lists_undecided(&self) -> bool {
         self.lists_undecided
     }
-
-    /// Whether no page of the walk decided `ordinal`: an unknown answer, a
-    /// unit unjudged or without a state. A view decides nothing.
-    pub(crate) fn is_undecided(&self, ordinal: usize) -> bool {
-        !self.lists_undecided && self.undecided.binary_search(&ordinal).is_ok()
-    }
 }
 
 pub(crate) enum Failure {
@@ -299,6 +294,17 @@ pub(crate) fn unless_transient(
 /// shows everything it kept, with nothing left to judge, unknown or hidden,
 /// has only counts the receipt states: no note.
 pub(crate) fn kept_note(outcome: &Outcome, shown: usize) -> Option<String> {
+    kept_note_with(outcome, shown, true)
+}
+
+/// [`kept_note`] for a reader that may not carry `next.nextCandidatePage`
+/// yet: with `candidates_lead` false the note says the units are judged from
+/// the read's last page, naming no channel the row lacks.
+pub(crate) fn kept_note_with(
+    outcome: &Outcome,
+    shown: usize,
+    candidates_lead: bool,
+) -> Option<String> {
     let receipt = &outcome.receipt;
     if outcome.provider_unavailable()
         || receipt.total_items == 0
@@ -340,10 +346,17 @@ pub(crate) fn kept_note(outcome: &Outcome, shown: usize) -> Option<String> {
         });
     }
     if pending > 0 {
-        note.push_str(&format!(
-            "; {} not judged yet: next.nextCandidatePage judges them",
-            counted(pending)
-        ));
+        note.push_str(&if candidates_lead {
+            format!(
+                "; {} not judged yet: next.nextCandidatePage judges them",
+                counted(pending)
+            )
+        } else {
+            format!(
+                "; {} not judged yet: nextCandidatePage on the last page judges them",
+                counted(pending)
+            )
+        });
     } else if receipt.unknown_items > 0 {
         let unknown = count(receipt.unknown_items);
         note.push_str(&format!(
@@ -454,6 +467,27 @@ pub(crate) fn unfiltered_changes(keep: &[&str]) -> Value {
         }
     }
     Value::Object(changes)
+}
+
+/// How a classified result's recovery lead is reached.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum RecoveryLead {
+    /// `next.unfiltered`: the read again without classification, a fresh
+    /// query once its private progress is dropped.
+    Whole,
+    /// `next.unfilteredUnknown` and `next.nextCandidatePage`: saved plan
+    /// pages, reached only by a cursor of work the runtime kept.
+    Saved,
+}
+
+/// The recovery lead a `next` channel name is, with or without its
+/// numbered suffix (`unfilteredUnknown2`); `None` for any other channel.
+pub(crate) fn recovery_lead(channel: &str) -> Option<RecoveryLead> {
+    match channel.trim_end_matches(|c: char| c.is_ascii_digit()) {
+        "unfiltered" => Some(RecoveryLead::Whole),
+        "unfilteredUnknown" | "nextCandidatePage" => Some(RecoveryLead::Saved),
+        _ => None,
+    }
 }
 
 /// [`unfiltered_row`] as the `next.unfiltered` lead of `tool`.

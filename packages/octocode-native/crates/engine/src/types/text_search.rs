@@ -26,9 +26,9 @@ pub struct TextSearchMatch {
     pub value_digest: [u8; 32],
     /// Frequency for this value when `count_unique` is enabled.
     pub count: Option<u32>,
-    /// Internal lexical order (declaration > decision > code > prose), with
-    /// production precedence when a test-code classifier is active. Use
-    /// [`Self::is_declaration`] for identity. `None` for only-matching spans.
+    /// [`DECLARATION_RANK`] when the hit is the name a declaration
+    /// introduces, else `0`; read it by [`Self::is_declaration`]. `None`
+    /// for only-matching spans.
     pub rank: Option<u32>,
     /// The byte of its line `value` starts at, when `value` is a window of a
     /// line too long for a row ([`RowWindow`]): the text around the hits it
@@ -37,24 +37,13 @@ pub struct TextSearchMatch {
     pub window_start: Option<u32>,
 }
 
+/// The [`TextSearchMatch::rank`] of a hit that is a declared name.
+pub const DECLARATION_RANK: u32 = 3;
+
 impl TextSearchMatch {
-    /// Compose source precedence without changing the lexical hit identity.
-    pub fn rank_source(&mut self, production: bool) {
-        self.rank = self
-            .rank
-            .map(|rank| super::hit_rank::source_rank(rank, production));
-    }
-
-    /// Whether this row carries production precedence in a classified rank.
-    pub fn has_production_priority(&self) -> bool {
-        self.rank.is_some_and(super::hit_rank::is_production_rank)
-    }
-
-    /// Declaration identity, independent of source/test ordering precedence.
+    /// Whether the hit is the name a declaration introduces.
     pub fn is_declaration(&self) -> bool {
-        self.rank.is_some_and(|rank| {
-            super::hit_rank::lexical_rank(rank) == super::hit_rank::DECLARATION_RANK
-        })
+        self.rank == Some(DECLARATION_RANK)
     }
 
     /// The identity digest of a match value (see `value_digest`): SHA-256 of
@@ -212,9 +201,6 @@ pub struct TextSearchOptions {
     /// Keep only production code or only test code (see [`TestCodeScope`](super::test_code::TestCodeScope));
     /// `None` searches both.
     pub test_code: Option<super::test_code::TestCodeScope>,
-    /// Under relevance, test-only hits follow production hits without changing
-    /// membership/counts. `None` judges path spellings alone.
-    pub test_code_rank: Option<super::test_code::TestCodeRank>,
     /// Keep only hit lines a [`LineScope`](super::line_scope::LineScope)
     /// names in each file; `None` keeps every line.
     pub line_scope: Option<super::line_scope::LineScope>,
@@ -432,11 +418,8 @@ pub enum SearchSort {
     /// Lexicographic by full path.
     #[default]
     Path,
-    /// The walk's own order (one walk thread).
+    /// The walk order: siblings by name, depth first (path components).
     Traversal,
-    /// Declarations of a searched identifier, coverage, density and source
-    /// paths first (see `search::relevance`).
-    Relevance,
     /// Most matches first.
     MatchCount,
     /// Ascending modification time.

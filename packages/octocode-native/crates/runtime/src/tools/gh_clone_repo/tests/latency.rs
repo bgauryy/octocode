@@ -157,6 +157,16 @@ impl GitRunner for Held {
         self.sync.before(&request.label);
         self.inner.run_nul_records(request, control, record)
     }
+
+    fn run_stream(
+        &self,
+        request: &GitRunRequest<'_>,
+        control: &GitRunControl<'_>,
+        sink: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
+    ) -> Result<GitOutput, CloneError> {
+        self.sync.before(&request.label);
+        self.inner.run_stream(request, control, sink)
+    }
 }
 
 /// The commit answer, marking at the sync points that the pin request

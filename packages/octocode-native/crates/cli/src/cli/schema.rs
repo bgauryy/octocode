@@ -49,7 +49,7 @@ const QUERY_COMMAND: &str =
     "octocode schema <tool> --view query [--select operation=VALUE[,FIELD=VALUE]]";
 
 /// The CLI's own notes, after the shared instructions in the full catalog.
-const CLI_INSTRUCTIONS: &str = "<cli>Listed tools are available; execution checks credentials and prerequisites. Fields: schema <name> --view query. A next.* page still exits 0.</cli>";
+const CLI_INSTRUCTIONS: &str = "<cli>Listed tools are available; execution checks credentials and prerequisites. Fields: schema <name> --view query; output fields: schema <name> --view output. A next.* page still exits 0.</cli>";
 
 /// Core's instructions (embedded through config) composed for the tools
 /// `available` says exist: the routes whose tools are all there, then each such

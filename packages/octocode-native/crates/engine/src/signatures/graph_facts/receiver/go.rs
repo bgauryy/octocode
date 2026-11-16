@@ -2,6 +2,7 @@
 use super::rust::call_reference;
 use super::*;
 use crate::graph::GraphReceiverCall;
+use crate::signatures::node_kinds::kind_of;
 
 /// The type of a Go function's or method's first result, as written in its
 /// package (`*Store` is `Store`, `pkg.T` stays `pkg.T`): the value a
@@ -13,9 +14,9 @@ pub(in crate::signatures::graph_facts) fn go_return_type(
     node: Node<'_>,
     content: &str,
 ) -> Option<String> {
-    matches!(node.kind(), "function_declaration" | "method_declaration").then_some(())?;
+    matches!(kind_of(node), "function_declaration" | "method_declaration").then_some(())?;
     let result = node.child_by_field_name("result")?;
-    let first = if result.kind() == "parameter_list" {
+    let first = if kind_of(result) == "parameter_list" {
         named_children(result)
             .into_iter()
             .next()?
@@ -55,10 +56,10 @@ fn receiver_arguments<'a>(
     content: &'a str,
     names: &mut Vec<&'a str>,
 ) {
-    if in_arguments && node.kind() == "type_identifier" {
+    if in_arguments && kind_of(node) == "type_identifier" {
         names.extend(node_text(node, content));
     }
-    let in_arguments = in_arguments || node.kind() == "type_arguments";
+    let in_arguments = in_arguments || kind_of(node) == "type_arguments";
     for child in named_children(node) {
         receiver_arguments(child, in_arguments, content, names);
     }
@@ -66,10 +67,10 @@ fn receiver_arguments<'a>(
 
 /// The call expression a Go value is, through parentheses.
 fn value_call(mut value: Node<'_>) -> Option<Node<'_>> {
-    while value.kind() == "parenthesized_expression" {
+    while kind_of(value) == "parenthesized_expression" {
         value = value.named_child(0)?;
     }
-    (value.kind() == "call_expression").then_some(value)
+    (kind_of(value) == "call_expression").then_some(value)
 }
 
 /// The call that supplies the value of binding `index` of a Go assignment of
@@ -97,16 +98,16 @@ impl<'t> ReceiverTypes<'t> {
         content: &str,
     ) -> Option<GraphReceiverCall> {
         let function = call.child_by_field_name("function")?;
-        let function = if function.kind() == "generic_function" {
+        let function = if kind_of(function) == "generic_function" {
             function.child_by_field_name("function")?
         } else {
             function
         };
         let mut receiver = self.lang.member_parts(function)?.0;
-        while receiver.kind() == "parenthesized_expression" {
+        while kind_of(receiver) == "parenthesized_expression" {
             receiver = receiver.named_child(0)?;
         }
-        match receiver.kind() {
+        match kind_of(receiver) {
             "call_expression" => Some(call_reference(receiver, false)),
             "identifier" => {
                 let name = node_text(receiver, content)?;
@@ -119,18 +120,18 @@ impl<'t> ReceiverTypes<'t> {
 
 pub(super) fn go_bindings<'t>(up: Up<'_, 't>, content: &str, out: &mut Vec<Binding>) {
     let node = up.node;
-    match node.kind() {
+    match kind_of(node) {
         "parameter_declaration" | "variadic_parameter_declaration" => {
             let Some(owner) = up.nth(2) else {
                 return;
             };
             if !matches!(
-                owner.kind(),
+                kind_of(owner),
                 "function_declaration" | "method_declaration" | "func_literal"
             ) {
                 return;
             }
-            let ty = (node.kind() == "parameter_declaration")
+            let ty = (kind_of(node) == "parameter_declaration")
                 .then(|| node.child_by_field_name("type"))
                 .flatten()
                 .and_then(|ty| clean_type_text(node_text(ty, content)?, Lang::Go));
@@ -165,7 +166,7 @@ pub(super) fn go_bindings<'t>(up: Up<'_, 't>, content: &str, out: &mut Vec<Bindi
                     None
                 };
                 let value = bound_call(index, lefts.len(), &rights)
-                    .filter(|_| name.kind() == "identifier")
+                    .filter(|_| kind_of(name) == "identifier")
                     .map(|call| call_reference(call, false));
                 bind_pattern(*name, ty, node.end_byte(), until, content, out);
                 if let Some(binding) = out.last_mut().filter(|_| value.is_some()) {
@@ -222,7 +223,7 @@ pub(super) fn go_bindings<'t>(up: Up<'_, 't>, content: &str, out: &mut Vec<Bindi
 pub(super) fn go_scope_end(up: Up<'_, '_>) -> usize {
     let mut level = 1;
     while let Some(parent) = up.nth(level) {
-        match parent.kind() {
+        match kind_of(parent) {
             "var_declaration" | "var_spec_list" => level += 1,
             "statement_list" => return up.nth(level + 1).unwrap_or(parent).end_byte(),
             _ => return parent.end_byte(),
@@ -235,7 +236,7 @@ pub(super) fn go_scope_end(up: Up<'_, '_>) -> usize {
 /// A multi-value assignment (`x, err := …`) only reads constructor calls.
 pub(super) fn go_constructor(value: Node<'_>, multi: bool, content: &str) -> Option<String> {
     let literal = |node: Node<'_>| {
-        (node.kind() == "composite_literal")
+        (kind_of(node) == "composite_literal")
             .then(|| {
                 clean_type_text(
                     node_text(node.child_by_field_name("type")?, content)?,
@@ -244,7 +245,7 @@ pub(super) fn go_constructor(value: Node<'_>, multi: bool, content: &str) -> Opt
             })
             .flatten()
     };
-    match value.kind() {
+    match kind_of(value) {
         "composite_literal" if !multi => literal(value),
         "unary_expression" if !multi => {
             let operator = value.child_by_field_name("operator")?;
@@ -253,11 +254,11 @@ pub(super) fn go_constructor(value: Node<'_>, multi: bool, content: &str) -> Opt
         }
         "call_expression" => {
             let function = value.child_by_field_name("function")?;
-            let (package, name) = match function.kind() {
+            let (package, name) = match kind_of(function) {
                 "identifier" => (None, node_text(function, content)?),
                 "selector_expression" => {
                     let package = function.child_by_field_name("operand")?;
-                    (package.kind() == "identifier").then_some(())?;
+                    (kind_of(package) == "identifier").then_some(())?;
                     (
                         Some(node_text(package, content)?),
                         node_text(function.child_by_field_name("field")?, content)?,

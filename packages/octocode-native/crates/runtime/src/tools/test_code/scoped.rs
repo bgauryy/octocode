@@ -137,12 +137,3 @@ pub(crate) fn text_scope(
         spans: Arc::new(move |path| index.spans(path)),
     }
 }
-
-/// Relevance shares the request's path/mount/inline verdicts with filtering.
-pub(crate) fn text_rank(index: Arc<TestCodeIndex>) -> octocode_engine::types::TestCodeRank {
-    let by_path = Arc::clone(&index);
-    octocode_engine::types::TestCodeRank {
-        test_path: Arc::new(move |path| by_path.test_path(path)),
-        spans: Arc::new(move |path| index.spans(path)),
-    }
-}

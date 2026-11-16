@@ -374,6 +374,16 @@ fn a_malformed_clasify_row_names_its_rule_and_fix() {
             json!({"operation":"models","questions":questions}),
             "is not allowed",
         ),
+        // One noul shape: neither instructions nor a usable criteria answer
+        // is refused by its own check, which names both fields.
+        (
+            json!({"operation":"evaluate","content":"text","questions":{"q":{"type":"noul"}}}),
+            "A noul question needs instructions, criteria, or both",
+        ),
+        (
+            json!({"operation":"evaluate","content":"text","questions":{"q":{"type":"noul","instructions":" ","criteria":{"true":null}}}}),
+            "A noul question needs instructions, criteria, or both",
+        ),
     ] {
         let shown = first_error("clasify", row.clone());
         assert!(shown.contains(expected), "{row}: {shown}");

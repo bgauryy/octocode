@@ -54,6 +54,7 @@ fn partial_provider_failures_survive_replay_without_losing_successful_evidence()
             for &ordinal in call.admitted.iter().skip(1) {
                 call.failures.push(SelectionFailure {
                     candidate: ordinal as i64,
+                    error_class: Some(octocode_contract_types::ErrorClass::Unservable),
                     error_code:
                         octocode_contract_types::ErrorCode::ClassificationProviderError,
                     error: format!(

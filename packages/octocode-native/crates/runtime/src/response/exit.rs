@@ -2,8 +2,6 @@
 //! public response so every interface reports the same status.
 
 use super::outcome::ToolOutcome;
-use super::result::{FailureKind, failure_kind};
-use super::rows::is_invalid_input_code;
 use crate::id::error_codes::{self, ErrorClass};
 use octocode_contract_types::ErrorCode;
 use serde_json::Value;
@@ -17,10 +15,26 @@ pub enum ExitClass {
     Success,
     /// Every row ran and found nothing, even when it offers a recovery call.
     Empty,
-    /// The call, or any row of it, rejected the caller's input.
-    InvalidInput,
-    /// At least one row failed.
-    Failed(FailureKind),
+    /// At least one row failed; the class is the strictest of the failed rows.
+    Failed(ErrorClass),
+}
+
+/// Batch precedence, strictest first: the caller must correct the request,
+/// then a refusal, then a restart, then an unservable request; a call whose
+/// every failure is transient is the only one a retry can help.
+const fn rank(class: ErrorClass) -> u8 {
+    match class {
+        ErrorClass::CorrectInput => 4,
+        ErrorClass::Refused => 3,
+        ErrorClass::Restart => 2,
+        ErrorClass::Unservable => 1,
+        ErrorClass::Transient => 0,
+    }
+}
+
+/// The strictest of `classes`; `None` when there are none.
+pub(crate) fn strictest(classes: impl IntoIterator<Item = ErrorClass>) -> Option<ErrorClass> {
+    classes.into_iter().max_by_key(|class| rank(*class))
 }
 
 impl ToolOutcome {
@@ -37,32 +51,20 @@ impl ToolOutcome {
     pub fn exit_class(&self) -> ExitClass {
         let value = &self.structured_content;
         let rows: &[Value] = value["results"].as_array().map_or(&[], Vec::as_slice);
-        if self.all_failed {
-            // A rejected row ends the call as rejected input, as in a batch
-            // where other rows answered.
-            if rows.iter().any(is_invalid_input_row) {
-                return ExitClass::InvalidInput;
-            }
-            return match self.failure {
-                Some(kind) => ExitClass::Failed(kind),
-                // A row a later stage failed (a provider page whose
-                // classification failed) states its code; the same code
-                // ends the call the same way on every tool. A refusal with
-                // no row (a gate or admission-time validation) is the
-                // caller's request, never success.
-                None => failed_rows(rows).map_or(ExitClass::InvalidInput, ExitClass::Failed),
-            };
+        // A row a later stage failed states its code; the same code ends the
+        // call the same way on every tool. A refusal with no row (a gate or
+        // admission-time validation) is the caller's request, never success.
+        let failed = failed_rows(rows);
+        let stage = if self.all_failed {
+            self.failure
+                .or_else(|| failed.is_none().then_some(ErrorClass::CorrectInput))
+        } else {
+            None
+        };
+        if let Some(class) = strictest(failed.into_iter().chain(stage)) {
+            return ExitClass::Failed(class);
         }
-        // Batch precedence, worst row first: a rejected row (2), a failed
-        // row (its shared failure, else execution; a retryable failure is
-        // still a failure), an empty batch (1; a page past the end reads
-        // nothing either), success (0). An answering row
-        // never hides a failed one.
-        if rows.iter().any(is_invalid_input_row) {
-            ExitClass::InvalidInput
-        } else if let Some(kind) = failed_rows(rows) {
-            ExitClass::Failed(kind)
-        } else if !rows.is_empty()
+        if !rows.is_empty()
             && rows
                 .iter()
                 .all(|row| matches!(row["status"].as_str(), Some("empty" | "outOfRange")))
@@ -79,44 +81,21 @@ impl ExitClass {
     /// code (`errorCodes`), whichever interface or command reports it.
     #[must_use]
     pub fn of(code: ErrorCode) -> Self {
-        match error_codes::class(code) {
-            ErrorClass::InvalidInput => Self::InvalidInput,
-            _ => Self::Failed(failure_kind(code)),
-        }
+        Self::Failed(error_codes::class(code))
     }
 }
 
-/// An error row whose `errorCode` rejects the caller's input.
-fn is_invalid_input_row(row: &Value) -> bool {
-    row["status"] == "error"
-        && row
-            .pointer("/data/errorCode")
-            .and_then(Value::as_str)
-            .is_some_and(is_invalid_input_code)
-}
-
-/// The failure of a batch's error rows: their shared failure, else an
-/// execution failure.
-fn failed_rows(rows: &[Value]) -> Option<FailureKind> {
-    shared_failure(
+/// The strictest class among a batch's error rows.
+fn failed_rows(rows: &[Value]) -> Option<ErrorClass> {
+    strictest(
         rows.iter()
             .filter(|row| row["status"] == "error")
             .map(|row| {
                 row.pointer("/data/errorCode")
                     .and_then(Value::as_str)
-                    .and_then(error_codes::parse)
-                    .map_or(FailureKind::Execution, failure_kind)
+                    .map_or(ErrorClass::Unservable, crate::id::error_class)
             }),
     )
-}
-
-fn shared_failure(mut kinds: impl Iterator<Item = FailureKind>) -> Option<FailureKind> {
-    let first = kinds.next()?;
-    Some(if kinds.all(|kind| kind == first) {
-        first
-    } else {
-        FailureKind::Execution
-    })
 }
 
 #[cfg(test)]

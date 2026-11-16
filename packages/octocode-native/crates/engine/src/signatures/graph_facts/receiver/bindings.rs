@@ -1,6 +1,7 @@
 //! Local bindings a receiver resolves through: the per-language binding
 //! scans dispatch, binding records and the enclosing-node walk.
 
+use crate::signatures::node_kinds::kind_of;
 use tree_sitter::Node;
 
 use super::*;
@@ -57,14 +58,14 @@ pub(super) fn bind_pattern(
     content: &str,
     out: &mut Vec<Binding>,
 ) {
-    if pattern.kind() == "identifier" {
+    if kind_of(pattern) == "identifier" {
         push(out, pattern, ty, from, until, content);
         return;
     }
     let mut pending = vec![pattern];
     let mut cursor = pattern.walk();
     while let Some(node) = pending.pop() {
-        if node.kind() == "identifier" {
+        if kind_of(node) == "identifier" {
             push(out, node, None, from, until, content);
         }
         pending.extend(node.named_children(&mut cursor));

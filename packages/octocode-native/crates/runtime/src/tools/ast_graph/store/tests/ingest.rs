@@ -367,7 +367,12 @@ fn a_malformed_language_glob_is_an_invalid_glob_error() {
         None,
     );
     assert_eq!(out.value["errorCode"], "invalidGlob", "{}", out.value);
-    assert_eq!(out.class, ExitClass::InvalidInput, "{}", out.value);
+    assert_eq!(
+        out.class,
+        ExitClass::Failed(crate::id::error_codes::ErrorClass::CorrectInput),
+        "{}",
+        out.value
+    );
 }
 
 /// `stats` names each language once, by the id every per-language count
@@ -416,7 +421,7 @@ fn stats_languages_use_the_per_language_count_ids() {
 }
 
 #[test]
-fn a_published_graph_discards_extraction_before_changed_builds() {
+fn a_published_graph_keeps_extraction_for_changed_builds() {
     let dir = git_app(&[(
         "a.ts",
         "export function a() { return b(); }\nfunction b() {}\n",
@@ -428,17 +433,17 @@ fn a_published_graph_discards_extraction_before_changed_builds() {
         &dir.0.join(".octocode/graph/.facts"),
         &root,
     );
-    assert!(!job.exists(), "publication must remove its extraction job");
+    assert!(job.exists(), "publication keeps its extraction as a cache");
     std::fs::write(root.join("new.ts"), "export const added = 1;\n").unwrap();
     let rebuilt = ingest_root(&dir.0, &root, None, false);
     assert_eq!(rebuilt.class, ExitClass::Success, "{}", rebuilt.value);
     assert_eq!(
-        rebuilt.value["extraction"]["parsedFiles"],
-        rebuilt.value["scan"]["filesScanned"]
+        rebuilt.value["extraction"]["parsedFiles"], 1,
+        "the new file"
     );
-    assert_eq!(rebuilt.value["extraction"]["reusedFiles"], 0);
+    assert_eq!(rebuilt.value["extraction"]["reusedFiles"], 1, "the old one");
     assert_eq!(rebuilt.value["extraction"]["resumedFiles"], 0);
-    assert!(!job.exists());
+    assert!(job.exists());
 }
 
 /// `includeIgnored`, `includeHidden` and `defaultExcludes:false` widen the

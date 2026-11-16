@@ -249,3 +249,33 @@ fn a_row_with_no_list_keeps_its_sentence() {
     );
     assert!(lean.get("advisoryCount").is_none(), "{lean}");
 }
+
+/// Withdrawn GitHub records are no match and never counted; the summary
+/// states them as one count (the `details` view lists each with its date),
+/// and its `related` details call stays to read them.
+#[test]
+fn withdrawn_warnings_collapse_to_one_count_in_the_summary() {
+    let withdrew = |id: &str| {
+        format!(
+            "GitHub withdrew {id} at 2021-10-01T22:04:28Z: not a match; related reads it whole."
+        )
+    };
+    let other = "OSV lists a range GitHub does not.".to_owned();
+    let warnings = json!([
+        withdrew("GHSA-aaaa-bbbb-cccc"),
+        other,
+        withdrew("GHSA-dddd-eeee-ffff"),
+        withdrew("GHSA-gggg-hhhh-iiii"),
+    ]);
+    let row = json!({"affected": true, "advisories": [], "warnings": warnings});
+    let details = apply(SecurityCheckView::Details, row.clone(), target(package()));
+    assert_eq!(details["warnings"], warnings, "details lists each");
+    let lean = apply(SecurityCheckView::Summary, row, target(package()));
+    let lean = lean["warnings"].as_array().expect("warnings");
+    assert_eq!(lean.len(), 2, "{lean:?}");
+    let count = lean[0].as_str().expect("count");
+    assert!(count.contains("withdrew 3 advisories"), "{count}");
+    assert!(count.contains("related"), "{count}");
+    assert!(!count.contains("GHSA-"), "{count}");
+    assert_eq!(lean[1], "OSV lists a range GitHub does not.");
+}

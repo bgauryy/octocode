@@ -514,3 +514,48 @@ fn test_imported_exports_split_from_untested_ones_in_one_file() {
         confident.value
     );
 }
+
+/// A cycle past the member preview says so in a warning that promises the
+/// `cycles` read, and the served row keeps that lead.
+#[test]
+fn a_cycle_cut_to_its_preview_promises_the_cycles_read() {
+    let count = 52;
+    let files = (0..count)
+        .map(|n| {
+            (
+                format!("src/m{n}.ts"),
+                format!(
+                    "import {{ f{next} }} from './m{next}';\nexport const f{n} = () => f{next};\n",
+                    next = (n + 1) % count
+                ),
+            )
+        })
+        .collect::<Vec<_>>();
+    let refs = files
+        .iter()
+        .map(|(path, text)| (path.as_str(), text.as_str()))
+        .collect::<Vec<_>>();
+    let dir = git_app(&refs);
+    let built = ingest_fixture(dir.0.as_path(), None);
+    assert_eq!(built.class, ExitClass::Success, "{}", built.value);
+    let out = ask(dir.0.as_path(), "issues", None, |o| {
+        o.detectors = vec!["cycle".into()];
+    });
+    assert_eq!(
+        out.value["rows"][0]["evidence"]["membersTruncated"], true,
+        "{}",
+        out.value
+    );
+    assert!(
+        out.value["warnings"]
+            .to_string()
+            .contains("related lists every member"),
+        "{}",
+        out.value
+    );
+    crate::tools::test_support::assert_lead_served(
+        crate::id::ToolId::GraphQuery,
+        &out.value,
+        |input| input["queries"][0]["operation"] == "cycles",
+    );
+}

@@ -55,6 +55,7 @@ pub(super) fn unreached_files(v: &View, entries: &[u32]) -> (Vec<(u32, bool)>, V
 }
 
 pub(super) fn detect_reachability(c: &mut Ctx) {
+    c.judges_file_level(&["unreachable-file", "test-only"]);
     let v = &c.v;
     let entries = v.entries.keys().copied().collect::<Vec<_>>();
     if entries.is_empty() {
@@ -86,20 +87,6 @@ pub(super) fn detect_reachability(c: &mut Ctx) {
     // is less likely dead; the evidence states the count.
     let entry_quality = if entries.len() >= 2 { 0.7 } else { 0.5 };
     let rules = v.entries.values().copied().collect::<BTreeSet<_>>();
-    let scoped = v
-        .files
-        .iter()
-        .filter(|f| v.production(**f) && v.package_scoped(**f))
-        .count();
-    if scoped > 0 {
-        note(
-            &mut c.notes,
-            "unreachable-file",
-            &format!(
-                "{scoped} Go/JVM/.NET file(s) skipped: package-scoped files reference each other without imports"
-            ),
-        );
-    }
     if skipped_library > 0 {
         note(
             &mut c.notes,

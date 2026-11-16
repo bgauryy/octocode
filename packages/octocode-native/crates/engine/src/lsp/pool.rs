@@ -11,7 +11,6 @@ use acquire::GenericPool;
 use serde_json::Value;
 use start_guards::run_cancellation_safe_start;
 use state::{SharedResult, shared_error};
-use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -83,8 +82,7 @@ impl LspClientPool {
         &self,
         config: LspLanguageServerConfig,
     ) -> Result<Option<NativeLspClient>> {
-        let key = canonical_lsp_key(&config)?;
-        let family = canonical_lsp_family(&config)?;
+        let (key, family) = keys_of(&config).await?;
         let options = self.inner.options.client;
         self.inner
             .acquire(key, family, || start_client(config, options))
@@ -99,8 +97,7 @@ impl LspClientPool {
         &self,
         config: LspLanguageServerConfig,
     ) -> Result<Option<(NativeLspClient, LspLease)>> {
-        let key = canonical_lsp_key(&config)?;
-        let family = canonical_lsp_family(&config)?;
+        let (key, family) = keys_of(&config).await?;
         let options = self.inner.options.client;
         self.inner
             .acquire_leased(
@@ -114,7 +111,7 @@ impl LspClientPool {
     }
 
     pub async fn clear(&self, config: &LspLanguageServerConfig) -> Result<bool> {
-        let key = canonical_lsp_key(config)?;
+        let (key, _) = keys_of(config).await?;
         Ok(self.inner.clear(&key).await)
     }
 
@@ -176,6 +173,18 @@ fn pool_language(language_id: Option<&str>) -> Option<&str> {
     }
 }
 
+/// The pool key and family of `config`. The key asks what the launch
+/// resolves to (a rustup answer costs a process until it is kept), so it is
+/// read off the thread that serves the other callers.
+async fn keys_of(config: &LspLanguageServerConfig) -> Result<(String, String)> {
+    let config = config.clone();
+    tokio::task::spawn_blocking(move || {
+        Ok((canonical_lsp_key(&config)?, canonical_lsp_family(&config)?))
+    })
+    .await
+    .map_err(|error| Error::new(format!("LSP pool key task failed: {error}")))?
+}
+
 /// Sibling-family key of a pool entry: the workspace root, server binary and
 /// pooled language, without the initialization options, arguments or
 /// environment that make up the full [`canonical_lsp_key`]. Starting a server
@@ -192,12 +201,9 @@ pub fn canonical_lsp_family(config: &LspLanguageServerConfig) -> Result<String> 
 
 pub fn canonical_lsp_key(config: &LspLanguageServerConfig) -> Result<String> {
     let workspace_root = normalize_workspace_root(&config.workspace_root)?;
-    let env = config
-        .env
-        .clone()
-        .unwrap_or_default()
-        .into_iter()
-        .collect::<BTreeMap<_, _>>();
+    // What the launch resolves to, not the strings of the caller's
+    // environment (`config::launch_identity`).
+    let launch = super::config::launch_identity(config);
     let initialization_options = crate::digest::canonical_json(
         config
             .initialization_options
@@ -209,9 +215,8 @@ pub fn canonical_lsp_key(config: &LspLanguageServerConfig) -> Result<String> {
     );
     serde_json::to_string(&serde_json::json!({
         "workspaceRoot": workspace_root,
-        "command": config.command,
         "args": config.args.clone().unwrap_or_default(),
-        "env": env,
+        "launch": launch,
         "languageId": pool_language(config.language_id.as_deref()),
         "initializationOptions": initialization_options,
         "documentLanguageIds": config.document_language_ids,

@@ -43,7 +43,12 @@ fn walk(
     let mut pages = Vec::new();
     loop {
         let out = query(&options, &workspace_policy(dir));
-        assert_ne!(out.class, ExitClass::InvalidInput, "{}", out.value);
+        assert_ne!(
+            out.class,
+            ExitClass::Failed(crate::id::error_codes::ErrorClass::CorrectInput),
+            "{}",
+            out.value
+        );
         let more = next_offset(&out);
         if let Some(offset) = more {
             advance(&mut options, &out, offset);

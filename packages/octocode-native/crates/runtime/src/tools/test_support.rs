@@ -135,8 +135,12 @@ pub(crate) fn opened_input(tool: ToolId, input: &Value) -> Value {
 }
 
 /// The response stage's `related[]` rule, for the shared checks.
-fn keep_workflow_lead(_tool: &str, output: &mut Value) {
-    crate::response::workflow_lead::retain_guidance(output, &Value::Null);
+fn keep_workflow_lead(tool: &str, output: &mut Value) {
+    crate::response::workflow_lead::retain_guidance(
+        crate::id::ToolId::from_name(tool).expect("a runtime tool"),
+        output,
+        &Value::Null,
+    );
 }
 use crate::response::workflow_lead::carried_identities;
 
@@ -213,6 +217,37 @@ pub(crate) fn published(tool: ToolId, row: &Value) -> Value {
     let call_notes = crate::response::notices::take_timed_notices(&mut output, "results");
     crate::response::notices::state_call_notes(&mut output, &call_notes);
     publish_for_assertion(tool.as_str(), &output)
+}
+
+/// A lead a tool builds on purpose stays served: the row `row` (a tool's raw
+/// executor row) builds a related call `intended` accepts, and the served row
+/// (after the response stage drops advisory leads) keeps that same call. A tool
+/// names its recovery leads in its own output-contract tests, so a lead built
+/// and then dropped fails where the lead is built, not in a live retest. Leads
+/// that are advisory are simply not named; no rule bounds how many a row builds.
+pub(crate) fn assert_lead_served(tool: ToolId, row: &Value, intended: impl Fn(&Value) -> bool) {
+    let calls_of = |data: &Value| -> Vec<Value> {
+        data["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|call| call["kind"] == "related" && intended(&call["input"]))
+            .cloned()
+            .collect()
+    };
+    let built = calls_of(row);
+    assert!(
+        !built.is_empty(),
+        "{tool:?}: the row builds no intended related call\n{row}"
+    );
+    let mut served = published(tool, row);
+    keep_workflow_lead(tool.as_str(), &mut served);
+    let kept = calls_of(&served["results"][0]["data"]);
+    assert!(
+        !kept.is_empty(),
+        "{tool:?}: an intended related call was built and dropped by the response stage; \
+         the row's warning must promise it (name `related`) or the lead carry new identity\n{served}"
+    );
 }
 
 /// One call's response over `rows` (each a row's `data`), as a caller
@@ -458,4 +493,34 @@ pub(crate) fn pinned_snapshot(out: &Value) -> &Value {
         .map(|call| &call["input"]["queries"][0]["snapshot"])
         .find(|snapshot| snapshot.is_string())
         .unwrap_or(&NONE)
+}
+
+/// A note's `next.<channel>` promise is checked against the row as built
+/// and as served: the named call must be there.
+#[test]
+fn a_note_that_names_a_next_call_needs_it() {
+    let row = |next: Value| {
+        serde_json::json!({"results": [{"data": {
+            "warnings": ["The list stopped early; `next.nextPage` reads on."],
+            "next": next,
+        }}]})
+    };
+    checks::assert_related_promise_has_calls(
+        "localSearch",
+        &row(serde_json::json!({"nextPage": {"tool": "localSearch", "input": {"cursor": "c"}}})),
+    );
+    // `data.next.x` and a bare `next.` name no channel of the note's own row.
+    checks::assert_related_promise_has_calls(
+        "localSearch",
+        &serde_json::json!({"results": [{"data": {
+            "warnings": ["see data.next.nextPage, or next. alone"]
+        }}]}),
+    );
+    let missing = std::panic::catch_unwind(|| {
+        checks::assert_related_promise_has_calls("localSearch", &row(serde_json::json!({})));
+    });
+    assert!(
+        missing.is_err(),
+        "a promised next call that is absent fails"
+    );
 }

@@ -88,19 +88,22 @@ fn references_report_ambiguity_and_absence_with_exit_codes() {
     let missing = ask(dir.0.as_path(), "node", Some("nope"), |_| {});
     assert_eq!(
         missing.class,
-        ExitClass::Failed(crate::runtime::FailureKind::NotFound)
+        ExitClass::Failed(crate::runtime::ErrorClass::CorrectInput)
     );
     assert_eq!(missing.value["errorCode"], "notFound");
 
     let bad = ask(dir.0.as_path(), "explode", None, |_| {});
-    assert_eq!(bad.class, ExitClass::InvalidInput);
+    assert_eq!(
+        bad.class,
+        ExitClass::Failed(crate::id::error_codes::ErrorClass::CorrectInput)
+    );
 
     let none = ask(dir.0.as_path(), "stats", None, |o| {
         o.graph = Some("no-such-graph".into());
     });
     assert_eq!(
         none.class,
-        ExitClass::Failed(crate::runtime::FailureKind::NotFound),
+        ExitClass::Failed(crate::runtime::ErrorClass::CorrectInput),
         "{}",
         none.value
     );
@@ -192,18 +195,33 @@ fn out_of_range_flags_are_rejected_and_a_page_past_the_end_is_empty() {
     let deep = ask(root, "callers", Some("src/lib.ts#greet"), |o| {
         o.depth = Some(21);
     });
-    assert_ne!(deep.class, ExitClass::InvalidInput, "{}", deep.value);
+    assert_ne!(
+        deep.class,
+        ExitClass::Failed(crate::id::error_codes::ErrorClass::CorrectInput),
+        "{}",
+        deep.value
+    );
     // No limit bound either: pages and responseChars bound a page.
     let wide = ask(root, "callers", Some("src/lib.ts#greet"), |o| {
         o.limit = Some(1001);
     });
-    assert_ne!(wide.class, ExitClass::InvalidInput, "{}", wide.value);
+    assert_ne!(
+        wide.class,
+        ExitClass::Failed(crate::id::error_codes::ErrorClass::CorrectInput),
+        "{}",
+        wide.value
+    );
     for (depth, limit) in [(Some(0), None), (None, Some(0))] {
         let out = ask(root, "callers", Some("src/lib.ts#greet"), |o| {
             o.depth = depth;
             o.limit = limit;
         });
-        assert_eq!(out.class, ExitClass::InvalidInput, "{}", out.value);
+        assert_eq!(
+            out.class,
+            ExitClass::Failed(crate::id::error_codes::ErrorClass::CorrectInput),
+            "{}",
+            out.value
+        );
         assert!(
             out.value["error"]
                 .as_str()
@@ -232,7 +250,10 @@ fn unknown_edge_kind_lists_every_kind() {
     let out = ask(root, "walk", Some("src/lib.ts"), |o| {
         o.edges = vec!["bogus".into()];
     });
-    assert_eq!(out.class, ExitClass::InvalidInput);
+    assert_eq!(
+        out.class,
+        ExitClass::Failed(crate::id::error_codes::ErrorClass::CorrectInput)
+    );
     let error = out.value["error"].as_str().unwrap_or_default();
     for kind in ["contains", "imports", "calls", "uses", "inherits"] {
         assert!(error.contains(kind), "{error}");
@@ -281,7 +302,12 @@ fn ambiguous_reference_pages_every_candidate() {
     let ingested = ingest_fixture(root, None);
     let id = ingested.value["id"].as_str().expect("id").to_owned();
     let out = ask(root, "callers", Some("run"), |_| {});
-    assert_eq!(out.class, ExitClass::InvalidInput, "{}", out.value);
+    assert_eq!(
+        out.class,
+        ExitClass::Failed(crate::id::error_codes::ErrorClass::CorrectInput),
+        "{}",
+        out.value
+    );
     assert_eq!(out.value["candidates"].as_array().map(Vec::len), Some(20));
     assert_eq!(out.value["pagination"]["total"], 25);
     assert_eq!(out.value["pagination"]["hasMore"], true);

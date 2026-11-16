@@ -28,6 +28,7 @@ async fn tag_listing_failure_never_emits_an_incompatible_order_cursor() {
         &query(json!({"operation":"refs","owner":"a","repo":"b","refKinds":["tags"],"limit":1})),
         &default_context(),
         home.path(),
+        None,
     )
     .await;
     assert!(
@@ -52,6 +53,7 @@ async fn a_missing_repository_leads_to_a_repository_search() {
         &query(json!({"operation":"tree","owner":"a","repo":"typo"})),
         Ok(&context),
         home.path(),
+        None,
     )
     .await
     .expect_err("missing repository");

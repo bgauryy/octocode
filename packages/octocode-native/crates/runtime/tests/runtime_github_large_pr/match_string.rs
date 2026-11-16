@@ -86,6 +86,17 @@ async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
         input["queries"][0]["ref"] == SHA && input["queries"][0]["path"] == "src/big.rs"
     });
     assert_eq!(source["kind"], "related");
+    // The row promises that read: its warning names `related`.
+    assert!(
+        only_hits["warnings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|warning| warning
+                .as_str()
+                .is_some_and(|text| text.contains("hunks that hold matchString; related reads"))),
+        "{only_hits}"
+    );
     let whole = json!({"sections":["patches"], "include":["src/big.rs"]});
     // The documented whole-patch read keeps every original patch line.
     let full = run(&server, whole).await;

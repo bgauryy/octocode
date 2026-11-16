@@ -5,6 +5,7 @@ use super::patch_hop::*;
 use super::pr_menu::*;
 use super::remaining::Remainder;
 use super::{HistoryItemRequest, ItemOperation, Sections};
+use crate::id::ToolId;
 use crate::tools::gh_get_history_item::sections::Section;
 use serde_json::{Map, Value, json};
 
@@ -86,7 +87,12 @@ pub(super) fn promote_pr_continuations(out: &mut Value, q: &HistoryItemRequest) 
             continuation(nq)
         };
         if let Some(call) = call {
-            crate::response::result::set_next(entry, Axis::next_name(), call);
+            crate::response::collection::insert_walk(
+                &mut entry["next"],
+                ToolId::GhGetHistoryItem,
+                None,
+                call,
+            );
         }
     }
     strip_cursors(pages);
@@ -190,7 +196,12 @@ pub(super) fn promote_issue_continuations(
             remove_key(&mut nq, Cursor::Offset.query_key());
         }
         if let Some(call) = continuation(nq) {
-            crate::response::result::set_next(entry, Axis::next_name(), call);
+            crate::response::collection::insert_walk(
+                &mut entry["next"],
+                ToolId::GhGetHistoryItem,
+                None,
+                call,
+            );
         }
     }
     strip_cursors(pages);

@@ -61,7 +61,7 @@ async fn the_shared_store_is_denied_to_the_local_tools() {
     let cwd = tempfile::tempdir().expect("cwd");
     let home = home.path().canonicalize().expect("canonical home");
     let checkout = storage::clones_root(&home).join("o/r/abc__host_x");
-    let store = storage::store_root(&home).join("o/r__host_x__g1.git");
+    let store = crate::tools::gh_git::store_root(&home).join("o/r__host_x__g1.git");
     for (dir, name) in [(&checkout, "README.md"), (&store, "config")] {
         fs::create_dir_all(dir).expect("dir");
         fs::write(dir.join(name), "readable?\n").expect("file");
@@ -96,7 +96,7 @@ async fn the_shared_store_is_denied_to_the_local_tools() {
         ),
         (
             "structureSearch",
-            json!({"operation":"tree","path": storage::store_root(&home)}),
+            json!({"operation":"tree","path": crate::tools::gh_git::store_root(&home)}),
         ),
     ] {
         let denied = call(&runtime, tool, row.clone()).await;
@@ -122,7 +122,7 @@ async fn a_store_in_a_home_inside_the_workspace_is_still_denied() {
         .canonicalize()
         .expect("canonical workspace");
     let home = workspace.join("home");
-    let store = storage::store_root(&home).join("o/r__host_x__g1.git");
+    let store = crate::tools::gh_git::store_root(&home).join("o/r__host_x__g1.git");
     fs::create_dir_all(store.join("worktrees")).expect("store");
     fs::write(store.join("config"), "readable?\n").expect("file");
     let runtime = runtime(&home, &workspace);
@@ -135,7 +135,7 @@ async fn a_store_in_a_home_inside_the_workspace_is_still_denied() {
         ),
         (
             "localSearch",
-            json!({"path": storage::store_root(&home), "matchString": ["readable"]}),
+            json!({"path": crate::tools::gh_git::store_root(&home), "matchString": ["readable"]}),
         ),
     ] {
         let denied = call(&runtime, tool, row.clone()).await;
@@ -155,7 +155,7 @@ async fn a_text_search_of_a_worktree_clone_withholds_nothing() {
     let home = tempfile::tempdir().expect("home");
     let cwd = tempfile::tempdir().expect("cwd");
     let home = home.path().canonicalize().expect("canonical home");
-    let store = storage::store_root(&home).join("o/r__host_x__g1.git");
+    let store = crate::tools::gh_git::store_root(&home).join("o/r__host_x__g1.git");
     fs::create_dir_all(&store).expect("store");
     git(&store, &["init", "--initial-branch=main", "."]);
     fs::write(store.join("README.md"), "needle\n").expect("file");

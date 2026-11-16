@@ -100,7 +100,7 @@ fn rust_trait_and_inherent_methods_bind_like_method_resolution() {
         [
             edge("src/shapes.rs#Circle.area", "receiver-type", "high"),
             edge("src/shapes.rs#Circle.new", "type-qualified", "high"),
-            edge("src/shapes.rs#Square.area@18", "receiver-type", "high"),
+            edge("src/shapes.rs#Square.area@1", "receiver-type", "high"),
         ]
     );
     assert_eq!(

@@ -40,7 +40,11 @@ pub(super) struct Resumed {
 pub(super) fn resumed(
     query: &LocalSearchQuery,
 ) -> Result<(Option<Resumed>, Cow<'_, LocalSearchQuery>), ToolError> {
-    let Some(position) = local_search_query::scan_offset(query) else {
+    // `scanOffset` of a linear engine counts the rows a streamed page
+    // listed ([`super::executor::streamed`]); only a PCRE2 search resumes.
+    let Some(position) = local_search_query::scan_offset(query)
+        .filter(|_| local_search_query::regex_mode(query) == RegexEngine::Pcre2)
+    else {
         return Ok((None, Cow::Borrowed(query)));
     };
     if let Some(error) = malformed_snapshot(query) {
@@ -151,7 +155,11 @@ pub(super) fn paused_row(
         pagination: None,
         selection: None,
         hints: Vec::new(),
-        next: Some(json!({"nextPage": Continuation::continued_query(resume).build()})),
+        next: Some(crate::response::collection::walk_calls(
+            crate::id::ToolId::LocalSearch,
+            None,
+            Continuation::continued_query(resume),
+        )),
         is_partial: true,
         terminal_limit: false,
         warnings: vec![format!(

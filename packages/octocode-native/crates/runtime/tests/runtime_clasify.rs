@@ -13,6 +13,7 @@ pub(crate) mod github_withheld;
 mod hits;
 mod judgments;
 mod long_context;
+mod memory_mode;
 mod oversized;
 mod pages;
 mod readiness;

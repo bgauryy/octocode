@@ -251,7 +251,8 @@ pub(super) fn failure(
             crate::response::result::Continuation::related_query(query.clone()).build(),
         );
     }
-    if lsp_search_query::path(query).is_some() {
+    // A binary file has no outline or symbol to read: no read recovers it.
+    if lsp_search_query::path(query).is_some() && code != ErrorCode::BinaryFileUnsupported {
         attach_recovery_next(&mut value, query);
         match code {
             ErrorCode::ServerUnavailable | ErrorCode::Policy => {

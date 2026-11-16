@@ -82,7 +82,7 @@ async fn an_unusable_host_fails_closed_instead_of_reaching_another_host() {
         )
         .unwrap();
         let output = run_clasify(workspace.cli()).await;
-        assert_eq!(output.status.code(), Some(5), "{host}: {}", text(&output));
+        assert_eq!(output.status.code(), Some(4), "{host}: {}", text(&output));
         assert!(
             text(&output).contains("invalidClassificationConfiguration"),
             "{host}: {}",

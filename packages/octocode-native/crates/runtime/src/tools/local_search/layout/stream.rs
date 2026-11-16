@@ -26,7 +26,8 @@ pub(in crate::tools::local_search) type PageRows = Vec<(usize, std::ops::Range<u
 /// rows follow on later pages. With `through`, the cut stops after that
 /// many pages, plus a page of the one entry that opens the next. A page
 /// also ends at `limit` entries (hit rows; a row-less file is one entry),
-/// at least one.
+/// at least one. The first file's rows before `start` are not on any page: an
+/// earlier page showed them.
 pub(super) fn stream_pages(
     files: &[octocode_engine::types::TextSearchFile],
     per_file: usize,
@@ -34,20 +35,27 @@ pub(super) fn stream_pages(
     (budget, limit): (usize, Option<usize>),
     costs: StreamCosts<'_>,
     through: Option<usize>,
+    start: usize,
 ) -> Vec<PageRows> {
     if whole {
         return vec![
             files
                 .iter()
                 .enumerate()
-                .map(|(index, file)| (index, 0..file.matches.len()))
+                .map(|(index, file)| {
+                    let first = if index == 0 { start } else { 0 };
+                    (index, first.min(file.matches.len())..file.matches.len())
+                })
                 .collect(),
         ];
     }
-    let first = files
-        .iter()
-        .enumerate()
-        .map(|(index, file)| (index, 0..file.matches.len().min(per_file)));
+    let first = files.iter().enumerate().map(|(index, file)| {
+        let first = if index == 0 { start } else { 0 };
+        (
+            index,
+            first.min(file.matches.len())..file.matches.len().min(per_file),
+        )
+    });
     let rest = files
         .iter()
         .enumerate()

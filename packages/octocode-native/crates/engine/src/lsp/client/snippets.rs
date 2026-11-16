@@ -191,8 +191,8 @@ async fn read_snippet_source(path: PathBuf) -> Result<String> {
 }
 
 /// The text of a regular file of at most `max_bytes`: read by
-/// [`crate::text::read_source`], then admitted as UTF-8 or BOM-marked UTF-16
-/// text ([`crate::text::admit`]).
+/// [`crate::text::read_source`], then admitted as text by the one rule
+/// ([`crate::text::admit`]: UTF-8, BOM-marked UTF-16, else Latin-1 or lossy UTF-8).
 pub(super) fn read_bounded_regular_file(path: &Path, max_bytes: u64) -> Result<String> {
     use crate::text::ReadError;
     let source = crate::text::read_source(path, max_bytes).map_err(|error| match error {
@@ -205,7 +205,7 @@ pub(super) fn read_bounded_regular_file(path: &Path, max_bytes: u64) -> Result<S
         )),
     })?;
     source
-        .admit(crate::text::Decoding::Unicode)
+        .admit(crate::text::Decoding::Lenient)
         .map(|admitted| admitted.text.into_owned())
         .map_err(|refusal| Error::new(format!("file is not admitted as text: {refusal}")))
 }

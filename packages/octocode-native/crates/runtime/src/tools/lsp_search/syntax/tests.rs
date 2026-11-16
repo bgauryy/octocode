@@ -43,7 +43,7 @@ fn fixture(
     octocode_engine::stamp::settle_written_so_far();
     let execution = super::super::LspExecutionConfig {
         octocode_home: Some(home.0.clone()),
-        ..super::super::LspExecutionConfig::default()
+        ..super::super::LspExecutionConfig::with_path()
     };
     ((dir, home), file, execution)
 }

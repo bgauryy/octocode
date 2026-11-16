@@ -80,12 +80,21 @@ pub(in crate::tools::gh_structure) fn traversal_from_git_tree(
             }
         };
         traversal.entries.push(TreeEntry {
+            oid: file_oid(kind, entry.sha.as_deref()),
             path,
             kind,
             size: entry.size,
         });
     }
     traversal
+}
+
+/// The blob id of a listed file; a directory's id names a tree, never a blob.
+pub(in crate::tools::gh_structure) fn file_oid(
+    kind: EntryKind,
+    sha: Option<&str>,
+) -> Option<String> {
+    sha.filter(|_| kind == EntryKind::File).map(str::to_owned)
 }
 
 /// A git tree entry's type, with a `blob` of the symlink mode (`120000`)

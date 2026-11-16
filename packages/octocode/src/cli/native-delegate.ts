@@ -21,7 +21,7 @@ const devOverrideOptions = {
     __OCTOCODE_BUNDLED__ === true,
 };
 /** The pinned platform package version; only a bundled launcher has one. */
-const bundledNativeVersion =
+export const bundledNativeVersion =
   typeof __OCTOCODE_NATIVE_VERSION__ === 'string'
     ? __OCTOCODE_NATIVE_VERSION__
     : undefined;

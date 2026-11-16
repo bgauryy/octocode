@@ -107,10 +107,22 @@ pub(super) fn render_match_page(
         &scan.withheld,
         errors.into(),
     ));
-    if q.page() == 1
-        && let Some(paths) = crate::tools::leads::skipped::skipped_paths(skips, false, truncated)?
-    {
-        out["skippedPaths"] = serde_json::to_value(paths).unwrap_or_default();
+    // The grammars this scan reads decide which files no grammar parses
+    // leave absence unproven: the census warning counts them, and each is
+    // its own `unparsed` entry beside the causes above.
+    let read = crate::tools::leads::unparsed::SourceTypes::read_by(
+        scope.language.as_deref().or(scope.inferred.as_deref()),
+    );
+    if q.page() == 1 {
+        let grouped = crate::tools::leads::skipped::skipped_paths(skips, false, truncated)?;
+        let unparsed = crate::tools::leads::skipped::skipped_paths(
+            scan.unparsed.skipped(Some(&read)),
+            true,
+            truncated,
+        )?;
+        if let Some(paths) = crate::tools::leads::skipped::appended(grouped, unparsed) {
+            out["skippedPaths"] = serde_json::to_value(paths).unwrap_or_default();
+        }
     }
     crate::response::paging::push_warnings(
         &mut out,
@@ -122,10 +134,9 @@ pub(super) fn render_match_page(
     // The scan's census, said on its first page; a later page of the same
     // scan repeats nothing (a scan window reads other files).
     if q.page() <= 1 {
-        let one_language = scope.language.is_some() || scope.inferred.is_some();
         let (unparsed, skipped_grammars) = scan.unparsed.disclosed(
             &super::types::SEARCH,
-            one_language,
+            Some(&read),
             grouped.skipped_grammars.clone(),
         );
         push_census(
@@ -445,8 +456,9 @@ pub(super) fn explain_empty(
             out,
             [format!("No{language} file under this path was parsed.")],
         );
-    } else if facts.scanned > 0 {
-        // `matchCount: 0` and `filesScanned` state the coverage; a hint
+    } else if facts.scanned > 0 || facts.diagnosed {
+        // `matchCount: 0` and `filesScanned` state the coverage (none, when
+        // every candidate was refused: its diagnostic says why); a hint
         // only names what the scan skipped.
         out["filesScanned"] = json!(facts.scanned);
     }

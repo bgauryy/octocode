@@ -2,7 +2,7 @@
 //! partial state.
 use super::{HistoryOperation, HistorySearch, leads, rows};
 use crate::id::ToolId;
-use crate::response::result::{insert_next, remove_null_fields};
+use crate::response::result::remove_null_fields;
 use crate::tools::gh_search_history::gh_search_history_query;
 use crate::tools::gh_shared::commit;
 use crate::tools::gh_shared::{
@@ -156,9 +156,10 @@ pub(super) fn shape(
     if paging.more
         && let Some(next) = leads::next_page(query, paging.page + 1)
     {
-        insert_next(
+        crate::response::collection::insert_walk(
             &mut value["calls"],
-            octocode_contract_types::GhSearchHistoryChannel::NextPage,
+            crate::id::ToolId::GhSearchHistory,
+            None,
             next,
         );
     }
@@ -227,6 +228,52 @@ pub(super) fn keeps_created(query: &HistorySearch) -> bool {
             .any(|(key, _)| key == "created")
 }
 
+/// The row keys that carry a body: a pull request's or issue's `body`, a
+/// commit's `messageBody` (the name ghGetHistoryItem uses).
+pub(super) const ROW_BODIES: [&str; 2] = ["body", "messageBody"];
+
+/// Whether rows carry `key`: the caller picked it in `fields`, or
+/// classification judges the page and reads it (a judged-only body leaves
+/// at the end of selection, [`super::Output::strip_judge_only`]).
+fn carries(query: &HistorySearch, fields: &[String], key: &str) -> bool {
+    gh_search_history_query::judged(query) || fields.iter().any(|field| field == key)
+}
+
+/// The `id` keys of a row pick: the row's identity, and `key` when the judge
+/// reads it, so a `fields` pick that leaves it out does not hide it from
+/// classification.
+fn identity<'a>(id: &[&'a str], judged: bool, key: &'a str) -> Vec<&'a str> {
+    id.iter().copied().chain(judged.then_some(key)).collect()
+}
+
+/// Puts each non-empty `text` of an item on its row as `key`: rows and items
+/// are one to one, in order.
+fn attach_text(
+    value: &mut Value,
+    rows: &str,
+    items: &[Value],
+    key: &str,
+    text: impl Fn(&Value) -> Option<String>,
+) {
+    let listed = value.get_mut(rows).and_then(Value::as_array_mut);
+    for (row, item) in listed.into_iter().flatten().zip(items) {
+        if let (Some(row), Some(text)) = (row.as_object_mut(), text(item)) {
+            row.insert(key.to_owned(), json!(text));
+        }
+    }
+}
+
+fn item_body(item: &Value) -> Option<String> {
+    item.get("body")
+        .and_then(Value::as_str)
+        .filter(|body| !body.trim().is_empty())
+        .map(str::to_owned)
+}
+
+fn commit_body(item: &Value) -> Option<String> {
+    commit::message_body(item).map(str::to_owned)
+}
+
 fn pull_requests(query: &HistorySearch, items: &[Value], paging: &Paging, terms: String) -> Value {
     let fields = gh_search_history_query::fields(query);
     let state = query.state();
@@ -251,6 +298,9 @@ fn pull_requests(query: &HistorySearch, items: &[Value], paging: &Paging, terms:
         .collect::<Vec<_>>();
     let mut v = json!({"pullRequests":rows,"effectiveQuery":terms,
         "pagination":paging.pagination()});
+    if carries(query, &fields, "body") {
+        attach_text(&mut v, "pullRequests", items, "body", item_body);
+    }
     lean_rows(
         &mut v,
         "pullRequests",
@@ -260,7 +310,11 @@ fn pull_requests(query: &HistorySearch, items: &[Value], paging: &Paging, terms:
     pick_rows(
         &mut v,
         "pullRequests",
-        &["number", "owner", "repo"],
+        &identity(
+            &["number", "owner", "repo"],
+            gh_search_history_query::judged(query),
+            "body",
+        ),
         &fields,
     );
     rows::drop_filtered_labels(&mut v, "pullRequests", &query.filters().label);
@@ -307,13 +361,25 @@ fn issues(query: &HistorySearch, items: &[Value], paging: &Paging, terms: String
         .collect::<Vec<_>>();
     let mut v = json!({"issues":issues,
         "effectiveQuery":terms,"pagination":paging.pagination()});
+    if carries(query, &fields, "body") {
+        attach_text(&mut v, "issues", items, "body", item_body);
+    }
     lean_rows(
         &mut v,
         "issues",
         &detail_unless_sorted(query, ISSUE_DETAIL),
         &fields,
     );
-    pick_rows(&mut v, "issues", &["number", "owner", "repo"], &fields);
+    pick_rows(
+        &mut v,
+        "issues",
+        &identity(
+            &["number", "owner", "repo"],
+            gh_search_history_query::judged(query),
+            "body",
+        ),
+        &fields,
+    );
     rows::drop_filtered_labels(&mut v, "issues", &query.filters().label);
     // List mode runs the REST endpoint, not the search terms.
     if paging.listed
@@ -344,8 +410,7 @@ fn commits(query: &HistorySearch, items: Vec<Value>, paging: &Paging) -> Value {
             })
             .collect::<Vec<_>>();
         let mut v = json!({"commits":commits});
-        lean_rows(&mut v, "commits", COMMIT_DETAIL, &fields);
-        pick_rows(&mut v, "commits", &["commitSha", "owner", "repo"], &fields);
+        shape_commit_rows(&mut v, query, &items, &fields);
         // `shape` adds the reachable `next.nextPage`. A complete list says
         // so too (`hasMore:false`): the REST list has no total, so a missing
         // block would leave the end of the history unstated.
@@ -367,9 +432,26 @@ fn commits(query: &HistorySearch, items: Vec<Value>, paging: &Paging) -> Value {
         })
         .collect::<Vec<_>>();
     let mut v = json!({"commits":commits,"pagination":paging.pagination()});
-    lean_rows(&mut v, "commits", COMMIT_DETAIL, &fields);
-    pick_rows(&mut v, "commits", &["commitSha", "owner", "repo"], &fields);
+    shape_commit_rows(&mut v, query, &items, &fields);
     v
+}
+
+/// The default row, `fields` pick and judged text of a commit page.
+fn shape_commit_rows(v: &mut Value, query: &HistorySearch, items: &[Value], fields: &[String]) {
+    if carries(query, fields, "messageBody") {
+        attach_text(v, "commits", items, "messageBody", commit_body);
+    }
+    lean_rows(v, "commits", COMMIT_DETAIL, fields);
+    pick_rows(
+        v,
+        "commits",
+        &identity(
+            &["commitSha", "owner", "repo"],
+            gh_search_history_query::judged(query),
+            "messageBody",
+        ),
+        fields,
+    );
 }
 
 /// A complete page with no rows is empty, so the shared fallback hint fires.

@@ -1,6 +1,6 @@
 //! Search semantics and executable handoffs through the runtime.
 use crate::support::{Run as _, Workspace, call, checks, row_data, row_status};
-use serde_json::json;
+use serde_json::{Value, json};
 
 #[tokio::test]
 async fn literal_and_regex_matchers_have_explicit_distinct_semantics() {
@@ -152,7 +152,27 @@ async fn long_unicode_lines_show_a_window_around_the_hit_and_lead_to_the_whole_l
             value.len() < line.len() / 10,
             "MCP={mcp}: a window of the line"
         );
-        assert!(data.get("related").is_none(), "MCP={mcp}: {data}");
+        // The window is disclosed by the warning; any lead is a localFetch read
+        // of the hit's own line in the hit's own file.
+        assert!(data["warnings"].as_array().is_some_and(|w| {
+            w.iter()
+                .any(|w| w.as_str().is_some_and(|w| w.starts_with("windowedHits")))
+        }));
+        for lead in data
+            .get("related")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            assert_eq!(lead["tool"], "localFetch", "MCP={mcp}: {data}");
+            let queries = lead["input"]["queries"].as_array().expect("queries");
+            assert_eq!(queries.len(), 1, "MCP={mcp}: {data}");
+            assert_eq!(queries[0]["path"], data["files"][0]["path"]);
+            let ranges = queries[0]["ranges"].as_array().expect("ranges");
+            assert_eq!(ranges.len(), 1, "MCP={mcp}: {data}");
+            assert_eq!(ranges[0]["startLine"], matches[0]["line"]);
+            assert_eq!(ranges[0]["endLine"], matches[0]["line"]);
+        }
         let hit_line = matches[0]["line"].clone();
         let input = json!({"queries":[{"path":data["files"][0]["path"],"ranges":[{"startLine":hit_line,"endLine":hit_line}]}]});
         let read = call(&runtime, "localFetch", input)

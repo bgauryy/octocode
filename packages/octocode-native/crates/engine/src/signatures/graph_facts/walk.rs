@@ -6,6 +6,7 @@ use super::rust::{
     RustContext, collect_rust_paths, rust_child_contexts, rust_inner_unsupported_among,
 };
 use super::{GraphAccumulator, NameToken, note, receiver};
+use crate::signatures::node_kinds::kind_of;
 use tree_sitter::Node;
 
 use crate::graph::GraphFactCode;
@@ -24,10 +25,10 @@ fn polls_deadline(steps: &mut u32) -> bool {
 /// A macro call in item position: directly in a file or module body, or as
 /// an `expression_statement` there (`make_items!();`).
 pub(super) fn is_item_level(node: Node<'_>) -> bool {
-    let item_parent = |node: Node<'_>| matches!(node.kind(), "source_file" | "declaration_list");
+    let item_parent = |node: Node<'_>| matches!(kind_of(node), "source_file" | "declaration_list");
     node.parent().is_some_and(|parent| {
         item_parent(parent)
-            || parent.kind() == "expression_statement" && parent.parent().is_some_and(item_parent)
+            || kind_of(parent) == "expression_statement" && parent.parent().is_some_and(item_parent)
     })
 }
 
@@ -48,10 +49,10 @@ fn note_name_token(acc: &mut GraphAccumulator, node: Node<'_>, path: &[Node<'_>]
         return;
     };
     let format = rust
-        && node.kind() == "string_literal"
+        && kind_of(node) == "string_literal"
         && path
             .last()
-            .is_some_and(|parent| parent.kind() == "token_tree");
+            .is_some_and(|parent| kind_of(parent) == "token_tree");
     if format || is_name_leaf(node) {
         tokens.push(NameToken {
             start: node.start_byte(),
@@ -124,7 +125,7 @@ pub(super) fn visit_node(
                 continue;
             }
         };
-        let kind = node.kind();
+        let kind = kind_of(node);
         // One child scan serves the inner-attribute checks and the frames
         // below; a leaf has no children to read.
         children.clear();
@@ -287,12 +288,12 @@ pub(super) struct RustNodeContext<'a> {
 /// children are the imports; the declaration itself would duplicate the
 /// first one on the `import` line.
 pub(super) fn is_grouped_go_import(node: Node<'_>) -> bool {
-    if node.kind() != "import_declaration" {
+    if kind_of(node) != "import_declaration" {
         return false;
     }
     let mut cursor = node.walk();
     node.named_children(&mut cursor)
-        .any(|child| matches!(child.kind(), "import_spec" | "import_spec_list"))
+        .any(|child| matches!(kind_of(child), "import_spec" | "import_spec_list"))
 }
 
 /// A function declared directly in a type body (class, struct, trait,
@@ -308,7 +309,7 @@ pub(super) fn method_kind(
         return kind;
     }
     if matches!(
-        node.kind(),
+        kind_of(node),
         "method_declaration" | "method_definition" | "singleton_method" | "method_elem"
     ) {
         return "method";

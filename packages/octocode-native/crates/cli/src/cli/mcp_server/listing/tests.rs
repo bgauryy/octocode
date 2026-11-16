@@ -85,15 +85,16 @@ fn instructions_are_core_s_composition_for_the_listed_tools() {
             .instructions;
         assert_eq!(
             text,
+            // Selection is on: the Clasify block explains the option.
             octocode_native::contracts::compose_instructions(presentation(), |name| {
-                available.contains(&name)
+                available.contains(&name) || name == "clasify"
             }),
             "{available:?}"
         );
         assert!(!text.contains("<cli>"), "{text}");
         // A tool that is not listed is not named, by its block or by a route.
         for name in presentation_tools() {
-            if !available.contains(&name.as_str()) {
+            if !available.contains(&name.as_str()) && name != "clasify" {
                 assert!(!text.contains(&name), "{name}: {text}");
             }
         }
@@ -236,4 +237,39 @@ fn no_listed_tool_repeats_the_instructions() {
             }
         }
     }
+}
+
+/// The Clasify block follows the predicate that shows the `classification`
+/// option (`presentation.selection`), not whether `clasify` itself is
+/// listed: a tool filter that hides clasify leaves the option on the read
+/// tools, and the block that explains it stays. No selection, no block.
+#[test]
+fn the_clasify_block_follows_selection_not_the_clasify_listing() {
+    let block = presentation()["instructions"]["blocks"]
+        .as_array()
+        .expect("blocks")
+        .iter()
+        .find(|block| block["tool"] == "clasify")
+        .and_then(|block| block["text"].as_str())
+        .expect("clasify block")
+        .to_owned();
+    let read = ["localSearch", "localFetch"];
+    let on = build(
+        presentation(),
+        &catalog(&read, json!({"selection": true}), json!([])),
+    )
+    .expect("listing");
+    assert!(!names(&on.tools).contains(&"clasify"));
+    assert!(on.instructions.contains(&block), "selection on");
+    let off = build(
+        presentation(),
+        &catalog(&read, json!({"selection": false}), json!([])),
+    )
+    .expect("listing");
+    assert!(!off.instructions.contains(&block), "no selection");
+    assert!(
+        on.instructions.chars().count() < 4096,
+        "{}",
+        on.instructions.chars().count()
+    );
 }

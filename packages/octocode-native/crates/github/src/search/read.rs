@@ -14,14 +14,16 @@ pub const SEARCH_RESULT_CAP: usize = 1000;
 const SEARCH_PAGE: usize = crate::MAX_PER_PAGE;
 
 /// The provider pages (first, last) that caller page `page` of `per_page`
-/// results reads, or `None` when it starts past the result cap (that page is
-/// GitHub's own answer, read as asked).
+/// results reads, or `None` when it runs past the result cap: that page is
+/// GitHub's own answer, read as asked. GitHub serves a repository, issue or
+/// commit search page while its first result lies inside the cap, so its last
+/// page runs past it (`per_page=30&page=34` answers results 991-1020), while
+/// a provider page of [`SEARCH_PAGE`] starting at the cap is refused: no
+/// provider page reaches those rows.
 fn provider_pages(page: usize, per_page: usize) -> Option<(usize, usize)> {
     let start = (page - 1).saturating_mul(per_page);
     let end = start.saturating_add(per_page);
-    let first = start / SEARCH_PAGE + 1;
-    let last = ((end - 1) / SEARCH_PAGE + 1).min(SEARCH_RESULT_CAP.div_ceil(SEARCH_PAGE));
-    (first <= last).then_some((first, last))
+    (end <= SEARCH_RESULT_CAP).then(|| (start / SEARCH_PAGE + 1, (end - 1) / SEARCH_PAGE + 1))
 }
 
 /// The provider page (its number and size) that holds caller page `page` of
@@ -61,8 +63,8 @@ impl GitHubTransport {
     /// `per_page` results asks for, in order: the first page as asked; whole
     /// provider pages when answers already held cover it with nothing sent;
     /// else the walk's grown page ([`grown_page`]), or whole provider pages
-    /// past it. A page that starts past the result cap is GitHub's own answer,
-    /// read as asked.
+    /// past it. A page that runs past the result cap is GitHub's own answer,
+    /// read as asked ([`provider_pages`]).
     fn provider_reads(
         &self,
         spec: &impl Fn(usize, usize) -> Result<RequestSpec, ProviderError>,
@@ -241,5 +243,18 @@ mod tests {
         assert_eq!(grown_page(5, 5), Some((2, 20)));
         assert_eq!(grown_page(2, 100), Some((2, 100)));
         assert_eq!(grown_page(3, 100), None);
+    }
+
+    /// A caller page inside the cap reads the whole provider pages that hold
+    /// it; one that runs past the cap reads GitHub's own page.
+    #[test]
+    fn a_page_past_the_cap_is_read_as_asked() {
+        assert_eq!(provider_pages(1, 100), Some((1, 1)));
+        assert_eq!(provider_pages(10, 100), Some((10, 10)));
+        assert_eq!(provider_pages(111, 9), Some((10, 10)));
+        assert_eq!(provider_pages(33, 30), Some((10, 10)));
+        assert_eq!(provider_pages(34, 30), None);
+        assert_eq!(provider_pages(112, 9), None);
+        assert_eq!(provider_pages(11, 100), None);
     }
 }

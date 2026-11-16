@@ -2,6 +2,7 @@ use super::client::*;
 use super::daemon::*;
 use super::identity::*;
 use super::sockets::*;
+use super::surface::Surface;
 use super::*;
 use crate::cli::output::Printed;
 use crate::cli::serve::runs_on_server;
@@ -29,6 +30,8 @@ fn request<'a>(input: &'a Value, cwd: &'a Path) -> Request<'a> {
         cwd,
         env: &NO_ENV,
         identity: "id",
+        process: "process",
+        surface: Surface::Cli,
     }
 }
 
@@ -54,7 +57,7 @@ fn identity(
         RuntimeSurface::Cli,
     );
     let config = resolve_config(&input);
-    let identity = call_identity(&config, &vars);
+    let identity = call_identity(&config);
     (config, identity)
 }
 
@@ -104,14 +107,76 @@ impl Fixture {
         same_dir_form(&slow)
     }
 
-    /// The identity a client in `cwd` sends.
+    /// The identity a CLI client in `cwd` sends.
     fn identity(&self, cwd: &Path) -> String {
-        use octocode_native::config::{RuntimeSurface, acquire_config_input, resolve_config};
+        self.identity_as(Surface::Cli, cwd)
+    }
+
+    /// The identity a client of `surface` in `cwd` sends.
+    fn identity_as(&self, surface: Surface, cwd: &Path) -> String {
+        use octocode_native::config::{acquire_config_input, resolve_config};
         let os_home = std::env::home_dir().expect("home");
         let env = served_env(self.env.clone());
-        let input =
-            acquire_config_input(env.clone(), cwd.to_path_buf(), os_home, RuntimeSurface::Cli);
-        call_identity(&resolve_config(&input), &env)
+        let input = acquire_config_input(env, cwd.to_path_buf(), os_home, surface.runtime());
+        call_identity(&resolve_config(&input))
+    }
+
+    /// One MCP call from `cwd`: the server's reply line.
+    async fn ask_mcp(
+        &self,
+        socket: &Path,
+        cwd: &Path,
+        tool: &str,
+        input: &Value,
+    ) -> Result<Value, Failed> {
+        let mut stream = connect(socket).await.expect("connect");
+        let env = served_env(self.env.clone());
+        let request = Request {
+            tool,
+            input,
+            json_out: true,
+            cwd,
+            env: &env,
+            identity: &self.identity_as(Surface::Mcp, cwd),
+            process: &own_process_identity(),
+            surface: Surface::Mcp,
+        };
+        exchange_value(
+            &mut stream,
+            &request.line(),
+            reply_deadline(),
+            octocode_io::http::READ_STALL,
+            std::future::pending(),
+            std::future::pending::<()>(),
+            || {},
+            |_| {},
+        )
+        .await
+    }
+
+    /// The call as an in-process MCP server answers it: the text of its
+    /// MCP result.
+    async fn in_process_mcp(&self, cwd: &Path, tool: &str, input: Value) -> (String, bool) {
+        let runtime = octocode_native::runtime::ToolRuntime::from_host(
+            octocode_native::runtime::HostOptions {
+                cwd: Some(cwd.to_path_buf()),
+                env: Some(served_env(self.env.clone())),
+                ..crate::cli::mcp_server::mcp_host()
+            },
+        )
+        .expect("runtime");
+        let admission = runtime.admit_with("mcp-1".into(), None).expect("admit");
+        let result = runtime
+            .execute(
+                admission,
+                tool.into(),
+                input,
+                octocode_native::runtime::Channel::Mcp,
+            )
+            .await;
+        runtime.close().await;
+        let result = octocode_native::runtime::error::mcp_result(tool, result).expect("answered");
+        (result.text, result.is_error)
     }
 
     /// Send one call from `cwd`, with this fixture's environment and
@@ -146,6 +211,8 @@ impl Fixture {
             cwd,
             env: &env,
             identity,
+            process: &own_process_identity(),
+            surface: Surface::Cli,
         };
         exchange_reply(&mut stream, &request, reply_deadline()).await
     }

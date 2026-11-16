@@ -12,14 +12,18 @@ use std::collections::BTreeSet;
 /// The fields of `data` whose items name the files a row prints.
 const ROW_FILES: [&str; 2] = ["files", "matches"];
 
-/// Every `path` string under `value`.
-fn row_paths<'a>(value: &'a Value, out: &mut BTreeSet<&'a str>) {
+/// Every `path` string under `value`, and every listing group's `dir`
+/// (a directory: `true`).
+fn row_paths<'a>(value: &'a Value, out: &mut BTreeSet<(&'a str, bool)>) {
     match value {
         Value::Object(fields) => {
             for (key, value) in fields {
                 match value {
                     Value::String(path) if key == "path" => {
-                        out.insert(path);
+                        out.insert((path, false));
+                    }
+                    Value::String(dir) if key == "dir" && fields.contains_key("files") => {
+                        out.insert((dir, true));
                     }
                     other => row_paths(other, out),
                 }
@@ -30,14 +34,19 @@ fn row_paths<'a>(value: &'a Value, out: &mut BTreeSet<&'a str>) {
     }
 }
 
-/// `value` with each `path` under `root/` spelled relative to `root`.
+/// `value` with each `path` under `root/` spelled relative to `root`, and
+/// each listing group's `dir` too (the root itself as `""`, which a listing
+/// prints `./`).
 fn strip_root(value: &mut Value, root: &str) {
     match value {
         Value::Object(fields) => {
+            let group = fields.contains_key("files");
             for (key, value) in fields.iter_mut() {
                 match value {
-                    Value::String(path) if key == "path" => {
-                        if let Some(rest) = path
+                    Value::String(path) if key == "path" || (key == "dir" && group) => {
+                        if key == "dir" && path == root {
+                            path.clear();
+                        } else if let Some(rest) = path
                             .strip_prefix(root)
                             .and_then(|rest| rest.strip_prefix('/'))
                         {
@@ -70,9 +79,11 @@ pub(super) fn relative_paths(data: &mut Map<String, Value>) -> Option<String> {
         return None;
     }
     let mut shared: Option<Vec<&str>> = None;
-    for path in &paths {
+    for (path, dir) in &paths {
         let mut parts: Vec<&str> = path.split('/').collect();
-        parts.pop();
+        if !dir {
+            parts.pop();
+        }
         shared = Some(match shared {
             None => parts,
             Some(shared) => shared

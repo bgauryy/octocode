@@ -60,6 +60,28 @@ impl Found<'_> {
         }
     }
 
+    /// The page's hits that show a window of a line too long for a row, not
+    /// the line whole: one warning counting them, naming the first, and the
+    /// localFetch read that serves the whole line (the read lead, on a page
+    /// that offers one).
+    pub(in crate::tools::local_search) fn windowed_hits(&self) -> Option<String> {
+        let mut windows = self.files.iter().flat_map(|file| {
+            file.matches
+                .iter()
+                .flatten()
+                .filter(|hit| hit.window_start.is_some())
+                .map(move |hit| (file, hit))
+        });
+        let (file, first) = windows.next()?;
+        let count = 1 + windows.count();
+        Some(format!(
+            "windowedHits: {count} {} a window of a line too long for a row (first {}:{}); localFetch with the same matchString reads the whole line.",
+            if count == 1 { "hit shows" } else { "hits show" },
+            joined_path(self.query, self.root, file),
+            first.line
+        ))
+    }
+
     /// Files skipped as binary from their leading bytes, when any.
     pub(in crate::tools::local_search) fn leading_binaries(&self) -> Option<u32> {
         let total: u32 = self

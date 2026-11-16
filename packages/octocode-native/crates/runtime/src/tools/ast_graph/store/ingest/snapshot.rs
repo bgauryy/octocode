@@ -141,9 +141,11 @@ pub(super) fn publish_snapshot(
         return error;
     }
     let pruned = prune(job.home, &job.built.root, job.options.keep);
-    let unfinished = super::super::super::graph::checkpoint::prune_jobs(
+    // Only this build's root: the home also holds other roots' jobs.
+    let unfinished = super::super::super::graph::checkpoint::prune_jobs_of(
         &job.home.join(".facts"),
-        &|root, written| super::super::snapshots::published_after(job.home, root, written),
+        &|root| super::super::snapshots::last_published(job.home, root),
+        Some(&job.built.root),
     );
     progress::emit(|| format!("published {id} ({bytes} bytes)"));
     let mut receipt = receipt(&id, &dir, &manifest, started);
@@ -160,7 +162,25 @@ pub(super) fn publish_snapshot(
         );
         crate::response::paging::push_warnings(&mut receipt, warnings);
     }
+    crate::response::paging::push_warnings(
+        &mut receipt,
+        uncheckpointed_warning(&job.built.construction),
+    );
     answer(receipt)
+}
+
+/// The files this build linked without a checkpoint, past the job's disk or
+/// memory-only budget or one artifact's bound: the graph is whole, but
+/// `extraction` alone would not say that an interrupted build parses them
+/// again.
+fn uncheckpointed_warning(progress: &super::super::super::types::BuildProgress) -> Option<String> {
+    let files = progress.uncheckpointed_files;
+    (files > 0).then(|| {
+        format!(
+            "{files} file(s) were linked without a checkpoint, past the job's budget (maxSpillBytes {} on disk, maxMemoryOnlyBytes {} for secret-bearing files) or one artifact's bound: the graph is complete, but an interrupted build parses them again.",
+            progress.max_spill_bytes, progress.max_memory_only_bytes
+        )
+    })
 }
 
 /// The answer of a published snapshot's `receipt`: empty when its graph
@@ -230,6 +250,23 @@ pub(super) fn receipt(id: &str, dir: &Path, manifest: &Value, started: Instant) 
 mod pruned_tests {
     use super::super::super::snapshots::Pruned;
     use super::pruned_warnings;
+
+    /// Files linked past the checkpoint budgets get one warning naming
+    /// their count and the budgets; a build that checkpointed every file
+    /// warns of nothing.
+    #[test]
+    fn files_past_the_checkpoint_budget_are_disclosed() {
+        let mut progress = super::super::super::super::types::BuildProgress {
+            max_spill_bytes: 2 << 30,
+            max_memory_only_bytes: 64 << 20,
+            ..Default::default()
+        };
+        assert_eq!(super::uncheckpointed_warning(&progress), None);
+        progress.uncheckpointed_files = 7_176;
+        let warning = super::uncheckpointed_warning(&progress).expect("warning");
+        assert!(warning.contains("7176 file(s)"), "{warning}");
+        assert!(warning.contains(&(2u64 << 30).to_string()), "{warning}");
+    }
 
     /// A prune states each reason with its count; the removed IDs are the
     /// receipt's `pruned` list, so no warning repeats one.

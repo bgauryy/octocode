@@ -17,7 +17,7 @@ fn json_auth_failures_use_the_error_envelope_and_class() {
                 "--json",
             ],
             "missingConfiguration",
-            5,
+            4,
         ),
         (
             vec![
@@ -84,7 +84,7 @@ fn managed_edits_type_a_missing_revision_as_invalid_input_and_a_stale_one_as_con
     let mut stale = edit;
     stale["revision"] = "stale".into();
     let (code, stale) = manage(&workspace, stale);
-    assert_eq!(code, Some(5), "a conflict is retryable after a refresh");
+    assert_eq!(code, Some(6), "a conflict restarts after a refresh");
     assert_eq!(stale["error"]["code"], "CONFLICT", "{stale}");
     assert!(!workspace.home.join(".env").exists());
 }

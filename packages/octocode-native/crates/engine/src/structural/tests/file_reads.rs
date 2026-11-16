@@ -166,7 +166,7 @@ fn search_files_prefilter_read_feeds_the_parse_and_keeps_skip_reasons() {
     let filler = "// filler line for the stream search\n".repeat(8_000);
     fs::write(root.join("big_hit.ts"), format!("{filler}target(value);\n")).expect("big hit");
     fs::write(root.join("big_miss.ts"), &filler).expect("big miss");
-    fs::write(root.join("bad.ts"), b"target(\xff);\n").expect("not utf8");
+    fs::write(root.join("bad.ts"), b"target(\0);\n").expect("binary");
     let options = |max_file_bytes| StructuralSearchFilesOptions {
         path: root.to_string_lossy().to_string(),
         pattern: Some("target($X)".to_owned()),
@@ -189,7 +189,7 @@ fn search_files_prefilter_read_feeds_the_parse_and_keeps_skip_reasons() {
         "big_miss.ts lacks the anchor"
     );
     assert_eq!(result.skipped_large, 1, "big_hit.ts holds it past the cap");
-    assert_eq!(result.skipped_unreadable, 1, "bad.ts is not UTF-8");
+    assert_eq!(result.skipped_unreadable, 1, "bad.ts is binary");
     let row = |name: &str| {
         result
             .files
@@ -216,7 +216,7 @@ fn search_files_prefilter_read_feeds_the_parse_and_keeps_skip_reasons() {
     assert_eq!(row("bad.ts").skipped_reason.as_deref(), Some("read"));
     assert_eq!(
         row("bad.ts").diagnostics[0].message,
-        "Could not read file content as text: not valid UTF-8 or BOM-marked UTF-16 text."
+        "Could not read file content as text: binary content."
     );
     // Under the default cap both big files parse; only big_hit.ts matches.
     let result = search_files_detailed(options(None)).expect("search files");
@@ -350,4 +350,33 @@ fn a_rebuild_refuses_an_entry_swapped_for_a_link() {
     )
     .expect("rebuilt");
     assert!(matches!(rebuilt, Rebuilt::Changed));
+}
+
+/// A file that is not UTF-8 is searched as the reads show it: Latin-1 text
+/// matches, with the decode warning on its row, a file of mostly UTF-8 with
+/// stray bytes keeps its characters, and binary content stays refused.
+#[test]
+fn search_files_matches_legacy_8_bit_sources_with_the_decode_warning() {
+    let root = TmpDir::new();
+    fs::write(
+        root.join("latin.ts"),
+        b"function caf\xe9() { target(x); }\n",
+    )
+    .expect("latin1");
+    fs::write(root.join("stray.ts"), b"// \xc3\xa9 \xff\ntarget(y);\n").expect("stray");
+    fs::write(root.join("nul.ts"), b"target(z);\0").expect("nul");
+    let result = search_files_detailed(files_options(&root)).expect("search files");
+    let row = |name: &str| {
+        result
+            .files
+            .iter()
+            .find(|file| file.path.ends_with(name))
+            .expect("file row")
+    };
+    assert_eq!(result.total_matches, 2);
+    let (latin, stray) = (row("latin.ts"), row("stray.ts"));
+    assert_eq!(latin.status, "ok");
+    assert_eq!(latin.diagnostics[0].message, crate::text::LATIN1_WARNING);
+    assert_eq!(stray.diagnostics[0].message, crate::text::LOSSY_WARNING);
+    assert_eq!(row("nul.ts").skipped_reason.as_deref(), Some("read"));
 }

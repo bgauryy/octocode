@@ -46,7 +46,9 @@ On Linux the launcher takes the glibc package when `/usr/bin/ldd` carries the GN
 C Library header and refuses when it names musl; only an `ldd` that names
 neither falls back to Node's glibc report and `ldd --version`.
 
-Scripts that call the binary many times can skip the launcher's Node startup by
+An installed `octocode` command is already the binary when its postinstall ran
+([launcher architecture](../octocode/ARCHITECTURE.md#runtime-boundary)). Other
+scripts that call the binary many times can skip the launcher's Node startup by
 running the binary it would start: `resolveNativeBinaryPath()` from
 `bin/resolve-binary.cjs` is the launcher's own resolver and returns that path
 (it throws when the platform package is missing; the launcher then downloads
@@ -179,32 +181,67 @@ as it does in one MCP session: issued pages, stored scans and continuation-selec
 live language servers. A fresh request reuses only what is keyed by the
 content it reads (outlines, parsed declarations); anything else it computes again. The first call of a workspace
 starts the server, detached, behind a socket in `<temp dir>/octocode-<uid>`
-(a 0700 directory only the owner can enter).
+(a 0700 directory only the owner can enter). Both interfaces reach it: CLI calls,
+and the read-only tools of an MCP session (`octocode mcp`), so a workspace has one
+language-server pool, one memory budget and one set of warm indexes whichever
+client asks.
 
 - **One server per** binary build, workspace (the nearest `.git` ancestor of
-  the working directory, else the directory), and call identity: the resolved
+  the working directory, else the directory) and process environment. The
+  build is the executable file's device and inode, its version, size and
+  modification time, with no path: a symlink, a relative spelling or a hard
+  link is the same build, a moved binary keeps its server, and a copy is
+  another build with its own server (copying a binary gives it new servers; link
+  it instead). The process environment is every variable the engine reads
+  from the server's own process (`PROCESS_ENV`: `HOME`, `XDG_CONFIG_HOME` and
+  the git config variables, which the walker reads for the global ignore
+  rules) and the proxy and trust-store variables (`NETWORK_ENV`). A call
+  cannot bring its own value of these, so another value reaches another
+  server, and a server answers `fallback` to a request made under a process
+  environment other than its own. The socket name is a hash (with
+  `KEY_VERSION`, bumped when the key's meaning changes, so a newer client
+  never meets an older server), so it holds no secret.
+- **Call environment.** `PATH`, `LANG`, `TMPDIR`, the rustup, Go, Python,
+  JVM and .NET toolchain variables (`CALL_ENV`) travel with each call and are
+  read only from it: language-server discovery and start run under the
+  caller's, so a GUI-launched MCP server and a terminal's CLI share one
+  server whatever their `PATH`. The language server's own environment is
+  part of the pool key, so callers whose environments differ in what a
+  server is given (`PATH`, `LANG`, ...) get one language server each; equal
+  environments share one. (`TMPDIR` also names the socket directory, so
+  clients with another `TMPDIR` reach another server.)
+- **Configuration keys the runtime, not the server.** The resolved
   configuration (home and workspace `.env` and `.octocoderc`, every variable the
-  config contract declares), the environment GitHub credential's source and
-  digest, every `OCTOCODE_*` variable such as `OCTOCODE_BETA`, the proxy and
-  trust-store variables, and the variables the engine reads from the server's
-  own process (`PROCESS_ENV`). Any change starts a new server; the socket name
-  is a hash, so it holds no secret.
-- **Per directory and environment.** A call runs as a CLI started in its own
-  directory with its own environment would: the request carries the
-  environment, so credential discovery (`gh` and `GH_CONFIG_DIR`, npm config)
-  sees the caller's. The server keeps a runtime per directory and environment
-  (up to `MAX_RUNTIMES`), on one shared language-server pool, so directories of
-  one repository share one rust-analyzer.
+  config contract declares, the environment GitHub credential's source and
+  digest) is the identity a runtime is kept under; a call under another
+  configuration, or one whose files changed, gets its own runtime on the same server. A
+  variable no setting declares keys nothing.
+- **Per directory, surface and environment.** A call runs as a CLI (or MCP
+  server) started in its own directory with its own environment would: the
+  request carries the environment, so credential discovery (`gh` and
+  `GH_CONFIG_DIR`, npm config) sees the caller's. The server keeps a runtime per
+  directory, surface and environment (up to `MAX_RUNTIMES`), on one shared
+  language-server pool, so directories of one repository, and an MCP session
+  beside CLI calls, share one rust-analyzer. The surface decides what the
+  runtime enforces: an MCP call keeps MCP's tool lists, beta gating and
+  prerequisites (`tools.disabled`, `tools.enabled`) while the CLI ignores them, and
+  answers as an MCP result: the same bytes the in-process MCP server sends.
 - **Credentials.** Each request reloads `gh` or stored credentials, so account
   switching, logout and token rotation reach the next request. `octocode auth
   login` and `logout` also stop every warm server.
 - **Same output.** Stdout, the exit code, and stderr (configuration warnings,
   and the warnings a call raises, such as an unusable credential store or
-  rate-limit state file) match an in-process call. Ctrl-C cancels the call on
-  the server.
+  rate-limit state file) match an in-process call; an MCP call's text is
+  byte-identical to the in-process server's. Ctrl-C cancels the call on
+  the server, and so does the MCP client's `notifications/cancelled` (the MCP
+  process closes its side of the connection). An MCP call's progress arrives
+  as `notifications/progress` from the server's progress frames, and
+  `lsp.prewarm` `all` asks the server to warm the session's workspace.
 - **In process instead** with `storage.mode = memory`
-  (`OCTOCODE_STORAGE_MODE=memory`), on Windows, or for the tools that write (`ghCloneRepo`, `graphBuild`). A server that cannot be reached, refuses a call, or fails
-  mid-call is named on stderr and the call runs in process. The client waits
+  (`OCTOCODE_STORAGE_MODE=memory`), on Windows (CLI and MCP alike), or for the tools that write (`ghCloneRepo`, `graphBuild`). A server that cannot be reached, refuses a call, or fails
+  mid-call (it died, or sent nothing for 300 s) is named on stderr and the call
+  runs in process, once, with no second try on a fresh server. An MCP session whose
+  server cannot start runs in process from then on. The client waits
   for the reply as long as the server's request budget allows; the CLI sets
   none, so it waits until the reply, the server closing, or Ctrl-C, as long as
   the server keeps talking: while a call runs the server sends a heartbeat
@@ -224,7 +261,7 @@ starts the server, detached, behind a socket in `<temp dir>/octocode-<uid>`
   the wait with an error, and the cache is left uncleared.
 
 The named limits are constants in
-[`crates/cli/src/cli/serve/unix/daemon.rs`](crates/cli/src/cli/serve/unix/daemon.rs) (`IDLE_EXIT`, 10 minutes; `MAX_RUNTIMES`) and
+[`crates/cli/src/cli/serve/unix/daemon.rs`](crates/cli/src/cli/serve/unix/daemon.rs) (`IDLE_EXIT`, 10 minutes; `MAX_RUNTIMES`), [`surface.rs`](crates/cli/src/cli/serve/unix/surface.rs) (the two surfaces) and
 [`frames.rs`](crates/cli/src/cli/serve/unix/frames.rs) (`HEARTBEAT`, `BACKLOG`), and `READ_STALL` in
 [`crates/io/src/http.rs`](crates/io/src/http.rs); the
 [`serve.rs`](crates/cli/src/cli/serve.rs) module documentation says how the server keeps these guarantees.

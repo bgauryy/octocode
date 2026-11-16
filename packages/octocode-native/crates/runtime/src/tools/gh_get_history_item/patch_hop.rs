@@ -8,7 +8,7 @@ use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::sections::Section;
 use crate::tools::gh_shared::commit::commit_pull_request;
 use crate::tools::gh_shared::ensure_calls;
-use octocode_contract_types::{GhGetHistoryItemQuery, GhSearchHistoryQuery};
+use octocode_contract_types::GhGetHistoryItemQuery;
 use serde_json::{Map, Value, json};
 
 /// The paths of `paths` a selected-patch read of `target` can name: the
@@ -105,7 +105,7 @@ pub(super) fn patch_continuation(
     mut nq: Value,
     entry: &Value,
     q: &HistoryItemRequest,
-) -> Option<Value> {
+) -> Option<Continuation> {
     let read = q.sections();
     let patch_read = Sections::of([Section::Patches]);
     if read.has(Section::Files) {
@@ -226,7 +226,12 @@ pub(super) fn attach_diff_continuations(
             remove_key(&mut nq, key);
         }
         if let Some(call) = continuation(nq) {
-            crate::response::result::set_next(out, "commits", call);
+            crate::response::collection::insert_walk(
+                &mut out["next"],
+                ToolId::GhGetHistoryItem,
+                Some("commits"),
+                call,
+            );
         }
     }
     // A file page with unread patches continues them first: its window
@@ -238,7 +243,12 @@ pub(super) fn attach_diff_continuations(
         files_only(&mut nq, operation);
         pin_file_page_size(&mut nq, q, q.include_diff());
         if let Some(call) = continuation(nq) {
-            crate::response::result::set_next(out, "files", call);
+            crate::response::collection::insert_walk(
+                &mut out["next"],
+                ToolId::GhGetHistoryItem,
+                Some("files"),
+                call,
+            );
         }
     }
     // Patches expand a file inventory into a fresh section read.
@@ -258,7 +268,12 @@ pub(super) fn attach_diff_continuations(
         files_only(&mut nq, operation);
 
         if let Some(call) = continuation(nq) {
-            crate::response::result::set_next(out, "patches", call);
+            crate::response::collection::insert_walk(
+                &mut out["next"],
+                ToolId::GhGetHistoryItem,
+                Some("patches"),
+                call,
+            );
         }
     }
     // The page's own continuations join the reads the page already offers
@@ -301,29 +316,18 @@ pub(super) fn files_only(query: &mut Value, operation: ItemOperation) {
 }
 
 /// Commit → pull request: the PR the message names (a squash headline's
-/// `(#8506)`, a merge commit, or a `PR-URL:` trailer); otherwise issue search
-/// matches PRs by commit SHA. `message` is the whole commit message, which a
-/// patch read does not carry.
-pub(super) fn commit_pull_request_lead(
-    message: &str,
-    sha: &str,
-    q: &HistoryItemRequest,
-) -> Option<(&'static str, Value)> {
-    if let Some(number) = commit_pull_request(
+/// `(#8506)`, a merge commit, or a `PR-URL:` trailer). A commit naming none
+/// states no route: the search by SHA is the contract's to say, not a guess
+/// lead. `message` is the whole commit message, which a patch read does not
+/// carry.
+pub(super) fn commit_pull_request_lead(message: &str, q: &HistoryItemRequest) -> Option<Value> {
+    let number = commit_pull_request(
         message,
         gh_get_history_item_query::owner(q),
         gh_get_history_item_query::repo(q),
-    ) {
-        let read = wire_query::<GhGetHistoryItemQuery>(
-            json!({"operation":"pullRequest","owner":gh_get_history_item_query::owner(q),"repo":gh_get_history_item_query::repo(q),"number":number}),
-        )?;
-        return Some(("readPullRequest", Continuation::related_query(read).build()));
-    }
-    let search = wire_query::<GhSearchHistoryQuery>(
-        json!({"operation":"pullRequest","owner":gh_get_history_item_query::owner(q),"repo":gh_get_history_item_query::repo(q),"keywords":[sha]}),
     )?;
-    Some((
-        "findPullRequest",
-        Continuation::related_query(search).build(),
-    ))
+    let read = wire_query::<GhGetHistoryItemQuery>(
+        json!({"operation":"pullRequest","owner":gh_get_history_item_query::owner(q),"repo":gh_get_history_item_query::repo(q),"number":number}),
+    )?;
+    Some(Continuation::related_query(read).build())
 }

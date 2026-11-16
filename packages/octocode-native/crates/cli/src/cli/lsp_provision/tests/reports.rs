@@ -66,7 +66,7 @@ async fn each_subcommand_acts_on_the_cache_of_the_runtimes_home() {
                 json
             )
             .await,
-            3,
+            5,
             "one failed target fails the install"
         );
     }
@@ -164,7 +164,7 @@ fn a_clean_that_fails_is_reported_in_text_as_in_json() {
     assert!(!cache.exists());
 }
 
-/// An install that ends at any check prints its reason and exits 3; one that
+/// An install that ends at any check prints its reason and exits 5; one that
 /// succeeds prints the checks it passed.
 #[tokio::test(flavor = "current_thread")]
 async fn install_output_names_each_outcome() {
@@ -181,7 +181,7 @@ async fn install_output_names_each_outcome() {
                 &Fake::never(),
             )
             .await,
-            3,
+            5,
             "auto-install off refuses the download"
         );
     }

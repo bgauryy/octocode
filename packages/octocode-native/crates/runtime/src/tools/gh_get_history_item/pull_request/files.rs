@@ -95,6 +95,7 @@ pub(super) fn shape_files_section(
             &pr_menu::ChangeSides {
                 new_ref: str_at(raw, "/head/sha").filter(|sha| !sha.is_empty()),
                 old_ref: str_at(raw, "/base/sha").filter(|sha| !sha.is_empty()),
+                needle: plan.needle.as_deref(),
             },
             shown,
         ),

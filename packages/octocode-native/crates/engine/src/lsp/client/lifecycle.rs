@@ -1,8 +1,8 @@
 //! Server start (spawn, `initialize`, encoding check) and stop.
 
 use super::server_process::{
-    GRACEFUL_EXIT_TIMEOUT_MS, LSP_SERVER_ENV_ALLOWLIST, StderrPipe, cleanup_failed_start,
-    cpu_clock_for, lsp_spawn_program, memory_watchdog_for, wait_for_graceful_exit,
+    GRACEFUL_EXIT_TIMEOUT_MS, StderrPipe, cleanup_failed_start, cpu_clock_for, lsp_spawn_program,
+    memory_watchdog_for, wait_for_graceful_exit,
 };
 use super::stderr::spawn_stderr_reader;
 use super::{NativeLspClient, REQUEST_TIMEOUT_MS};
@@ -290,12 +290,17 @@ async fn server_command(
     config: &LspLanguageServerConfig,
     memory_cap: Option<u64>,
 ) -> Result<tokio::process::Command> {
+    // The server's whole environment: what discovery carried from the
+    // call (`PATH`, the toolchain variables) and what its entry configures.
+    let spawn_env = config.env.clone().unwrap_or_default();
     let validated_command = crate::lsp::validation::validate_lsp_server_path(
         config.command.clone(),
         Some(std::path::Path::new(&config.workspace_root)),
+        &spawn_env,
     )?;
     let mut command_args = config.args.clone().unwrap_or_default();
-    let command_program = lsp_spawn_program(&validated_command, &mut command_args).await?;
+    let command_program =
+        lsp_spawn_program(&validated_command, &mut command_args, &spawn_env).await?;
     let mut command = tokio::process::Command::new(&command_program);
     crate::process::contain(command.as_std_mut());
     command
@@ -308,21 +313,15 @@ async fn server_command(
         spawn_limits::apply_pre_spawn_cap(&mut command, cap_bytes);
     }
     // Never leak octocode's own environment (OCTOCODE_CLASSIFICATION_API, GITHUB_TOKEN,
-    // etc.) into a spawned language server. Start from an empty environment and
-    // re-add only a minimal, secret-free allowlist plus any explicitly
-    // configured server env. PATH must be preserved so built-in servers
-    // (e.g. a `node`/`rust-analyzer` resolved via PATH) still launch.
+    // etc.) into a spawned language server: start from an empty environment
+    // and give it only the server's configured environment, which discovery
+    // fills from a minimal, secret-free allowlist of the call's own
+    // (`server_process::LSP_SERVER_ENV_ALLOWLIST`; `PATH` must be there so
+    // built-in servers resolved via `PATH` still launch). The process's
+    // environment is never read: another caller's server is not started
+    // under this process's.
     command.env_clear();
-    for &key in LSP_SERVER_ENV_ALLOWLIST {
-        if let Some(value) = crate::process_env::var_os(key) {
-            command.env(key, value);
-        }
-    }
-    if let Some(env) = &config.env {
-        for (key, value) in env {
-            command.env(key, value);
-        }
-    }
+    command.envs(&spawn_env);
     Ok(command)
 }
 

@@ -548,3 +548,61 @@ fn has_capture_expansion(out: &serde_json::Value) -> bool {
             })
         })
 }
+
+/// The census names a few of the files no AST grammar parses; every file it
+/// counts is its own `unparsed` entry (no count), so paging reaches each
+/// one. A file of a known type the scan's grammar does not read (JSON) is a
+/// skipped-grammar count, never an entry.
+#[test]
+fn every_file_the_unparsed_census_counts_is_a_skipped_path_entry() {
+    let root = Fixture::new();
+    for index in 0..7 {
+        root.write(&format!("notes{index}.ts.in"), "call(1)\n");
+    }
+    root.write("data.json", "{}\n");
+    root.write("a.ts", "call(1);\n");
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"call($$$A)"}}),
+    )
+    .expect("match");
+    let notice = out["notices"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .find(|notice| notice.contains("no AST grammar"))
+        .unwrap_or_else(|| panic!("the census names the skipped files: {out}"));
+    let counted: usize = notice
+        .split_whitespace()
+        .next()
+        .and_then(|count| count.parse().ok())
+        .unwrap_or_else(|| panic!("the census counts its files: {notice}"));
+    let entries = out["skippedPaths"]["entries"]
+        .as_array()
+        .unwrap_or_else(|| panic!("the counted files are entries: {out}"))
+        .iter()
+        .filter(|entry| entry["cause"] == "unparsed")
+        .collect::<Vec<_>>();
+    assert_eq!(entries.len(), counted, "{out}");
+    assert_eq!(counted, 7, "{notice}");
+    for entry in &entries {
+        assert!(entry.get("count").is_none(), "{entry}");
+        assert!(entry.get("reason").is_none(), "untyped: {entry}");
+        assert!(
+            entry["path"]
+                .as_str()
+                .is_some_and(|path| path.ends_with(".ts.in")),
+            "{entry}"
+        );
+    }
+    let distinct = entries
+        .iter()
+        .map(|entry| entry["path"].clone())
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(distinct.len(), counted, "each file once: {out}");
+    assert!(
+        !out["skippedPaths"].to_string().contains("data.json"),
+        "{out}"
+    );
+}

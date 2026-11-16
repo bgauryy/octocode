@@ -175,8 +175,10 @@ fn a_continuation_page_prints_in_its_first_pages_line_format() {
         }
         let (first, first_notes) = page(&serde_json::json!({"queries":[row]}));
         assert!(first.contains("2:needle 1\n"), "{first}");
-        assert!(first_notes.contains("# matchCount"), "{first_notes}");
-        assert!(first_notes.contains(" 6"), "{first_notes}");
+        // A page 1 that stopped early states no totals (design-l13: counts are
+        // absent while more pages remain); the counters it does state are scanned.
+        assert!(!first_notes.contains("matchCount"), "{first_notes}");
+        assert!(first_notes.contains("# filesScanned"), "{first_notes}");
         let (second, second_notes) = page(&printed_call(&first, "next.nextPage"));
         assert!(second.starts_with("src/notes.txt"), "{second}");
         assert!(second.contains(expected), "{second}");
@@ -186,8 +188,8 @@ fn a_continuation_page_prints_in_its_first_pages_line_format() {
             !second.contains("value:") && !second.contains("matchCount"),
             "{second}"
         );
-        assert!(second_notes.contains("# matchCount"), "{second_notes}");
-        assert!(second_notes.contains(" 6"), "{second_notes}");
+        assert!(!second_notes.contains("matchCount"), "{second_notes}");
+        assert!(second_notes.contains("# filesScanned"), "{second_notes}");
     }
 }
 

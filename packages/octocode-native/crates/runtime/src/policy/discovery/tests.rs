@@ -180,7 +180,7 @@ fn a_directory_holding_withheld_files_is_not_disclosed_as_the_file() {
         serde_json::json!({
             "entries": [{"cause": "withheld", "count": withheld.total(),
                 "path": walked, "reason": WithheldKind::CredentialFile.reason()}],
-            "sampled": true
+            "sampled": false
         })
     );
     // The detailed view still exposes both holder directories exactly once,

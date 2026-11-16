@@ -50,10 +50,12 @@ pub(super) fn read(input: &mut Input<'_, '_, '_>) -> Result<SourceDescriptors, S
         let path = input.text()?;
         let digest = input.text()?;
         let byte_length = input.number()?;
-        let encoding = match input.tag(3)? {
+        let encoding = match input.tag(5)? {
             0 => Encoding::Utf8,
             1 => Encoding::Utf16Le,
-            _ => Encoding::Utf16Be,
+            2 => Encoding::Utf16Be,
+            3 => Encoding::Latin1,
+            _ => Encoding::Lossy,
         };
         let bom_bytes = input.number()?;
         snapshots.push(SourceSnapshot {
@@ -139,6 +141,8 @@ pub(super) fn write(
                 Encoding::Utf8 => 0,
                 Encoding::Utf16Le => 1,
                 Encoding::Utf16Be => 2,
+                Encoding::Latin1 => 3,
+                Encoding::Lossy => 4,
             },
         )?;
         budget.put(out, source.bom_bytes as usize)?;

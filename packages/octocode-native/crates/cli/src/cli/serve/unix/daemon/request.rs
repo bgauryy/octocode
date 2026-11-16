@@ -3,11 +3,17 @@
 use super::{Daemon, MAX_REQUEST_BYTES};
 use crate::cli::output::Printed;
 use crate::cli::serve::runs_on_server;
-use crate::cli::serve::unix::frames::{Backlog, Frames, Gone, progress_scope};
+use crate::cli::serve::unix::frames::{
+    Backlog, Frames, Gone, MCP, MCP_ERROR, PREWARM, progress_scope,
+};
+use crate::cli::serve::unix::identity::own_process_identity;
 use crate::cli::serve::unix::read_line_bounded;
 use crate::cli::serve::unix::served::Served;
 use crate::cli::serve::unix::sockets::touch;
+use crate::cli::serve::unix::surface::Surface;
 use octocode_native::id::ToolId;
+use octocode_native::runtime::RuntimeError;
+use octocode_native::runtime::error::{McpResult, mcp_result};
 use serde_json::Value;
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -95,8 +101,21 @@ pub(in crate::cli::serve::unix) async fn handle(
     true
 }
 
-/// The reply to `request`: the call as printed with the notices it raised,
-/// or a `fallback`; `None` when the client left before it.
+/// What a request asks of the runtime it names.
+enum Asked {
+    /// Run `tool` on `input`; the CLI surface also names its output mode.
+    Tool {
+        tool: String,
+        json_out: bool,
+        input: Value,
+    },
+    /// Warm the workspace's language servers ([`PREWARM`]).
+    Prewarm,
+}
+
+/// The reply to `request`: the call as printed with the notices it raised
+/// (CLI), or as an MCP result (MCP), or a `fallback`; `None` when the
+/// client left before it.
 async fn answer(
     daemon: &Daemon,
     request: &mut Value,
@@ -110,7 +129,7 @@ async fn answer(
     let left = std::cell::Cell::new(false);
     let running = std::cell::RefCell::new(None::<std::rc::Rc<Served>>);
     let work = async {
-        let (served, tool, json_out, input) = match served(daemon, request).await {
+        let (served, surface, asked) = match served(daemon, request).await {
             Ok(served) => served,
             Err(reason) => return Some(json!({ "fallback": reason })),
         };
@@ -118,27 +137,48 @@ async fn answer(
         if left.get() {
             return None;
         }
+        let Asked::Tool {
+            tool,
+            json_out,
+            input,
+        } = asked
+        else {
+            served
+                .runtime
+                .prewarm_lsp_workspace(&tokio::runtime::Handle::current());
+            return Some(json!({ "prewarmed": true }));
+        };
         let query = input.clone();
         // The client's directory, which `served` read.
         let cwd = request["cwd"].as_str().map(PathBuf::from);
         let runtime = &served.runtime;
-        let printed = match runtime.admit(id.to_owned()) {
-            Err(error) => Printed::finish(&tool, Err(error), json_out, &query, None),
+        let admitted = match surface {
+            Surface::Cli => runtime.admit(id.to_owned()),
+            Surface::Mcp => runtime.admit_with(id.to_owned(), None),
+        };
+        let result = match admitted {
+            Err(error) => Err(error),
             Ok(admission) => {
                 *running.borrow_mut() = Some(std::rc::Rc::clone(&served));
-                let call = runtime.execute(
-                    admission,
-                    tool.clone(),
-                    input,
-                    octocode_native::runtime::Channel::Cli,
-                );
-                let result = notices.run(call).await;
-                Printed::finish(&tool, result, json_out, &query, cwd.as_deref())
+                let channel = match surface {
+                    Surface::Cli => octocode_native::runtime::Channel::Cli,
+                    Surface::Mcp => octocode_native::runtime::Channel::Mcp,
+                };
+                let call = runtime.execute(admission, tool.clone(), input, channel);
+                notices.run(call).await
             }
         };
-        let mut reply = printed.to_json();
-        reply["notices"] = json!(notices.notices());
-        Some(reply)
+        Some(match surface {
+            Surface::Cli => {
+                let printed = Printed::finish(&tool, result, json_out, &query, cwd.as_deref());
+                let mut reply = printed.to_json();
+                reply["notices"] = json!(notices.notices());
+                reply
+            }
+            // The text the in-process MCP server sends, from the same
+            // function; its notices stay on the server.
+            Surface::Mcp => mcp_reply(mcp_result(&tool, result)),
+        })
     };
     let cancel = || {
         left.set(true);
@@ -151,24 +191,58 @@ async fn answer(
         .flatten()
 }
 
-/// The runtime, tool, output mode and input of `request`, or why this
-/// server does not run it.
+/// An MCP call's result as its reply line: `{"mcp":{"text","isError"}}`, or
+/// `{"mcpError":{"code","message"}}` for the calls MCP answers as protocol
+/// errors (cancelled, closing).
+fn mcp_reply(result: Result<McpResult, RuntimeError>) -> Value {
+    match result {
+        Ok(McpResult { text, is_error }) => {
+            json!({ MCP: { "text": text, "isError": is_error } })
+        }
+        Err(error) => {
+            json!({ MCP_ERROR: { "code": error.code, "message": error.message } })
+        }
+    }
+}
+
+/// The runtime, surface and ask of `request`, or why this server does not
+/// run it.
 async fn served(
     daemon: &Daemon,
     request: &mut Value,
-) -> Result<(std::rc::Rc<Served>, String, bool, Value), String> {
-    let (Some(tool), Some(json_out), Some(cwd), Some(identity), Ok(env)) = (
-        request["tool"].as_str().map(str::to_owned),
-        request["json"].as_bool(),
+) -> Result<(std::rc::Rc<Served>, Surface, Asked), String> {
+    let (Some(surface), Some(cwd), Some(identity), Ok(env)) = (
+        request["surface"].as_str().and_then(Surface::parse),
         request["cwd"].as_str().map(PathBuf::from),
         request["identity"].as_str().map(str::to_owned),
         serde_json::from_value::<BTreeMap<String, String>>(request["env"].take()),
     ) else {
         return Err("the request was not one this server reads".into());
     };
-    if !ToolId::from_name(&tool).is_some_and(runs_on_server) {
-        return Err(format!("it does not run {tool}"));
+    let asked = if request[PREWARM] == true {
+        if surface != Surface::Mcp {
+            return Err("only an MCP session asks to prewarm".into());
+        }
+        Asked::Prewarm
+    } else {
+        let (Some(tool), Some(json_out)) = (
+            request["tool"].as_str().map(str::to_owned),
+            request["json"].as_bool(),
+        ) else {
+            return Err("the request was not one this server reads".into());
+        };
+        if !ToolId::from_name(&tool).is_some_and(runs_on_server) {
+            return Err(format!("it does not run {tool}"));
+        }
+        Asked::Tool {
+            tool,
+            json_out,
+            input: request["input"].take(),
+        }
+    };
+    if request["process"].as_str() != Some(own_process_identity().as_str()) {
+        return Err("it runs under another process environment than this call".into());
     }
-    let served = daemon.runtime_for(&cwd, env, &identity).await?;
-    Ok((served, tool, json_out, request["input"].take()))
+    let served = daemon.runtime_for(surface, &cwd, env, &identity).await?;
+    Ok((served, surface, asked))
 }

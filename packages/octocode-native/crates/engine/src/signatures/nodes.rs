@@ -6,6 +6,7 @@
 //! the syntactic vocabulary shared by the graph-facts extraction pipeline in the
 //! parent module and depend only on `tree_sitter` and the string content.
 
+use crate::signatures::node_kinds::kind_of;
 use tree_sitter::Node;
 
 mod calls;
@@ -22,7 +23,7 @@ pub(super) use declarations::{
 pub(super) fn name_node(node: Node<'_>) -> Option<Node<'_>> {
     for field in ["name", "type", "path"] {
         if let Some(child) = node.child_by_field_name(field) {
-            if is_name_like(child.kind()) {
+            if is_name_like(kind_of(child)) {
                 return Some(child);
             }
             if let Some(descendant) = first_descendant(child, 2, is_name_like) {
@@ -36,7 +37,7 @@ pub(super) fn name_node(node: Node<'_>) -> Option<Node<'_>> {
 /// The declaration's source name, or an explicit label for an unnamed syntax
 /// container. The anonymous label cannot be a source-written qualified name.
 pub(super) fn declaration_label(node: Node<'_>, name: Node<'_>, content: &str) -> Option<String> {
-    if node.kind() == "namespace_definition" && node.child_by_field_name("name").is_none() {
+    if kind_of(node) == "namespace_definition" && node.child_by_field_name("name").is_none() {
         Some("(anonymous namespace)".to_owned())
     } else {
         node_text(name, content).and_then(compact_identifier)
@@ -56,7 +57,7 @@ fn first_descendant(node: Node<'_>, depth: u8, matches: fn(&str) -> bool) -> Opt
     }
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
-        if matches(child.kind()) {
+        if matches(kind_of(child)) {
             return Some(child);
         }
         if let Some(found) = first_descendant(child, depth - 1, matches) {

@@ -22,7 +22,7 @@ pub(crate) struct RepositoryReader<'a> {
 /// limit names its reset time; every refusal names the sign-in that raises the
 /// quota.
 fn failure_of(error: &ProviderError) -> RepoFailure {
-    let code = error.kind.code();
+    let code = error.code();
     let why = match (error.kind, error.rate_limit.as_deref()) {
         (ProviderErrorKind::RateLimited, Some(limit)) => {
             let reset = limit

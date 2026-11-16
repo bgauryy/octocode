@@ -10,6 +10,6 @@ mod maintenance;
 mod row_indices;
 mod tool_output;
 
-pub use crate::response::result::FailureKind;
+pub use crate::response::result::ErrorClass;
 pub use auth::{AuthStatus, LoginPlan, LoginTarget, Verification};
 pub use engine::{Channel, HostOptions, RuntimeError, ToolRuntime};

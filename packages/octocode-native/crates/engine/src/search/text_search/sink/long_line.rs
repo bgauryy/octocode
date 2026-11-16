@@ -4,7 +4,7 @@
 //! Its text is borrowed where it is UTF-8, so the line is held once.
 use super::CollectSink;
 use crate::num::saturating_u32;
-use crate::search::relevance;
+use crate::search::declaration;
 use crate::security::{LONG_LINE_BYTES, LongLine};
 use crate::text::utf8_offsets::byte_to_utf16_offset;
 use crate::text::{Decoded, interior_offset};
@@ -60,7 +60,7 @@ impl<M: Matcher> CollectSink<'_, M> {
                 value_digest: TextSearchMatch::digest_of(&value),
                 value,
                 count: None,
-                rank: Some(relevance::line_rank(bytes, start)),
+                rank: Some(declaration::line_rank(bytes, start)),
                 window_start,
             });
         } else {
@@ -71,7 +71,7 @@ impl<M: Matcher> CollectSink<'_, M> {
                     line_number: line,
                     column,
                     byte_offset,
-                    rank: relevance::line_rank(bytes, start),
+                    rank: declaration::line_rank(bytes, start),
                     window_start,
                 });
         }

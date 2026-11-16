@@ -14,9 +14,9 @@ mod words;
 pub use file_extension::{JS_EXTENSIONS, JS_TS_EXTENSIONS, basename, extension_of};
 pub use ident::{is_ident_char, is_whole_word, whole_word_starts, word_pattern};
 pub use source::{
-    BinaryVerdict, Decoded, Decoding, ReadError, Refusal, SNIFF_BYTES, Source, admit, decode,
-    has_utf16_bom, interior_offset, open_regular, read_regular, read_source, read_source_from,
-    sniff, sniff_complete,
+    BinaryVerdict, Charset, Decoded, Decoding, LATIN1_WARNING, LOSSY_WARNING, ReadError, Refusal,
+    SNIFF_BYTES, Source, admit, decode, has_utf16_bom, interior_offset, open_regular, read_regular,
+    read_source, read_source_from, sniff, sniff_complete,
 };
 pub use utf8_offsets::{LineCount, LineIndex, bom_len, line_at, line_containing, line_starts};
 pub use words::identifier_words;

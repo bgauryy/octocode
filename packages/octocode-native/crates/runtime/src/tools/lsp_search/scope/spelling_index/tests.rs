@@ -31,15 +31,15 @@ fn a_settled_file_is_opened_only_for_a_name_it_may_spell() {
     std::fs::write(&file, "export function present() {}\n").expect("write");
     settle_written_so_far();
     assert_eq!(spells("present", &file), Some(true));
-    assert_eq!(reads::of(&file), 1, "the first search reads and keeps");
+    assert_eq!(READS.of(&file), 1, "the first search reads and keeps");
     assert_eq!(kept_tokens(&file), Some(3));
 
     assert_eq!(spells("absent", &file), Some(false));
     assert_eq!(spells("presen", &file), Some(false));
-    assert_eq!(reads::of(&file), 1, "absent names are answered unread");
+    assert_eq!(READS.of(&file), 1, "absent names are answered unread");
 
     assert_eq!(spells("present", &file), Some(true));
-    assert_eq!(reads::of(&file), 2, "a hit is confirmed by the file");
+    assert_eq!(READS.of(&file), 2, "a hit is confirmed by the file");
 }
 
 /// A hash hit is only a candidate: the file itself decides, so a collision
@@ -57,7 +57,7 @@ fn a_colliding_hash_answers_from_the_file() {
         Box::new([word_hash(b"collides")]),
     );
     assert_eq!(spells("collides", &file), Some(false));
-    assert_eq!(reads::of(&file), 1);
+    assert_eq!(READS.of(&file), 1);
 }
 
 /// A file inside the settle window can change unseen in one clock tick: it is
@@ -70,7 +70,7 @@ fn an_unsettled_file_is_read_and_not_kept() {
     for reads_so_far in 1..=2 {
         assert_eq!(spells("word", &file), Some(true));
         assert_eq!(kept_tokens(&file), None);
-        assert_eq!(reads::of(&file), reads_so_far);
+        assert_eq!(READS.of(&file), reads_so_far);
     }
     settle_written_so_far();
     assert_eq!(spells("word", &file), Some(true));
@@ -164,7 +164,7 @@ fn a_file_over_one_window_is_searched_and_not_kept() {
     for round in 1..=2 {
         assert_eq!(spells("target", &file), Some(true));
         assert_eq!(spells("absent", &file), Some(false));
-        assert_eq!(reads::of(&file), 2 * round);
+        assert_eq!(READS.of(&file), 2 * round);
     }
     assert_eq!(kept_tokens(&file), None);
     // A NUL past the first window decides by its own window.
@@ -186,7 +186,7 @@ fn a_name_that_is_not_an_identifier_keeps_the_plain_search() {
     settle_written_so_far();
     assert_eq!(spells("state", &file), Some(true));
     assert_eq!(kept_tokens(&file), Some(4));
-    let before = reads::of(&file);
+    let before = READS.of(&file);
     for (name, expected) in [
         (".name", true),
         ("a::b", true),
@@ -196,7 +196,7 @@ fn a_name_that_is_not_an_identifier_keeps_the_plain_search() {
         assert_eq!(spells(name, &file), Some(expected), "{name:?}");
         assert_eq!(file_spells(&file, name.as_bytes(), None), Some(expected));
     }
-    assert_eq!(reads::of(&file), before + 4);
+    assert_eq!(READS.of(&file), before + 4);
 }
 
 /// The size bound and an unreadable file answer as the plain search does.
@@ -208,7 +208,7 @@ fn the_size_bound_and_unreadable_files_answer_as_the_plain_search() {
     settle_written_so_far();
     let bounded = |limit| WordSearch::new("word", Some(limit), settle_clock());
     assert_eq!(bounded(4).file_spells(&file), Some(false));
-    assert_eq!(reads::of(&file), 0, "over the bound, unread");
+    assert_eq!(READS.of(&file), 0, "over the bound, unread");
     assert_eq!(bounded(5).file_spells(&file), Some(true));
     // A name that is no identifier meets the same bound, from the open file.
     let dotted = |limit| WordSearch::new("word\n", Some(limit), settle_clock());

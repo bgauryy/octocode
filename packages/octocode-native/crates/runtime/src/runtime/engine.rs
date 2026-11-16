@@ -182,7 +182,7 @@ impl ToolRuntime {
     /// after `initialize`): only under `lsp.prewarm` `all`, its top languages,
     /// and only while `lspSearch` is available. Each start is a whole-project
     /// index, up to gigabytes for a session that may never call `lspSearch`,
-    /// so `targeted` waits for an lspSearch and a result that offers another.
+    /// so `targeted` waits for a response that serves an lspSearch call.
     /// See [`crate::tools::lsp_search::prewarm::workspace::schedule_workspace`].
     pub fn prewarm_lsp_workspace(&self, handle: &tokio::runtime::Handle) {
         let starts = match self.config.resolved.lsp.prewarm {

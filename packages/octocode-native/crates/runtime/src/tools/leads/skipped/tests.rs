@@ -166,7 +166,10 @@ fn withheld_entries_are_one_counted_entry_per_rule() {
         .collect::<Vec<_>>();
     assert_eq!(credentials.len(), 1, "{grouped:?}");
     assert_eq!(credentials[0].path.as_str(), "/w/ext", "{grouped:?}");
-    assert!(grouped.sampled, "{grouped:?}");
+    assert!(
+        !grouped.sampled,
+        "count marks a collapse; a finished walk is no sample: {grouped:?}"
+    );
     let every = skipped_paths(entries.clone(), true, false)
         .expect("valid")
         .expect("entries");
@@ -180,4 +183,28 @@ fn withheld_entries_are_one_counted_entry_per_rule() {
         assert_eq!(total(&grouped, reason), written, "{reason}: {grouped:?}");
         assert_eq!(total(&every, reason), written, "{reason}: {every:?}");
     }
+}
+
+/// `sampled` says the walk did not finish, whatever was collapsed: an
+/// unfinished walk is sampled, a collapsed finished one is not, and two
+/// disclosures appended are sampled when either walk was.
+#[test]
+fn sampled_follows_the_walk_not_the_collapse() {
+    let entry = |path: &str, count: usize| SkippedEntry {
+        path: path.to_owned(),
+        cause: SkippedPathCause::Withheld,
+        reason: Some("credential file".to_owned()),
+        count,
+    };
+    let collapsed = |incomplete| {
+        skipped_paths([entry("/w/a", 1), entry("/w/b", 2)], false, incomplete)
+            .expect("valid")
+            .expect("entries")
+    };
+    assert!(collapsed(true).sampled);
+    assert!(!collapsed(false).sampled);
+    let both = appended(Some(collapsed(false)), Some(collapsed(true))).expect("both");
+    assert!(both.sampled, "{both:?}");
+    let finished = appended(Some(collapsed(false)), Some(collapsed(false))).expect("both");
+    assert!(!finished.sampled, "{finished:?}");
 }

@@ -40,7 +40,7 @@ fn declarations_and_listings_print_one_line_each() {
     let lines = render(ToolId::AstSearch, &symbols, &json!({}), None).expect("lines");
     assert_eq!(
         lines.out,
-        "a.rs\n31: function render  [31-113 docStartLine 29]\n34: impl Visit  [34-43]\n37:   method fresh  [exported]"
+        "a.rs\n31: function render  [31-113 docStartLine 29]\n34: impl Visit  [34-43]\n37:   method fresh  [exported true]"
     );
     assert!(!lines.notes.contains('{'), "{}", lines.notes);
     let file = json!({"results":[{"index":0,"data":{"path":"a.rs","filesScanned":1,"symbols":[
@@ -152,7 +152,7 @@ fn lsp_results_print_as_lines() {
     let lines = render(ToolId::LspSearch, &single, &json!({}), None).expect("lines");
     assert_eq!(
         lines.out,
-        "w.rs:23:#[derive(Clone)]  [column 10 isDefinition]"
+        "w.rs:23:#[derive(Clone)]  [column 10 isDefinition true]"
     );
     let symbols = json!({"results":[{"index":0,"data":{"kind":"symbols","matches":[
             {"symbolName":"walk","kind":"function","path":"m.rs","line":79,"column":15}]}}]});
@@ -207,4 +207,76 @@ fn flat_lists_print_inline_in_a_table_row() {
     let nested = json!({"issues":[
             {"number":11,"labels":[{"name":"bug"}]},{"number":12,"labels":[{"name":"docs"}]}]});
     assert!(!render_out(nested).contains("issues[]:"));
+}
+
+/// A row ends at its last field: a column only some rows carry (the github
+/// source's `observedAt`) leaves a short row's tail out, never a trailing
+/// `-`. A `-` still marks an absent field that a later cell follows.
+#[test]
+fn a_row_without_its_trailing_fields_ends_early() {
+    let render_out = |tool: ToolId, data: Value| {
+        render(
+            tool,
+            &json!({"results":[{"index":0,"data":data}]}),
+            &json!({}),
+            None,
+        )
+        .expect("lines")
+        .out
+    };
+    let out = render_out(
+        ToolId::SecurityCheck,
+        json!({"answer":"a","sources":[
+            {"source":"osv","status":"found"},
+            {"source":"github","status":"found","observedAt":"2026-11-15T10:00:00Z"}]}),
+    );
+    assert!(
+        out.contains(
+            "sources[]: source observedAt  [status found]\n  osv\n  github 2026-11-15T10:00:00Z"
+        ),
+        "{out}"
+    );
+    assert!(!out.contains("osv -"), "{out}");
+    // A field a later cell follows keeps its mark.
+    let out = render_out(
+        ToolId::GhSearchHistory,
+        json!({"issues":[
+            {"number":11,"author":"amy","labels":["bug"]},
+            {"number":12,"labels":["docs"]}]}),
+    );
+    assert!(
+        out.contains("issues[]: number author labels\n  11 amy bug\n  12 - docs"),
+        "{out}"
+    );
+}
+
+/// A sorted listing whose groups share a directory states it once, as hits
+/// do (`# root:`), and each group's `dir/` reads relative to it: joined to
+/// the root, every entry is the path the result names.
+#[test]
+fn listing_groups_sharing_a_directory_print_relative_to_it() {
+    let sorted = json!({"results":[{"index":0,"data":{"files":[
+            {"dir":"pkg/crates/cli/src/cli/lines/tests","files":["done_facts.rs (totalLines=612)"]},
+            {"dir":"pkg/crates/cli/src/cli","files":["lines.rs (totalLines=530)","tests.rs (totalLines=511)"]},
+            {"dir":"pkg/crates/cli/src/cli/lines/tests","files":["stated_once.rs (totalLines=505)"]}]}}]});
+    let asked = json!({"queries":[{"operation":"files","path":"pkg","sort":{"by":"totalLines","order":"desc"}}]});
+    let lines = render(ToolId::StructureSearch, &sorted, &asked, None).expect("lines");
+    assert_eq!(
+        lines.out,
+        "# root: pkg/crates/cli/src/cli\nlines/tests/done_facts.rs (totalLines=612)\n./\n  lines.rs (totalLines=530)\n  tests.rs (totalLines=511)\nlines/tests/stated_once.rs (totalLines=505)"
+    );
+}
+
+/// A boolean prints its value like every other field, so a run of fields
+/// reads one way: `key true`, `key false`, never a bare key beside a pair.
+#[test]
+fn booleans_print_their_values() {
+    let built = json!({"results":[{"index":0,"data":{"walk":{
+            "defaultExcludes":true,"includeIgnored":true,"includeHidden":false}}}]});
+    let lines = render(ToolId::GraphBuild, &built, &json!({}), None).expect("lines");
+    let said = format!("{}\n{}", lines.out, lines.notes);
+    assert!(
+        said.contains("walk: defaultExcludes true includeIgnored true includeHidden false"),
+        "{said}"
+    );
 }

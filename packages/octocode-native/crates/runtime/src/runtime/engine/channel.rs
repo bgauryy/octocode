@@ -17,7 +17,7 @@ use crate::id::ToolId;
 use crate::response::cursor::Cursor;
 use crate::response::outcome::ToolOutcome;
 use crate::response::page_model::ResponsePageOptions;
-use crate::response::result::FailureKind;
+use crate::response::result::ErrorClass;
 use crate::response::{continuations, stage};
 use crate::security::{CheckedQuery, Sanitized};
 use batch::execute_ordinary_queries;
@@ -230,6 +230,9 @@ impl ChannelRun {
                 Err(error) => return Ok(Rows::Answered(Err(error))),
             };
         drop(noting);
+        if self.pinned.is_none() {
+            self.dispatcher.warm_served_leads(self.id, &structured);
+        }
         call_notes.extend(said.take());
         structured.edit(|output| crate::runtime::row_indices::inherit(output, &self.origin));
         if let Err(error) = self.hoist_walks(&mut structured, &mut pending, continues_page) {
@@ -417,7 +420,7 @@ enum Rows {
 /// The settled facts every response of one call shares.
 struct Settled<'a> {
     response_query: &'a Value,
-    failure: Option<FailureKind>,
+    failure: Option<ErrorClass>,
 }
 
 #[cfg(test)]

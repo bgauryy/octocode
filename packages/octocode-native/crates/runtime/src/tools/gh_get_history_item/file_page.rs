@@ -84,6 +84,7 @@ pub(super) fn shape_file_page(
             &ChangeSides {
                 new_ref: sides.new,
                 old_ref: sides.old,
+                needle: super::text::needle(query).as_deref(),
             },
             shown,
         )
@@ -124,7 +125,12 @@ pub(super) fn shape_file_page(
         } else if dropped > 0 {
             push_warnings(
                 out,
-                [super::filter::match_dropped_warning(dropped, in_scope)],
+                [super::filter::match_dropped_warning(
+                    dropped,
+                    in_scope,
+                    "changed files",
+                    "patch line",
+                )],
             );
         }
         mark_unsearched(out, query, &unsearched, (sides.new, sides.old));

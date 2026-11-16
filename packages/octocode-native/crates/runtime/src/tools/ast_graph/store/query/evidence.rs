@@ -119,7 +119,32 @@ impl Query<'_> {
         };
         extra.insert("coverage".into(), self.g.evidence_coverage(scope));
         extra.insert("argumentCoverage".into(), self.g.argument_coverage(source));
-        Ok(run_page(self.options, self.g, extra, window.finish()))
+        let page = window.finish();
+        // `target` is the calling side: a symbol that makes no call listed
+        // here may still be the one called, which `to` scopes.
+        let mut hints = Vec::new();
+        if self.options.op == "witnesses" && page.total == 0 && destination.is_empty() {
+            let filter = self.filter(&EdgeKind::ALL);
+            let called = self
+                .g
+                .t
+                .witnesses
+                .iter()
+                .filter(|w| {
+                    !source.is_empty()
+                        && self.within_evidence_scope(w.edge.dst, source)
+                        && filter.admits_kind(&w.edge)
+                })
+                .count();
+            if called > 0 {
+                hints.push(format!(
+                    "`target` scopes the side that makes the calls, and it makes none here; {called} witnesses name it as the callee: pass it as `to` instead"
+                ));
+            }
+        }
+        let mut out = run_page(self.options, self.g, extra, page);
+        crate::response::result::add_hints(&mut out.value, hints);
+        Ok(out)
     }
 }
 

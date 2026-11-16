@@ -6,6 +6,11 @@
 //! (`--full-diff`), so the cost follows the target's commits, never all pairs
 //! of files. `--relative` keeps the files under the scope root; renames are
 //! not followed. Neither history nor commit size is capped: the rows page.
+//!
+//! A shallow clone's boundary commits (Git's `shallow` file) have no parents
+//! in the repository, so Git diffs them against nothing and lists their
+//! whole tree: no change set. They count toward nothing, and the answer
+//! warns that the history is shallow.
 use super::assess::git;
 use super::*;
 use std::collections::{HashMap, HashSet};
@@ -48,7 +53,9 @@ impl Query<'_> {
             self.cancel,
         )
         .map_err(|failure| self.history_failure(failure))?;
-        let (target_commits, counts) = shared_commits(&String::from_utf8_lossy(&log), key);
+        let boundaries = shallow_boundaries(&root, self.cancel)?;
+        let (target_commits, skipped, counts) =
+            shared_commits(&String::from_utf8_lossy(&log), key, &boundaries);
         let linked = linked_files(g, target);
         let mut rows = counts
             .into_iter()
@@ -72,11 +79,31 @@ impl Query<'_> {
             .collect();
         let mut summary = json!({"targetCommits": target_commits});
         if target_commits == 0 {
-            summary["reason"] = json!(format!(
-                "Git has no non-merge commit that changed {key}: it is untracked, or changed only by merges"
-            ));
+            summary["reason"] = json!(if skipped > 0 {
+                format!(
+                    "Git's shallow history holds only boundary commits that changed {key}: their parents are missing, so they show no change set"
+                )
+            } else {
+                format!(
+                    "Git has no non-merge commit that changed {key}: it is untracked, or changed only by merges"
+                )
+            });
         }
         let mut extra = Map::new();
+        if !boundaries.is_empty() {
+            extra.insert(
+                "warnings".into(),
+                json!([format!(
+                    "Git history under {} is shallow: co-change counts only the commits it holds{}. Deepen it (`git fetch --deepen=<n>` or `git fetch --unshallow`) to count older commits.",
+                    g.shown_root(),
+                    if skipped > 0 {
+                        format!(", and the {skipped} boundary commit(s) that list {key} count toward nothing (their parents are missing, so Git shows their whole tree)")
+                    } else {
+                        String::new()
+                    }
+                )]),
+            );
+        }
         extra.insert(
             "target".into(),
             Value::Object(g.node_json(target, self.cancel)?),
@@ -102,19 +129,69 @@ impl Query<'_> {
     }
 }
 
+/// The boundary commits of a shallow repository, as Git's `shallow` file
+/// lists them; none when the history is whole (no such file).
+fn shallow_boundaries(
+    root: &Path,
+    cancel: &dyn crate::execution::cancel::CancellationCheck,
+) -> Result<HashSet<String>, GraphOutput> {
+    // Git before 2.31 has no `--path-format`, so the path is as printed:
+    // absolute, or relative to the directory Git ran in.
+    let printed = git(root, &["rev-parse", "--git-path", "shallow"], cancel)?;
+    let path = printed_git_path(root, &String::from_utf8_lossy(&printed));
+    #[cfg_attr(
+        octocode_clippy_ratchet,
+        expect(
+            clippy::disallowed_methods,
+            reason = "Git's own file of boundary commit hashes, one line each, sized by the clone's depth: a cap would cut valid history, so it is read whole"
+        )
+    )]
+    let read = std::fs::read_to_string(&path);
+    match read {
+        Ok(text) => Ok(text
+            .lines()
+            .map(str::trim)
+            .filter(|hash| !hash.is_empty())
+            .map(str::to_owned)
+            .collect()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(HashSet::new()),
+        Err(error) => Err(GraphOutput::error(
+            ErrorCode::GitFailed,
+            format!("cannot read Git's shallow file {}: {error}", path.display()),
+        )),
+    }
+}
+
+/// The file `git -C root rev-parse --git-path` printed: absolute, or relative
+/// to `root`, where Git ran.
+fn printed_git_path(root: &Path, printed: &str) -> PathBuf {
+    root.join(printed.trim_end_matches(['\n', '\r']))
+}
+
 /// From `git log -z --name-only --format=%x00%H` output: the commits it
-/// lists, and for each other file how many of them changed it. A commit
+/// lists other than `boundaries`, how many of `boundaries` it listed, and
+/// for each other file how many of the counted commits changed it. A commit
 /// begins after an empty field (its hash follows); every other field is a
 /// path, the first of a commit preceded by the newline ending its header.
-fn shared_commits(log: &str, target: &str) -> (usize, HashMap<String, usize>) {
-    let mut commits = 0;
+fn shared_commits(
+    log: &str,
+    target: &str,
+    boundaries: &HashSet<String>,
+) -> (usize, usize, HashMap<String, usize>) {
+    let (mut commits, mut skipped) = (0, 0);
     let mut counts = HashMap::<String, usize>::new();
     let mut fields = log.split('\0');
     let mut first_path = false;
+    let mut counted = false;
     while let Some(field) = fields.next() {
         if field.is_empty() {
-            if fields.next().is_some_and(|hash| !hash.is_empty()) {
-                commits += 1;
+            if let Some(hash) = fields.next().filter(|hash| !hash.is_empty()) {
+                counted = !boundaries.contains(hash);
+                if counted {
+                    commits += 1;
+                } else {
+                    skipped += 1;
+                }
                 first_path = true;
             }
             continue;
@@ -125,11 +202,11 @@ fn shared_commits(log: &str, target: &str) -> (usize, HashMap<String, usize>) {
             field
         };
         first_path = false;
-        if path != target {
+        if counted && path != target {
             *counts.entry(path.to_owned()).or_default() += 1;
         }
     }
-    (commits, counts)
+    (commits, skipped, counts)
 }
 
 /// `commits` over the target's commits, to three decimals.
@@ -156,15 +233,36 @@ fn linked_files(g: &Graph, file: u32) -> HashSet<u32> {
 
 #[cfg(test)]
 mod tests {
+    /// Git prints the path relative to the directory it ran in (an older Git,
+    /// or a plain checkout); an absolute one stands as it is.
+    #[test]
+    fn a_relative_git_path_is_read_from_the_directory_git_ran_in() {
+        let root = std::path::Path::new("/w/repo");
+        assert_eq!(
+            super::printed_git_path(root, ".git/shallow\n"),
+            root.join(".git/shallow")
+        );
+        assert_eq!(
+            super::printed_git_path(root, "/elsewhere/.git/shallow\n"),
+            std::path::Path::new("/elsewhere/.git/shallow")
+        );
+    }
+
     /// Fields of a `-z` log: each commit's hash after an empty field, its
     /// files after the header's newline; the target is not its own row.
     #[test]
     fn a_z_log_counts_commits_and_the_files_beside_the_target() {
         let log = "\0h1\0\nsrc/a.ts\0src/b c.ts\0\0h2\0\nsrc/b c.ts\0src/a.ts\0\0h3\0\nsrc/a.ts\0";
-        let (commits, counts) = super::shared_commits(log, "src/a.ts");
-        assert_eq!(commits, 3);
+        let none = std::collections::HashSet::new();
+        let (commits, skipped, counts) = super::shared_commits(log, "src/a.ts", &none);
+        assert_eq!((commits, skipped), (3, 0));
         assert_eq!(counts.len(), 1);
         assert_eq!(counts.get("src/b c.ts"), Some(&2));
-        assert_eq!(super::shared_commits("", "src/a.ts").0, 0);
+        assert_eq!(super::shared_commits("", "src/a.ts", &none).0, 0);
+        // A boundary commit counts toward nothing, its files included.
+        let boundary = std::collections::HashSet::from(["h2".to_owned()]);
+        let (commits, skipped, counts) = super::shared_commits(log, "src/a.ts", &boundary);
+        assert_eq!((commits, skipped), (2, 1));
+        assert_eq!(counts.get("src/b c.ts"), Some(&1));
     }
 }

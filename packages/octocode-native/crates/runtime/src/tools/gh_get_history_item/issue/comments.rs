@@ -3,12 +3,16 @@
 use crate::response::pages::PageFacts;
 use crate::tools::gh_get_history_item::Source;
 use crate::tools::gh_get_history_item::axis::Axis;
+use crate::tools::gh_get_history_item::body_match::{Kept, holds};
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::remaining::{BodyWindows, Remainder};
 use crate::tools::gh_get_history_item::text::{delivered_earlier, shape_comment};
 use crate::tools::gh_get_history_item::util::{array, map_comments};
-use crate::tools::gh_get_history_item::window::{auto_page, page_starting_at_after};
+use crate::tools::gh_get_history_item::window::{
+    MAX_COLLECTION_BATCHES, WindowSpec, auto_page, load_window, page_starting_at_after,
+};
 use crate::tools::gh_get_history_item::{DEFAULT_PAGE_SIZE, HistoryItemRequest, fetch};
+use octocode_engine::num::saturating_usize;
 use octocode_github::{MAX_PER_PAGE, ProviderError, RequestContext};
 use serde_json::{Map, Value, json};
 
@@ -42,15 +46,19 @@ pub(super) struct CommentPage {
     /// The private `pageSize` that resumes at the first unshown
     /// comment ([`page_starting_at_after`]).
     resume_size: Option<usize>,
+    /// The discussion's size: GitHub's count, or with a `matchString` the
+    /// matching comments once the scan has listed them all.
+    total: Option<u64>,
+    /// What a `matchString` dropped of a first page, disclosed once.
+    pub(super) dropped: Option<String>,
 }
 
 impl CommentPage {
-    /// The comment page on `row` and its page facts. `total` is the
-    /// issue's real comment count; the provider comments after this page
-    /// (its pages do not tile `page × pageSize`) stay on `rest`.
+    /// The comment page on `row` and its page facts. The provider comments
+    /// after this page (its pages do not tile `page × pageSize`) stay on
+    /// `rest`.
     pub(super) fn attach(
         self,
-        at: &CommentRead<'_>,
         row: &mut Value,
         pagination: &mut Map<String, Value>,
         remainder: &mut Remainder,
@@ -61,7 +69,7 @@ impl CommentPage {
             row["comments"] = Value::Array(comments);
         }
         let mut comments = self.pagination;
-        comments["total"] = json!(at.total);
+        comments["total"] = json!(self.total);
         if let Some(size) = self.resume_size {
             remainder.resume_page_size(size);
         }
@@ -129,7 +137,37 @@ pub(super) async fn issue_comments(
     let cap = MAX_PER_PAGE;
     let mut raw_comments = Vec::new();
     let mut provider_more = false;
-    if let Some(first) = first_comment_batch(query) {
+    let mut total = at.total;
+    let mut dropped = None;
+    if let Some(needle) = query.matcher.as_deref() {
+        // A `matchString` keeps the comments whose body holds it: the
+        // matches lie anywhere, so the scan reads the batches from the
+        // first, in concurrent waves, until the page's matches are in.
+        let spec = WindowSpec {
+            batch_size: MAX_PER_PAGE,
+            max_batches: MAX_COLLECTION_BATCHES,
+            page: page_no,
+            page_size: grid,
+            filtered: true,
+            provider_total: at.total.map(saturating_usize),
+            prefetched: None,
+        };
+        let path = [issue_path, &["comments"]].concat();
+        let loaded = load_window(
+            source,
+            &path,
+            spec,
+            |comment| holds(Some(needle), comment),
+            context,
+        )
+        .await?;
+        let kept = Kept::of(loaded.items, Some(needle), loaded.state.exhausted);
+        // The disclosure and the total state the list the page walks.
+        dropped = kept.warning("comments").filter(|_| start == 0);
+        total = kept.exhausted.then_some(kept.entries.len() as u64);
+        provider_more = !kept.exhausted;
+        raw_comments = kept.entries.into_iter().skip(start).collect();
+    } else if let Some(first) = first_comment_batch(query) {
         let mut skip = start % MAX_PER_PAGE;
         for batch in (first..).take(2) {
             let (value, more) = match prefetched.take() {
@@ -179,7 +217,7 @@ pub(super) async fn issue_comments(
     // A page past the discussion's last is the shared out-of-range outcome:
     // its block states the discussion's size on the page grid it was asked on.
     let past_end = (consumed == 0 && !more)
-        .then(|| at.total.and_then(|total| usize::try_from(total).ok()))
+        .then(|| total.and_then(|total| usize::try_from(total).ok()))
         .flatten()
         .map(|total| PageFacts::nth(page_no, grid, total))
         .filter(|facts| facts.is_past_end());
@@ -205,6 +243,8 @@ pub(super) async fn issue_comments(
         pagination,
         bodies,
         resume_size,
+        total,
+        dropped,
     })
 }
 

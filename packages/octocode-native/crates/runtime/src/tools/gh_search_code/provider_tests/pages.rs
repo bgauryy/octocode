@@ -124,6 +124,7 @@ async fn a_page_counts_files_and_retains_every_hit_of_each_file() {
     // The page's total counts files (GitHub's `total_count`), not lines.
     assert_eq!(out.data["pagination"]["total"], 140, "{}", out.data);
     assert_eq!(out.data["pagination"]["length"], 2, "{}", out.data);
+    assert_eq!(out.data["pagination"]["unit"], "files", "{}", out.data);
     assert!(out.data["next"].get("readHits").is_none());
     assert_eq!(
         out.data["next"]["nextPage"]["input"]["queries"][0]["page"],

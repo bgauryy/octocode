@@ -26,7 +26,11 @@ fn skipped_paths_of_one_cause_are_one_counted_entry() {
         match ignored.first() {
             Some(entry) => {
                 assert_eq!(entry["count"], 3, "{}: {out}", tool.name);
-                assert_eq!(out["skippedPaths"]["sampled"], true, "{}: {out}", tool.name);
+                assert_eq!(
+                    out["skippedPaths"]["sampled"], false,
+                    "{}: {out}",
+                    tool.name
+                );
             }
             // astSearch discloses only what its walk prunes or no flag lifts.
             None => assert!(tool.name.starts_with("astSearch"), "{}: {out}", tool.name),

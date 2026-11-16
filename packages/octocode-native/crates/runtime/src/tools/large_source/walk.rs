@@ -268,7 +268,7 @@ pub(super) fn walk_page(
         first: hit.line,
         last: hit.line,
         from: at,
-        room: super::BYTE_WINDOW_BYTES,
+        room: super::byte_window_bytes(share),
     })
     .chain(candidates.iter().map(|&(from, to)| Want {
         first: hit.line,
@@ -393,7 +393,7 @@ pub(super) fn walk_page(
             {
                 return failed(error.to_string());
             }
-            Some(FetchCall::continued(rest))
+            Some(FetchCall::page(rest))
         }
         None => None,
     };

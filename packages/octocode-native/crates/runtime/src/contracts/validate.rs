@@ -22,6 +22,7 @@ pub use messages::{format_input_error, tool_error};
 pub use output::validate_output;
 pub(crate) use output::validate_output_in_place;
 pub(crate) use repair::{literal_reading, queries as repair_queries, repaired_value, same_name};
+pub(crate) use schema::tool_query_fields;
 use schema::validate_input_schema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

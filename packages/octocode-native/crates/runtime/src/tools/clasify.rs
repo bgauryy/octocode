@@ -15,7 +15,7 @@
 //! saved. Identical evaluations inside one call (same provider request
 //! payload) share one request and are counted once.
 use crate::execution::{ExecutionContext, ExecutionError};
-use crate::response::result::FailureKind;
+use crate::response::result::ErrorClass;
 use crate::security::CheckedQuery;
 use crate::tools::judgment::{ClassificationError, Evaluator, Judged, shared::Evaluations};
 use crate::tools::source_capture::{Captured, SourceReader};
@@ -41,7 +41,7 @@ use rows::parse_rows;
 /// The finished result rows and their call-level facts.
 pub(crate) struct Receipts {
     pub rows: Vec<Value>,
-    pub failure: Option<FailureKind>,
+    pub failure: Option<ErrorClass>,
 }
 
 /// One parsed row: its id, the provider model it asks for, its question keys
@@ -192,7 +192,7 @@ fn shaped(
     model: &str,
     can_resume: bool,
     across: &mut across::Across,
-) -> (Value, Option<FailureKind>) {
+) -> (Value, Option<ErrorClass>) {
     match outcome {
         RowOutcome::Judgment {
             judged,
@@ -245,7 +245,7 @@ fn shaped(
             for call in related {
                 crate::response::result::attach_related(&mut value, call);
             }
-            let kind = crate::id::error_code_of(&value).map(crate::response::result::failure_kind);
+            let kind = crate::id::error_code_of(&value).map(crate::id::error_codes::class);
             (value, kind)
         }
         RowOutcome::Sections(result) => match result {
@@ -257,7 +257,7 @@ fn shaped(
                     outcome.output["error"] = json!("No resource was read; nothing was judged.");
                 }
                 let failure = crate::id::error_code_of(&outcome.output)
-                    .map(crate::response::result::failure_kind);
+                    .map(crate::id::error_codes::class);
                 (outcome.output, failure)
             }
             Err(error) => (
@@ -281,7 +281,7 @@ fn shaped(
 
 /// The result rows of every row's data and failure kind, and the call-level
 /// kind, which holds only when every row failed the same way.
-fn receipts(output: Vec<Value>, kinds: Vec<Option<FailureKind>>) -> Receipts {
+fn receipts(output: Vec<Value>, kinds: Vec<Option<ErrorClass>>) -> Receipts {
     let first = kinds.first().copied().flatten();
     let failure = first.filter(|kind| kinds.iter().all(|other| *other == Some(*kind)));
     let rows = output

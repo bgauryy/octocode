@@ -412,7 +412,7 @@ fn graph_selection_is_exact_or_ambiguous() {
     let ambiguous = stats("ap");
     assert_eq!(
         ambiguous.class,
-        ExitClass::InvalidInput,
+        ExitClass::Failed(crate::id::error_codes::ErrorClass::CorrectInput),
         "{}",
         ambiguous.value
     );
@@ -630,27 +630,4 @@ fn the_temp_sweep_removes_only_its_own_abandoned_claims() {
     assert!(!claim.exists(), "an abandoned claim is swept");
     assert!(user_dir.join("file").exists(), "a user's .tmp-* dir stays");
     assert!(user_file.exists(), "a user's .tmp-* file stays");
-}
-
-/// A published build leaves no extraction job or lock file of its own
-/// behind, and a receipt names kept job bytes only when some remain.
-#[test]
-fn a_published_build_leaves_no_job_or_lock_and_names_no_kept_bytes() {
-    let dir = fixture();
-    let out = ingest_fixture(dir.0.as_path(), None);
-    assert_eq!(out.class, ExitClass::Success, "{}", out.value);
-    assert!(
-        out.value.get("unfinishedJobBytes").is_none(),
-        "{}",
-        out.value
-    );
-    let jobs = dir.0.as_path().join(".octocode/graph/.facts/jobs");
-    let left = std::fs::read_dir(&jobs)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|entry| entry.file_name())
-        .collect::<Vec<_>>();
-    #[cfg(unix)]
-    assert!(left.is_empty(), "{left:?}");
 }

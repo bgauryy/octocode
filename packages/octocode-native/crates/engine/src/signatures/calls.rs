@@ -1,5 +1,6 @@
 //! Registry-owned call observations and the lookup premise their syntax supports.
 
+use crate::signatures::node_kinds::kind_of;
 use tree_sitter::Node;
 
 use crate::graph::{GraphCallBinding, GraphCallBoundary};
@@ -36,7 +37,7 @@ impl CallAdapter {
         node: Node<'tree>,
         content: &str,
     ) -> Option<SyntaxCall<'tree>> {
-        match (self, node.kind()) {
+        match (self, kind_of(node)) {
             (Self::Java, "object_creation_expression") => {
                 let mut call = named_construction(node, content);
                 let mut cursor = node.walk();
@@ -44,8 +45,8 @@ impl CallAdapter {
                 // receiver's type, which this syntax observation does not establish.
                 if node
                     .children(&mut cursor)
-                    .take_while(|child| child.kind() != "new")
-                    .any(|child| child.is_named() && child.kind() != "comment")
+                    .take_while(|child| kind_of(child) != "new")
+                    .any(|child| child.is_named() && kind_of(child) != "comment")
                 {
                     call.binding = GraphCallBinding::Unassessed {
                         reason: GraphCallBoundary::UnsupportedConstructorForm,
@@ -132,7 +133,7 @@ impl CallAdapter {
             #[cfg(feature = "tree-sitter-scala")]
             (Self::Scala, "call_expression") => {
                 if let Some(instance) = super::nodes::scala_applied_function(node)
-                    .filter(|function| function.kind() == "instance_expression")
+                    .filter(|function| kind_of(function) == "instance_expression")
                 {
                     return (!scala_applied(node)).then(|| scala_construction(instance, content));
                 }
@@ -145,7 +146,7 @@ impl CallAdapter {
                 })
             }
             (Self::Python, "decorator") => python_decorator(node, content),
-            _ if is_call_node(node.kind()) => {
+            _ if is_call_node(kind_of(node)) => {
                 let (callee, name_token) = call_callee(node, content)?;
                 Some(SyntaxCall {
                     callee,
@@ -163,7 +164,7 @@ impl CallAdapter {
 /// the enclosing scope runs; `@name(..)` is an ordinary call already.
 fn python_decorator<'tree>(node: Node<'tree>, content: &str) -> Option<SyntaxCall<'tree>> {
     let expression = node.named_child(0)?;
-    let name_token = match expression.kind() {
+    let name_token = match kind_of(expression) {
         "identifier" => expression,
         "attribute" => expression.child_by_field_name("attribute")?,
         _ => return None,
@@ -181,7 +182,7 @@ fn python_decorator<'tree>(node: Node<'tree>, content: &str) -> Option<SyntaxCal
 #[cfg(feature = "tree-sitter-scala")]
 fn scala_applied(node: Node<'_>) -> bool {
     node.parent().is_some_and(|parent| {
-        parent.kind() == "call_expression" && parent.child_by_field_name("function") == Some(node)
+        kind_of(parent) == "call_expression" && parent.child_by_field_name("function") == Some(node)
     })
 }
 
@@ -191,7 +192,7 @@ fn scala_construction<'tree>(instance: Node<'tree>, content: &str) -> SyntaxCall
     let mut cursor = instance.walk();
     let ty = instance.named_children(&mut cursor).find(|child| {
         matches!(
-            child.kind(),
+            kind_of(child),
             "type_identifier" | "generic_type" | "stable_type_identifier"
         )
     });
@@ -240,7 +241,7 @@ fn boundary<'tree>(
     let mut cursor = node.walk();
     let token = node
         .children(&mut cursor)
-        .find(|child| !child.is_missing() && keywords.contains(&child.kind()));
+        .find(|child| !child.is_missing() && keywords.contains(&kind_of(child)));
     SyntaxCall {
         // The grammar's observed construction keyword is a label, never a lookup target.
         callee: token
@@ -260,7 +261,7 @@ fn type_name<'tree>(node: Node<'tree>, content: &str, depth: u8) -> Option<(Stri
     if depth >= 32 || node.is_missing() || node.is_error() {
         return None;
     }
-    match node.kind() {
+    match kind_of(node) {
         "identifier" | "type_identifier" | "namespace_identifier" => node_text(node, content)
             .filter(|name| !name.is_empty())
             .map(|name| (name.to_owned(), node)),
@@ -269,7 +270,7 @@ fn type_name<'tree>(node: Node<'tree>, content: &str, depth: u8) -> Option<(Stri
             let mut cursor = node.walk();
             let name = node.named_children(&mut cursor).find(|child| {
                 !matches!(
-                    child.kind(),
+                    kind_of(child),
                     "type_arguments"
                         | "type_argument_list"
                         | "annotation"
@@ -284,7 +285,7 @@ fn type_name<'tree>(node: Node<'tree>, content: &str, depth: u8) -> Option<(Stri
         | "scoped_type_identifier"
         | "stable_type_identifier"
         | "stable_identifier" => {
-            let separator = if node.kind() == "qualified_identifier" {
+            let separator = if kind_of(node) == "qualified_identifier" {
                 "::"
             } else {
                 "."
@@ -293,7 +294,10 @@ fn type_name<'tree>(node: Node<'tree>, content: &str, depth: u8) -> Option<(Stri
             let mut parts = Vec::new();
             let mut token = None;
             for child in node.named_children(&mut cursor) {
-                if matches!(child.kind(), "comment" | "annotation" | "marker_annotation") {
+                if matches!(
+                    kind_of(child),
+                    "comment" | "annotation" | "marker_annotation"
+                ) {
                     continue;
                 }
                 let (name, selected) = type_name(child, content, depth + 1)?;
@@ -302,7 +306,7 @@ fn type_name<'tree>(node: Node<'tree>, content: &str, depth: u8) -> Option<(Stri
             }
             token.map(|token| {
                 let mut label = parts.join(separator);
-                if separator == "::" && node.child(0).is_some_and(|child| child.kind() == "::") {
+                if separator == "::" && node.child(0).is_some_and(|child| kind_of(child) == "::") {
                     label.insert_str(0, "::");
                 }
                 (label, token)

@@ -2,7 +2,7 @@
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
-const { mkdtempSync, readFileSync, rmSync, writeFileSync } = require('node:fs');
+const { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } = require('node:fs');
 const path = require('node:path');
 const { tmpdir } = require('node:os');
 const { PLATFORMS, platformPackageName } = require('../bin/platform.cjs');
@@ -131,4 +131,25 @@ test('the release workflow derives its matrices and never publishes', () => {
   assert.match(workflow, /config --manage/);
   assert.match(workflow, /scripts\/pack-release\.cjs/);
   assert.doesNotMatch(workflow, /npm publish|secrets\.|git push|NODE_AUTH_TOKEN|id-token: write/);
+});
+
+test('a launcher packs only when its bin is the Node stub and out/ holds no half-written bin', t => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'pack-launcher-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  mkdirSync(path.join(dir, 'out'));
+  const bin = 'out/octocode';
+  const file = path.join(dir, bin);
+  const { launcherBinProblems } = require('../scripts/pack-release.cjs');
+
+  writeFileSync(file, '#!/usr/bin/env node\nvoid import("./octocode.js");\n');
+  assert.deepEqual(launcherBinProblems(dir, [bin]), []);
+
+  // A native binary is not valid UTF-8 text; the check reads its first bytes only.
+  writeFileSync(file, Buffer.concat([Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0xff]), Buffer.alloc(1 << 20)]));
+  assert.deepEqual(launcherBinProblems(dir, [bin]), [`${bin} is not the Node bin; rebuild it`]);
+
+  // A crash between link and rename of the install step leaves `.octocode.<pid>.tmp` beside the bin.
+  writeFileSync(file, '#!/usr/bin/env node\n');
+  writeFileSync(path.join(dir, 'out', '.octocode.4242.tmp'), 'x');
+  assert.deepEqual(launcherBinProblems(dir, [bin]), ['out/.octocode.4242.tmp is a leftover of an interrupted install; remove it']);
 });

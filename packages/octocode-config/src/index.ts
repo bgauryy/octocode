@@ -2,7 +2,7 @@
 // metadata for every TypeScript surface (CLI launcher, MCP server, VS Code,
 // skills). Configuration itself is resolved by the native runtime from the same
 // contract; this entry is zero-dependency (Node builtins only). The `./schema`
-// and `./mcp` subpaths re-export `@octocodeai/octocode-core`.
+// and `./chrome` subpaths re-export `@octocodeai/octocode-core`.
 
 import {
   CONFIG_FIELDS,

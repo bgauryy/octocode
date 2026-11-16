@@ -2,6 +2,11 @@
 //! the notice that names them: one record and one sentence for every tool
 //! that reads source through grammars (astSearch's scan, graphBuild's
 //! build), each saying in its own [`Reader`] what an unparsed file costs.
+//! The sentence names [`NAMED_EXAMPLES`] of the files it counts; every one of
+//! them is a `skippedPaths` entry ([`Unparsed::skipped`]), so paging reaches
+//! them all.
+use super::skipped::SkippedEntry;
+use octocode_contract_types::SkippedPathCause;
 use serde_json::Value;
 use std::path::Path;
 
@@ -11,7 +16,7 @@ pub(crate) const NAMED_EXAMPLES: usize = 3;
 /// A tally of files a warning names: their count and the first
 /// [`NAMED_EXAMPLES`] paths in path order, spelled as the response's row
 /// paths are (workspace-relative, else absolute).
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(crate) struct NamedFiles {
     pub(crate) count: u32,
     pub(crate) examples: std::collections::BTreeSet<String>,
@@ -22,6 +27,16 @@ impl NamedFiles {
         self.count = self.count.saturating_add(1);
         self.examples.insert(path);
         if self.examples.len() > NAMED_EXAMPLES {
+            self.examples.pop_last();
+        }
+    }
+
+    /// This tally and `other`'s as one: both counts, the first examples of
+    /// both in path order.
+    fn merge(&mut self, other: &Self) {
+        self.count = self.count.saturating_add(other.count);
+        self.examples.extend(other.examples.iter().cloned());
+        while self.examples.len() > NAMED_EXAMPLES {
             self.examples.pop_last();
         }
     }
@@ -60,19 +75,83 @@ pub(crate) struct Reader {
 /// The files a walk passed over because no grammar parses their names.
 #[derive(Default)]
 pub(crate) struct Unparsed {
-    /// Every such file.
+    /// Every such file, each once: its absolute path and the type its name
+    /// is of ([`known_type`]), if any.
+    passed: std::collections::BTreeMap<String, Option<&'static str>>,
+    /// Every such file, as the warning counts and names them.
     pub(crate) files: NamedFiles,
     /// Of those, the files of no known type (ripgrep's default type table):
-    /// the ones that could hold source of a rule's language.
+    /// they could hold source of any grammar.
     pub(crate) untyped: NamedFiles,
-    /// The rest, counted by type name.
-    pub(crate) typed: std::collections::BTreeMap<String, usize>,
+    /// The rest, by type name.
+    pub(crate) typed: std::collections::BTreeMap<String, NamedFiles>,
+}
+
+/// The file types ([`known_type`]) of the names the grammars a scan reads
+/// parse: a passed-over file of one of these types may hold their source,
+/// while one of another known type (JSON, CSS, plain text) holds none.
+pub(crate) struct SourceTypes(
+    std::sync::OnceLock<std::collections::BTreeSet<&'static str>>,
+    Option<String>,
+);
+
+#[cfg(test)]
+thread_local! {
+    /// Source-type tables this thread built ([`SourceTypes::types`]): the
+    /// build forces the file-type table, which a scan that passed nothing
+    /// over never needs.
+    pub(crate) static TABLE_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Whether a passed-over file of type `known` is one a page that `read`
+/// these grammars' names warns about ([`Unparsed::disclosed`]): of no known
+/// type, or of one of theirs; with no grammar read, every file.
+fn warns(known: Option<&str>, read: Option<&SourceTypes>) -> bool {
+    match (read, known) {
+        (Some(sources), Some(known)) => sources.types().contains(known),
+        _ => true,
+    }
+}
+
+impl SourceTypes {
+    /// The types of the names `selector`'s grammars parse
+    /// ([`octocode_engine::signatures::languages::family_extensions`]); of
+    /// every grammar's names without one.
+    pub(crate) fn read_by(selector: Option<&str>) -> Self {
+        Self(std::sync::OnceLock::new(), selector.map(str::to_owned))
+    }
+
+    /// The types themselves, worked out on first use: a page that passed no
+    /// file over never asks, so it never builds the file-type table.
+    fn types(&self) -> &std::collections::BTreeSet<&'static str> {
+        use octocode_engine::signatures::languages;
+        self.0.get_or_init(|| {
+            #[cfg(test)]
+            TABLE_BUILDS.with(|builds| builds.set(builds.get() + 1));
+            let extensions = self
+                .1
+                .as_deref()
+                .and_then(languages::family_extensions)
+                .unwrap_or_else(|| {
+                    languages::all_entries()
+                        .iter()
+                        .flat_map(|entry| entry.extensions.iter().chain(entry.also_parses))
+                        .map(|extension| extension.to_ascii_lowercase())
+                        .collect()
+                });
+            extensions
+                .iter()
+                .filter_map(|extension| known_type(Path::new(&format!("source.{extension}"))))
+                .collect()
+        })
+    }
 }
 
 /// One file a walk passed over, judged before it is recorded
 /// ([`Unparsed::add`]): `None` for binary content, which is no source of any
 /// language, so it leaves no absence unproven and is never named.
 pub(crate) struct Passed {
+    path: String,
     shown: String,
     known: Option<&'static str>,
 }
@@ -87,6 +166,7 @@ impl Passed {
             return None;
         }
         Some(Self {
+            path: path.to_string_lossy().into_owned(),
             shown,
             known: known_type(path),
         })
@@ -116,38 +196,66 @@ impl Unparsed {
         }
     }
 
-    /// Record a file judged by [`Passed::of`], by its known type, if any.
+    /// Record a file judged by [`Passed::of`], by its known type, if any;
+    /// a file already recorded is not counted again.
     pub(crate) fn add(&mut self, passed: Passed) {
+        if self.passed.insert(passed.path, passed.known).is_some() {
+            return;
+        }
         if let Some(known) = passed.known {
-            *self.typed.entry(known.to_owned()).or_default() += 1;
+            self.typed
+                .entry(known.to_owned())
+                .or_default()
+                .record(passed.shown.clone());
         } else {
             self.untyped.record(passed.shown.clone());
         }
         self.files.record(passed.shown);
     }
 
-    /// What a page discloses: under one rule language (`parser`, or the
-    /// grammar inferred from the scan) a file of a known other type is not
-    /// that language's source, so it is a quiet count beside the grammars
-    /// the query does not compile in, and only a file of unknown type warns;
-    /// without one language every such file warns.
+    /// What a page discloses of the grammars it `read` ([`SourceTypes`]): a
+    /// file of no known type, or of a type those grammars' names are of, may
+    /// hold their source, so it warns; a file of another known type holds
+    /// none, so it is a quiet count per type beside the grammars the query
+    /// does not compile in. With no grammar read (`None`), every such file
+    /// warns.
     pub(crate) fn disclosed(
         &self,
         reader: &Reader,
-        one_language: bool,
+        read: Option<&SourceTypes>,
         mut skipped_grammars: Option<Value>,
     ) -> (Option<String>, Option<Value>) {
-        if !one_language {
+        if read.is_none() {
             return (unparsed_notice(reader, &self.files), skipped_grammars);
         }
-        if !self.typed.is_empty() {
-            let counts = skipped_grammars.get_or_insert_with(|| Value::Object(Default::default()));
-            for (name, files) in &self.typed {
-                let known = counts[name.as_str()].as_u64().unwrap_or_default();
-                counts[name.as_str()] = Value::from(known.saturating_add(*files as u64));
+        let mut named = self.untyped.clone();
+        for (name, files) in &self.typed {
+            if warns(Some(name.as_str()), read) {
+                named.merge(files);
+                continue;
             }
+            let counts = skipped_grammars.get_or_insert_with(|| Value::Object(Default::default()));
+            let known = counts[name.as_str()].as_u64().unwrap_or_default();
+            counts[name.as_str()] = Value::from(known.saturating_add(u64::from(files.count)));
         }
-        (unparsed_notice(reader, &self.untyped), skipped_grammars)
+        (unparsed_notice(reader, &named), skipped_grammars)
+    }
+
+    /// Every file the notice of [`Self::disclosed`] counts for the same
+    /// `read`, in path order: one `unparsed` entry each, its type the reason
+    /// when it has one. A file of another known type stays a count there.
+    pub(crate) fn skipped(&self, read: Option<&SourceTypes>) -> Vec<SkippedEntry> {
+        self.passed
+            .iter()
+            .filter(|(_, known)| warns(**known, read))
+            .map(|(path, known)| {
+                let entry = SkippedEntry::path(path.clone(), SkippedPathCause::Unparsed);
+                match known {
+                    Some(known) => entry.because(*known),
+                    None => entry,
+                }
+            })
+            .collect()
     }
 }
 
@@ -207,3 +315,6 @@ fn known_type(path: &Path) -> Option<&'static str> {
         .min()?;
     names.get(owner).map(String::as_str)
 }
+
+#[cfg(test)]
+mod tests;

@@ -8,6 +8,7 @@ mod classify;
 mod edges;
 mod freshness;
 mod graph;
+mod hashing;
 mod languages;
 mod limits;
 mod linking;
@@ -60,7 +61,16 @@ use crate::tools::import_resolution::{aliases, js_paths, paths};
 /// Rust path dependency outside it; a Python module above it, of the enclosing
 /// package, or of a local path dependency a `pyproject.toml` names (until now
 /// external). One recorder diagnoses all of them.
-const ANALYSIS_VERSION: u32 = 36;
+/// 37: a repeated name's key suffix is its place among the same-named
+/// declarations (`name@1`), not its line, so a moved line moves no key; a
+/// Rust path rooted at `::` names an extern crate, never an unresolved
+/// internal one.
+/// 38: the manifest states, per declared name, the call sites that name it on
+/// a receiver no edge resolves (`unresolvedCallNames`), so `callers` can say
+/// it is partial without reading evidence text.
+/// 39: a source that is not UTF-8 (8-bit text, Latin-1 or with stray bytes)
+/// is indexed as its decoded text instead of skipped as unreadable.
+const ANALYSIS_VERSION: u32 = 39;
 
 /// graphBuild's and graphQuery's recovery for the shared response stages.
 pub(crate) struct Output;

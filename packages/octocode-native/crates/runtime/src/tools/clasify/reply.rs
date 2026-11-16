@@ -1,6 +1,6 @@
 //! A row's answer or failure as the row reports it.
 use super::{Input, Row, Target, recovery};
-use crate::response::result::FailureKind;
+use crate::response::result::ErrorClass;
 use crate::tools::judgment::{ClassificationError, Judged};
 use crate::tools::source_capture::Captured;
 use octocode_contract_types::ErrorCode;
@@ -111,10 +111,10 @@ pub(super) fn evaluation_usage(
     .unwrap_or(Value::Null)
 }
 
-pub(super) fn error_kind(error: &ClassificationError) -> FailureKind {
+pub(super) fn error_kind(error: &ClassificationError) -> ErrorClass {
     error
         .failure
-        .unwrap_or_else(|| crate::response::result::failure_kind(error.code))
+        .unwrap_or_else(|| crate::id::error_codes::class(error.code))
 }
 
 /// A sections row whose every resource failed to be read judged nothing,

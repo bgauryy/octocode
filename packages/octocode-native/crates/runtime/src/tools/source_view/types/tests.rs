@@ -161,3 +161,29 @@ fn the_read_list_is_every_read_by_its_wire_name() {
         "the next window is pagination, not unread evidence"
     );
 }
+
+/// A `matchString` read without `contextLines` keeps the contract's default
+/// lines around each hit (`limits.defaultReadContextLines`); a stated
+/// `contextLines` wins.
+#[test]
+fn match_context_defaults_to_the_contract_lines() {
+    let query = |value: serde_json::Value| -> LocalFetchQuery {
+        serde_json::from_value(value).expect("localFetch query")
+    };
+    let lines = octocode_engine::num::saturating_u32(crate::id::DEFAULT_READ_CONTEXT_LINES);
+    assert_eq!(
+        local_fetch_query::context_lines(&query(
+            serde_json::json!({"path": "_", "matchString": ["a"]})
+        )),
+        octocode_engine::types::SearchContext::symmetric(lines)
+    );
+    assert_eq!(
+        local_fetch_query::context_lines(&query(serde_json::json!({
+            "path": "_", "matchString": ["a"], "contextLines": {"before": 2, "after": 5}
+        }))),
+        octocode_engine::types::SearchContext {
+            before: 2,
+            after: 5
+        }
+    );
+}

@@ -72,14 +72,16 @@ fn validate_catalog(
     for source in &value.snapshots {
         budget.check()?;
         let valid_bom = match source.encoding {
-            domain::Encoding::Utf8 => matches!(source.bom_bytes, 0 | 3),
+            domain::Encoding::Utf8 | domain::Encoding::Latin1 | domain::Encoding::Lossy => {
+                matches!(source.bom_bytes, 0 | 3)
+            }
             domain::Encoding::Utf16Le | domain::Encoding::Utf16Be => source.bom_bytes == 2,
         };
         if source.path.is_empty()
             || !digest(&source.digest)
             || !valid_bom
             || source.bom_bytes > source.byte_length
-            || (source.encoding != Encoding::Utf8 && source.byte_length % 2 != 0)
+            || (source.encoding.is_utf16() && source.byte_length % 2 != 0)
         {
             return Err(invalid(
                 "source snapshot has invalid identity, digest, encoding or byte length",
@@ -197,7 +199,7 @@ fn validate_origin_index(
             && (!copied
                 || (source.encoding == Encoding::Utf8
                     && original.raw_range.len() == segment.len()))
-            && (source.encoding == Encoding::Utf8
+            && (!source.encoding.is_utf16()
                 || (original.raw_range.start_byte.is_multiple_of(2)
                     && original.raw_range.end_byte.is_multiple_of(2))))
     };

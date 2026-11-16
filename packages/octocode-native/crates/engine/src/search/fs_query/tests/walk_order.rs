@@ -1,7 +1,7 @@
 //! Walk order, cancellation, and directories read ahead.
 
-use super::super::read_ahead::{self, ReadAhead};
 use super::*;
+use crate::search::walk::read_ahead::{self, ReadAhead};
 
 #[test]
 fn deep_recursion_terminates_and_finds_leaf() {
@@ -165,8 +165,13 @@ fn a_listing_read_ahead_is_taken_once_or_dropped() {
         fs::create_dir_all(root.join(dir)).expect("dir");
         File::create(root.join(dir).join("f.ts")).expect("file");
     }
-    let mut ahead = ReadAhead::start().expect("workers");
-    ahead.queue([root.join("a"), root.join("b")].into_iter());
+    let ahead =
+        ReadAhead::start(crate::cpu::host().share(), read_ahead::Detail::Stamped).expect("workers");
+    ahead.queue(
+        [root.join("a"), root.join("b")]
+            .into_iter()
+            .map(read_ahead::Key::from),
+    );
     // A read no worker has begun is the walk's own: let one finish first.
     ahead.wait_until_read(&root.join("a"));
     let read_ahead::Taken::Read(taken) = ahead.take(&root.join("a"), None) else {
@@ -217,7 +222,7 @@ fn a_walk_never_reads_ahead_what_its_rules_leave_out() {
         ..Default::default()
     })
     .expect("query");
-    let queued = super::super::read_ahead::queued_under(&root);
+    let queued = read_ahead::queued_under(&root);
     assert!(!queued.is_empty(), "the walk queued what it will enter");
     assert!(
         queued
@@ -241,9 +246,52 @@ fn a_walk_reads_ahead_the_first_child_of_a_directory_too() {
     })
     .expect("query");
     assert_eq!(found.entries.len(), 60, "every entry once");
-    let queued = super::super::read_ahead::queued_under(&root);
+    let queued = read_ahead::queued_under(&root);
     assert!(
         queued.iter().any(|dir| dir.ends_with("first")),
         "a first child was left to the walk: {queued:?}"
     );
+}
+
+/// A flat directory of many subdirectories is never read whole ahead: the
+/// listings held, read or under way, stay within what the workers may hold,
+/// and the walk still takes every one of them, read ahead or by itself.
+#[test]
+fn read_ahead_holds_no_more_listings_than_its_bound() {
+    let root = TmpDir::new();
+    let dirs = (0..400)
+        .map(|index| {
+            let dir = root.join(format!("d{index:03}"));
+            fs::create_dir_all(&dir).expect("dir");
+            File::create(dir.join("f.ts")).expect("file");
+            dir
+        })
+        .collect::<Vec<_>>();
+    let ahead =
+        ReadAhead::start(crate::cpu::host().share(), read_ahead::Detail::Stamped).expect("workers");
+    ahead.queue(dirs.iter().cloned().map(read_ahead::Key::from));
+    assert!(
+        ahead.queued_len() <= ahead.held_peak_and_limit().1,
+        "the queue is bounded too"
+    );
+    // Let the workers read as much as they may.
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let (peak, limit) = ahead.held_peak_and_limit();
+    assert!(peak <= limit, "{peak} listings held ahead, bound {limit}");
+    let mut read = 0;
+    for dir in &dirs {
+        match ahead.take(dir, None) {
+            read_ahead::Taken::Read(listing) => {
+                assert!(listing.entries.is_ok());
+                read += 1;
+            }
+            read_ahead::Taken::NotQueued => {
+                assert!(read_ahead::read_listing(dir).entries.is_ok());
+            }
+            read_ahead::Taken::Late => panic!("no deadline"),
+        }
+    }
+    assert!(read > 0, "the walk found listings read ahead");
+    let (peak, limit) = ahead.held_peak_and_limit();
+    assert!(peak <= limit, "{peak} listings held ahead, bound {limit}");
 }

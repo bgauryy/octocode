@@ -229,6 +229,11 @@ fn definition_chain(
         .into_iter()
         .collect(),
     );
+    config
+        .env
+        .as_mut()
+        .expect("env")
+        .insert("PATH".to_owned(), std::env::var("PATH").unwrap_or_default());
     let paths = crate::tools::test_support::workspace_policy(&root);
     let path = root.join(file).to_string_lossy().into_owned();
     let query = serde_json::from_value(serde_json::json!({

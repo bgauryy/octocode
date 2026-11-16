@@ -367,6 +367,16 @@ async fn history_b_merged_match_string_read_offers_the_source_side_only() {
     });
     assert_eq!(at_commit["kind"], "related");
     assert!(
+        data["warnings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|warning| warning
+                .as_str()
+                .is_some_and(|text| text.contains("hunks that hold matchString; related reads"))),
+        "{data}"
+    );
+    assert!(
         support::checks::find_related_call(&data, "ghGetFileContent", |input| {
             input["queries"][0]["ref"] == "fedcba9876543210fedcba9876543210fedcba98"
         })

@@ -130,8 +130,9 @@ fn rejected_calls_print_the_runtime_projection() {
         validation_issues: None,
     };
     let expected = octocode_native::runtime::error::tool_error_result("localSearch", &timeout);
+    // `timeout` is a transient code, so the CLI exits 7.
     let printed = Printed::finish("localSearch", Err(timeout), false, &json!({}), None);
-    assert_eq!((printed.exit, printed.json), (5, false));
+    assert_eq!((printed.exit, printed.json), (7, false));
     assert_eq!(
         printed.body,
         super::lines::rejected(&expected.envelope),

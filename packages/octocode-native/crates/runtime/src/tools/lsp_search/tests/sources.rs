@@ -48,8 +48,8 @@ async fn unreadable_in_policy_files_stay_authorized_and_keep_their_locations() {
     let large = root.join("large.ts");
     std::fs::write(&large, vec![b'a'; (MAX_LSP_DIDOPEN_BYTES + 1) as usize]).expect("large");
     let binary = root.join("binary.ts");
-    // Invalid UTF-8 (`ff fe` would be a UTF-16 BOM, which is admitted).
-    std::fs::write(&binary, [0xc3_u8, 0x28]).expect("binary");
+    // A NUL byte: binary content, never source text.
+    std::fs::write(&binary, [b'a', 0_u8, b'b']).expect("binary");
     let mut sources = SourceCache::new(&paths);
     for file in [&large, &binary] {
         let path = file.to_string_lossy().into_owned();
@@ -364,19 +364,30 @@ async fn clipped_definition_rows_name_their_partial_reason() {
 #[test]
 fn source_text_is_admitted_by_the_one_engine_rule() {
     assert_eq!(
-        admitted_text(b"\xef\xbb\xbffn a() {}\n").as_deref(),
-        Ok("fn a() {}\n")
+        admitted_text(b"\xef\xbb\xbffn a() {}\n").map(|read| read.text),
+        Ok("fn a() {}\n".to_owned())
     );
     assert_eq!(
-        admitted_text(&[0xff, 0xfe, b'a', 0, b'\n', 0]).as_deref(),
-        Ok("a\n")
+        admitted_text(&[0xff, 0xfe, b'a', 0, b'\n', 0]).map(|read| read.text),
+        Ok("a\n".to_owned())
     );
     assert_eq!(
         admitted_text(b"ab\0cd"),
         Err(octocode_engine::text::Refusal::Binary)
     );
+    // 8-bit text that is not UTF-8 is decoded, with the warning that says how.
+    let latin = admitted_text(b"caf\xe9\n").expect("latin-1");
     assert_eq!(
-        admitted_text(&[0xc3, 0x28]),
-        Err(octocode_engine::text::Refusal::NotUnicode)
+        (latin.text.as_str(), latin.warning),
+        ("caf\u{e9}\n", Some(octocode_engine::text::LATIN1_WARNING))
     );
+    let lossy = admitted_text(&[0xc3, 0xa9, 0xff, b'\n']).expect("lossy");
+    assert_eq!(
+        (lossy.text.as_str(), lossy.warning),
+        (
+            "\u{e9}\u{fffd}\n",
+            Some(octocode_engine::text::LOSSY_WARNING)
+        )
+    );
+    assert_eq!(admitted_text(b"plain\n").map(|read| read.warning), Ok(None));
 }

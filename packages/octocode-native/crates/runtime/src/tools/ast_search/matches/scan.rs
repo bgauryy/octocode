@@ -96,6 +96,10 @@ pub(super) fn scan_file(
         test_code_unread = scoped.unread();
         verdict_inputs = scoped.watched();
     }
+    if let Some(warning) = admitted.warning() {
+        r.diagnostics
+            .push(StructuralDiagnostic::decoded(&source_path, warning));
+    }
     if let Some(note) =
         super::super::language::cpp_header_note(canonical, q.language().as_deref(), source)
     {

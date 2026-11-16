@@ -26,14 +26,42 @@ pub(super) const MAX_LSP_DIDOPEN_BYTES: u64 = octocode_engine::lsp::MAX_LSP_SOUR
 #[derive(Debug)]
 pub(super) enum SourceReadError {
     TooLarge(u64),
+    /// Binary content ([`octocode_engine::text::Refusal::Binary`]): not a
+    /// read failure, the file is not source text.
+    Binary,
     Unreadable(String),
 }
 
-/// Read a UTF-8 regular file of at most [`MAX_LSP_DIDOPEN_BYTES`] through the
+/// The text of a source as the language server and the resolvers see it,
+/// and the warning that states how it was decoded when the file is not UTF-8
+/// ([`octocode_engine::text::decode`]). Positions count this text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct SourceText {
+    pub(super) text: String,
+    pub(super) warning: Option<&'static str>,
+}
+
+impl std::ops::Deref for SourceText {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.text
+    }
+}
+
+impl From<String> for SourceText {
+    fn from(text: String) -> Self {
+        Self {
+            text,
+            warning: None,
+        }
+    }
+}
+
+/// Read a regular file of at most [`MAX_LSP_DIDOPEN_BYTES`] through the
 /// engine's bounded regular-file read (non-blocking open, `fstat` of the
 /// opened handle, capped read). Blocking: async callers use
 /// [`read_bounded_source_async`].
-pub(super) fn read_bounded_source(path: &Path) -> Result<String, SourceReadError> {
+pub(super) fn read_bounded_source(path: &Path) -> Result<SourceText, SourceReadError> {
     use octocode_engine::text::ReadError;
     let bytes = octocode_engine::text::read_source(path, MAX_LSP_DIDOPEN_BYTES)
         .map_err(|error| match error {
@@ -42,21 +70,37 @@ pub(super) fn read_bounded_source(path: &Path) -> Result<String, SourceReadError
             ReadError::Io(error) => SourceReadError::Unreadable(error.to_string()),
         })?
         .bytes;
-    admitted_text(&bytes).map_err(|refusal| SourceReadError::Unreadable(refusal.to_string()))
+    admitted_text(&bytes).map_err(|refusal| match refusal {
+        octocode_engine::text::Refusal::Binary => SourceReadError::Binary,
+        refusal => SourceReadError::Unreadable(refusal.to_string()),
+    })
 }
 
 /// The text of `bytes` a language server syncs and the resolvers scan: the
-/// engine's one admission (binary refused, UTF-8 or BOM-marked UTF-16
-/// decoded, a BOM not text), so coordinates and the server's disk check
-/// agree.
-pub(super) fn admitted_text(bytes: &[u8]) -> Result<String, octocode_engine::text::Refusal> {
-    octocode_engine::text::admit(bytes, octocode_engine::text::Decoding::Unicode)
-        .map(|decoded| decoded.text.into_owned())
+/// engine's one admission, the rule of every reader (binary refused, UTF-8
+/// or BOM-marked UTF-16 decoded, a BOM not text, other 8-bit text decoded
+/// as Latin-1 or with U+FFFD, with the warning). Coordinates count the
+/// decoded text, so a server that reads a non-UTF-8 file from disk may count
+/// other columns.
+pub(super) fn admitted_text(bytes: &[u8]) -> Result<SourceText, octocode_engine::text::Refusal> {
+    octocode_engine::text::admit(bytes, octocode_engine::text::Decoding::Lenient).map(|decoded| {
+        SourceText {
+            text: decoded.text.into_owned(),
+            warning: decoded.warning.filter(|_| {
+                matches!(
+                    decoded.charset,
+                    octocode_engine::text::Charset::Latin1 | octocode_engine::text::Charset::Lossy
+                )
+            }),
+        }
+    })
 }
 
 /// [`read_bounded_source`] on the blocking pool, so a slow filesystem never
 /// stalls an async worker.
-pub(super) async fn read_bounded_source_async(path: PathBuf) -> Result<String, SourceReadError> {
+pub(super) async fn read_bounded_source_async(
+    path: PathBuf,
+) -> Result<SourceText, SourceReadError> {
     tokio::task::spawn_blocking(move || read_bounded_source(&path))
         .await
         .unwrap_or_else(|error| {
@@ -72,11 +116,17 @@ pub(super) async fn read_bounded_source_async(path: PathBuf) -> Result<String, S
 #[derive(Debug)]
 pub(super) struct Source {
     pub(super) content: String,
+    /// How a non-UTF-8 file was decoded ([`SourceText::warning`]).
+    pub(super) warning: Option<&'static str>,
     line_starts: Vec<usize>,
 }
 
 impl Source {
-    pub(super) fn new(content: String) -> Self {
+    pub(super) fn new(read: impl Into<SourceText>) -> Self {
+        let SourceText {
+            text: content,
+            warning,
+        } = read.into();
         let index = LineIndex::new(&content);
         let line_starts = if content.is_empty() {
             Vec::new()
@@ -87,6 +137,7 @@ impl Source {
         };
         Self {
             content,
+            warning,
             line_starts,
         }
     }
@@ -147,8 +198,8 @@ impl<'a> SourceCache<'a> {
 
     /// Seed the cache with a source this request already read (the anchor
     /// document), so later windows reuse exactly the text sent in `didOpen`.
-    pub(super) fn insert(&mut self, path: &str, content: String) -> Arc<Source> {
-        let source = Arc::new(Source::new(content));
+    pub(super) fn insert(&mut self, path: &str, read: impl Into<SourceText>) -> Arc<Source> {
+        let source = Arc::new(Source::new(read));
         self.sources
             .insert(path.to_owned(), Some(Arc::clone(&source)));
         self.authorized.insert(path.to_owned(), true);
@@ -175,7 +226,7 @@ impl<'a> SourceCache<'a> {
                 read_bounded_source_async(validated.canonical)
                     .await
                     .ok()
-                    .map(|content| Arc::new(Source::new(content)))
+                    .map(|read| Arc::new(Source::new(read)))
             }
             None => None,
         };

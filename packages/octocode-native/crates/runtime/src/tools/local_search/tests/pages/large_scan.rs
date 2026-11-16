@@ -17,7 +17,7 @@ fn every_matched_file_of_a_large_scan_is_paged_exactly_once() {
     }
     let (walk, pages) = walk_search(
         root.path(),
-        serde_json::json!({"path":root.path(),"matchString":["needle"],"view":"files"}),
+        serde_json::json!({"path":root.path(),"matchString":["needle"],"view":"files","sort":{"by":"path","order":"asc"}}),
         None,
     );
     let expected = (0..dirs)

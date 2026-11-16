@@ -1,6 +1,6 @@
 use super::{ChannelRun, execute_ordinary_queries};
 use crate::execution::{ExecutionContext, ExecutionError};
-use crate::response::result::FailureKind;
+use crate::response::result::ErrorClass;
 use crate::response::rows;
 use crate::security::{JudgedLeaves, Sanitized};
 use serde_json::{Value, json};
@@ -47,6 +47,11 @@ impl ChannelRun {
             row["index"] = json!(index);
         }
         rows.extend(rejected.into_iter().map(|(_, row)| row));
+        for row in &mut rows {
+            if row["status"] == "error" {
+                rows::finish_error_row(&mut row["data"]);
+            }
+        }
         rows.sort_by_key(|row| row["index"].as_u64());
         // Each evaluated row's marks, at the place its data takes in the
         // envelope ([`rows::envelope`]).
@@ -210,7 +215,7 @@ pub(super) struct ShapedRows {
     pub(super) structured: Sanitized,
     pub(super) response_query: Value,
     pub(super) rejected_at: Vec<usize>,
-    pub(super) failure: Option<FailureKind>,
+    pub(super) failure: Option<ErrorClass>,
     /// A row's walk continues the page it answered
     /// ([`crate::response::result::ToolDiagnostics::continues_page`]).
     pub(super) continues_page: bool,
@@ -221,6 +226,6 @@ struct EvaluatedRows {
     rows: Vec<Value>,
     /// Each row's judged leaves, by row, relative to its `data`.
     judged: Vec<JudgedLeaves>,
-    failure: Option<FailureKind>,
+    failure: Option<ErrorClass>,
     continues_page: bool,
 }

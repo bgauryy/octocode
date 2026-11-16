@@ -343,6 +343,40 @@ fn shared_skipped_entries_page_once_with_required_coverage_context() {
     }
 }
 
+/// A walk's `unparsed` files, one entry each (beside a cause grouped by
+/// rule), page once through every tool that discloses them, graphBuild's
+/// build record among them.
+#[test]
+fn unparsed_entries_page_once_on_every_tool_that_lists_them() {
+    let entries = (0..80)
+        .map(|index| {
+            let mut entry = json!({"path":format!("path-{index}-{}","directory".repeat(8)),
+                "cause":"unparsed"});
+            if index % 2 == 0 {
+                entry["reason"] = json!("markdown");
+            }
+            entry
+        })
+        .chain([json!({"path":"store","cause":"octocode-artifact","count":3})])
+        .collect::<Vec<_>>();
+    for (tool, data) in [
+        (
+            ToolId::AstSearch,
+            json!({"files":[],"skippedPaths":{"entries":entries,"sampled":false}}),
+        ),
+        (
+            ToolId::GraphBuild,
+            json!({"id":"g","skippedPaths":{"entries":entries,"sampled":false}}),
+        ),
+    ] {
+        let mut seen = Vec::new();
+        for row in pages(tool, data) {
+            seen.extend(skipped_entries(&row));
+        }
+        assert_eq!(seen, entries, "{tool:?}");
+    }
+}
+
 /// The skipped entries a page carries, after checking it never repeats an
 /// empty `skippedPaths` shell and keeps `sampled` beside its entries.
 fn skipped_entries(row: &Value) -> Vec<Value> {

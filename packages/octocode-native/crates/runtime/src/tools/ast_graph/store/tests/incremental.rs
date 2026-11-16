@@ -37,7 +37,7 @@ pub(super) fn assert_clean_equivalent(dir: &Path) {
 }
 
 #[test]
-fn fresh_extraction_relinks_add_edit_delete_rename_and_negative_dependencies() {
+fn cached_extraction_relinks_add_edit_delete_rename_and_negative_dependencies() {
     let dir = git_app(&[
         (
             "main.ts",
@@ -57,11 +57,8 @@ fn fresh_extraction_relinks_add_edit_delete_rename_and_negative_dependencies() {
     .unwrap();
     let added = ingest_root(&dir.0, &root, None, false);
     assert_eq!(added.class, ExitClass::Success, "{}", added.value);
-    assert_eq!(added.value["extraction"]["reusedFiles"], 0);
-    assert_eq!(
-        added.value["extraction"]["parsedFiles"],
-        added.value["scan"]["filesScanned"]
-    );
+    assert_eq!(added.value["extraction"]["parsedFiles"], 1, "the new file");
+    assert_eq!(added.value["extraction"]["reusedFiles"], 2);
     assert_eq!(
         ask(&dir.0, "callees", Some("main.ts#run"), |_| {}).value["pagination"]["total"],
         1

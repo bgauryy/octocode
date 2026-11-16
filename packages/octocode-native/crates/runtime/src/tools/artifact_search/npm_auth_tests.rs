@@ -227,6 +227,7 @@ async fn an_npm_git_head_missing_upstream_is_no_release_lead() {
     };
     let data = execute(query.clone(), checked).await.expect("lookup");
     assert_eq!(data["artifacts"][0]["verification"], "tag", "{data}");
+    assert_eq!(data["artifacts"][0]["releaseTag"], "v7.0.2", "{data}");
     assert!(data.get("warnings").is_none(), "{data}");
     let refs = KnownTags::new(vec![commit_only, "microsoft/TypeScript@v7.0.2=f00d"]);
     let checked = ArtifactCall {
@@ -235,6 +236,7 @@ async fn an_npm_git_head_missing_upstream_is_no_release_lead() {
     };
     let data = execute(query.clone(), checked).await.expect("lookup");
     assert_eq!(data["artifacts"][0]["ref"], sha, "{data}");
+    assert!(data["artifacts"][0].get("releaseTag").is_none(), "{data}");
     assert_eq!(
         data["artifacts"][0]["verification"], "registryRef",
         "{data}"

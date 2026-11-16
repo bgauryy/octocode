@@ -1,5 +1,5 @@
 use super::*;
-use crate::lsp::config::invocation::rustup::{RustupView, with_view};
+use crate::lsp::config::invocation::rustup::{RustupView, view_env, with_view};
 
 #[cfg(unix)]
 #[test]
@@ -122,13 +122,14 @@ fn a_toolchain_matched_rustup_component_wins_over_the_managed_install() {
             .to_string(),
     )
     .expect("marker");
+    let view = RustupView {
+        path_var: Some(rustup.path()),
+        ..RustupView::default()
+    };
     let options = LspDiscoveryOptions {
         octocode_home: Some(home),
+        env: view_env(&view),
         ..LspDiscoveryOptions::default()
-    };
-    let view = RustupView {
-        path_var: Some(rustup.bin().as_os_str().to_owned()),
-        ..RustupView::default()
     };
     let workspace = base.join("workspace");
     std::fs::create_dir_all(&workspace).expect("workspace");

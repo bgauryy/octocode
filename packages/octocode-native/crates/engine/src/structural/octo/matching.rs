@@ -334,7 +334,7 @@ impl CandidatePlan {
     }
 
     pub(super) fn matches(&self, candidate: Node<'_>) -> bool {
-        self.matches_kind(candidate.kind())
+        self.matches_kind(crate::signatures::node_kinds::kind_of(candidate))
     }
 
     pub(super) fn matches_kind(&self, kind: &str) -> bool {

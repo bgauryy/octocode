@@ -7,7 +7,7 @@ use crate::build_identity::BUILD_IDENTITY;
 use crate::config::{self, ConfigOutput};
 use crate::response::cursor::Cursor;
 use crate::response::pager::SavedPages;
-use crate::response::result::FailureKind;
+use crate::response::result::ErrorClass;
 use crate::security::{CheckedQuery, Sanitized};
 use octocode_contract_types::ErrorCode;
 
@@ -26,7 +26,7 @@ pub(super) struct PageReplay {
     /// Sealed: a store reloaded from disk passes the output gate again.
     pub(super) structured: Sanitized,
     pub(super) response_query: Value,
-    pub(super) failure: Option<FailureKind>,
+    pub(super) failure: Option<ErrorClass>,
     /// The text and page source later reads cut from (rebuilt from
     /// `structured` after a reload from disk).
     #[serde(skip)]

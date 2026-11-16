@@ -19,6 +19,8 @@ use std::sync::{Arc, PoisonError};
 use ignore::WalkBuilder;
 
 mod ignore_rules;
+pub(crate) mod ordered;
+pub(crate) mod read_ahead;
 
 #[cfg(test)]
 pub(crate) use ignore_rules::LEVELS_STATED;
@@ -26,6 +28,7 @@ pub use ignore_rules::{
     DirRules, IGNORE_FILES, IgnoreReason, IgnoreRules, ListedRules, UnreadableRule,
     checkout_git_dir, common_git_dir, external_ignore_inputs,
 };
+pub(crate) use ordered::{Judge, OrderedWalk, Probe, Step, listed, listed_rules};
 
 /// A walk's cancellation: polled between entries; `true` ends the walk.
 pub type Stop<'a> = dyn Fn() -> bool + Sync + 'a;

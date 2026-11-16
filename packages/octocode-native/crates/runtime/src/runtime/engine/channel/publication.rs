@@ -6,6 +6,7 @@ use crate::response::{continuations, cursor::Cursor, outcome::ToolOutcome};
 use crate::runtime::engine::cursors::{Pending, SavedWork};
 use crate::runtime::row_indices::RowOrigin;
 use crate::security::Sanitized;
+use crate::tools::selection::{RecoveryLead, recovery_lead};
 use serde_json::{Value, json};
 
 impl ChannelRun {
@@ -48,12 +49,71 @@ impl ChannelRun {
         self.retain_cursors(pending, context)
     }
 
+    /// A runtime that keeps no saved work (a command that exits after one
+    /// call) delivers a classified result without the leads that need it,
+    /// instead of failing the call after the provider billed it. The
+    /// whole-read lead (`next.unfiltered`) moves to the row's `related` as a
+    /// fresh request when it holds none of the private progress a cursor
+    /// saves; every other lead of saved plan pages, and a whole read that
+    /// is no fresh request, is left out with a warning on its row that counts
+    /// the units those leads would have reached. Other leads are not
+    /// touched: an ordinary page of a read still needs its cursor
+    /// ([`Self::retain_cursors`]).
+    pub(super) fn settle_unsaved_leads(
+        &self,
+        structured: &mut Value,
+    ) -> Result<(), contracts::ContractValidationError> {
+        if self.can_resume {
+            return Ok(());
+        }
+        let mut leads = Vec::new();
+        continuations::visit_calls(self.id, structured, &mut |call, path| {
+            if let [row @ .., next, channel] = path
+                && next == "next"
+                && call["kind"] == "continue"
+                && let Some(lead) = recovery_lead(channel)
+            {
+                let fresh = (lead == RecoveryLead::Whole)
+                    .then(|| fresh_whole_read(call))
+                    .flatten();
+                leads.push((crate::json_pointer::of(row), channel.clone(), fresh));
+            }
+        })?;
+        for (row_pointer, channel, fresh) in leads.into_iter().rev() {
+            let Some(row) = structured.pointer_mut(&row_pointer) else {
+                continue;
+            };
+            if let Some(next) = row.get_mut("next").and_then(Value::as_object_mut) {
+                next.shift_remove(&channel);
+                if next.is_empty()
+                    && let Some(fields) = row.as_object_mut()
+                {
+                    fields.shift_remove("next");
+                }
+            }
+            let warning = match fresh {
+                Some(call) => {
+                    crate::response::result::attach_related(row, call);
+                    // Naming `related[]` keeps the call on a successful row
+                    // ([`crate::response::workflow_lead`]).
+                    format!(
+                        "The {channel} lead is not offered: this command exits after one call and keeps no saved work, so the read without classification is the related[] request."
+                    )
+                }
+                None => unsaved_lead_warning(row, &channel),
+            };
+            crate::response::paging::push_warnings(row, [warning]);
+        }
+        Ok(())
+    }
+
     pub(super) fn publish(
         &self,
         structured: &mut Value,
         scope: &continuations::Scope<'_>,
         pending: &mut Pending,
     ) -> Result<(), contracts::ContractValidationError> {
+        self.settle_unsaved_leads(structured)?;
         continuations::finalize(
             structured,
             self.id,
@@ -189,4 +249,39 @@ impl ChannelRun {
             Ok(())
         })
     }
+}
+
+/// What a row loses when its `channel` lead cannot be saved: the units its
+/// receipt left undecided, which only saved plan pages reach, or the whole
+/// read that cannot restart without private progress.
+fn unsaved_lead_warning(row: &Value, channel: &str) -> String {
+    let counts = |field: &str| row["selection"][field].as_u64();
+    match (
+        recovery_lead(channel),
+        counts("unknownItems"),
+        counts("totalItems"),
+    ) {
+        (Some(RecoveryLead::Saved), Some(unknown), Some(total)) => format!(
+            "The {channel} lead is not offered: this command exits after one call and keeps no saved pages, so {unknown} of {total} units stay undecided; ask a narrower query to judge them, or use a live session."
+        ),
+        _ => format!(
+            "The {channel} lead is not offered: this command exits after one call and keeps no saved work; repeat the read without classification to see everything."
+        ),
+    }
+}
+
+/// A continued whole-read lead as a fresh related call, or `None` when
+/// it is not one once its private progress is dropped.
+fn fresh_whole_read(call: &Value) -> Option<Value> {
+    let target = crate::id::ToolId::from_name(call["tool"].as_str()?)?;
+    let mut input = call["input"].clone();
+    for row in input.get_mut("queries")?.as_array_mut()? {
+        *row = crate::response::result::fresh_query_row(target, row);
+    }
+    let mut checked = continuations::checked_input(target, true, &input).ok()?;
+    // Validation fills in the contract defaults; a call states none.
+    for row in checked.get_mut("queries")?.as_array_mut()? {
+        crate::response::result::canonical_row(target, row);
+    }
+    Some(json!({"kind": "related", "tool": target.as_str(), "input": checked}))
 }

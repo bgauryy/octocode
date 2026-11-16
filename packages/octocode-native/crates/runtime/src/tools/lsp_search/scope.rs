@@ -46,6 +46,8 @@ pub(super) use dependents::Dependents;
 mod fingerprint;
 mod ignored_index;
 mod listing;
+#[cfg(test)]
+mod path_counter;
 mod paths;
 #[cfg(test)]
 pub(super) mod probe;
@@ -58,8 +60,8 @@ mod text;
 use fingerprint::{Fingerprint, fingerprint};
 pub(super) use fingerprint::{same_file, written_since};
 pub(super) use paths::{
-    canonical, canonical_uri, judged_files, widest_authorized_dir, with_canonical_memo,
-    with_judged_files,
+    canonical, canonical_root, canonical_uri, judged_files, widest_authorized_dir,
+    with_canonical_memo, with_judged_files,
 };
 pub(super) use question::Question;
 pub(super) use scan::IgnoredMentions;
@@ -142,6 +144,10 @@ pub(super) struct Scope {
     /// The language server's workspace root (canonical), whose ignored
     /// files the server may still compile; `None` when unknown.
     server_root: Option<PathBuf>,
+    /// The server is rust-analyzer with build scripts off, so the Cargo
+    /// cache directories it leaves out bear on no answer
+    /// ([`Self::serve_with`]).
+    cargo_caches_unloaded: bool,
     text: Mutex<Option<TextScan>>,
     /// The ignored files that use the name in code, once checked
     /// ([`Self::check_ignored_spellings`]).
@@ -187,6 +193,7 @@ impl Scope {
             include,
             markup: Vec::new(),
             server_root: None,
+            cargo_caches_unloaded: false,
             text: Mutex::new(None),
             ignored_spellings: Mutex::new(None),
             question: std::sync::OnceLock::new(),
@@ -306,6 +313,7 @@ impl Scope {
             root: PathBuf::from(&self.root),
             server_root: self.server_root.clone(),
             include: self.include.clone(),
+            cargo_caches_unloaded: self.cargo_caches_unloaded,
         }
     }
 }
@@ -323,6 +331,7 @@ pub(super) struct WalkInputs {
     root: PathBuf,
     server_root: Option<PathBuf>,
     include: Vec<String>,
+    cargo_caches_unloaded: bool,
 }
 
 impl WalkInputs {
@@ -340,6 +349,7 @@ impl WalkInputs {
                 root: &self.root,
                 server_root: self.server_root.as_deref(),
                 include: &self.include,
+                cargo_caches_unloaded: self.cargo_caches_unloaded,
             },
             observed,
             stopped,

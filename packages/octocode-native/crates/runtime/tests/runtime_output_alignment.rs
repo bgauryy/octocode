@@ -98,7 +98,21 @@ async fn run_leads(
             .run("lead".into(), target.clone(), input)
             .await
         {
-            Ok(outcome) => outcome.exit_class() == ExitClass::InvalidInput,
+            // A lead the tool refused: its class is correctInput, and the
+            // refusal is not a target the doubles simply do not hold (a
+            // `notFound` answer accepted the input).
+            Ok(outcome) => {
+                outcome.exit_class()
+                    == ExitClass::Failed(octocode_native::runtime::ErrorClass::CorrectInput)
+                    && outcome.structured_content["results"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .any(|row| {
+                            row.pointer("/data/errorCode")
+                                .is_some_and(|code| code != "notFound")
+                        })
+            }
             Err(_) => true,
         };
         if rejected {

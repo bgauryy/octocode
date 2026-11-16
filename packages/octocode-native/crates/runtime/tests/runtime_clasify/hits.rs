@@ -61,7 +61,7 @@ fn answer(request: &Request) -> ResponseTemplate {
     )
 }
 
-async fn provider() -> MockServer {
+pub(super) async fn provider() -> MockServer {
     let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
@@ -73,9 +73,9 @@ async fn provider() -> MockServer {
 
 /// Six hits, one line apart, so any context window touches its neighbour;
 /// lines 1, 5 and 9 say KEEP.
-const DENSE: &str = "needle KEEP one\n\nneedle drop two\n\nneedle KEEP three\n\nneedle drop four\n\nneedle KEEP five\n\nneedle drop six\n";
+pub(super) const DENSE: &str = "needle KEEP one\n\nneedle drop two\n\nneedle KEEP three\n\nneedle drop four\n\nneedle KEEP five\n\nneedle drop six\n";
 
-fn kept_hit_lines(data: &Value) -> Vec<u64> {
+pub(super) fn kept_hit_lines(data: &Value) -> Vec<u64> {
     let mut lines = data["files"]
         .as_array()
         .into_iter()
@@ -90,7 +90,7 @@ fn kept_hit_lines(data: &Value) -> Vec<u64> {
     lines
 }
 
-const PREDICATE: &str = "Does this line say KEEP?";
+pub(super) const PREDICATE: &str = "Does this line say KEEP?";
 
 /// The hit is the unit whatever the context: a kept line satisfies the
 /// predicate, and the receipt counts hits.

@@ -164,6 +164,24 @@ fn a_type_pattern_holds_the_members_it_spells() {
     );
 }
 
+/// A capture in a type parameter list takes one whole parameter, its bound
+/// and default included, as ast-grep binds it: `<$T>` spells one parameter,
+/// not an unbounded one.
+#[test]
+fn a_type_parameter_capture_takes_a_bounded_parameter() {
+    let ts = "function a<T extends object>() {}\nfunction b<T = string>() {}\nfunction c<T>() {}\nfunction d<A, B>() {}\n";
+    assert_eq!(lines(ts, "ts", "function $N<$T>() { $$$ }"), [1, 2, 3]);
+    let classes = "class A<T extends B> {}\nclass C<T> {}\n";
+    assert_eq!(lines(classes, "ts", "class $C<$T> {}"), [1, 2]);
+    let rust = "fn a<T: Copy>() {}\nfn b<T = u8>() {}\nfn c<T>() {}\nfn d<A, B>() {}\n";
+    assert_eq!(lines(rust, "rs", "fn $N<$T>() {}"), [1, 2, 3]);
+    let java =
+        "class A {\n  <T extends B> void a() {}\n  <T> void b() {}\n  <A, B> void c() {}\n}\n";
+    assert_eq!(lines(java, "java", "<$T> void $N() {}"), [2, 3]);
+    let python = "def a[T: int](): pass\ndef b[T](): pass\n";
+    assert_eq!(lines(python, "py", "def $N[$T](): pass"), [1, 2]);
+}
+
 /// What a pattern spells is exact: a part it spells must be there and agree,
 /// and a function's parameters and body hold what it says and no more.
 #[test]

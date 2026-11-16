@@ -1,14 +1,19 @@
 //! The client side of a warm call: resolve the server for this call, start
 //! it when none answers, send the request and print the reply.
 
-use super::frames::{ALIVE, PROGRESS};
-use super::identity::{call_identity, exe_identity, served_env, server_key, workspace_of};
+use super::frames::{ALIVE, MCP, MCP_ERROR, PREWARM, PROGRESS};
+use super::identity::{
+    call_identity, exe_identity, process_identity, served_env, server_key, workspace_of,
+};
 use super::sockets::socket_in;
 use super::startup::{Unstarted, start};
+use super::surface::Surface;
 use super::{read_line_bounded, same_dir_form};
 use crate::cli::output::Printed;
 use octocode_contract_types::ErrorCode;
 use octocode_io::http::READ_STALL;
+use octocode_native::runtime::RuntimeError;
+use octocode_native::runtime::error::McpResult;
 use serde_json::Value;
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -64,25 +69,21 @@ pub(in crate::cli) async fn call(
     loaded: &mut Option<octocode_native::config::ConfigInput>,
 ) -> Option<u8> {
     let json_out = mode.json;
-    let target = target(loaded)?;
-    let mut stream = match connect(&target.socket).await {
-        Some(stream) => stream,
-        None => {
-            let cancel = async {
-                if tokio::signal::ctrl_c().await.is_err() {
-                    std::future::pending::<()>().await;
-                }
-            };
-            match start(&target.socket, &target.workspace, cancel).await {
-                Ok(stream) => stream,
-                Err(Unstarted::Cancelled) => return Some(130),
-                Err(Unstarted::Unavailable(reason)) => {
-                    eprintln!(
-                        "# octocode: warm server did not start ({reason}); running {tool} in process."
-                    );
-                    return None;
-                }
-            }
+    let remote = Remote::resolve(Surface::Cli, loaded)?;
+    let target = &remote.target;
+    let cancel = async {
+        if tokio::signal::ctrl_c().await.is_err() {
+            std::future::pending::<()>().await;
+        }
+    };
+    let mut stream = match remote.connect_or_start(cancel).await {
+        Ok(stream) => stream,
+        Err(Unstarted::Cancelled) => return Some(130),
+        Err(Unstarted::Unavailable(reason)) => {
+            eprintln!(
+                "# octocode: warm server did not start ({reason}); running {tool} in process."
+            );
+            return None;
         }
     };
     let request = Request {
@@ -92,6 +93,8 @@ pub(in crate::cli) async fn call(
         cwd: &target.cwd,
         env: &target.env,
         identity: &target.identity,
+        process: &target.process,
+        surface: Surface::Cli,
     };
     // An in-process call prints its configuration warnings at start.
     let warn = || octocode_native::runtime::ToolRuntime::print_startup_diagnostics(&target.config);
@@ -162,6 +165,193 @@ pub(in crate::cli) async fn call(
     Some(printed.print(mode))
 }
 
+/// A resolved way to reach the warm server of one process: where it is,
+/// and the identity every call and request of this process sends. The CLI
+/// makes one for its one call; an MCP server keeps one for its session, so
+/// its calls and its prewarm share one server and one configuration.
+pub(in crate::cli) struct Remote {
+    target: Target,
+    /// Starts of the server are one at a time: the calls that wait find it
+    /// started instead of each launching another.
+    starting: tokio::sync::Mutex<()>,
+    /// A start failed: this process runs in process from now on, so no call
+    /// launches a server that cannot serve again.
+    unserved: std::sync::atomic::AtomicBool,
+}
+
+/// What a server made of an MCP call.
+pub(in crate::cli) enum Warm {
+    /// The call's MCP result, as the in-process server answers it.
+    Answered(McpResult),
+    /// The call is a protocol error (cancelled, closing), as in process.
+    Ended(RuntimeError),
+    /// No server answered: the caller runs the call in process, and states
+    /// the reason when there is one.
+    InProcess(Option<String>),
+}
+
+impl Remote {
+    /// The server reachable from this process for `surface`, or `None`
+    /// when it must not be used ([`target`]).
+    pub(in crate::cli) fn resolve(
+        surface: Surface,
+        loaded: &mut Option<octocode_native::config::ConfigInput>,
+    ) -> Option<Self> {
+        Some(Self {
+            target: target(surface, loaded)?,
+            starting: tokio::sync::Mutex::new(()),
+            unserved: std::sync::atomic::AtomicBool::new(false),
+        })
+    }
+
+    /// A connection to the server, started when none answers; `cancel`
+    /// stops the wait for a start.
+    async fn connect_or_start(
+        &self,
+        cancel: impl std::future::Future<Output = ()>,
+    ) -> Result<tokio::net::UnixStream, Unstarted> {
+        if let Some(stream) = connect(&self.target.socket).await {
+            return Ok(stream);
+        }
+        let _starting = self.starting.lock().await;
+        if let Some(stream) = connect(&self.target.socket).await {
+            return Ok(stream);
+        }
+        start(&self.target.socket, &self.target.workspace, cancel).await
+    }
+
+    /// Run the MCP call `tool` on the server. `cancelled` cancels it there;
+    /// the progress it raises goes to the listener of the notice scope the
+    /// caller runs in ([`octocode_io::notice::Scope::progress`]).
+    pub(in crate::cli) async fn call_mcp(
+        &self,
+        tool: &str,
+        input: &Value,
+        cancelled: &tokio_util::sync::CancellationToken,
+    ) -> Warm {
+        use std::sync::atomic::Ordering::Relaxed;
+        if self.unserved.load(Relaxed) {
+            return Warm::InProcess(None);
+        }
+        let mut stream = match self.connect_or_start(std::future::pending::<()>()).await {
+            Ok(stream) => stream,
+            Err(Unstarted::Unavailable(reason)) => {
+                self.unserved.store(true, Relaxed);
+                return Warm::InProcess(Some(format!(
+                    "warm server did not start ({reason}); running {tool} in process"
+                )));
+            }
+            Err(Unstarted::Cancelled) => return Warm::InProcess(None),
+        };
+        let target = &self.target;
+        let request = Request {
+            tool,
+            input,
+            json_out: true,
+            cwd: &target.cwd,
+            env: &target.env,
+            identity: &target.identity,
+            process: &target.process,
+            surface: Surface::Mcp,
+        };
+        let listener = octocode_io::notice::Scope::current().and_then(|scope| scope.progress());
+        let exchanged = exchange_value(
+            &mut stream,
+            &request.line(),
+            reply_deadline(),
+            READ_STALL,
+            cancelled.cancelled(),
+            std::future::pending::<()>(),
+            || {},
+            move |line: &str| {
+                if let Some(listener) = &listener {
+                    listener(line);
+                }
+            },
+        )
+        .await;
+        match exchanged {
+            Ok(reply) => mcp_answer(&reply).unwrap_or_else(|| {
+                Warm::InProcess(Some(format!(
+                    "warm server sent no MCP result for {tool}; running it in process"
+                )))
+            }),
+            Err(Failed::Interrupted(_)) => Warm::Ended(RuntimeError {
+                code: ErrorCode::Cancelled,
+                message: "Request cancelled".to_owned(),
+                payload: None,
+                validation_issues: None,
+            }),
+            Err(Failed::Fallback(reason)) => Warm::InProcess(Some(format!(
+                "warm server failed ({reason}); running {tool} in process"
+            ))),
+            // No budget is set, so no deadline passes; the reply wait is
+            // bounded by the server's liveness alone.
+            Err(Failed::Deadline) => Warm::InProcess(Some(format!(
+                "warm server sent no {tool} reply in time; running it in process"
+            ))),
+        }
+    }
+
+    /// Ask the server to warm this session's workspace (a language-server
+    /// start per top language, in the shared pool). `Err` (the reason): no
+    /// server did it, so the caller warms its own.
+    pub(in crate::cli) async fn prewarm(&self) -> Result<(), String> {
+        use std::sync::atomic::Ordering::Relaxed;
+        if self.unserved.load(Relaxed) {
+            return Err("no warm server".into());
+        }
+        let mut stream = match self.connect_or_start(std::future::pending::<()>()).await {
+            Ok(stream) => stream,
+            Err(Unstarted::Unavailable(reason)) => {
+                self.unserved.store(true, Relaxed);
+                return Err(format!("warm server did not start ({reason})"));
+            }
+            Err(Unstarted::Cancelled) => return Err("cancelled".into()),
+        };
+        let target = &self.target;
+        let line = request_line(&json!({
+            PREWARM: true,
+            "surface": Surface::Mcp.as_str(),
+            "cwd": target.cwd,
+            "env": target.env,
+            "identity": target.identity,
+            "process": target.process,
+        }));
+        exchange_value(
+            &mut stream,
+            &line,
+            reply_deadline(),
+            READ_STALL,
+            std::future::pending::<()>(),
+            std::future::pending::<()>(),
+            || {},
+            |_| {},
+        )
+        .await
+        .map(|_| ())
+        .map_err(|failed| format!("{failed:?}"))
+    }
+}
+
+/// An MCP reply line as the call's answer; `None` when it is neither a
+/// result nor a protocol error.
+fn mcp_answer(reply: &Value) -> Option<Warm> {
+    if let Some(result) = reply.get(MCP) {
+        return Some(Warm::Answered(McpResult {
+            text: result.get("text")?.as_str()?.to_owned(),
+            is_error: result.get("isError")?.as_bool()?,
+        }));
+    }
+    let error = reply.get(MCP_ERROR)?;
+    Some(Warm::Ended(RuntimeError {
+        code: serde_json::from_value(error.get("code")?.clone()).ok()?,
+        message: error.get("message")?.as_str()?.to_owned(),
+        payload: None,
+        validation_issues: None,
+    }))
+}
+
 /// A server's answer: the call as printed, and the notices it raised
 /// ([`octocode_io::notice`]), which an in-process call prints on stderr.
 #[derive(Debug, PartialEq, Eq)]
@@ -184,6 +374,34 @@ pub(super) struct Request<'a> {
     pub(super) env: &'a BTreeMap<String, String>,
     /// The client's [`call_identity`]: the server answers only under it.
     pub(super) identity: &'a str,
+    /// The client's [`process_identity`]: the server answers only when its
+    /// own process environment is the same.
+    pub(super) process: &'a str,
+    /// The surface whose runtime answers, and in whose reply form.
+    pub(super) surface: Surface,
+}
+
+impl Request<'_> {
+    /// The request as its one line.
+    pub(super) fn line(&self) -> String {
+        request_line(&json!({
+            "tool": self.tool,
+            "input": self.input,
+            "json": self.json_out,
+            "cwd": self.cwd,
+            "env": self.env,
+            "identity": self.identity,
+            "process": self.process,
+            "surface": self.surface.as_str(),
+        }))
+    }
+}
+
+/// `request` as the one line a server reads.
+fn request_line(request: &Value) -> String {
+    let mut line = request.to_string();
+    line.push('\n');
+    line
 }
 
 /// Where and as what a call goes to a server.
@@ -195,6 +413,7 @@ pub(super) struct Target {
     pub(super) workspace: PathBuf,
     pub(super) env: BTreeMap<String, String>,
     pub(super) identity: String,
+    pub(super) process: String,
     /// The configuration this call resolved, for its warnings.
     pub(super) config: octocode_native::config::ConfigOutput,
 }
@@ -204,23 +423,27 @@ pub(super) struct Target {
 /// for a socket (stated on stderr, then in process). `loaded` then holds the
 /// config files read for it, unless the working directory was reached through
 /// a symbolic link: the in-process runtime keys files by the directory as given.
-pub(super) fn target(loaded: &mut Option<octocode_native::config::ConfigInput>) -> Option<Target> {
+pub(super) fn target(
+    surface: Surface,
+    loaded: &mut Option<octocode_native::config::ConfigInput>,
+) -> Option<Target> {
     use octocode_native::config::{
-        RuntimeSurface, acquire_config_input, is_persistent_storage_enabled, resolve_config,
+        acquire_config_input, is_persistent_storage_enabled, resolve_config,
     };
     let given = std::env::current_dir().ok()?;
     let cwd = same_dir_form(&given);
     let os_home = std::env::home_dir()?;
     let env = served_env(octocode_io::env::vars_lossy());
-    let input = acquire_config_input(env.clone(), cwd.clone(), os_home, RuntimeSurface::Cli);
+    let input = acquire_config_input(env.clone(), cwd.clone(), os_home, surface.runtime());
     let config = resolve_config(&input);
     if !is_persistent_storage_enabled(&config.resolved) {
         *loaded = (given == cwd).then_some(input);
         return None;
     }
-    let identity = call_identity(&config, &env);
+    let identity = call_identity(&config);
+    let process = process_identity(&env);
     let workspace = workspace_of(&cwd);
-    let key = server_key(&exe_identity()?, &workspace, &identity);
+    let key = server_key(&exe_identity()?, &workspace, &process);
     let socket = match socket_in(&std::env::temp_dir(), &key) {
         Ok(socket) => socket,
         Err(reason) => {
@@ -235,6 +458,7 @@ pub(super) fn target(loaded: &mut Option<octocode_native::config::ConfigInput>) 
         workspace,
         env,
         identity,
+        process,
         config,
     })
 }
@@ -253,15 +477,8 @@ async fn within<T>(
     }
 }
 
-/// Send one request and read the printed call back within `deadline`, or
-/// with none for as long as the server keeps the connection and says
-/// something at least each `silence`: progress and heartbeat frames count,
-/// so a long call is waited for and a server that went silent (stopped,
-/// hung) is a fallback. `first` is the first interrupt: it calls
-/// `interrupted`, closes the request side (the server cancels), then waits
-/// for the server to finish unless `second` arrives first. Each progress
-/// frame the server sends while the call runs goes to `progress` as it
-/// arrives.
+/// Send one request and read the printed call back: [`exchange_value`]
+/// decoded as a CLI reply.
 pub(super) async fn exchange(
     stream: &mut tokio::net::UnixStream,
     request: &Request<'_>,
@@ -270,20 +487,55 @@ pub(super) async fn exchange(
     first: impl std::future::Future<Output = ()>,
     second: impl std::future::Future,
     interrupted: impl FnOnce(),
-    mut progress: impl FnMut(&str),
+    progress: impl FnMut(&str),
 ) -> Result<Reply, Failed> {
+    let reply = exchange_value(
+        stream,
+        &request.line(),
+        deadline,
+        silence,
+        first,
+        second,
+        interrupted,
+        progress,
+    )
+    .await?;
+    let notices = reply["notices"]
+        .as_array()
+        .map(|notices| {
+            notices
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    let printed = Printed::from_json(reply)
+        .ok_or_else(|| Failed::Fallback("the reply was not a printed call".to_owned()))?;
+    Ok(Reply { printed, notices })
+}
+
+/// Send the request `line` and read the reply line back within `deadline`,
+/// or with none for as long as the server keeps the connection and says
+/// something at least each `silence`: progress and heartbeat frames count,
+/// so a long call is waited for and a server that went silent (stopped,
+/// hung) is a fallback. `first` is the first interrupt (a Ctrl-C, an MCP
+/// cancel): it calls `interrupted`, closes the request side (the server
+/// cancels), then waits for the server to finish unless `second` arrives
+/// first. Each progress frame the server sends while the call runs goes to
+/// `progress` as it arrives. A `fallback` reply is [`Failed::Fallback`].
+pub(super) async fn exchange_value(
+    stream: &mut tokio::net::UnixStream,
+    line: &str,
+    deadline: Option<std::time::Duration>,
+    silence: std::time::Duration,
+    first: impl std::future::Future<Output = ()>,
+    second: impl std::future::Future,
+    interrupted: impl FnOnce(),
+    mut progress: impl FnMut(&str),
+) -> Result<Value, Failed> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
     let fallback = |reason: &str| Failed::Fallback(reason.to_owned());
-    let mut line = json!({
-        "tool": request.tool,
-        "input": request.input,
-        "json": request.json_out,
-        "cwd": request.cwd,
-        "env": request.env,
-        "identity": request.identity,
-    })
-    .to_string();
-    line.push('\n');
     let (read, mut write) = stream.split();
     write
         .write_all(line.as_bytes())
@@ -330,19 +582,7 @@ pub(super) async fn exchange(
     if let Some(reason) = reply.get("fallback").and_then(Value::as_str) {
         return Err(fallback(reason));
     }
-    let notices = reply["notices"]
-        .as_array()
-        .map(|notices| {
-            notices
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::to_owned)
-                .collect()
-        })
-        .unwrap_or_default();
-    let printed =
-        Printed::from_json(reply).ok_or_else(|| fallback("the reply was not a printed call"))?;
-    Ok(Reply { printed, notices })
+    Ok(reply)
 }
 
 pub(super) async fn connect(socket: &Path) -> Option<tokio::net::UnixStream> {

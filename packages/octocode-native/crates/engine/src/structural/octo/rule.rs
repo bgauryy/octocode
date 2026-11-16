@@ -309,10 +309,11 @@ impl CompiledRule {
             }
         }
         if let Some(rule) = &self.not {
-            // `not` never contributes bindings, matched or not.
-            let before_not = captures.checkpoint();
-            let negated = rule.matches(candidate, ancestors, document, captures)?;
-            captures.rollback(before_not);
+            // `not` neither contributes bindings nor reads its siblings':
+            // like ast-grep it asks whether the rule holds on its own, so a
+            // name bound by a `has` beside it cannot make the negation vacuous.
+            let negated =
+                rule.matches(candidate, ancestors, document, &mut CaptureEnv::default())?;
             if negated {
                 captures.rollback(checkpoint);
                 return Ok(false);

@@ -87,20 +87,20 @@ fn local_rows_exit_by_outcome() {
         ),
         // Paging is success: the page's `next.*` is the continuation.
         ("localFetch", json!({"queries":[page.clone()]}), 0),
-        ("localFetch", json!({"queries":[fetch(&missing)]}), 3),
+        ("localFetch", json!({"queries":[fetch(&missing)]}), 2),
         (
             "localFetch",
             json!({"queries":[fetch(&missing), fetch(&missing)]}),
-            3,
+            2,
         ),
         // A failed row is never hidden by an answering one: the worst row
         // decides (error class over a continuation).
         (
             "localFetch",
             json!({"queries":[fetch(&missing), fetch(&file)]}),
-            3,
+            2,
         ),
-        ("localFetch", json!({"queries":[fetch(&missing), page]}), 3),
+        ("localFetch", json!({"queries":[fetch(&missing), page]}), 2),
         (
             "localSearch",
             json!({"queries":[search(&root, "needle"), {"path":root,"bogus":1}]}),
@@ -152,7 +152,7 @@ fn root_help_states_the_batch_exit_rule_the_cli_applies() {
         .join(" ");
     assert!(
         help.contains(
-            "A batch exits 2 if any row rejected its input, else its failed rows' code (5 if they differ), else 1 only when every row is empty or out of range, else 0; stdout still carries every row's result."
+            "A batch exits 2 if any row is correctInput, else 4 if any is refused, else 6 if any is restart, else 5 if any is unservable, else 7 when every failure is transient, else 1 only when every row is empty or out of range, else 0; stdout still carries every row's result."
         ),
         "{help}"
     );
@@ -178,7 +178,7 @@ fn root_help_states_the_batch_exit_rule_the_cli_applies() {
         (
             "localFetch",
             json!([fetch(&missing), fetch(&file.to_string_lossy())]),
-            3,
+            2,
         ),
         ("localSearch", json!([search(&root, "zzqqxx"), rejected]), 2),
     ] {
@@ -205,7 +205,7 @@ fn invalid_provider_configuration_uses_the_one_config_code() {
         "ghCloneRepo",
         &json!({"queries":[{"owner":"a","repo":"b"}]}),
     );
-    assert_exit(&output, 5);
+    assert_exit(&output, 4);
     assert_eq!(first_data(&output)["errorCode"], "config");
 }
 

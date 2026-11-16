@@ -127,8 +127,9 @@ pub(super) fn lock(
     Ok(lock)
 }
 
-/// Removes this build's extraction job once the snapshot `receipt` names is
-/// published, preserving any newer or still-held job for the same scope.
+/// Settles this build's extraction job as the scope's fact cache once the
+/// snapshot `receipt` names is published, leaving any newer or still-held job
+/// for the same scope alone.
 pub(super) fn finish_checkpoint(
     options: &IngestOptions,
     home: &Path,
@@ -149,11 +150,11 @@ pub(super) fn finish_checkpoint(
             )
         })?;
     let job = checkpoint::job_path(&home.join(".facts"), &built.root);
-    if let Err(error) = checkpoint::complete(&job, generation) {
+    if let Err(error) = checkpoint::settle(&job, generation) {
         return Err(GraphOutput::error(
             error.code,
             format!(
-                "graph {} was published at {}, but its extraction checkpoint could not be removed: {}",
+                "graph {} was published at {}, but its extraction checkpoint could not be settled: {}",
                 receipt["id"].as_str().unwrap_or_default(),
                 receipt["dir"].as_str().unwrap_or_default(),
                 error.message

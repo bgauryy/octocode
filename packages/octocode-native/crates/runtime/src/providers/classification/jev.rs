@@ -26,6 +26,7 @@ static DEFAULTS: ProviderDefaults = ProviderDefaults {
     // by default; with the long-context header "the per-request context and
     // the per-question context are both 262k tokens".
     context_tokens: 32_000,
+    request_tokens: 64_000,
     long_context_tokens: 262_000,
 };
 

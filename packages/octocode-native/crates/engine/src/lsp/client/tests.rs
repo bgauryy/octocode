@@ -138,9 +138,15 @@ fn configurable_server(
         language_id: Some("plaintext".into()),
         document_language_ids: Default::default(),
         initialization_options: None,
+        // The server runs under what it is given: `PATH` for `node`.
         env: Some(
-            env.iter()
-                .map(|(key, value)| ((*key).to_owned(), value.clone()))
+            std::env::var("PATH")
+                .into_iter()
+                .map(|path| ("PATH".to_owned(), path))
+                .chain(
+                    env.iter()
+                        .map(|(key, value)| ((*key).to_owned(), value.clone())),
+                )
                 .collect(),
         ),
         max_memory_mb,

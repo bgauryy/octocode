@@ -73,10 +73,35 @@ pub struct ProviderDefaults {
     /// the window refused is split into; whether a request fits stays the
     /// provider's call.
     pub context_tokens: u64,
+    /// The vendor's documented default per-request window in tokens: one
+    /// request's state and every question it holds together. Requests that
+    /// share a state across units size it from this and `context_tokens`.
+    pub request_tokens: u64,
     /// The vendor's documented long-context window in tokens, read at its
     /// lower bound. The runtime retries a refused request there on its own
     /// only when the retry provably fits it.
     pub long_context_tokens: u64,
+}
+
+impl ProviderDefaults {
+    /// The window of one question over a state (`long`: the long-context
+    /// one, whose per-question and per-request contexts are the same).
+    pub fn question_window(&self, long: bool) -> u64 {
+        if long {
+            self.long_context_tokens
+        } else {
+            self.context_tokens
+        }
+    }
+
+    /// The window of one whole request: its state and all its questions.
+    pub fn request_window(&self, long: bool) -> u64 {
+        if long {
+            self.long_context_tokens
+        } else {
+            self.request_tokens
+        }
+    }
 }
 
 /// Token usage a response reports.

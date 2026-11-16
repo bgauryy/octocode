@@ -35,7 +35,7 @@ fn text_mode_failed_rows_state_their_status_on_stdout() {
         .args(["localFetch", &query])
         .output()
         .expect("missing read");
-    assert_eq!(exit_code(&output), Some(3));
+    assert_eq!(exit_code(&output), Some(2));
     let text = stdout(&output);
     assert!(
         serde_json::from_str::<serde_json::Value>(text.trim()).is_err(),
@@ -66,7 +66,7 @@ fn json_mode_errors_go_to_stdout_without_stderr() {
         .args(["localFetch", &query, "--json"])
         .output()
         .expect("missing read");
-    assert_eq!(exit_code(&output), Some(3));
+    assert_eq!(exit_code(&output), Some(2));
     let value: serde_json::Value = serde_json::from_str(stdout(&output)).expect("JSON error");
     assert_eq!(value["results"][0]["data"]["errorCode"], "notFound");
     assert!(

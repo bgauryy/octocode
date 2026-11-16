@@ -167,3 +167,19 @@ fn an_include_glob_that_matches_no_file_gets_the_shared_glob_hint_and_lead() {
         "{out}"
     );
 }
+
+/// A directory scan whose every candidate was refused as text (here
+/// binary content) states its coverage as an empty scan does:
+/// `filesScanned` 0 beside the diagnostic naming the file.
+#[test]
+fn a_scan_whose_candidates_were_all_refused_states_it_scanned_none() {
+    let root = Fixture::new();
+    std::fs::write(root.0.join("latin.js"), b"function cafeFn(){}\ncafeFn();\0").expect("fixture");
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"rule":{"kind":"call_expression"}}),
+    )
+    .expect("match");
+    assert_eq!(out["filesScanned"], 0, "{out}");
+    assert!(out["diagnostics"].to_string().contains("latin.js"), "{out}");
+}

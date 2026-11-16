@@ -109,4 +109,50 @@ proptest! {
         }
     }
 
+
+    /// The per-line ASCII path answers what counting the line's UTF-16 units
+    /// from its start answers, on text long enough to cross checkpoints and
+    /// mixing all-ASCII lines with lines holding wide characters.
+    #[test]
+    fn line_columns_equal_the_units_counted_from_the_line_start(content in long_content_strategy()) {
+        for lone_cr_breaks in [false, true] {
+            let index = if lone_cr_breaks {
+                LineIndex::new(&content)
+            } else {
+                LineIndex::tree_sitter(&content)
+            };
+            for (byte, ch) in content.char_indices().chain([(content.len(), '\0')]) {
+                if matches!(ch, '\n' | '\r') {
+                    continue;
+                }
+                let start = content[..byte]
+                    .rfind(|c| c == '\n' || (lone_cr_breaks && c == '\r'))
+                    .map_or(0, |at| at + 1);
+                let expected = content[start..byte].encode_utf16().count() as u32;
+                let (line, column) = index.byte_to_position(&content, byte as u32);
+                prop_assert_eq!(column, expected, "byte {} in {:?}", byte, content);
+                let line_start = index.line_starts_byte[line as usize] as usize;
+                prop_assert_eq!(
+                    index.row_col_to_utf16_column(&content, line, (byte - line_start) as u32),
+                    expected
+                );
+            }
+        }
+    }
+}
+
+/// Runs of ASCII, wide characters and every line break, past several
+/// checkpoint gaps.
+fn long_content_strategy() -> impl Strategy<Value = String> {
+    proptest::collection::vec(
+        prop_oneof![
+            "[a-z ]{0,300}",
+            Just("é中😀".to_owned()),
+            Just("\n".to_owned()),
+            Just("\r\n".to_owned()),
+            Just("\r".to_owned()),
+        ],
+        0..14,
+    )
+    .prop_map(|parts| parts.concat())
 }

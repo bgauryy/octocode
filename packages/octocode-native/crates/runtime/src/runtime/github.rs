@@ -1,5 +1,5 @@
 //! One pooled HTTP client; credential acquisition stays inside admitted blocking work.
-use super::FailureKind;
+
 use crate::execution::{ExecutionContext, ExecutionError};
 use crate::{
     config::ConfigOutput,
@@ -8,7 +8,7 @@ use crate::{
     providers::github::{Authentication, CallSelection},
     response::outcome::DomainResult,
     security::ContentSecurity,
-    tools::gh_clone_repo::SystemGit,
+    tools::gh_git::SystemGit,
 };
 use octocode_github::*;
 use octocode_io::budget::{PROVIDER_BODY_BYTES, RequestBudget};
@@ -177,7 +177,9 @@ impl GitHubServices {
                 data.insert("clientWaits".into(), json!(waits));
             }
         }
-        if result.failure == Some(FailureKind::Authentication) {
+        if crate::id::error_code_of(&result.data)
+            == Some(octocode_contract_types::ErrorCode::Authentication)
+        {
             if context.github_credential.is_some() {
                 // The host supplied this token: the host re-authenticates
                 // its caller. Ambient credential state stays untouched.

@@ -202,7 +202,7 @@ impl ToolRuntime {
         // The shared clone store holds git objects, not checkouts: local
         // tools read the worktrees under `clones/`, never the store, even
         // when the workspace contains the home.
-        .closing(&crate::tools::gh_clone_repo::storage::store_root(
+        .closing(&crate::tools::gh_git::store_root(
             &octocode_home,
         ));
         let security = ContentSecurity::new();
@@ -215,7 +215,9 @@ impl ToolRuntime {
             env: config
                 .effective_env
                 .iter()
-                .filter(|(key, _)| key.starts_with("OCTOCODE_"))
+                // The settings and the environment a call carries to language
+                // server discovery and start (`PATH`, the toolchain variables).
+                .filter(|(key, _)| octocode_engine::process_env::carried(key))
                 .map(|(key, value)| (key.clone(), value.clone()))
                 .collect(),
             octocode_home: Some(octocode_home),

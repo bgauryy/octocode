@@ -9,7 +9,8 @@ tools, in TypeScript or anywhere else outside the binary.
 flowchart LR
   client[MCP client] -- stdio --> launcher["octocode-mcp (Node launcher)"]
   launcher -- "same stdio, argv: mcp" --> bin["octocode mcp (native binary)"]
-  bin --> runtime[ToolRuntime]
+  bin --> runtime["ToolRuntime (in process)"]
+  bin -. "read-only tools, persistent storage" .-> serve["octocode serve (warm server)"]
 ```
 
 ## Runtime boundary
@@ -33,6 +34,16 @@ flowchart LR
   validation, execution, response shaping, pagination, cancellation and
   shutdown. Its design: `packages/octocode-native/ARCHITECTURE.md`
   (`crates/cli/src/cli/mcp_server/`); behavior and tool catalog: `docs/OCTOCODE_MCP.md`.
+
+Under persistent storage (macOS and Linux) the binary runs the read-only tools on
+the workspace's warm server, `octocode serve`, and keeps the protocol itself:
+stdio, listing, the relay of progress as `notifications/progress` and of
+`notifications/cancelled` as a cancel on the server. The server keeps one
+language-server pool for every MCP session and CLI call in the workspace and
+outlives the session; a tool that writes the workspace, memory storage, Windows
+and a call no server answers run in process
+(`crates/cli/src/cli/mcp_server/warm.rs`; keys and limits:
+`packages/octocode-native/README.md#warm-tool-server`).
 
 There is no TypeScript tool fallback and no addon. If the launcher cannot resolve or acquire a suitable platform binary, it reports the startup failure to the client.
 

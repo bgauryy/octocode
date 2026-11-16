@@ -8,6 +8,7 @@ fn visited(root: &Path, server: &Path) -> (usize, Vec<String>) {
         root,
         server_root: Some(server),
         include: &include,
+        cargo_caches_unloaded: false,
     };
     let visits = AtomicUsize::new(0);
     let stopped = || {
@@ -85,6 +86,7 @@ fn lexical_fingerprints_keep_search_exclusions() {
         root,
         server_root: None,
         include: &include,
+        cargo_caches_unloaded: false,
     };
     let (_, entries) = fingerprint(&scope, SystemTime::now(), &|| false).expect("fingerprint");
     assert!(entries.contains_key("src/lib.rs"), "{entries:?}");
@@ -104,6 +106,7 @@ fn large_fresh_sources_preserve_the_complete_fingerprint() {
         root,
         server_root: Some(root),
         include: &include,
+        cargo_caches_unloaded: false,
     };
     let (_, before) = fingerprint(&scope, SystemTime::now(), &|| false)
         .expect("a large source must not discard the other files' revision");
@@ -144,6 +147,7 @@ fn poisoned_fingerprint_state_abandons_the_walk() {
         root: dir.path(),
         server_root: None,
         include: &[],
+        cargo_caches_unloaded: false,
     };
     for poison_read in [false, true] {
         let lines = Mutex::new(Vec::new());
@@ -166,4 +170,104 @@ fn poisoned_fingerprint_state_abandons_the_walk() {
             assert!(walked_fingerprint(&scope, SystemTime::now(), &|| false, &read).is_none());
         }
     }
+}
+
+/// A Cargo package with a built target directory, its build-script output
+/// and a gitignored generated source.
+fn cargo_fixture() -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().expect("dir");
+    let root = std::fs::canonicalize(dir.path()).expect("canonical root");
+    std::fs::create_dir(root.join(".git")).expect("repository marker");
+    for (file, content) in [
+        (".gitignore", "generated/\ntarget/\n"),
+        (
+            "Cargo.toml",
+            "[package]\nname = \"p\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        ),
+        ("src/lib.rs", "pub fn f() {}\n"),
+        (
+            "target/CACHEDIR.TAG",
+            "Signature: 8a477f597d28d172789f06886806bc55\n",
+        ),
+        ("target/debug/deps/a.rmeta", "rmeta"),
+        (
+            "target/debug/build/p-1/out/gen.rs",
+            "pub fn generated() {}\n",
+        ),
+        ("generated/x.rs", "pub fn x() {}\n"),
+    ] {
+        let path = root.join(file);
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("directory");
+        std::fs::write(path, content).expect("file");
+    }
+    (dir, root)
+}
+
+fn cargo_fingerprint(root: &Path, cargo_caches_unloaded: bool) -> Fingerprint {
+    let include = ["*.rs".to_owned()];
+    fingerprint(
+        &FingerprintScope {
+            root,
+            server_root: Some(root),
+            include: &include,
+            cargo_caches_unloaded,
+        },
+        octocode_engine::stamp::settle_clock(),
+        &|| false,
+    )
+    .expect("fingerprint")
+}
+
+/// rust-analyzer with build scripts off loads nothing of the package's
+/// target directory: a build writing there keeps the kept fingerprint (no
+/// walk, same digest), while a source edit changes it and a gitignored
+/// source the server compiles stays covered.
+#[test]
+fn build_scripts_off_leave_the_cargo_target_directory_out() {
+    use octocode_engine::stamp::settle_written_so_far;
+    let (_dir, root) = cargo_fixture();
+    settle_written_so_far();
+    let first = cargo_fingerprint(&root, true);
+    let walks = WALKS.of(&root);
+    assert!(first.1.contains_key("generated/x.rs"), "{:?}", first.1);
+    assert!(
+        !first.1.keys().any(|path| path.starts_with("target/")),
+        "{:?}",
+        first.1
+    );
+    std::fs::write(root.join("target/debug/deps/b.rmeta"), "rmeta").expect("build output");
+    settle_written_so_far();
+    let built = cargo_fingerprint(&root, true);
+    assert_eq!(built, first, "a build changes nothing the server loads");
+    assert_eq!(
+        WALKS.of(&root),
+        walks,
+        "the kept fingerprint holds across a build"
+    );
+    std::fs::write(root.join("src/lib.rs"), "pub fn g() {}\n").expect("edit");
+    settle_written_so_far();
+    assert_ne!(cargo_fingerprint(&root, true).0, first.0);
+}
+
+/// Build scripts on, rust-analyzer loads their output under the target
+/// directory: an edit there changes the fingerprint.
+#[test]
+fn build_scripts_on_cover_build_script_output() {
+    use octocode_engine::stamp::settle_written_so_far;
+    let (_dir, root) = cargo_fixture();
+    settle_written_so_far();
+    let first = cargo_fingerprint(&root, false);
+    assert!(first.1.contains_key("generated/x.rs"), "{:?}", first.1);
+    assert!(
+        first.1.contains_key("target/debug/build/p-1/out/gen.rs"),
+        "{:?}",
+        first.1
+    );
+    std::fs::write(
+        root.join("target/debug/build/p-1/out/gen.rs"),
+        "pub fn regenerated() {}\n",
+    )
+    .expect("build-script output");
+    settle_written_so_far();
+    assert_ne!(cargo_fingerprint(&root, false).0, first.0);
 }

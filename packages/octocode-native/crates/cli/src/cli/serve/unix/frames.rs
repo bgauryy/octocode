@@ -1,6 +1,7 @@
 //! Frames: what a server says on the socket while a call runs.
 //!
-//! A reply line is the call as printed. Before it, the server may write any
+//! A reply line is the call as printed (a CLI call) or as an MCP result (an
+//! MCP call: [`MCP`], [`MCP_ERROR`]). Before it, the server may write any
 //! number of frame lines: `{"progress":"<line>"}`, one per progress line
 //! the call raised ([`octocode_io::notice::progress_sink`]) in the order
 //! raised, and `{"alive":true}` each [`HEARTBEAT`] the call runs without
@@ -32,6 +33,17 @@ pub(super) const PROGRESS: &str = "progress";
 
 /// The key of a heartbeat frame: the server is alive and the call runs.
 pub(super) const ALIVE: &str = "alive";
+
+/// The key of an MCP call's reply: `{"mcp":{"text","isError"}}`.
+pub(super) const MCP: &str = "mcp";
+
+/// The key of the reply to an MCP call that is a protocol error (cancelled,
+/// closing): `{"mcpError":{"code","message"}}`.
+pub(super) const MCP_ERROR: &str = "mcpError";
+
+/// The key of a request that asks the server to warm an MCP session's
+/// workspace: `{"prewarm":true,...}`, answered `{"prewarmed":true}`.
+pub(super) const PREWARM: &str = "prewarm";
 
 /// How long a running call goes without a frame: a tenth of the
 /// [`READ_STALL`] a client waits through, so a long call that says nothing

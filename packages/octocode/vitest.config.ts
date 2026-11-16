@@ -20,7 +20,8 @@ export default defineConfig({
         functions: 80,
         lines: 71,
       },
-      exclude: ['src/index.ts'],
+      // Entry points: their side effects run in the packaged install checks.
+      exclude: ['src/index.ts', 'src/install.ts'],
     },
     testTimeout: 30000,
     hookTimeout: 15000,

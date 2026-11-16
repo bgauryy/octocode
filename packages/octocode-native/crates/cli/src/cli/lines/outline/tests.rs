@@ -106,7 +106,7 @@ fn a_batch_prints_each_row_under_its_heading_in_its_line_format() {
             "errorCode: notFound",
             "error: No such path",
             "# results[1] status: error",
-            "# responsePagination: hasMore",
+            "# responsePagination: hasMore true",
             "# responsePagination.next: octocode localSearch '{\"cursor\":\"cursor-envelope\"}'",
         ]
         .join("\n")
@@ -131,7 +131,8 @@ fn a_batch_prints_each_row_under_its_heading_in_its_line_format() {
 /// A list of flat rows with at most one free-text field is a table: the
 /// columns named once, identity first and the free text last, a field no
 /// row lacks with one word on every row stated once, `-` where a row lacks
-/// a field. Every row of the list uses the one layout.
+/// a field in the middle; a row ends at its last present cell (defect E9).
+/// Every row of the list uses the one layout.
 #[test]
 fn flat_rows_print_as_one_table() {
     let fetched = json!({"results":[{"index":0,"data":{"commits":[
@@ -143,9 +144,9 @@ fn flat_rows_print_as_one_table() {
         lines.out,
         [
             "commits[]: sha date author messageHeadline  [state open]",
-            "  abc 2026-01-01 ada -",
+            "  abc 2026-01-01 ada",
             "  def 2026-01-02 - fix: two words",
-            "  fed 2026-01-03 bob -",
+            "  fed 2026-01-03 bob",
         ]
         .join("\n")
     );
@@ -232,4 +233,22 @@ fn a_replayed_answer_states_when_it_was_observed_in_the_trailer() {
         .expect("text")
         .out;
     assert!(!out.contains("observedAt"), "{out}");
+}
+
+/// A multi-line value that ends its last line prints no line of its own
+/// after it: no indent-only line closes a read with gaps.
+#[test]
+fn a_value_ending_in_a_line_break_prints_no_trailing_blank_line() {
+    let fetched = json!({"results":[{"index":0,"data":{
+        "content":"1\ta1\n2\ta2\n--\n5\ta5\n6\ta6\n","totalLines":7}}]});
+    let lines = render(ToolId::LocalFetch, &fetched, &json!({}), None).expect("lines");
+    assert!(
+        !lines
+            .out
+            .lines()
+            .any(|line| !line.is_empty() && line.trim().is_empty()),
+        "{:?}",
+        lines.out
+    );
+    assert!(lines.out.contains("6\ta6"), "{}", lines.out);
 }

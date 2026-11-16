@@ -43,8 +43,8 @@ fn java_members_beside_a_recovered_sibling_link_static_and_imported_calls() {
     let built = ingest_fixture(dir.0.as_path(), None);
     assert_eq!(built.class, ExitClass::Success, "{}", built.value);
     for overload in [
-        "com/x/Preconditions.java#Preconditions.checkNotNull@4",
-        "com/x/Preconditions.java#Preconditions.checkNotNull@8",
+        "com/x/Preconditions.java#Preconditions.checkNotNull@1",
+        "com/x/Preconditions.java#Preconditions.checkNotNull@2",
     ] {
         assert_eq!(
             callers(dir.0.as_path(), overload),
@@ -57,8 +57,8 @@ fn java_members_beside_a_recovered_sibling_link_static_and_imported_calls() {
         );
     }
     for decoy in [
-        "com/y/Preconditions.java#Preconditions.checkNotNull@4",
-        "com/y/Preconditions.java#Preconditions.checkNotNull@8",
+        "com/y/Preconditions.java#Preconditions.checkNotNull@1",
+        "com/y/Preconditions.java#Preconditions.checkNotNull@2",
     ] {
         assert!(callers(dir.0.as_path(), decoy).is_empty(), "{decoy}");
     }
@@ -130,5 +130,176 @@ fn rust_type_paths_link_associated_functions() {
     assert_eq!(
         callers(dir.0.as_path(), "src/runtime/park.rs#Parked.new"),
         vec!["src/future/mod.rs#run"]
+    );
+}
+
+/// A member call on a receiver the graph cannot type names its callee but
+/// links to no declaration: `callers` cannot list it, so it says how many
+/// such sites name the target and leads to them.
+#[test]
+fn callers_state_the_call_sites_that_only_name_the_target() {
+    let dir = git_app(&[
+        (
+            "lib/command.js",
+            "class Command {\n  _parseCommand(args) { return args; }\n}\nmodule.exports = { Command };\n",
+        ),
+        (
+            "lib/run.js",
+            "function run(subCommand, args) {\n  return subCommand._parseCommand(args);\n}\nmodule.exports = { run };\n",
+        ),
+    ]);
+    let built = ingest_fixture(dir.0.as_path(), None);
+    assert_eq!(built.class, ExitClass::Success, "{}", built.value);
+    let target = "lib/command.js#Command._parseCommand";
+    let named = ask(dir.0.as_path(), "unresolved", None, |o| {
+        o.symbol_name = Some("_parseCommand".into());
+    });
+    let sites = named.value["rows"].as_array().map_or(0, Vec::len);
+    assert_eq!(sites, 1, "{}", named.value);
+    let out = ask(dir.0.as_path(), "callers", Some(target), |_| {});
+    // The note promises the `unresolved` read by callee name; the served row
+    // keeps it.
+    crate::tools::test_support::assert_lead_served(
+        crate::id::ToolId::GraphQuery,
+        &out.value,
+        |input| {
+            input["queries"][0]["operation"] == "unresolved"
+                && input["queries"][0]["symbolName"] == "_parseCommand"
+        },
+    );
+    assert!(
+        out.value["rows"].as_array().is_none_or(Vec::is_empty),
+        "{}",
+        out.value
+    );
+    assert!(
+        out.value
+            .to_string()
+            .contains("1 call sites name the target but their receiver could not be resolved"),
+        "{} {}",
+        out.value,
+        named.value
+    );
+}
+
+/// The unresolved-receiver count is stated on answers that list callers too,
+/// as a partial answer; a target no site names only is not partial.
+#[test]
+fn callers_with_rows_and_unresolved_sites_are_partial_with_the_count() {
+    let dir = git_app(&[
+        (
+            "lib/command.js",
+            "class Command {\n  _parseCommand(args) { return args; }\n  _other(args) { return this._parseCommand(args); }\n}\nfunction direct(args) { return _helper(args); }\nfunction _helper(args) { return args; }\nmodule.exports = { Command, direct };\n",
+        ),
+        (
+            "lib/run.js",
+            "function run(subCommand, args) {\n  subCommand._parseCommand(args);\n  return subCommand._parseCommand(args);\n}\nfunction again(other, args) {\n  return other._parseCommand(args);\n}\nmodule.exports = { run, again };\n",
+        ),
+        (
+            "lib/own.js",
+            "const { direct } = require('./command');\nfunction go(args) { return direct(args); }\nmodule.exports = { go };\n",
+        ),
+    ]);
+    let built = ingest_fixture(dir.0.as_path(), None);
+    assert_eq!(built.class, ExitClass::Success, "{}", built.value);
+    let unresolved = ask(dir.0.as_path(), "unresolved", None, |o| {
+        o.symbol_name = Some("_parseCommand".into());
+    });
+    assert_eq!(
+        unresolved.value["rows"].as_array().map_or(0, Vec::len),
+        3,
+        "{}",
+        unresolved.value
+    );
+    let partial = ask(
+        dir.0.as_path(),
+        "callers",
+        Some("lib/command.js#Command._parseCommand"),
+        |_| {},
+    );
+    assert!(
+        partial.value["rows"]
+            .as_array()
+            .is_some_and(|rows| !rows.is_empty()),
+        "a resolved caller lists beside the unresolved count: {}",
+        partial.value
+    );
+    assert_eq!(partial.value["isPartial"], true, "{}", partial.value);
+    assert!(
+        partial.value["partialReasons"]
+            .as_array()
+            .is_some_and(|reasons| reasons.iter().any(|r| r == "callSitesUnresolved")),
+        "{}",
+        partial.value
+    );
+    assert!(
+        partial.value["warnings"].to_string().contains(
+            "3 call sites name the target but their receiver could not be resolved; related lists them by name; text search may find more"
+        ),
+        "{}",
+        partial.value
+    );
+    let complete = ask(
+        dir.0.as_path(),
+        "callers",
+        Some("lib/command.js#direct"),
+        |_| {},
+    );
+    assert!(
+        complete.value["rows"]
+            .as_array()
+            .is_some_and(|rows| !rows.is_empty()),
+        "{}",
+        complete.value
+    );
+    assert!(
+        complete.value.get("isPartial").is_none(),
+        "{}",
+        complete.value
+    );
+    assert!(
+        !complete
+            .value
+            .to_string()
+            .contains("receiver could not be resolved"),
+        "{}",
+        complete.value
+    );
+}
+
+/// `witnesses` scopes by `target` the side that makes the calls: a symbol
+/// that is only called lists nothing there, and the answer says `to` is the
+/// scope that lists the calls to it.
+#[test]
+fn witnesses_of_a_called_symbol_lead_to_the_destination_scope() {
+    let dir = git_app(&[(
+        "lib/x.js",
+        "function callee() { return 1; }\nfunction caller() { return callee(); }\nmodule.exports = { callee, caller };\n",
+    )]);
+    let built = ingest_fixture(dir.0.as_path(), None);
+    assert_eq!(built.class, ExitClass::Success, "{}", built.value);
+    let id = "lib/x.js#callee";
+    let by_target = ask(dir.0.as_path(), "witnesses", Some(id), |o| {
+        o.edges = vec!["calls".into()];
+    });
+    assert!(
+        by_target.value["rows"].as_array().is_none_or(Vec::is_empty),
+        "{}",
+        by_target.value
+    );
+    assert!(
+        by_target.value.to_string().contains("pass it as `to`"),
+        "{}",
+        by_target.value
+    );
+    let by_destination = ask(dir.0.as_path(), "witnesses", None, |o| {
+        o.edges = vec!["calls".into()];
+        o.to = Some(id.into());
+    });
+    assert_eq!(
+        by_destination.value["rows"].as_array().map(Vec::len),
+        Some(1),
+        "{}",
+        by_destination.value
     );
 }

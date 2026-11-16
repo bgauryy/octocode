@@ -192,7 +192,7 @@ impl Projector<'_> {
                 range: span.range,
                 origin: self.sources.origin(path, Some(span)),
             });
-            let argument = self.strings.id(&serde_json::json!(metadata).to_string());
+            let argument = self.strings.json(&metadata);
             let occurrence = self.strings.id(&result.occurrence);
             let provenance = self.provenance(result.src, Some(&result.range));
             if result.targets.is_empty() {

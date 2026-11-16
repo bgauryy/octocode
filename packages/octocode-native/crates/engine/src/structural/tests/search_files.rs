@@ -144,9 +144,9 @@ fn search_files_respects_excluded_directories_and_large_file_limit() {
 }
 
 #[test]
-fn search_files_reports_non_utf8_and_oversized_sources_per_file() {
+fn search_files_reports_binary_and_oversized_sources_per_file() {
     let root = TmpDir::new();
-    fs::write(root.join("binary.ts"), b"\xfftarget(x);").expect("write binary");
+    fs::write(root.join("binary.ts"), b"\0target(x);").expect("write binary");
     fs::write(root.join("large.ts"), "target(value);\n").expect("write large");
 
     let result = search_files_detailed(StructuralSearchFilesOptions {
@@ -181,7 +181,7 @@ fn search_files_reports_non_utf8_and_oversized_sources_per_file() {
     );
     assert_eq!(
         binary.diagnostics[0].message,
-        "Could not read file content as text: not valid UTF-8 or BOM-marked UTF-16 text."
+        "Could not read file content as text: binary content."
     );
     assert_eq!(
         binary.diagnostics[0].path.as_deref(),

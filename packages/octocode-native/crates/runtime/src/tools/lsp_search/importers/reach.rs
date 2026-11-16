@@ -470,7 +470,8 @@ impl AnchorModule {
             crate::security::SourceLimits::REAL.whole_source,
         )
         .ok()
-        .and_then(|bytes| super::super::source::admitted_text(&bytes).ok()) else {
+        .and_then(|bytes| super::super::source::admitted_text(&bytes).ok())
+        .map(|read| read.text) else {
             return true;
         };
         self.reaches(&file, &content, relays, Reading::Relay)
@@ -602,7 +603,9 @@ pub(super) fn read_checked(policy: &PathPolicy, file: &str) -> Option<String> {
         crate::security::SourceLimits::REAL.whole_source,
     )
     .ok()?;
-    super::super::source::admitted_text(&bytes).ok()
+    super::super::source::admitted_text(&bytes)
+        .ok()
+        .map(|read| read.text)
 }
 
 #[cfg(test)]

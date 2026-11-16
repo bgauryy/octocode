@@ -103,9 +103,7 @@ pub fn count_listed(
                 work: match_work(Mode::CountLines, false),
                 stop: &stop,
                 held: &held,
-                keep_head: false,
                 copy: false,
-                words: None,
                 terms: &[],
                 gate,
             })

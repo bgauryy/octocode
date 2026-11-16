@@ -203,7 +203,8 @@ pub(super) async fn run_target(
         paths,
         language_id,
         &target.fallback.discovery,
-    );
+    )
+    .serve_with(&target.config);
     // Read the anchor document once (bounded, regular files only). The same
     // text is sent in didOpen, resolves the anchor, and serves same-file
     // context windows; a bad document or anchor costs no server start.
@@ -291,6 +292,10 @@ pub(super) async fn run_target(
             EmptyAnswer::StillLoading => break failure::still_indexing(query, called.elapsed()),
         }
     };
+    // Positions count the decoded text of a file that is not UTF-8.
+    if let Some(warning) = document.as_deref().and_then(|source| source.warning) {
+        crate::response::paging::push_warnings(&mut result, [warning.to_owned()]);
+    }
     unanswered::check(
         unanswered::Request {
             query,

@@ -123,6 +123,50 @@ fn validate_tool_query(
     })
 }
 
+/// The `(tool, query)` field names of the embedded contract's `x-toolQuery`
+/// rule `id` (a clasify `source: {tool, query}`): the repair owner reads a
+/// nested query's issues by them ([`crate::contracts::normalize`]).
+pub(crate) fn tool_query_fields(id: &str) -> Option<(&'static str, &'static str)> {
+    static RULES: std::sync::OnceLock<Vec<(&'static str, &'static str, &'static str)>> =
+        std::sync::OnceLock::new();
+    fn collect(value: &'static Value, rules: &mut Vec<(&'static str, &'static str, &'static str)>) {
+        match value {
+            Value::Object(fields) => {
+                if let Some(rule) = fields.get("x-toolQuery")
+                    && let (Some(id), Some(tool), Some(query)) = (
+                        rule["id"].as_str(),
+                        rule["tool"].as_str(),
+                        rule["query"].as_str(),
+                    )
+                    && !rules.iter().any(|(known, ..)| *known == id)
+                {
+                    rules.push((id, tool, query));
+                }
+                for value in fields.values() {
+                    collect(value, rules);
+                }
+            }
+            Value::Array(items) => {
+                for value in items {
+                    collect(value, rules);
+                }
+            }
+            _ => {}
+        }
+    }
+    RULES
+        .get_or_init(|| {
+            let mut rules = Vec::new();
+            if let Ok(contract) = crate::contracts::parsed_contract() {
+                collect(contract, &mut rules);
+            }
+            rules
+        })
+        .iter()
+        .find(|(known, ..)| *known == id)
+        .map(|(_, tool, query)| (*tool, *query))
+}
+
 fn validate_order(
     order: &Value,
     value: &Value,

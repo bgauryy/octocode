@@ -15,6 +15,8 @@ mod graph_parity;
 mod prewarm;
 mod progress;
 mod server;
+#[cfg(unix)]
+mod warm;
 
 #[test]
 fn serves_the_2025_era_over_stdio() {

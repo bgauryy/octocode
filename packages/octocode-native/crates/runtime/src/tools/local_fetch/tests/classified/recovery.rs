@@ -111,16 +111,21 @@ fn unknown_and_whole_selection_recovery_reject_source_drift() {
         ),
         (next.unfiltered.expect("whole view").query, original),
     ];
-    for (recovery, expected) in &recoveries {
-        assert!(
-            !local_fetch_query::has_classification(recovery)
-                && local_fetch_query::selection(recovery).is_none()
+    for (index, (recovery, expected)) in recoveries.iter().enumerate() {
+        // The unknown chunks replay the selection (unbilled); the whole view
+        // is an ordinary read.
+        assert_eq!(
+            local_fetch_query::selection(recovery).is_some(),
+            index == 0,
+            "{recovery:?}"
         );
+        assert_eq!(local_fetch_query::has_classification(recovery), index == 0);
         assert_eq!(
             local_fetch_query::snapshot(recovery),
             Some(captured.as_str())
         );
-        let unchanged = fetch(recovery, &paths);
+        let unchanged =
+            execute_local_fetch(recovery, &paths, &Safe, &NeverCancel, None, Some(&runtime));
         assert_eq!(unchanged.error_code, None);
         assert_eq!(unchanged.content.as_deref(), Some(expected.as_str()));
     }
@@ -130,7 +135,8 @@ fn unknown_and_whole_selection_recovery_reject_source_drift() {
         .collect::<String>();
     fs::write(&path, changed_source).expect("change source");
     for (recovery, _) in &recoveries {
-        let changed = fetch(recovery, &paths);
+        let changed =
+            execute_local_fetch(recovery, &paths, &Safe, &NeverCancel, None, Some(&runtime));
         assert_eq!(changed.error_code, Some(ErrorCode::StaleSnapshot));
         assert!(changed.content.as_deref().unwrap_or_default().is_empty());
     }

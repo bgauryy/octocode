@@ -8,9 +8,10 @@ use crate::{
     response::outcome::{DomainResult, Upstream},
     security::ContentSecurity,
     tools::{
-        gh_clone_repo::{self, CloneConfig, CloneFailure, CloneSetup},
-        gh_get_file_content, gh_get_history_item, gh_search_code, gh_search_history,
-        gh_search_repo, gh_structure,
+        gh_clone_repo::{self, CloneFailure},
+        gh_get_file_content, gh_get_history_item,
+        gh_git::{self, CloneConfig, CloneSetup},
+        gh_search_code, gh_search_history, gh_search_repo, gh_structure,
     },
 };
 use octocode_contract_types::{
@@ -71,7 +72,17 @@ impl GitHubServices {
                 if !self.persistent && materializes(&query) {
                     return Ok(materialize_refused());
                 }
-                tool_row(gh_structure::run(&self.provider, &query, request, &self.home).await)
+                // A materialize reads blobs through git when it can.
+                let blobs = match (&request, materializes(&query)) {
+                    (Ok(request), true) if self.persistent => gh_git::blobs::BlobSource::new(
+                        self.clone_setup_for(request, context, paths),
+                    ),
+                    _ => None,
+                };
+                tool_row(
+                    gh_structure::run(&self.provider, &query, request, &self.home, blobs.as_ref())
+                        .await,
+                )
             }
             GitHubTool::GhGetFileContent => {
                 if let Some(path) = query["path"].as_str()
@@ -137,6 +148,27 @@ impl GitHubServices {
         Ok(row)
     }
 
+    /// The git side of one row: this row's credential, limiter, deadline and
+    /// cancellation, under the runtime's git and path policy.
+    fn clone_setup_for(
+        &self,
+        request: &RequestContext,
+        context: &ExecutionContext,
+        paths: &PathPolicy,
+    ) -> std::sync::Arc<CloneSetup> {
+        let config = CloneConfig::persistent(self.home.clone()).with_network_timeout(self.timeout);
+        std::sync::Arc::new(CloneSetup {
+            config,
+            endpoint: self.provider.transport.endpoint().clone(),
+            git_limiter: self.provider.transport.git_limiter().for_row(request),
+            credential: request.resolved_credential().cloned(),
+            cancellation: std::sync::Arc::new(context.clone()),
+            deadline: crate::execution::cancel::deadline_of(context),
+            path_policy: paths.clone(),
+            git: self.git.clone(),
+        })
+    }
+
     /// Clone a fresh checkout with the caller's access and runtime policy.
     async fn run_clone(
         &self,
@@ -149,17 +181,7 @@ impl GitHubServices {
             Ok(request) => request,
             Err(error) => return provider_error(error),
         };
-        let config = CloneConfig::persistent(self.home.clone()).with_network_timeout(self.timeout);
-        let setup = std::sync::Arc::new(CloneSetup {
-            config,
-            endpoint: self.provider.transport.endpoint().clone(),
-            git_limiter: self.provider.transport.git_limiter().for_row(request),
-            credential: request.resolved_credential().cloned(),
-            cancellation: std::sync::Arc::new(context.clone()),
-            deadline: crate::execution::cancel::deadline_of(context),
-            path_policy: paths.clone(),
-            git: self.git.clone(),
-        });
+        let setup = self.clone_setup_for(request, context, paths);
         match gh_clone_repo::run(&self.provider, query, Ok(request), &setup).await {
             Ok(result) => {
                 DomainResult::payload(serde_json::to_value(result).unwrap_or_default(), None)

@@ -70,6 +70,11 @@ const SHARED_LAYERS: &[&[(&str, &str)]] = &[
     &[
         // Reads empty_walk's walk and globs.
         ("ast_rule", "AST rule parsing shared by the ast tools"),
+        // Runs git through bounded_process.
+        (
+            "gh_git",
+            "system git for GitHub transfers (runner, one limiter-admitted step, endpoint git URLs, blob-only fetches): ghCloneRepo checks out through it and ghStructure materialize reads blobs through it",
+        ),
         // Reads source's bounded reads for the configuration beside the sources.
         (
             "import_resolution",

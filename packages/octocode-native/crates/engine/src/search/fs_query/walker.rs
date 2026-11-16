@@ -7,9 +7,9 @@ use std::time::Instant;
 
 use super::EntryFilter;
 use super::compiled::CompiledQuery;
-use super::read_ahead::{self, ReadAhead};
 use crate::error::Error;
-use crate::search::walk::{ListedRules, Stop};
+use crate::search::walk::read_ahead::{self, ReadAhead};
+use crate::search::walk::{Stop, listed, listed_rules};
 use crate::types::fs_resume::{Child, Frame, WalkCursor, WalkTally};
 use crate::types::{EvaluatedEntry, FileSystemEntry, WalkedDir};
 
@@ -159,14 +159,16 @@ fn read_children(
     let listing = match taken {
         read_ahead::Taken::Read(listing) => listing,
         read_ahead::Taken::Late => return Children::Late,
-        read_ahead::Taken::NotQueued => match read_ahead::read_listing_until(base, deadline) {
-            Some(listing) => listing,
-            None => return Children::Late,
-        },
+        read_ahead::Taken::NotQueued => {
+            match read_ahead::read_listing_until(base, deadline, read_ahead::Detail::Stamped) {
+                Some(listing) => listing,
+                None => return Children::Late,
+            }
+        }
     };
     state.directories_read += 1;
     if state.ahead.is_none() && state.directories_read == read_ahead::START_AFTER_DIRECTORIES {
-        state.ahead = ReadAhead::start();
+        state.ahead = ReadAhead::start(crate::cpu::host().share(), read_ahead::Detail::Stamped);
     }
     // Read errors are surfaced as skips.
     let (children, errors) = match listing.entries {
@@ -218,24 +220,6 @@ pub(super) fn entered_empty(
     };
     state.read_first = Some((base.to_path_buf(), children));
     empty
-}
-
-/// Whether a listing sorted by name holds `name`.
-fn listed<'c>(children: &'c [Child], name: &str) -> Option<&'c Child> {
-    children
-        .binary_search_by(|child| child.name.as_os_str().cmp(std::ffi::OsStr::new(name)))
-        .ok()
-        .map(|at| &children[at])
-}
-
-/// What a directory's name-sorted listing shows of its ignore rules.
-fn listed_rules(children: &[Child]) -> ListedRules {
-    ListedRules {
-        gitignore: listed(children, ".gitignore").is_some(),
-        ignore: listed(children, ".ignore").is_some(),
-        git: listed(children, ".git").is_some(),
-        jj: listed(children, ".jj").is_some(),
-    }
 }
 
 /// The directory `base` as its listing shows it, for the caller of the walk.

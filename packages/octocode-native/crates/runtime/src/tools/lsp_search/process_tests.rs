@@ -27,6 +27,7 @@ mod document_sync;
 mod fallback_graph;
 mod heritage_fallback;
 mod importers;
+mod legacy_text;
 mod lifecycle;
 mod receipts;
 mod server_text;
@@ -93,14 +94,19 @@ fn config(root: &Path, script: &Path, pids: Option<&Path>) -> LspLanguageServerC
         language_id: Some("plaintext".into()),
         document_language_ids: Default::default(),
         initialization_options: None,
-        env: pids.map(|pids| {
-            [(
-                "FAKE_LSP_PIDS".to_owned(),
-                pids.to_string_lossy().into_owned(),
-            )]
-            .into_iter()
-            .collect()
-        }),
+        // The server runs under what it is given: `PATH` for `node`.
+        env: Some(
+            std::env::var("PATH")
+                .into_iter()
+                .map(|path| ("PATH".to_owned(), path))
+                .chain(pids.map(|pids| {
+                    (
+                        "FAKE_LSP_PIDS".to_owned(),
+                        pids.to_string_lossy().into_owned(),
+                    )
+                }))
+                .collect(),
+        ),
         max_memory_mb: None,
         source: Default::default(),
     }

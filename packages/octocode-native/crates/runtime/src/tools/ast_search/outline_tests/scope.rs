@@ -18,7 +18,7 @@ fn unknown_symbol_kinds_are_rejected_and_source_limits_are_errors() {
     assert_eq!(error.code, ErrorCode::InvalidInput);
     assert_eq!(
         crate::id::error_codes::class(error.code),
-        crate::id::error_codes::ErrorClass::InvalidInput
+        crate::id::error_codes::ErrorClass::CorrectInput
     );
     assert!(
         error.message.contains("function, impl"),

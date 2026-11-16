@@ -74,7 +74,7 @@ pub(in super::super) fn flag_partial(
             if !leads.is_empty() {
                 // One text check per row: this one names the files left.
                 if let Some(related) = row.get_mut("related").and_then(Value::as_array_mut) {
-                    related.retain(|call| call["tool"] != "localSearch");
+                    related.retain(|call| call["tool"] != ToolId::LocalSearch.as_str());
                 }
                 for lead in leads {
                     crate::response::result::attach_related(row, lead.build());
@@ -185,7 +185,11 @@ pub(in super::super) fn flag_answer_gaps(
     let leads_text = row
         .get("related")
         .and_then(Value::as_array)
-        .is_some_and(|related| related.iter().any(|call| call["tool"] == "localSearch"));
+        .is_some_and(|related| {
+            related
+                .iter()
+                .any(|call| call["tool"] == ToolId::LocalSearch.as_str())
+        });
     if !leads_text
         && let Some(lead) = text_search_lead(name, &scope.root, &scope.include, Some(&shown))
     {

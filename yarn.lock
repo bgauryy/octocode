@@ -384,10 +384,10 @@ __metadata:
 
 "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::locator=octocode-monorepo%40workspace%3A.":
   version: 21.2.0
-  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=62aa60&locator=octocode-monorepo%40workspace%3A."
+  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=6eee56&locator=octocode-monorepo%40workspace%3A."
   dependencies:
     zod: "npm:^4.6.2"
-  checksum: 10c0/dd9b2ae38f5d91d91eba4ebd45a3e28bf7644c58326990694bf6bf9da020df34d172cbf73b7d1c339df61cf57444cf2a52a3b9b609e6ad9b722054be24e8dafa
+  checksum: 10c0/9a5a4c0580bfad74cf2fdc80baee2fdf63aebcd161bc734faffd619e30b53990b225fd95061edd2e5cdd791ae1a65b66b1c4b6fed90496406790df0410224b09
   languageName: node
   linkType: hard
 
@@ -1618,7 +1618,7 @@ __metadata:
     "@octocodeai/octocode-native-win32-x64-msvc":
       optional: true
   bin:
-    octocode: ./out/octocode.js
+    octocode: ./out/octocode
   languageName: unknown
   linkType: soft
 

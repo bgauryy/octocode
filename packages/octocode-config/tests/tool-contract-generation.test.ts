@@ -98,7 +98,7 @@ it('generates the fingerprinted analysis capabilities through the shared bundle'
   const capability = {
     sourceDecoding: {
       encodings: [{ encoding: 'utf8', bom: 'optional' }],
-      malformed: 'rejected', correspondence: 'scalarBoundaries',
+      malformed: 'utf16Rejected', correspondence: 'scalarBoundaries',
     },
     grammarCapabilities: [],
   };

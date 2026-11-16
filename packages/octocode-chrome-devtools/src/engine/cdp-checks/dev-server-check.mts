@@ -5,6 +5,7 @@ import { createSourceMapResolver } from '../sourcemap-resolver.mjs';
 import { run as monitor } from './live-har-monitor.mjs';
 import { run as screenshot } from './page-screenshot.mjs';
 import type { MonitorEvent } from './live-har-format.mjs';
+import { pageOutcome } from './navigation-outcome.mjs';
 
 // dev-check: load DEV_URL in the attached (fresh) tab with console, network and
 // source-map listeners already on, wait for load or network idle up to
@@ -102,13 +103,24 @@ export async function run(cdp: RunnerSession) {
     expression: '({ url: location.href, title: document.title })',
     returnByValue: true,
   });
-  const errors = messages.filter(m => m.level === 'error');
+  const outcome = pageOutcome(url, {
+    navigation: observed.navigation ?? { error: null, document: null },
+    page: {
+      url: page.result?.value?.url ?? null,
+      title: page.result?.value?.title ?? null,
+    },
+  });
+  const errors = [
+    ...outcome.navigationErrors,
+    ...messages.filter(m => m.level === 'error'),
+  ];
   const warnings = messages.filter(m => m.level === 'warning');
   const failedRequests = observed.summary.failures;
   const saved = cdp.saveArtifact('dev-check.json', {
     url,
-    finalUrl: page.result?.value?.url ?? null,
-    title: page.result?.value?.title ?? null,
+    document: outcome.document,
+    finalUrl: outcome.finalUrl,
+    title: outcome.title,
     targetId: cdp.targetInfo.id,
     waitUntil,
     settled: observed.settled,

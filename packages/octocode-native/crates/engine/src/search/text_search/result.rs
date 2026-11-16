@@ -1,6 +1,6 @@
 //! The final result: ordering, span collapsing, and stats.
 
-use super::mode::{Mode, lists_match_density, only_matching};
+use super::mode::{Mode, only_matching};
 use super::state::{CollectResult, FileRec};
 use crate::num::{saturating_i64, saturating_u32};
 use crate::search::text_parser::assemble_file;
@@ -12,9 +12,6 @@ use std::collections::HashMap;
 
 /// Sort `recs` into the final result order; every record is kept.
 pub(super) fn sort_recs(opts: &TextSearchOptions, mode: Mode, recs: &mut [FileRec]) {
-    if preserves_traversal_order(opts) {
-        return;
-    }
     recs.sort_by(|a, b| compare_recs(opts, mode, a, b));
 }
 
@@ -22,15 +19,10 @@ pub(super) fn sort_recs(opts: &TextSearchOptions, mode: Mode, recs: &mut [FileRe
 /// reports as each file's match count (matched lines for line views, spans or
 /// submatches otherwise).
 fn rank_weight(opts: &TextSearchOptions, mode: Mode, rec: &FileRec) -> u32 {
-    let (lines, submatches) = if opts.sort == SearchSort::Relevance {
-        (rec.rank_lines, rec.rank_submatches)
-    } else {
-        (rec.matched_lines, rec.submatches)
-    };
     match mode {
-        Mode::CountLines => lines,
-        Mode::Normal if !only_matching(opts) => lines,
-        _ => submatches,
+        Mode::CountLines => rec.matched_lines,
+        Mode::Normal if !only_matching(opts) => rec.matched_lines,
+        _ => rec.submatches,
     }
 }
 
@@ -39,15 +31,8 @@ fn rank_weight(opts: &TextSearchOptions, mode: Mode, rec: &FileRec) -> u32 {
 ///
 /// * `modified` / `accessed` / `created`: ascending timestamp.
 /// * `matchCount`: descending [`rank_weight`] (the most-matched files first).
-/// * `relevance`: an [`identifier_search`](super::mode::identifier_search) first ranks source files whose hit
-///   declares the name (the definition answers "where is X"), then hand-written
-///   source paths before test, bundled and vendored paths, which come before
-///   generated ones, whatever their hit counts; within each class, more
-///   alternation words covered, then descending [`rank_weight`], then descending
-///   summed line weight (declaration > code > comment/string), see
-///   [`relevance`](crate::search::relevance). Path-list views have no per-file
-///   density: source paths first, then path.
-/// * default and `path`: lexicographic by full path.
+/// * `path`: lexicographic by full path.
+/// * `traversal`: [`walk_order`].
 pub(super) fn compare_recs(
     opts: &TextSearchOptions,
     mode: Mode,
@@ -62,20 +47,8 @@ pub(super) fn compare_recs(
         SearchSort::MatchCount => rank_weight(opts, mode, b)
             .cmp(&rank_weight(opts, mode, a))
             .then_with(|| a.path.cmp(&b.path)),
-        SearchSort::Relevance if lists_match_density(mode) => (b.declares && !b.demoted)
-            .cmp(&(a.declares && !a.demoted))
-            .then_with(|| a.generated.cmp(&b.generated))
-            .then_with(|| a.demoted.cmp(&b.demoted))
-            .then_with(|| b.covered.cmp(&a.covered))
-            .then_with(|| rank_weight(opts, mode, b).cmp(&rank_weight(opts, mode, a)))
-            .then_with(|| b.line_weight.cmp(&a.line_weight))
-            .then_with(|| a.path.cmp(&b.path)),
-        SearchSort::Relevance => a
-            .generated
-            .cmp(&b.generated)
-            .then_with(|| a.demoted.cmp(&b.demoted))
-            .then_with(|| a.path.cmp(&b.path)),
-        SearchSort::Path | SearchSort::Traversal => a.path.cmp(&b.path),
+        SearchSort::Path => a.path.cmp(&b.path),
+        SearchSort::Traversal => walk_order(&a.path, &b.path),
     };
     if opts.sort_reverse.unwrap_or(false) {
         order.reverse()
@@ -84,8 +57,10 @@ pub(super) fn compare_recs(
     }
 }
 
-pub(super) fn preserves_traversal_order(opts: &TextSearchOptions) -> bool {
-    opts.sort == SearchSort::Traversal
+/// The walk order of two paths: siblings by name, depth first, so paths
+/// compare component by component (`a/x` before `a-b/y` before `a.c`).
+pub(crate) fn walk_order(a: &str, b: &str) -> std::cmp::Ordering {
+    std::path::Path::new(a).cmp(std::path::Path::new(b))
 }
 
 fn collapse_unique_matches(
@@ -121,10 +96,90 @@ fn collapse_unique_matches(
 pub(super) fn build_result(
     opts: &TextSearchOptions,
     mode: Mode,
-    collected: CollectResult,
+    mut collected: CollectResult,
 ) -> TextSearchResult {
+    let mut recs = std::mem::take(&mut collected.recs);
+    sort_recs(opts, mode, &mut recs);
+    // The returned files whose values are decoded text, in result order.
+    let not_utf8_files = recs
+        .iter()
+        .filter(|rec| rec.not_utf8)
+        .map(|rec| rec.path.clone())
+        .collect::<Vec<_>>();
+    let utf8_bom_files = recs
+        .iter()
+        .filter(|rec| rec.utf8_bom)
+        .map(|rec| rec.path.clone())
+        .collect::<Vec<_>>();
+    let files = recs
+        .into_iter()
+        .map(|rec| file_of(opts, mode, rec))
+        .collect();
+    let stats = build_stats(opts, mode, collected, (not_utf8_files, utf8_bom_files));
+    TextSearchResult { files, stats }
+}
+
+/// The file a record is, as the view `mode` lists it.
+pub(super) fn file_of(opts: &TextSearchOptions, mode: Mode, r: FileRec) -> TextSearchFile {
+    let spans = match opts.output {
+        SearchOutput::Spans(spans) => Some(spans),
+        _ => None,
+    };
+    let source = r.source;
+    let mut file = match mode {
+        Mode::Normal if let Some(spans) = spans => {
+            let matches = match spans {
+                SpanValues::Every => r.om_matches,
+                SpanValues::Unique => collapse_unique_matches(r.om_matches, false),
+                SpanValues::Counted => collapse_unique_matches(r.om_matches, true),
+            };
+            TextSearchFile {
+                path: r.path,
+                match_count: saturating_u32(matches.len()),
+                matches,
+                source: None,
+                term_counts: Vec::new(),
+            }
+        }
+        Mode::Normal => assemble_file(r.path, r.entry, opts.context),
+        // files-only / files-without-match: path list, matchCount 1, no
+        // snippets.
+        Mode::FilesOnly | Mode::FilesWithoutMatch => TextSearchFile {
+            path: r.path,
+            match_count: 1,
+            matches: Vec::new(),
+            source: None,
+            term_counts: Vec::new(),
+        },
+        Mode::CountLines => TextSearchFile {
+            path: r.path,
+            match_count: r.matched_lines,
+            matches: Vec::new(),
+            source: None,
+            term_counts: r.term_counts,
+        },
+        Mode::CountMatches => TextSearchFile {
+            path: r.path,
+            match_count: r.submatches,
+            matches: Vec::new(),
+            source: None,
+            term_counts: r.term_counts,
+        },
+    };
+    file.source = source;
+    file
+}
+
+/// The stats of `collected` (its files are not read: they are built apart),
+/// with the returned files whose values are decoded text.
+pub(super) fn build_stats(
+    opts: &TextSearchOptions,
+    mode: Mode,
+    collected: CollectResult,
+    (not_utf8_files, utf8_bom_files): (Vec<String>, Vec<String>),
+) -> TextSearchStats {
     let CollectResult {
-        mut recs,
+        recs: _,
         files_searched,
         bytes_searched,
         files_matched,
@@ -144,8 +199,6 @@ pub(super) fn build_result(
         pattern_error_count,
         test_code_excluded,
     } = collected;
-    sort_recs(opts, mode, &mut recs);
-
     // Cap reasons in a fixed order, so equal results carry equal reasons.
     let cap_reasons: Vec<CapReason> = [
         (size_skipped, CapReason::MaxFileSize),
@@ -157,82 +210,16 @@ pub(super) fn build_result(
     .collect();
     let capped = !cap_reasons.is_empty();
 
-    let context = opts.context;
-
     let files_matched = saturating_u32(files_matched);
     let total_submatches = saturating_u32(submatches);
     let total_matched_lines = saturating_u32(matched_lines);
-
-    let spans = match opts.output {
-        SearchOutput::Spans(spans) => Some(spans),
-        _ => None,
-    };
     let bytes_searched = Some(saturating_i64(bytes_searched));
-    // The returned files whose values are decoded text, in result order.
-    let not_utf8_files = recs
-        .iter()
-        .filter(|rec| rec.not_utf8)
-        .map(|rec| rec.path.clone())
-        .collect::<Vec<_>>();
-    let utf8_bom_files = recs
-        .iter()
-        .filter(|rec| rec.utf8_bom)
-        .map(|rec| rec.path.clone())
-        .collect::<Vec<_>>();
-    let files: Vec<TextSearchFile> = recs
-        .into_iter()
-        .map(|r| {
-            let source = r.source;
-            let mut file = match mode {
-                Mode::Normal if let Some(spans) = spans => {
-                    let matches = match spans {
-                        SpanValues::Every => r.om_matches,
-                        SpanValues::Unique => collapse_unique_matches(r.om_matches, false),
-                        SpanValues::Counted => collapse_unique_matches(r.om_matches, true),
-                    };
-                    TextSearchFile {
-                        path: r.path,
-                        match_count: saturating_u32(matches.len()),
-                        matches,
-                        source: None,
-                        term_counts: Vec::new(),
-                    }
-                }
-                Mode::Normal => assemble_file(r.path, r.entry, context),
-                // files-only / files-without-match: path list, matchCount 1, no
-                // snippets.
-                Mode::FilesOnly | Mode::FilesWithoutMatch => TextSearchFile {
-                    path: r.path,
-                    match_count: 1,
-                    matches: Vec::new(),
-                    source: None,
-                    term_counts: Vec::new(),
-                },
-                Mode::CountLines => TextSearchFile {
-                    path: r.path,
-                    match_count: r.matched_lines,
-                    matches: Vec::new(),
-                    source: None,
-                    term_counts: r.term_counts,
-                },
-                Mode::CountMatches => TextSearchFile {
-                    path: r.path,
-                    match_count: r.submatches,
-                    matches: Vec::new(),
-                    source: None,
-                    term_counts: r.term_counts,
-                },
-            };
-            file.source = source;
-            file
-        })
-        .collect();
 
     // Every view describes the same collection. Count-lines never enumerates
     // submatches, so it has no occurrence count: `match_count` is unknown
     // there (its line count is `matched_lines`); completeness and resource
     // evidence stay shared.
-    let stats = TextSearchStats {
+    TextSearchStats {
         match_count: (!matches!(mode, Mode::CountLines)).then_some(total_submatches),
         matched_lines: Some(total_matched_lines),
         files_matched: Some(files_matched),
@@ -253,7 +240,5 @@ pub(super) fn build_result(
             .then_some(skipped_binary_extensions),
         file_terms_dropped: (file_terms_dropped > 0).then_some(file_terms_dropped),
         depth_cut_dirs: (depth_cut_dirs > 0).then_some(depth_cut_dirs),
-    };
-
-    TextSearchResult { files, stats }
+    }
 }

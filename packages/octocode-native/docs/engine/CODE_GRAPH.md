@@ -138,7 +138,7 @@ is required for snapshot creation.
 | `path` | Required `target` and `to`; optional edge filters, `direction`, `kind` | Shortest candidate path; calls between two symbols, otherwise imports; no depth option. Condition compatibility is not assessed and execution is not observed. |
 | `cycles` | Optional edge filters | Production cycles; imports by default |
 | `hubs` | Optional edge filters, `kind`, `direction: in/out` | Production nodes ranked by incoming edge count by default |
-| `cochange` | Required file `target` | Files under the scope that non-merge Git commits changed together with `target` (`commits`, `share` of the target's commits, `linked` when an edge of the snapshot joins the two either way), most commits first; `summary.targetCommits`. Read from Git at query time, not stored; renames are not followed, files outside the scope are left out, and nothing is capped: rows page |
+| `cochange` | Required file `target` | Files under the scope that non-merge Git commits changed together with `target` (`commits`, `share` of the target's commits, `linked` when an edge of the snapshot joins the two either way), most commits first; `summary.targetCommits`. Read from Git at query time, not stored; renames are not followed, files outside the scope are left out, and nothing is capped: rows page. In a shallow clone the boundary commits (Git's `shallow` file) have no parents, so Git lists their whole tree: they count toward nothing, and `warnings` says the history is shallow |
 | `diagnostics` | Optional `target` code or file prefix | Matching scan/link diagnostics |
 | `witnesses` | Optional source `target` (one or a list), destination `to`, edge filters | Occurrences supporting linked relations; a file target includes its symbols |
 | `unresolved` | Optional source `target` (one or a list), edge filters, `reasons` | Unlinked call or argument references and unsupported argument forms; a file target includes its symbols; `reasons` filters before paging, so `total` counts kept rows |
@@ -299,13 +299,18 @@ at its `exportLine`, a critical file by `dependents` to its `farthestDepth`.
 - `unused-export` and `export-only-local` judge only languages with
   named-import linking; files in other languages are counted in a `notes`
   entry by language instead of being reported clean.
-- Go, JVM and .NET files share package scope, so file-level checks skip them.
+- Go, JVM and .NET files share package scope, so file-level checks skip them
+  (`cycle`, `unreachable-file`, `test-only`, `critical-file`,
+  `single-point-of-failure`); one `notes` entry names the detectors that ran and
+  counts the skipped files.
   Python libraries skip reachability. Generated, bundled, vendored and unparsed
   files are never subjects.
 - Each finding has a `tier`: `100` nothing references it; `90` no graph or code
   reference (bare prose words are listed in `evidence.textMentions`); `60` the
   file path, or every unused export, is referenced in code or qualified text
-  such as `mod.run` (`evidence.mentionedIn`; some exports alone keep 90; a
+  such as `mod.run` (`evidence.mentionedIn`; a file counts as mentioned by its
+  name with an extension, a path or a whole string literal, never a bare word:
+  a sentence's closing dot (`the test oracle.`) is no extension; some exports alone keep 90; a
   `test-only` file counts only mentions outside tests and its importers), or a mentioned
   file imports it (the finding names that file), or no mention scan ran. `minTier` defaults to 90; `minTier: 60` shows all, and
   `summary.hiddenBelowTier` counts the rest.
@@ -468,7 +473,10 @@ up to 128 MiB of encoded artifacts, then restores one spilled file at a time. Se
 parsed again after interruption. `checkpointedFiles`, `spilledBytes` and
 `memoryOnlyFiles` describe this work; `maxSpillBytes` and `maxMemoryOnlyBytes`
 declare its terminal budgets (2 GiB of retained disk artifacts and 64 MiB of
-memory-only artifacts per job). Atomic replacement can temporarily add one
+memory-only artifacts per job). A file past a budget, or past one artifact's
+bound, is linked from its decoded facts without a checkpoint: the graph stays
+complete, and the graphBuild receipt warns how many files an interrupted build
+would parse again. Atomic replacement can temporarily add one
 artifact of at most 64 MiB; retry removes leftover temporary job files before
 writing more. One unfinished job is retained per canonical scope root. Publication
 removes that build's extraction artifacts; a generation identity and the job lock
@@ -603,7 +611,9 @@ explicit imports and declarations take precedence. Rust paths walk inline
 `super::f`, `crate::file_mod::inline::f`). A Rust method call prefers an
 inherent `impl T` member over a trait impl's; a provided trait method `T` does
 not override links through `impl Trait for T` at medium confidence.
-Crate names (`use other_crate::f`) resolve through `cargo metadata`, run once
+Crate names (`use other_crate::f`, and a path rooted at `::` such as
+`::serde::Deserialize`, which names an extern crate) resolve through
+`cargo metadata`, run once
 for each Cargo workspace that encloses a scanned Rust file: the nearest
 `Cargo.toml` at or above the file, inside or above the scan root. A scan of a
 folder of crates, of several independent workspaces, or of a crate's
@@ -664,8 +674,10 @@ member. Through a receiver, a callable member of the same type and name wins ove
 a data member (a Java accessor `name()` beside its field `name`); "the same type"
 is the member's own declaration, or a Rust type and an `impl` block of its name
 in its crate, never a same-named type elsewhere. A data member whose qualified
-name repeats in its file takes the `@line` key suffix, so a same-named method
-keeps its plain key (`Buf.len` is the method, `Buf.len@2` the field). A written
+name repeats in its file takes the `@n` key suffix, its place among the
+same-named declarations in source order (never its line, so a line inserted
+above moves no key and `drift` shows no relation change), so a same-named method
+keeps its plain key (`Buf.len` is the method, `Buf.len@1` the field). A written
 call of an enum member through its type (`Attempt::Done(1)`) constructs it and
 links as `constructs:<resolution>`; `v.Done(1)` through a value does not link.
 

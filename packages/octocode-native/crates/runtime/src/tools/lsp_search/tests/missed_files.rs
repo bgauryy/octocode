@@ -121,7 +121,7 @@ fn references_with(
     .expect("config");
     let execution = crate::tools::lsp_search::LspExecutionConfig {
         octocode_home: Some(root.clone()),
-        ..crate::tools::lsp_search::LspExecutionConfig::default()
+        ..crate::tools::lsp_search::LspExecutionConfig::with_path()
     };
     let pool = LspClientPool::new(LspPoolOptions {
         client: LspClientOptions {
@@ -407,7 +407,7 @@ fn references_beside_dist(repository: bool) -> Value {
     .expect("config");
     let execution = crate::tools::lsp_search::LspExecutionConfig {
         octocode_home: Some(root.clone()),
-        ..crate::tools::lsp_search::LspExecutionConfig::default()
+        ..crate::tools::lsp_search::LspExecutionConfig::with_path()
     };
     let pool = LspClientPool::new(LspPoolOptions {
         client: LspClientOptions {

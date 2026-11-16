@@ -2,8 +2,7 @@
 //! whole once, so that line is searched like any other.
 use super::{
     BinaryDetection, CollectSink, CopiedRead, FILE_TERMS_MAX_BYTES, FileOutcome, FileSearcher,
-    HEAD_BYTES, MAX_BINARY_PREFIX_BYTES, MatchWork, build_searcher, is_leading_binary,
-    ranks_by_relevance, read_prefix, relevance,
+    MAX_BINARY_PREFIX_BYTES, MatchWork, build_searcher, is_leading_binary, read_prefix,
 };
 use grep_matcher::Matcher;
 use std::path::Path;
@@ -35,19 +34,8 @@ impl<M: Matcher> FileSearcher<'_, M> {
         path: &Path,
         work: MatchWork,
     ) -> std::io::Result<FileOutcome> {
-        let mut sink = CollectSink::new(
-            self.matcher,
-            work,
-            (self.stop, self.held),
-            (self.words, self.terms),
-        );
+        let mut sink = CollectSink::new(self.matcher, work, (self.stop, self.held), self.terms);
         sink.test_code = self.opts.test_code.as_ref().map(|scope| (scope, path));
-        sink.rank_test_code = self
-            .opts
-            .test_code_rank
-            .as_ref()
-            .filter(|_| ranks_by_relevance(self.opts))
-            .map(|rank| (rank, path));
         sink.line_scope = self.opts.line_scope.as_ref().map(|scope| (scope, path));
         sink.source = Some(path);
         sink.inspect_deferred = self
@@ -68,12 +56,8 @@ impl<M: Matcher> FileSearcher<'_, M> {
                 let prefix_searcher = self
                     .prefix_searcher
                     .get_or_insert_with(|| build_searcher(opts, context, BinaryDetection::none()));
-                let mut prefix_sink = CollectSink::new(
-                    self.matcher,
-                    work,
-                    (self.stop, self.held),
-                    (self.words, self.terms),
-                );
+                let mut prefix_sink =
+                    CollectSink::new(self.matcher, work, (self.stop, self.held), self.terms);
                 prefix_sink.source = Some(path);
                 prefix_sink.line_scope = self.opts.line_scope.as_ref().map(|scope| (scope, path));
                 prefix_searcher.search_slice(self.matcher, prefix, &mut prefix_sink)?;
@@ -83,11 +67,6 @@ impl<M: Matcher> FileSearcher<'_, M> {
                 outcome
             }
         };
-        if self.keep_head && outcome.matched_lines > 0 {
-            outcome.generated_header = Some(relevance::has_generated_header(
-                &bytes[..bytes.len().min(HEAD_BYTES)],
-            ));
-        }
         if self.copy {
             let kept =
                 usize::try_from(FILE_TERMS_MAX_BYTES).map_or(bytes.len(), |at| at.min(bytes.len()));

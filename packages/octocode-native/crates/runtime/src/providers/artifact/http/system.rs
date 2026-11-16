@@ -11,7 +11,6 @@ use octocode_io::http::Proxy;
 use octocode_io::retry::{Backoff, BodyError, StatusClass};
 use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderValue, USER_AGENT};
 use secrecy::ExposeSecret;
-use std::fmt;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
@@ -67,17 +66,21 @@ fn pinned_client(pin: &DnsPin) -> Result<reqwest::Client, ArtifactError> {
 /// public addresses validated by npm policy whatever `proxy` says: a proxy
 /// would resolve the target independently.
 fn build_client(proxy: Proxy, dns_pin: Option<&DnsPin>) -> Result<reqwest::Client, ArtifactError> {
-    let policy = octocode_io::http::ClientPolicy {
-        proxy,
-        resolve: dns_pin.map(|pin| (pin.host.clone(), pin.addresses.clone())),
-        ..octocode_io::http::ClientPolicy::default()
-    };
-    octocode_io::http::client(&policy).map_err(|_| {
+    octocode_io::http::client(&client_policy(proxy, dns_pin)).map_err(|_| {
         ArtifactError::new(
             ErrorCode::ProviderError,
             "Failed to initialize artifact registry HTTP client.",
         )
     })
+}
+
+/// The policy of a client honoring `proxy`, pinned to `dns_pin` when set.
+fn client_policy(proxy: Proxy, dns_pin: Option<&DnsPin>) -> octocode_io::http::ClientPolicy {
+    octocode_io::http::ClientPolicy {
+        proxy,
+        resolve: dns_pin.map(|pin| (pin.host.clone(), pin.addresses.clone())),
+        ..octocode_io::http::ClientPolicy::default()
+    }
 }
 
 impl SystemArtifactHttp {
@@ -146,7 +149,7 @@ impl SystemArtifactHttp {
                         pause(delay, budget).await?;
                         continue;
                     }
-                    return Err(transport_error(error));
+                    return Err(transport_error(&error, request));
                 }
             };
             let status = response.status();
@@ -228,7 +231,7 @@ impl SystemArtifactHttp {
                         first = attempt + 1;
                         continue;
                     }
-                    return Err(transport_error("body"));
+                    return Err(body_broke_off(&request));
                 }
             }
         }
@@ -274,7 +277,7 @@ impl ArtifactHttp for SystemArtifactHttp {
                 .wait_stalled(response.chunk())
                 .await
                 .map_err(budget_error)?
-                .map_err(transport_error)?
+                .map_err(|error| transport_error(&error, &request))?
             {
                 read = read.saturating_add(chunk.len());
                 if read > budget.max_body_bytes {
@@ -365,11 +368,50 @@ fn budget_error(stop: BudgetStop) -> ArtifactError {
     }
 }
 
-fn transport_error(_error: impl fmt::Display) -> ArtifactError {
-    ArtifactError::new(
-        ErrorCode::ProviderError,
-        "Artifact registry request failed. Retry later.",
-    )
+/// The registry host a failure names.
+fn host(request: &ArtifactHttpRequest) -> &str {
+    request.url.host_str().unwrap_or("the registry")
+}
+
+/// A request that got no answer, named by its cause and the route it took
+/// ([`octocode_io::http::SendFailure`]), with the fix that cause takes.
+fn transport_error(error: &reqwest::Error, request: &ArtifactHttpRequest) -> ArtifactError {
+    let route = match request.dns_pin {
+        Some(_) => Proxy::Direct,
+        None => octocode_github::proxy_for(&request.url),
+    };
+    let proxy = octocode_io::http::proxy_in_effect(
+        &client_policy(route, request.dns_pin.as_ref()),
+        request.url.as_str(),
+    );
+    let failure = octocode_io::http::SendFailure::of(error);
+    ArtifactError {
+        hints: vec![failure.fix(proxy.as_deref()).to_owned()],
+        ..ArtifactError::new(
+            ErrorCode::ProviderError,
+            format!(
+                "Artifact registry request to {} failed: {}.",
+                host(request),
+                failure.what(proxy.as_deref())
+            ),
+        )
+    }
+}
+
+/// A response body that broke off before its end.
+fn body_broke_off(request: &ArtifactHttpRequest) -> ArtifactError {
+    ArtifactError {
+        hints: vec![
+            "Retry later; if it repeats, check the network, proxy and firewall.".to_owned(),
+        ],
+        ..ArtifactError::new(
+            ErrorCode::ProviderError,
+            format!(
+                "Artifact registry response from {} broke off before its end.",
+                host(request)
+            ),
+        )
+    }
 }
 
 #[cfg(test)]

@@ -155,6 +155,7 @@ async fn resumed_materialization_keeps_prior_skips_and_incomplete_coverage() {
             path: "oversized.rs".into(),
             kind: EntryKind::File,
             size: Some(context().budget.max_body_bytes as u64 + 1),
+            oid: None,
         },
         entry("kept.rs", source),
         entry("last.rs", source),

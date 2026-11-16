@@ -151,3 +151,37 @@ fn a_walked_directory_records_its_ignore_inputs() {
     let linked = walk();
     assert!(linked.untracked && linked.searched_files().is_none());
 }
+
+/// A walk that finds something is never stored, so reading each directory's
+/// ignore inputs while it walks is wasted: they are read when the record is
+/// asked for, which only a whole walk that found nothing does.
+#[test]
+fn directory_ignore_inputs_are_read_when_the_record_is_taken() {
+    let dir = tempfile::tempdir().expect("fixture");
+    let nested = (0..6)
+        .map(|index| {
+            let nested = dir.path().join(format!("n{index}"));
+            std::fs::create_dir(&nested).expect("fixture");
+            std::fs::write(nested.join(".gitignore"), "*.log\n").expect("fixture");
+            nested
+        })
+        .collect::<Vec<_>>();
+    let recording = recorder(dir.path(), usize::MAX);
+    let at_start = recording.input_reads.load(Ordering::Relaxed);
+    for nested in &nested {
+        assert!(recording.allows(nested, true));
+    }
+    assert_eq!(
+        recording.input_reads.load(Ordering::Relaxed),
+        at_start,
+        "the walk read no directory's ignore inputs"
+    );
+    let walked = recording.walked();
+    assert_eq!(
+        recording.input_reads.load(Ordering::Relaxed),
+        at_start + nested.len()
+    );
+    for nested in &nested {
+        assert!(walked.entries.contains(&nested.join(".gitignore")));
+    }
+}

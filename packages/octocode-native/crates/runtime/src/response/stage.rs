@@ -11,7 +11,7 @@ use crate::contracts::{self, ContractValidationError};
 use crate::execution::{ExecutionContext, ExecutionError};
 use crate::id::ToolId;
 use crate::response::outcome::ToolOutcome;
-use crate::response::result::FailureKind;
+use crate::response::result::ErrorClass;
 use crate::security::Sanitized;
 use serde_json::Value;
 
@@ -22,7 +22,7 @@ pub(crate) struct StageInput {
     /// and [`Sanitized::cut`].
     pub structured: Sanitized,
     pub options: ResponsePageOptions,
-    pub failure: Option<FailureKind>,
+    pub failure: Option<ErrorClass>,
     pub auto_page_chars: usize,
     /// False only when saved-result storage failed and the complete result
     /// must be returned without an unusable display continuation.
@@ -47,7 +47,7 @@ pub(crate) fn settle(
     tool: ToolId,
     structured: &mut Sanitized,
     response_query: &Value,
-    failure: &mut Option<FailureKind>,
+    failure: &mut Option<ErrorClass>,
 ) -> Result<Vec<String>, ContractValidationError> {
     structured.edit(|structured| settle_value(tool, structured, response_query, failure))
 }
@@ -66,12 +66,12 @@ fn settle_value(
     tool: ToolId,
     structured: &mut Value,
     response_query: &Value,
-    failure: &mut Option<FailureKind>,
+    failure: &mut Option<ErrorClass>,
 ) -> Result<Vec<String>, ContractValidationError> {
     crate::response::selection_errors::decorate(tool, structured, response_query);
     super::pages::state_out_of_range(structured);
     super::answered_leads::drop_answered_leads(tool, structured, response_query);
-    super::workflow_lead::retain_guidance(structured, response_query);
+    super::workflow_lead::retain_guidance(tool, structured, response_query);
     super::notices::place(structured, "results");
     super::notices::state_shared_warnings(structured, "results");
     let call_notes = super::notices::take_timed_notices(structured, "results");
@@ -86,7 +86,7 @@ fn settle_value(
     // Validate the complete, sanitized rows before deriving error state or a
     // pagination snapshot from them.
     if isolate_output_rows(tool.as_str(), structured)? && failure.is_none() {
-        *failure = Some(FailureKind::Execution);
+        *failure = Some(ErrorClass::Unservable);
     }
     Ok(call_notes)
 }
@@ -195,7 +195,7 @@ fn finish(
     tool: ToolId,
     mut structured_content: Sanitized,
     reshaped: bool,
-    failure: Option<FailureKind>,
+    failure: Option<ErrorClass>,
     all_failed: bool,
 ) -> Result<ToolOutcome, ContractValidationError> {
     structured_content.edit(super::page_receipts::drop_later_page_receipts);

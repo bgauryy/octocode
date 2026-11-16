@@ -11,7 +11,7 @@ fn a_cursor_of_another_build_is_stale_with_a_restart_lead() {
     }
     let (policy, security) = policy_for(root.path());
     let request = ls_query(
-        serde_json::json!({"path": root.path().to_string_lossy(), "matchString": ["needle"]}),
+        serde_json::json!({"path": root.path().to_string_lossy(), "matchString": ["needle"], "sort": {"by": "path", "order": "asc"}}),
         None,
     );
     let snapshot = search_in(&request, &policy, &security, Some(6_000))

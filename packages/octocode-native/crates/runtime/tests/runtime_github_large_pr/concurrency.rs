@@ -101,9 +101,10 @@ async fn patch_rows_in_one_call_share_one_budget() {
     runtime.close().await;
 }
 
-/// `matchString` selects patch text only, so review comments stay complete
-/// even when no body holds it, and each continuation jumps straight to its
-/// own provider batch. Walking every page reads each provider batch exactly
+/// `matchString` keeps the review comments whose body holds it (E2, design
+/// "matchString filter on issue and PR discussion"); here every body holds
+/// it, so none is dropped, and each continuation jumps straight to its own
+/// provider batch. Walking every page reads each provider batch exactly
 /// once (no call rescans an earlier batch to find its place) and recovers
 /// every body exactly once.
 #[tokio::test]
@@ -151,7 +152,7 @@ async fn match_string_review_comment_pages_read_each_provider_batch_once() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     let mut input = json!({"queries":[{"operation":"pullRequest","owner":"a","repo":"b","number":9,
-        "sections":["reviewComments"],"matchString":["in no body"]}]});
+        "sections":["reviewComments"],"matchString":["note"]}]});
     let mut bodies = Vec::new();
     let mut seen_inputs = std::collections::BTreeSet::new();
     let mut call_arrivals = Vec::new();
@@ -191,7 +192,7 @@ async fn match_string_review_comment_pages_read_each_provider_batch_once() {
             .cloned()
             .collect::<std::collections::BTreeSet<_>>(),
         (0..600).map(|index| format!("note {index}")).collect(),
-        "every review body is recovered: matchString does not select discussion"
+        "every review body holding the needle is recovered"
     );
     let mut read = call_arrivals.concat();
     read.sort_unstable();

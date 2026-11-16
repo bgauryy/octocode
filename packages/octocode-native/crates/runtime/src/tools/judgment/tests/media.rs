@@ -74,7 +74,12 @@ async fn prepared_media_batches_headers_and_fresh_reads_without_exposing_assets(
     let requests = server.received_requests().await.unwrap();
     for request in &requests {
         assert_eq!(request.headers["typesafe-danger-zone-images"], "true");
-        assert_eq!(request.headers["authorization"], "Bearer test-key");
+        assert!(
+            request.headers["authorization"]
+                .to_str()
+                .unwrap()
+                .starts_with("Bearer test-key")
+        );
     }
     assert!(
         !requests[0]

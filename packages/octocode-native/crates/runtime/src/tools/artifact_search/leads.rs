@@ -39,6 +39,10 @@ pub(super) fn label_release_source(artifact: &mut ArtifactItem, exact: bool) {
     } else {
         Some("registryRef")
     };
+    // The verified tag is stated only for the verification it proves.
+    if artifact.verification != Some("tag") {
+        artifact.release_tag = None;
+    }
 }
 
 /// The warning a row's release source needs, one per row: a registry
@@ -293,14 +297,14 @@ pub(super) fn with_repair(mut error: ArtifactError, query: &ArtifactSearchQuery)
         && let Some(limit) = page_out_of_range(query)
     {
         error.message = limit.warning;
-        if let Some(lead) = crate::response::paging::next_page_call(
+        if let Some(lead) = crate::response::collection::continued_page(
             ToolId::ArtifactSearch,
             Value::Object(copied(query)),
             "page",
             super::last_reachable_page(query),
             &[],
         ) {
-            error.calls = Some(Box::new(json!({ "repair": lead })));
+            error.calls = Some(Box::new(json!({ "repair": lead.build() })));
         }
         return error;
     }

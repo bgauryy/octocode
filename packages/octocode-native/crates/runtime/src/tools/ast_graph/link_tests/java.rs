@@ -245,8 +245,8 @@ fn overloads_enums_and_records_bind_their_declaring_type() {
         [
             "src/com/acme/Color.java#Color.of",
             "src/com/acme/Point.java#Point.sum",
-            "src/com/acme/Use.java#Use.f@4",
-            "src/com/acme/Use.java#Use.f@5",
+            "src/com/acme/Use.java#Use.f@1",
+            "src/com/acme/Use.java#Use.f@2",
         ]
     );
 }

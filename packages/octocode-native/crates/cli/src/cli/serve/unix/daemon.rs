@@ -9,6 +9,7 @@ use super::same_dir_form;
 pub(super) use super::served::Served;
 use super::sockets::remove_stale_sockets;
 use super::startup::Startup;
+use super::surface::Surface;
 #[cfg(test)]
 pub(super) use request::attended;
 pub(super) use request::handle;
@@ -88,9 +89,9 @@ pub(super) type Build =
     )
         -> Result<octocode_native::runtime::ToolRuntime, octocode_native::runtime::RuntimeError>;
 
-/// A kept runtime's working directory and the [`env_digest`] of the
-/// environment it runs with.
-pub(super) type RuntimeKey = (PathBuf, String);
+/// A kept runtime's working directory, the surface it answers and the
+/// [`env_digest`] of the environment it runs with.
+pub(super) type RuntimeKey = (PathBuf, Surface, String);
 
 /// A server's state: one language-server pool, and the runtimes of the
 /// directories and environments it serves.
@@ -143,17 +144,18 @@ impl Daemon {
         let _ = leaving.wait_for(|leaving| *leaving).await;
     }
 
-    /// The runtime for a call from `cwd` with `env` under `identity`: the
-    /// kept one when its identity is the call's, else a new one built as a
-    /// CLI started in `cwd` with `env` would be. `Err` (the reason) when
-    /// even that one differs.
+    /// The runtime for a call of `surface` from `cwd` with `env` under
+    /// `identity`: the kept one when its identity is the call's, else a new
+    /// one built as that surface started in `cwd` with `env` would be.
+    /// `Err` (the reason) when even that one differs.
     pub(super) async fn runtime_for(
         &self,
+        surface: Surface,
         cwd: &Path,
         env: BTreeMap<String, String>,
         identity: &str,
     ) -> Result<std::rc::Rc<Served>, String> {
-        let key = (same_dir_form(cwd), env_digest(&env));
+        let key = (same_dir_form(cwd), surface, env_digest(&env));
         let ticket = self.building.join(key.clone());
         let _turn = ticket.turn().await;
         if let Some(served) = self.runtimes.borrow_mut().get(&key)
@@ -164,7 +166,7 @@ impl Daemon {
         let host = octocode_native::runtime::HostOptions {
             cwd: Some(key.0.clone()),
             env: Some(env.clone()),
-            ..crate::cli::cli_host()
+            ..surface.host()
         };
         let (build, pool) = (self.build, std::sync::Arc::clone(&self.lsp_pool));
         // Off this thread, which serves every connection: a build reads the
@@ -174,7 +176,7 @@ impl Daemon {
             .await
             .map_err(|_| not_started.to_owned())?
             .map_err(|error| format!("{not_started}: {}", error.message))?;
-        let built = call_identity(runtime.config(), &env);
+        let built = call_identity(runtime.config());
         if built != identity {
             return Err("it runs under another configuration than this call".into());
         }
@@ -280,10 +282,17 @@ pub(super) async fn serve_on(
             () = daemon.stop.notified() => break,
             _ = check.tick() => {
                 let (active, last) = state.get();
-                if active == 0 && last.elapsed() >= idle {
-                    break;
+                if active != 0 || last.elapsed() < idle {
+                    continue;
                 }
-                continue;
+                // A connection that was already queued when the check came
+                // due is a call: taking it here, not dropping it with the
+                // listener, keeps it from reading "closed without a reply"
+                // and running in process.
+                match std::future::poll_fn(|cx| std::task::Poll::Ready(listener.poll_accept(cx))).await {
+                    std::task::Poll::Ready(accepted) => accepted,
+                    std::task::Poll::Pending => break,
+                }
             }
         };
         let Ok((stream, _)) = accepted else {

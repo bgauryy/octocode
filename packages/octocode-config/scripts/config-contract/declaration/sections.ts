@@ -132,7 +132,7 @@ export const sections: ContractInput['sections'] = {
       prewarm: {
         type: 'enum',
         values: ['targeted', 'all', 'off'],
-        description: 'Language-server prewarm: targeted warms concrete LSP lookup candidates found by tools; all also warms files named by reads or searches and, at MCP initialize, the workspace\'s top three languages; off disables prewarm. Starts index a whole project: targeted avoids unrelated server starts, but a lookup without an earlier candidate can take seconds.',
+        description: 'Language-server prewarm: targeted warms the server of an lspSearch call the response offers; all also warms files named by reads or searches and, at MCP initialize, the workspace\'s top three languages; off disables prewarm. Starts index a whole project: targeted avoids unrelated server starts, but a lookup without an earlier candidate can take seconds.',
         env: { name: 'OCTOCODE_LSP_PREWARM', normalize: 'lower' },
       },
     },

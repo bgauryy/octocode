@@ -429,9 +429,11 @@ mod tests {
     }
 
     /// Required evidence is emptied only where the output schema admits the
-    /// empty form: a score question's levels (at least two items), a choice
-    /// question's labels (at least one property), array instructions (at
-    /// least one item) repeat whole.
+    /// empty form: a score question's levels (at least two items) and a
+    /// choice question's labels (at least one property) repeat whole.
+    /// `instructions` is optional beside a `noul` question's `criteria`
+    /// (`clasify.noul-needs-one`), so the schema declares no repeat of it: a
+    /// later part leaves it out.
     #[test]
     fn emptying_honours_the_output_schema_bounds() {
         use serde_json::json;
@@ -444,10 +446,14 @@ mod tests {
         for (pointer, value) in [
             ("/data/questions/q/criteria", json!(["low", "high"])),
             ("/data/questions/q/criteria", json!({"yes": "holds"})),
-            ("/data/questions/q/instructions", json!(["one named fact"])),
         ] {
             assert_eq!(later(pointer, value.clone()), value, "{pointer}");
         }
+        let mut instructions = json!("one named fact");
+        assert!(
+            !clasify.keep_later("/data/questions/q/instructions", &mut instructions),
+            "an optional field the schema does not declare is not repeated"
+        );
         // A section's byte pair and context are details fields, optional in
         // the schema: a later part leaves them out, they are stated once.
         for pointer in [

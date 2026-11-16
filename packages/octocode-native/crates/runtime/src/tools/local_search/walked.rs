@@ -107,6 +107,9 @@ pub(super) struct Recorder {
     shards: [Mutex<Seen>; SHARDS],
     weight: Weight,
     started: SystemTime,
+    /// Directories whose ignore inputs were read (tests).
+    #[cfg(test)]
+    input_reads: AtomicUsize,
 }
 
 /// The heap bytes ([`path_weight`]) every shard's entries weigh together.
@@ -123,6 +126,9 @@ struct Seen {
     /// Files the walk admitted to search, apart from what it only watches.
     searched: Vec<PathBuf>,
     entries: Vec<PathBuf>,
+    /// The positions in `entries` of the walked directories whose ignore
+    /// inputs are read when the record is taken ([`Recorder::walked`]).
+    dirs: Vec<usize>,
     rules: BTreeSet<PathBuf>,
     untracked: bool,
 }
@@ -156,9 +162,21 @@ impl Seen {
         }
     }
 
+    /// [`Self::record`] of a walked directory, whose ignore inputs are read
+    /// when the record is taken.
+    fn record_dir(&mut self, path: PathBuf, weight: &Weight) {
+        if weight.keeps(&path) {
+            self.dirs.push(self.entries.len());
+            self.entries.push(path);
+        } else {
+            self.drop_entries();
+        }
+    }
+
     fn drop_entries(&mut self) {
         self.entries = Vec::new();
         self.searched = Vec::new();
+        self.dirs = Vec::new();
     }
 }
 
@@ -211,6 +229,8 @@ impl Recorder {
                 oversize: AtomicBool::new(false),
             },
             started: octocode_engine::stamp::settle_clock(),
+            #[cfg(test)]
+            input_reads: AtomicUsize::new(0),
         };
         let mut seen = recorder.shard();
         seen.rules = rules;
@@ -224,12 +244,19 @@ impl Recorder {
         recorder
     }
 
-    /// What the walk recorded: every shard's record, in shard order.
+    /// What the walk recorded: every shard's record, in shard order. Each
+    /// walked directory's ignore inputs are read here, together: a walk that
+    /// found something is never stored and never asks for its record.
     pub(super) fn walked(&self) -> Walked {
+        let mut shards = self
+            .shards
+            .iter()
+            .map(|shard| std::mem::take(&mut *lock(shard)))
+            .collect::<Vec<_>>();
+        self.read_directory_inputs(&mut shards);
         let oversize = self.weight.oversize.load(Ordering::Relaxed);
         let mut seen = Seen::default();
-        for shard in &self.shards {
-            let shard = std::mem::take(&mut *lock(shard));
+        for shard in shards {
             if !oversize {
                 seen.searched.extend(shard.searched);
                 seen.entries.extend(shard.entries);
@@ -256,6 +283,51 @@ impl Recorder {
         }
     }
 
+    /// Read the ignore inputs of every recorded directory, on this call's
+    /// share of the cores, and record them in the shard of their directory.
+    fn read_directory_inputs(&self, shards: &mut [Seen]) {
+        if self.weight.oversize.load(Ordering::Relaxed) {
+            return;
+        }
+        let dirs = shards
+            .iter()
+            .flat_map(|shard| shard.dirs.iter().map(|&at| shard.entries[at].as_path()))
+            .collect::<Vec<_>>();
+        let threads = octocode_engine::cpu::host().share().min(dirs.len());
+        let mut inputs = if threads <= 1 {
+            dirs.iter()
+                .map(|dir| self.directory_inputs(dir))
+                .collect::<Vec<_>>()
+        } else {
+            std::thread::scope(|scope| {
+                let readers = dirs
+                    .chunks(dirs.len().div_ceil(threads))
+                    .map(|chunk| {
+                        scope.spawn(move || {
+                            chunk
+                                .iter()
+                                .map(|dir| self.directory_inputs(dir))
+                                .collect::<Vec<_>>()
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                readers
+                    .into_iter()
+                    .flat_map(|reader| reader.join().unwrap_or_default())
+                    .collect()
+            })
+        }
+        .into_iter();
+        drop(dirs);
+        for shard in shards {
+            for _ in 0..shard.dirs.len() {
+                if let Some(read) = inputs.next() {
+                    shard.observe(read, &self.weight);
+                }
+            }
+        }
+    }
+
     /// The calling thread's shard of the record: threads are numbered as
     /// they first record, so concurrent walk threads take distinct shards.
     fn shard(&self) -> MutexGuard<'_, Seen> {
@@ -269,28 +341,27 @@ impl Recorder {
     /// A walked directory's ignore inputs
     /// ([`crate::tools::page_memo::directory_ignore_inputs`]).
     fn directory_inputs(&self, dir: &Path) -> DirectoryInputs {
+        #[cfg(test)]
+        self.input_reads.fetch_add(1, Ordering::Relaxed);
         crate::tools::page_memo::directory_ignore_inputs(dir, &self.root, |ignore| {
             self.policy.validate_read(ignore).is_ok()
         })
     }
 
     /// Record `path` when the walk admitted it, as a file it goes on to
-    /// search when `file`. A directory's ignore inputs are read before the
-    /// lock is taken, so no walk thread waits on another thread's file-system
-    /// calls.
+    /// search when `file`. A directory's ignore inputs are not read here
+    /// ([`Self::walked`] reads them), so the walk makes no file-system call
+    /// for a record.
     fn admitted(&self, path: &Path, is_dir: bool, file: bool, allowed: bool) -> bool {
         if allowed {
-            let inputs = (is_dir && self.ignore_rules && path != self.root)
-                .then(|| self.directory_inputs(path));
             let entry = path.to_path_buf();
             let mut seen = self.shard();
             if file {
                 seen.record_searched(entry, &self.weight);
+            } else if is_dir && self.ignore_rules && path != self.root {
+                seen.record_dir(entry, &self.weight);
             } else {
                 seen.record(entry, &self.weight);
-            }
-            if let Some(inputs) = inputs {
-                seen.observe(inputs, &self.weight);
             }
         }
         allowed

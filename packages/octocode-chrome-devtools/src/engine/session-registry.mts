@@ -38,6 +38,8 @@ export type ActiveSession = {
   wsUrl: string;
   openedAt: number;
   reused: boolean;
+  /** The tab `open --url` made on a reused browser: commands without a target use it while it exists. */
+  targetId?: string;
 };
 
 /** Chrome's /json/version on port, or null when nothing answers within 2s. */
@@ -92,6 +94,19 @@ export function recordActiveSession(
     JSON.stringify({ ...active, openedAt: Date.now() }),
     { mode: 0o600 }
   );
+}
+
+/** The tab the last `open --url` selected on this port, if the active session record names one. */
+export function selectedTargetId(
+  stateDir: string,
+  port: string
+): string | undefined {
+  const active = readJson(activeFileIn(stateDir));
+  return isActive(active) &&
+    active.port === port &&
+    typeof active.targetId === 'string'
+    ? active.targetId
+    : undefined;
 }
 
 export type RecordedSession = {

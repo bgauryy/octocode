@@ -122,10 +122,11 @@ function extractedRows(
     target.targetInfo = { ...target.targetInfo, url: page.url };
   }
   if (!Array.isArray(rows)) throw new Error('Extraction returned no rows');
-  if (!rows.length && !step.allowEmpty)
-    throw new Error(
-      'Extraction matched zero elements; use allowEmpty for an expected empty result'
-    );
+  if (!rows.length) {
+    if (step.allowEmpty === false)
+      throw new Error('Extraction matched zero elements (allowEmpty is false)');
+    row.note = `No element matched ${step.selector}; the step returned an empty result`;
+  }
   return rows;
 }
 

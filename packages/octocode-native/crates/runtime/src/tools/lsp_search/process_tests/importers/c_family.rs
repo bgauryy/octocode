@@ -195,7 +195,7 @@ fn walk_of(walk: &Walk<'_>) -> Vec<serde_json::Value> {
     octocode_engine::stamp::settle_written_so_far();
     let execution = crate::tools::lsp_search::LspExecutionConfig {
         octocode_home: Some(root.clone()),
-        ..crate::tools::lsp_search::LspExecutionConfig::default()
+        ..crate::tools::lsp_search::LspExecutionConfig::with_path()
     };
     let mut query = serde_json::json!({
         "operation": operation, "path": root.join("lib.c").to_string_lossy(),

@@ -54,7 +54,7 @@ fn a_source_holding_a_secret_is_never_checkpointed() {
     assert!(artifact(&scan, "f00.ts").exists());
     let job_dir = job_path(scan.checkpoint.as_ref().unwrap(), &scan.root);
     for entry in std::fs::read_dir(&job_dir).unwrap().map(Result::unwrap) {
-        assert!(!String::from_utf8_lossy(&std::fs::read(entry.path()).unwrap()).contains(&token));
+        assert!(!stored_text(&entry.path()).contains(&token));
     }
     let retry = build(&scan, &NeverCancel).unwrap();
     assert_eq!(retry.construction.resumed_files, 12);
@@ -93,7 +93,7 @@ fn an_artifact_holds_only_what_a_restart_reads() {
             continue;
         }
         let bytes = std::fs::read(entry.path()).unwrap();
-        let record: cache::OwnedArtifact = serde_json::from_slice(&bytes[65..])
+        let record: cache::OwnedArtifact = serde_json::from_slice(&artifact::json_of(&bytes))
             .expect("the artifact is the extraction record, nothing more");
         assert!(!record.facts.declarations.is_empty());
         artifacts += 1;

@@ -23,7 +23,7 @@ fn a_missing_capability_lists_the_operations_the_server_advertises() {
     .expect("config");
     let execution = crate::tools::lsp_search::LspExecutionConfig {
         octocode_home: Some(root.to_path_buf()),
-        ..crate::tools::lsp_search::LspExecutionConfig::default()
+        ..crate::tools::lsp_search::LspExecutionConfig::with_path()
     };
     let query: LspSearchQuery = serde_json::from_value(serde_json::json!({
         "operation": "callers", "path": root.join("a.ts").to_string_lossy(),

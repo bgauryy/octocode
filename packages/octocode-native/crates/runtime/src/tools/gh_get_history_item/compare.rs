@@ -107,10 +107,21 @@ pub(super) async fn compare(
     let mut cursors = file_page
         .as_ref()
         .map_or_else(DiffCursors::default, |page| page.cursors);
-    // An identical range (the head is the base, or behind it) changes
-    // nothing: an empty answer, as a commit or PR with nothing in scope is.
-    if total == 0 && usize_at(&raw, "/ahead_by") == 0 && no_files {
+    // Nothing ahead of the base: an identical range is an empty answer, as a
+    // commit or PR with nothing in scope is. A head behind its base (refs
+    // given in reverse) is an answer, stated as such.
+    let behind = usize_at(&raw, "/behind_by");
+    let nothing_ahead = total == 0 && usize_at(&raw, "/ahead_by") == 0 && no_files;
+    if nothing_ahead && behind == 0 {
         out["status"] = json!("empty");
+    }
+    if nothing_ahead && behind > 0 {
+        push_warnings(
+            &mut out,
+            [format!(
+                "head is behind base by {behind}: nothing ahead; related compares the other way."
+            )],
+        );
     }
     let commits = wants_commits.then(|| {
         attach_commit_page(
@@ -142,7 +153,7 @@ pub(super) async fn compare(
     let mut leads = Vec::from_iter(without_match);
     // A head behind its base (refs given in reverse) changes nothing this
     // way round: the swapped comparison reads the `behindBy` commits.
-    if out["status"] == "empty" && usize_at(&raw, "/behind_by") > 0 {
+    if nothing_ahead && behind > 0 {
         leads.extend(swapped_refs(query).map(|swap| ("swapRefs", swap)));
     }
     leads.extend(capped_file_leads(

@@ -259,7 +259,7 @@ impl Editor {
     fn execution(&self) -> crate::tools::lsp_search::LspExecutionConfig {
         crate::tools::lsp_search::LspExecutionConfig {
             octocode_home: Some(self.home.clone()),
-            ..crate::tools::lsp_search::LspExecutionConfig::default()
+            ..crate::tools::lsp_search::LspExecutionConfig::with_path()
         }
     }
 

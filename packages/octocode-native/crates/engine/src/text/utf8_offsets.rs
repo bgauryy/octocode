@@ -140,6 +140,10 @@ pub struct LineIndex {
     utf16_checkpoints: Vec<(u32, u32)>,
     /// All-ASCII content: UTF-16 columns equal byte columns.
     ascii: bool,
+    /// Per line: its bytes, terminator included, are all ASCII, so a column
+    /// on it equals the byte distance from the line's start. Empty for
+    /// all-ASCII content, which answers before any line is asked.
+    line_ascii: Vec<bool>,
     /// The text ends with a line break, so the last line is empty.
     ends_with_break: bool,
 }
@@ -167,7 +171,10 @@ impl LineIndex {
         let mut line_starts_utf16 = vec![0u32];
         let mut utf16_checkpoints = vec![(0u32, 0u32)];
         let mut utf16_units: u32 = 0;
+        let mut line_ascii = Vec::new();
+        let mut line_is_ascii = true;
         for (byte_idx, ch) in content.char_indices() {
+            line_is_ascii &= ch.is_ascii();
             if byte_idx >= utf16_checkpoints.len() * UTF16_CHECKPOINT_BYTES {
                 utf16_checkpoints.push((saturating_u32(byte_idx), utf16_units));
             }
@@ -177,11 +184,13 @@ impl LineIndex {
                 // `\r\n` under the LSP rule already broke at the `\r`.
                 '\n' if lone_cr_breaks && byte_idx > 0 && bytes[byte_idx - 1] == b'\r' => {}
                 '\n' => {
+                    line_ascii.push(std::mem::replace(&mut line_is_ascii, true));
                     line_ends_byte.push(saturating_u32(byte_idx));
                     line_starts_byte.push(saturating_u32(next));
                     line_starts_utf16.push(utf16_units);
                 }
                 '\r' if lone_cr_breaks => {
+                    line_ascii.push(std::mem::replace(&mut line_is_ascii, true));
                     let crlf = bytes.get(next) == Some(&b'\n');
                     line_ends_byte.push(saturating_u32(byte_idx));
                     line_starts_byte.push(saturating_u32(next + usize::from(crlf)));
@@ -191,7 +200,13 @@ impl LineIndex {
             }
         }
         line_ends_byte.push(saturating_u32(content.len()));
+        line_ascii.push(line_is_ascii);
+        let ascii = content.is_ascii();
+        if ascii {
+            line_ascii = Vec::new();
+        }
         Self {
+            line_ascii,
             ends_with_break: !content.is_empty()
                 && line_starts_byte.last().copied() == Some(saturating_u32(content.len())),
             line_starts_byte,
@@ -199,7 +214,7 @@ impl LineIndex {
             line_starts_utf16,
             bom_utf16: u32::from(bom_len(content.as_bytes()) > 0),
             utf16_checkpoints,
-            ascii: content.is_ascii(),
+            ascii,
         }
     }
 
@@ -272,6 +287,19 @@ impl LineIndex {
 
     /// UTF-16 column of char boundary `byte` on 0-based `line`.
     fn utf16_column(&self, content: &str, line: usize, byte: usize) -> u32 {
+        // An all-ASCII line (a non-ASCII file is mostly such lines) is its
+        // byte distance from the line's start: no checkpoint, no char scan.
+        if self.line_ascii.get(line) == Some(&true)
+            && let Some(&start) = self.line_starts_byte.get(line)
+            && byte >= start as usize
+            && self
+                .line_starts_byte
+                .get(line + 1)
+                .map_or(content.len(), |&next| next as usize)
+                >= byte
+        {
+            return saturating_u32(byte - start as usize);
+        }
         let line_units = self.line_starts_utf16.get(line).copied().unwrap_or(0);
         self.utf16_before(content, byte).saturating_sub(line_units)
     }

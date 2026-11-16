@@ -179,10 +179,13 @@ fn scope(
         return Ok((workspace, root, home));
     }
     if !root.starts_with(&workspace) {
-        return Err(failure(format!(
-            "path must be a directory inside the current workspace ({}): graph snapshots live in the workspace. Start Octocode inside that directory, or use astSearch and localSearch at it.{OUTSIDE_WORKSPACE}",
-            workspace.display()
-        )));
+        return Err(GraphOutput::error(
+            ErrorCode::OutsideAllowedRoots,
+            format!(
+                "path must be a directory inside the current workspace ({}): graph snapshots live in the workspace. Start Octocode inside that directory, or use astSearch and localSearch at it.{OUTSIDE_WORKSPACE}",
+                workspace.display()
+            ),
+        ));
     }
     if !home.starts_with(&workspace) {
         return Err(failure("snapshot storage must remain inside the workspace"));
@@ -452,7 +455,9 @@ fn build(
     {
         out.value["related"] = json!([lead]);
     }
-    skipped::note_skipped(query, &root, paths, context, &mut out.value);
+    if let Err(error) = skipped::note_skipped(query, &root, paths, context, &mut out.value) {
+        return GraphOutput::error(error.code, error.message);
+    }
     resume_paused(&mut out, query);
     retry_after_change(&mut out, query);
     out

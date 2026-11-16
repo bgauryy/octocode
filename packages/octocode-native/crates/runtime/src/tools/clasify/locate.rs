@@ -88,13 +88,18 @@ pub(super) fn locate(
     if serves.is_empty() {
         return None;
     }
-    let text = match target {
-        Target::Source(source)
-            if source.get("url").is_none() && source["query"].get("ranges").is_none() =>
-        {
-            state.get("text")?.as_str()?
+    let (text, at) = match target {
+        Target::Source(source) if source.get("url").is_none() => {
+            let text = state.get("text")?.as_str()?;
+            (
+                text,
+                file_lines(source, text.split_inclusive('\n').count())?,
+            )
         }
-        Target::Content(Value::String(text)) => text.as_str(),
+        Target::Content(Value::String(text)) => (
+            text.as_str(),
+            (1..=text.split_inclusive('\n').count()).collect(),
+        ),
         _ => return None,
     };
     // The provider boundary sanitizes what it sends; a secret spread over
@@ -110,7 +115,7 @@ pub(super) fn locate(
     if clean.split_inclusive('\n').count() != text.split_inclusive('\n').count() {
         return None;
     }
-    let (marked, parts) = mark(clean, page_chars)?;
+    let (marked, parts) = mark(clean, page_chars, Some(&at))?;
     match &mut screened {
         Value::String(text) => *text = marked,
         other => other["text"] = json!(marked),
@@ -126,6 +131,26 @@ pub(super) fn locate(
         parts: parts.spans,
         serves,
     })
+}
+
+/// The file line of each line of a source's text: its own numbers for a
+/// whole read, the lines its `ranges` name, in order, for a selection. `None`
+/// when the text does not hold exactly those lines (a range cut at the end of
+/// the file, or markers between ranges), so no label could name a wrong line.
+fn file_lines(source: &Value, count: usize) -> Option<Vec<usize>> {
+    let Some(ranges) = source["query"].get("ranges") else {
+        return Some((1..=count).collect());
+    };
+    let mut at = Vec::new();
+    for range in ranges.as_array()? {
+        let line = |key: &str| usize::try_from(range[key].as_u64()?).ok();
+        let (start, end) = (line("startLine")?, line("endLine")?);
+        if start == 0 || end < start {
+            return None;
+        }
+        at.extend(start..=end);
+    }
+    (at.len() == count).then_some(at)
 }
 
 /// The questions one request sends: the asked ones, then the companions.
@@ -272,15 +297,25 @@ fn spans(lines: &[&str], page_chars: usize) -> Parts {
 /// marker line naming its lines (`<lines 1-40>` … `</lines 1-40>`), and its
 /// parts; `None` for a text of one line. A part that carries on the block
 /// the part before it ends in opens saying so: `<lines 41-80 continues>`.
-fn mark(text: &str, page_chars: usize) -> Option<(String, Parts)> {
+/// `at` gives the file line of each text line (`None`: the text's own
+/// numbers); parts and markers name file lines.
+fn mark(text: &str, page_chars: usize, at: Option<&[usize]>) -> Option<(String, Parts)> {
     let lines: Vec<&str> = text.split_inclusive('\n').collect();
     if lines.len() < 2 {
         return None;
     }
-    let parts = spans(&lines, page_chars);
+    let mut parts = spans(&lines, page_chars);
+    let local = parts.spans.clone();
+    if let Some(at) = at {
+        for (start, end) in &mut parts.spans {
+            (*start, *end) = (at[*start - 1], at[*end - 1]);
+        }
+    }
     let mut marked = String::with_capacity(text.len() + parts.spans.len() * 24);
-    for (&(start, end), &continues) in parts.spans.iter().zip(&parts.continues) {
-        let name = label((start, end));
+    for ((&(start, end), &(first, last)), &continues) in
+        local.iter().zip(&parts.spans).zip(&parts.continues)
+    {
+        let name = label((first, last));
         if continues {
             marked.push_str(&format!("<{name} continues>\n"));
         } else {
@@ -376,15 +411,18 @@ pub(super) fn narrow_read(
         .unwrap_or_default()
         .split_inclusive('\n')
         .collect();
-    let chars = lines
+    // The deciding lines are file lines; a selection of `ranges` holds
+    // only some of them, in order.
+    let at = file_lines(source, text.len()).unwrap_or_default();
+    let chars = text
         .iter()
-        .filter_map(|&(start, end)| {
-            let start = usize::try_from(start).ok()?.checked_sub(1)?;
-            let end = usize::try_from(end).ok()?;
-            text.get(start..end)
+        .zip(&at)
+        .filter(|&(_, &line)| {
+            lines.iter().any(|&(start, end)| {
+                u64::try_from(line).is_ok_and(|line| start <= line && line <= end)
+            })
         })
-        .flatten()
-        .map(|line| line.chars().count())
+        .map(|(line, _)| line.chars().count())
         .sum();
     captured.read = read;
     captured.read_chars = chars;

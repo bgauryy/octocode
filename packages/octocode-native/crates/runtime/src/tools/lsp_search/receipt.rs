@@ -112,25 +112,23 @@ impl RustAnalysis {
         }
     }
 
+    /// Reads each setting as the server reads it (flat dotted key, then
+    /// nested), so the build-script gate sees what rust-analyzer will run.
     fn from_options(options: Option<&Value>) -> Self {
+        let setting = |section: &str| {
+            options.and_then(|value| octocode_engine::lsp::lookup_section(value, section))
+        };
         Self {
-            build_scripts: options
-                .and_then(|value| value.pointer("/cargo/buildScripts/enable"))
+            build_scripts: setting("cargo.buildScripts.enable")
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
-            all_features: options
-                .and_then(|value| value.pointer("/cargo/features"))
-                .and_then(Value::as_str)
-                == Some("all"),
-            proc_macros: options
-                .and_then(|value| value.pointer("/procMacro/enable"))
+            all_features: setting("cargo.features").and_then(Value::as_str) == Some("all"),
+            proc_macros: setting("procMacro.enable")
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
             build_scripts_allowed: false,
             target: super::server_coverage::AnalysisTarget::of(
-                options
-                    .and_then(|value| value.pointer("/cargo/target"))
-                    .and_then(Value::as_str),
+                setting("cargo.target").and_then(Value::as_str),
             ),
         }
     }
@@ -378,5 +376,32 @@ pub(super) fn drop_same_uri(value: &mut Value, canonical_uri: &str) {
         if same {
             object.shift_remove(key);
         }
+    }
+}
+
+#[cfg(test)]
+mod option_spelling_tests {
+    use super::RustAnalysis;
+    use serde_json::json;
+
+    /// The receipt reads a setting as rust-analyzer's configuration lookup
+    /// does: a flat dotted key counts as much as the nested path.
+    #[test]
+    fn either_spelling_of_a_setting_is_what_the_server_runs() {
+        for options in [
+            json!({"cargo": {"buildScripts": {"enable": true}}, "procMacro": {"enable": true}, "cargo.features": "all"}),
+            json!({"cargo.buildScripts.enable": true, "procMacro.enable": true, "cargo": {"features": "all"}}),
+        ] {
+            let analysis = RustAnalysis::from_options(Some(&options));
+            assert!(analysis.build_scripts, "{options}");
+            assert!(analysis.proc_macros, "{options}");
+            assert!(analysis.all_features, "{options}");
+            assert!(analysis.validate().is_ok(), "{options}");
+        }
+        let flat_off = json!({"cargo.buildScripts.enable": false, "cargo": {"buildScripts": {"enable": true}}});
+        assert!(
+            !RustAnalysis::from_options(Some(&flat_off)).build_scripts,
+            "the flat key is read first, as the server reads it"
+        );
     }
 }

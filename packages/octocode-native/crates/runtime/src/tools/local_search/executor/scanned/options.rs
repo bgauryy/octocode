@@ -54,7 +54,6 @@ pub(crate) fn search_options(
         pattern: local_search_query::pattern(query).to_owned(),
         terms: None,
         test_code: None,
-        test_code_rank: None,
         line_scope: local_search_query::key_path(query)
             .map(crate::tools::local_search::key_scope::line_scope),
         syntax: match local_search_query::regex_mode(query) {
@@ -113,11 +112,7 @@ pub(crate) fn search_options(
             local_search_query::include_hidden(query),
         ),
         max_depth: local_search_query::max_depth(query),
-        // The engine owns the relevance order (for a bare-identifier search,
-        // source files declaring the name first; then source before
-        // test/generated paths, then count, then declaration > code >
-        // comment/string hits, then path) so its top-k and cap keep the same
-        // survivors.
+        // The engine owns the order, so its cap keeps the same survivors.
         sort: if local_search_query::sort(query) == SearchSort::MatchCount && path_list {
             SearchSort::Path
         } else {

@@ -434,3 +434,67 @@ async fn response_cache_controls_preserve_registry_origin_headers() {
         );
     }
 }
+
+/// A GET of `url` that gets no answer, with no retry.
+async fn unanswered(url: String) -> crate::providers::artifact::ArtifactError {
+    let request = ArtifactHttpRequest {
+        url: Url::parse(&url).expect("URL"),
+        accept: "application/json",
+        authorization: None,
+        dns_pin: None,
+        validator: None,
+    };
+    let budget = RequestBudget::with_timeout(Duration::from_secs(30), 1024);
+    SystemArtifactHttp::shared()
+        .with_retries(0)
+        .get(request, &budget)
+        .await
+        .expect_err("no answer")
+}
+
+/// A registry request that got no answer says why, from the transport
+/// error, and how to fix it, instead of a bare "Retry later".
+#[tokio::test]
+async fn a_refused_connection_names_its_cause_and_fix() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let address = listener.local_addr().expect("address");
+    drop(listener);
+    let error = unanswered(format!("http://{address}/pkg")).await;
+    assert!(
+        error.message.contains("refused the connection"),
+        "{error:?}"
+    );
+    assert!(
+        error.hints.iter().any(|hint| hint.contains("reachable")),
+        "{error:?}"
+    );
+}
+
+/// A peer that does not speak TLS fails the handshake, and the fix names the
+/// trust store settings a TLS-intercepting proxy needs.
+#[tokio::test]
+async fn a_failed_tls_handshake_names_its_cause_and_fix() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let address = listener.local_addr().expect("address");
+    let server = tokio::spawn(async move {
+        if let Ok((mut socket, _)) = listener.accept().await {
+            let _ = tokio::io::AsyncWriteExt::write_all(
+                &mut socket,
+                b"HTTP/1.1 400 Bad Request\r\ncontent-length: 0\r\n\r\n",
+            )
+            .await;
+        }
+    });
+    let error = unanswered(format!("https://{address}/pkg")).await;
+    server.abort();
+    assert!(error.message.contains("TLS"), "{error:?}");
+    assert!(
+        error
+            .hints
+            .iter()
+            .any(|hint| hint.contains("SSL_CERT_FILE")),
+        "{error:?}"
+    );
+}

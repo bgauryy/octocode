@@ -1,5 +1,6 @@
 //! C# receiver bindings.
 use super::*;
+use crate::signatures::node_kinds::kind_of;
 
 pub(super) fn csharp_bindings<'t>(
     up: Up<'_, 't>,
@@ -10,11 +11,11 @@ pub(super) fn csharp_bindings<'t>(
     let node = up.node;
     let declared = |ty: Option<Node<'t>>| {
         let ty = ty?;
-        (ty.kind() != "implicit_type")
+        (kind_of(ty) != "implicit_type")
             .then(|| clean_type_text(node_text(ty, content)?, Lang::CSharp))
             .flatten()
     };
-    match node.kind() {
+    match kind_of(node) {
         "parameter" => {
             let Some(name) = node.child_by_field_name("name") else {
                 return;
@@ -26,12 +27,12 @@ pub(super) fn csharp_bindings<'t>(
         "variable_declaration" => {
             let Some(parent) = up.nth(1) else { return };
             if matches!(
-                parent.kind(),
+                kind_of(parent),
                 "field_declaration" | "event_field_declaration"
             ) {
                 return;
             }
-            let scope = if parent.kind() == "local_declaration_statement" {
+            let scope = if kind_of(parent) == "local_declaration_statement" {
                 up.nth(2).unwrap_or(parent)
             } else {
                 parent
@@ -39,13 +40,13 @@ pub(super) fn csharp_bindings<'t>(
             let ty = node.child_by_field_name("type");
             let mut cursor = node.walk();
             for declarator in node.named_children(&mut cursor) {
-                if declarator.kind() != "variable_declarator" {
+                if kind_of(declarator) != "variable_declarator" {
                     continue;
                 }
                 let Some(name) = declarator.child_by_field_name("name") else {
                     continue;
                 };
-                let resolved = if ty.is_some_and(|ty| ty.kind() == "implicit_type") {
+                let resolved = if ty.is_some_and(|ty| kind_of(ty) == "implicit_type") {
                     csharp_initializer(declarator, name)
                         .and_then(|value| csharp_constructor(value, content))
                 } else {
@@ -70,7 +71,7 @@ pub(super) fn csharp_bindings<'t>(
         "declaration_pattern" | "declaration_expression" => {
             if let Some(name) = node.child_by_field_name("name") {
                 let ty = declared(node.child_by_field_name("type"));
-                let until = up.ancestor(&[function.kind()]).unwrap_or(function);
+                let until = up.ancestor(&[kind_of(function)]).unwrap_or(function);
                 bind_pattern(name, ty, node.end_byte(), until.end_byte(), content, out);
             }
         }
@@ -83,7 +84,7 @@ pub(super) fn csharp_bindings<'t>(
         }
         "lambda_expression" => {
             if let Some(parameters) = node.child_by_field_name("parameters")
-                && parameters.kind() != "parameter_list"
+                && kind_of(parameters) != "parameter_list"
             {
                 bind_pattern(
                     parameters,
@@ -103,8 +104,8 @@ pub(super) fn csharp_bindings<'t>(
 pub(super) fn csharp_initializer<'t>(declarator: Node<'t>, name: Node<'t>) -> Option<Node<'t>> {
     let value = named_children(declarator)
         .into_iter()
-        .rfind(|child| *child != name && child.kind() != "bracketed_argument_list")?;
-    if value.kind() == "equals_value_clause" {
+        .rfind(|child| *child != name && kind_of(child) != "bracketed_argument_list")?;
+    if kind_of(value) == "equals_value_clause" {
         value.named_child(0)
     } else {
         Some(value)
@@ -112,7 +113,7 @@ pub(super) fn csharp_initializer<'t>(declarator: Node<'t>, name: Node<'t>) -> Op
 }
 
 pub(super) fn csharp_constructor(value: Node<'_>, content: &str) -> Option<String> {
-    (value.kind() == "object_creation_expression").then_some(())?;
+    (kind_of(value) == "object_creation_expression").then_some(())?;
     clean_type_text(
         node_text(value.child_by_field_name("type")?, content)?,
         Lang::CSharp,

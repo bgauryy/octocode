@@ -39,7 +39,7 @@ pub fn execute_syntax(
     cancel: &dyn CancellationCheck,
     response_window: Option<usize>,
 ) -> Result<Value, ToolError> {
-    run_syntax(q, paths, cancel, response_window).map(super::output::finish)
+    run_syntax(q, paths, cancel, response_window).map(crate::response::result::finished)
 }
 
 fn run_syntax(
@@ -115,6 +115,9 @@ fn run_syntax(
         ));
     }
     let mut out = render_tree_page(q, &display_path, &page, &snapshot);
+    if let Some(warning) = admitted.warning() {
+        crate::response::paging::push_warnings(&mut out, [warning.to_owned()]);
+    }
     if ast_search_query_syntax_tree::provenance(q)
         && page.r.status != "error"
         && !page.r.nodes.is_empty()

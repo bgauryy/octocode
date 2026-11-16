@@ -224,20 +224,20 @@ fn a_qualified_member_call_links_the_class_it_names_not_the_receivers() {
         );
         assert_eq!(
             callees(root, &format!("out.cpp#{caller}")),
-            [to("out.cpp#B2.x@4", "qualified")],
+            [to("out.cpp#B2.x@2", "qualified")],
             "out of line: {caller}"
         );
     }
     assert_eq!(
         callees(root, "out.cpp#plain"),
-        [to("out.cpp#B2.x@4", "qualified")]
+        [to("out.cpp#B2.x@2", "qualified")]
     );
-    for caller in ["out.cpp#C2.w", "out.cpp#C2.v@15"] {
+    for caller in ["out.cpp#C2.w", "out.cpp#C2.v@2"] {
         let targets = call_edges(root, caller)
             .into_iter()
             .map(|(id, _, _)| id)
             .collect::<Vec<_>>();
-        assert_eq!(targets, ["out.cpp#C2.u@14"], "bare member call: {caller}");
+        assert_eq!(targets, ["out.cpp#C2.u@2"], "bare member call: {caller}");
     }
     for (caller, target) in [
         ("inline.cpp#inherited", "inline.cpp#A.z"),
@@ -254,7 +254,7 @@ fn a_qualified_member_call_links_the_class_it_names_not_the_receivers() {
     }
     for (caller, target) in [
         ("inline.cpp#unwritten", "inline.cpp#D.x"),
-        ("out.cpp#unwritten", "out.cpp#D2.x@6"),
+        ("out.cpp#unwritten", "out.cpp#D2.x@2"),
     ] {
         assert_eq!(
             callees(root, caller),

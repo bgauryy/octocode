@@ -1,15 +1,16 @@
 //! C and C++ receiver bindings.
 use super::*;
+use crate::signatures::node_kinds::kind_of;
 
 pub(super) fn cpp_bindings<'t>(up: Up<'_, 't>, content: &str, out: &mut Vec<Binding>) {
     let node = up.node;
     let declared = |ty: Option<Node<'t>>| {
         let ty = ty?;
-        (ty.kind() != "placeholder_type_specifier")
+        (kind_of(ty) != "placeholder_type_specifier")
             .then(|| clean_type_text(node_text(ty, content)?, Lang::Cpp))
             .flatten()
     };
-    match node.kind() {
+    match kind_of(node) {
         "parameter_declaration" | "optional_parameter_declaration" => {
             let Some(name) = node
                 .child_by_field_name("declarator")
@@ -29,7 +30,7 @@ pub(super) fn cpp_bindings<'t>(up: Up<'_, 't>, content: &str, out: &mut Vec<Bind
             let until = up.nth(1).unwrap_or(node).end_byte();
             let mut cursor = node.walk();
             for declarator in node.children_by_field_name("declarator", &mut cursor) {
-                let (target, value) = if declarator.kind() == "init_declarator" {
+                let (target, value) = if kind_of(declarator) == "init_declarator" {
                     (
                         declarator.child_by_field_name("declarator"),
                         declarator.child_by_field_name("value"),
@@ -40,7 +41,7 @@ pub(super) fn cpp_bindings<'t>(up: Up<'_, 't>, content: &str, out: &mut Vec<Bind
                 let Some(name) = target.and_then(cpp_declarator_name) else {
                     continue;
                 };
-                let resolved = if ty.is_some_and(|ty| ty.kind() == "placeholder_type_specifier") {
+                let resolved = if ty.is_some_and(|ty| kind_of(ty) == "placeholder_type_specifier") {
                     value.and_then(|value| cpp_constructor(value, content))
                 } else {
                     declared(ty)
@@ -65,14 +66,14 @@ pub(super) fn cpp_bindings<'t>(up: Up<'_, 't>, content: &str, out: &mut Vec<Bind
 /// as a type by its capital (`make()` is a call whose result nothing here types).
 pub(super) fn cpp_constructor(value: Node<'_>, content: &str) -> Option<String> {
     let clean = |written: Node<'_>| clean_type_text(node_text(written, content)?, Lang::Cpp);
-    match value.kind() {
+    match kind_of(value) {
         "new_expression" | "compound_literal_expression" => {
             clean(value.child_by_field_name("type")?)
         }
         "call_expression" => {
             let function = value.child_by_field_name("function").filter(|function| {
                 matches!(
-                    function.kind(),
+                    kind_of(function),
                     "identifier" | "qualified_identifier" | "template_function"
                 )
             })?;
@@ -91,7 +92,7 @@ pub(super) fn cpp_constructor(value: Node<'_>, content: &str) -> Option<String> 
 pub(super) fn cpp_declarator_name(declarator: Node<'_>) -> Option<Node<'_>> {
     let mut current = declarator;
     loop {
-        current = match current.kind() {
+        current = match kind_of(current) {
             "identifier" | "field_identifier" => return Some(current),
             "pointer_declarator" | "reference_declarator" => current
                 .child_by_field_name("declarator")

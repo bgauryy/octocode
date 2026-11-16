@@ -20,28 +20,12 @@ pub(super) struct FileRec {
     pub(super) entry: FileEntry,
     /// Number of matching (or, with `-v`, non-matching) lines reported.
     pub(super) matched_lines: u32,
-    /// Relevance density, kept apart from full evidence counts.
-    pub(super) rank_lines: u32,
-    pub(super) rank_submatches: u32,
     /// Number of individual matches (submatches) across all matched lines.
     pub(super) submatches: u32,
     /// only-matching spans (empty unless the output is spans).
     pub(super) om_matches: Vec<TextSearchMatch>,
     /// Metadata timestamp captured for non-path sort keys.
     pub(super) sort_time: Option<SystemTime>,
-    /// `relevance` only: summed [`relevance::line_weight`](crate::search::relevance::line_weight) of matched lines.
-    pub(super) line_weight: u32,
-    /// `relevance` only: a test, generated, or vendored path below the root.
-    pub(super) demoted: bool,
-    /// `relevance` only: a generated file, by its path below the root or its
-    /// header; it ranks after every hand-written file.
-    pub(super) generated: bool,
-    /// `relevance` identifier search only: a matched line declares the name
-    /// (see [`identifier_search`](super::mode::identifier_search)).
-    pub(super) declares: bool,
-    /// `relevance` word alternation only: how many of its words matched
-    /// (see [`alternation_words`](super::mode::alternation_words)).
-    pub(super) covered: u32,
     /// The bytes the values came from (see [`SourceValues::Hashed`](crate::types::SourceValues::Hashed)).
     pub(super) source: Option<SearchedSource>,
     /// A returned line was not UTF-8: the values are decoded text.

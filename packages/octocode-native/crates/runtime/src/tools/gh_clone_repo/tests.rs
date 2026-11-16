@@ -1,14 +1,16 @@
 use super::pin::api_refusal;
-use super::validate::{is_sparse_path, repository_url, web_root};
+use super::validate::is_sparse_path;
 use super::*;
-use crate::execution::cancel::NeverCancel;
-use crate::policy::path::PathPolicyConfig;
+use crate::execution::cancel::{CancellationCheck, NeverCancel};
+use crate::policy::path::{PathPolicy, PathPolicyConfig};
+use crate::tools::gh_git::endpoint::{repository_url, web_root};
+use crate::tools::gh_git::{CloneConfig, GitOutput, GitRunControl, GitRunner, SystemGit};
 use crate::tools::gh_shared::test_support::{
     mock_endpoint, one_shot_provider, one_shot_provider_at,
 };
 use crate::tools::test_support;
 use octocode_contract_types::ErrorCode;
-use octocode_github::CredentialSource;
+use octocode_github::{CredentialSource, GitHubEndpoint, ResolvedCredential};
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -163,6 +165,16 @@ impl GitRunner for RewriteRunner {
         self.system
             .run_nul_records(&self.rewrite(request), control, record)
     }
+
+    fn run_stream(
+        &self,
+        request: &GitRunRequest<'_>,
+        control: &GitRunControl<'_>,
+        sink: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
+    ) -> Result<GitOutput, CloneError> {
+        self.system
+            .run_stream(&self.rewrite(request), control, sink)
+    }
 }
 
 struct Fixture {
@@ -290,7 +302,7 @@ impl Fixture {
 /// generation.
 fn store_dirs(home: &Path) -> Vec<PathBuf> {
     let mut stores = Vec::new();
-    for owner in fs::read_dir(storage::store_root(home))
+    for owner in fs::read_dir(crate::tools::gh_git::store_root(home))
         .into_iter()
         .flatten()
         .flatten()

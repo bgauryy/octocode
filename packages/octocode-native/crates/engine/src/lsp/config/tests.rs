@@ -2,7 +2,6 @@ use super::{
     LspDiscoveryOptions, default_server_for_directory, default_server_for_file, detect_language_id,
     directory_languages, directory_representative, invocation::is_node_executable,
     invocation::resolve_known_server_command, is_rust_analyzer_command,
-    workspace_root_representative_source,
 };
 #[cfg(unix)]
 use super::{
@@ -22,6 +21,7 @@ fn write_lsp_config(root: &std::path::Path, json: &str) {
     std::fs::write(config_dir.join("lsp-servers.json"), json).expect("write lsp config");
 }
 
+mod call_environment;
 mod catalog;
 mod discovery;
 #[cfg(unix)]
@@ -50,4 +50,12 @@ fn each_routed_extension_has_one_route() {
     extensions.sort_unstable();
     extensions.dedup();
     assert_eq!(extensions.len(), super::catalog::ROUTED_EXTENSIONS.len());
+}
+
+/// The call environment of a test that looks programs up on the test
+/// process's own `PATH`.
+pub(super) fn process_path() -> std::collections::HashMap<String, String> {
+    std::env::var("PATH")
+        .map(|path| std::collections::HashMap::from([("PATH".to_owned(), path)]))
+        .unwrap_or_default()
 }

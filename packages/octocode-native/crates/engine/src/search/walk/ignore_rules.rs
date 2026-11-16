@@ -221,8 +221,14 @@ impl IgnoreRules {
     /// [`Self::is_ignored`] of an entry of the directory `rules` were
     /// entered for.
     pub(crate) fn is_ignored_in(&self, rules: &DirRules, path: &Path, is_dir: bool) -> bool {
+        self.decide_in(rules, path, is_dir).is_ignore()
+    }
+
+    /// [`Self::decide_entry`] of an entry of the directory `rules` were
+    /// entered for: the walker's verdict with no cache lookup, and with no
+    /// side effect, so a caller may ask before it walks the entry.
+    pub(crate) fn decide_in(&self, rules: &DirRules, path: &Path, is_dir: bool) -> Match<()> {
         self.decide_under(&rules.0, path, is_dir, |_| ())
-            .is_ignore()
     }
 
     /// The walker's ignore verdict on the entry `path` itself (its

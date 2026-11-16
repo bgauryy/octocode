@@ -1,6 +1,4 @@
-use super::{
-    mark_partial, next_candidate_page_call, next_page_call, push_warnings, terminal_limit,
-};
+use super::{mark_partial, next_candidate_page_call, push_warnings, terminal_limit};
 
 /// A static notice is written once; a later page is told by its
 /// cursors, never by the tool.
@@ -33,44 +31,6 @@ fn notices_append_once_and_continuations_are_told_by_their_cursors() {
 /// "page N of M"; a page in range, or page 1 of nothing, writes nothing.
 use crate::id::ToolId;
 use serde_json::{Map, Value, json};
-
-/// One next-page builder: the query with the cursor advanced and the
-/// pins written, as an exact-replay call, however far past any former
-/// schema ceiling the cursor runs.
-#[test]
-fn next_page_call_advances_one_cursor_past_any_size() {
-    let query = json!({"operation": "references", "path": "a.rs", "symbolName": "f",
-            "line": 1, "page": 2});
-    for next in [3, 1_001, 100_001, usize::MAX] {
-        let call = next_page_call(
-            ToolId::LspSearch,
-            query.clone(),
-            "page",
-            next,
-            &[("snapshot", json!("lsp-v3:x"))],
-        )
-        .expect("an object query");
-        assert_eq!(call["tool"], "lspSearch", "{call}");
-        let row = &call["input"]["queries"][0];
-        assert_eq!(row["page"], json!(next), "{call}");
-        assert_eq!(row["snapshot"], "lsp-v3:x", "{call}");
-        assert_eq!(row["path"], "a.rs", "{call}");
-    }
-    assert!(next_page_call(ToolId::LspSearch, json!(1), "page", 2, &[]).is_none());
-}
-
-/// A cursor is not always a number: a candidate-page token continues the
-/// same query through the same builder.
-#[test]
-fn next_page_call_carries_a_token_cursor() {
-    let query = json!({"path": "src", "matchString": ["x"]});
-    let call = next_page_call(ToolId::LocalSearch, query, "selection", "token-1", &[])
-        .expect("an object query");
-    assert_eq!(
-        call["input"]["queries"][0]["selection"], "token-1",
-        "{call}"
-    );
-}
 
 /// The partial owners write a row or its object alike: a reason is
 /// appended after the row's own once, a warning is appended once.

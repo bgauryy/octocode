@@ -378,7 +378,9 @@ fn read(path: &Path) -> Option<String> {
         octocode_engine::num::saturating_usize(MAX_FILE_BYTES),
     )
     .ok()?;
-    super::super::source::admitted_text(&bytes).ok()
+    super::super::source::admitted_text(&bytes)
+        .ok()
+        .map(|read| read.text)
 }
 
 /// The gates every line of `file` compiles under: its own inner gates, and

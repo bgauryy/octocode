@@ -96,6 +96,40 @@ pub(super) fn pattern_declaration(lang: &AgLanguage, pattern: &str) -> Option<Pa
     CompiledPattern::new(lang, pattern).ok()?.declaration()
 }
 
+/// The fields in which the first node of the declaration `pattern` spells
+/// that starts on 1-based `line` of `content` differs from it
+/// ([`CompiledPattern::differing_fields`]); empty when no such node or field.
+pub(super) fn pattern_differences(
+    lang: &AgLanguage,
+    pattern: &str,
+    content: &str,
+    line: u32,
+) -> Vec<String> {
+    let Ok(compiled) = CompiledPattern::new(lang, pattern) else {
+        return Vec::new();
+    };
+    let Some(kind) = compiled.declaration().map(|declaration| declaration.kind) else {
+        return Vec::new();
+    };
+    let Ok(tree) = matching::parse_tree(compiled.language(), content) else {
+        return Vec::new();
+    };
+    let row = usize::try_from(line.saturating_sub(1)).unwrap_or(usize::MAX);
+    let mut pending = vec![tree.root_node()];
+    while let Some(node) = pending.pop() {
+        if node.start_position().row > row || node.end_position().row < row {
+            continue;
+        }
+        if node.start_position().row == row && node.kind() == kind {
+            return compiled.differing_fields(node, content);
+        }
+        let mut cursor = node.walk();
+        let children: Vec<_> = node.named_children(&mut cursor).collect();
+        pending.extend(children.into_iter().rev());
+    }
+    Vec::new()
+}
+
 /// The kind of node `pattern` parses as in `lang`.
 pub(super) fn pattern_kind(lang: &AgLanguage, pattern: &str) -> Option<String> {
     CompiledPattern::new(lang, pattern).ok()?.root_kind()

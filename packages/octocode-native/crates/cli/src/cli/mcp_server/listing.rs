@@ -76,7 +76,12 @@ pub(super) fn build(presentation: &Value, catalog: &Value) -> Result<Listing, St
     }
     Ok(Listing {
         tools,
-        instructions: instructions(presentation, |name| names.contains(&name)),
+        // The Clasify block explains the `classification` option, so it
+        // follows the predicate that shows the option (`selection`), not
+        // whether a tool filter hides `clasify` itself.
+        instructions: instructions(presentation, |name| {
+            names.contains(&name) || (selection && name == "clasify")
+        }),
     })
 }
 

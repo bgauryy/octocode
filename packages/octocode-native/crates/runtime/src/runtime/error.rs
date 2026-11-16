@@ -47,6 +47,10 @@ pub fn tool_error_result(tool: &str, error: &RuntimeError) -> RejectedCall {
     } else if let Some(id) = ToolId::from_name(tool) {
         crate::response::rows::attach_error_hint(id.output(), &mut envelope, &Value::Null);
     }
+    // A rejected call carries its class only: `retryable` is a row field.
+    envelope["errorClass"] = json!(crate::id::error_class(
+        envelope["errorCode"].as_str().unwrap_or_default()
+    ));
     let envelope = Sanitized::scrubbed(envelope);
     let code = envelope["errorCode"]
         .as_str()
@@ -183,7 +187,7 @@ mod tests {
         );
         assert_eq!(
             payload(&result),
-            json!({"error":"clasify pages by itself","errorCode":"invalidInput"})
+            json!({"error":"clasify pages by itself","errorCode":"invalidInput","errorClass":"correctInput"})
         );
     }
 

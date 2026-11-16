@@ -228,13 +228,9 @@ fn compact_and_content_redact_the_same_secrets() {
     for text in [&content, &compact] {
         assert!(!text.contains(TOKEN), "{text}");
     }
-    let placeholders = |text: &str| {
-        text.matches(octocode_engine::security::REDACTION_PREFIX)
-            .count()
-    };
     assert_eq!(
-        placeholders(&content),
-        placeholders(&compact),
+        crate::security::placeholders(&content),
+        crate::security::placeholders(&compact),
         "{content}\n{compact}"
     );
 }

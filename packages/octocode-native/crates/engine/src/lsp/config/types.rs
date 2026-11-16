@@ -80,6 +80,17 @@ fn holds_anything(directory: &Path) -> bool {
 }
 
 impl LspDiscoveryOptions {
+    /// The environment a server started for this call is given: the
+    /// allowlisted variables of the call's own environment
+    /// ([`crate::lsp::client::LSP_SERVER_ENV_ALLOWLIST`]), never the
+    /// process's.
+    pub fn spawn_environment(&self) -> std::collections::HashMap<String, String> {
+        crate::lsp::client::LSP_SERVER_ENV_ALLOWLIST
+            .iter()
+            .filter_map(|name| Some(((*name).to_owned(), self.env.get(*name)?.clone())))
+            .collect()
+    }
+
     /// Where a server may keep an index: the home, unless storage is memory only.
     pub(super) fn index_home(&self) -> Option<&Path> {
         self.octocode_home.as_deref().filter(|_| self.index_on_disk)

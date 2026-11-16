@@ -84,12 +84,24 @@ async fn search_walks_reach_every_hit_once_with_source_coordinates() {
     let runtime = workspace.runtime(&[]);
     for mcp in [false, true] {
         for budget in [2500, 20000] {
+            // A file entry larger than the response window is delivered in row
+            // parts (`rowPart.continues`) that join in order: its declarations
+            // ride the first part and the hits of later parts index them.
+            let declared =
+                std::cell::RefCell::new(std::collections::BTreeMap::<String, Value>::new());
             let rows=walk(&runtime,mcp,"localSearch",json!({"path":workspace.workspace,"matchString":["needle"],"contextLines":{"before":0,"after":0}}),budget,|value| {
                 let mut rows=Vec::new();
                 for result in value["results"].as_array().expect("results") {
                     for file in result["data"]["files"].as_array().into_iter().flatten() {
+                        let path=file["path"].as_str().expect("path").to_owned();
+                        if let Some(own)=file.get("declarations") {
+                            declared.borrow_mut().insert(path.clone(),own.clone());
+                        } else if result.pointer("/rowPart/continues").is_none() {
+                            declared.borrow_mut().remove(&path);
+                        }
+                        let joined=declared.borrow().get(&path).cloned().unwrap_or(Value::Null);
                         for matched in file["matches"].as_array().expect("matches") {
-                            let owner=matched.get("enclosing").and_then(serde_json::Value::as_u64).and_then(|owner|file["declarations"].get(usize::try_from(owner).ok()?)).unwrap_or_else(||panic!("each hit retains enclosing evidence: {matched}, {file}"));
+                            let owner=matched.get("enclosing").and_then(serde_json::Value::as_u64).and_then(|owner|joined.get(usize::try_from(owner).ok()?)).unwrap_or_else(||panic!("each hit retains enclosing evidence: {matched}, {file}"));
                             assert!(owner["symbolName"].as_str().expect("name").starts_with("holder_"));
                             let line=matched["line"].as_u64().expect("line");
                             assert!(owner["line"].as_u64().expect("start")<=line&&owner["endLine"].as_u64().expect("end")>=line);

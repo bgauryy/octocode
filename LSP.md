@@ -219,11 +219,11 @@ A response when every level misses looks like this:
 ```json
 {
   "level": "local-search",
-  "hint": "No language server, IDE bridge, or tree-sitter grammar is available for this file. Use Octocode local search instead: localSearchCode(path, searchText) for text/regex matches, localViewStructure(path) for the directory tree, localFindFiles(path, ...) to locate files, then localGetFileContent(path, ...) for the exact region. Matches are text anchors, not symbol-proven facts; verify by reading the code."
+  "hint": "No language server, IDE bridge, or tree-sitter grammar is available for this file. Use Octocode local search instead: localSearch for text/regex matches, structureSearch for the directory tree and to locate files, then localFetch for the exact region. Matches are text anchors, not symbol-proven facts; verify by reading the code."
 }
 ```
 
-Octocode tie-in: localSearchCode(mode:"structural") already runs AST shape queries, so steps 4 and 5 share one tool family, and a localSearchCode hit's line number is the lineHint lspGetSemantics needs when a server does exist.
+Octocode tie-in: astSearch already runs AST shape queries, so steps 4 and 5 share one tool family, and a localSearch hit's line number is the `line` lspSearch needs when a server does exist.
 
 ## No server? Fall back to tree-sitter
 
@@ -298,7 +298,7 @@ The knobs, per server:
 - **pyright.** exclude prunes paths (node_modules, __pycache__ and virtualenvs are excluded by default); include and executionEnvironments scope what gets analyzed.
 - **Any server.** Big answers stream: LSP reports partial results and progress over $/progress, and a cancelled request can still return its partial result.
 
-When to skip LSP: if the question is "where does X appear", ripgrep-scale text search answers in milliseconds where a cold server needs minutes of indexing. That is Octocode's documented order: localSearchCode first, lspGetSemantics after you hold a real line number. And when even the outline is too big, rank it: Aider compresses its repo map with a dependency-graph ranking so only the most relevant parts spend tokens.
+When to skip LSP: if the question is "where does X appear", ripgrep-scale text search answers in milliseconds where a cold server needs minutes of indexing. That is Octocode's documented order: localSearch first, lspSearch after you hold a real line number. And when even the outline is too big, rank it: Aider compresses its repo map with a dependency-graph ranking so only the most relevant parts spend tokens.
 
 ## Cache locally, answer fast
 
@@ -321,7 +321,7 @@ A cache entry might look like:
 }
 ```
 
-Octocode tie-in: lspGetSemantics already pages big results (page / itemsPerPage, max 100) and reports evidence.completeness with hints when an answer is partial, so "massive" degrades into "paged", never into silent truncation.
+Octocode tie-in: lspSearch already pages big results (`limit` and an opaque `cursor`) and reports isPartial and partialReasons when an answer is partial, so "massive" degrades into "paged", never into silent truncation.
 
 ## Sources
 
@@ -333,7 +333,7 @@ Octocode tie-in: lspGetSemantics already pages big results (page / itemsPerPage,
 - [Serena: LSP-backed MCP toolkit for coding agents](https://github.com/oraios/serena)
 - [nvim-lspconfig: Neovim LSP configurations](https://github.com/neovim/nvim-lspconfig)
 - [Octocode: lspSearch reference](docs/OCTOCODE_TOOLS.md#lspsearch)
-- [Octocode: local tools reference (localSearchCode and friends)](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md)
+- [Octocode: local tools reference (localSearch and friends)](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md)
 - [Octocode: tool quality notes](skills-dev/octocode-dev/docs/TOOL_QUALITY.md)
 - [clangd: the index (background index, on-disk .idx cache, remote index)](https://clangd.llvm.org/design/indexing.html)
 - [pyright: configuration (exclude, executionEnvironments)](https://github.com/microsoft/pyright/blob/main/docs/configuration.md)

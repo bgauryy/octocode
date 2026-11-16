@@ -67,7 +67,20 @@ struct RowContext<'a> {
 
 /// Select one classified row of the page; `response_at` places its query in
 /// a multi-row response query (`None`: the response query is the row's).
+/// Whatever the outcome, text only the judge read leaves the row.
 fn select_row(
+    cx: &RowContext<'_>,
+    row: &mut Value,
+    query: &crate::security::CheckedQuery,
+    response_query: &mut Value,
+    response_at: Option<usize>,
+) -> Result<(), crate::execution::ExecutionError> {
+    let selected = judge_row(cx, row, query, response_query, response_at);
+    cx.output.strip_judge_only(&mut row["data"], query);
+    selected
+}
+
+fn judge_row(
     cx: &RowContext<'_>,
     row: &mut Value,
     query: &crate::security::CheckedQuery,
@@ -262,7 +275,7 @@ fn set_leads(
     ];
     for (channel, token) in replays {
         if let Some(token) = token
-            && let Some(call) = crate::response::paging::next_page_call(
+            && let Some(call) = crate::response::collection::continued_page(
                 tool,
                 (**query).clone(),
                 "selection",
@@ -270,7 +283,7 @@ fn set_leads(
                 &[],
             )
         {
-            crate::response::result::set_next(data, channel, call);
+            crate::response::result::set_next(data, channel, call.build());
         }
     }
 }

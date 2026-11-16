@@ -62,7 +62,7 @@ pub(super) fn fetch_ranges(
     // stops long before the last one.
     let wants = ones
         .iter()
-        .map(|(_, span)| span.want(source.limits.window))
+        .map(|(_, span)| span.want(source.limits.window, share))
         .collect::<Vec<_>>();
     let mut held = std::collections::VecDeque::new();
     let (mut read, mut run) = (
@@ -196,7 +196,7 @@ fn read_on(
     spans.extend_from_slice(after);
     local_fetch_query::set_line_spans(&mut read, &spans).map_err(|error| error.to_string())?;
     local_fetch_query::set_snapshot(&mut read, snapshot).map_err(|error| error.to_string())?;
-    next.continue_window = Some(FetchCall::continued(read));
+    next.continue_window = Some(FetchCall::page(read));
     Ok(())
 }
 

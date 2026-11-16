@@ -1,4 +1,14 @@
 use super::*;
+use crate::lsp::config::workspace_root::{representative_source_for, workspace_root_languages};
+
+/// [`representative_source_for`] in the first language of
+/// [`workspace_root_languages`].
+fn workspace_root_representative_source(workspace_root: &str) -> Option<String> {
+    let extension = workspace_root_languages(workspace_root)
+        .into_iter()
+        .next()?;
+    representative_source_for(workspace_root, extension)
+}
 
 /// Every built-in file route must also be discoverable from its containing
 /// directory, including type stubs and build-definition dialects.

@@ -227,11 +227,12 @@ impl DomainDispatcher {
             ..context.clone()
         };
         let selection = self.selection_runtime(&context);
-        // `lsp.prewarm`: `targeted` warms the server an offered lspSearch
-        // call names, so the first lspSearch finds it warm; `all` also warms
-        // the file a read or search names.
-        let prewarm_mode = self.config.resolved.lsp.prewarm;
-        let prewarm_query = (prewarm_mode == crate::config::LspPrewarm::All).then_some(query);
+        // `lsp.prewarm` `all` warms the file a read or search names;
+        // `targeted` warms from the lspSearch call the settled response
+        // serves ([`Self::warm_served_leads`]), not from a lead the response
+        // stage then drops.
+        let prewarm_query =
+            (self.config.resolved.lsp.prewarm == crate::config::LspPrewarm::All).then_some(query);
         let lsp = &self.lsp_execution_config;
         // The row already runs on a blocking or scoped worker thread inside
         // the runtime context ([`Self::execute`]): no further thread hop.
@@ -263,16 +264,10 @@ impl DomainDispatcher {
                 },
             )
         })?;
-        // Start a language server in the background so a following
-        // lspSearch finds a warm pooled client: for the file an offered
-        // lspSearch call names, or (opt-in) the file a read or search names.
-        // The pool bounds it: at most three servers start at once.
-        let warms_leads = prewarm_mode != crate::config::LspPrewarm::Off;
-        let lead = warms_leads
-            .then(|| prewarm::lead_file(tool, &result.data))
-            .flatten();
-        if let Some(file) = lead
-            .or_else(|| prewarm_query.and_then(|query| prewarm::anchor_file(query, &result.data)))
+        // Under `all`, start the server of the file a read or search names
+        // in the background. The pool bounds it: at most three start at once.
+        if let Some(file) =
+            prewarm_query.and_then(|query| prewarm::anchor_file(query, &result.data))
         {
             prewarm::schedule(
                 &self.handle,
@@ -283,6 +278,31 @@ impl DomainDispatcher {
             );
         }
         Ok(result)
+    }
+}
+
+impl DomainDispatcher {
+    /// `lsp.prewarm` `targeted` or `all`: start, in the background, the
+    /// language server of the file the first lspSearch call served by a
+    /// local-family `structured` response names, so the agent's lspSearch
+    /// finds it warm. Runs on the settled response only: a lead the stage
+    /// dropped starts no server, and a page replay never reaches it.
+    pub(crate) fn warm_served_leads(&self, tool: ToolId, structured: &Value) {
+        if self.config.resolved.lsp.prewarm == crate::config::LspPrewarm::Off
+            || tool.family() != ToolFamily::Local
+            || tool == ToolId::LspSearch
+        {
+            return;
+        }
+        if let Some(file) = prewarm::lead_file(&self.paths, tool, structured) {
+            prewarm::schedule(
+                &self.handle,
+                &self.lsp_pool,
+                &self.paths,
+                &self.lsp_execution_config,
+                &file,
+            );
+        }
     }
 }
 
